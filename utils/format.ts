@@ -86,7 +86,16 @@ export const formatLocationInput = (input: string): string => {
         'VI',
     ]);
 
-    return input
+    // Normalise punctuation so abbrev detection works even when the
+    // user types without spaces. Without this, "Newport,qld" splits on
+    // whitespace into a single chunk "Newport,qld" — clean strips the
+    // comma to "NEWPORTQLD" which isn't in ABBREVS, so "qld" never gets
+    // uppercased. Inserting a space after every comma fixes that:
+    // "Newport,qld" → "Newport, qld" → ["Newport,", " ", "qld"] → "qld"
+    // is its own token, gets matched against ABBREVS, becomes "QLD".
+    const normalised = input.replace(/,(\S)/g, ', $1');
+
+    return normalised
         .split(/(\s+)/)
         .map((part) => {
             if (part.trim().length === 0) return part;
