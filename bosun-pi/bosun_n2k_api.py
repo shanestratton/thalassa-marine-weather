@@ -38,7 +38,12 @@ from flask import Blueprint, jsonify
 n2k_bp = Blueprint("bosun_n2k", __name__, url_prefix="/api/n2k")
 
 SOURCE = "bosun.n2k"
-SIGNALK_BASE = "http://127.0.0.1:3000/signalk/v1/api/vessels/self"
+# Hit the API root rather than /vessels/self directly — SignalK doesn't
+# register `vessels/self` until traffic on the bus creates the vessel,
+# so on a bench Pi /vessels/self 404s. The root URL always returns 200
+# with `{vessels: {}, self, ...}`, so it's a clean reachability probe AND
+# a one-shot fetch we can drill into for path freshness.
+SIGNALK_API_ROOT = "http://127.0.0.1:3000/signalk/v1/api/"
 
 # The N2K-derived SignalK paths Bosun tools depend on. If any of these
 # is null/stale, that's a diagnostic signal worth surfacing.
@@ -143,13 +148,27 @@ def _ip_link_show_can0() -> dict:
 
 
 def _fetch_signalk_self() -> Optional[dict]:
-    """Fetch the full SignalK `self` document; None on any failure."""
+    """Fetch the SignalK API root and return the `vessels.self` subtree.
+
+    Returns:
+      - dict       — SignalK is up AND `vessels/self` is registered
+                     (= traffic has populated at least one path)
+      - {}         — SignalK is up but no vessels yet (bench mode)
+      - None       — SignalK unreachable (server down / network error)
+    """
     try:
-        req = urllib.request.Request(SIGNALK_BASE, headers={"Accept": "application/json"})
+        req = urllib.request.Request(SIGNALK_API_ROOT, headers={"Accept": "application/json"})
         with urllib.request.urlopen(req, timeout=2.0) as resp:
-            return json.loads(resp.read())
+            doc = json.loads(resp.read())
     except Exception:
         return None
+    # SignalK exposes `self` as either a urn pointing into `vessels`
+    # (e.g. "vessels.urn:mrn:imo:mmsi:368204530") or an explicit alias.
+    # The `vessels.self` shortcut works in v1 for both cases.
+    vessels = doc.get("vessels", {})
+    if not isinstance(vessels, dict):
+        return {}
+    return vessels.get("self", {})
 
 
 def _drill(d: dict, path: str) -> Optional[dict]:
