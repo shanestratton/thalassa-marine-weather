@@ -627,13 +627,24 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     emitEvent(`[DG] proxy ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
 
     // ── 6. Wire incoming Deepgram messages ──────────────────────────
+    let totalMessagesReceived = 0;
     ws.addEventListener('message', (event: MessageEvent<string>) => {
+        totalMessagesReceived++;
         if (stopped && !flushRequested) return;
         let msg: DeepgramMessage;
         try {
             msg = JSON.parse(event.data) as DeepgramMessage;
         } catch {
             return; // ignore non-JSON
+        }
+        // Surface every Deepgram message type we see — particularly
+        // useful when transcripts come back empty: lets us see
+        // Metadata, SpeechStarted, UtteranceEnd, Error, etc. in the
+        // debug strip so we can tell whether the audio is even
+        // reaching the model.
+        if (totalMessagesReceived <= 3) {
+            const preview = JSON.stringify(msg).slice(0, 80);
+            emitEvent(`[DG] msg #${totalMessagesReceived} type=${msg.type ?? '?'}: ${preview}`);
         }
         if (msg.type !== 'Results') return;
         const transcript = msg.channel?.alternatives?.[0]?.transcript ?? '';
@@ -685,14 +696,26 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     try {
         micSource = audioContext.createMediaStreamSource(stream);
         workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+        let chunksSent = 0;
+        let bytesSent = 0;
         workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
             if (stopped) return;
             if (ws.readyState !== WebSocket.OPEN) return;
             try {
                 ws.send(e.data);
+                chunksSent++;
+                bytesSent += e.data.byteLength;
                 if (!firstChunkSent) {
                     firstChunkSent = true;
-                    emitEvent(`[DG] first audio chunk sent (${Date.now() - t0}ms total)`);
+                    emitEvent(`[DG] first audio chunk (${e.data.byteLength}B) sent at ${Date.now() - t0}ms`);
+                }
+                // Periodic audio-flow check so the debug strip shows
+                // whether iOS is actually capturing — if we see "0
+                // chunks" at stop time we know the worklet isn't
+                // running, separate failure mode from "Deepgram
+                // can't decode the audio".
+                if (chunksSent === 50 || chunksSent === 200) {
+                    emitEvent(`[DG] sent ${chunksSent} chunks (${bytesSent}B) — audio flowing`);
                 }
             } catch (err) {
                 // Send can throw if WS is closing. Don't crash — next
