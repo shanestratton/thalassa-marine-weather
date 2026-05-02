@@ -28,6 +28,7 @@ import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/vo
 import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
 import { startSpeechRecognition, type SpeechRecognizerHandle } from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext } from '../../services/voice/thalassaContext';
+import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
 /** How many prior turns to send for context. Each turn = one user + one assistant message. */
@@ -101,7 +102,13 @@ async function checkCloudReachable(): Promise<boolean> {
 
 export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) => {
     const [buttonState, setButtonState] = useState<TargetState>(initialTargetState);
-    const [turns, setTurns] = useState<VoiceTurn[]>([]);
+    // Conversation history persists across console open/close via Zustand +
+    // localStorage. Adding a turn auto-trims to MAX_PERSISTED_TURNS in the
+    // store. The slice we SEND to Haiku is still capped at HISTORY_TURN_LIMIT
+    // below — UI can show more than we send.
+    const turns = useVoiceHistoryStore((s) => s.turns);
+    const addTurn = useVoiceHistoryStore((s) => s.addTurn);
+    const clearHistory = useVoiceHistoryStore((s) => s.clearHistory);
     const [typedQuery, setTypedQuery] = useState('');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [activeTarget, setActiveTarget] = useState<'bosun' | 'cloud' | null>(null);
@@ -302,15 +309,18 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         [setOneButton],
     );
 
-    const appendTurn = useCallback((transcript: string, response: VoiceQueryResponse) => {
-        const turn: VoiceTurn = {
-            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-            timestamp: Date.now(),
-            transcript,
-            response,
-        };
-        setTurns((prev) => [...prev.slice(-9), turn]);
-    }, []);
+    const appendTurn = useCallback(
+        (transcript: string, response: VoiceQueryResponse) => {
+            const turn: VoiceTurn = {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                timestamp: Date.now(),
+                transcript,
+                response,
+            };
+            addTurn(turn);
+        },
+        [addTurn],
+    );
 
     const handleResponse = useCallback(
         (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
@@ -612,15 +622,26 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         Tap to talk — tap again or say &ldquo;over&rdquo; to send
                     </p>
                 </div>
-                <button
-                    onClick={onClose}
-                    className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors"
-                    aria-label="Close console"
-                >
-                    <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
+                <div className="flex items-center gap-2">
+                    {turns.length > 0 && (
+                        <button
+                            onClick={clearHistory}
+                            className="px-3 h-10 rounded-full bg-white/5 hover:bg-white/10 text-[10px] uppercase tracking-widest text-white/70 hover:text-white transition-colors"
+                            aria-label="Clear conversation history"
+                        >
+                            Clear
+                        </button>
+                    )}
+                    <button
+                        onClick={onClose}
+                        className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+                        aria-label="Close console"
+                    >
+                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
             </header>
 
             {/* ── Conversation log ───────────────────────── */}
