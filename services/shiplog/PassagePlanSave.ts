@@ -200,7 +200,18 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             }
 
             entries.push({
-                id: `${voyageId}_${i}`,
+                // ship_logs.id is a UUID column — Supabase rejects any
+                // other format with "invalid input syntax for type uuid".
+                // We were generating string IDs like
+                // "planned_<ts>_<rand>_<i>" which got REJECTED on insert
+                // and silently fell through to the offline queue. So
+                // ship_logs in Supabase had nothing, the dropdown's
+                // fetchRoutesAndTracks returned 0 routes, the active
+                // passage dropdown was empty, and the user thought the
+                // save just wasn't working. The voyageId field is text
+                // (so the "planned_" prefix is fine for that — it's how
+                // RoutesAndTracks distinguishes routes from tracks).
+                id: crypto.randomUUID(),
                 voyageId,
                 timestamp: entryTime.toISOString(),
                 latitude: pt.lat,
