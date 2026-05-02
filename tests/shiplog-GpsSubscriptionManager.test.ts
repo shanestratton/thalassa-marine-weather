@@ -94,9 +94,12 @@ describe('GpsSubscriptionManager', () => {
             isRapidMode: () => opts.rapid ?? false,
             getIntervalMs: () => 60_000,
             getLastEntryTime: () => undefined,
-            onFix,
-            onSpeedTierChanged,
-            onHeartbeatTick,
+            // Cast through unknown to match the manager's strict signatures —
+            // vi.fn() returns a Mock<...> which structurally satisfies the
+            // call shape but TS won't narrow without help.
+            onFix: onFix as unknown as (pos: CachedPosition) => void,
+            onSpeedTierChanged: onSpeedTierChanged as unknown as () => void,
+            onHeartbeatTick: onHeartbeatTick as unknown as () => void,
         });
     }
 
