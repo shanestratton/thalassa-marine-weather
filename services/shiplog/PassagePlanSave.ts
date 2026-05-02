@@ -255,6 +255,23 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             log.warn('Auto-create voyage from passage plan failed (non-critical):', e);
         }
 
+        // Notify any open Passage Planning surfaces to refresh their
+        // dropdown. Without this, a user already on the Passage Planning
+        // page when the save lands won't see the new route in the
+        // active-passage dropdown until they navigate away and back —
+        // because the dropdown's load runs once on mount.
+        try {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(
+                    new CustomEvent('thalassa:passage-plan-saved', {
+                        detail: { voyageId },
+                    }),
+                );
+            }
+        } catch {
+            /* non-critical */
+        }
+
         return voyageId;
     } catch (err) {
         // Surface the duplicate sentinel so callers can show the
