@@ -51,7 +51,7 @@ import {
     type LoggingZone,
     type SpeedTier,
 } from './shiplog/helpers';
-import { GpsTrackBuffer, thinTrack, bearing, headingDelta } from './shiplog/GpsTrackBuffer';
+import { GpsTrackBuffer, thinTrack, bearing, headingDelta, haversineMeters } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import {
     queueOfflineEntry as _queueOfflineEntry,
@@ -592,6 +592,59 @@ class ShipLogServiceClass {
      * Wire up BgGeoManager subscriptions for GPS, heartbeat, and activity.
      * Called from startTracking() and when resuming from pause.
      */
+    /**
+     * Pre-buffer fix acceptance gate.
+     *
+     * Three layers, all of which can reject a fix before it lands in the
+     * track buffer (and therefore before it can ever appear in the polyline):
+     *
+     *   1. Accuracy ≤ 100m — drop fixes the device itself flags as fuzzy.
+     *   2. GPS-reported speed ≤ MAX_PLAUSIBLE_SPEED_KTS — catches device
+     *      glitches where the GPS module's own speed channel goes haywire.
+     *   3. Fix-to-fix implied speed (Haversine ÷ dt) — catches POSITION
+     *      spikes that the device thinks are precise but actually teleport
+     *      the boat hundreds of metres in one second. This is the gate the
+     *      previous pipeline was missing — speed-channel filters don't
+     *      catch it because GPS-self-reported speed can stay normal while
+     *      the lat/lon spikes.
+     *
+     * Returns true to push into the buffer, false to silently drop.
+     * Called for both BgGeoManager and NMEA ingest paths so neither bypasses.
+     */
+    private _acceptGpsFix(pos: CachedPosition): boolean {
+        // Layer 1: device-reported accuracy.
+        // Don't log — fringe-coverage rejections are routine; would flood the log.
+        const accuracy = pos.accuracy ?? 999;
+        if (accuracy > 100) {
+            return false;
+        }
+        // Layer 2: GPS-self-reported speed
+        const gpsSpeedKts = (pos.speed ?? 0) * 1.94384;
+        if (gpsSpeedKts > MAX_PLAUSIBLE_SPEED_KTS) {
+            log.warn(`GPS rejected: device speed ${gpsSpeedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap`);
+            return false;
+        }
+        // Layer 3: position-spike sanity. Compare Haversine distance from
+        // the most recent buffered fix to the time delta. Anything implying
+        // > 1.5× the plausible-speed cap is a teleport.
+        const lastFix = this.trackBuffer.peek();
+        if (lastFix) {
+            const dtSec = (pos.timestamp - lastFix.timestamp) / 1000;
+            if (dtSec > 0.1) {
+                // Skip <100ms duplicate / same-tick fixes
+                const distM = haversineMeters(lastFix.latitude, lastFix.longitude, pos.latitude, pos.longitude);
+                const impliedKts = (distM / dtSec) * 1.94384;
+                if (impliedKts > MAX_PLAUSIBLE_SPEED_KTS * 1.5) {
+                    log.warn(
+                        `GPS rejected: position spike ${distM.toFixed(0)}m in ${dtSec.toFixed(1)}s = ${impliedKts.toFixed(0)}kn implied`,
+                    );
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private wireGpsSubscriptions(): void {
         // Cleanup any stale subscriptions first
         this.cleanupGpsSubscriptions();
@@ -633,12 +686,11 @@ class ShipLogServiceClass {
                 }
             }
 
-            // ACCURACY GATE: Drop fixes with >100m horizontal accuracy
-            // GPS SPEED GATE: Drop fixes where raw GPS speed exceeds yacht max.
-            // This catches hardware-level GPS glitches before they enter the buffer.
-            const gpsSpeedKts = (pos.speed ?? 0) * 1.94384; // m/s → kts
+            // FIX ACCEPTANCE GATE: accuracy + GPS speed + position-spike sanity.
+            // See _acceptGpsFix() — single helper applied to both BgGeo and
+            // NMEA paths so neither bypasses the filters.
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
-                if (pos.accuracy <= 100 && gpsSpeedKts <= MAX_PLAUSIBLE_SPEED_KTS) {
+                if (this._acceptGpsFix(pos)) {
                     this.trackBuffer.push(pos);
                 }
             }
@@ -697,8 +749,13 @@ class ShipLogServiceClass {
 
             GpsPrecision.feed(nmeaPos.accuracy);
 
+            // Apply the same fix-acceptance gate to NMEA as to BgGeo so
+            // chartplotter/external-GPS glitches don't sneak into the buffer.
+            // (Previously NMEA bypassed all filters — biggest hop source.)
             if (this.trackingState.isTracking && !this.trackingState.isPaused) {
-                this.trackBuffer.push(this.lastBgLocation);
+                if (this._acceptGpsFix(this.lastBgLocation)) {
+                    this.trackBuffer.push(this.lastBgLocation);
+                }
             }
         });
         this.bgUnsubscribers.push(unsubNmea);
@@ -1295,17 +1352,20 @@ class ShipLogServiceClass {
                 if (lastPos.latitude === 0 && lastPos.longitude === 0) {
                     speedKts = 0;
                 } else if (speedKts > MAX_PLAUSIBLE_SPEED_KTS) {
-                    log.warn(`Speed spike rejected: ${speedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap`);
-                    speedKts = 0;
-                    distanceNM = 0; // Don't add phantom distance either
+                    // Drop the entry entirely — saving with zeroed stats but the
+                    // spike's lat/lon would still hop the polyline. Bail.
+                    log.warn(
+                        `Speed spike rejected: ${speedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap — dropping entry`,
+                    );
+                    return null;
                 } else if (lastPos.speedKts !== undefined && lastPos.speedKts >= 0) {
                     const accel = speedKts - lastPos.speedKts;
                     if (accel > MAX_ACCELERATION_KTS) {
+                        // Same logic — bail rather than save the spike's coordinates.
                         log.warn(
-                            `Acceleration spike rejected: +${accel.toFixed(1)}kn jump (${lastPos.speedKts.toFixed(1)} → ${speedKts.toFixed(1)})`,
+                            `Acceleration spike rejected: +${accel.toFixed(1)}kn jump (${lastPos.speedKts.toFixed(1)} → ${speedKts.toFixed(1)}) — dropping entry`,
                         );
-                        speedKts = 0;
-                        distanceNM = 0;
+                        return null;
                     }
                 }
 
