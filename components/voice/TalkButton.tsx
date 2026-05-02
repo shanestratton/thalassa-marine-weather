@@ -102,7 +102,7 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
                 onClick={handleClick}
                 onContextMenu={(e) => e.preventDefault()}
                 disabled={disabled || isBusy}
-                aria-label={`Bosun - ${STATE_HINT[state]}`}
+                aria-label={`Calypso - ${STATE_HINT[state]}`}
                 className={`
                     relative z-10 w-[160px] h-[160px] rounded-full
                     flex items-center justify-center
@@ -124,7 +124,7 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
                     <span className={iconColor}>
                         <AnchorIcon className={`w-12 h-12 ${isRecording ? 'animate-pulse' : ''}`} />
                     </span>
-                    <span className={`text-base font-bold tracking-wide ${labelColor}`}>Bosun</span>
+                    <span className={`text-base font-bold tracking-wide ${labelColor}`}>Calypso</span>
                 </div>
             </button>
 
