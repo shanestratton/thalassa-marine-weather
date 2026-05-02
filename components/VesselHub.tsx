@@ -522,18 +522,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 }}
                             />
                             <ListDivider />
-                            <FirstRunHint id="avnav-charts" message="Connect your chart server here" position="top">
-                                <OfficeRow
-                                    icon={<MapChartIcon color="#22d3ee" />}
-                                    label="Boat Network"
-                                    status="Pi, Charts & Instruments"
-                                    statusColor="#9ca3af"
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        onNavigate('avnav');
-                                    }}
-                                />
-                            </FirstRunHint>
+                            <OfficeRow
+                                icon={<MapChartIcon color="#22d3ee" />}
+                                label="Boat Network"
+                                status="Pi, Charts & Instruments"
+                                statusColor="#9ca3af"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('avnav');
+                                }}
+                            />
                         </div>
                     </CollapsibleContent>
                 </div>
