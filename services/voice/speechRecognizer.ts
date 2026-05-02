@@ -29,6 +29,36 @@ import type { PluginListenerHandle } from '@capacitor/core';
  */
 const MIN_USABLE_CHARS = 2;
 
+/**
+ * Hard ceiling on every cleanup step. The native bridge can occasionally
+ * hang during stop on iOS (audio session contention, dispatch queue
+ * stalls). 1500ms is comfortably more than the worst observed normal
+ * cleanup time, but well under any user-noticeable delay.
+ */
+const CLEANUP_TIMEOUT_MS = 1500;
+
+/**
+ * Optional caller-supplied tap into [SR] events for visible UI diagnostics
+ * (e.g. a debug strip in BosunConsole). Setting this lets the wrapper
+ * surface what happened without requiring Web Inspector or Xcode console.
+ */
+let eventTap: ((message: string) => void) | null = null;
+export function setSrEventTap(tap: ((message: string) => void) | null): void {
+    eventTap = tap;
+}
+function emitEvent(message: string): void {
+    console.log(message);
+    eventTap?.(message);
+}
+
+/**
+ * Race a promise against a timeout — resolves regardless. Used so
+ * cleanup can never hang the calling code path indefinitely.
+ */
+async function raceTimeout<T>(p: Promise<T>, timeoutMs = CLEANUP_TIMEOUT_MS): Promise<T | null> {
+    return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
+}
+
 export interface SpeechRecognizerStopResult {
     /** Final transcript, or null if SR didn't produce anything usable. */
     text: string | null;
@@ -67,13 +97,13 @@ export async function isSpeechRecognitionAvailable(force = false): Promise<boole
     if (!force && availabilityCached !== null) return availabilityCached;
     try {
         const { available } = await SpeechRecognition.available();
-        console.log('[SR] available() →', available);
+        emitEvent(`[SR] available() → ${available}`);
         if (!available) {
             availabilityCached = false;
             return false;
         }
         const status = await SpeechRecognition.checkPermissions();
-        console.log('[SR] checkPermissions() →', status.speechRecognition);
+        emitEvent(`[SR] checkPermissions() → ${status.speechRecognition}`);
         if (status.speechRecognition === 'granted') {
             availabilityCached = true;
             return true;
@@ -84,11 +114,11 @@ export async function isSpeechRecognitionAvailable(force = false): Promise<boole
         }
         // Not yet asked — trigger the iOS permission prompt.
         const requested = await SpeechRecognition.requestPermissions();
-        console.log('[SR] requestPermissions() →', requested.speechRecognition);
+        emitEvent(`[SR] requestPermissions() → ${requested.speechRecognition}`);
         availabilityCached = requested.speechRecognition === 'granted';
         return availabilityCached;
     } catch (err) {
-        console.warn('[SR] availability check failed:', err);
+        emitEvent(`[SR] availability check failed: ${(err as Error).message}`);
         availabilityCached = false;
         return false;
     }
@@ -109,10 +139,19 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
     const t0 = Date.now();
     let lastTranscript = '';
     let partialCount = 0;
+    /**
+     * Once we begin teardown, ignore any further partial events from the
+     * native side. The plugin's recognition task can fire one or more
+     * results AFTER our stop() promise resolves (it dispatches its result
+     * handler on a background queue). Without this guard those late events
+     * write into stale state and confuse the next cycle.
+     */
+    let stopped = false;
 
     // Subscribe to partial results — track the most recent best match and
     // forward to the caller for live transcript display.
     const listener: PluginListenerHandle = await SpeechRecognition.addListener('partialResults', (data) => {
+        if (stopped) return;
         partialCount++;
         const best = data.matches?.[0];
         if (typeof best === 'string') {
@@ -122,7 +161,7 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
             // single most useful diagnostic for the audio-session-conflict
             // failure mode (start() resolves but no events ever fire).
             if (partialCount === 1) {
-                console.log('[SR] first partial fired — SR is receiving audio');
+                emitEvent('[SR] first partial fired — SR is receiving audio');
                 opts.onFirstPartial?.();
             }
         }
@@ -132,56 +171,55 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
     // native engine actually started (vs. start() resolving with the engine
     // failing silently a moment later).
     const stateListener: PluginListenerHandle = await SpeechRecognition.addListener('listeningState', (data) => {
-        console.log('[SR] listeningState →', data.status);
+        if (stopped) return;
+        emitEvent(`[SR] listeningState → ${data.status}`);
     });
 
     // partialResults: true means start() returns immediately and events
     // stream until stop(). Australian English bias matches the home-waters
     // default in the system prompt.
-    console.log('[SR] start() calling…');
+    emitEvent('[SR] start() calling…');
     try {
         await SpeechRecognition.start({
             language: 'en-AU',
             partialResults: true,
             maxResults: 1,
         });
-        console.log('[SR] start() resolved');
+        emitEvent('[SR] start() resolved');
     } catch (err) {
-        // Clean up listeners on start failure so we don't leak.
-        try {
-            await listener.remove();
-        } catch {
-            /* ignore */
-        }
-        try {
-            await stateListener.remove();
-        } catch {
-            /* ignore */
-        }
-        console.warn('[SR] start() rejected:', err);
+        stopped = true;
+        await raceTimeout(listener.remove());
+        await raceTimeout(stateListener.remove());
+        emitEvent(`[SR] start() rejected: ${(err as Error).message}`);
         throw err;
     }
 
+    /**
+     * Tear down listeners + stop the native engine. Each step is bounded
+     * by raceTimeout so a hung native bridge can never block the calling
+     * code (which would manifest as the voice console "locking up" between
+     * the first and second message).
+     */
+    const teardown = async (): Promise<void> => {
+        stopped = true;
+        await raceTimeout(listener.remove());
+        await raceTimeout(stateListener.remove());
+        // Stop returns void; wrap in .then(() => undefined) for raceTimeout typing.
+        await raceTimeout(
+            SpeechRecognition.stop()
+                .then(() => undefined)
+                .catch((err) => {
+                    emitEvent(`[SR] stop failed: ${(err as Error).message}`);
+                }),
+        );
+    };
+
     return {
         async stop(): Promise<SpeechRecognizerStopResult> {
-            try {
-                await listener.remove();
-            } catch {
-                /* ignore — listener may already be torn down */
-            }
-            try {
-                await stateListener.remove();
-            } catch {
-                /* ignore */
-            }
-            try {
-                await SpeechRecognition.stop();
-            } catch (err) {
-                console.warn('[SR] stop failed:', err);
-            }
+            await teardown();
             const trimmed = lastTranscript.trim();
             const durationMs = Date.now() - t0;
-            console.log(`[SR] stop() — partials: ${partialCount}, finalChars: ${trimmed.length}, ${durationMs}ms`);
+            emitEvent(`[SR] stop() — partials: ${partialCount}, finalChars: ${trimmed.length}, ${durationMs}ms`);
             if (trimmed.length < MIN_USABLE_CHARS) {
                 return { text: null, durationMs };
             }
@@ -189,21 +227,8 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
         },
 
         async cancel(): Promise<void> {
-            try {
-                await listener.remove();
-            } catch {
-                /* ignore */
-            }
-            try {
-                await stateListener.remove();
-            } catch {
-                /* ignore */
-            }
-            try {
-                await SpeechRecognition.stop();
-            } catch {
-                /* ignore */
-            }
+            await teardown();
+            emitEvent(`[SR] cancel() — partials: ${partialCount}, ${Date.now() - t0}ms`);
         },
     };
 }

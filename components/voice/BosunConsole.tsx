@@ -28,6 +28,7 @@ import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/vo
 import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
 import {
     isSpeechRecognitionAvailable,
+    setSrEventTap,
     startSpeechRecognition,
     type SpeechRecognizerHandle,
 } from '../../services/voice/speechRecognizer';
@@ -155,6 +156,23 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const [srStatus, setSrStatus] = useState<'unknown' | 'available' | 'denied' | 'unsupported' | 'error'>('unknown');
     const [srStatusError, setSrStatusError] = useState<string | null>(null);
+
+    /**
+     * Last few [SR] events for the on-device debug strip. Visible to the
+     * skipper without Web Inspector — when the console "locks up" we can
+     * read off exactly which step stalled. Capped at 6 events so the strip
+     * stays compact.
+     */
+    const [srEventLog, setSrEventLog] = useState<Array<{ ts: number; msg: string }>>([]);
+
+    // Wire the speechRecognizer's event tap into local state so emitted [SR]
+    // messages show up in the debug strip. Runs once per mount.
+    useEffect(() => {
+        setSrEventTap((msg) => {
+            setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg }]);
+        });
+        return () => setSrEventTap(null);
+    }, []);
 
     // ── Effects ─────────────────────────────────────────────────────────
 
@@ -771,6 +789,29 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         {srActive ? 'On-device SR active' : 'SR pending… (will use Scribe if it stays gray)'}
                     </p>
                 </div>
+            )}
+
+            {/* ── SR debug strip — last few events, on-device readable ── */}
+            {/* Reproduce the lockup → screenshot this strip → I can tell */}
+            {/* you exactly which step stalled. Hidden when no events yet. */}
+            {srEventLog.length > 0 && (
+                <details className="shrink-0 px-5 pt-1">
+                    <summary className="text-[9px] uppercase tracking-widest text-gray-500 cursor-pointer select-none">
+                        SR debug ({srEventLog.length})
+                    </summary>
+                    <div className="mt-1 px-2 py-2 rounded-lg bg-black/40 border border-white/5 font-mono text-[10px] leading-snug text-gray-400 max-h-[120px] overflow-y-auto">
+                        {srEventLog.map((e, i) => {
+                            const t = new Date(e.ts);
+                            const stamp = `${t.getMinutes().toString().padStart(2, '0')}:${t.getSeconds().toString().padStart(2, '0')}.${Math.floor(t.getMilliseconds() / 100)}`;
+                            return (
+                                <div key={`${e.ts}-${i}`} className="flex gap-2">
+                                    <span className="text-gray-600">{stamp}</span>
+                                    <span className="flex-1 break-words">{e.msg}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </details>
             )}
 
             {/* ── One Bosun button — auto-routed to active brain ────── */}
