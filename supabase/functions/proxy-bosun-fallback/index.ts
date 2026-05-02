@@ -323,10 +323,51 @@ async function callElevenLabs(text: string): Promise<{ audio_b64: string | null;
     return { audio_b64: btoa(binary), ms: Date.now() - t0 };
 }
 
+// ── ElevenLabs Scribe (server-side STT for the voice path) ─────────────
+
+async function elevenlabsScribe(audioB64: string, mimeType: string): Promise<{ text: string; ms: number }> {
+    const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
+    if (!apiKey) throw new Error('ELEVENLABS_API_KEY not configured for STT');
+
+    // Decode base64 → bytes
+    const binary = atob(audioB64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+    // Pick a filename extension Scribe will accept based on the iOS-side mime.
+    const extension = mimeType.includes('webm')
+        ? 'webm'
+        : mimeType.includes('ogg')
+          ? 'ogg'
+          : mimeType.includes('mpeg')
+            ? 'mp3'
+            : 'm4a';
+
+    const formData = new FormData();
+    formData.append('file', new Blob([bytes], { type: mimeType }), `audio.${extension}`);
+    formData.append('model_id', 'scribe_v1');
+    formData.append('language_code', 'en');
+
+    const t0 = Date.now();
+    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey },
+        body: formData,
+    });
+    if (!response.ok) {
+        const body = await response.text();
+        throw new Error(`Scribe ${response.status}: ${body.slice(0, 300)}`);
+    }
+    const data = (await response.json()) as { text?: string };
+    return { text: (data.text || '').trim(), ms: Date.now() - t0 };
+}
+
 // ── Edge Function entrypoint ───────────────────────────────────────────
 
 interface AskRequest {
-    text: string;
+    text?: string;
+    audio_b64?: string;
+    mime_type?: string;
     session_id?: string;
 }
 
@@ -352,26 +393,57 @@ Deno.serve(async (req: Request) => {
         });
     }
 
-    const text = (body.text || '').trim();
-    if (!text) {
-        return new Response(JSON.stringify({ error: "missing 'text'" }), {
-            status: 400,
-            headers: { ...CORS, 'Content-Type': 'application/json' },
-        });
+    // Resolve transcript: typed text directly, OR Scribe STT on the audio blob.
+    let transcript = (body.text || '').trim();
+    let sttMs = 0;
+
+    if (!transcript) {
+        if (!body.audio_b64) {
+            return new Response(JSON.stringify({ error: "missing 'text' or 'audio_b64'" }), {
+                status: 400,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
+        try {
+            const stt = await elevenlabsScribe(body.audio_b64, body.mime_type || 'audio/mp4');
+            transcript = stt.text;
+            sttMs = stt.ms;
+        } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            console.error('Scribe STT failed:', message);
+            return new Response(JSON.stringify({ error: `Speech recognition failed: ${message}` }), {
+                status: 500,
+                headers: { ...CORS, 'Content-Type': 'application/json' },
+            });
+        }
+        if (!transcript) {
+            // STT returned nothing — silence or unintelligible audio.
+            return new Response(
+                JSON.stringify({
+                    transcript: '',
+                    answer_text: "I couldn't hear what you said — try again, Cap'n.",
+                    audio_b64: null,
+                    source: 'cloud',
+                    timings_ms: { total: Date.now() - totalStart, stt: sttMs },
+                }),
+                { headers: { ...CORS, 'Content-Type': 'application/json' } },
+            );
+        }
     }
 
     try {
-        const { answer, ms: llmMs } = await callHaikuWithTools(text);
+        const { answer, ms: llmMs } = await callHaikuWithTools(transcript);
         const { audio_b64, ms: ttsMs } = await callElevenLabs(answer);
 
         return new Response(
             JSON.stringify({
-                transcript: text,
+                transcript,
                 answer_text: answer,
                 audio_b64,
                 source: 'cloud',
                 timings_ms: {
                     total: Date.now() - totalStart,
+                    stt: sttMs,
                     llm: llmMs,
                     tts: ttsMs,
                 },
