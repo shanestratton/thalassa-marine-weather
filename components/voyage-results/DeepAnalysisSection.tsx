@@ -7,6 +7,7 @@ import type { DeepAnalysisReport, VoyagePlan, VesselProfile } from '../../types'
 import { RouteIcon, WindIcon, AlertTriangleIcon, DiamondIcon, ShareIcon, MapPinIcon } from '../Icons';
 import { toast } from '../Toast';
 import { createLogger } from '../../utils/createLogger';
+import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
 
 const log = createLogger('DeepAnalysis');
 
@@ -153,8 +154,17 @@ export const ExportButtons: React.FC<ExportButtonsProps> = React.memo(({ voyageP
                         toast.error('Failed to save route. Please ensure you are logged in.');
                     }
                 } catch (err) {
-                    log.error('[SaveRoute]', err);
-                    toast.error('Error saving route to logbook.');
+                    // Specific message when the route+date combo already
+                    // exists in the logbook — distinct from generic
+                    // network/auth save failures.
+                    if (err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR) {
+                        toast.error(
+                            'A passage with this route already exists for that day. Change the departure date.',
+                        );
+                    } else {
+                        log.error('[SaveRoute]', err);
+                        toast.error('Error saving route to logbook.');
+                    }
                 }
             }}
             className="bg-gradient-to-r from-purple-500/10 to-purple-600/10 border border-purple-500/20 rounded-2xl p-4 flex flex-col items-center justify-center gap-2 group hover:from-purple-500/20 hover:to-purple-600/20 transition-all"
