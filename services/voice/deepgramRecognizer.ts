@@ -45,6 +45,24 @@ const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VIT
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
 /**
+ * Cloudflare Worker URL for the Deepgram WebSocket proxy. When set,
+ * the iOS client routes streaming audio through the Worker instead of
+ * Supabase Edge Functions.
+ *
+ * Why: Supabase Edge Functions (Deno Deploy) can't reliably sustain
+ * outbound WebSockets to api.deepgram.com under iOS-paced audio load
+ * — the upstream dies after ~1s with code=0. Cloudflare Workers'
+ * WebSocketPair API was engineered for this case and stays stable.
+ *
+ * Falls back to the Supabase proxy when unset (during cutover or
+ * when the Worker is being redeployed).
+ *
+ * Set in .env.local after `npx wrangler deploy`:
+ *   VITE_DEEPGRAM_PROXY_URL=https://thalassa-deepgram-proxy.<acct>.workers.dev
+ */
+const DEEPGRAM_PROXY_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEEPGRAM_PROXY_URL) || '';
+
+/**
  * Deepgram model. Nova-3 is the latest as of mid-2026, with sharply
  * better accuracy on accented English and noisy environments than the
  * older Nova-2. If we ever need to roll back for cost reasons, swap to
@@ -533,12 +551,26 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         await audioContext.close().catch(() => {});
         throw new Error('Supabase credentials missing — cannot reach Deepgram proxy');
     }
-    // The Supabase WebSocket gateway accepts the anon JWT via the
-    // `apikey` URL parameter (same pattern Realtime uses). Edge
-    // functions inherit JWT verification from the gateway, so this
-    // covers our auth gate without any subprotocol handshake.
-    const proxyHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
-    const wsUrl = `${proxyHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
+    // Two possible proxy hosts:
+    //   1. Cloudflare Worker (preferred when VITE_DEEPGRAM_PROXY_URL is set)
+    //      — stable under iOS audio load, designed for WS bridging
+    //   2. Supabase Edge Function (fallback / cutover)
+    //      — dies after ~1s with iOS-paced packets, kept for testing
+    // Both endpoints use the same `?apikey=<anon JWT>` auth pattern.
+    let wsUrl: string;
+    let proxyKind: string;
+    if (DEEPGRAM_PROXY_URL) {
+        const cfHost = DEEPGRAM_PROXY_URL.replace(/^https:/, 'wss:')
+            .replace(/^http:/, 'ws:')
+            .replace(/\/+$/, '');
+        wsUrl = `${cfHost}/?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
+        proxyKind = 'cloudflare-worker';
+    } else {
+        const sbHost = SUPABASE_URL.replace(/^https:/, 'wss:').replace(/^http:/, 'ws:');
+        wsUrl = `${sbHost}/functions/v1/deepgram-ws-proxy?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
+        proxyKind = 'supabase-edge';
+    }
+    emitEvent(`[DG] using ${proxyKind} proxy`);
 
     async function tryConnect(strategy: 'supabase-proxy'): Promise<WebSocket> {
         const stratStart = Date.now();
