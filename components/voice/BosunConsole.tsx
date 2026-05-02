@@ -746,7 +746,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      * the subtitle reflects which brain is currently active.
      */
     const route: 'bosun' | 'cloud' | null = cloudAvailable ? 'cloud' : bosunAvailable ? 'bosun' : null;
-    const brainSubtitle = route === 'cloud' ? 'Bosun cloud' : route === 'bosun' ? 'Bosun local (3B)' : 'Bosun offline';
+    const brainSubtitle =
+        route === 'cloud' ? 'Calypso cloud' : route === 'bosun' ? 'Calypso local (3B)' : 'Calypso offline';
     const typedTarget: 'bosun' | 'cloud' = route ?? 'cloud';
 
     const isAnyAwaiting = useMemo(
@@ -764,7 +765,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         <div
             className="fixed inset-0 z-[200] flex flex-col bg-gradient-to-b from-slate-900 via-slate-950 to-black"
             role="dialog"
-            aria-label="Bosun voice console"
+            aria-label="Calypso voice console"
         >
             {/* ── Header ──────────────────────────────────── */}
             <header className="shrink-0 flex items-center justify-between px-5 pt-12 pb-4 border-b border-white/5">
@@ -834,10 +835,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
                 {turns.length === 0 && !errorMessage && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 gap-2 pt-8">
-                        <p className="text-sm font-bold text-gray-400">Tap Bosun to talk.</p>
+                        <p className="text-sm font-bold text-gray-400">Tap Calypso to talk.</p>
                         <p className="text-xs max-w-[280px]">
-                            One Bosun, two brains behind it. Local 3B on the Pi when reachable, cloud Haiku otherwise —
-                            the active brain shows under the button.
+                            One Calypso, two brains behind her. Local 3B on the Pi when reachable, cloud Haiku otherwise
+                            — the active brain shows under the button.
                         </p>
                     </div>
                 )}
@@ -970,7 +971,7 @@ const ConversationTurn: React.FC<{
                 <div className="flex items-center justify-between mb-1">
                     <p className="text-[10px] uppercase tracking-widest text-gray-400 flex items-center gap-1.5">
                         <span className={`w-1.5 h-1.5 rounded-full ${isBosun ? 'bg-sky-400' : 'bg-slate-300'}`} />
-                        {isBosun ? 'Bosun local (3B)' : 'Bosun cloud'}
+                        {isBosun ? 'Calypso local (3B)' : 'Calypso cloud'}
                     </p>
                     {turn.response.audio_b64 && (
                         <button
