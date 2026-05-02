@@ -21,6 +21,7 @@
  * Both audio AND text are always rendered. Audio auto-plays on response;
  * text is right there if speakers are off, the wind is loud, etc.
  */
+import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PiSetupWizard } from './PiSetupWizard';
 import { TalkButton, type TalkButtonState } from './TalkButton';
@@ -31,6 +32,7 @@ import { publishTurn, startConversationSync, type ConversationSyncHandle } from 
 import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
 import {
     isDeepgramAvailable,
+    prewarmAudioContext,
     prewarmDeepgram,
     setDeepgramEventTap,
     startDeepgramRecognizer,
@@ -381,10 +383,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (cancelled) return;
             setDeepgramStatus(available ? 'available' : 'unavailable');
             if (available) {
-                // Fire-and-forget. prewarmDeepgram swallows its own
-                // errors (returns false on failure) and the start path
-                // will retry the mint cleanly if the cache is empty.
+                // Fire-and-forget triple-prewarm. Each one shaves a
+                // chunk off the cold-start latency on first tap:
+                //   - prewarmDeepgram: token mint round-trip
+                //     (~150-300ms — only relevant on Supabase fallback,
+                //     no-op when Cloudflare path skips token entirely)
+                //   - prewarmAudioContext: AudioContext construction +
+                //     /pcm-worklet.js fetch + register (~200-400ms,
+                //     biggest single win)
+                // All swallow their own errors; tap-time path falls
+                // back to inline construction cleanly if any prewarm
+                // failed.
                 void prewarmDeepgram();
+                void prewarmAudioContext();
             }
         });
         return () => {
@@ -851,6 +862,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             onFirstPartial: () => {
                                 setSrActive(true);
                                 firstPartialPromiseRef.current?.resolve();
+                                // Haptic confirm — tactile signal that
+                                // the recognizer has audio flowing and
+                                // the skipper can speak. Sidesteps the
+                                // "did it work?" pause where the user
+                                // is waiting for visual feedback during
+                                // cold start.
+                                void Haptics.impact({ style: ImpactStyle.Light }).catch(() => {
+                                    /* haptics not available (web/sim) — skip */
+                                });
                             },
                         });
                         deepgramRecognizerRef.current = dgHandle;
