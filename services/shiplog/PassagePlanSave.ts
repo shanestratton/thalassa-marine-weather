@@ -28,6 +28,29 @@ function normaliseName(s: string): string {
     return s.trim().toLowerCase();
 }
 
+/**
+ * Trim country / generic-region suffixes from a route name while
+ * preserving the user's typed specificity.
+ *
+ *   "Newport, QLD"                           → "Newport, QLD"   (kept)
+ *   "Port Moselle, NC"                       → "Port Moselle, NC" (kept)
+ *   "Newport, QLD, AU"                       → "Newport, QLD"   (drop AU)
+ *   "Newport, Queensland, Australia"         → "Newport, Queensland" (drop AU)
+ *   "Port Moselle, New Caledonia, NC"        → "Port Moselle, New Caledonia" (drop NC dup)
+ *   "Newport"                                → "Newport"
+ *
+ * The old code did `.split(',')[0]` which collapsed "Newport, QLD" to
+ * just "Newport" — losing the state the user explicitly typed. The new
+ * logic keeps everything except a trailing country abbrev / full
+ * country name. If the result has 3+ comma segments, drop the last
+ * (assume it's country); otherwise keep verbatim.
+ */
+function trimCountrySuffix(name: string): string {
+    const parts = name.split(',').map((s) => s.trim());
+    if (parts.length <= 2) return parts.filter(Boolean).join(', ');
+    return parts.slice(0, -1).filter(Boolean).join(', ');
+}
+
 /** Produce a YYYY-MM-DD day key from an ISO timestamp or Date. */
 function dayKey(iso: string | number | Date): string {
     const d = new Date(iso);
@@ -65,9 +88,8 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         // the user can tell them apart in the logbook + active passage
         // dropdown. See DUPLICATE_PASSAGE_PLAN_ERROR for the sentinel
         // callers should catch.
-        const proposedDeparture = typeof plan.origin === 'string' ? plan.origin.split(',')[0].trim() : 'Departure';
-        const proposedArrival =
-            typeof plan.destination === 'string' ? plan.destination.split(',')[0].trim() : 'Arrival';
+        const proposedDeparture = typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
+        const proposedArrival = typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
         const proposedLabel = normaliseName(`${proposedDeparture} → ${proposedArrival}`);
         const proposedDay = dayKey(plan.departureDate || new Date());
 
@@ -101,7 +123,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             allPoints.push({
                 lat: plan.originCoordinates.lat,
                 lon: plan.originCoordinates.lon,
-                name: typeof plan.origin === 'string' ? plan.origin.split(',')[0] : 'Departure',
+                name: typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure',
                 isWP: false,
             });
         }
@@ -121,7 +143,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             allPoints.push({
                 lat: plan.destinationCoordinates.lat,
                 lon: plan.destinationCoordinates.lon,
-                name: typeof plan.destination === 'string' ? plan.destination.split(',')[0] : 'Arrival',
+                name: typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival',
                 isWP: false,
             });
         }
@@ -240,9 +262,9 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         // and activate it so the Passage Planning card appears
         try {
             const { createVoyage } = await import('../VoyageService');
-            const departureName = typeof plan.origin === 'string' ? plan.origin.split(',')[0].trim() : 'Departure';
+            const departureName = typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
             const destinationName =
-                typeof plan.destination === 'string' ? plan.destination.split(',')[0].trim() : 'Arrival';
+                typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
             const voyageName = `${departureName} → ${destinationName}`;
 
             const { voyage: v, error: vErr } = await createVoyage({
