@@ -349,11 +349,30 @@ async function elevenlabsScribe(audioB64: string, mimeType: string): Promise<{ t
     formData.append('language_code', 'en');
 
     const t0 = Date.now();
-    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-        method: 'POST',
-        headers: { 'xi-api-key': apiKey },
-        body: formData,
-    });
+
+    // Hard 30s ceiling on Scribe so a hung request can't burn the whole
+    // function budget. Typical Scribe response is 1-3s.
+    const ctrl = new AbortController();
+    const watchdog = setTimeout(() => ctrl.abort(), 30_000);
+
+    let response: Response;
+    try {
+        response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+            method: 'POST',
+            headers: { 'xi-api-key': apiKey },
+            body: formData,
+            signal: ctrl.signal,
+        });
+    } catch (err) {
+        const e = err as Error;
+        if (e.name === 'AbortError') {
+            throw new Error('Scribe timed out (30s) — STT service slow or audio rejected');
+        }
+        throw new Error(`Scribe network error: ${e.message}`);
+    } finally {
+        clearTimeout(watchdog);
+    }
+
     if (!response.ok) {
         const body = await response.text();
         throw new Error(`Scribe ${response.status}: ${body.slice(0, 300)}`);
