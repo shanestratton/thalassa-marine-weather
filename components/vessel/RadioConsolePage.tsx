@@ -15,6 +15,7 @@ import { MobService } from '../../services/MobService';
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
+import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -191,6 +192,11 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
     const [position, setPosition] = useState<GpsPosition | null>(null);
     const [gpsAge, setGpsAge] = useState<string>('—');
     const [isSpeaking, setIsSpeaking] = useState(false);
+    /** Engine that spoke the most-recent transcript — surfaced as a
+     *  small caption so the skipper knows when they got the robotic
+     *  fallback (network blip during a position report). */
+    const [lastVoiceEngine, setLastVoiceEngine] = useState<'calypso' | 'native' | null>(null);
+    const utteranceRef = useRef<SafetyUtteranceHandle | null>(null);
     const [copied, setCopied] = useState(false);
     const [gpsError, setGpsError] = useState(false);
     const tickRef = useRef<ReturnType<typeof setInterval>>();
@@ -309,14 +315,33 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
         if (!currentTranscript || isSpeaking) return;
         triggerHaptic(dscMode === 'routine' ? 'medium' : 'heavy');
 
-        const utterance = new SpeechSynthesisUtterance(currentTranscript);
-        utterance.rate = dscMode === 'distress' ? 0.75 : 0.85;
-        utterance.pitch = 0.9;
-        utterance.onstart = () => setIsSpeaking(true);
-        utterance.onend = () => setIsSpeaking(false);
-        utterance.onerror = () => setIsSpeaking(false);
-        speechSynthesis.speak(utterance);
+        // Cancel anything in-flight so a rapid tap doesn't stack
+        // overlapping speeches.
+        utteranceRef.current?.cancel();
+        // Race Calypso first; fall back to native SpeechSynthesisUtterance
+        // if Calypso can't deliver in time. Distress reports use a
+        // slower rate (0.75) for the listener at the other end of the
+        // VHF; routine ones a touch faster.
+        const handle = speakSafetyMessage(currentTranscript, {
+            nativeRate: dscMode === 'distress' ? 0.75 : 0.85,
+            nativePitch: 0.9,
+            onPlaybackStart: (engine) => {
+                setIsSpeaking(true);
+                setLastVoiceEngine(engine);
+            },
+            onPlaybackEnd: () => setIsSpeaking(false),
+            onError: () => setIsSpeaking(false),
+        });
+        utteranceRef.current = handle;
     }, [currentTranscript, isSpeaking, dscMode]);
+
+    // Cancel any in-flight TTS on unmount so navigating away mid-
+    // playback doesn't leave the report still talking.
+    useEffect(() => {
+        return () => {
+            utteranceRef.current?.cancel();
+        };
+    }, []);
 
     // ── Copy to clipboard ──
     const handleCopy = useCallback(() => {
@@ -520,15 +545,29 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                             d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75z"
                         />
                     </svg>
-                    <span>
-                        {isSpeaking
-                            ? 'Speaking…'
-                            : dscMode === 'distress'
-                              ? 'Speak Mayday'
-                              : dscMode === 'urgency'
-                                ? 'Speak Pan-Pan'
-                                : 'Read Position'}
-                    </span>
+                    <div className="flex flex-col items-start leading-tight">
+                        <span>
+                            {isSpeaking
+                                ? 'Speaking…'
+                                : dscMode === 'distress'
+                                  ? 'Speak Mayday'
+                                  : dscMode === 'urgency'
+                                    ? 'Speak Pan-Pan'
+                                    : 'Read Position'}
+                        </span>
+                        {/* Engine indicator — only after first playback,
+                         *  and only when not currently speaking. Keeps
+                         *  the button compact during playback animation. */}
+                        {lastVoiceEngine && !isSpeaking && (
+                            <span
+                                className={`text-[9px] font-medium normal-case tracking-normal opacity-80 ${
+                                    lastVoiceEngine === 'calypso' ? 'text-current' : 'text-amber-300'
+                                }`}
+                            >
+                                {lastVoiceEngine === 'calypso' ? 'Calypso voice' : 'Fallback voice'}
+                            </span>
+                        )}
+                    </div>
                 </button>
 
                 <button
