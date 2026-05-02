@@ -38,7 +38,6 @@ import {
     calculateDistanceNM,
     calculateBearing,
     formatPositionDMS,
-    getNextQuarterHour,
     toDbFormat,
     fromDbFormat,
     getWeatherSnapshot,
@@ -62,6 +61,7 @@ import {
 } from './shiplog/TrackingStateStore';
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
 import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
+import { AdaptiveScheduler } from './shiplog/AdaptiveScheduler';
 import {
     getBestPosition as _getBestPosition,
     getGpsStatus as _getGpsStatus,
@@ -124,8 +124,9 @@ class ShipLogServiceClass {
     // Platform detection: native (iOS/Android) uses Transistorsoft BgGeo;
     // web uses navigator.geolocation + setInterval fallbacks.
     private readonly isNative = Capacitor.isNativePlatform();
-    private intervalId?: NodeJS.Timeout;
-    private quarterTimeoutId?: NodeJS.Timeout; // For initial quarter-hour alignment
+    // Tick scheduling lives in AdaptiveScheduler — it owns the
+    // alignment-timeout + recurring-interval pair and exposes isRunning().
+    private scheduler = new AdaptiveScheduler();
     private syncIntervalId?: NodeJS.Timeout;
     private rapidModeTimeoutId?: NodeJS.Timeout; // 15-minute auto-disable for rapid mode
     // (envCheckIntervalId moved into EnvironmentPoller — see this.envPoller below)
@@ -186,7 +187,7 @@ class ShipLogServiceClass {
                 this.trackingState = persisted;
 
                 // STALE STATE DETECTION: If tracking was left on from a previous app session
-                // but no interval is running (intervalId is undefined on cold start),
+                // but no interval is running (scheduler is idle on cold start),
                 // this means the app was force-closed while tracking.
                 //
                 // Behavior depends on autoTrackEnabled:
@@ -194,8 +195,8 @@ class ShipLogServiceClass {
                 // - ON:  Auto-resume the voyage (handled by autoStartIfEnabled called from App.tsx)
                 //
                 // IMPORTANT: When navigating between pages within an active session,
-                // intervalId WILL be set, so this won't affect active tracking.
-                if (this.trackingState.isTracking && !this.trackingState.isPaused && !this.intervalId) {
+                // the scheduler IS running, so this won't affect active tracking.
+                if (this.trackingState.isTracking && !this.trackingState.isPaused && !this.scheduler.isRunning()) {
                     // Mark as stopped — autoStartIfEnabled() will restart if setting is on
                     this.trackingState = {
                         isTracking: false,
@@ -297,62 +298,14 @@ class ShipLogServiceClass {
     }
 
     /**
-     * Clear logging-interval timers (interval + quarter-hour timeout).
-     * NOTE: Does NOT stop courseDetector or envPoller — those have
-     * independent lifecycles owned by ./shiplog/{CourseChangeDetector,
-     * EnvironmentPoller}.ts and must survive interval rescheduling.
-     */
-    private clearAllTimers(): void {
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = undefined;
-        }
-        if (this.quarterTimeoutId) {
-            clearTimeout(this.quarterTimeoutId);
-            this.quarterTimeoutId = undefined;
-        }
-    }
-
-    /**
-     * Reschedule the interval to sync to the next quarter-hour
-     */
-    private rescheduleNextQuarterHour(): void {
-        this.clearAllTimers();
-
-        // Schedule next quarter-hour entry
-        const { nextTime: _nextTime, msUntil } = getNextQuarterHour();
-
-        this.quarterTimeoutId = setTimeout(() => {
-            this.captureLogEntry()
-                .then((entry) => {
-                    if (entry) {
-                        log.info('quarter-hour entry saved');
-                    }
-                })
-                .catch((err) => {
-                    log.warn(``, err);
-                });
-
-            // Start regular interval
-            this.intervalId = setInterval(() => {
-                this.captureLogEntry()
-                    .then((entry) => {
-                        if (entry) {
-                            log.info('interval entry saved');
-                        }
-                    })
-                    .catch((err) => {
-                        log.warn(``, err);
-                    });
-            }, TRACKING_INTERVAL_MS);
-        }, msUntil);
-    }
-
-    /**
      * Reschedule the logging interval based on current speed (primary)
      * or shore proximity (fallback).
      * Called after each GPS fix and from environment polling.
      * Does NOT apply when rapid mode is active.
+     *
+     * Timer ownership lives in `this.scheduler` (AdaptiveScheduler).
+     * This method just decides the new `intervalMs` and asks the
+     * scheduler to align to it.
      */
     private async rescheduleAdaptiveInterval(): Promise<void> {
         // Don't interfere with rapid mode
@@ -362,15 +315,15 @@ class ShipLogServiceClass {
         // PRIMARY: Speed-adaptive interval (if we have GPS speed)
         const pos = this.lastBgLocation;
         if (pos && pos.speed != null && pos.speed >= 0) {
-            const { interval, tier } = getIntervalForSpeed(pos.speed);
+            const { interval } = getIntervalForSpeed(pos.speed);
             const currentInterval = this.trackingState.currentIntervalMs;
 
             // Only reschedule if interval actually changed
-            if (interval !== currentInterval || !this.intervalId) {
+            if (interval !== currentInterval || !this.scheduler.isRunning()) {
                 this.trackingState.currentIntervalMs = interval;
                 this.trackingState.loggingZone = undefined; // Speed-based, not zone-based
                 await this.saveTrackingState();
-                this.scheduleClockAlignedInterval(interval, `speed:${tier}`);
+                this.scheduler.scheduleClockAligned(interval, () => this.flushBufferedTrack());
             }
             return;
         }
@@ -381,7 +334,7 @@ class ShipLogServiceClass {
         const oldZone = this.trackingState.loggingZone || 'offshore';
 
         // Only reschedule if zone actually changed
-        if (newZone === oldZone && this.intervalId) return;
+        if (newZone === oldZone && this.scheduler.isRunning()) return;
 
         // Update state
         this.trackingState.loggingZone = newZone;
@@ -389,39 +342,7 @@ class ShipLogServiceClass {
         await this.saveTrackingState();
 
         // Use clock-aligned scheduling
-        this.scheduleClockAlignedInterval(newInterval, newZone);
-    }
-
-    /**
-     * Schedule entries aligned to clock marks.
-     * E.g. 15-min interval → fires at xx:00, xx:15, xx:30, xx:45
-     *      2-min interval  → fires at xx:00, xx:02, xx:04, ...
-     *      30-sec interval → fires at xx:xx:00, xx:xx:30
-     */
-    private scheduleClockAlignedInterval(intervalMs: number, _zone: string): void {
-        this.clearAllTimers();
-
-        const now = Date.now();
-        const msToNext = intervalMs - (now % intervalMs);
-        const _nextMark = new Date(now + msToNext);
-
-        // Wait until the next clock-aligned mark, then fire
-        this.quarterTimeoutId = setTimeout(() => {
-            this.flushBufferedTrack()
-                .then(() => {})
-                .catch((err) => {
-                    log.warn(``, err);
-                });
-
-            // Now setInterval for every subsequent mark
-            this.intervalId = setInterval(() => {
-                this.flushBufferedTrack()
-                    .then(() => {})
-                    .catch((err) => {
-                        log.warn(``, err);
-                    });
-            }, intervalMs);
-        }, msToNext) as unknown as ReturnType<typeof setInterval>;
+        this.scheduler.scheduleClockAligned(newInterval, () => this.flushBufferedTrack());
     }
 
     /**
@@ -509,7 +430,7 @@ class ShipLogServiceClass {
         await this.saveTrackingState();
 
         // Schedule clock-aligned entries (30s → fires at xx:xx:00, xx:xx:30)
-        this.scheduleClockAlignedInterval(initialInterval, initialZone);
+        this.scheduler.scheduleClockAligned(initialInterval, () => this.flushBufferedTrack());
 
         // Kick off async zone refinement in the background — won't block UI
         this.rescheduleAdaptiveInterval().catch((e) => {
@@ -792,7 +713,7 @@ class ShipLogServiceClass {
      * Pause tracking (user initiated)
      */
     async pauseTracking(): Promise<void> {
-        this.clearAllTimers();
+        this.scheduler.stop();
 
         // Stop course change detection + environment polling while paused
         this.courseDetector.stop();
@@ -814,7 +735,7 @@ class ShipLogServiceClass {
      * Responds instantly - final entry capture happens in background
      */
     async stopTracking(): Promise<void> {
-        this.clearAllTimers();
+        this.scheduler.stop();
 
         // Flush any remaining buffered GPS points before stopping
         try {
@@ -1478,15 +1399,8 @@ class ShipLogServiceClass {
         this.trackingState.isRapidMode = enabled;
         await this.saveTrackingState();
 
-        // Clear existing intervals
-        if (this.intervalId) {
-            clearInterval(this.intervalId);
-            this.intervalId = undefined;
-        }
-        if (this.quarterTimeoutId) {
-            clearTimeout(this.quarterTimeoutId);
-            this.quarterTimeoutId = undefined;
-        }
+        // Always stop the existing scheduler chain — both modes restart it.
+        this.scheduler.stop();
 
         if (enabled) {
             // RAPID MODE: 5-second intervals for high-precision marina navigation
@@ -1508,18 +1422,9 @@ class ShipLogServiceClass {
                 log.warn(``, err);
             });
 
-            // Start 5-second interval
-            this.intervalId = setInterval(() => {
-                this.captureLogEntry()
-                    .then((entry) => {
-                        if (entry) {
-                            /* best effort */
-                        }
-                    })
-                    .catch((err) => {
-                        log.warn(``, err);
-                    });
-            }, RAPID_INTERVAL_MS);
+            // 5-second non-aligned cadence — marina navigation cares about
+            // density, not clock marks.
+            this.scheduler.scheduleEvery(RAPID_INTERVAL_MS, () => this.captureLogEntry());
         } else {
             // ADAPTIVE MODE: Restore zone-based intervals
 
