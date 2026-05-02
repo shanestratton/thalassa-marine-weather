@@ -35,10 +35,12 @@ import {
     isDeepgramAvailable,
     prewarmAudioContext,
     prewarmDeepgram,
+    prewarmDeepgramWebSocket,
     prewarmMicStream,
     prewarmWorkerConnection,
     prewarmWorkletAsset,
     releasePrewarmedMicStream,
+    releasePrewarmedWebSocket,
     setDeepgramEventTap,
     startDeepgramRecognizer,
     type DeepgramRecognizerHandle,
@@ -546,8 +548,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 void Promise.all([
                     prewarmDeepgram(),
                     prewarmMicStream(),
-                    prewarmWorkerConnection(),
                     prewarmWorkletAsset(),
+                    // Full WebSocket prewarm — opens the Cloudflare Worker
+                    // proxy + Deepgram upstream so tap-to-ready skips the
+                    // ~150-300ms WS handshake. Includes a 5-second
+                    // KeepAlive ping inside Deepgram's 12-second idle
+                    // timeout. Subsumes prewarmWorkerConnection (kept as
+                    // a fallback below if WS prewarm fails for any
+                    // reason).
+                    prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
                 ]).then(() => {
                     if (cancelled) return;
                     setPrewarmReady(true);
@@ -559,11 +568,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         });
         return () => {
             cancelled = true;
-            // Release the mic when the console closes — don't keep
-            // the iOS mic indicator on while the skipper is on other
-            // pages. Safe even if no prewarm happened (releasePrewarmed
-            // is a no-op when the cache is empty).
+            // Release everything that was prewarmed when the console
+            // unmounts: mic (so iOS indicator stops), and the held
+            // Cloudflare Worker WebSocket (with its keep-alive timer).
+            // Safe even if no prewarm happened — both releases are
+            // no-ops when the corresponding cache is empty.
             releasePrewarmedMicStream();
+            releasePrewarmedWebSocket();
         };
     }, []);
 

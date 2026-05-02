@@ -379,12 +379,212 @@ export async function prewarmWorkletAsset(): Promise<boolean> {
     }
 }
 
+// ── WebSocket prewarm ──────────────────────────────────────────────────
+
+/**
+ * The fully-prewarmed WebSocket. Already through the HTTP upgrade,
+ * already received ProxyHello + UpstreamOpen from the Cloudflare Worker.
+ * On tap, the recognizer reuses this socket directly — saves ~150-300ms
+ * of WS handshake + Deepgram upstream-open from the cold-start path.
+ *
+ * The trade-off vs the simpler TLS-only prewarm: this opens a Deepgram
+ * upstream WS during console-open idle. Deepgram doesn't bill connection
+ * time (only audio-seconds processed) so cost is zero, but we MUST send
+ * keep-alive ping messages every ~5 seconds or Deepgram closes the WS
+ * after 12s of no audio. The keepAlive timer below handles that.
+ */
+let prewarmedWebSocket: WebSocket | null = null;
+let prewarmedWsKeepAlive: ReturnType<typeof setInterval> | null = null;
+let prewarmedWsReady = false;
+let prewarmedWsSampleRate = 0;
+
+/**
+ * Sample rate we ask Deepgram for during prewarm. iOS WKWebView's
+ * AudioContext almost always lands on 48 kHz native rate; if the actual
+ * AudioContext at tap time gives a different rate, the recognizer
+ * detects the mismatch and discards the prewarmed WS in favour of a
+ * fresh one with the correct sample_rate URL param.
+ */
+const PREWARM_ASSUMED_SAMPLE_RATE = 48000;
+
+/**
+ * Build the Deepgram URL params used by both prewarm and tap-time
+ * connections. Only sample_rate varies between calls.
+ */
+function buildDeepgramUrlParams(sampleRate: number): URLSearchParams {
+    const params = new URLSearchParams({
+        model: DEEPGRAM_MODEL,
+        encoding: 'linear16',
+        sample_rate: String(Math.round(sampleRate)),
+        channels: '1',
+        interim_results: 'true',
+        smart_format: 'true',
+        endpointing: String(ENDPOINTING_MS),
+        language: 'en-AU',
+        vad_events: 'true',
+        punctuate: 'true',
+    });
+    for (const term of KEYTERMS) params.append('keyterm', term);
+    return params;
+}
+
+function buildProxyWsUrl(sampleRate: number): string | null {
+    if (!DEEPGRAM_PROXY_URL || !SUPABASE_KEY) return null;
+    const params = buildDeepgramUrlParams(sampleRate);
+    const cfHost = DEEPGRAM_PROXY_URL.replace(/^https:/, 'wss:')
+        .replace(/^http:/, 'ws:')
+        .replace(/\/+$/, '');
+    return `${cfHost}/?${params.toString()}&apikey=${encodeURIComponent(SUPABASE_KEY)}`;
+}
+
+/**
+ * Open + hold a WebSocket through the Cloudflare Worker proxy to
+ * Deepgram. Resolves true once both ProxyHello AND UpstreamOpen
+ * messages arrive (= upstream Deepgram is connected and ready for
+ * audio frames). Resolves false on any failure.
+ *
+ * On success, schedules a keep-alive ping every 5 seconds — Deepgram
+ * closes idle WS after 12 seconds without audio.
+ *
+ * Idempotent: if a healthy prewarmed socket already exists, returns
+ * true immediately. If a stale one exists, replaces it.
+ */
+export async function prewarmDeepgramWebSocket(): Promise<boolean> {
+    if (prewarmedWebSocket && prewarmedWebSocket.readyState === WebSocket.OPEN && prewarmedWsReady) {
+        return true;
+    }
+    releasePrewarmedWebSocket();
+    const wsUrl = buildProxyWsUrl(PREWARM_ASSUMED_SAMPLE_RATE);
+    if (!wsUrl) return false;
+
+    const t0 = Date.now();
+    return new Promise<boolean>((resolve) => {
+        let ws: WebSocket;
+        try {
+            ws = new WebSocket(wsUrl);
+            ws.binaryType = 'arraybuffer';
+        } catch (err) {
+            emitEvent(`[DG] prewarm WS ctor threw: ${(err as Error).message}`);
+            resolve(false);
+            return;
+        }
+
+        const handshakeTimeout = setTimeout(() => {
+            emitEvent('[DG] prewarm WS handshake timed out (5s)');
+            try {
+                ws.close();
+            } catch {
+                /* ignore */
+            }
+            resolve(false);
+        }, 5_000);
+
+        let upstreamSeen = false;
+        const onMessage = (ev: MessageEvent<string>) => {
+            try {
+                const msg = JSON.parse(ev.data) as { type?: string };
+                if (msg.type === 'UpstreamOpen' && !upstreamSeen) {
+                    upstreamSeen = true;
+                    clearTimeout(handshakeTimeout);
+                    // Remove this prewarm listener — once claimed, the
+                    // recognizer attaches its own message handler.
+                    ws.removeEventListener('message', onMessage);
+                    prewarmedWebSocket = ws;
+                    prewarmedWsReady = true;
+                    prewarmedWsSampleRate = PREWARM_ASSUMED_SAMPLE_RATE;
+                    // Keep-alive: Deepgram closes idle WS at 12s. Ping
+                    // every 5s with a JSON KeepAlive control frame.
+                    prewarmedWsKeepAlive = setInterval(() => {
+                        if (ws.readyState !== WebSocket.OPEN) return;
+                        try {
+                            ws.send(JSON.stringify({ type: 'KeepAlive' }));
+                        } catch {
+                            /* ignore */
+                        }
+                    }, 5_000);
+                    emitEvent(`[DG] prewarm WS open + upstream ready in ${Date.now() - t0}ms`);
+                    resolve(true);
+                }
+            } catch {
+                /* ignore non-JSON frames during prewarm */
+            }
+        };
+        ws.addEventListener('message', onMessage);
+
+        ws.addEventListener('close', (ev: CloseEvent) => {
+            clearTimeout(handshakeTimeout);
+            if (prewarmedWebSocket === ws) {
+                if (prewarmedWsKeepAlive) clearInterval(prewarmedWsKeepAlive);
+                prewarmedWebSocket = null;
+                prewarmedWsKeepAlive = null;
+                prewarmedWsReady = false;
+            }
+            emitEvent(`[DG] prewarm WS closed code=${ev.code}`);
+            if (!upstreamSeen) resolve(false);
+        });
+
+        ws.addEventListener('error', () => {
+            emitEvent('[DG] prewarm WS error');
+            // close handler will follow and resolve(false) if needed
+        });
+    });
+}
+
+export function releasePrewarmedWebSocket(): void {
+    if (prewarmedWsKeepAlive) {
+        clearInterval(prewarmedWsKeepAlive);
+        prewarmedWsKeepAlive = null;
+    }
+    if (prewarmedWebSocket) {
+        try {
+            prewarmedWebSocket.close(1000, 'console close');
+        } catch {
+            /* ignore */
+        }
+        prewarmedWebSocket = null;
+        prewarmedWsReady = false;
+    }
+}
+
+/**
+ * Internal: claim the prewarmed WS for a recognizer session. Returns
+ * the WS if it's healthy AND the requested sample rate matches what
+ * was used at prewarm time. Otherwise returns null and the caller
+ * opens a fresh WS — the prewarmed one is closed if it existed.
+ */
+function claimPrewarmedWebSocket(requestedSampleRate: number): WebSocket | null {
+    if (!prewarmedWebSocket || prewarmedWebSocket.readyState !== WebSocket.OPEN || !prewarmedWsReady) {
+        return null;
+    }
+    if (Math.round(requestedSampleRate) !== prewarmedWsSampleRate) {
+        emitEvent(
+            `[DG] prewarm WS sample-rate mismatch (warm=${prewarmedWsSampleRate}, actual=${Math.round(requestedSampleRate)}) — discarding`,
+        );
+        releasePrewarmedWebSocket();
+        return null;
+    }
+    const ws = prewarmedWebSocket;
+    if (prewarmedWsKeepAlive) {
+        clearInterval(prewarmedWsKeepAlive);
+        prewarmedWsKeepAlive = null;
+    }
+    prewarmedWebSocket = null;
+    prewarmedWsReady = false;
+    return ws;
+}
+
 /**
  * Pre-warm the TLS / TCP connection to the Cloudflare Worker. iOS
  * WKWebView's network stack reuses NSURLSession across HTTP and
  * WebSocket scheme requests to the same origin, so a HEAD/GET on
  * console open establishes DNS + TCP + TLS that the subsequent WS
  * upgrade can reuse — saves ~150-300ms of cold-start.
+ *
+ * Largely superseded by prewarmDeepgramWebSocket() now that the
+ * WebSocket itself can be prewarmed. Kept as a fast fallback for
+ * cases where the full WS prewarm is undesirable (e.g., metered
+ * connection) — opening a TLS path is much cheaper than holding
+ * a Deepgram upstream session.
  */
 export async function prewarmWorkerConnection(): Promise<boolean> {
     if (!DEEPGRAM_PROXY_URL) return false;
@@ -839,15 +1039,27 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         });
     }
 
+    // Try claiming a prewarmed WebSocket first. If the prewarm completed
+    // and the AudioContext sample rate matches what we used at prewarm
+    // time (PREWARM_ASSUMED_SAMPLE_RATE), this skips the entire WS
+    // handshake + Deepgram upstream-open from the cold-start path
+    // (~150-300ms saved). Falls back to a fresh connect if no prewarm,
+    // stale prewarm, or sample-rate mismatch.
     let ws: WebSocket;
     const wsStart = Date.now();
-    try {
-        ws = await tryConnect('supabase-proxy');
-    } catch (err) {
-        stream.getTracks().forEach((t) => t.stop());
-        await audioContext.close().catch(() => {});
-        emitEvent(`[DG] proxy ws failed: ${(err as Error).message}`);
-        throw new Error(`Deepgram proxy failed: ${(err as Error).message}`);
+    const prewarmed = claimPrewarmedWebSocket(sampleRate);
+    if (prewarmed) {
+        ws = prewarmed;
+        emitEvent(`[DG] reused prewarmed WebSocket (saved ~150-300ms)`);
+    } else {
+        try {
+            ws = await tryConnect('supabase-proxy');
+        } catch (err) {
+            stream.getTracks().forEach((t) => t.stop());
+            await audioContext.close().catch(() => {});
+            emitEvent(`[DG] proxy ws failed: ${(err as Error).message}`);
+            throw new Error(`Deepgram proxy failed: ${(err as Error).message}`);
+        }
     }
     emitEvent(`[DG] proxy ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
 
