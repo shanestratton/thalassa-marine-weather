@@ -158,7 +158,10 @@ async function callAnthropic(messages: AnthropicMessage[]): Promise<AnthropicRes
         },
         body: JSON.stringify({
             model: HAIKU_MODEL,
-            max_tokens: 1024,
+            // Cap output tightly. Voice answers should be 1-3 sentences;
+            // 200 tokens is plenty and prevents Haiku from drifting long
+            // (which directly translates to extra TTS time on the wire).
+            max_tokens: 200,
             // Structured system field with ephemeral cache_control. Anthropic
             // caches the prompt prefix (5-min TTL) — repeat queries within a
             // session pay ~10% of base input cost. Cache only activates if the
@@ -346,8 +349,18 @@ async function callElevenLabs(text: string): Promise<{ audio_b64: string | null;
         },
         body: JSON.stringify({
             text,
-            model_id: 'eleven_turbo_v2_5',
-            voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.0 },
+            // Flash v2.5 is ElevenLabs' lowest-latency model — built for
+            // real-time conversational use. Trades a sliver of voice
+            // fidelity for materially faster generation than turbo.
+            model_id: 'eleven_flash_v2_5',
+            voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75,
+                style: 0.0,
+                // Speed multiplier: 1.0 = natural, 1.1 = a touch quicker.
+                // Range 0.7-1.2 per ElevenLabs API.
+                speed: 1.1,
+            },
         }),
     });
     if (!response.ok) {
