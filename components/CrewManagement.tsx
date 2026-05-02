@@ -34,7 +34,7 @@ import {
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
-import { getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
+import { getDraftVoyagesWithLogbookEntries, updateVoyage, type Voyage } from '../services/VoyageService';
 import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
@@ -188,7 +188,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const v = getCachedActiveVoyage();
             if (v) setActiveVoyageName(v.voyage_name);
         });
-        getDraftVoyages().then((drafts) => {
+        // Filter the dropdown to drafts that still have a corresponding
+        // planned-route entry in the logbook. Stops orphaned drafts
+        // (left over after the user deleted the route from the logbook
+        // page) from cluttering the active-passage picker.
+        getDraftVoyagesWithLogbookEntries().then((drafts) => {
             setDraftVoyages(drafts);
             // Pre-fill departure date for the active passage
             const activeId = getActivePassageId();

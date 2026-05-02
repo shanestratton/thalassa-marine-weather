@@ -24,6 +24,7 @@ import { fetchWW3Grid } from '../../services/ww3CacheClient';
 import { fetchGlobalWindField } from '../../services/weather/windField';
 import { downloadRouteGPX } from '../../utils/gpxRouteExport';
 import { toast } from '../Toast';
+import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
 import { FONT, SIZE, HEADER_STYLE, MICRO_STYLE, FOOTNOTE_STYLE } from '../../styles/typeScale';
 import type { SpatiotemporalPayload } from '../../types/spatiotemporal';
 import type { VoyagePlan } from '../../types';
@@ -364,10 +365,17 @@ const PassageCanvas: React.FC<PassageCanvasProps> = ({ payload, onClose }) => {
                 setTimeout(() => setLogbookState('idle'), 2000);
             }
         } catch (err) {
-            log.error('[4DMap] Save to logbook error:', err);
             setLogbookState('error');
-            toast.error('Failed to save route');
-            setTimeout(() => setLogbookState('idle'), 2000);
+            // Specific copy when the same route exists for the same
+            // calendar day — generic "Failed to save" doesn't tell the
+            // user how to recover.
+            if (err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR) {
+                toast.error('A passage with this route already exists for that day. Change the departure date.');
+            } else {
+                log.error('[4DMap] Save to logbook error:', err);
+                toast.error('Failed to save route');
+            }
+            setTimeout(() => setLogbookState('idle'), 3000);
         }
     }, [payload, logbookState]);
 

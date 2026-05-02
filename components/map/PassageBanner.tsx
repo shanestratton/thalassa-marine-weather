@@ -8,6 +8,7 @@ import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passageGpxExport';
 import { shareGPXFile } from '../../services/gpxService';
+import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
 import { Share } from '@capacitor/share';
 
 const log = createLogger('PassageBanner');
@@ -124,9 +125,16 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             }
             setTimeout(() => setPassageToast(null), 2000);
         } catch (err) {
-            log.error('Failed to save planned route:', err);
-            setPassageToast('Save failed ✗');
-            setTimeout(() => setPassageToast(null), 2000);
+            // Differentiate the duplicate-route-for-the-same-day case
+            // from a generic save failure so the user knows they can
+            // fix it by changing the departure date.
+            if (err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR) {
+                setPassageToast('Route exists for that day — change date');
+            } else {
+                log.error('Failed to save planned route:', err);
+                setPassageToast('Save failed ✗');
+            }
+            setTimeout(() => setPassageToast(null), 3000);
         }
     };
 

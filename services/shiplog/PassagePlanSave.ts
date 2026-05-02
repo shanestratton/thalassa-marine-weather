@@ -9,10 +9,31 @@ import { supabase } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { calculateDistanceNM, calculateBearing, formatPositionDMS, toDbFormat, SHIP_LOGS_TABLE } from './helpers';
 import { queueOfflineEntry } from './OfflineQueue';
-import { invalidateRoutesAndTracks } from './RoutesAndTracks';
+import { fetchRoutesAndTracks, invalidateRoutesAndTracks } from './RoutesAndTracks';
 import { createLogger } from '../../utils/logger';
 
 const log = createLogger('PassagePlanSave');
+
+/**
+ * Sentinel thrown when the caller tries to save a passage plan whose
+ * (departure → destination) pair already exists in the logbook for the
+ * same calendar day. Callsites should `catch` and show a "this route
+ * already exists for that day, change the date" toast — distinct from
+ * the generic "Save failed" path.
+ */
+export const DUPLICATE_PASSAGE_PLAN_ERROR = 'DUPLICATE_PASSAGE_PLAN';
+
+/** Normalise a name for case/whitespace-insensitive matching. */
+function normaliseName(s: string): string {
+    return s.trim().toLowerCase();
+}
+
+/** Produce a YYYY-MM-DD day key from an ISO timestamp or Date. */
+function dayKey(iso: string | number | Date): string {
+    const d = new Date(iso);
+    if (!isFinite(d.getTime())) return '';
+    return d.toISOString().slice(0, 10);
+}
 
 /**
  * Marker we prefix the saved geometry blob with so RoutesAndTracks can
@@ -29,6 +50,39 @@ export const ROUTE_GEOMETRY_NOTES_PREFIX = '__route_geometry__::';
  */
 export async function savePassagePlanToLogbook(plan: import('../../types').VoyagePlan): Promise<string | null> {
     try {
+        // ── Duplicate check ─────────────────────────────────────────────
+        // Prevent the same (origin → destination) pair on the same calendar
+        // day from creating a second logbook route. Identical-name passages
+        // are still allowed — they just need a different departure date so
+        // the user can tell them apart in the logbook + active passage
+        // dropdown. See DUPLICATE_PASSAGE_PLAN_ERROR for the sentinel
+        // callers should catch.
+        const proposedDeparture = typeof plan.origin === 'string' ? plan.origin.split(',')[0].trim() : 'Departure';
+        const proposedArrival =
+            typeof plan.destination === 'string' ? plan.destination.split(',')[0].trim() : 'Arrival';
+        const proposedLabel = normaliseName(`${proposedDeparture} → ${proposedArrival}`);
+        const proposedDay = dayKey(plan.departureDate || new Date());
+
+        try {
+            const { routes } = await fetchRoutesAndTracks();
+            const isDuplicate = routes.some((r) => {
+                if (normaliseName(r.label) !== proposedLabel) return false;
+                return dayKey(r.timestamp) === proposedDay;
+            });
+            if (isDuplicate) {
+                log.warn(
+                    `savePassagePlan: refusing duplicate "${proposedLabel}" on ${proposedDay} — already in logbook`,
+                );
+                throw new Error(DUPLICATE_PASSAGE_PLAN_ERROR);
+            }
+        } catch (e) {
+            // Re-throw the sentinel; swallow other errors (RoutesAndTracks
+            // fetch failures shouldn't block save — duplicate check is a
+            // helpful guard, not a hard requirement).
+            if (e instanceof Error && e.message === DUPLICATE_PASSAGE_PLAN_ERROR) throw e;
+            log.warn('savePassagePlan: duplicate check failed (non-fatal)', e);
+        }
+
         const voyageId = `planned_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         const now = new Date().toISOString();
 
@@ -203,6 +257,12 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
 
         return voyageId;
     } catch (err) {
+        // Surface the duplicate sentinel so callers can show the
+        // "already exists for that day" toast. Other errors get the
+        // generic null-return + logged failure.
+        if (err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR) {
+            throw err;
+        }
         log.error('savePassagePlanToLogbook error:', err);
         return null;
     }

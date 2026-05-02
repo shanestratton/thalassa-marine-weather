@@ -146,6 +146,40 @@ export async function startVoyage(voyageId: string): Promise<Voyage | null> {
     return voyage;
 }
 
+/**
+ * Get only the draft voyages that ALSO have corresponding ship-log
+ * entries (saved planned routes).
+ *
+ * Why: every saved passage plan creates BOTH a ship_log "planned_*"
+ * voyage AND a row in the `voyages` table (via auto-create in
+ * PassagePlanSave). When the user later deletes the planned route
+ * from the logbook, only the ship_log entries get wiped — the
+ * voyages-table row sits orphaned and pollutes the active-passage
+ * dropdown with stale entries.
+ *
+ * Until we add a foreign-key field linking the two tables (would
+ * need a migration), filter at fetch time: drafts that don't have a
+ * matching planned_route in the logbook are presumed deleted by the
+ * user and dropped from the picker.
+ *
+ * Match key: case + whitespace-normalised `voyage_name` against the
+ * RoutesAndTracks `label` (which is `${departure} → ${arrival}` from
+ * the first/last entry's waypointName, the same fields PassagePlanSave
+ * uses to construct the voyage_name).
+ */
+export async function getDraftVoyagesWithLogbookEntries(): Promise<Voyage[]> {
+    const [drafts, routesAndTracks] = await Promise.all([
+        getDraftVoyages(),
+        // Lazy import to keep the voyage-service module side-effect-free
+        // when the logbook isn't needed (e.g. in the offline-only path
+        // above where Supabase is unavailable).
+        import('./shiplog/RoutesAndTracks').then((m) => m.fetchRoutesAndTracks()),
+    ]);
+    const norm = (s: string) => s.trim().toLowerCase();
+    const liveRouteNames = new Set(routesAndTracks.routes.map((r) => norm(r.label)));
+    return drafts.filter((v) => liveRouteNames.has(norm(v.voyage_name)));
+}
+
 /** Get all draft (planning) voyages for the current user */
 export async function getDraftVoyages(): Promise<Voyage[]> {
     if (!supabase) {
