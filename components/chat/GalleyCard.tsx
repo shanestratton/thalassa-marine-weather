@@ -124,9 +124,43 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                 }
             }
 
-            setVoyage(v);
-            if (v?.departure_time && v?.eta) {
-                setMealDays(calculateMealDays(v.departure_time, v.eta));
+            // ETA may not be persisted on the voyage yet (the voyages
+            // table createVoyage call doesn't set it; the date picker
+            // backfills it but only AFTER the user picks a date).
+            // If the voyage has departure_time but no eta, look up the
+            // matching planned route in the logbook and derive the ETA
+            // from its entry-timestamp spread (= durationHours, which
+            // round-trips back to plan.durationApprox at save time).
+            // This makes the meal calendar work even when the
+            // dropdown's backfill didn't fire (e.g. user picked the
+            // date before this code shipped).
+            let effectiveEta = v?.eta || null;
+            if (v?.departure_time && !effectiveEta) {
+                try {
+                    const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
+                    const ra = await fetchRoutesAndTracks();
+                    const norm = (s: string) => s.trim().toLowerCase();
+                    const match = ra.routes.find((r) => norm(r.label) === norm(v!.voyage_name));
+                    if (match?.durationHours && match.durationHours > 0) {
+                        effectiveEta = new Date(
+                            Date.parse(v.departure_time) + match.durationHours * 3_600_000,
+                        ).toISOString();
+                        console.warn(
+                            `[GalleyCard] derived ETA from route durationHours=${match.durationHours} → ${effectiveEta}`,
+                        );
+                    }
+                } catch (e) {
+                    console.warn('[GalleyCard] route lookup for ETA failed', e);
+                }
+            }
+            // Hand the voyage to React; if we computed an ETA on the
+            // fly, splice it onto the voyage object so downstream
+            // components (MealCalendar) see a complete passage even
+            // without a DB write.
+            const voyageWithEta = v && effectiveEta && !v.eta ? { ...v, eta: effectiveEta } : v;
+            setVoyage(voyageWithEta);
+            if (v?.departure_time && effectiveEta) {
+                setMealDays(calculateMealDays(v.departure_time, effectiveEta));
             }
 
             // If no stored crew count, try loading from Supabase
