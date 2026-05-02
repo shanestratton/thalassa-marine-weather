@@ -36,12 +36,29 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     const [loading, setLoading] = useState(false);
     const [enhancing, setEnhancing] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Acknowledgment is voyage-scoped (different routes have different
+    // current conditions, so the skipper acknowledges each one). But
+    // the original storage was a single { voyageId, time } object —
+    // acknowledging voyage B silently un-acknowledged voyage A. After
+    // the orphan auto-heal in fdefa517 started switching voyages
+    // automatically, this manifested as the card flipping back to red.
+    //
+    // Store as a Record<voyageId, timestamp> so each voyage keeps its
+    // own ack state. Re-hydrate by checking if the current voyageId
+    // is present.
     const [acknowledged, setAcknowledged] = useState(() => {
+        if (!voyageId) return false;
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
             if (stored) {
                 const data = JSON.parse(stored);
-                return data.voyageId === voyageId;
+                // New format: { [voyageId]: timestamp }
+                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
+                    return Boolean(data[voyageId]);
+                }
+                // Legacy format: { voyageId, time } — only one voyage
+                // remembered. Honour it for back-compat.
+                if (data.voyageId === voyageId) return true;
             }
         } catch {
             /* ignore */
@@ -72,6 +89,34 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     const dist = distanceNM ?? 100;
     const vessel = VesselProfileService.load();
     const speed = vessel.cruisingSpeedKts || 6;
+
+    // Re-read acknowledgment when voyageId changes (e.g. orphan
+    // auto-heal switches the active voyage out from under us).
+    // useState initializer only runs once on mount; without this,
+    // switching to a voyage that's already been ack'd shows red.
+    useEffect(() => {
+        if (!voyageId) {
+            setAcknowledged(false);
+            return;
+        }
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
+                    setAcknowledged(Boolean(data[voyageId]));
+                    return;
+                }
+                if (data.voyageId === voyageId) {
+                    setAcknowledged(true);
+                    return;
+                }
+            }
+        } catch {
+            /* ignore */
+        }
+        setAcknowledged(false);
+    }, [voyageId]);
 
     useEffect(() => {
         onReviewedChange?.(acknowledged);
@@ -107,10 +152,24 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
     }, [hasCoords]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const handleAcknowledge = useCallback(() => {
+        if (!voyageId) return;
         setAcknowledged(true);
         triggerHaptic('medium');
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({ voyageId, time: Date.now() }));
+            // Read existing map (or migrate from legacy single-voyage
+            // shape), set this voyage's timestamp, write back.
+            const stored = localStorage.getItem(STORAGE_KEY);
+            let map: Record<string, number> = {};
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
+                    map = data;
+                } else if (data.voyageId) {
+                    map = { [data.voyageId]: data.time || Date.now() };
+                }
+            }
+            map[voyageId] = Date.now();
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
         } catch {
             /* ignore */
         }

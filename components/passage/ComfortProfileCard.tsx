@@ -19,6 +19,17 @@ export const ComfortProfileCard: React.FC<ComfortProfileCardProps> = ({ voyageId
     const [profile, setProfile] = useState<ComfortProfile>(() => ComfortProfileService.load(voyageId));
     const [saved, setSaved] = useState(profile.configured);
 
+    // Reload the profile when voyageId changes (e.g. orphan auto-heal
+    // switched active voyages). Without this, useState's once-on-mount
+    // initializer leaves the card bound to whatever voyage was active
+    // at first render, which can show stale 'unconfigured' state on a
+    // voyage that's actually been configured (or vice-versa).
+    useEffect(() => {
+        const fresh = ComfortProfileService.load(voyageId);
+        setProfile(fresh);
+        setSaved(fresh.configured);
+    }, [voyageId]);
+
     useEffect(() => {
         onReviewedChange?.(profile.configured);
     }, [profile.configured, onReviewedChange]);

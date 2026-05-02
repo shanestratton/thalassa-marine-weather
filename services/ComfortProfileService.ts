@@ -33,16 +33,34 @@ export const ANGLE_LABELS: Record<ComfortProfile['preferredAngle'], string> = {
 };
 
 export const ComfortProfileService = {
-    /** Load the stored comfort profile (voyage-specific if id given) */
+    /**
+     * Load the stored comfort profile.
+     *
+     * Resolution: voyage-specific key first, then the global default.
+     * The vessel comfort profile is fundamentally per-boat (the user's
+     * own thresholds for wind / wave / wind angle / night sailing) so
+     * once they've configured it for ANY voyage we treat the global as
+     * pre-configured for new voyages too. Without this carry-over the
+     * Comfort Profile readiness card flips back to red whenever the
+     * orphan auto-heal switches voyages — even though the user already
+     * set their preferences.
+     *
+     * Save() always writes BOTH keys so the global stays in sync with
+     * the latest per-voyage tweak.
+     */
     load(voyageId?: string): ComfortProfile {
         const key = voyageId ? `${STORAGE_KEY}_${voyageId}` : STORAGE_KEY;
         try {
             const raw = localStorage.getItem(key);
             if (raw) return { ...DEFAULT_PROFILE, ...JSON.parse(raw) };
-            // Fallback to global
+            // Fallback to global — inherit configured=true so the card
+            // stays green across voyage switches.
             if (voyageId) {
                 const global = localStorage.getItem(STORAGE_KEY);
-                if (global) return { ...DEFAULT_PROFILE, ...JSON.parse(global), configured: false };
+                if (global) {
+                    const parsed = JSON.parse(global);
+                    return { ...DEFAULT_PROFILE, ...parsed };
+                }
             }
         } catch {
             /* ignore */
