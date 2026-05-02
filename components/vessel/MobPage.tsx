@@ -13,6 +13,7 @@ import { MobService, type MobState } from '../../services/MobService';
 import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
+import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
 
 interface MobPageProps {
     onBack: () => void;
@@ -95,6 +96,12 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const [activating, setActivating] = useState(false);
     const [copied, setCopied] = useState(false);
     const [speaking, setSpeaking] = useState(false);
+    /** Engine actually used for the most recent MAYDAY playback —
+     *  shown to the skipper as a tiny caption ("Calypso voice" /
+     *  "Fallback voice") so they know whether the message just went
+     *  out clean or via the robotic backup. */
+    const [lastVoiceEngine, setLastVoiceEngine] = useState<'calypso' | 'native' | null>(null);
+    const utteranceRef = useRef<SafetyUtteranceHandle | null>(null);
     const [holdProgress, setHoldProgress] = useState(0);
     const holdTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -166,14 +173,31 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
     const handleSpeakMayday = useCallback(() => {
         if (!maydayText || speaking) return;
         triggerHaptic('medium');
-        const utt = new SpeechSynthesisUtterance(maydayText);
-        utt.rate = 0.8;
-        utt.pitch = 0.95;
-        utt.onstart = () => setSpeaking(true);
-        utt.onend = () => setSpeaking(false);
-        utt.onerror = () => setSpeaking(false);
-        speechSynthesis.speak(utt);
+        // Race Calypso's ElevenLabs voice against a 4s budget; fall
+        // back to the OS-level SpeechSynthesisUtterance if Calypso
+        // can't deliver in time (offline, quota exhausted, slow link).
+        // The fallback is the safety net — every iOS device has it.
+        utteranceRef.current?.cancel();
+        const handle = speakSafetyMessage(maydayText, {
+            nativeRate: 0.8,
+            nativePitch: 0.95,
+            onPlaybackStart: (engine) => {
+                setSpeaking(true);
+                setLastVoiceEngine(engine);
+            },
+            onPlaybackEnd: () => setSpeaking(false),
+            onError: () => setSpeaking(false),
+        });
+        utteranceRef.current = handle;
     }, [maydayText, speaking]);
+
+    // Cancel any in-flight TTS when the page unmounts so the message
+    // doesn't keep talking after navigating away.
+    useEffect(() => {
+        return () => {
+            utteranceRef.current?.cancel();
+        };
+    }, []);
 
     const handleCopyMayday = useCallback(() => {
         if (!maydayText) return;
@@ -338,13 +362,28 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     type="button"
                     onClick={handleSpeakMayday}
                     disabled={speaking}
-                    className={`py-3.5 px-3 rounded-xl text-[12px] font-extrabold uppercase tracking-wider border transition-all active:scale-[0.97] disabled:opacity-50 ${
+                    className={`py-3.5 px-3 rounded-xl text-[12px] font-extrabold uppercase tracking-wider border transition-all active:scale-[0.97] disabled:opacity-50 flex flex-col items-center justify-center gap-0.5 ${
                         speaking
                             ? 'bg-red-500/30 border-red-400/60 text-red-100 animate-pulse'
                             : 'bg-red-500/15 border-red-400/40 text-red-200 hover:bg-red-500/25'
                     }`}
                 >
-                    {speaking ? 'Speaking…' : 'Speak Mayday'}
+                    <span>{speaking ? 'Speaking…' : 'Speak Mayday'}</span>
+                    {/* Voice-engine indicator — only shown after the
+                     *  first playback so the skipper knows whether
+                     *  they got the human-sounding Calypso voice or
+                     *  the robotic fallback (lets them retry once
+                     *  online if they got fallback during a moment
+                     *  of poor signal). */}
+                    {lastVoiceEngine && !speaking && (
+                        <span
+                            className={`text-[9px] font-medium normal-case tracking-normal ${
+                                lastVoiceEngine === 'calypso' ? 'text-red-300/80' : 'text-amber-300/80'
+                            }`}
+                        >
+                            {lastVoiceEngine === 'calypso' ? 'Calypso voice' : 'Fallback voice'}
+                        </span>
+                    )}
                 </button>
                 <button
                     type="button"
