@@ -20,10 +20,93 @@
  * before any voice/text submit.
  */
 
+import { BgGeoManager } from '../BgGeoManager';
 import { LocationStore } from '../../stores/LocationStore';
 import { useWeatherStore } from '../../stores/weatherStore';
 import { PassageStore } from '../../stores/PassageStore';
-import type { ThalassaContext, ThalassaLocation, ThalassaConditions, ThalassaPassage } from '../../types/voice';
+import type {
+    ThalassaContext,
+    ThalassaLocation,
+    ThalassaConditions,
+    ThalassaPassage,
+    ThalassaPhoneGps,
+} from '../../types/voice';
+
+/**
+ * Cached reverse-geocoded place name for the phone GPS position.
+ * Keyed on coordinates rounded to 0.01° (~1.1 km cell) so we don't
+ * hit Nominatim every voice query for an essentially-stationary boat.
+ * prewarmPhoneGpsContext() refreshes this asynchronously on console
+ * open; gatherPhoneGps() reads it synchronously when assembling the
+ * snapshot Calypso sees.
+ */
+let cachedReverseGeocode: { lat: number; lon: number; place: string } | null = null;
+let lastReverseGeocodeAttempt = 0;
+const REVERSE_GEOCODE_RETRY_MS = 30_000;
+
+function roundCoord(x: number): number {
+    return Math.round(x * 100) / 100;
+}
+
+/**
+ * Pre-fetch a reverse-geocoded place name for the current phone GPS
+ * position. Async — kicked off from the BosunConsole's prewarm hook
+ * so the cache is populated before the skipper's first query.
+ *
+ * Silently no-ops if no GPS, or if a same-cell entry is already cached.
+ * Uses Open-Meteo's reverse-geocoding (covers populated areas; returns
+ * null at sea, which we want — Calypso reads coords aloud in that case).
+ */
+export async function prewarmPhoneGpsContext(): Promise<void> {
+    const pos = BgGeoManager.getLastPosition();
+    if (!pos) return;
+    const rlat = roundCoord(pos.latitude);
+    const rlon = roundCoord(pos.longitude);
+    if (cachedReverseGeocode && cachedReverseGeocode.lat === rlat && cachedReverseGeocode.lon === rlon) {
+        return;
+    }
+    // Cool-off window so we don't hammer Nominatim on every console open
+    // when offshore (no result will ever come back; Nominatim's free
+    // tier is 1 req/sec).
+    if (Date.now() - lastReverseGeocodeAttempt < REVERSE_GEOCODE_RETRY_MS) return;
+    lastReverseGeocodeAttempt = Date.now();
+    try {
+        const { reverseGeocode } = await import('../weather/api/geocoding');
+        const place = await reverseGeocode(pos.latitude, pos.longitude);
+        if (place) {
+            cachedReverseGeocode = { lat: rlat, lon: rlon, place };
+        } else {
+            // Probably at sea — clear so Calypso falls back to coords
+            cachedReverseGeocode = null;
+        }
+    } catch {
+        /* network blip — leave cache alone, will retry next prewarm */
+    }
+}
+
+function gatherPhoneGps(): ThalassaPhoneGps | undefined {
+    const pos = BgGeoManager.getLastPosition();
+    if (!pos) return undefined;
+    if (!Number.isFinite(pos.latitude) || !Number.isFinite(pos.longitude)) return undefined;
+    const rlat = roundCoord(pos.latitude);
+    const rlon = roundCoord(pos.longitude);
+    const placeMatch =
+        cachedReverseGeocode && cachedReverseGeocode.lat === rlat && cachedReverseGeocode.lon === rlon
+            ? cachedReverseGeocode.place
+            : undefined;
+    return {
+        lat: Number(pos.latitude.toFixed(5)),
+        lon: Number(pos.longitude.toFixed(5)),
+        accuracyM: Math.round(pos.accuracy),
+        speedKt: Number.isFinite(pos.speed) && pos.speed >= 0 ? Number((pos.speed * 1.94384).toFixed(1)) : undefined,
+        headingDeg:
+            typeof pos.heading === 'number' && Number.isFinite(pos.heading) && pos.heading >= 0
+                ? Math.round(pos.heading)
+                : undefined,
+        ageSec: ageSeconds(pos.receivedAt) ?? 0,
+        place: placeMatch,
+    };
+}
 
 function ageSeconds(ts: number | undefined): number | undefined {
     if (!ts || !Number.isFinite(ts)) return undefined;
@@ -102,5 +185,6 @@ export function gatherThalassaContext(): ThalassaContext {
         location: gatherLocation(),
         conditions: gatherConditions(),
         passage: gatherPassage(),
+        phoneGps: gatherPhoneGps(),
     };
 }

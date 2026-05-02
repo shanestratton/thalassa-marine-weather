@@ -54,12 +54,43 @@ export interface ThalassaPassage {
     maxWaveM?: number;
 }
 
+/**
+ * Phone GPS snapshot — the iPhone's reported position from the
+ * BackgroundGeolocation plugin. Independent of the user's "selected
+ * location" in the app (which can be a search result or a pin).
+ *
+ * Calypso uses this as a fallback for vessel position when the boat-
+ * side Pi is unreachable. The phone is on the boat, so its GPS is a
+ * reasonable proxy for vessel position to within a few metres.
+ */
+export interface ThalassaPhoneGps {
+    lat: number;
+    lon: number;
+    /** Accuracy radius in metres (lower = better). */
+    accuracyM: number;
+    /** Speed over ground in knots (converted from m/s). */
+    speedKt?: number;
+    /** Course over ground in degrees true. */
+    headingDeg?: number;
+    /** Seconds since the GPS fix was received. */
+    ageSec: number;
+    /**
+     * Reverse-geocoded place name — set when the GPS resolves to a
+     * known location (city/suburb/landmark). Undefined at sea where
+     * the geocoder has nothing to return; in that case Calypso reads
+     * coordinates aloud instead.
+     */
+    place?: string;
+}
+
 export interface ThalassaContext {
     /** Device local time at request time (ISO 8601). */
     localTimeIso: string;
     location?: ThalassaLocation;
     conditions?: ThalassaConditions;
     passage?: ThalassaPassage;
+    /** Phone GPS — fallback for vessel position when Pi is unavailable. */
+    phoneGps?: ThalassaPhoneGps;
 }
 
 /**

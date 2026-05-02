@@ -51,7 +51,7 @@ import {
     startSpeechRecognition,
     type SpeechRecognizerHandle,
 } from '../../services/voice/speechRecognizer';
-import { gatherThalassaContext } from '../../services/voice/thalassaContext';
+import { gatherThalassaContext, prewarmPhoneGpsContext } from '../../services/voice/thalassaContext';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
@@ -557,6 +557,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // a fallback below if WS prewarm fails for any
                     // reason).
                     prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
+                    // Reverse-geocode the phone GPS in the background so
+                    // Calypso's first reply can say "near Newport,
+                    // Queensland" instead of reading raw coords aloud.
+                    // Returns silently when offshore (no nearby place
+                    // name) — Calypso falls back to coords in that case
+                    // per the system prompt's PHONE GPS rules.
+                    prewarmPhoneGpsContext(),
                 ]).then(() => {
                     if (cancelled) return;
                     setPrewarmReady(true);
