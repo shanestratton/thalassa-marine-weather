@@ -30,6 +30,12 @@ import { askCloudVoice } from '../../services/voice/cloudFallback';
 import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
 import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
 import {
+    isDeepgramAvailable,
+    setDeepgramEventTap,
+    startDeepgramRecognizer,
+    type DeepgramRecognizerHandle,
+} from '../../services/voice/deepgramRecognizer';
+import {
     isSpeechRecognitionAvailable,
     setSrEventTap,
     startSpeechRecognition,
@@ -175,6 +181,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
 
     const recorderRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null);
     const speechRecognizerRef = useRef<SpeechRecognizerHandle | null>(null);
+    /**
+     * Deepgram WebSocket recognizer — primary cloud-streaming STT. Used
+     * in preference to Apple SR when available because (a) it doesn't
+     * share Apple's per-device rate limit, (b) Nova-3 is sharper on
+     * accented English + marine vocabulary, (c) `keywords` parameter
+     * lets us boost "Calypso" and "over" so the OVER auto-send gesture
+     * fires reliably even with mumbled enunciation.
+     *
+     * Apple SR remains the fallback below this — same handle interface,
+     * so the stop/cancel paths are uniform regardless of which one
+     * actually started.
+     */
+    const deepgramRecognizerRef = useRef<DeepgramRecognizerHandle | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlsRef = useRef<string[]>([]);
     const conversationEndRef = useRef<HTMLDivElement | null>(null);
@@ -187,12 +206,24 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     const [liveTranscript, setLiveTranscript] = useState('');
 
     /**
-     * Whether the SR engine has actually fired at least one partial event
-     * for the CURRENT recording cycle. If false during recording, SR didn't
-     * start successfully and we'll fall back to Scribe on stop. Visible to
-     * the skipper as a small indicator next to the live transcript.
+     * Whether the active recognizer (Deepgram OR Apple SR) has fired at
+     * least one partial event for the CURRENT recording cycle. If false
+     * during recording, the streaming path didn't take and we'll fall
+     * back to Scribe on stop. Visible to the skipper as a small
+     * indicator next to the live transcript. Name kept for backwards
+     * compatibility with the existing debug strip filter conventions.
      */
     const [srActive, setSrActive] = useState(false);
+
+    /**
+     * Which recognizer is actually running this cycle. Set when start()
+     * succeeds for one of the tiers; back to null on stop/cancel/error.
+     * Drives the UI label so the skipper can see whether they're on
+     * Deepgram, Apple SR, or the audio-blob fallback at a glance.
+     */
+    const [activeRecognizerKind, setActiveRecognizerKind] = useState<'deepgram' | 'apple-sr' | 'media-recorder' | null>(
+        null,
+    );
 
     /**
      * Persistent SR availability status, checked on console open. Visible as
@@ -208,6 +239,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const [srStatus, setSrStatus] = useState<'unknown' | 'available' | 'denied' | 'unsupported' | 'error'>('unknown');
     const [srStatusError, setSrStatusError] = useState<string | null>(null);
+
+    /**
+     * Deepgram availability status, probed on console open. The probe is
+     * a fast pre-flight (no actual WS open) so we can decide at tap-time
+     * which path to attempt without a perceptible delay.
+     */
+    const [deepgramStatus, setDeepgramStatus] = useState<'unknown' | 'available' | 'unavailable'>('unknown');
 
     /**
      * Open state for the Pi-provisioning wizard. Triggered from the
@@ -230,7 +268,16 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         setSrEventTap((msg) => {
             setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg }]);
         });
-        return () => setSrEventTap(null);
+        // Same hook for [DG] (Deepgram) events — share the debug strip so
+        // the skipper can see the full path: token mint → ws open → first
+        // partial → close, all in one timeline.
+        setDeepgramEventTap((msg) => {
+            setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg }]);
+        });
+        return () => {
+            setSrEventTap(null);
+            setDeepgramEventTap(null);
+        };
     }, []);
 
     // ── Effects ─────────────────────────────────────────────────────────
@@ -295,6 +342,23 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         };
     }, [isOpen]);
 
+    // Probe Deepgram availability on console open. This is a runtime
+    // capability check (mediaDevices, WebSocket, AudioWorklet, supabase
+    // creds) — not a network probe — so it returns instantly. The actual
+    // token mint + WS open happens inside startDeepgramRecognizer at
+    // tap-time.
+    useEffect(() => {
+        if (!isOpen) return;
+        let cancelled = false;
+        void isDeepgramAvailable(true).then((available) => {
+            if (cancelled) return;
+            setDeepgramStatus(available ? 'available' : 'unavailable');
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen]);
+
     // Auto-scroll on new content
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -343,6 +407,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (sr) {
                 try {
                     void sr.cancel();
+                } catch {
+                    /* ignore */
+                }
+            }
+            const dg = deepgramRecognizerRef.current;
+            if (dg) {
+                try {
+                    void dg.cancel();
                 } catch {
                     /* ignore */
                 }
@@ -605,23 +677,36 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         async (cleanedText: string, target: 'bosun' | 'cloud') => {
             const handle = recorderRef.current;
             const srHandle = speechRecognizerRef.current;
-            if (!handle && !srHandle) return;
+            const dgHandle = deepgramRecognizerRef.current;
+            if (!handle && !srHandle && !dgHandle) return;
             recorderRef.current = null;
             speechRecognizerRef.current = null;
+            deepgramRecognizerRef.current = null;
             setOneButton(target, 'sending');
             try {
-                if (srHandle) {
-                    // SR-only path — we already have the cleaned text from
-                    // the partial that triggered "over". Cancel SR (don't
-                    // need its final result) and ship the text.
+                if (dgHandle) {
+                    // Deepgram path — we already have the cleaned text
+                    // from the partial that triggered "over". Cancel the
+                    // WS (don't wait for the final flush since we're
+                    // bypassing it) and ship the text directly.
+                    await dgHandle.cancel();
+                    setActiveTarget(null);
+                    setActiveRecognizerKind(null);
+                    setLiveTranscript('');
+                    setSrActive(false);
+                    await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText);
+                } else if (srHandle) {
+                    // Apple SR fallback path — same flow, different recognizer.
                     await srHandle.cancel();
                     setActiveTarget(null);
+                    setActiveRecognizerKind(null);
                     setLiveTranscript('');
                     setSrActive(false);
                     await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText);
                 } else if (handle) {
                     const blob = await handle.stop();
                     setActiveTarget(null);
+                    setActiveRecognizerKind(null);
                     setLiveTranscript('');
                     setSrActive(false);
                     await sendVoiceQuery(blob, target, cleanedText);
@@ -676,29 +761,83 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     }
                     speechRecognizerRef.current = null;
                 }
+                if (deepgramRecognizerRef.current) {
+                    try {
+                        void deepgramRecognizerRef.current.cancel();
+                    } catch {
+                        /* ignore */
+                    }
+                    deepgramRecognizerRef.current = null;
+                }
                 setErrorMessage(null);
                 setLiveTranscript('');
                 setSrActive(false);
 
-                // Decide capture path: SR-only when available (avoids the
-                // iOS dual-mic contention that was making partials never
-                // fire), MediaRecorder + Scribe as the fallback when SR
-                // isn't on. Never both.
-                const useSR = which === 'cloud' && srStatus === 'available';
+                // Decide capture path. Priority:
+                //   1. Deepgram (cloud streaming, no per-device rate limit,
+                //      keyword-boosted recognition for Calypso + over).
+                //   2. Apple SR (on-device, no token mint round-trip, but
+                //      hits per-device "quota exceeded" lockouts).
+                //   3. MediaRecorder + ElevenLabs Scribe on the audio blob
+                //      (no streaming partials → no live OVER gesture, but
+                //      strip-at-stop fallback still cleans the question).
+                //
+                // Each tier falls through to the next on start failure,
+                // so a Deepgram outage automatically degrades to Apple SR
+                // and then to Scribe without intervention.
+                let recognizerStarted = false;
+                const tryDeepgram = which === 'cloud' && deepgramStatus === 'available';
+                const tryAppleSr = which === 'cloud' && srStatus === 'available';
+
+                // Cold-start grace promise — populated by whichever
+                // recognizer we end up using. Resolved on first partial.
+                let resolveFirstPartial: () => void = () => {};
+                const firstPartialPromise = new Promise<void>((resolve) => {
+                    resolveFirstPartial = resolve;
+                });
+                firstPartialPromiseRef.current = {
+                    promise: firstPartialPromise,
+                    resolve: resolveFirstPartial,
+                };
+
+                // ── Tier 1: Deepgram ─────────────────────────────────
+                if (tryDeepgram) {
+                    try {
+                        const dgHandle = await startDeepgramRecognizer({
+                            onPartial: (text) => {
+                                setLiveTranscript(text);
+                                const { matched, cleaned } = detectOverSuffix(text);
+                                if (matched && cleaned.length > 0) {
+                                    setSrEventLog((prev) => [
+                                        ...prev.slice(-5),
+                                        { ts: Date.now(), msg: `[over] fired: "${cleaned.slice(0, 60)}"` },
+                                    ]);
+                                    void handleOverGesture(cleaned, which);
+                                }
+                            },
+                            onFirstPartial: () => {
+                                setSrActive(true);
+                                firstPartialPromiseRef.current?.resolve();
+                            },
+                        });
+                        deepgramRecognizerRef.current = dgHandle;
+                        recognizerStarted = true;
+                        setActiveRecognizerKind('deepgram');
+                    } catch (err) {
+                        // Deepgram failed (token mint, WS, mic). Surface
+                        // in the debug strip and fall through to Apple SR.
+                        const msg = (err as Error).message || 'unknown';
+                        setSrEventLog((prev) => [
+                            ...prev.slice(-5),
+                            { ts: Date.now(), msg: `[DG] start failed → fallback: ${msg.slice(0, 80)}` },
+                        ]);
+                    }
+                }
+
+                // ── Tier 2: Apple SR (only if Deepgram didn't take) ──
+                const useSR = tryAppleSr && !recognizerStarted;
                 let srStarted = false;
                 if (useSR) {
-                    // Fresh first-partial promise for THIS cycle. Resolved
-                    // by onFirstPartial below; awaited (with timeout) by
-                    // the tap-to-stop branch so cold-start cycles get a
-                    // chance to fire OVER before we tear SR down.
-                    let resolveFirstPartial: () => void = () => {};
-                    const firstPartialPromise = new Promise<void>((resolve) => {
-                        resolveFirstPartial = resolve;
-                    });
-                    firstPartialPromiseRef.current = {
-                        promise: firstPartialPromise,
-                        resolve: resolveFirstPartial,
-                    };
                     try {
                         const srHandle = await startSpeechRecognition({
                             onPartial: (text) => {
@@ -723,6 +862,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         });
                         speechRecognizerRef.current = srHandle;
                         srStarted = true;
+                        recognizerStarted = true;
+                        setActiveRecognizerKind('apple-sr');
                     } catch (err) {
                         // SR start rejected — fall through to MediaRecorder.
                         // The wrapper already logged the rejection to the
@@ -746,10 +887,18 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     }
                 }
 
-                if (!srStarted) {
+                // Fall through to MediaRecorder + Scribe only when BOTH
+                // streaming paths failed (or weren't applicable for this
+                // target). That's the slowest path — no live partials,
+                // no OVER auto-send — but it works on any iOS audio
+                // session state and any network condition that lets us
+                // POST audio to Supabase.
+                void srStarted; // covered by recognizerStarted
+                if (!recognizerStarted) {
                     try {
                         const handle = await startRecording();
                         recorderRef.current = handle;
+                        setActiveRecognizerKind('media-recorder');
                     } catch (err) {
                         // Translate iOS's per-device speech-recognition
                         // rate limit ("The quota has been exceeded.") into
@@ -787,37 +936,78 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (currentState === 'recording') {
                 const handle = recorderRef.current;
                 const srHandle = speechRecognizerRef.current;
-                if ((!handle && !srHandle) || activeTarget !== which) {
+                const dgHandle = deepgramRecognizerRef.current;
+                if ((!handle && !srHandle && !dgHandle) || activeTarget !== which) {
                     setOneButton(which, 'idle');
                     return;
                 }
-                // Cold-start grace period: when SR is the active path AND
-                // hasn't fired any partial yet, give it up to 250ms before
-                // tearing down. Apple SR's first partial after app launch
-                // can arrive 200-400ms slower than warmed-up cycles; without
-                // this wait, an utterance ending in "over" gets through to
-                // a manual tap before the live OVER gesture catches it.
-                // Skips entirely on warm cycles (srActive === true) so
-                // no perceptible latency once SR is hot.
-                if (srHandle && !srActive && firstPartialPromiseRef.current) {
+                // Cold-start grace period: when a streaming recognizer is
+                // active but hasn't fired any partial yet, give it up to
+                // 250ms before tearing down. Both Apple SR and Deepgram
+                // can have a slow first partial after a cold start (Apple:
+                // engine warm-up, Deepgram: WS handshake + first audio
+                // chunk traversal). Without this wait, an utterance
+                // ending in "over" reaches a manual tap before the live
+                // OVER gesture catches it. Skips entirely on warm cycles.
+                const streamingHandle = dgHandle ?? srHandle;
+                if (streamingHandle && !srActive && firstPartialPromiseRef.current) {
                     await Promise.race([
                         firstPartialPromiseRef.current.promise,
                         new Promise<void>((resolve) => setTimeout(resolve, 250)),
                     ]);
                     // The OVER gesture fires synchronously inside onPartial
-                    // and clears speechRecognizerRef. If that happened
-                    // during the grace, refs are gone — bail out cleanly.
-                    if (!speechRecognizerRef.current) return;
+                    // and clears recognizer refs. If that happened during
+                    // the grace, refs are gone — bail out cleanly.
+                    if (!deepgramRecognizerRef.current && !speechRecognizerRef.current) return;
                 }
                 recorderRef.current = null;
                 speechRecognizerRef.current = null;
+                deepgramRecognizerRef.current = null;
                 setOneButton(which, 'sending');
                 try {
-                    if (srHandle) {
-                        // SR-only path: stop SR, get its on-device transcript,
-                        // hit Haiku directly with text. No audio blob.
+                    if (dgHandle) {
+                        // Deepgram path: send CloseStream, wait for final
+                        // flush, return composed transcript. No audio blob
+                        // ever travels over our edge function — the audio
+                        // already streamed to Deepgram directly.
+                        const dg = await dgHandle.stop();
+                        setActiveTarget(null);
+                        setActiveRecognizerKind(null);
+                        setLiveTranscript('');
+                        setSrActive(false);
+                        if (!dg.text) {
+                            setErrorMessage("Couldn't make out what you said — try again.");
+                            setOneButton(which, 'error');
+                            setTimeout(() => setOneButton(which, 'idle'), 1500);
+                            return;
+                        }
+                        // Strip-at-stop safety net for the OVER gesture,
+                        // same as the Apple SR path below — covers cases
+                        // where the live partial stream missed the gesture
+                        // because the skipper said "over" inside the
+                        // grace-period window.
+                        const finalText = (() => {
+                            const det = detectOverSuffix(dg.text);
+                            if (det.matched && det.cleaned.length > 0) {
+                                setSrEventLog((prev) => [
+                                    ...prev.slice(-5),
+                                    {
+                                        ts: Date.now(),
+                                        msg: `[over] stripped at stop: "${det.cleaned.slice(0, 60)}"`,
+                                    },
+                                ]);
+                                return det.cleaned;
+                            }
+                            return dg.text;
+                        })();
+                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, finalText);
+                    } else if (srHandle) {
+                        // Apple SR fallback path: stop SR, get its
+                        // on-device transcript, hit Haiku directly with
+                        // text. No audio blob.
                         const sr = await srHandle.stop();
                         setActiveTarget(null);
+                        setActiveRecognizerKind(null);
                         setLiveTranscript('');
                         setSrActive(false);
                         if (!sr.text) {
@@ -853,6 +1043,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         // Scribe-backed edge function for STT.
                         const blob = await handle.stop();
                         setActiveTarget(null);
+                        setActiveRecognizerKind(null);
                         setLiveTranscript('');
                         setSrActive(false);
                         await sendVoiceQuery(blob, which, null);
@@ -930,28 +1121,45 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     <p className="text-[10px] uppercase tracking-widest text-gray-400">
                         Tap to talk — tap again or say &ldquo;over&rdquo; to send
                     </p>
-                    {/* Persistent SR availability pill. If it shows */}
-                    {/* "unsupported" the new pod isn't in the Xcode build — */}
-                    {/* clean rebuild needed (Cmd+Shift+K, then Cmd+R). */}
+                    {/* Persistent STT availability pill. Reports the highest- */}
+                    {/* priority path that's ready: Deepgram > Apple SR > */}
+                    {/* "audio fallback only". Skipper can tell at a glance */}
+                    {/* whether they're on the streaming-with-OVER path or */}
+                    {/* about to fall through to MediaRecorder + Scribe. */}
                     <div className="mt-1.5 flex items-center gap-1.5">
-                        <span
-                            className={`inline-block w-1.5 h-1.5 rounded-full ${
-                                srStatus === 'available'
-                                    ? 'bg-emerald-400'
-                                    : srStatus === 'denied'
+                        {(() => {
+                            const probing = deepgramStatus === 'unknown' || srStatus === 'unknown';
+                            const dgReady = deepgramStatus === 'available';
+                            const srReady = srStatus === 'available';
+                            const dot = dgReady
+                                ? 'bg-emerald-400'
+                                : srReady
+                                  ? 'bg-emerald-400'
+                                  : srStatus === 'denied'
+                                    ? 'bg-amber-400'
+                                    : srStatus === 'unsupported' || srStatus === 'error'
                                       ? 'bg-amber-400'
-                                      : srStatus === 'unsupported' || srStatus === 'error'
-                                        ? 'bg-red-400'
-                                        : 'bg-gray-500 animate-pulse'
-                            }`}
-                        />
-                        <p className="text-[10px] tracking-wide text-gray-400">
-                            {srStatus === 'available' && 'Apple SR ready (fast path)'}
-                            {srStatus === 'denied' && 'SR permission denied — Settings > Thalassa'}
-                            {srStatus === 'unsupported' && 'SR plugin missing — clean rebuild Xcode'}
-                            {srStatus === 'error' && `SR error: ${srStatusError ?? 'unknown'}`}
-                            {srStatus === 'unknown' && 'Probing SR…'}
-                        </p>
+                                      : probing
+                                        ? 'bg-gray-500 animate-pulse'
+                                        : 'bg-amber-400';
+                            const label = probing
+                                ? 'Probing STT…'
+                                : dgReady
+                                  ? srReady
+                                      ? 'Deepgram ready · Apple SR fallback'
+                                      : 'Deepgram ready (fast path)'
+                                  : srReady
+                                    ? 'Apple SR ready (fallback path)'
+                                    : srStatus === 'denied'
+                                      ? 'Audio-only fallback · SR permission denied'
+                                      : 'Audio-only fallback';
+                            return (
+                                <>
+                                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
+                                    <p className="text-[10px] tracking-wide text-gray-400">{label}</p>
+                                </>
+                            );
+                        })()}
                     </div>
                     {/* Pi-setup CTA — visible only when no Pi is */}
                     {/* discovered on the network. Opens the wizard for */}
@@ -1013,12 +1221,11 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 <div ref={conversationEndRef} />
             </div>
 
-            {/* ── Live partial transcript (Apple SR) ─────────────── */}
-            {/* Only shown while recording — disappears on send. The "SR" */}
-            {/* dot tells the skipper at a glance whether on-device fast- */}
-            {/* path is firing (green) or we'll fall back to Scribe (gray). */}
-            {/* Width and leading tuned so italic letters with ascenders */}
-            {/* (the "d" in "send") aren't clipped by line-height. */}
+            {/* ── Live partial transcript (streaming STT) ────────────── */}
+            {/* Only shown while recording — disappears on send. The dot */}
+            {/* tells the skipper at a glance which streaming path is */}
+            {/* moving audio: Deepgram (primary) or Apple SR (fallback). */}
+            {/* MediaRecorder fallback shows neither — no live partials. */}
             {route && buttonState[route] === 'recording' && (
                 <div className="shrink-0 px-5 pt-3 pb-2 min-h-[56px] flex flex-col items-center justify-center gap-1.5">
                     <p className="text-sm italic text-sky-200/80 text-center max-w-[340px] leading-relaxed px-2">
@@ -1030,7 +1237,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                                 srActive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'
                             }`}
                         />
-                        {srActive ? 'On-device SR active' : 'SR pending… (will use Scribe if it stays gray)'}
+                        {srActive
+                            ? activeRecognizerKind === 'deepgram'
+                                ? 'Deepgram active'
+                                : activeRecognizerKind === 'apple-sr'
+                                  ? 'Apple SR active'
+                                  : 'Streaming STT active'
+                            : activeRecognizerKind === 'media-recorder'
+                              ? 'Recording — Scribe will transcribe on send'
+                              : 'STT pending… (will use Scribe if it stays gray)'}
                     </p>
                 </div>
             )}
