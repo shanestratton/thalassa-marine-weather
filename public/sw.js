@@ -3,10 +3,13 @@
 // indefinitely because the SW's stale-while-revalidate keeps serving it.
 // v3: currents route moved from /currents/* to /api/currents/* (the old
 // path 403s behind Vercel's Attack Challenge Mode).
-const CACHE_NAME = 'thalassa-v3-core';
-const TILE_CACHE = 'thalassa-v3-tiles';
-const DATA_CACHE = 'thalassa-v3-data';
-const LAN_TILE_CACHE = 'thalassa-v3-lan-tiles';
+// v4: Deepgram WS subprotocol changed from 'token' to 'bearer' — old
+// cached bundle still hits 401 INVALID_AUTH. Forcing invalidation so
+// the iOS SW picks up the new index-*.js with the auth fix.
+const CACHE_NAME = 'thalassa-v4-core';
+const TILE_CACHE = 'thalassa-v4-tiles';
+const DATA_CACHE = 'thalassa-v4-data';
+const LAN_TILE_CACHE = 'thalassa-v4-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
 
