@@ -209,6 +209,48 @@ export default {
         });
 
         // ── 9. Lifecycle propagation ───────────────────────────────
+        // Track whether either side has initiated close so we don't
+        // re-propagate (which can keep the Worker alive past actual
+        // session end and trigger Cloudflare's "code hung" error
+        // when the runtime can't tell the session is really done).
+        let closing = false;
+        const closeBoth = (initiator: 'client' | 'upstream', ev: CloseEvent): void => {
+            if (closing) return;
+            closing = true;
+            const c = ev.code;
+            // RFC 6455: codes <1000, 1005, 1006 can't be sent in a
+            // Close frame. Map to 1000 (normal) since we're explicitly
+            // tearing down rather than reporting an error.
+            const safeCode = c >= 1000 && c !== 1005 && c !== 1006 ? c : 1000;
+            const safeReason = ev.reason || (initiator === 'upstream' ? `upstream closed ${c}` : '');
+            if (initiator === 'upstream') {
+                // Tell client what happened upstream BEFORE we close their side.
+                try {
+                    serverSocket.send(
+                        JSON.stringify({
+                            type: 'UpstreamClose',
+                            code: c,
+                            reason: ev.reason || '',
+                            ts: Date.now(),
+                        }),
+                    );
+                } catch {
+                    /* client may already be closed */
+                }
+                try {
+                    serverSocket.close(safeCode, safeReason);
+                } catch {
+                    /* ignore */
+                }
+            } else {
+                try {
+                    upstream.close(safeCode, safeReason);
+                } catch {
+                    /* ignore */
+                }
+            }
+        };
+
         upstream.addEventListener('close', (ev) => {
             const closeEv = ev as CloseEvent;
             console.log(
@@ -216,30 +258,7 @@ export default {
                     `client→upstream chunks=${clientChunks} bytes=${clientBytes}, ` +
                     `upstream→client msgs=${upstreamMessages}`,
             );
-            // Tell the client what happened before we close their side.
-            try {
-                serverSocket.send(
-                    JSON.stringify({
-                        type: 'UpstreamClose',
-                        code: closeEv.code,
-                        reason: closeEv.reason || '',
-                        ts: Date.now(),
-                    }),
-                );
-            } catch {
-                /* ignore */
-            }
-            // RFC 6455 reserves codes <1000, 1005, 1006 — they can't be
-            // sent in a Close frame. Map any of those to 1011 so the
-            // client gets a clean signal instead of a silent TCP-RST.
-            const c = closeEv.code;
-            const safeCode = c < 1000 || c === 1005 || c === 1006 ? 1011 : c;
-            const safeReason = closeEv.reason || `upstream closed ${c}`;
-            try {
-                serverSocket.close(safeCode, safeReason);
-            } catch {
-                /* ignore */
-            }
+            closeBoth('upstream', closeEv);
         });
 
         upstream.addEventListener('error', () => {
@@ -254,14 +273,7 @@ export default {
         serverSocket.addEventListener('close', (ev) => {
             const closeEv = ev as CloseEvent;
             console.log(`[dg-proxy] client closed code=${closeEv.code}`);
-            try {
-                upstream.close(
-                    closeEv.code >= 1000 && closeEv.code !== 1005 && closeEv.code !== 1006 ? closeEv.code : 1000,
-                    closeEv.reason || '',
-                );
-            } catch {
-                /* ignore */
-            }
+            closeBoth('client', closeEv);
         });
 
         serverSocket.addEventListener('error', () => {
@@ -269,6 +281,11 @@ export default {
         });
 
         // ── 10. Return the client end of the pair to the caller ────
+        // Workers stay alive for the WebSocket lifecycle automatically
+        // — once both sockets close, the runtime cleans up. The single
+        // `closing` flag above prevents the close handlers from
+        // bouncing events back and forth, which is what was triggering
+        // the "Worker's code had hung" error in earlier deploys.
         return new Response(null, {
             status: 101,
             webSocket: clientSocket,
