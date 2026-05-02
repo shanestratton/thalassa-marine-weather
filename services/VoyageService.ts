@@ -180,6 +180,86 @@ export async function getDraftVoyagesWithLogbookEntries(): Promise<Voyage[]> {
     return drafts.filter((v) => liveRouteNames.has(norm(v.voyage_name)));
 }
 
+/**
+ * Delete draft (planning) voyages whose `voyage_name` matches `name`
+ * AND whose `created_at` falls on `dayKey` (YYYY-MM-DD).
+ *
+ * Day-level matching is intentional: a planned_* shiplog voyage and
+ * its auto-created voyages-table row are spawned in the same critical
+ * section in PassagePlanSave, so their timestamps differ by ms. We
+ * compare at day granularity so edge-of-second drift / time-zone
+ * conversions don't miss the link.
+ *
+ * Used by EntryCrud.deleteVoyage when a planned_* voyageId is wiped
+ * from the logbook — keeps the active-passage dropdown clean of
+ * orphaned voyage rows. Returns the count of voyages deleted.
+ */
+export async function deleteDraftVoyagesByNameAndDay(name: string, dayKey: string): Promise<number> {
+    const norm = name.trim().toLowerCase();
+
+    // Offline path — local-storage cache.
+    if (!supabase) {
+        try {
+            const raw = localStorage.getItem('thalassa_draft_voyages');
+            if (!raw) return 0;
+            const drafts = JSON.parse(raw) as Voyage[];
+            const remaining = drafts.filter((v) => {
+                const sameName = v.voyage_name.trim().toLowerCase() === norm;
+                if (!sameName) return true; // keep
+                const vDay = new Date(v.created_at).toISOString().slice(0, 10);
+                return vDay !== dayKey; // keep if different day
+            });
+            const removed = drafts.length - remaining.length;
+            if (removed > 0) localStorage.setItem('thalassa_draft_voyages', JSON.stringify(remaining));
+            return removed;
+        } catch {
+            return 0;
+        }
+    }
+
+    // Online path — Supabase. Fetch candidates first so we can apply the
+    // case-insensitive trim + day filter in JS (Supabase has limited
+    // built-in support for "trim then lowercase").
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return 0;
+
+    const { data: candidates, error: fetchErr } = await supabase
+        .from('voyages')
+        .select('id, voyage_name, created_at')
+        .eq('user_id', user.id)
+        .eq('status', 'planning');
+    if (fetchErr || !candidates) return 0;
+
+    const ids = candidates
+        .filter((v) => {
+            if ((v.voyage_name as string).trim().toLowerCase() !== norm) return false;
+            const vDay = new Date(v.created_at as string).toISOString().slice(0, 10);
+            return vDay === dayKey;
+        })
+        .map((v) => v.id as string);
+    if (ids.length === 0) return 0;
+
+    const { error: delErr } = await supabase.from('voyages').delete().in('id', ids);
+    if (delErr) return 0;
+
+    // Drop the local cache so getDraftVoyages doesn't return the deleted
+    // rows on its next call.
+    try {
+        const raw = localStorage.getItem('thalassa_draft_voyages');
+        if (raw) {
+            const drafts = JSON.parse(raw) as Voyage[];
+            const remaining = drafts.filter((v) => !ids.includes(v.id));
+            localStorage.setItem('thalassa_draft_voyages', JSON.stringify(remaining));
+        }
+    } catch {
+        /* full / unavailable */
+    }
+
+    return ids.length;
+}
+
 /** Get all draft (planning) voyages for the current user */
 export async function getDraftVoyages(): Promise<Voyage[]> {
     if (!supabase) {

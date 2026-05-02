@@ -10,8 +10,20 @@ import { supabase } from '../supabase';
 import { createLogger } from '../../utils/logger';
 import { SHIP_LOGS_TABLE, toDbFormat, fromDbFormat } from './helpers';
 import { deleteVoyageFromOfflineQueue, deleteEntryFromOfflineQueue } from './OfflineQueue';
+import { invalidateRoutesAndTracks } from './RoutesAndTracks';
 
 const log = createLogger('EntryCrud');
+
+/**
+ * Extract the embedded creation timestamp from a `planned_<ms>_<rand>`
+ * voyageId. Returns null for non-planned voyageIds and malformed inputs.
+ */
+function plannedVoyageTimestamp(voyageId: string): number | null {
+    const m = voyageId.match(/^planned_(\d+)_/);
+    if (!m) return null;
+    const t = parseInt(m[1], 10);
+    return isFinite(t) ? t : null;
+}
 
 /**
  * Fetch active (non-archived) log entries for current user.
@@ -191,8 +203,49 @@ export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
 
 /**
  * Delete a voyage and all its entries (from both DB and offline queue).
+ *
+ * For planned_* voyages, this also cascade-deletes the orphan voyages-
+ * table row that PassagePlanSave auto-creates on save. Without the
+ * cascade, the active-passage dropdown in CrewManagement would keep
+ * showing a draft for a route the user has explicitly removed from
+ * their logbook. Match: same voyage_name on the same calendar day as
+ * the planned_* voyageId's embedded creation timestamp.
  */
 export async function deleteVoyage(voyageId: string): Promise<boolean> {
+    // BEFORE deleting the entries, peek at the first/last waypointName
+    // for planned_* voyages so we can derive the voyage_name to cascade-
+    // delete from the voyages table afterward.
+    let plannedRouteName: string | null = null;
+    const planTs = plannedVoyageTimestamp(voyageId);
+    const planDay = planTs !== null ? new Date(planTs).toISOString().slice(0, 10) : null;
+    if (planDay !== null && supabase) {
+        try {
+            const {
+                data: { user },
+            } = await supabase.auth.getUser();
+            if (user) {
+                const { data: rows } = await supabase
+                    .from(SHIP_LOGS_TABLE)
+                    .select('waypoint_name, timestamp')
+                    .eq('user_id', user.id)
+                    .eq('voyage_id', voyageId)
+                    .order('timestamp', { ascending: true });
+                if (rows && rows.length >= 2) {
+                    const first = (rows[0] as { waypoint_name?: string }).waypoint_name;
+                    const last = (rows[rows.length - 1] as { waypoint_name?: string }).waypoint_name;
+                    if (first && last) {
+                        plannedRouteName = `${first.trim()} → ${last.trim()}`;
+                    }
+                }
+            }
+        } catch (e) {
+            // Non-fatal — just won't cascade-delete the voyages row.
+            // The dropdown filter will hide the orphan from view anyway,
+            // it just leaves dead data in the table.
+            log.warn('deleteVoyage: pre-delete name lookup failed', e);
+        }
+    }
+
     // First, try to delete from offline queue (local storage)
     const _offlineDeleted = await deleteVoyageFromOfflineQueue(voyageId);
 
@@ -221,6 +274,26 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
             log.error('deleteVoyage: DB delete failed', error);
         }
     }
+
+    // Cascade: remove the matching voyages-table row(s) for planned_*
+    // voyages so the active-passage dropdown doesn't keep an orphan.
+    if (plannedRouteName && planDay) {
+        try {
+            const { deleteDraftVoyagesByNameAndDay } = await import('../VoyageService');
+            const removed = await deleteDraftVoyagesByNameAndDay(plannedRouteName, planDay);
+            if (removed > 0) {
+                log.info(
+                    `deleteVoyage: cascade-removed ${removed} draft voyage(s) "${plannedRouteName}" from ${planDay}`,
+                );
+            }
+        } catch (e) {
+            log.warn('deleteVoyage: cascade-delete from voyages table failed', e);
+        }
+    }
+
+    // Drop the routes/tracks cache so the chart picker reflects this
+    // deletion immediately on next open.
+    invalidateRoutesAndTracks();
 
     // Return true if we deleted from offline queue (or if nothing was there)
     return true;
