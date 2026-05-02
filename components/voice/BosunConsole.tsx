@@ -199,40 +199,65 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     const [rawErrorMessage, setRawErrorMessage] = useState<string | null>(null);
 
     /**
-     * Wrapped error setter that intercepts the bare "The quota has been
-     * exceeded." string — that's Apple's native localizedDescription
-     * for kAFAssistantErrorDomain code 1101 (Apple SR rate limit),
-     * passed through verbatim by @capacitor-community/speech-recognition's
-     * Swift plugin (Plugin.swift line 121). It can leak into our error
-     * paths even when we don't explicitly call SpeechRecognition methods,
-     * because the plugin's recognitionTask resultHandler persists on
-     * the native side across JS reloads — a zombie SR task started in
-     * an earlier session can still fire its callback and reject pending
-     * Capacitor calls with this exact text.
+     * Wrapped error setter. Two responsibilities:
      *
-     * Map it to actionable text + log the stack so we can identify
-     * which JS path is the unwitting carrier.
+     *   1. Intercept the bare "The quota has been exceeded." string and
+     *      remap to a friendly + actionable message. Hypothesis (post
+     *      8-hour test confirming zombie SR is dead): this text is iOS
+     *      Safari's verbatim localStorage QuotaExceededError message
+     *      ("The quota has been exceeded." with name=QuotaExceededError
+     *      and code=22). When localStorage fills up — accumulated across
+     *      many Zustand-persisted stores plus Capacitor Preferences plus
+     *      whatever else writes — set() inside the persist middleware
+     *      synchronously throws that exact string from the native
+     *      Safari WebStorage API.
+     *
+     *   2. Capture the trace at error origin via the Error object's own
+     *      stack (NOT a synthesised wrapper Error — that captures this
+     *      line, not the actual throw point). The setErrorMessage call
+     *      sites are now responsible for passing the original Error or
+     *      its stack via setQuotaTrace() so we get the real source.
      */
     const setErrorMessage = useCallback((msg: string | null) => {
-        if (msg && /^The quota has been exceeded\.?$/i.test(msg.trim())) {
+        if (
+            msg &&
+            (/^The quota has been exceeded\.?$/i.test(msg.trim()) ||
+                /quota.{0,15}exceeded/i.test(msg) ||
+                /quotaexceedederror/i.test(msg))
+        ) {
             const friendly =
-                'iOS speech engine is rate-limited (background quota lock from earlier). ' +
-                'Wait 30-60 minutes or fully quit the app and re-open to clear.';
-            // Capture the call stack so we can hunt down which JS path
-            // is propagating the native zombie-SR error into our UI.
-            const stack = new Error('quota-error-trace').stack ?? '(no stack)';
-            console.warn('[quota-trace]', stack);
-            setSrEventLog((prev) => [
-                ...prev.slice(-19),
-                {
-                    ts: Date.now(),
-                    msg: `[quota-trace] origin: ${stack.split('\n').slice(1, 4).join(' → ').slice(0, 200)}`,
-                },
-            ]);
+                'Local storage is full — tap CLEAR at top right to free voice history, ' +
+                'then try again. (iOS WKWebView caps localStorage at ~5MB per origin.)';
             setRawErrorMessage(friendly);
             return;
         }
         setRawErrorMessage(msg);
+    }, []);
+
+    /**
+     * Companion setter for the error origin trace. Call sites that
+     * catch errors and call setErrorMessage should also call this with
+     * the caught Error so we can show the actual throw line in the
+     * debug strip — far more useful than the catch-site stack.
+     */
+    const setQuotaTrace = useCallback((err: unknown) => {
+        if (!err || !(err instanceof Error)) return;
+        const stack = err.stack ?? '(no stack)';
+        const message = err.message ?? '(no message)';
+        const name = err.name ?? '(no name)';
+        if (
+            !/^The quota has been exceeded\.?$/i.test(message.trim()) &&
+            !/quota.{0,15}exceeded/i.test(message) &&
+            !/quotaexceedederror/i.test(message + name)
+        ) {
+            return;
+        }
+        console.warn('[quota-trace]', name, message, stack);
+        const topFrames = stack.split('\n').slice(0, 5).join(' | ').slice(0, 250);
+        setSrEventLog((prev) => [
+            ...prev.slice(-19),
+            { ts: Date.now(), msg: `[quota-trace] name=${name} → ${topFrames}` },
+        ]);
     }, []);
     const errorMessage = rawErrorMessage;
     const [activeTarget, setActiveTarget] = useState<'bosun' | 'cloud' | null>(null);
@@ -412,6 +437,44 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         return () => {
             cancelled = true;
         };
+    }, [isOpen]);
+
+    // localStorage usage probe on console open. iOS WKWebView caps
+    // localStorage at ~5 MB per origin; once full, setItem() throws
+    // verbatim "The quota has been exceeded." which has been
+    // confusing the skipper. Logging the size + breakdown to the
+    // debug strip lets us see at a glance whether storage pressure
+    // is the actual cause.
+    useEffect(() => {
+        if (!isOpen) return;
+        try {
+            let total = 0;
+            const big: Array<{ key: string; size: number }> = [];
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k === null) continue;
+                const v = localStorage.getItem(k) ?? '';
+                const size = k.length + v.length;
+                total += size;
+                if (size > 50_000) big.push({ key: k, size });
+            }
+            big.sort((a, b) => b.size - a.size);
+            const totalKb = (total / 1024).toFixed(0);
+            const topKeys =
+                big
+                    .slice(0, 3)
+                    .map((b) => `${b.key.slice(0, 22)}=${(b.size / 1024).toFixed(0)}KB`)
+                    .join(', ') || '(none >50KB)';
+            setSrEventLog((prev) => [
+                ...prev.slice(-19),
+                { ts: Date.now(), msg: `[storage] total=${totalKb}KB; top: ${topKeys}` },
+            ]);
+        } catch (err) {
+            setSrEventLog((prev) => [
+                ...prev.slice(-19),
+                { ts: Date.now(), msg: `[storage] probe failed: ${(err as Error).message}` },
+            ]);
+        }
     }, [isOpen]);
 
     // Probe Deepgram availability on console open. This is a runtime
@@ -736,12 +799,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 }
                 handleResponse(response, to);
             } catch (err) {
+                setQuotaTrace(err);
                 setErrorMessage((err as Error).message || 'Something went wrong.');
                 setOneButton(to, 'error');
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, runOrchestrator, setOneButton, turns],
+        [handleResponse, runOrchestrator, setOneButton, setQuotaTrace, turns],
     );
 
     const sendTextQuery = useCallback(
