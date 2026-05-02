@@ -379,6 +379,13 @@ async function postAnthropic(body: object): Promise<AnthropicResponse> {
         result = await postAnthropicAttempt(body);
     }
     if (result.kind === 'ok') return result.response;
+    // Friendlier message for 429 — most skippers hitting this are
+    // saturating per-minute ITPM after rapid testing, not a real
+    // billing problem. Tell them what's actually happening rather
+    // than dump the raw upstream JSON.
+    if (result.status === 429) {
+        throw new Error("Calypso's hit Anthropic's rate limit — wait about 30 seconds and try again.");
+    }
     const statusBit = result.status > 0 ? `${result.status}` : 'transport';
     throw new Error(`Anthropic proxy ${statusBit}: ${result.message}`);
 }
