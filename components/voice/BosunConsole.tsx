@@ -34,6 +34,24 @@ import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../type
 const HISTORY_TURN_LIMIT = 10;
 
 /**
+ * Detect "over" at the end of an utterance. The skipper can say "over"
+ * as a hands-free alternative to tap-to-send — same as ham-radio
+ * etiquette. We strip it from the transcript before sending so Haiku
+ * doesn't see "over" as part of the question.
+ *
+ * Examples:
+ *   "what's the wind doing over"   → matched, cleaned = "what's the wind doing"
+ *   "over."                         → matched, cleaned = ""
+ *   "moreover"                      → not matched (no word boundary before)
+ *   "the storm's moving over to..." → not matched (not at end of utterance)
+ */
+function detectOverSuffix(text: string): { matched: boolean; cleaned: string } {
+    const m = text.match(/^(.*?)\s*\bover[.,!?]*\s*$/i);
+    if (!m) return { matched: false, cleaned: text };
+    return { matched: true, cleaned: m[1].trim() };
+}
+
+/**
  * Convert recent VoiceTurns into the {role, text} shape the edge function
  * expects. Drops everything except the user's transcript and the assistant's
  * final answer text — no tool_use/tool_result blocks, since we replay just
@@ -360,6 +378,35 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         [handleResponse, setOneButton, turns],
     );
 
+    /**
+     * Hands-free send via "over". Fires from the SR partialResults stream
+     * when the skipper's utterance ends with "over". Mirrors the stop+send
+     * branch of handleTalkTap but uses the cleaned SR text directly,
+     * skipping Scribe entirely. Self-guarding: if the recorder has already
+     * been torn down (e.g. user tapped concurrently), this is a no-op.
+     */
+    const handleOverGesture = useCallback(
+        async (cleanedText: string, target: 'bosun' | 'cloud') => {
+            const handle = recorderRef.current;
+            const srHandle = speechRecognizerRef.current;
+            if (!handle) return;
+            recorderRef.current = null;
+            speechRecognizerRef.current = null;
+            setOneButton(target, 'sending');
+            try {
+                const [blob] = await Promise.all([handle.stop(), srHandle ? srHandle.cancel() : Promise.resolve()]);
+                setActiveTarget(null);
+                setLiveTranscript('');
+                await sendVoiceQuery(blob, target, cleanedText);
+            } catch (err) {
+                setErrorMessage((err as Error).message);
+                setOneButton(target, 'error');
+                setTimeout(() => setOneButton(target, 'idle'), 1500);
+            }
+        },
+        [sendVoiceQuery, setOneButton],
+    );
+
     // ── Tap handlers ────────────────────────────────────────────────────
 
     /**
@@ -416,7 +463,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     if (which === 'cloud') {
                         try {
                             const srHandle = await startSpeechRecognition({
-                                onPartial: (text) => setLiveTranscript(text),
+                                onPartial: (text) => {
+                                    setLiveTranscript(text);
+                                    // Hands-free send: "over" at the end of
+                                    // the utterance triggers the same flow
+                                    // as a second tap. Empty cleaned text
+                                    // (skipper said only "over") → ignore.
+                                    const { matched, cleaned } = detectOverSuffix(text);
+                                    if (matched && cleaned.length > 0) {
+                                        void handleOverGesture(cleaned, which);
+                                    }
+                                },
                             });
                             speechRecognizerRef.current = srHandle;
                         } catch (err) {
@@ -462,7 +519,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             }
             // sending / awaiting: ignore.
         },
-        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio, unlockAudio],
+        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio, unlockAudio, handleOverGesture],
     );
 
     const handleTypedSubmit = useCallback(
@@ -524,7 +581,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 <div>
                     <p className="text-base font-bold text-white">Voice Console</p>
                     <p className="text-[10px] uppercase tracking-widest text-gray-400">
-                        Tap to talk, tap again to send
+                        Tap to talk — tap again or say &ldquo;over&rdquo; to send
                     </p>
                 </div>
                 <button
@@ -570,7 +627,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             {route && buttonState[route] === 'recording' && (
                 <div className="shrink-0 px-5 pt-2 pb-1 min-h-[28px] flex items-center justify-center">
                     <p className="text-xs italic text-sky-200/70 text-center max-w-[320px] line-clamp-2">
-                        {liveTranscript || 'Listening…'}
+                        {liveTranscript || 'Listening… say "over" or tap to send'}
                     </p>
                 </div>
             )}
