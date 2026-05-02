@@ -59,6 +59,26 @@ import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../type
 const HISTORY_TURN_LIMIT = 2;
 
 /**
+ * Feature flag — disable Apple SR's slot in the fallback chain.
+ *
+ * Why this exists: when both Deepgram and Apple SR are wired in,
+ * silent failures on the Deepgram path cascade into Apple SR, which
+ * then hits its per-device quota lockout, which then cascades into
+ * MediaRecorder. The skipper sees the "iOS speech-recognition rate
+ * limit" toast and we have no way to tell whether Deepgram even ran.
+ *
+ * Set to false to make Deepgram → MediaRecorder the only path. Apple
+ * SR is skipped entirely — its status pill stays informational but
+ * its handler never runs. If Deepgram fails for any reason, the
+ * cascade goes straight to MediaRecorder + Scribe (loses the live
+ * OVER gesture but keeps the question quality via strip-at-stop).
+ *
+ * Flip to true once we're confident Deepgram is reliable on the
+ * skipper's iOS device.
+ */
+const ENABLE_APPLE_SR_FALLBACK = false;
+
+/**
  * Detect "over" at the end of an utterance. The skipper can say "over"
  * as a hands-free alternative to tap-to-send — same as ham-radio
  * etiquette. We strip it from the transcript before sending so Haiku
@@ -800,7 +820,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 // and then to Scribe without intervention.
                 let recognizerStarted = false;
                 const tryDeepgram = which === 'cloud' && deepgramStatus === 'available';
-                const tryAppleSr = which === 'cloud' && srStatus === 'available';
+                const tryAppleSr = ENABLE_APPLE_SR_FALLBACK && which === 'cloud' && srStatus === 'available';
 
                 // Cold-start grace promise — populated by whichever
                 // recognizer we end up using. Resolved on first partial.
@@ -847,7 +867,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     }
                 }
 
-                // ── Tier 2: Apple SR (only if Deepgram didn't take) ──
+                // ── Tier 2: Apple SR (only if Deepgram didn't take, ──
+                // and only if the SR fallback flag is on). When flag
+                // is off and Deepgram failed, surface a debug-strip
+                // entry so the skipper can see we deliberately skipped
+                // SR — otherwise cascading straight to MediaRecorder
+                // looks like a bug.
+                if (!ENABLE_APPLE_SR_FALLBACK && !recognizerStarted) {
+                    setSrEventLog((prev) => [
+                        ...prev.slice(-5),
+                        {
+                            ts: Date.now(),
+                            msg: '[skip] Apple SR fallback disabled — going straight to MediaRecorder',
+                        },
+                    ]);
+                }
                 const useSR = tryAppleSr && !recognizerStarted;
                 let srStarted = false;
                 if (useSR) {
@@ -1145,28 +1179,26 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         {(() => {
                             const probing = deepgramStatus === 'unknown' || srStatus === 'unknown';
                             const dgReady = deepgramStatus === 'available';
-                            const srReady = srStatus === 'available';
+                            const srReady = srStatus === 'available' && ENABLE_APPLE_SR_FALLBACK;
                             const dot = dgReady
                                 ? 'bg-emerald-400'
                                 : srReady
                                   ? 'bg-emerald-400'
-                                  : srStatus === 'denied'
-                                    ? 'bg-amber-400'
-                                    : srStatus === 'unsupported' || srStatus === 'error'
-                                      ? 'bg-amber-400'
-                                      : probing
-                                        ? 'bg-gray-500 animate-pulse'
-                                        : 'bg-amber-400';
+                                  : probing
+                                    ? 'bg-gray-500 animate-pulse'
+                                    : 'bg-amber-400';
                             const label = probing
                                 ? 'Probing STT…'
                                 : dgReady
-                                  ? srReady
-                                      ? 'Deepgram ready · Apple SR fallback'
-                                      : 'Deepgram ready (fast path)'
+                                  ? !ENABLE_APPLE_SR_FALLBACK
+                                      ? 'Deepgram only · SR fallback disabled'
+                                      : srStatus === 'available'
+                                        ? 'Deepgram ready · Apple SR fallback'
+                                        : 'Deepgram ready (fast path)'
                                   : srReady
                                     ? 'Apple SR ready (fallback path)'
-                                    : srStatus === 'denied'
-                                      ? 'Audio-only fallback · SR permission denied'
+                                    : !ENABLE_APPLE_SR_FALLBACK
+                                      ? 'Audio-only fallback · SR fallback disabled'
                                       : 'Audio-only fallback';
                             return (
                                 <>
