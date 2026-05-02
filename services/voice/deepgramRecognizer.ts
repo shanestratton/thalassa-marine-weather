@@ -80,17 +80,16 @@ const DEEPGRAM_MODEL = 'nova-3';
 const ENDPOINTING_MS = 300;
 
 /**
- * Words to boost recognition of via Deepgram's `keywords` parameter.
- * Weight `:2` is roughly "twice as likely as a generic word of the same
- * acoustic profile". We boost "Calypso" because it's a non-English
- * proper noun that Nova-3 wouldn't otherwise know, and "over" because
- * the auto-send gesture depends on catching it reliably at the end of
- * an utterance even with mumbled enunciation.
+ * Words to boost recognition of via Deepgram's `keyterm` parameter.
+ *
+ * Nova-3 replaced the older `keywords=word:intensifier` with `keyterm`
+ * (no intensifier — just the term). Sending `keywords` to Nova-3
+ * returns HTTP 400 INVALID_QUERY_PARAMETER. We boost "Calypso"
+ * because it's a non-English proper noun that Nova-3 wouldn't
+ * otherwise have in its lexicon, and "over" so the auto-send gesture
+ * fires reliably even with mumbled enunciation.
  */
-const KEYWORDS = [
-    { word: 'Calypso', boost: 2 },
-    { word: 'over', boost: 1.5 },
-];
+const KEYTERMS = ['Calypso', 'over'];
 
 /**
  * Cleanup ceiling. Each teardown step (close WS, stop tracks, suspend
@@ -522,8 +521,8 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         // numerals + dates + currencies. Both safe for our use case.
         punctuate: 'true',
     });
-    for (const kw of KEYWORDS) {
-        params.append('keywords', `${kw.word}:${kw.boost}`);
+    for (const term of KEYTERMS) {
+        params.append('keyterm', term);
     }
 
     // ── 5. Connect WebSocket via Supabase proxy ─────────────────────
