@@ -130,8 +130,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     }, []);
 
     // ── Anchor display ──
+    // anchorRadius comes from `snapshot.swingRadius`, which is computed
+    // via Math.sqrt(rodeLength² - waterDepth²) * sensor-type factor —
+    // i.e. naturally a long float. Clamp to 1 decimal so the nav-station
+    // card reads "Armed — 50.0m" instead of "Armed — 50.000000000004m".
     const anchorLabel =
-        anchorStatus === 'alarm' ? '⚠️ DRAG ALARM' : anchorStatus === 'armed' ? `Armed — ${anchorRadius}m` : 'Disarmed';
+        anchorStatus === 'alarm'
+            ? '⚠️ DRAG ALARM'
+            : anchorStatus === 'armed'
+              ? `Armed — ${anchorRadius.toFixed(1)}m`
+              : 'Disarmed';
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
 
     return (
