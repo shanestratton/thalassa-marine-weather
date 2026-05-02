@@ -551,7 +551,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         Rode Deployed
                                     </label>
                                     <span className="text-sm font-black text-amber-400 font-mono tabular-nums">
-                                        {rodeLength}m
+                                        {rodeLength.toFixed(1)}m
                                     </span>
                                 </div>
                                 <input
@@ -874,12 +874,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className={t.typography.label}>Rode</div>
                                     <div className="text-lg font-bold text-amber-400">
-                                        {shoreData.config.rodeLength}m
+                                        {shoreData.config.rodeLength.toFixed(1)}m
                                     </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className={t.typography.label}>Depth</div>
-                                    <div className="text-lg font-bold text-sky-400">{shoreData.config.waterDepth}m</div>
+                                    <div className="text-lg font-bold text-sky-400">
+                                        {shoreData.config.waterDepth.toFixed(1)}m
+                                    </div>
                                 </div>
                                 <div className="bg-slate-800/50 rounded-xl p-3 text-center border border-white/[0.04]">
                                     <div className={t.typography.label}>Last Update</div>
@@ -1075,13 +1077,13 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className={t.typography.label}>Rode</div>
                             <div className="text-sm font-black font-mono text-amber-400">
-                                {snapshot?.config.rodeLength ?? `--`}m
+                                {snapshot ? `${snapshot.config.rodeLength.toFixed(1)}m` : '--'}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
                             <div className={t.typography.label}>Depth</div>
                             <div className="text-sm font-black font-mono text-sky-400">
-                                {snapshot?.config.waterDepth ?? `--`}m
+                                {snapshot ? `${snapshot.config.waterDepth.toFixed(1)}m` : '--'}
                             </div>
                         </div>
                         <div className="bg-slate-800/50 rounded-lg px-2 py-1.5 text-center border border-white/[0.04]">
