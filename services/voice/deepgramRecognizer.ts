@@ -520,7 +520,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     //      sidesteps the subprotocol entirely.
     const baseWsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
 
-    async function tryConnect(strategy: 'subprotocol' | 'urlparam'): Promise<WebSocket> {
+    async function tryConnect(strategy: 'subprotocol-bearer' | 'urlparam'): Promise<WebSocket> {
         const url = strategy === 'urlparam' ? `${baseWsUrl}&access_token=${encodeURIComponent(token)}` : baseWsUrl;
         const stratStart = Date.now();
         let s: WebSocket;
@@ -532,7 +532,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             // empirically against Deepgram's server. 'bearer' also
             // works for raw API keys, so it's the correct universal
             // choice when the client treats the token opaquely.
-            s = strategy === 'subprotocol' ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
+            s = strategy === 'subprotocol-bearer' ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
             s.binaryType = 'arraybuffer';
         } catch (err) {
             emitEvent(`[DG] ws ctor (${strategy}) threw: ${(err as Error).message}`);
@@ -602,9 +602,9 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     let ws: WebSocket;
     const wsStart = Date.now();
     try {
-        ws = await tryConnect('subprotocol');
+        ws = await tryConnect('subprotocol-bearer');
     } catch (subErr) {
-        emitEvent(`[DG] subprotocol failed → trying URL-param auth: ${(subErr as Error).message}`);
+        emitEvent(`[DG] subprotocol-bearer failed → trying URL-param auth: ${(subErr as Error).message}`);
         try {
             ws = await tryConnect('urlparam');
         } catch (urlErr) {
