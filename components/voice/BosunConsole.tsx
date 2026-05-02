@@ -727,7 +727,22 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         // SR start rejected — fall through to MediaRecorder.
                         // The wrapper already logged the rejection to the
                         // debug strip via emitEvent.
-                        console.warn('[BosunConsole] SR start failed, falling back to MediaRecorder:', err);
+                        const rawMsg = (err as Error).message || '';
+                        if (/quota has been exceeded/i.test(rawMsg)) {
+                            // Apple SR per-device rate limit. Surface in
+                            // the debug strip so the skipper can see
+                            // why SR went silent without needing the
+                            // Xcode console.
+                            setSrEventLog((prev) => [
+                                ...prev.slice(-5),
+                                {
+                                    ts: Date.now(),
+                                    msg: '[SR] iOS quota — falling back to Scribe',
+                                },
+                            ]);
+                        } else {
+                            console.warn('[BosunConsole] SR start failed, falling back to MediaRecorder:', err);
+                        }
                     }
                 }
 
@@ -736,7 +751,27 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         const handle = await startRecording();
                         recorderRef.current = handle;
                     } catch (err) {
-                        setErrorMessage((err as Error).message);
+                        // Translate iOS's per-device speech-recognition
+                        // rate limit ("The quota has been exceeded.") into
+                        // something actionable. This is Apple's SR bucket,
+                        // NOT Anthropic/ElevenLabs/Supabase. Resets after
+                        // ~30-60 minutes of not hammering it. Cascades into
+                        // MediaRecorder because iOS shares the audio system.
+                        const rawMsg = (err as Error).message || 'Recording failed';
+                        const isAppleSrQuota = /quota has been exceeded/i.test(rawMsg);
+                        const friendly = isAppleSrQuota
+                            ? 'iOS hit its speech-recognition rate limit. Wait 30-60 minutes, or use the text box below for now.'
+                            : rawMsg;
+                        if (isAppleSrQuota) {
+                            setSrEventLog((prev) => [
+                                ...prev.slice(-5),
+                                {
+                                    ts: Date.now(),
+                                    msg: '[SR] Apple device quota — voice path locked until iOS unblocks',
+                                },
+                            ]);
+                        }
+                        setErrorMessage(friendly);
                         setOneButton(which, 'error');
                         setTimeout(() => setOneButton(which, 'idle'), 1500);
                         return;
