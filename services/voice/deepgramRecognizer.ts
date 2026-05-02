@@ -298,6 +298,87 @@ export async function prewarmAudioContext(): Promise<boolean> {
 }
 
 /**
+ * Pre-warmed microphone stream. The dominant cold-start cost on iOS
+ * is `getUserMedia` activating AVAudioSession + acquiring the hardware
+ * mic — typically 1.0-1.4 seconds the FIRST time it's called in a
+ * session. Subsequent calls are fast because iOS keeps the audio
+ * resource warm.
+ *
+ * Pre-acquiring the stream on console open means the user sees a
+ * 1-second wait before the button becomes ready (with the iOS mic
+ * indicator turning on) but the actual tap-to-talk feels instant.
+ * For a voice console where the user opened explicitly to talk, this
+ * is a strict improvement.
+ *
+ * The stream is consumed by the first startDeepgramRecognizer() call
+ * (set to null after handover) and re-acquired fresh next time. We
+ * also release it on console close via releasePrewarmedMicStream().
+ */
+let prewarmedMicStream: MediaStream | null = null;
+
+export async function prewarmMicStream(): Promise<boolean> {
+    // Already alive? No-op.
+    if (prewarmedMicStream && prewarmedMicStream.getTracks().every((t) => t.readyState === 'live')) {
+        return true;
+    }
+    if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
+        return false;
+    }
+    try {
+        const t0 = Date.now();
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                channelCount: 1,
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true,
+            },
+        });
+        prewarmedMicStream = stream;
+        emitEvent(`[DG] prewarmed mic stream in ${Date.now() - t0}ms`);
+        return true;
+    } catch (err) {
+        emitEvent(`[DG] prewarm mic failed: ${(err as Error).message}`);
+        return false;
+    }
+}
+
+export function releasePrewarmedMicStream(): void {
+    if (prewarmedMicStream) {
+        try {
+            prewarmedMicStream.getTracks().forEach((t) => t.stop());
+        } catch {
+            /* ignore */
+        }
+        prewarmedMicStream = null;
+        emitEvent(`[DG] released prewarmed mic stream`);
+    }
+}
+
+/**
+ * Pre-warm the TLS / TCP connection to the Cloudflare Worker. iOS
+ * WKWebView's network stack reuses NSURLSession across HTTP and
+ * WebSocket scheme requests to the same origin, so a HEAD/GET on
+ * console open establishes DNS + TCP + TLS that the subsequent WS
+ * upgrade can reuse — saves ~150-300ms of cold-start.
+ */
+export async function prewarmWorkerConnection(): Promise<boolean> {
+    if (!DEEPGRAM_PROXY_URL) return false;
+    try {
+        const url = DEEPGRAM_PROXY_URL.replace(/\/+$/, '') + '/';
+        const t0 = Date.now();
+        // The Worker rejects non-WS requests with 426. We don't care
+        // about the response — we just want the TLS path established.
+        await fetch(url, { method: 'GET' }).catch(() => {});
+        emitEvent(`[DG] prewarm worker connection in ${Date.now() - t0}ms`);
+        return true;
+    } catch (err) {
+        emitEvent(`[DG] prewarm worker failed: ${(err as Error).message}`);
+        return false;
+    }
+}
+
+/**
  * Pre-warm the Deepgram token cache. Call from the BosunConsole on open
  * so the very first tap-to-talk skips the token mint round-trip — the
  * worst single contributor to cold-start latency. Refreshing on every
@@ -472,23 +553,33 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     }
 
     // ── 2. Acquire mic stream ───────────────────────────────────────
-    emitEvent('[DG] requesting mic…');
-    const micStart = Date.now();
+    // Prefer the prewarmed stream from BosunConsole's on-open hook —
+    // saves the ~1.0-1.4s iOS getUserMedia / AVAudioSession activation
+    // cost from the tap-to-ready critical path. Falls back to a fresh
+    // call if no prewarm was done or the prewarmed stream went stale.
     let stream: MediaStream;
-    try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                channelCount: 1,
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-            },
-        });
-    } catch (err) {
-        emitEvent(`[DG] getUserMedia failed: ${(err as Error).message}`);
-        throw new Error(`Microphone access denied: ${(err as Error).message}`);
+    const micStart = Date.now();
+    if (prewarmedMicStream && prewarmedMicStream.getTracks().every((t) => t.readyState === 'live')) {
+        stream = prewarmedMicStream;
+        prewarmedMicStream = null; // consumed; next session re-prewarms
+        emitEvent(`[DG] reused prewarmed mic stream (saved ~1s)`);
+    } else {
+        emitEvent('[DG] requesting mic…');
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+            });
+        } catch (err) {
+            emitEvent(`[DG] getUserMedia failed: ${(err as Error).message}`);
+            throw new Error(`Microphone access denied: ${(err as Error).message}`);
+        }
+        emitEvent(`[DG] mic stream acquired (${Date.now() - micStart}ms)`);
     }
-    emitEvent(`[DG] mic stream acquired (${Date.now() - micStart}ms)`);
 
     // ── 3. Open AudioContext + load worklet ────────────────────────
     // Use the pre-warmed context if BosunConsole called

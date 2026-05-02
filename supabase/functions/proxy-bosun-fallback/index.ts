@@ -410,8 +410,23 @@ async function runThalassaWeather(args: Record<string, unknown>): Promise<string
  * treats "Serene Summer" as one phonetic unit instead of stalling on
  * an unfamiliar proper-noun pair.
  */
+/**
+ * Reshape Calypso's answer text right before TTS. See
+ * elevenlabs-tts/index.ts for the full rationale — keeping these in
+ * sync so the legacy Scribe-fallback path produces the same audio
+ * quality as the orchestrator path.
+ */
 function prepareForTTS(text: string): string {
-    return text.replace(/\bSerene Summer\b/g, 'Serene-Summer');
+    return text
+        .replace(/\bSerene Summer\b/g, 'Serene-Summer')
+        .replace(/(\d+(?:\.\d+)?)\s*°\s*C\b/g, '$1 degrees Celsius')
+        .replace(/(\d+(?:\.\d+)?)\s*°\s*F\b/g, '$1 degrees Fahrenheit')
+        .replace(/(\d+(?:\.\d+)?)\s*hPa\b/gi, '$1 hectopascals')
+        .replace(/(\d+(?:\.\d+)?)\s*kts?\b/g, '$1 knots')
+        .replace(/(\d+(?:\.\d+)?)\s*kn\b/g, '$1 knots')
+        .replace(/(\d+(?:\.\d+)?)\s*nm\b/g, '$1 nautical miles')
+        .replace(/(\d+(?:\.\d+)?)\s+m\b(?!\w)/g, '$1 metres')
+        .replace(/(\d+(?:\.\d+)?)\s*s\b(?=\s+(?:period|wave|swell)|\s*$|\s*[.,;])/gi, '$1 seconds');
 }
 
 async function callElevenLabs(text: string): Promise<{ audio_b64: string | null; ms: number }> {
