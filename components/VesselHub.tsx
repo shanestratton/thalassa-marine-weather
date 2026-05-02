@@ -16,7 +16,6 @@ import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { lazyRetry } from '../utils/lazyRetry';
-import { FirstRunHint } from './ui/FirstRunHint';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -348,25 +347,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     />
                     <CollapsibleContent open={expanded.has('passage')}>
                         <div style={GLASS.listContainer}>
-                            <FirstRunHint id="passage-planning" message="Plan your first voyage here" position="top">
-                                <OfficeRow
-                                    icon={<CrewIcon color="#8b5cf6" />}
-                                    label="Passage Planning"
-                                    status={
-                                        passageCrewCount > 0
-                                            ? `${passageCrewCount} crew`
-                                            : pendingCrewInvites > 0
-                                              ? `${pendingCrewInvites} Pending`
-                                              : 'Plan Your Voyage'
-                                    }
-                                    statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        onNavigate('crew');
-                                    }}
-                                    badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                                />
-                            </FirstRunHint>
+                            <OfficeRow
+                                icon={<CrewIcon color="#8b5cf6" />}
+                                label="Passage Planning"
+                                status={
+                                    passageCrewCount > 0
+                                        ? `${passageCrewCount} crew`
+                                        : pendingCrewInvites > 0
+                                          ? `${pendingCrewInvites} Pending`
+                                          : 'Plan Your Voyage'
+                                }
+                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('crew');
+                                }}
+                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                            />
                             <OfficeRow
                                 icon={<GpxIcon color="#10b981" />}
                                 label="Import GPX"
