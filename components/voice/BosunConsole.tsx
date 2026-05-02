@@ -1105,7 +1105,25 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             }
             // sending / awaiting: ignore.
         },
-        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio, unlockAudio, handleOverGesture, srActive],
+        [
+            buttonState,
+            activeTarget,
+            sendVoiceQuery,
+            setOneButton,
+            stopAudio,
+            unlockAudio,
+            handleOverGesture,
+            srActive,
+            // CRITICAL: status states must be in deps. Without them the
+            // callback closes over the initial 'unknown' values, so even
+            // after the probes set them to 'available' the start path
+            // computes tryDeepgram=false and skips straight to the
+            // MediaRecorder fallback. This was the actual reason
+            // Deepgram appeared "broken on first tap" on iOS — it was
+            // never being attempted at all.
+            deepgramStatus,
+            srStatus,
+        ],
     );
 
     const handleTypedSubmit = useCallback(
