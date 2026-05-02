@@ -21,6 +21,7 @@ import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
 import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
+import { n2kStatus, type N2kStatus } from '../services/n2kStatus';
 import { toast } from './Toast';
 
 // ── Types ──
@@ -68,6 +69,14 @@ interface SystemState {
             dbSizeMB: number;
         };
     };
+    n2k: {
+        active: boolean; // reachable AND health is green/amber (not red)
+        reachable: boolean;
+        health: 'red' | 'amber' | 'green' | null;
+        summary: string | null;
+        pathsSeen: number;
+        pathsTotal: number;
+    };
 }
 
 // ── Helpers ──
@@ -104,6 +113,7 @@ const SystemStatusModal: React.FC<{
         state.extGps.active,
         state.followRoute.active,
         state.piCache.active,
+        state.n2k.active,
     ].filter(Boolean).length;
 
     return createPortal(
@@ -330,6 +340,49 @@ const SystemStatusModal: React.FC<{
                         dotColor={state.piCache.active ? 'bg-emerald-400' : 'bg-slate-600'}
                         pulse={state.piCache.active}
                     />
+
+                    {/* ── NMEA 2000 Bus (PiCAN-M Hat → SignalK) ── */}
+                    {/* Only render when we have anything useful to say. */}
+                    {/* Reachable means we got a valid response from the */}
+                    {/* Pi's /api/n2k/status endpoint at least once. */}
+                    {state.n2k.reachable && (
+                        <SystemRow
+                            icon={
+                                <svg
+                                    className="w-4 h-4"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                >
+                                    {/* CAN-bus motif: H/L pair + termination */}
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M3 9h18M3 15h18M6 5v14M18 5v14"
+                                    />
+                                </svg>
+                            }
+                            label="NMEA 2000"
+                            active={state.n2k.active}
+                            detail={
+                                state.n2k.summary ||
+                                (state.n2k.health === 'green'
+                                    ? `Live · ${state.n2k.pathsSeen}/${state.n2k.pathsTotal} paths`
+                                    : 'Bus quiet')
+                            }
+                            dotColor={
+                                state.n2k.health === 'green'
+                                    ? 'bg-emerald-400'
+                                    : state.n2k.health === 'amber'
+                                      ? 'bg-amber-400'
+                                      : state.n2k.health === 'red'
+                                        ? 'bg-red-400'
+                                        : 'bg-slate-600'
+                            }
+                            pulse={state.n2k.health === 'green'}
+                        />
+                    )}
                 </div>
             </div>
         </div>,
@@ -413,13 +466,19 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     // so the indicator tracks reality within ~5s of a state change.
     useEffect(() => {
         if (!showModal) return;
-        // Immediate fresh ping on open.
+        // Immediate fresh ping on open — both Pi services in parallel.
         piCache.ping().catch(() => {
             /* ping errors already drive the listener → reachable=false */
+        });
+        n2kStatus.refresh().catch(() => {
+            /* same — n2kStatus listener handles unreachable */
         });
         const id = setInterval(() => {
             if (document.hidden) return;
             piCache.ping().catch(() => {});
+            // N2K bus state changes on minutes timescales; 5s polling
+            // would burn battery for no signal. Stay on the 30s
+            // background cadence even while the modal is open.
         }, 5_000);
         return () => clearInterval(id);
     }, [showModal]);
@@ -469,6 +528,20 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         // Always seeding gives the derived state a concrete value to render.
         setPiStatus(piCache.getStatus());
 
+        return unsub;
+    }, []);
+
+    // ── NMEA 2000 bus health (Bosun /api/n2k/status) ──
+    // Polls the Pi every 30s for the SocketCAN + SignalK rollup. The
+    // service returns a cached snapshot synchronously via getStatus()
+    // so the modal renders something on first paint.
+    const [n2kSnap, setN2kSnap] = useState<N2kStatus>(() => n2kStatus.getStatus());
+    useEffect(() => {
+        const unsub = n2kStatus.onStatusChange(setN2kSnap);
+        n2kStatus.start();
+        // We never call n2kStatus.stop() — it's a long-running background
+        // service for the lifetime of the app. SystemStatusButton mounts
+        // once at the header level so there's no remount churn.
         return unsub;
     }, []);
 
@@ -581,6 +654,18 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                       }
                     : undefined,
             },
+            n2k: {
+                // "Active" means the row gets full opacity. Green +
+                // amber are both worth highlighting (amber = wired but
+                // bench / no traffic, still informative). Red and
+                // unreachable get the dim treatment.
+                active: n2kSnap.reachable && n2kSnap.health !== null && n2kSnap.health !== 'red',
+                reachable: n2kSnap.reachable,
+                health: n2kSnap.health,
+                summary: n2kSnap.summary,
+                pathsSeen: n2kSnap.pathsSeen,
+                pathsTotal: n2kSnap.pathsTotal,
+            },
         }),
         [
             gpsTracking,
@@ -599,6 +684,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             routeChanged,
             routeRefreshing,
             piStatus,
+            n2kSnap,
         ],
     );
 
@@ -610,6 +696,10 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         systemState.extGps.active,
         systemState.followRoute.active,
         systemState.piCache.active,
+        // N2K only counts toward "active systems" when actually green
+        // (live traffic) — amber/bench mode shouldn't promote the FAB
+        // visibility.
+        systemState.n2k.active && systemState.n2k.health === 'green',
     ].filter(Boolean).length;
 
     // Don't show if nothing is active
