@@ -21,7 +21,7 @@
  */
 
 import { blobToBase64 } from './audioRecorder';
-import type { ThalassaContext, VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
+import type { ThalassaContext, VoiceHistoryTurn, VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
@@ -46,6 +46,8 @@ interface AskBody {
     session_id?: string;
     /** Snapshot of Thalassa state — location, conditions, passage. */
     context?: ThalassaContext;
+    /** Prior turns in this console session, oldest first, for continuity. */
+    history?: VoiceHistoryTurn[];
 }
 
 async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
@@ -119,7 +121,12 @@ async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
 
 /** Send a typed-text query to the cloud Haiku fallback. */
 export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryResponse> {
-    return postToFallback({ text: req.text, session_id: req.sessionId, context: req.context });
+    return postToFallback({
+        text: req.text,
+        session_id: req.sessionId,
+        context: req.context,
+        history: req.history,
+    });
 }
 
 /**
@@ -127,12 +134,16 @@ export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryRe
  * runs ElevenLabs Scribe for STT, then Haiku, then ElevenLabs TTS, and
  * returns the full VoiceQueryResponse envelope.
  */
-export async function askCloudVoice(audioBlob: Blob, context?: ThalassaContext): Promise<VoiceQueryResponse> {
+export async function askCloudVoice(
+    audioBlob: Blob,
+    context?: ThalassaContext,
+    history?: VoiceHistoryTurn[],
+): Promise<VoiceQueryResponse> {
     const audio_b64 = await blobToBase64(audioBlob);
     if (!audio_b64) {
         throw new CloudFallbackError('Recorded audio is empty — try holding for a moment longer.');
     }
-    return postToFallback({ audio_b64, mime_type: audioBlob.type || 'audio/mp4', context });
+    return postToFallback({ audio_b64, mime_type: audioBlob.type || 'audio/mp4', context, history });
 }
 
 // ── backwards-compat alias for any callers still using askCloud(text) ──

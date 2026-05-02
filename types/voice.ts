@@ -62,6 +62,17 @@ export interface ThalassaContext {
     passage?: ThalassaPassage;
 }
 
+/**
+ * One prior turn in the conversation, sent so Haiku has continuity
+ * across queries (e.g. "for the next 3 questions, speak like a pirate"
+ * actually persists). Stripped to text-only — no tool_use/tool_result
+ * blocks, since we replay just the conversational thread.
+ */
+export interface VoiceHistoryTurn {
+    role: 'user' | 'assistant';
+    text: string;
+}
+
 export interface VoiceQueryRequest {
     /** What the skipper said (already transcribed by iOS Web Speech API). */
     text: string;
@@ -69,6 +80,8 @@ export interface VoiceQueryRequest {
     sessionId?: string;
     /** Optional: snapshot of Thalassa state (location, weather, passage). */
     context?: ThalassaContext;
+    /** Optional: prior turns in this console session, oldest first. */
+    history?: VoiceHistoryTurn[];
 }
 
 export interface VoiceQueryResponse {
