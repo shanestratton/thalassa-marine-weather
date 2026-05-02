@@ -27,48 +27,34 @@ import { EnvironmentService } from './EnvironmentService';
 import { createLogger } from '../utils/logger';
 
 // --- Extracted modules ---
-import {
-    retryGpsAndUpdateEntry as _retryGpsAndUpdateEntry,
-    demotePreviousAutoWaypoint as _demotePreviousAutoWaypoint,
-} from './shiplog/EntrySave';
 import { savePassagePlanToLogbook as _savePassagePlanToLogbook } from './shiplog/PassagePlanSave';
-import {
-    calculateDistanceNM,
-    calculateBearing,
-    formatPositionDMS,
-    getWeatherSnapshot,
-    determineLoggingZone,
-    getIntervalForZone,
-    getIntervalForSpeed,
-    type LoggingZone,
-} from './shiplog/helpers';
-import { GpsTrackBuffer, thinTrack } from './shiplog/GpsTrackBuffer';
+import { determineLoggingZone, getIntervalForZone, getIntervalForSpeed, type LoggingZone } from './shiplog/helpers';
+import { GpsTrackBuffer } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import {
     loadTrackingState,
     saveTrackingState as _saveTrackingState,
-    getLastPosition as _getLastPosition,
-    saveLastPosition as _saveLastPosition,
     clearVoyageState as _clearVoyageState,
     type TrackingState,
-    type StoredPosition,
 } from './shiplog/TrackingStateStore';
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
 import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
 import { AdaptiveScheduler } from './shiplog/AdaptiveScheduler';
 import { GpsSubscriptionManager } from './shiplog/GpsSubscriptionManager';
 import {
-    getBestPosition as _getBestPosition,
-    getGpsStatus as _getGpsStatus,
-    getGpsNavData as _getGpsNavData,
-} from './shiplog/PositionResolver';
+    captureImmediate as _captureImmediate,
+    captureLog as _captureLog,
+    addManual as _addManual,
+    flushBufferedTrack as _flushBufferedTrack,
+    type CaptureContext,
+    type CaptureLogOptions,
+    type AddManualOptions,
+} from './shiplog/CapturePipeline';
+import { getGpsStatus as _getGpsStatus, getGpsNavData as _getGpsNavData } from './shiplog/PositionResolver';
 import {
-    queueOfflineEntry as _queueOfflineEntry,
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
     getOfflineEntries as _getOfflineEntries,
-    deleteVoyageFromOfflineQueue as _deleteVoyageFromOfflineQueue,
-    deleteEntryFromOfflineQueue as _deleteEntryFromOfflineQueue,
 } from './shiplog/OfflineQueue';
 import {
     getLogEntries as _getLogEntries,
@@ -80,38 +66,20 @@ import {
     deleteEntry as _deleteEntry,
     importGPXVoyage as _importGPXVoyage,
 } from './shiplog/EntryCrud';
-import { checkIsOnWater } from './shiplog/waterDetection';
 
 const log = createLogger('ShipLog');
 
-// Save-or-queue + web GPS fresh-fetch live in shiplog/EntrySave.ts.
-import { webGetFreshPosition, saveEntryOnlineOrOffline } from './shiplog/EntrySave';
+// --- CONSTANTS still owned by the orchestrator ---
+//
+// Constants used only inside the capture pipeline (DEDUP_THRESHOLD_NM,
+// STATIONARY_THRESHOLD_NM, MAX_PLAUSIBLE_SPEED_KTS, MAX_ACCELERATION_KTS,
+// GPS_STALE_LIMIT_MS) live in CapturePipeline.ts now. Storage keys +
+// state interfaces live in TrackingStateStore.ts. Helper functions, DB
+// mapping, and zone detection live in helpers.ts.
 
-// Staleness threshold: if cached GPS is older than this, fetch fresh
-const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
-
-// --- CONSTANTS ---
 const TRACKING_INTERVAL_MS = 60 * 1000; // 60 seconds (fallback / offshore default)
 const RAPID_INTERVAL_MS = 10 * 1000; // 10 seconds for marina/shore navigation (manual override)
-const STATIONARY_THRESHOLD_NM = 0.05; // Less than 0.05nm movement = anchored
-
-const DEDUP_THRESHOLD_NM = 0.005; // ~10 meters — discard auto entry if vessel hasn't moved
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
-
-// --- SPEED SANITY ---
-// Hard cap: 25 knots is generous for any sailing yacht (most top out at 8-12).
-// GPS spikes routinely report 20-30kn jumps; this catches them.
-const MAX_PLAUSIBLE_SPEED_KTS = 25;
-
-// Acceleration gate: reject if speed jumps more than this between consecutive fixes.
-// Even a fast cat going from 0 to hull speed takes tens of seconds, not one GPS fix.
-const MAX_ACCELERATION_KTS = 8; // Max knot increase per fix interval
-
-// Storage keys + interfaces moved to ./shiplog/TrackingStateStore.ts.
-// `TrackingState` and `StoredPosition` types are re-imported above.
-
-// Helper functions, DB mapping, weather snapshot, and zone detection
-// are now in ./shiplog/helpers.ts — imported above.
 
 // --- MAIN SERVICE CLASS ---
 
@@ -461,14 +429,10 @@ class ShipLogServiceClass {
     //
     // startCourseChangeDetection moved to ./shiplog/CourseChangeDetector.ts.
 
-    // GPS resolution moved to ./shiplog/PositionResolver.ts. The
-    // orchestrator owns `lastBgLocation` and `isNative` and forwards them
-    // through these one-line delegates. `_webGetFreshPosition` (the
-    // duplicated copy of EntrySave.webGetFreshPosition) is gone.
-
-    private getBestPosition(): Promise<CachedPosition | null> {
-        return _getBestPosition(this.lastBgLocation, this.isNative);
-    }
+    // GPS resolution lives in ./shiplog/PositionResolver.ts. CapturePipeline
+    // calls getBestPosition() directly; the orchestrator only exposes the
+    // two read-only convenience views (status + nav data) since the
+    // Dashboard / SystemStatus components want them as instance methods.
 
     getGpsStatus(): 'locked' | 'stale' | 'none' {
         return _getGpsStatus(this.lastBgLocation, this.isNative);
@@ -564,117 +528,7 @@ class ShipLogServiceClass {
         voyageId?: string,
         waypointLabel: string = 'Voyage Start',
     ): Promise<ShipLogEntry | null> {
-        const timestamp = new Date().toISOString();
-        const effectiveVoyageId = voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`;
-
-        // Get weather snapshot (SYNC — instant from localStorage)
-        const weatherSnapshot = getWeatherSnapshot();
-
-        // Create entry immediately with placeholder position
-        // First entry in a voyage is always a waypoint ('Voyage Start')
-        const entry: Partial<ShipLogEntry> = {
-            voyageId: effectiveVoyageId,
-            timestamp,
-            latitude: 0,
-            longitude: 0,
-            positionFormatted: 'Acquiring position...',
-            distanceNM: 0,
-            cumulativeDistanceNM: 0,
-            speedKts: 0,
-            ...weatherSnapshot,
-            entryType: 'waypoint',
-            waypointName: waypointLabel,
-            source: 'device',
-        };
-
-        // Flag to track if GPS failed and needs background retry
-        let needsGpsRetry = false;
-
-        // COLD START WARM-UP: If no cached GPS fix yet, wait briefly for the first one
-        // Single fast check — background retry handles late fixes
-        const GPS_WARMUP_ATTEMPTS = 1;
-        const GPS_WARMUP_DELAY_MS = 500;
-
-        let bestPos = this.lastBgLocation;
-        if (!bestPos || Date.now() - bestPos.receivedAt > GPS_STALE_LIMIT_MS) {
-            // No fresh cached position — try warm-up loop
-            for (let i = 0; i < GPS_WARMUP_ATTEMPTS; i++) {
-                await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_DELAY_MS));
-                bestPos = this.lastBgLocation;
-                if (bestPos && Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS) {
-                    break; // Got a fresh fix
-                }
-                // Also try getCurrentPosition as a final fallback on last attempt
-                if (i === GPS_WARMUP_ATTEMPTS - 1) {
-                    bestPos = this.isNative
-                        ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
-                        : await webGetFreshPosition();
-                }
-            }
-        }
-
-        if (bestPos && Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS) {
-            entry.latitude = bestPos.latitude;
-            entry.longitude = bestPos.longitude;
-            entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
-
-            if (bestPos.heading !== null && bestPos.heading !== undefined && bestPos.heading !== 0) {
-                entry.courseDeg = Math.round(bestPos.heading);
-            }
-
-            // Update last position
-            await this.saveLastPosition({
-                latitude: bestPos.latitude,
-                longitude: bestPos.longitude,
-                timestamp,
-                cumulativeDistanceNM: 0,
-            });
-
-            // On-water check (fire-and-forget, fail-open)
-            try {
-                entry.isOnWater = await checkIsOnWater(bestPos.latitude, bestPos.longitude);
-                this.lastWaterStatus = entry.isOnWater; // Seed cache for subsequent entries
-            } catch (e) {
-                log.warn('[ShipLog]', e);
-                entry.isOnWater = true; // Fail open
-            }
-        } else {
-            // No GPS at all after warm-up — will retry in background
-            needsGpsRetry = true;
-        }
-
-        // Save the entry (online or offline queue) via the consolidated
-        // helper in EntrySave.ts. Eliminates the 3-way duplicate save-or-
-        // queue block that used to live here, in captureLogEntry, and in
-        // addManualEntry.
-        const { saved, entryId, wasOffline } = await saveEntryOnlineOrOffline(entry);
-        // If GPS failed initially and we DID persist online, retry in background
-        // so the entry's lat/lon backfills when GPS arrives.
-        if (!wasOffline && needsGpsRetry && entryId) {
-            this.retryGpsAndUpdateEntry(entryId);
-        }
-
-        // Track when this entry was created for background resume catch-up
-        this.trackingState.lastEntryTime = timestamp;
-        await this.saveTrackingState();
-
-        // Online success returns the DB-hydrated entry (with id); offline
-        // path falls through with the in-memory entry shape.
-        return saved ?? (entry as ShipLogEntry);
-    }
-
-    /**
-     * Background GPS retry - attempts to get GPS position and update a saved entry
-     * Retries every 5 seconds for up to 30 seconds total
-     */
-    /** Delegate to extracted module */
-    private async retryGpsAndUpdateEntry(entryId: string): Promise<void> {
-        return _retryGpsAndUpdateEntry(entryId);
-    }
-
-    /** Delegate to extracted module */
-    private async demotePreviousAutoWaypoint(voyageId: string): Promise<void> {
-        return _demotePreviousAutoWaypoint(voyageId);
+        return _captureImmediate(this._captureCtx(), voyageId, waypointLabel);
     }
 
     /**
@@ -698,190 +552,16 @@ class ShipLogServiceClass {
         voyageId?: string,
         skipDedup?: boolean,
     ): Promise<ShipLogEntry | null> {
-        try {
-            // Get current position from cached onLocation stream (instant, no blocking)
-            const bestPos = await this.getBestPosition();
-            if (!bestPos) {
-                // No GPS available — skip this auto entry, will retry on next tick
-                if (entryType === 'auto') return null;
-                // For manual entries, allow entry with zero position
-            }
-
-            const latitude = bestPos?.latitude ?? 0;
-            const longitude = bestPos?.longitude ?? 0;
-            const heading = bestPos?.heading ?? null;
-
-            // For auto entries in OFFSHORE mode, snap timestamp to exact quarter hour (00, 15, 30, 45)
-            // Nearshore/Coastal entries use shorter intervals so keep exact timestamps
-            // Rapid mode entries also keep exact timestamps
-            const entryTime = new Date(bestPos?.timestamp ?? Date.now());
-            const isOffshoreMode = !this.trackingState.isRapidMode && this.trackingState.loggingZone === 'offshore';
-            if (entryType === 'auto' && isOffshoreMode) {
-                const minutes = entryTime.getMinutes();
-                const nearestQuarter = Math.round(minutes / 15) * 15;
-                entryTime.setMinutes(nearestQuarter, 0, 0); // Set to quarter hour with 0 seconds
-                // Handle rollover (60 -> next hour)
-                if (nearestQuarter === 60) {
-                    entryTime.setHours(entryTime.getHours() + 1);
-                    entryTime.setMinutes(0, 0, 0);
-                }
-            }
-            const timestamp = entryTime.toISOString();
-
-            // Get last position for distance calculation
-            const lastPos = await this.getLastPosition();
-
-            let distanceNM = 0;
-            let speedKts = 0;
-            let cumulativeDistanceNM = 0;
-
-            if (lastPos) {
-                // Calculate distance from last position
-                distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
-
-                // DEDUP FILTER: If this is an auto entry and the vessel hasn't moved
-                // more than ~5 meters, discard it to avoid cluttering the logbook.
-                // Record the check so the UI can show "Position unchanged" feedback.
-                // SKIP when called from flushBufferedTrack — the RDP thinning already
-                // provides superior context-aware filtering (turns, speed, gaps).
-                if (!skipDedup && entryType === 'auto' && distanceNM < DEDUP_THRESHOLD_NM) {
-                    this.trackingState.lastCheckTime = Date.now();
-                    this.trackingState.lastCheckDeduped = true;
-                    return null;
-                }
-
-                // Calculate speed (distance / time)
-                const timeDiffMs = new Date(timestamp).getTime() - new Date(lastPos.timestamp).getTime();
-                const timeDiffHours = timeDiffMs / (1000 * 60 * 60);
-                speedKts = timeDiffHours > 0 ? distanceNM / timeDiffHours : 0;
-
-                // SPEED SANITY: Multi-layer GPS spike filtering.
-                //
-                // Layer 1: Hard cap — 25kn is generous for any sailing yacht.
-                // GPS cold-start teleports and multi-path reflections routinely produce
-                // 20-30kn phantom speeds. Anything above the cap is zeroed.
-                //
-                // Layer 2: Acceleration gate — reject implausible speed jumps.
-                // Even under full sail, a yacht doesn't accelerate 8+ kts between
-                // consecutive fixes. This catches GPS "teleport" fixes that the
-                // warm-up filter missed (e.g., second stale fix at 2s mark).
-                //
-                // Layer 3: Ignore speed when previous position was the 0,0 placeholder
-                // from captureImmediateEntry (no real previous fix to compare against).
-                if (lastPos.latitude === 0 && lastPos.longitude === 0) {
-                    speedKts = 0;
-                } else if (speedKts > MAX_PLAUSIBLE_SPEED_KTS) {
-                    // Drop the entry entirely — saving with zeroed stats but the
-                    // spike's lat/lon would still hop the polyline. Bail.
-                    log.warn(
-                        `Speed spike rejected: ${speedKts.toFixed(1)}kn > ${MAX_PLAUSIBLE_SPEED_KTS}kn cap — dropping entry`,
-                    );
-                    return null;
-                } else if (lastPos.speedKts !== undefined && lastPos.speedKts >= 0) {
-                    const accel = speedKts - lastPos.speedKts;
-                    if (accel > MAX_ACCELERATION_KTS) {
-                        // Same logic — bail rather than save the spike's coordinates.
-                        log.warn(
-                            `Acceleration spike rejected: +${accel.toFixed(1)}kn jump (${lastPos.speedKts.toFixed(1)} → ${speedKts.toFixed(1)}) — dropping entry`,
-                        );
-                        return null;
-                    }
-                }
-
-                cumulativeDistanceNM = lastPos.cumulativeDistanceNM + distanceNM;
-
-                // Track last movement time (for analytics/stats)
-                if (distanceNM >= STATIONARY_THRESHOLD_NM) {
-                    this.trackingState.lastMovementTime = timestamp;
-                    await this.saveTrackingState();
-                }
-            }
-
-            // Get weather snapshot (SYNC — instant from localStorage)
-            const weatherSnapshot = getWeatherSnapshot();
-
-            // Calculate COG: Use GPS heading if available, otherwise calculate from position change
-            let courseDeg: number | undefined;
-            if (heading !== null && heading !== undefined) {
-                // GPS provides heading directly
-                courseDeg = Math.round(heading);
-            } else if (lastPos && distanceNM >= STATIONARY_THRESHOLD_NM) {
-                // Calculate bearing from previous position (only if actually moved)
-                courseDeg = Math.round(calculateBearing(lastPos.latitude, lastPos.longitude, latitude, longitude));
-            }
-            // If stationary or no previous position, courseDeg stays undefined
-
-            // ROLLING WAYPOINT LIFECYCLE:
-            // Every new auto entry is promoted to a waypoint ('Latest Position').
-            // The previous auto-promoted waypoint is demoted back to 'auto'.
-            // Turn waypoints, manual entries, and user-placed waypoints are never demoted.
-            const effectiveEntryType = entryType === 'auto' ? 'waypoint' : entryType;
-            const effectiveWaypointName = entryType === 'auto' ? 'Latest Position' : waypointName;
-
-            // Demote previous auto-promoted waypoint (fire-and-forget)
-            if (entryType === 'auto') {
-                this.demotePreviousAutoWaypoint(voyageId || this.trackingState.currentVoyageId || '').catch(() => {
-                    /* best effort */
-                });
-            }
-
-            // Create log entry with voyage ID
-            const entry: Partial<ShipLogEntry> = {
-                voyageId: voyageId || this.trackingState.currentVoyageId || `voyage_${Date.now()}`,
-                timestamp,
-                latitude,
-                longitude,
-                positionFormatted: formatPositionDMS(latitude, longitude),
-                distanceNM: Math.round(distanceNM * 100) / 100,
-                cumulativeDistanceNM: Math.round(cumulativeDistanceNM * 100) / 100,
-                speedKts: Math.round(speedKts * 10) / 10,
-                courseDeg,
-                ...weatherSnapshot,
-                entryType: effectiveEntryType,
-                eventCategory,
-                engineStatus,
-                notes,
-                waypointName: effectiveWaypointName,
-                // Stamp water status from cached 60s environment polling.
-                // Ensures career totals filter has enough data to classify land vs water tracks.
-                isOnWater: this.lastWaterStatus,
-            };
-
-            // Save online or queue offline. The OFFLINE-FAST-PATH lives
-            // inside saveEntryOnlineOrOffline (skips supabase.auth.getUser
-            // when offline so airplane-mode tracking doesn't hang).
-            const { saved } = await saveEntryOnlineOrOffline(entry);
-
-            // Update last position whether saved online or queued.
-            // (Used by the next captureLogEntry call to compute distanceNM
-            // and the acceleration sanity gate, so it must run regardless.)
-            await this.saveLastPosition({
-                latitude,
-                longitude,
-                timestamp,
-                cumulativeDistanceNM,
-                speedKts,
-            });
-
-            // Track when this entry was created for background resume catch-up
-            this.trackingState.lastEntryTime = timestamp;
-            this.trackingState.lastCheckTime = Date.now();
-            this.trackingState.lastCheckDeduped = false;
-            await this.saveTrackingState();
-
-            // Re-evaluate logging zone after each successful fix
-            // This allows the interval to adapt as the vessel moves closer/further from shore
-            this.rescheduleAdaptiveInterval().catch((err) => {
-                log.warn('captureLogEntry: adaptive reschedule failed', err);
-            });
-
-            // Online success returns the DB-hydrated entry (with id);
-            // offline path falls back to the in-memory entry shape.
-            return saved ?? (entry as ShipLogEntry);
-        } catch (error) {
-            log.error('captureLogEntry failed', error);
-            return null;
-        }
+        const opts: CaptureLogOptions = {
+            entryType,
+            notes,
+            waypointName,
+            eventCategory,
+            engineStatus,
+            voyageId,
+            skipDedup,
+        };
+        return _captureLog(this._captureCtx(), opts);
     }
 
     /**
@@ -895,36 +575,8 @@ class ShipLogServiceClass {
      * Falls back to standard captureLogEntry() when the buffer is empty
      * (e.g., heartbeat catch-up when backgrounded).
      */
-    private async flushBufferedTrack(): Promise<void> {
-        if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
-
-        const rawPoints = this.trackBuffer.drain();
-
-        // If buffer is empty (GPS was quiet), fall back to single-point capture
-        if (rawPoints.length === 0) {
-            await this.captureLogEntry();
-            return;
-        }
-
-        // Thin the track — RDP + force-keep turns/speed changes/gaps
-        const epsilonMult = GpsPrecision.getAdaptedThresholds().trackThinningMultiplier;
-        const significant = thinTrack(rawPoints, epsilonMult);
-
-        // If thinning produced nothing (all noise), use the latest raw point
-        if (significant.length === 0) {
-            this.lastBgLocation = rawPoints[rawPoints.length - 1];
-            await this.captureLogEntry();
-            return;
-        }
-
-        // Log each significant point sequentially, accumulating distance correctly.
-        // Override the cached position so captureLogEntry() picks it up via getBestPosition().
-        // skipDedup=true: RDP thinning already filtered noise — don't re-apply the
-        // blunt 5m dedup which would silently drop valid turn/speed-change points.
-        for (const pos of significant) {
-            this.lastBgLocation = pos;
-            await this.captureLogEntry('auto', undefined, undefined, undefined, undefined, undefined, true);
-        }
+    private flushBufferedTrack(): Promise<void> {
+        return _flushBufferedTrack(this._captureCtx());
     }
 
     /**
@@ -947,91 +599,31 @@ class ShipLogServiceClass {
         engineStatus?: 'running' | 'stopped' | 'maneuvering',
         voyageId?: string,
     ): Promise<ShipLogEntry | null> {
-        const timestamp = new Date().toISOString();
-        const entryType = waypointName ? 'waypoint' : 'manual';
-
-        // Determine the voyage to add to - NEVER create a new voyage implicitly
-        const effectiveVoyageId = voyageId || this.trackingState.currentVoyageId;
-
-        if (!effectiveVoyageId) {
-            return null;
-        }
-
-        // Get weather snapshot (SYNC — instant from localStorage)
-        const weatherSnapshot = getWeatherSnapshot();
-
-        // Create entry immediately with placeholder position
-        const entry: Partial<ShipLogEntry> = {
-            voyageId: effectiveVoyageId,
-            timestamp,
-            latitude: 0,
-            longitude: 0,
-            positionFormatted: 'Acquiring position...',
-            distanceNM: 0,
-            cumulativeDistanceNM: 0,
-            speedKts: 0,
-            ...weatherSnapshot,
-            entryType,
-            eventCategory,
-            engineStatus,
-            notes,
-            waypointName,
-        };
-
-        // Try to get GPS position from cached onLocation stream (instant)
-        try {
-            const bestPos = await this.getBestPosition();
-
-            if (bestPos) {
-                const { latitude, longitude, heading } = bestPos;
-                entry.latitude = latitude;
-                entry.longitude = longitude;
-                entry.positionFormatted = formatPositionDMS(latitude, longitude);
-
-                if (heading !== null && heading !== undefined && heading !== 0) {
-                    entry.courseDeg = Math.round(heading);
-                }
-
-                // Get last position for distance calculation
-                const lastPos = await this.getLastPosition();
-                if (lastPos) {
-                    const distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
-                    entry.distanceNM = Math.round(distanceNM * 100) / 100;
-                    entry.cumulativeDistanceNM = Math.round((lastPos.cumulativeDistanceNM + distanceNM) * 100) / 100;
-                }
-
-                // Update last position
-                await this.saveLastPosition({
-                    latitude,
-                    longitude,
-                    timestamp,
-                    cumulativeDistanceNM: entry.cumulativeDistanceNM || 0,
-                });
-            }
-        } catch (gpsError: unknown) {
-            log.warn('addManualEntry: GPS failed, using placeholder', gpsError);
-        }
-
-        // Save online or queue offline via the consolidated EntrySave helper.
-        const { saved } = await saveEntryOnlineOrOffline(entry);
-        return saved ?? (entry as ShipLogEntry);
+        const opts: AddManualOptions = { notes, waypointName, eventCategory, engineStatus, voyageId };
+        return _addManual(this._captureCtx(), opts);
     }
 
     /**
-     * Capture log entry with timeout - prevents blocking UI on slow GPS/network
-     * @param timeoutMs - Maximum time to wait for capture (default 5000ms)
-     * @param voyageId - Optional voyage ID to use for the entry
+     * Build the CaptureContext bag the pipeline functions consume.
+     * Lives on `this` so each capture-invocation gets the live state +
+     * the right hooks; the pipeline mutates `trackingState` in place.
      */
-    private async captureLogEntryWithTimeout(
-        timeoutMs: number = 5000,
-        voyageId?: string,
-    ): Promise<ShipLogEntry | null> {
-        return Promise.race([
-            this.captureLogEntry('auto', undefined, undefined, undefined, undefined, voyageId),
-            new Promise<null>((_, reject) =>
-                setTimeout(() => reject(new Error(`Capture timed out after ${timeoutMs}ms`)), timeoutMs),
-            ),
-        ]);
+    private _captureCtx(): CaptureContext {
+        return {
+            trackingState: this.trackingState,
+            saveTrackingState: () => this.saveTrackingState(),
+            isNative: this.isNative,
+            getCachedFix: () => this.lastBgLocation,
+            setCachedFix: (pos) => {
+                this.lastBgLocation = pos;
+            },
+            trackBuffer: this.trackBuffer,
+            getLastWaterStatus: () => this.lastWaterStatus,
+            setLastWaterStatus: (v) => {
+                this.lastWaterStatus = v;
+            },
+            rescheduleAdaptiveInterval: () => this.rescheduleAdaptiveInterval(),
+        };
     }
 
     /**
@@ -1141,27 +733,15 @@ class ShipLogServiceClass {
     }
 
     // --- PRIVATE METHODS ---
-    // Persistence delegates to ./shiplog/TrackingStateStore.ts. Keeping
-    // the private wrappers preserves the orchestrator's call-sites without
-    // having to thread `this.trackingState` through every save call.
+    // saveTrackingState delegates to TrackingStateStore.ts. The pipeline
+    // calls getLastPosition / saveLastPosition directly from the same
+    // module, so we no longer wrap them on the orchestrator.
 
     private async saveTrackingState(): Promise<void> {
         await _saveTrackingState(this.trackingState);
     }
 
-    private async getLastPosition(): Promise<StoredPosition | null> {
-        return _getLastPosition();
-    }
-
-    private async saveLastPosition(position: StoredPosition): Promise<void> {
-        await _saveLastPosition(position);
-    }
-
     // --- DELEGATED OFFLINE QUEUE METHODS (implementation in ./shiplog/OfflineQueue.ts) ---
-
-    private async queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<void> {
-        return _queueOfflineEntry(entry);
-    }
 
     async syncOfflineQueue(): Promise<number> {
         return _syncOfflineQueue();

@@ -75,7 +75,7 @@ function makeWeather(overrides: Record<string, unknown> = {}) {
         boatingAdvice: '',
         generatedAt: '2026-05-02T06:00:00Z',
         modelUsed: 'test',
-    } as unknown as Parameters<typeof useWeatherStore.setState>[0]['weatherData'];
+    } as unknown as NonNullable<ReturnType<typeof useWeatherStore.getState>['weatherData']>;
 }
 
 describe('watchBridgeListeners', () => {
