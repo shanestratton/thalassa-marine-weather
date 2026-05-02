@@ -12,7 +12,7 @@ import { getShoppingList, markPurchased, type ShoppingListSummary } from '../../
 import { triggerHaptic } from '../../utils/system';
 import { getCachedActiveVoyage, getActiveVoyage, getDraftVoyages, type Voyage } from '../../services/VoyageService';
 import { toPurchasable } from '../../services/PurchaseUnits';
-import { type PassageStatus } from '../../services/PassagePlanService';
+import { type PassageStatus, getActivePassageId } from '../../services/PassagePlanService';
 import { ChildCard } from './ChildCard';
 import { MealCalendar } from './MealCalendar';
 import { CaptainsTable } from './CaptainsTable';
@@ -97,12 +97,28 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                 /* offline — use cached */
             }
 
-            // 3. If no active voyage, check drafts for one with dates
+            // 3. If no active voyage from supabase (the user hasn't
+            // hit "Cast Off" yet — voyage is still status:planning),
+            // resolve via the Passage Planning dropdown selection.
+            // PassagePlanService.getActivePassageId() returns the
+            // voyageId the user picked in CrewManagement; we find that
+            // exact draft instead of grabbing whatever first draft has
+            // dates. Without this, accumulated phantom drafts from
+            // earlier test sessions stole the selection.
             if (!v || (!v.departure_time && !v.eta)) {
                 try {
                     const drafts = await getDraftVoyages();
-                    const withDates = drafts.find((d) => d.departure_time && d.eta);
-                    if (withDates) v = withDates;
+                    const activeId = getActivePassageId();
+                    const selected = activeId ? drafts.find((d) => d.id === activeId) : undefined;
+                    if (selected) {
+                        v = selected;
+                    } else {
+                        // Last-resort fallback — older sessions / no
+                        // explicit selection. Pick the first draft
+                        // with both dates.
+                        const withDates = drafts.find((d) => d.departure_time && d.eta);
+                        if (withDates) v = withDates;
+                    }
                 } catch {
                     /* offline */
                 }
@@ -126,6 +142,20 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
         };
 
         loadVoyage();
+
+        // Refresh when the user picks a different passage in the
+        // CrewManagement dropdown (PassagePlanService dispatches this
+        // from setActivePassage), or when a fresh save lands while
+        // GalleyCard is expanded. Without these listeners, the meal
+        // calendar stays bound to whatever voyage was active at the
+        // moment GalleyCard expanded.
+        const onPassageChange = () => loadVoyage();
+        window.addEventListener('thalassa:passage-changed', onPassageChange);
+        window.addEventListener('thalassa:passage-plan-saved', onPassageChange);
+        return () => {
+            window.removeEventListener('thalassa:passage-changed', onPassageChange);
+            window.removeEventListener('thalassa:passage-plan-saved', onPassageChange);
+        };
     }, [expanded, handleSetCrewCount]);
 
     // Load active meals and shopping status
