@@ -101,6 +101,8 @@ interface ToolDef {
     description?: string;
     input_schema?: unknown;
     max_uses?: number;
+    /** Anthropic prompt-cache marker — set on the LAST tool to cache the array. */
+    cache_control?: { type: 'ephemeral' };
 }
 
 // ── Tool registry ──────────────────────────────────────────────
@@ -475,7 +477,22 @@ export interface AskHaikuInput {
  */
 export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult> {
     const piReachable = await isBosunWebReachable();
-    const tools = piReachable ? [...CLOUD_TOOLS, ...PI_TOOLS] : CLOUD_TOOLS;
+    // Mark the last tool with cache_control:ephemeral so Anthropic caches
+    // the whole tools array as a separate cache breakpoint. Tools array
+    // changes only when Pi reachability flips — within a 5-minute window
+    // of consistent connectivity, every call after the first reads tools
+    // from the cache at 10% of base cost. With 6 tools when Pi is
+    // reachable (~1500 input tokens), this is a meaningful ITPM
+    // reduction — should help the skipper avoid the per-minute caps
+    // they were hitting at 3 conversations.
+    const baseTools = piReachable ? [...CLOUD_TOOLS, ...PI_TOOLS] : CLOUD_TOOLS;
+    const tools: ToolDef[] =
+        baseTools.length > 0
+            ? [
+                  ...baseTools.slice(0, -1),
+                  { ...baseTools[baseTools.length - 1], cache_control: { type: 'ephemeral' as const } },
+              ]
+            : baseTools;
 
     const stateBlock = formatStateBlock(input.context, piReachable);
     const systemBlocks = [
