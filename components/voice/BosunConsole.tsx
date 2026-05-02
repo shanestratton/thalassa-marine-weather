@@ -39,6 +39,8 @@ import {
     prewarmMicStream,
     prewarmWorkerConnection,
     prewarmWorkletAsset,
+    primeAudioPipeline,
+    releasePrewarmedAudioContext,
     releasePrewarmedMicStream,
     releasePrewarmedWebSocket,
     setDeepgramEventTap,
@@ -544,12 +546,26 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 // button subtitle from "Warming up…" to the normal
                 // "Tap to talk" state.
                 //
-                // Note: prewarmAudioContext was tried but caused empty-
-                // transcript regressions on iOS. AudioContext stays
-                // tap-time only.
+                // prewarmAudioContext is now run AFTER prewarmMicStream
+                // resolves so it can wire the full audio graph (mic →
+                // worklet → ring buffer) ahead of tap. The earlier
+                // empty-transcript regression was rooted in forcing
+                // sampleRate:16000 on iOS — that's removed; iOS picks
+                // its native rate and the recognizer reads it back.
+                // The ring buffer captures leading audio so the first
+                // words after tap don't get clipped by AVAudioSession
+                // activation latency.
                 void Promise.all([
                     prewarmDeepgram(),
-                    prewarmMicStream(),
+                    prewarmMicStream().then(async (ok) => {
+                        if (ok) {
+                            // Chained so the mic stream is alive when
+                            // prewarmAudioContext tries to wire it
+                            // into a MediaStreamSource.
+                            await prewarmAudioContext();
+                        }
+                        return ok;
+                    }),
                     prewarmWorkletAsset(),
                     // Full WebSocket prewarm — opens the Cloudflare Worker
                     // proxy + Deepgram upstream so tap-to-ready skips the
@@ -578,12 +594,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         return () => {
             cancelled = true;
             // Release everything that was prewarmed when the console
-            // unmounts: mic (so iOS indicator stops), and the held
-            // Cloudflare Worker WebSocket (with its keep-alive timer).
-            // Safe even if no prewarm happened — both releases are
-            // no-ops when the corresponding cache is empty.
+            // unmounts: mic (so iOS indicator stops), the held
+            // Cloudflare Worker WebSocket (with its keep-alive timer),
+            // and the prewarmed audio context + graph (closes the
+            // AudioContext, disconnects the worklet, frees memory).
+            // Safe even if no prewarm happened — releases are no-ops
+            // when the corresponding cache is empty.
             releasePrewarmedMicStream();
             releasePrewarmedWebSocket();
+            releasePrewarmedAudioContext();
         };
     }, []);
 
@@ -1538,6 +1557,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     state={route ? buttonState[route] : 'idle'}
                     subtitle={brainSubtitle}
                     disabled={!route || !prewarmReady}
+                    /* Fire AudioContext.resume() on pointerdown — that's
+                     * a gesture, so iOS lets it actually start. By the
+                     * time onTap fires (a few ms later on click), the
+                     * AVAudioSession is warming up and the worklet is
+                     * either already producing samples or about to,
+                     * cutting the leading-edge latency that clips the
+                     * first words. Idempotent + safe to call when the
+                     * pipeline isn't prewarmed. */
+                    onPrime={() => prewarmReady && primeAudioPipeline()}
                     onTap={() => route && prewarmReady && handleTalkTap(route)}
                 />
             </div>

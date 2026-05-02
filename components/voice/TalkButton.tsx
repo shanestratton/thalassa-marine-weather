@@ -25,6 +25,18 @@ interface TalkButtonProps {
     disabled?: boolean;
     /** Tap to toggle listening on/off. Caller decides which transition based on state. */
     onTap: () => void;
+    /**
+     * Optional priming hook — fires on pointerdown / touchstart so the
+     * caller can warm up audio resources (e.g. resume an AudioContext)
+     * inside the original gesture window, BEFORE click. iOS only allows
+     * `AudioContext.resume()` from inside a user gesture, and pointerdown
+     * is a gesture; using this lets the audio pipeline start activating
+     * a few ms before the actual tap handler runs.
+     *
+     * Idempotent — caller is responsible for "already primed" semantics.
+     * Cheap path; firing on every pointerdown is fine.
+     */
+    onPrime?: () => void;
 }
 
 const STATE_HINT: Record<TalkButtonState, string> = {
@@ -50,7 +62,7 @@ const AnchorIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disabled, onTap }) => {
+export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disabled, onTap, onPrime }) => {
     const triggerHaptic = useCallback(async (style: ImpactStyle) => {
         try {
             await Haptics.impact({ style });
@@ -58,6 +70,19 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
             /* no haptics on web/dev — ignore */
         }
     }, []);
+
+    /**
+     * pointerdown handler. Runs before click, inside the gesture
+     * window — iOS allows AudioContext.resume() from here. We fire
+     * the optional onPrime so the audio pipeline can start activating
+     * the AVAudioSession a few ms ahead of click. Doesn't trigger
+     * the haptic (that's the click's job) so a finger sliding off
+     * the button doesn't double-buzz.
+     */
+    const handlePointerDown = useCallback(() => {
+        if (disabled || state === 'sending' || state === 'awaiting') return;
+        onPrime?.();
+    }, [disabled, state, onPrime]);
 
     const handleClick = useCallback(() => {
         if (disabled || state === 'sending' || state === 'awaiting') return;
@@ -100,6 +125,7 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
 
             <button
                 onClick={handleClick}
+                onPointerDown={handlePointerDown}
                 onContextMenu={(e) => e.preventDefault()}
                 disabled={disabled || isBusy}
                 aria-label={`Calypso - ${STATE_HINT[state]}`}
