@@ -30,6 +30,8 @@ import {
     isGmailConfigured,
 } from '../../services/voice/integrations/gmail';
 import { AlertMonitorService } from '../../services/AlertMonitorService';
+import { CALYPSO_VOICE_PRESETS, DEFAULT_VOICE_PRESET_ID } from '../../services/voice/voicePresets';
+import { speak } from '../../services/voice/ttsClient';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 
 export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
@@ -157,6 +159,34 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         AlertMonitorService.fireTestAlert();
     }, []);
 
+    // ── Voice picker ───────────────────────────────────────────────
+    const currentVoiceId = settings.calypsoVoiceId ?? DEFAULT_VOICE_PRESET_ID;
+    /** Currently sample-playing preset key, so we can disable other
+     *  buttons while one is playing (don't let the skipper stack
+     *  overlapping samples). */
+    const [samplePlaying, setSamplePlaying] = useState<string | null>(null);
+
+    const handleVoiceSelect = useCallback(
+        (presetId: string) => {
+            onSave({ calypsoVoiceId: presetId });
+        },
+        [onSave],
+    );
+
+    const handlePlaySample = useCallback(
+        (presetId: string) => {
+            const preset = CALYPSO_VOICE_PRESETS.find((p) => p.id === presetId);
+            if (!preset || samplePlaying) return;
+            setSamplePlaying(presetId);
+            // Pass the voice_id explicitly so the sample uses THIS
+            // preset, not whatever the skipper currently has saved.
+            // Lets them audition before committing.
+            const handle = speak(preset.samplePhrase, { voiceId: preset.voiceId });
+            void handle.done.finally(() => setSamplePlaying(null));
+        },
+        [samplePlaying],
+    );
+
     const handleEmailToggle = useCallback(
         async (next: boolean) => {
             if (busy) return;
@@ -204,6 +234,62 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                 Grant Calypso access to integrations on your phone. Each is opt-in — Calypso only sees a tool when you
                 toggle it on here. Skipper-tier only.
             </p>
+
+            <Section title="Voice">
+                <Row>
+                    <div className="flex-1">
+                        <div className="text-sm text-white font-bold">Pick Calypso's voice</div>
+                        <div className="text-xs text-gray-400 mt-1">
+                            Tap the speaker icon to audition a voice; tap the radio to make it Calypso's. The change
+                            applies on her next utterance — no restart needed.
+                        </div>
+                    </div>
+                </Row>
+                {CALYPSO_VOICE_PRESETS.map((preset) => {
+                    const selected = currentVoiceId === preset.id;
+                    const playing = samplePlaying === preset.id;
+                    return (
+                        <Row key={preset.id}>
+                            <button
+                                onClick={() => handleVoiceSelect(preset.id)}
+                                className="flex-1 flex items-center gap-3 text-left group"
+                                aria-label={`Use ${preset.label} voice`}
+                            >
+                                {/* Radio indicator */}
+                                <div
+                                    className={`w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                        selected
+                                            ? 'border-sky-400 bg-sky-400/20'
+                                            : 'border-gray-600 group-hover:border-gray-400'
+                                    }`}
+                                >
+                                    {selected && <div className="w-2 h-2 rounded-full bg-sky-400" />}
+                                </div>
+                                <div className="flex-1">
+                                    <div className={`text-sm ${selected ? 'text-white font-bold' : 'text-gray-200'}`}>
+                                        {preset.label}
+                                    </div>
+                                    <div className="text-xs text-gray-500 mt-0.5">{preset.description}</div>
+                                </div>
+                            </button>
+                            <button
+                                onClick={() => handlePlaySample(preset.id)}
+                                disabled={!!samplePlaying}
+                                className={`text-xs px-2 py-1 rounded border transition-colors ${
+                                    playing
+                                        ? 'border-sky-400 text-sky-400 bg-sky-400/10'
+                                        : samplePlaying
+                                          ? 'border-gray-700 text-gray-600'
+                                          : 'border-gray-600 text-gray-300 hover:text-sky-400 hover:border-sky-400/50'
+                                }`}
+                                aria-label={`Play sample of ${preset.label}`}
+                            >
+                                {playing ? '▶ Playing…' : '▶ Sample'}
+                            </button>
+                        </Row>
+                    );
+                })}
+            </Section>
 
             <Section title="Calypso speaks up">
                 {!canAlerts ? (

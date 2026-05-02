@@ -24,9 +24,27 @@
  * the alert is already valid; only the audible delivery failed.
  */
 
+import { useSettingsStore } from '../../stores/settingsStore';
+import { resolveVoiceId } from './voicePresets';
+
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 const TTS_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Read the active voice_id from settings (resolving the persisted
+ * preset key via voicePresets) so the synth call uses whichever
+ * voice the skipper picked in Settings → Calypso → Voice. Falls
+ * back to the default when nothing is set or the store is loading.
+ */
+function activeVoiceId(): string {
+    try {
+        const settings = useSettingsStore.getState().settings;
+        return resolveVoiceId(settings.calypsoVoiceId);
+    } catch {
+        return resolveVoiceId(undefined);
+    }
+}
 
 /**
  * Last-known TTS error surface — same pattern as orchestrator's. Lets
@@ -50,7 +68,7 @@ export function consumeTtsClientError(): string | null {
  * can pass raw text like "Battery 11.4 volts" and the synth will
  * pronounce it as "Battery eleven point four volts".
  */
-export async function synthesise(text: string): Promise<string | null> {
+export async function synthesise(text: string, opts?: { voiceId?: string }): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
     const trimmed = (text || '').trim();
     if (!trimmed) return null;
@@ -59,6 +77,11 @@ export async function synthesise(text: string): Promise<string | null> {
     const ctrl = new AbortController();
     const watchdog = setTimeout(() => ctrl.abort(), TTS_REQUEST_TIMEOUT_MS);
     try {
+        // Caller can override the voice (sample-play in settings); else
+        // pull the active preset from the settings store. This means
+        // any later TTS call after the skipper picks a new voice picks
+        // up the change without restarting the app.
+        const voice_id = opts?.voiceId ?? activeVoiceId();
         const r = await fetch(url, {
             method: 'POST',
             headers: {
@@ -66,7 +89,7 @@ export async function synthesise(text: string): Promise<string | null> {
                 Authorization: `Bearer ${SUPABASE_KEY}`,
                 apikey: SUPABASE_KEY,
             },
-            body: JSON.stringify({ text: trimmed }),
+            body: JSON.stringify({ text: trimmed, voice_id }),
             signal: ctrl.signal,
         });
         if (!r.ok) {
@@ -132,7 +155,7 @@ export interface SpokenHandle {
  *
  * Idempotent against falsy text — `speak('')` resolves immediately.
  */
-export function speak(text: string): SpokenHandle {
+export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
     let cancelled = false;
     let audio: HTMLAudioElement | null = null;
     let objectUrl: string | null = null;
@@ -141,7 +164,7 @@ export function speak(text: string): SpokenHandle {
         const trimmed = (text || '').trim();
         if (!trimmed) return;
 
-        const b64 = await synthesise(trimmed);
+        const b64 = await synthesise(trimmed, opts);
         if (cancelled || !b64) return;
         const url = base64Mp3ToObjectUrl(b64);
         if (cancelled || !url) return;

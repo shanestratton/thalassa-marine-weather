@@ -30,6 +30,8 @@
 import type { ThalassaContext, VoiceHistoryTurn } from '../../types/voice';
 import { runThalassaWeather } from './cloudTools';
 import { executePiTool, isBosunWebReachable, isPiToolName } from './piTools';
+import { logEntry, passageEta, saveWaypoint } from './integrations/voyage';
+import { playAudiobook, playPodcast } from './integrations/spokenAudio';
 import {
     nowPlaying as appleMusicNowPlaying,
     pauseMusic,
@@ -139,6 +141,92 @@ const CLOUD_TOOLS: ToolDef[] = [
                 lat: { type: 'number', description: 'Latitude in decimal degrees' },
                 lng: { type: 'number', description: 'Longitude in decimal degrees' },
             },
+        },
+    },
+    // ── Voyage tools (always-on, don't depend on Pi) ──
+    {
+        name: 'log_entry',
+        description:
+            'Drop a free-form note into the active voyage\'s ship\'s log. GPS position + weather snapshot are auto-stamped — the skipper just provides the note. Use this when they say things like "log this", "note for the log", "make an entry". Confirm briefly afterward ("Logged."); don\'t read it back.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                notes: {
+                    type: 'string',
+                    description: 'The note text. Keep verbatim — preserve numbers, place names, observations.',
+                },
+            },
+            required: ['notes'],
+        },
+    },
+    {
+        name: 'save_waypoint',
+        description:
+            'Save the current GPS position as a named waypoint in the active voyage. Use for "mark this anchorage", "save this position as X", "drop a waypoint here, call it Y". The skipper provides the name; GPS is auto-stamped. Confirm briefly ("Marked, Crocodile Bay."); don\'t read coords back unless asked.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                name: {
+                    type: 'string',
+                    description:
+                        'Waypoint name. Short, descriptive — "Crocodile Bay anchorage", "Cape Hawke approach".',
+                },
+                notes: {
+                    type: 'string',
+                    description:
+                        'Optional extra notes. Tide state, holding, swing room, anything worth recalling next time.',
+                },
+            },
+            required: ['name'],
+        },
+    },
+    {
+        name: 'passage_eta',
+        description:
+            'Compute distance + bearing + ETA from current position to a destination at current speed-over-ground. Pure great-circle math — no current/wind correction. Use when the skipper asks "how long till X?", "what\'s my ETA to X?", "how far to X?". You provide dest_lat + dest_lon (look them up from passage plan or the Thalassa state, ask if unknown). Tool returns both raw numbers and Calypso-friendly labels — read the label form ("five hours twelve minutes, forty-three nautical miles").',
+        input_schema: {
+            type: 'object',
+            properties: {
+                dest_lat: { type: 'number', description: 'Destination latitude in decimal degrees.' },
+                dest_lon: { type: 'number', description: 'Destination longitude in decimal degrees.' },
+                dest_name: {
+                    type: 'string',
+                    description: 'Optional destination name for narration ("Bundaberg", "Cape Hawke").',
+                },
+            },
+            required: ['dest_lat', 'dest_lon'],
+        },
+    },
+    // ── Spoken-audio integrations (always-available URL hand-offs) ──
+    {
+        name: 'play_audiobook',
+        description:
+            "Open Audible. Optional query opens search; empty query opens the library. Audible doesn't auto-play search results — the skipper picks a title and taps play. Tell them this if they ask why nothing started.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description:
+                        'Optional search query. Examples: "Patrick O\'Brian Master and Commander", "Bernard Cornwell". Empty opens the library.',
+                },
+            },
+        },
+    },
+    {
+        name: 'play_podcast',
+        description:
+            "Open Apple Podcasts to a search. Like Audible, Apple Podcasts doesn't auto-play search results — the skipper picks an episode and taps play. Be honest about that.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description:
+                        'Search term. Examples: "Sailing Doodles", "59 North Sailing", "marine weather routing".',
+                },
+            },
+            required: ['query'],
         },
     },
 ];
@@ -372,6 +460,20 @@ The skipper may also have enabled Apple Music and/or Gmail integrations from Set
 - Skipper: Shane — bluewater cruiser, conservative on offshore passages
 
 For details beyond this list (sail inventory, tankage, rigging dimensions, polar diagram, mast height) call \`get_vessel_profile\` if available, otherwise say "I don't have that on record."
+
+## ON-BOARD KNOWLEDGE (you can answer from training)
+
+These are skills the skipper expects you to handle directly without a tool call — quick reference questions that come up underway.
+
+**Anchor scope.** When asked how much chain to let out: scope = ratio × (depth + freeboard). Use 5:1 for calm anchorages (≤15kt), 7:1 for typical (15–25kt), 10:1 for storm (>25kt or rocky bottom). Always factor tidal range into the depth — if there's 3m of tide and you're anchoring at low water, plan for 3m extra depth at high. Show the math briefly: "Eight metres depth plus a metre of freeboard, seven-to-one for twenty-five knots — that's sixty-three metres. Round up to seventy."
+
+**Knot tying.** Walk the skipper through any standard sailing knot step-by-step when asked: bowline, clove hitch, figure-eight, round turn and two half-hitches, rolling hitch, sheet bend. Speak slowly with clear cues — "rabbit comes out of the hole, around the tree, back down the hole" for a bowline. Mention what each knot is FOR alongside the steps so it sticks.
+
+**COLREGs basics.** Standing rules of the road: power gives way to sail (rule 18), starboard tack has right of way over port (rule 12), windward boat keeps clear of leeward (rule 12), overtaking vessel keeps clear (rule 13), restricted-in-ability has priority over normal traffic (rule 18). For ambiguous crossings call out who's the stand-on (maintain course) vs give-way (alter to keep clear).
+
+**ETA mental math.** Distance ÷ SOG = hours. 6kt × 60min = 6 nm/hr → 1 nm per 10 minutes. The skipper expects you to do this in your head when they give numbers verbally — "30 nm at 6 knots is five hours" — without needing a tool.
+
+For anything safety-critical (medical doses, torque specs, sail loadings, fuel/oil grades) — \`search_manuals\` first. The above is for the everyday stuff that doesn't need quotation.
 
 ## HONESTY RULES — NON-NEGOTIABLE
 
@@ -675,6 +777,19 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
     const url = `${SUPABASE_URL}/functions/v1/elevenlabs-tts`;
     const ctrl = new AbortController();
     const watchdog = setTimeout(() => ctrl.abort(), TTS_REQUEST_TIMEOUT_MS);
+    // Pull the active voice preset so the orchestrator's TTS path
+    // honours the skipper's pick from Settings → Calypso → Voice.
+    // Lazy imports avoid coupling the orchestrator to the settings
+    // store on the cold-start hot path.
+    let voice_id: string | undefined;
+    try {
+        const settingsMod = await import('../../stores/settingsStore');
+        const presetsMod = await import('./voicePresets');
+        voice_id = presetsMod.resolveVoiceId(settingsMod.useSettingsStore.getState().settings.calypsoVoiceId);
+    } catch {
+        // If imports fail, let the edge function fall back to its
+        // server-side default. Voice picker is non-load-bearing.
+    }
     try {
         const r = await fetch(url, {
             method: 'POST',
@@ -683,7 +798,7 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
                 Authorization: `Bearer ${SUPABASE_KEY}`,
                 apikey: SUPABASE_KEY,
             },
-            body: JSON.stringify({ text }),
+            body: JSON.stringify(voice_id ? { text, voice_id } : { text }),
             signal: ctrl.signal,
         });
         if (!r.ok) {
@@ -771,6 +886,28 @@ async function dispatchTool(
     if (name === 'inbox_summary') {
         const limit = typeof input.limit === 'number' ? input.limit : 5;
         return inboxSummary(limit);
+    }
+    // ── Voyage tools (always-available, log + waypoint + ETA) ─────
+    if (name === 'log_entry') {
+        return logEntry(typeof input.notes === 'string' ? input.notes : '');
+    }
+    if (name === 'save_waypoint') {
+        const wpName = typeof input.name === 'string' ? input.name : '';
+        const wpNotes = typeof input.notes === 'string' ? input.notes : undefined;
+        return saveWaypoint(wpName, wpNotes);
+    }
+    if (name === 'passage_eta') {
+        const lat = typeof input.dest_lat === 'number' ? input.dest_lat : NaN;
+        const lon = typeof input.dest_lon === 'number' ? input.dest_lon : NaN;
+        const dn = typeof input.dest_name === 'string' ? input.dest_name : undefined;
+        return passageEta(lat, lon, dn);
+    }
+    // ── Spoken-audio integrations ─────────────────────────────────
+    if (name === 'play_audiobook') {
+        return playAudiobook(typeof input.query === 'string' ? input.query : '');
+    }
+    if (name === 'play_podcast') {
+        return playPodcast(typeof input.query === 'string' ? input.query : '');
     }
     // web_search runs server-side at Anthropic; we never see its
     // tool_use blocks here. If we do, that's a registry/upstream
