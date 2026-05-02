@@ -103,4 +103,33 @@ export interface UserSettings {
     piCachePort?: number;
     /** Pre-fetch weather data on the Pi (requires internet connection on the Pi) */
     piCachePrefetch?: boolean;
+
+    // ── Calypso integrations (Skipper-tier only, gated by canAccess) ──
+    /**
+     * Apple Music access — Calypso can search the catalog, play tracks,
+     * queue songs, control playback. Implementation uses iOS URL schemes
+     * (cheap path) until the native MusicKit plugin lands. The toggle
+     * here just enables the Calypso tools registered with Anthropic;
+     * actual permission to control the Apple Music app is granted by
+     * iOS at first invocation.
+     */
+    calypsoMusicEnabled?: boolean;
+
+    /**
+     * Gmail access — Calypso can read inbox, search messages, draft
+     * emails, send (with explicit confirm-before-send UX). Goes through
+     * Google OAuth 2.0 with PKCE; the granted access + refresh tokens
+     * live in the Capacitor Preferences store (which uses iOS Keychain
+     * on device, so they're encrypted at rest). The toggle here gates
+     * the OAuth flow + tool registration — disabling it revokes the
+     * stored tokens and unregisters the tools from Calypso's registry.
+     */
+    calypsoEmailEnabled?: boolean;
+    /**
+     * Email address linked via Gmail OAuth. Read-only display field —
+     * lets the settings UI show "Connected as cap'n@gmail.com" so the
+     * skipper knows which account Calypso is talking to. Cleared when
+     * the integration is disabled.
+     */
+    calypsoEmailAccount?: string;
 }

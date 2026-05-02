@@ -52,6 +52,8 @@ import {
     type SpeechRecognizerHandle,
 } from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext, prewarmPhoneGpsContext } from '../../services/voice/thalassaContext';
+import { canAccess } from '../../services/SubscriptionService';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useVoiceHistoryStore } from '../../stores/voiceHistoryStore';
 import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
@@ -816,11 +818,32 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * standard VoiceQueryResponse envelope so handleResponse can stay
      * agnostic to which path produced the answer.
      */
+    // Settings → Calypso integrations. Both flags must be (a) opt-in
+    // by the skipper in Settings → Calypso Integrations AND (b) gated
+    // by the Skipper-tier subscription level. canAccess() checks the
+    // tier; the boolean flag checks the toggle. Calypso only sees the
+    // tools when both pass — no surprise registrations.
+    const tier = useSettingsStore((s) => s.settings.subscriptionTier);
+    const calypsoMusicEnabled = useSettingsStore((s) => s.settings.calypsoMusicEnabled ?? false);
+    const calypsoEmailEnabled = useSettingsStore((s) => s.settings.calypsoEmailEnabled ?? false);
+    const integrationsEnabled = useMemo(
+        () => ({
+            appleMusic: calypsoMusicEnabled && canAccess(tier, 'calypsoMusic'),
+            gmail: calypsoEmailEnabled && canAccess(tier, 'calypsoEmail'),
+        }),
+        [tier, calypsoMusicEnabled, calypsoEmailEnabled],
+    );
+
     const runOrchestrator = useCallback(
         async (text: string): Promise<VoiceQueryResponse> => {
             const context = gatherThalassaContext();
             const history = buildHistory(turns);
-            const result = await askHaiku({ text, context, history });
+            const result = await askHaiku({
+                text,
+                context,
+                history,
+                integrations: integrationsEnabled,
+            });
             const audio_b64 = await synthesiseSpeech(result.answerText);
             return {
                 transcript: text,
@@ -834,7 +857,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 })),
             };
         },
-        [turns],
+        [turns, integrationsEnabled],
     );
 
     const sendVoiceQuery = useCallback(
