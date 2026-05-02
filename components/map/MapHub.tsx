@@ -34,6 +34,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
+import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
 import { MapOfflineService } from '../../services/MapOfflineService';
@@ -1040,6 +1041,10 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     return (
         <div className={`w-full h-full ${isHelmSplit ? 'flex' : 'relative'}`}>
+            {/* Floating route-enhancement chip — visible while the */}
+            {/* passage planner's bathymetric/weather/depth pipeline runs */}
+            {/* in the background after the basic plan lands. */}
+            <RouteEnhancementChip />
             {/* Map container — 70% on tablet during passage, full otherwise */}
             <div className={`relative ${isHelmSplit ? 'flex-[7] h-full' : 'w-full h-full'}`}>
                 <div ref={containerRef} className="w-full h-full" />

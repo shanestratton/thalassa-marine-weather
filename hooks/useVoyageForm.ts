@@ -164,6 +164,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
             // ── Enhancement Pipeline (runs in background, progressively updates) ──
             // Each step saves the enhanced plan as it completes, so the UI updates incrementally.
+            //
+            // Emit window events around the pipeline so any visible-on-screen
+            // surface (PassageBanner, MapHub overlay, etc.) can show the
+            // "Refining route..." chip without prop-drilling. The basic
+            // plan landed already; the user is likely navigated to MapHub
+            // by now, but the route geometry is still being progressively
+            // optimized for the next 10-30s.
+            window.dispatchEvent(new CustomEvent('thalassa:passage-enhancement-start'));
             setTimeout(async () => {
                 let enhancedPlan = result;
 
@@ -174,6 +182,48 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     saveVoyagePlan(enhancedPlan);
                 } catch (_) {
                     console.warn(`[useVoyageForm]`, _);
+                }
+
+                // Step 1b: Detect direction-change bends in the curved
+                // bathymetric polyline and surface them as waypoints.
+                // The router only emits the high-level named WPs from
+                // Gemini; the actual sea-following geometry has bends at
+                // every shoal/headland avoidance that the user expects to
+                // see as named turn-points in the saved logbook route.
+                try {
+                    if (enhancedPlan.routeGeoJSON?.geometry?.coordinates) {
+                        const { detectBends } = await import('../services/passage/detectBends');
+                        const existingWps: Array<{ lat: number; lon: number }> = [];
+                        if (enhancedPlan.originCoordinates) existingWps.push(enhancedPlan.originCoordinates);
+                        if (enhancedPlan.destinationCoordinates) existingWps.push(enhancedPlan.destinationCoordinates);
+                        for (const wp of enhancedPlan.waypoints || []) {
+                            if (wp.coordinates) existingWps.push(wp.coordinates);
+                        }
+                        const coords = enhancedPlan.routeGeoJSON.geometry.coordinates as Array<[number, number]>;
+                        const bends = detectBends(coords, { existingWaypoints: existingWps });
+                        if (bends.length > 0) {
+                            const bendWps = bends.map((b, i) => ({
+                                name: `Bend ${i + 1} (${Math.round(b.bendDeg)}°)`,
+                                coordinates: b.coordinates,
+                            }));
+                            // Merge in passage order — bend waypoints sort
+                            // by their position along the route, then the
+                            // Gemini-named WPs interleave naturally on
+                            // distance-from-origin.
+                            const merged = [...(enhancedPlan.waypoints || []), ...bendWps].sort((a, b) => {
+                                if (!enhancedPlan.originCoordinates || !a.coordinates || !b.coordinates) return 0;
+                                const oLat = enhancedPlan.originCoordinates.lat;
+                                const oLon = enhancedPlan.originCoordinates.lon;
+                                const da = (a.coordinates.lat - oLat) ** 2 + (a.coordinates.lon - oLon) ** 2;
+                                const db = (b.coordinates.lat - oLat) ** 2 + (b.coordinates.lon - oLon) ** 2;
+                                return da - db;
+                            });
+                            enhancedPlan = { ...enhancedPlan, waypoints: merged };
+                            saveVoyagePlan(enhancedPlan);
+                        }
+                    }
+                } catch (_) {
+                    console.warn(`[useVoyageForm] bend detection failed`, _);
                 }
 
                 // Step 2: Weather routing — corridor optimization (depends on Step 1)
@@ -287,6 +337,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // Wait for both parallel steps, then save final enhanced plan
                 await Promise.allSettled([step3, step4]);
                 saveVoyagePlan({ ...enhancedPlan });
+                // Pipeline complete — let any visible "Refining route…"
+                // chip dismiss itself.
+                window.dispatchEvent(new CustomEvent('thalassa:passage-enhancement-end'));
             }, 50);
 
             // ── Background: pre-compute isochrone so the map route is ready ──
@@ -305,6 +358,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             }
         } catch (err: unknown) {
             setError(getErrorMessage(err) || 'Calculation Systems Failure');
+            // If the pipeline aborted before kicking off enhancements
+            // we never emit the start event; if it failed mid-way the
+            // setTimeout owner is responsible for emitting :end. This
+            // catch covers the case where the basic Gemini call itself
+            // threw — no enhancement chip should be lingering.
+            window.dispatchEvent(new CustomEvent('thalassa:passage-enhancement-end'));
         } finally {
             setLoading(false);
         }
