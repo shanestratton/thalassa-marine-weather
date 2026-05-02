@@ -52,14 +52,17 @@ const CastOffPanel = lazyRetry(
 );
 
 /**
- * VoyageRow — a Voyage augmented with departure/arrival coords looked
- * up from the matching logbook route. Used as the dropdown's row type
- * so Weather Windows + Ocean Currents cards can run their analysis
- * without us bolting lat/lon columns onto the voyages table.
+ * VoyageRow — a Voyage augmented with departure/arrival coords AND
+ * planned duration looked up from the matching logbook route. Used as
+ * the dropdown's row type so Weather Windows + Ocean Currents cards
+ * can run their analysis (need coords) and Voyage Provisioning can
+ * auto-compute ETA from departure (needs duration). Lets us avoid a
+ * voyages-table schema migration.
  */
 export type VoyageRow = Voyage & {
     departureCoords?: { lat: number; lon: number };
     arrivalCoords?: { lat: number; lon: number };
+    durationHours?: number;
 };
 
 interface CrewManagementProps {
@@ -254,8 +257,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const last = r.points[r.points.length - 1];
             const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
             const arrivalCoords = last ? { lat: last.lat, lon: last.lon } : undefined;
+            const durationHours = r.durationHours;
             const matched = draftByName.get(norm(r.label));
-            if (matched) return { ...matched, departureCoords, arrivalCoords };
+            if (matched) return { ...matched, departureCoords, arrivalCoords, durationHours };
             const [depPart, arrPart] = r.label.split(' → ');
             // Stub voyage — id starts with "logbook:" so the on-
             // select handler knows to find-or-create a real row
@@ -277,6 +281,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 updated_at: new Date(r.timestamp).toISOString(),
                 departureCoords,
                 arrivalCoords,
+                durationHours,
             };
         });
 
@@ -285,6 +290,43 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (activeId) {
             const vMatch = rows.find((d) => d.id === activeId);
             if (vMatch?.departure_time) setPlanDeparture(vMatch.departure_time.slice(0, 16));
+        }
+
+        // Backfill ETA on any voyage where departure_time is set but eta
+        // is missing AND we have a durationHours from the logbook route.
+        // This rescues voyages saved before the auto-ETA-on-pick fix
+        // (they have departure but no eta, which leaves the GalleyCard
+        // meal planner blocked). Runs once per row that needs it; the
+        // setDraftVoyages above already rendered the dropdown, so this
+        // is a quiet background cleanup that lights up downstream cards
+        // on the next render.
+        for (const row of rows) {
+            if (
+                row.id &&
+                !row.id.startsWith('logbook:') &&
+                row.departure_time &&
+                !row.eta &&
+                row.durationHours &&
+                row.durationHours > 0
+            ) {
+                const etaIso = new Date(Date.parse(row.departure_time) + row.durationHours * 3_600_000).toISOString();
+                updateVoyage(row.id, { eta: etaIso }).then((result) => {
+                    if (result.voyage) {
+                        setDraftVoyages((prev) =>
+                            prev.map((v) =>
+                                v.id === row.id
+                                    ? {
+                                          ...result.voyage!,
+                                          departureCoords: v.departureCoords,
+                                          arrivalCoords: v.arrivalCoords,
+                                          durationHours: v.durationHours,
+                                      }
+                                    : v,
+                            ),
+                        );
+                    }
+                });
+            }
         }
     }, []);
 
@@ -538,15 +580,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                         // Replace the stub with the real
                                         // row so future selects in this
                                         // session use the UUID directly.
-                                        // Carry over the coords from the
-                                        // logbook lookup so the readiness
-                                        // cards (Weather Windows, Ocean
-                                        // Currents) can still find their
-                                        // departure point.
+                                        // Carry over the coords + duration
+                                        // from the logbook lookup so the
+                                        // readiness cards (Weather Windows,
+                                        // Ocean Currents) can still find
+                                        // their departure point AND voyage
+                                        // provisioning can auto-compute ETA.
                                         const promoted: VoyageRow = {
                                             ...voyage,
                                             departureCoords: row.departureCoords,
                                             arrivalCoords: row.arrivalCoords,
+                                            durationHours: row.durationHours,
                                         };
                                         row = promoted;
                                         setDraftVoyages((prev) => prev.map((d) => (d.id === id ? promoted : d)));
@@ -664,14 +708,47 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 onChange={(e) => {
                                     const val = e.target.value;
                                     setPlanDeparture(val);
-                                    // Auto-save to voyage
+                                    // Auto-save to voyage AND auto-compute
+                                    // ETA = departure + planned duration.
+                                    // The duration came from the logbook
+                                    // route's entry-timestamp spread (see
+                                    // RoutesAndTracks.durationHours), which
+                                    // round-trips back to the original
+                                    // Gemini estimate at save time.
+                                    // Without auto-ETA, the GalleyCard meal
+                                    // planner blocks on a missing eta and
+                                    // tells the user "set departure & eta"
+                                    // even though departure IS set.
                                     if (selectedPassageId && val) {
-                                        updateVoyage(selectedPassageId, {
-                                            departure_time: new Date(val + 'T00:00:00').toISOString(),
-                                        }).then((result) => {
+                                        const departureIso = new Date(val + 'T00:00:00').toISOString();
+                                        const row = draftVoyages.find((v) => v.id === selectedPassageId);
+                                        const durHours = row?.durationHours;
+                                        const update: Parameters<typeof updateVoyage>[1] = {
+                                            departure_time: departureIso,
+                                        };
+                                        if (durHours && durHours > 0) {
+                                            update.eta = new Date(
+                                                Date.parse(departureIso) + durHours * 3_600_000,
+                                            ).toISOString();
+                                        }
+                                        updateVoyage(selectedPassageId, update).then((result) => {
                                             if (result.voyage) {
+                                                // Preserve the row's
+                                                // departureCoords /
+                                                // arrivalCoords / durationHours
+                                                // through the merge — those
+                                                // aren't stored in supabase.
                                                 setDraftVoyages((prev) =>
-                                                    prev.map((v) => (v.id === selectedPassageId ? result.voyage! : v)),
+                                                    prev.map((v) =>
+                                                        v.id === selectedPassageId
+                                                            ? {
+                                                                  ...result.voyage!,
+                                                                  departureCoords: v.departureCoords,
+                                                                  arrivalCoords: v.arrivalCoords,
+                                                                  durationHours: v.durationHours,
+                                                              }
+                                                            : v,
+                                                    ),
                                                 );
                                             }
                                         });
