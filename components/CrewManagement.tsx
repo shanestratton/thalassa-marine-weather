@@ -121,6 +121,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [watchBriefed, setWatchBriefed] = useState(false);
     const [commsReady, setCommsReady] = useState(false);
     const [vesselChecked, setVesselChecked] = useState(false);
+
+    // Diagnostic: see when these flip in real time. Pairs with the
+    // [EssentialReserves] / [VesselCheck] notify logs in those cards.
+    useEffect(() => {
+        console.warn(`[CrewManagement] reservesReady → ${reservesReady}`);
+    }, [reservesReady]);
+    useEffect(() => {
+        console.warn(`[CrewManagement] vesselChecked → ${vesselChecked}`);
+    }, [vesselChecked]);
     const [medicalReady, setMedicalReady] = useState(false);
 
     // Passage Intelligence states
