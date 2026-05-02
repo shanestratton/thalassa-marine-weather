@@ -24,7 +24,6 @@ import { Capacitor } from '@capacitor/core';
 import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
-import { GpsService } from './GpsService';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { EnvironmentService } from './EnvironmentService';
 import { createLogger } from '../utils/logger';
@@ -64,6 +63,11 @@ import {
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
 import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
 import {
+    getBestPosition as _getBestPosition,
+    getGpsStatus as _getGpsStatus,
+    getGpsNavData as _getGpsNavData,
+} from './shiplog/PositionResolver';
+import {
     queueOfflineEntry as _queueOfflineEntry,
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
@@ -86,7 +90,7 @@ import { checkIsOnWater } from './shiplog/waterDetection';
 const log = createLogger('ShipLog');
 
 // isSatelliteMode() moved to shiplog/EntrySave.ts
-import { isSatelliteMode } from './shiplog/EntrySave';
+import { isSatelliteMode, webGetFreshPosition } from './shiplog/EntrySave';
 
 // Staleness threshold: if cached GPS is older than this, fetch fresh
 const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
@@ -767,106 +771,21 @@ class ShipLogServiceClass {
         this.bgUnsubscribers = [];
     }
 
-    /**
-     * Get the best available GPS position.
-     * Uses cached onLocation position if fresh, otherwise falls back to getCurrentPosition.
-     * This is the ONLY place that should resolve GPS for log entries.
-     */
-    private async getBestPosition(): Promise<CachedPosition | null> {
-        // Prefer NMEA/external GPS if available (higher accuracy)
-        const nmeaPos = NmeaGpsProvider.getPosition();
-        if (nmeaPos) {
-            return {
-                latitude: nmeaPos.latitude,
-                longitude: nmeaPos.longitude,
-                accuracy: nmeaPos.accuracy,
-                heading: nmeaPos.heading,
-                speed: nmeaPos.speed / 1.94384, // SOG kts → m/s
-                timestamp: nmeaPos.timestamp,
-                receivedAt: Date.now(),
-                altitude: null,
-            } as CachedPosition;
-        }
+    // GPS resolution moved to ./shiplog/PositionResolver.ts. The
+    // orchestrator owns `lastBgLocation` and `isNative` and forwards them
+    // through these one-line delegates. `_webGetFreshPosition` (the
+    // duplicated copy of EntrySave.webGetFreshPosition) is gone.
 
-        // Check cached phone GPS position freshness
-        if (this.lastBgLocation) {
-            const age = Date.now() - this.lastBgLocation.receivedAt;
-            if (age < GPS_STALE_LIMIT_MS) {
-                return this.lastBgLocation;
-            }
-        }
-
-        // Cache is stale or empty — fetch fresh (blocking, but only as fallback)
-        if (this.isNative) {
-            return BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
-        }
-        // Web: use GpsService (navigator.geolocation with permission prompt)
-        const webPos = await GpsService.getCurrentPosition({ staleLimitMs: GPS_STALE_LIMIT_MS, timeoutSec: 15 });
-        if (!webPos) return null;
-        return {
-            latitude: webPos.latitude,
-            longitude: webPos.longitude,
-            accuracy: webPos.accuracy,
-            altitude: webPos.altitude,
-            heading: webPos.heading ?? 0,
-            speed: webPos.speed,
-            timestamp: webPos.timestamp,
-            receivedAt: Date.now(),
-        } as CachedPosition;
+    private getBestPosition(): Promise<CachedPosition | null> {
+        return _getBestPosition(this.lastBgLocation, this.isNative);
     }
 
-    /**
-     * Web fallback for BgGeoManager.getFreshPosition() — uses GpsService
-     * which calls navigator.geolocation.getCurrentPosition with permission prompt.
-     */
-    private async _webGetFreshPosition(): Promise<CachedPosition | null> {
-        const pos = await GpsService.getCurrentPosition({ staleLimitMs: 10_000, timeoutSec: 10 });
-        if (!pos) return null;
-        return {
-            latitude: pos.latitude,
-            longitude: pos.longitude,
-            accuracy: pos.accuracy,
-            altitude: pos.altitude,
-            heading: pos.heading ?? 0,
-            speed: pos.speed,
-            timestamp: pos.timestamp,
-            receivedAt: Date.now(),
-        } as CachedPosition;
-    }
-
-    /**
-     * Returns the current GPS fix quality.
-     * - `'locked'` — fresh fix within the last 60 seconds
-     * - `'stale'`  — cached fix older than 60 seconds
-     * - `'none'`   — no fix available at all
-     */
     getGpsStatus(): 'locked' | 'stale' | 'none' {
-        const pos = this.lastBgLocation || (this.isNative ? BgGeoManager.getLastPosition() : null);
-        if (!pos) return 'none';
-
-        const ageMs = Date.now() - pos.receivedAt;
-        if (ageMs < GPS_STALE_LIMIT_MS) return 'locked'; // < 60s
-        if (ageMs < 5 * 60 * 1000) return 'stale'; // 60s – 5min
-        return 'none'; // > 5min
+        return _getGpsStatus(this.lastBgLocation, this.isNative);
     }
 
-    /**
-     * Get GPS navigation data (SOG and COG) for dashboard display.
-     * Returns speed over ground in knots and course over ground in degrees.
-     */
     getGpsNavData(): { sogKts: number | null; cogDeg: number | null } {
-        const pos = this.lastBgLocation || (this.isNative ? BgGeoManager.getLastPosition() : null);
-        if (!pos) return { sogKts: null, cogDeg: null };
-
-        const ageMs = Date.now() - pos.receivedAt;
-        if (ageMs > GPS_STALE_LIMIT_MS) return { sogKts: null, cogDeg: null };
-
-        const sogKts =
-            pos.speed != null && pos.speed >= 0
-                ? parseFloat((pos.speed * 1.94384).toFixed(1)) // m/s → knots
-                : null;
-        const cogDeg = pos.heading != null && pos.heading >= 0 ? Math.round(pos.heading) : null;
-        return { sogKts, cogDeg };
+        return _getGpsNavData(this.lastBgLocation, this.isNative);
     }
 
     /**
@@ -999,7 +918,7 @@ class ShipLogServiceClass {
                 if (i === GPS_WARMUP_ATTEMPTS - 1) {
                     bestPos = this.isNative
                         ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
-                        : await this._webGetFreshPosition();
+                        : await webGetFreshPosition();
                 }
             }
         }
