@@ -38,6 +38,16 @@ export interface RouteOrTrack {
     timestamp: number;
     /** Total distance in NM (sum of distanceNM across entries when present). */
     distanceNm: number;
+    /**
+     * For planned routes: duration in hours derived from the spread of
+     * entry timestamps (last.timestamp − first.timestamp). PassagePlanSave
+     * spreads entries linearly across plan.durationApprox at save time, so
+     * this round-trips back to the original Gemini estimate. Used by
+     * CrewManagement to auto-compute ETA when the user picks a departure
+     * date — saves the user from manually typing the same number.
+     * Undefined for tracks (where the spread is real elapsed time).
+     */
+    durationHours?: number;
 }
 
 export interface RoutesAndTracksResult {
@@ -151,11 +161,18 @@ function groupByVoyage(entries: ShipLogEntry[]): RouteOrTrack[] {
 
         const distanceNm = sorted.reduce((acc, e) => acc + (e.distanceNM ?? 0), 0);
         const ts = new Date(first.timestamp).getTime();
+        // Derive duration from the entry timestamp spread. For planned
+        // routes this equals plan.durationApprox (PassagePlanSave spreads
+        // entries linearly across that). For tracks it's real elapsed
+        // time. We only attach it for planned routes — tracks would
+        // confuse the ETA calculator with already-finished durations.
+        const lastTs = new Date(last.timestamp).getTime();
+        const durationHours = isPlanned(id) && lastTs > ts ? (lastTs - ts) / 3_600_000 : undefined;
         const sublabel = isPlanned(id)
             ? `Planned · ${distanceNm > 0 ? distanceNm.toFixed(0) + ' NM' : `${points.length} points`}`
             : `${fmtDate(ts)} · ${distanceNm > 0 ? distanceNm.toFixed(0) + ' NM' : `${points.length} points`}`;
 
-        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm });
+        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm, durationHours });
     }
 
     // Most recent first.
