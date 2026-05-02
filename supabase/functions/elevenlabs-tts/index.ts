@@ -38,8 +38,46 @@ const CORS: Record<string, string> = {
 
 const DEFAULT_VOICE_ID = 'Wq15xSaY3gWvazBRaGEU';
 
+/**
+ * Reshape Calypso's answer text right before TTS so Flash v2.5
+ * pronounces marine units correctly. The model SHOULD emit units as
+ * full words (system prompt instructs it to), but TTS abbreviation
+ * expansion is unreliable enough that we belt-and-braces here too.
+ *
+ * Observed mispronunciations on Flash before this transform:
+ *   - "2.5 m"      → "two point five MINUTES"   (wanted: metres)
+ *   - "1020 hPa"   → "ten twenty H P A"         (wanted: hectopascals)
+ *   - "22°C"       → "twenty-two DECESS"        (wanted: degrees Celsius)
+ *   - "15 kt"      → "fifteen K T"              (wanted: knots)
+ *
+ * All regexes anchor on a leading number so we don't accidentally
+ * rewrite words like "I'm" or "moonlit" that contain unit-shaped
+ * letter pairs in non-unit contexts.
+ */
 function prepareForTTS(text: string): string {
-    return text.replace(/\bSerene Summer\b/g, 'Serene-Summer');
+    return (
+        text
+            // Vessel name — hyphenate so Flash treats as one phonetic unit
+            .replace(/\bSerene Summer\b/g, 'Serene-Summer')
+            // Temperature: "22°C" / "22 °C" / "22 °F"
+            .replace(/(\d+(?:\.\d+)?)\s*°\s*C\b/g, '$1 degrees Celsius')
+            .replace(/(\d+(?:\.\d+)?)\s*°\s*F\b/g, '$1 degrees Fahrenheit')
+            // Pressure: "1020 hPa" / "1020hPa" — ElevenLabs reads "hPa"
+            // letter-by-letter as "H P A" or as "huppa" without this.
+            .replace(/(\d+(?:\.\d+)?)\s*hPa\b/gi, '$1 hectopascals')
+            // Wind speed: "15 kt" / "15 kts" / "15 kn" → knots
+            .replace(/(\d+(?:\.\d+)?)\s*kts?\b/g, '$1 knots')
+            .replace(/(\d+(?:\.\d+)?)\s*kn\b/g, '$1 knots')
+            // Distance: "5 nm" → "5 nautical miles" (only after a digit
+            // + optional space, so we don't break "snm" in any words).
+            .replace(/(\d+(?:\.\d+)?)\s*nm\b/g, '$1 nautical miles')
+            // Length: "2.5 m" → "2.5 metres". Requires whitespace+digit
+            // boundary so common words (I'm, room) don't match.
+            .replace(/(\d+(?:\.\d+)?)\s+m\b(?!\w)/g, '$1 metres')
+            // Wave period: "8 s" / "8s period" → "8 seconds". Same
+            // boundary care — must follow a digit.
+            .replace(/(\d+(?:\.\d+)?)\s*s\b(?=\s+(?:period|wave|swell)|\s*$|\s*[.,;])/gi, '$1 seconds')
+    );
 }
 
 interface AskBody {

@@ -269,13 +269,27 @@ For directions of motion (vessel heading, current set, weather system tracking) 
 
 Round sensibly to what the skipper actually cares about:
 - Wind: nearest knot ("15 knots" not "14.7"). Gusts to nearest 5 knots.
-- Wave height: 0.1 m precision ("1.5 m" not "1.47 m").
-- Pressure: nearest hPa ("1015 hPa" not "1015.4").
+- Wave height: 0.1 metre precision ("1.5 metres" not "1.47 metres").
+- Pressure: nearest whole hectopascal ("1015 hectopascals" not "1015.4").
 - Temperature: nearest degree.
 - Time: minutes for under an hour, hours for longer ("about 4 hours", not "3.7 hours").
-- Distances: 0.1 nm under 5 nm, whole nm above.
+- Distances: 0.1 nautical mile under 5 nautical miles, whole nautical miles above.
 
-When a tool returns more precision than this, narrate the rounded version.`;
+When a tool returns more precision than this, narrate the rounded version.
+
+## TTS-FRIENDLY OUTPUT — UNITS AS FULL WORDS
+
+Your replies are spoken via ElevenLabs Flash TTS, which mispronounces unit abbreviations and the degree symbol. ALWAYS write units as full words, never abbreviations or symbols. The TTS pipeline has a backup transformer that catches the common ones, but writing them out from the start gives the cleanest audio:
+
+- "1020 hectopascals" — NEVER "1020 hPa" (TTS reads "huppa")
+- "22 degrees Celsius" — NEVER "22°C" or "22 C" (TTS reads "decess")
+- "2.5 metres" — NEVER "2.5 m" (TTS reads "minutes")
+- "8 second period" — NEVER "8 s" (TTS reads as a single letter)
+- "15 knots" — NEVER "15 kt" or "15 kts"
+- "5 nautical miles" — NEVER "5 nm"
+- "south-easterly", "north-westerly", or "SE", "NW" — both fine for compass directions; TTS handles compass abbreviations correctly.
+
+Numbers themselves stay as digits ("1020", "22", "2.5"). The TTS reads digits naturally. It's the UNIT AFTER the number that needs to be the full spelled-out word.`;
 
 function ageString(sec: number | undefined): string {
     if (sec === undefined || !Number.isFinite(sec)) return 'just now';

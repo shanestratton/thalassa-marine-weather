@@ -34,6 +34,9 @@ import {
     isDeepgramAvailable,
     prewarmAudioContext,
     prewarmDeepgram,
+    prewarmMicStream,
+    prewarmWorkerConnection,
+    releasePrewarmedMicStream,
     setDeepgramEventTap,
     startDeepgramRecognizer,
     type DeepgramRecognizerHandle,
@@ -495,25 +498,37 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (cancelled) return;
             setDeepgramStatus(available ? 'available' : 'unavailable');
             if (available) {
-                // Fire-and-forget token prewarm only. Saves the token
-                // mint round-trip when on the Supabase-proxy fallback;
-                // no-op on the Cloudflare-proxy primary path (which
-                // doesn't use a Deepgram token).
+                // Fire-and-forget triple-prewarm to slash cold-start
+                // latency on first tap:
+                //   - prewarmDeepgram: token cache (no-op on Cloudflare
+                //     proxy path which doesn't need a token)
+                //   - prewarmMicStream: getUserMedia call. Dominant
+                //     cold-start cost on iOS (~1.0-1.4s). Acquires the
+                //     mic NOW so the tap-to-ready path skips it.
+                //     Tradeoff: iOS shows the mic indicator for the
+                //     entire console session — which is honestly fine
+                //     UX for a voice interface where the user opened
+                //     explicitly to talk.
+                //   - prewarmWorkerConnection: HEAD/GET to the CF
+                //     Worker so DNS+TLS+TCP are established. WKWebView's
+                //     NSURLSession reuses the connection for the WS
+                //     upgrade.
                 //
-                // prewarmAudioContext() was tried here but caused
-                // empty-transcript symptoms on iOS — pre-creating an
-                // AudioContext outside the tap-gesture window appears
-                // to leave AVAudioSession in a mode where the mic
-                // input has wrong gain / routing, so audio reaches
-                // Deepgram but registers as silence. Pulled until we
-                // can reliably detect + recover from that state.
-                // The prewarmAudioContext function is preserved in
-                // deepgramRecognizer.ts for future revival.
+                // Note: prewarmAudioContext was tried but caused empty-
+                // transcript regressions on iOS. AudioContext stays
+                // tap-time only.
                 void prewarmDeepgram();
+                void prewarmMicStream();
+                void prewarmWorkerConnection();
             }
         });
         return () => {
             cancelled = true;
+            // Release the mic when the console closes — don't keep
+            // the iOS mic indicator on while the skipper is on other
+            // pages. Safe even if no prewarm happened (releasePrewarmed
+            // is a no-op when the cache is empty).
+            releasePrewarmedMicStream();
         };
     }, [isOpen]);
 

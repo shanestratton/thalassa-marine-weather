@@ -6,10 +6,10 @@
 // v4: Deepgram WS subprotocol changed from 'token' to 'bearer' — old
 // cached bundle still hits 401 INVALID_AUTH. Forcing invalidation so
 // the iOS SW picks up the new index-*.js with the auth fix.
-const CACHE_NAME = 'thalassa-v20-core';
-const TILE_CACHE = 'thalassa-v20-tiles';
-const DATA_CACHE = 'thalassa-v20-data';
-const LAN_TILE_CACHE = 'thalassa-v20-lan-tiles';
+const CACHE_NAME = 'thalassa-v21-core';
+const TILE_CACHE = 'thalassa-v21-tiles';
+const DATA_CACHE = 'thalassa-v21-data';
+const LAN_TILE_CACHE = 'thalassa-v21-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
 
