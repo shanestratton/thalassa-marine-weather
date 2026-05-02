@@ -637,16 +637,21 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         } catch {
             return; // ignore non-JSON
         }
-        // Surface every Deepgram message type we see — particularly
-        // useful when transcripts come back empty: lets us see
-        // Metadata, SpeechStarted, UtteranceEnd, Error, etc. in the
-        // debug strip so we can tell whether the audio is even
-        // reaching the model.
+        // Surface every message type we see — particularly useful
+        // when transcripts come back empty: lets us see ProxyHello
+        // (from Supabase proxy on connect), Metadata, SpeechStarted,
+        // UtteranceEnd, Error, etc. in the debug strip so we can tell
+        // whether the audio is even reaching the model.
         if (totalMessagesReceived <= 3) {
             const preview = JSON.stringify(msg).slice(0, 80);
             emitEvent(`[DG] msg #${totalMessagesReceived} type=${msg.type ?? '?'}: ${preview}`);
         }
-        if (msg.type !== 'Results') return;
+        // ProxyHello is our own diagnostic emitted by the Supabase
+        // proxy on client connect — confirms proxy→client forwarding.
+        // Don't process it as a Deepgram message.
+        const msgType = (msg as { type?: string }).type;
+        if (msgType === 'ProxyHello') return;
+        if (msgType !== 'Results') return;
         const transcript = msg.channel?.alternatives?.[0]?.transcript ?? '';
         const isFinal = Boolean(msg.is_final);
         if (transcript.length === 0) {

@@ -94,6 +94,16 @@ Deno.serve(async (req: Request) => {
 
     clientSocket.addEventListener('open', () => {
         console.log('[dg-proxy] client socket open');
+        // Diagnostic: immediately send a hello ping to the client. If
+        // the client logs receipt of this, we know proxy→client
+        // forwarding works and any later silence is the upstream
+        // (Deepgram) side. If the client never sees this, the
+        // bidirectional WS is broken in the iOS direction.
+        try {
+            clientSocket.send(JSON.stringify({ type: 'ProxyHello', ts: Date.now() }));
+        } catch (err) {
+            console.warn('[dg-proxy] hello send failed:', (err as Error).message);
+        }
     });
 
     // Open upstream — iOS doesn't see this directly. Standard browser
@@ -149,12 +159,18 @@ Deno.serve(async (req: Request) => {
     });
 
     upstreamSocket.addEventListener('close', (ev: CloseEvent) => {
-        console.log(`[dg-proxy] upstream closed code=${ev.code} reason=${ev.reason}`);
+        console.log(`[dg-proxy] upstream closed code=${ev.code} reason="${ev.reason}"`);
         if (clientSocket.readyState === WebSocket.OPEN || clientSocket.readyState === WebSocket.CONNECTING) {
             try {
-                clientSocket.close(ev.code, ev.reason);
-            } catch {
-                /* ignore */
+                // Codes 1005 and 1006 are reserved per RFC 6455 and
+                // can't be sent in a Close frame. Map either to 1011
+                // (server error) so the client gets a real signal
+                // instead of a silent TCP-RST that surfaces as 1005.
+                const safeCode = ev.code === 1005 || ev.code === 1006 ? 1011 : ev.code;
+                const safeReason = ev.reason || `upstream closed ${ev.code}`;
+                clientSocket.close(safeCode, safeReason);
+            } catch (err) {
+                console.warn('[dg-proxy] client close failed:', (err as Error).message);
             }
         }
     });
