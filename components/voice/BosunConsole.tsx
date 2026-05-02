@@ -22,6 +22,7 @@
  * text is right there if speakers are off, the wind is loud, etc.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PiSetupWizard } from './PiSetupWizard';
 import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
@@ -164,6 +165,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const [srStatus, setSrStatus] = useState<'unknown' | 'available' | 'denied' | 'unsupported' | 'error'>('unknown');
     const [srStatusError, setSrStatusError] = useState<string | null>(null);
+
+    /**
+     * Open state for the Pi-provisioning wizard. Triggered from the
+     * header CTA when the Pi is unreachable. The wizard owns its own
+     * step state internally — we just track open/closed here.
+     */
+    const [piSetupOpen, setPiSetupOpen] = useState(false);
 
     /**
      * Last few [SR] events for the on-device debug strip. Visible to the
@@ -769,6 +777,17 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             {srStatus === 'unknown' && 'Probing SR…'}
                         </p>
                     </div>
+                    {/* Pi-setup CTA — visible only when no Pi is */}
+                    {/* discovered on the network. Opens the wizard for */}
+                    {/* a fresh Pi or one whose WiFi password changed. */}
+                    {bosunAvailable === false && (
+                        <button
+                            onClick={() => setPiSetupOpen(true)}
+                            className="mt-1.5 text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
+                        >
+                            Set up Pi →
+                        </button>
+                    )}
                 </div>
                 <div className="flex items-center gap-2">
                     {turns.length > 0 && (
@@ -899,6 +918,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     </button>
                 </div>
             </form>
+
+            {/* Pi-provisioning wizard — overlays the console when open. */}
+            {/* Renders nothing when piSetupOpen=false, so no perf cost. */}
+            <PiSetupWizard isOpen={piSetupOpen} onClose={() => setPiSetupOpen(false)} />
         </div>
     );
 };
