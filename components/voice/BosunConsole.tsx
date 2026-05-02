@@ -25,7 +25,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
-import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
+import { askCloudVoice } from '../../services/voice/cloudFallback';
+import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
 import {
     isSpeechRecognitionAvailable,
     setSrEventTap,
@@ -423,6 +424,34 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         [appendTurn, playResponseAudio, setOneButton],
     );
 
+    /**
+     * Run the on-device orchestrator path: Haiku tool-loop runs locally
+     * via anthropic-proxy, dispatching Pi tools and thalassa_weather
+     * client-side, then ElevenLabs TTS via elevenlabs-tts. Returns the
+     * standard VoiceQueryResponse envelope so handleResponse can stay
+     * agnostic to which path produced the answer.
+     */
+    const runOrchestrator = useCallback(
+        async (text: string): Promise<VoiceQueryResponse> => {
+            const context = gatherThalassaContext();
+            const history = buildHistory(turns);
+            const result = await askHaiku({ text, context, history });
+            const audio_b64 = await synthesiseSpeech(result.answerText);
+            return {
+                transcript: text,
+                answer_text: result.answerText,
+                audio_b64: audio_b64 ?? undefined,
+                source: 'cloud',
+                tool_calls: result.toolCalls.map((name) => ({
+                    name,
+                    args: {},
+                    status: 'success' as const,
+                })),
+            };
+        },
+        [turns],
+    );
+
     const sendVoiceQuery = useCallback(
         async (audioBlob: Blob, to: 'bosun' | 'cloud', preTranscribed?: string | null) => {
             if (audioBlob.size === 0 && !preTranscribed) {
@@ -434,25 +463,23 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             setOneButton(to, 'awaiting');
             setErrorMessage(null);
             try {
-                // Snapshot Thalassa state RIGHT NOW so Bosun answers against
-                // what the skipper currently sees on screen, not whatever was
-                // selected when the console was first opened.
-                const context = gatherThalassaContext();
-                // Recent conversation history so Haiku has continuity across
-                // turns (e.g. "for the next 3 questions, speak like a pirate"
-                // actually persists). Capped at HISTORY_TURN_LIMIT.
-                const history = buildHistory(turns);
                 let response: VoiceQueryResponse;
                 if (to === 'cloud' && preTranscribed) {
-                    // FAST PATH: Apple SR already gave us an on-device
-                    // transcript — skip the Scribe round-trip entirely and
-                    // hit Haiku directly with the text.
-                    response = await askCloudText({ text: preTranscribed, context, history });
+                    // FAST PATH: Apple SR transcribed on-device. Run the
+                    // full Haiku tool-loop on the iPhone so Pi tools are
+                    // dispatched without extra Supabase round-trips.
+                    response = await runOrchestrator(preTranscribed);
+                } else if (to === 'cloud') {
+                    // FALLBACK: SR didn't produce text, ship the audio
+                    // blob to the legacy edge function which runs Scribe
+                    // STT then its own Haiku loop. Path A doesn't extract
+                    // STT yet — separate commit.
+                    const context = gatherThalassaContext();
+                    const history = buildHistory(turns);
+                    response = await askCloudVoice(audioBlob, context, history);
                 } else {
-                    response =
-                        to === 'bosun'
-                            ? await askBosunVoice(audioBlob)
-                            : await askCloudVoice(audioBlob, context, history);
+                    // Tier-D: Pi cascade (3B + RAG) on local LAN.
+                    response = await askBosunVoice(audioBlob);
                 }
                 handleResponse(response, to);
             } catch (err) {
@@ -461,7 +488,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, setOneButton, turns],
+        [handleResponse, runOrchestrator, setOneButton, turns],
     );
 
     const sendTextQuery = useCallback(
@@ -470,10 +497,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             setOneButton(to, 'awaiting');
             setErrorMessage(null);
             try {
-                const context = gatherThalassaContext();
-                const history = buildHistory(turns);
-                const response =
-                    to === 'bosun' ? await askBosunText({ text }) : await askCloudText({ text, context, history });
+                const response = to === 'bosun' ? await askBosunText({ text }) : await runOrchestrator(text);
                 handleResponse(response, to);
             } catch (err) {
                 setErrorMessage((err as Error).message || 'Something went wrong.');
@@ -481,7 +505,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, setOneButton, turns],
+        [handleResponse, runOrchestrator, setOneButton],
     );
 
     /**

@@ -66,6 +66,22 @@ const SERVICES: ServiceProbe[] = [
         },
     },
     {
+        // Bosun web service — the Pi-side tool host described in
+        // docs/BOSUN_TOOL_API.md. Hosts /api/health + /tool/* endpoints
+        // (vessel position, state, profile, manual search, log query).
+        // The orchestrator targets this when on-boat to read live vessel
+        // data straight from SignalK + Modbus and skip Anthropic tool
+        // round-trips on Pi-local queries.
+        name: 'bosun-web',
+        port: 5000,
+        path: '/api/health',
+        validate: (data: unknown, status: number) => {
+            if (status < 200 || status >= 400) return false;
+            const d = data as Record<string, unknown> | null;
+            return d?.ok === true && d?.service === 'bosun-web';
+        },
+    },
+    {
         name: 'signalk',
         port: 3000,
         path: '/signalk',
