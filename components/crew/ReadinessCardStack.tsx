@@ -7,7 +7,7 @@
 
 import React, { useEffect } from 'react';
 import { type CrewMember } from '../../services/CrewService';
-import { type Voyage } from '../../services/VoyageService';
+import { type VoyageRow } from '../CrewManagement';
 
 import { WeatherBriefingCard } from '../passage/WeatherBriefingCard';
 import { EssentialReservesCard } from '../passage/EssentialReservesCard';
@@ -28,7 +28,7 @@ import { OceanCurrentsCard } from '../passage/OceanCurrentsCard';
 
 interface ReadinessCardStackProps {
     selectedPassageId: string;
-    draftVoyages: Voyage[];
+    draftVoyages: VoyageRow[];
     visibleCrew: CrewMember[];
     planCrewCount: number;
     // Card states
@@ -319,6 +319,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     <WeatherWindowCard
                         voyageId={selectedPassageId}
                         activeVoyage={activeVoyage}
+                        departure={activeVoyage?.departureCoords}
+                        destination={activeVoyage?.arrivalCoords}
                         onReviewedChange={onWeatherWindowChange}
                     />
                 </CardAccordion>
@@ -336,6 +338,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     <OceanCurrentsCard
                         voyageId={selectedPassageId}
                         activeVoyage={activeVoyage}
+                        departure={activeVoyage?.departureCoords}
+                        destination={activeVoyage?.arrivalCoords}
                         onReviewedChange={onCurrentsChange}
                     />
                 </CardAccordion>

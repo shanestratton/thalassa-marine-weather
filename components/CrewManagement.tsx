@@ -51,6 +51,17 @@ const CastOffPanel = lazyRetry(
     'CastOffPanel_Crew',
 );
 
+/**
+ * VoyageRow — a Voyage augmented with departure/arrival coords looked
+ * up from the matching logbook route. Used as the dropdown's row type
+ * so Weather Windows + Ocean Currents cards can run their analysis
+ * without us bolting lat/lon columns onto the voyages table.
+ */
+export type VoyageRow = Voyage & {
+    departureCoords?: { lat: number; lon: number };
+    arrivalCoords?: { lat: number; lon: number };
+};
+
 interface CrewManagementProps {
     onBack: () => void;
 }
@@ -86,8 +97,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [showCastOff, setShowCastOff] = useState(false);
     const [_activeVoyageName, setActiveVoyageName] = useState<string | null>(null);
 
-    // Draft passage plans
-    const [draftVoyages, setDraftVoyages] = useState<Voyage[]>([]);
+    // Draft passage plans. VoyageRow extends the DB Voyage with
+    // optional departure/arrival coords pulled from the matching
+    // logbook route at fetch time. The cards downstream (Weather
+    // Windows, Ocean Currents) need lat/lon to run their analysis but
+    // the voyages-table schema doesn't carry coords; this is how we
+    // bridge that gap without a migration.
+    const [draftVoyages, setDraftVoyages] = useState<VoyageRow[]>([]);
     const [selectedPassageId, setSelectedPassageId] = useState<string>(getActivePassageId() || '');
 
     // ── Readiness card states ──
@@ -226,9 +242,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         // creates the actual voyages-table row when the user picks
         // it, so we don't pollute the table with rows for routes
         // the user never actually picks.
-        const rows: Voyage[] = routesAndTracks.routes.map((r) => {
+        //
+        // We also attach the route's first/last polyline points as
+        // departureCoords/arrivalCoords so downstream cards (Weather
+        // Windows, Ocean Currents) can light up — they need lat/lon to
+        // run, and the voyages-table schema doesn't carry them. Pulling
+        // from the logbook route is the path of least resistance: the
+        // coords are already there from the original passage save.
+        const rows: VoyageRow[] = routesAndTracks.routes.map((r) => {
+            const first = r.points[0];
+            const last = r.points[r.points.length - 1];
+            const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
+            const arrivalCoords = last ? { lat: last.lat, lon: last.lon } : undefined;
             const matched = draftByName.get(norm(r.label));
-            if (matched) return matched;
+            if (matched) return { ...matched, departureCoords, arrivalCoords };
             const [depPart, arrPart] = r.label.split(' → ');
             // Stub voyage — id starts with "logbook:" so the on-
             // select handler knows to find-or-create a real row
@@ -248,6 +275,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 notes: null,
                 created_at: new Date(r.timestamp).toISOString(),
                 updated_at: new Date(r.timestamp).toISOString(),
+                departureCoords,
+                arrivalCoords,
             };
         });
 
@@ -509,8 +538,18 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                         // Replace the stub with the real
                                         // row so future selects in this
                                         // session use the UUID directly.
-                                        row = voyage;
-                                        setDraftVoyages((prev) => prev.map((d) => (d.id === id ? voyage : d)));
+                                        // Carry over the coords from the
+                                        // logbook lookup so the readiness
+                                        // cards (Weather Windows, Ocean
+                                        // Currents) can still find their
+                                        // departure point.
+                                        const promoted: VoyageRow = {
+                                            ...voyage,
+                                            departureCoords: row.departureCoords,
+                                            arrivalCoords: row.arrivalCoords,
+                                        };
+                                        row = promoted;
+                                        setDraftVoyages((prev) => prev.map((d) => (d.id === id ? promoted : d)));
                                         setSelectedPassageId(voyage.id);
                                     }
                                 }
