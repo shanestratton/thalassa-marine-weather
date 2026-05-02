@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
 // geminiService dynamically imported at call sites
@@ -55,6 +55,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
     const [activeChecklistTab, setActiveChecklistTab] = useState('safety');
 
+    // Session ID — bumped on each new calculate or explicit reset. The
+    // background enhancement pipeline captures this at start and only
+    // commits its progressive saveVoyagePlan() calls if the session is
+    // still current. This is what stops a previous route's enhancements
+    // from re-populating WeatherContext.voyagePlan after the user has
+    // returned to RoutePlanner expecting a clean form.
+    const sessionIdRef = useRef(0);
+
     // Reset Deep Report on param change
     useEffect(() => {
         if (voyagePlan?.origin !== origin || voyagePlan?.destination !== destination) {
@@ -105,6 +113,16 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setOrigin(fmtOrigin);
         setDestination(fmtDest);
         setVia(fmtVia);
+
+        // Bump session: this is a NEW route plan. Any pending enhancement
+        // pipeline writes from a previous calculate are now stale and
+        // will be dropped by saveIfActive below.
+        sessionIdRef.current += 1;
+        const mySession = sessionIdRef.current;
+        const saveIfActive = (plan: import('../types').VoyagePlan) => {
+            if (sessionIdRef.current !== mySession) return; // stale — user reset / re-calculated
+            saveVoyagePlan(plan);
+        };
 
         setLoading(true);
         setError(null);
@@ -159,7 +177,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             );
 
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
-            saveVoyagePlan(result);
+            saveIfActive(result);
             setLoading(false);
 
             // ── Enhancement Pipeline (runs in background, progressively updates) ──
@@ -179,7 +197,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 try {
                     const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
                     enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
-                    saveVoyagePlan(enhancedPlan);
+                    saveIfActive(enhancedPlan);
                 } catch (_) {
                     console.warn(`[useVoyageForm]`, _);
                 }
@@ -219,7 +237,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                 return da - db;
                             });
                             enhancedPlan = { ...enhancedPlan, waypoints: merged };
-                            saveVoyagePlan(enhancedPlan);
+                            saveIfActive(enhancedPlan);
                         }
                     }
                 } catch (_) {
@@ -230,7 +248,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 try {
                     const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                     enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
-                    saveVoyagePlan(enhancedPlan);
+                    saveIfActive(enhancedPlan);
                 } catch (_) {
                     console.warn(`[useVoyageForm]`, _);
                 }
@@ -336,9 +354,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
                 // Wait for both parallel steps, then save final enhanced plan
                 await Promise.allSettled([step3, step4]);
-                saveVoyagePlan({ ...enhancedPlan });
+                saveIfActive({ ...enhancedPlan });
                 // Pipeline complete — let any visible "Refining route…"
-                // chip dismiss itself.
+                // chip dismiss itself. Emit even if session was bumped
+                // mid-flight so the chip never gets stuck visible.
                 window.dispatchEvent(new CustomEvent('thalassa:passage-enhancement-end'));
             }, 50);
 
@@ -396,8 +415,36 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     };
 
     const toggleCheck = useCallback((item: string) => setChecklistState((p) => ({ ...p, [item]: !p[item] })), []);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const clearVoyagePlan = useCallback(() => saveVoyagePlan(null as any), [saveVoyagePlan]);
+
+    /**
+     * Wipe the planner back to a pristine state:
+     *   - Bump the session id so any in-flight enhancement-pipeline
+     *     `saveVoyagePlan(...)` calls from a previous calculate are
+     *     dropped (saveIfActive guard above).
+     *   - Clear the WeatherContext voyagePlan (so the inline map
+     *     reverts to the empty placeholder).
+     *   - Reset local form fields (origin / destination / via / error
+     *     / deepReport).
+     *
+     * Called from RoutePlanner on mount so each visit starts fresh,
+     * even if the previous session's enhancement pipeline is still
+     * grinding away in the background.
+     */
+    const clearVoyagePlan = useCallback(() => {
+        sessionIdRef.current += 1;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        saveVoyagePlan(null as any);
+        setOrigin('');
+        setDestination('');
+        setVia('');
+        setError(null);
+        setDeepReport(null);
+        // Make sure any stuck "Refining route…" chip dismisses too —
+        // session bump alone doesn't dispatch the end event.
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('thalassa:passage-enhancement-end'));
+        }
+    }, [saveVoyagePlan]);
 
     const handleMapSelect = async (lat: number, lon: number, name: string) => {
         // Attempt reverse geocode for a friendly name if only coords provided
