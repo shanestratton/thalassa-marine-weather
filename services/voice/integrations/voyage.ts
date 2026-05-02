@@ -25,7 +25,7 @@ import { ShipLogService } from '../../ShipLogService';
 import { NmeaStore } from '../../NmeaStore';
 import { BgGeoManager } from '../../BgGeoManager';
 
-interface VesselFix {
+export interface VesselFix {
     lat: number;
     lon: number;
     sog?: number; // knots
@@ -37,8 +37,12 @@ interface VesselFix {
  * Resolve the best-available current fix. NMEA preferred — boat
  * instruments beat the phone's GPS for accuracy underway and don't
  * suffer the dock-side multipath the phone gets in marina cradles.
+ *
+ * Exported so the AIS / tides / briefing tools can use the same
+ * resolution priority. Single source of truth for "where am I right
+ * now?" across all voice tools.
  */
-async function getCurrentFix(): Promise<VesselFix | null> {
+export async function getCurrentFix(): Promise<VesselFix | null> {
     const nm = NmeaStore.getState();
     if (
         nm.latitude.freshness === 'live' &&

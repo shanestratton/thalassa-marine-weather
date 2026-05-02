@@ -32,6 +32,11 @@ import { runThalassaWeather } from './cloudTools';
 import { executePiTool, isBosunWebReachable, isPiToolName } from './piTools';
 import { logEntry, passageEta, saveWaypoint } from './integrations/voyage';
 import { playAudiobook, playPodcast } from './integrations/spokenAudio';
+import { aisProximity } from './integrations/aisProximity';
+import { getTides } from './integrations/tides';
+import { telemetryTrend } from './integrations/telemetryTrend';
+import { setSundownerReminder, cancelSundownerReminder, getPendingSundowner } from './integrations/sundowner';
+import { dailyBriefing } from './integrations/dailyBriefing';
 import {
     nowPlaying as appleMusicNowPlaying,
     pauseMusic,
@@ -228,6 +233,109 @@ const CLOUD_TOOLS: ToolDef[] = [
             },
             required: ['query'],
         },
+    },
+    // ── AIS proximity (when boat has AIS receiver via NMEA backbone) ──
+    {
+        name: 'ais_proximity',
+        description:
+            'Read out top AIS targets near own ship with range, bearing, CPA (closest point of approach), and TCPA (time to CPA). Use when the skipper asks "anything close?" / "who\'s out there?" / "any traffic?". Tool sorts by range; you narrate by safety priority — flag any target with CPA < 1nm OR TCPA < 30min as the headline; quieter ones get a single mention. Skip targets with negative TCPA (receding). If no targets in range, say so plainly. Requires NMEA AIS receiver — return path includes own_position_source so you can mention "from my GPS" vs "from the boat\'s instruments".',
+        input_schema: {
+            type: 'object',
+            properties: {
+                max_range_nm: {
+                    type: 'number',
+                    description: 'How far to look (nautical miles). Default 10. Hard cap 50.',
+                },
+                max_count: {
+                    type: 'number',
+                    description: 'How many targets to return. Default 3. Hard cap 10.',
+                },
+            },
+        },
+    },
+    // ── Tides (WorldTides API, 24h cached) ──
+    {
+        name: 'get_tides',
+        description:
+            'Get the next high + low tide for a location. Defaults to current GPS position when lat/lon omitted. Returns next two extremes with time, height (metres), and a Calypso-friendly "in two hours forty" label. Read it naturally — don\'t recite the ISO timestamp. Use this for "when\'s high tide?", "how much water at the bar in 2 hours?", "next low tide?".',
+        input_schema: {
+            type: 'object',
+            properties: {
+                lat: { type: 'number', description: 'Latitude (decimal degrees). Optional — defaults to current GPS.' },
+                lon: {
+                    type: 'number',
+                    description: 'Longitude (decimal degrees). Optional — defaults to current GPS.',
+                },
+                location_name: {
+                    type: 'string',
+                    description: 'Optional friendly name for narration ("the bar", "Newport").',
+                },
+            },
+        },
+    },
+    // ── Telemetry trend ──
+    {
+        name: 'telemetry_trend',
+        description:
+            'Read the trend of a vessel metric over a recent window. Returns latest, earliest, delta, and direction ("climbing" / "falling" / "stable"). Use when the skipper asks "is the battery normal?" / "is the depth changing?" / "how\'s the engine?". Buffer fills over time — if "samples" is small, hedge ("just opened the buffer, only have a couple readings"). The buffer captures the last 30 minutes max.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                metric: {
+                    type: 'string',
+                    enum: ['voltage', 'rpm', 'depth'],
+                    description: 'Which metric: battery voltage, engine RPM, or depth below transducer.',
+                },
+                window_min: {
+                    type: 'number',
+                    description: "Window in minutes. Default 10. Hard cap 30 (the buffer's max age).",
+                },
+            },
+            required: ['metric'],
+        },
+    },
+    // ── Sundowner reminder ──
+    {
+        name: 'set_sundowner_reminder',
+        description:
+            'Schedule a one-shot reminder to fire `minutes_before` ahead of sunset. When it triggers, you\'ll alert the skipper through the same chime + voice + page-takeover channel as the proactive alert system. Use for "remind me 30 minutes before sunset", "give me a sundowner alert", etc. You provide the sunset time in ISO from the weather data already in your context. Tell the skipper honestly: this is foreground-only — if they fully close the app, the timer dies.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                sunset_iso: {
+                    type: 'string',
+                    description: "Sunset time in ISO 8601. Pull from CURRENT THALASSA STATE's sun/moon data.",
+                },
+                minutes_before: {
+                    type: 'number',
+                    description: 'How far before sunset to fire. Default 30. Min 0, max 180.',
+                },
+                custom_message: {
+                    type: 'string',
+                    description: 'Optional bespoke message. Defaults to anchor-light + sundowner reminder.',
+                },
+            },
+            required: ['sunset_iso'],
+        },
+    },
+    {
+        name: 'cancel_sundowner_reminder',
+        description:
+            'Cancel any pending sundowner reminder. Use for "never mind", "cancel that", "scratch the reminder".',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'get_pending_sundowner',
+        description:
+            'Read the currently-scheduled sundowner reminder, if any. Use when the skipper asks "did I set a reminder?" or "when\'s my reminder?".',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    // ── Daily briefing ──
+    {
+        name: 'daily_briefing',
+        description:
+            'Calypso\'s morning rundown. Aggregates current position, next tide, AIS traffic within 10nm, and live vessel telemetry (battery + depth + RPM) into one structured object. Use when the skipper asks for a "morning briefing" / "daily briefing" / "sit-rep" / "what\'s going on?". Compose a 20-30 second monologue from the result: greet by part-of-day, weather (you have it from CURRENT THALASSA STATE — quote briefly), next tide, traffic, vessel state. Skip empty sections silently. Don\'t list every number; pick the 3-4 most relevant.',
+        input_schema: { type: 'object', properties: {}, required: [] },
     },
 ];
 
@@ -442,7 +550,17 @@ const ASSISTANT_NAME = 'Calypso';
 
 const STATIC_SYSTEM_PROMPT = `You are ${ASSISTANT_NAME}, AI first mate aboard "${VESSEL_NAME}", a 55-foot Tayana cutter skippered by Shane Stratton. (You may have answered to "Bosun" in earlier conversations — that was the old name; you are Calypso now. If the skipper calls you Bosun, gently let them know you go by Calypso these days, but never make a fuss of it.) You reason about weather, marine knowledge, and general sailing topics, calling tools when they help.
 
-A snapshot of what the skipper currently sees in the Thalassa app — selected location, the weather on their Glass page, any active passage plan — is appended to your context as "CURRENT THALASSA STATE" before each query. Read it. Answer against it when relevant.
+A snapshot of what the skipper currently sees in the Thalassa app — selected location, the weather on their Glass page, any active passage plan, sun/moon times — is appended to your context as "CURRENT THALASSA STATE" before each query. Read it. Answer against it when relevant.
+
+You also have a suite of voyage tools always available:
+- \`daily_briefing\` — aggregate position + tide + AIS traffic + vessel telemetry into a 20-30 second morning rundown. Use when the skipper asks for a "briefing" / "sit-rep" / "what's going on?".
+- \`ais_proximity\` — top AIS targets near own ship with CPA/TCPA. Use for "anything close?" / "who's out there?".
+- \`get_tides\` — next high + low tide for current location (or a specified one).
+- \`passage_eta\` — distance + bearing + ETA at current speed. "How long till X?".
+- \`log_entry\` — drop a free-form note in the active ship's log. "Log this: ...".
+- \`save_waypoint\` — mark current position as a named waypoint. "Save this as Crocodile Bay".
+- \`telemetry_trend\` — battery/RPM/depth drift over the last N minutes. "Is the battery normal?".
+- \`set_sundowner_reminder\` / \`cancel_sundowner_reminder\` / \`get_pending_sundowner\` — schedule a reminder N minutes before sunset (sunset ISO comes from the THALASSA STATE). Foreground-only timer — be honest about that.
 
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
 
@@ -908,6 +1026,41 @@ async function dispatchTool(
     }
     if (name === 'play_podcast') {
         return playPodcast(typeof input.query === 'string' ? input.query : '');
+    }
+    // ── AIS proximity ──────────────────────────────────────────────
+    if (name === 'ais_proximity') {
+        const range = typeof input.max_range_nm === 'number' ? input.max_range_nm : 10;
+        const count = typeof input.max_count === 'number' ? input.max_count : 3;
+        return aisProximity(range, count);
+    }
+    // ── Tides ──────────────────────────────────────────────────────
+    if (name === 'get_tides') {
+        const lat = typeof input.lat === 'number' ? input.lat : undefined;
+        const lon = typeof input.lon === 'number' ? input.lon : undefined;
+        const ln = typeof input.location_name === 'string' ? input.location_name : undefined;
+        return getTides(lat, lon, ln);
+    }
+    // ── Telemetry trend ────────────────────────────────────────────
+    if (name === 'telemetry_trend') {
+        const m = typeof input.metric === 'string' ? input.metric : 'voltage';
+        const w = typeof input.window_min === 'number' ? input.window_min : 10;
+        if (m !== 'voltage' && m !== 'rpm' && m !== 'depth') {
+            return { content: `ERROR: unknown telemetry metric '${m}'`, isError: true };
+        }
+        return telemetryTrend(m, w);
+    }
+    // ── Sundowner reminder ─────────────────────────────────────────
+    if (name === 'set_sundowner_reminder') {
+        const iso = typeof input.sunset_iso === 'string' ? input.sunset_iso : '';
+        const before = typeof input.minutes_before === 'number' ? input.minutes_before : 30;
+        const msg = typeof input.custom_message === 'string' ? input.custom_message : undefined;
+        return setSundownerReminder(iso, before, msg);
+    }
+    if (name === 'cancel_sundowner_reminder') return cancelSundownerReminder();
+    if (name === 'get_pending_sundowner') return getPendingSundowner();
+    // ── Daily briefing ─────────────────────────────────────────────
+    if (name === 'daily_briefing') {
+        return dailyBriefing();
     }
     // web_search runs server-side at Anthropic; we never see its
     // tool_use blocks here. If we do, that's a registry/upstream
