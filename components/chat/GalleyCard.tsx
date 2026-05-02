@@ -187,6 +187,25 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                 }
             }
 
+            // Final fallback: voyage has departure but no route match
+            // means we can't derive eta from saved duration. Default
+            // to a 7-day passage so the meal planner renders SOMETHING
+            // — better than blocking the user with "set eta" prompts
+            // when they've already set a departure. The user can
+            // always update via the dropdown's date picker for a more
+            // accurate ETA. This handles voyages that were created
+            // outside the standard PassagePlanSave flow (e.g. manual
+            // Cast Off, or routes the user later renamed/deleted).
+            const DEFAULT_PASSAGE_DAYS = 7;
+            if (effectiveDeparture && !effectiveEta) {
+                effectiveEta = new Date(
+                    Date.parse(effectiveDeparture) + DEFAULT_PASSAGE_DAYS * 24 * 3_600_000,
+                ).toISOString();
+                console.warn(
+                    `[GalleyCard] no route duration — defaulting to ${DEFAULT_PASSAGE_DAYS}-day passage → eta=${effectiveEta}`,
+                );
+            }
+
             // Hand the voyage to React; if we computed dates on the
             // fly, splice them onto the voyage object so downstream
             // components see a complete passage even without a DB
