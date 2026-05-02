@@ -456,6 +456,9 @@ const PasswordPanel: React.FC<{
         <p className="text-xs text-gray-500">
             The password is sent only to your Pi over the local network — it never leaves the boat.
         </p>
+        {password.length > 0 && password.length < 8 && (
+            <p className="text-xs text-amber-400">WPA networks require at least 8 characters.</p>
+        )}
         <div className="flex gap-2 pt-2">
             <button
                 onClick={onBack}
@@ -465,7 +468,7 @@ const PasswordPanel: React.FC<{
             </button>
             <button
                 onClick={onSubmit}
-                disabled={password.length < 1}
+                disabled={password.length < 8}
                 className="flex-[2] px-6 py-3 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-white font-bold transition-colors"
             >
                 Connect

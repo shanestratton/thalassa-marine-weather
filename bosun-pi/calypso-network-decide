@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""calypso-network-decide — boot-time station-or-AP decision.
+
+Runs once at boot before bosun-web.service. Logic:
+
+  1. Wait up to STATION_TIMEOUT seconds for wlan0 to land in `connected`
+     state. NetworkManager will autoconnect to the highest-priority
+     saved connection during this window.
+  2. If station mode succeeds → log + exit 0. Flask comes up in station
+     mode; /api/network/* endpoints work but won't see /configure
+     traffic until the user opens the wizard.
+  3. If station mode fails:
+       a. Run a fresh scan and persist to LAST_SCAN_FILE — this is what
+          /api/network/scan serves while the AP is up (single-radio
+          constraint: can't scan and beacon simultaneously).
+       b. Bring up the calypso-ap hotspot.
+       c. Exit 0.
+
+The script is run by `calypso-network-decide.service` (Type=oneshot)
+ahead of bosun-web. It logs to journald — `journalctl -u calypso-network-decide`
+to see what it decided last boot.
+"""
+from __future__ import annotations
+
+import sys
+import time
+
+# Same path bosun-web uses — keeps the code in one place
+sys.path.insert(0, "/mnt/nvme/bosun")
+
+import bosun_network_apply as net  # noqa: E402  (path injection above is intentional)
+
+
+STATION_TIMEOUT = 60  # seconds — matches the spec's "fall back if station fails for >60s consecutively"
+POLL_INTERVAL = 2  # seconds
+
+
+def _log(msg: str) -> None:
+    # Writes to stdout → journald via the systemd unit's StandardOutput=journal
+    print(f"[calypso-network-decide] {msg}", flush=True)
+
+
+def main() -> int:
+    _log("boot decision starting")
+
+    # Wait for NetworkManager to come up — `After=NetworkManager.service`
+    # in the unit only guarantees activation, not ready-for-queries.
+    for i in range(10):
+        try:
+            net._run(["nmcli", "general", "status"], timeout=2.0)  # type: ignore[attr-defined]
+            break
+        except Exception:
+            time.sleep(0.5)
+    else:
+        _log("nmcli unresponsive after 5s — proceeding anyway")
+
+    # Try station mode
+    start = time.time()
+    while time.time() - start < STATION_TIMEOUT:
+        try:
+            if net.is_station_connected():
+                conn = net._current_wifi_connection()  # type: ignore[attr-defined]
+                _log(f"station mode connected via '{conn}' after {int(time.time() - start)}s")
+                # Cache a scan now while we have the radio in station mode —
+                # this populates LAST_SCAN_FILE so a future AP-mode boot
+                # has something to serve.
+                try:
+                    nets = net.scan_networks(rescan=False)
+                    if nets:
+                        net.persist_scan(nets)
+                        _log(f"cached {len(nets)} nearby networks for next AP-mode boot")
+                except Exception as e:
+                    _log(f"warm-cache scan failed: {e}")
+                return 0
+        except Exception as e:
+            _log(f"station check error (continuing to retry): {e}")
+        time.sleep(POLL_INTERVAL)
+
+    _log(f"no station mode after {STATION_TIMEOUT}s — entering AP mode")
+
+    # Pre-AP scan: capture nearby networks BEFORE the radio switches to
+    # AP mode. This is what /api/network/scan returns while in AP mode.
+    try:
+        nets = net.scan_networks(rescan=True)
+        net.persist_scan(nets)
+        _log(f"persisted scan: {len(nets)} networks visible")
+    except Exception as e:
+        _log(f"pre-AP scan failed (will continue, scan endpoint will return empty): {e}")
+
+    # Bring up the AP
+    try:
+        net.bring_up_ap()
+        _log(f"AP up: SSID={net.ap_ssid()} on {net.AP_IPV4_ADDRESS}")
+    except Exception as e:
+        _log(f"FATAL: bring_up_ap failed: {e}")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
