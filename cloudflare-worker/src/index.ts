@@ -50,7 +50,11 @@ export interface Env {
     SUPABASE_ANON_KEY: string;
 }
 
-const DEEPGRAM_BASE = 'wss://api.deepgram.com/v1/listen';
+// Cloudflare Workers' fetch API requires https:// for WebSocket
+// upgrades — the protocol switch happens via the `Upgrade: websocket`
+// request header, not via the URL scheme. Using `wss://` causes
+// "Fetch API cannot load: wss://..." TypeError immediately.
+const DEEPGRAM_BASE = 'https://api.deepgram.com/v1/listen';
 
 /** Params we consume on the Worker side; everything else forwards to Deepgram. */
 const WORKER_OWN_PARAMS = new Set(['apikey', 'token', 'access_token']);
@@ -108,14 +112,24 @@ export default {
                 },
             });
         } catch (err) {
-            console.error(`[dg-proxy] upstream fetch threw: ${(err as Error).message}`);
-            return new Response('Upstream connection failed', { status: 502 });
+            const e = err as Error;
+            const detail = `${e.name}: ${e.message}`;
+            console.error(`[dg-proxy] upstream fetch threw: ${detail}`, e.stack);
+            // Surface the actual error in the response body so the
+            // skipper can see it client-side instead of just "502".
+            return new Response(`Upstream fetch threw: ${detail}\nURL: ${upstreamUrl.slice(0, 200)}`, {
+                status: 502,
+                headers: { 'Content-Type': 'text/plain' },
+            });
         }
 
         if (upstreamResponse.status !== 101) {
             const body = await upstreamResponse.text();
             console.error(`[dg-proxy] upstream status ${upstreamResponse.status}: ${body.slice(0, 200)}`);
-            return new Response(`Upstream rejected upgrade: ${upstreamResponse.status}`, { status: 502 });
+            return new Response(
+                `Upstream rejected upgrade: HTTP ${upstreamResponse.status}\nBody: ${body.slice(0, 200)}`,
+                { status: 502, headers: { 'Content-Type': 'text/plain' } },
+            );
         }
 
         const upstream = upstreamResponse.webSocket;
