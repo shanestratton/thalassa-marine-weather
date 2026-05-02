@@ -21,7 +21,6 @@
 
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { supabase } from './supabase';
 import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
 import { EnvironmentService } from './EnvironmentService';
@@ -37,15 +36,11 @@ import {
     calculateDistanceNM,
     calculateBearing,
     formatPositionDMS,
-    toDbFormat,
-    fromDbFormat,
     getWeatherSnapshot,
     determineLoggingZone,
     getIntervalForZone,
     getIntervalForSpeed,
-    SHIP_LOGS_TABLE,
     type LoggingZone,
-    type SpeedTier,
 } from './shiplog/helpers';
 import { GpsTrackBuffer, thinTrack } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
@@ -89,8 +84,8 @@ import { checkIsOnWater } from './shiplog/waterDetection';
 
 const log = createLogger('ShipLog');
 
-// isSatelliteMode() moved to shiplog/EntrySave.ts
-import { isSatelliteMode, webGetFreshPosition } from './shiplog/EntrySave';
+// Save-or-queue + web GPS fresh-fetch live in shiplog/EntrySave.ts.
+import { webGetFreshPosition, saveEntryOnlineOrOffline } from './shiplog/EntrySave';
 
 // Staleness threshold: if cached GPS is older than this, fetch fresh
 const GPS_STALE_LIMIT_MS = 60_000; // 60 seconds
@@ -648,57 +643,24 @@ class ShipLogServiceClass {
             needsGpsRetry = true;
         }
 
-        // Track entry ID for potential GPS update later
-        let savedEntryId: string | null = null;
-
-        // Save the entry (online or offline queue)
-        // OFFLINE-FAST-PATH: If we know we're offline, skip Supabase entirely.
-        // This prevents the tracking pipeline from stalling on hung network calls.
-        const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
-        if (supabase && isOnline) {
-            try {
-                // 5-second timeout: safety net in case navigator.onLine lies
-                const saveResult = await Promise.race([
-                    (async () => {
-                        const {
-                            data: { user },
-                        } = await supabase.auth.getUser();
-                        if (user) {
-                            const { data, error } = await supabase
-                                .from(SHIP_LOGS_TABLE)
-                                .insert(toDbFormat({ ...entry, userId: user.id }))
-                                .select()
-                                .single();
-                            if (error) return 'offline' as const;
-                            savedEntryId = data.id;
-                            return fromDbFormat(data);
-                        }
-                        return 'offline' as const;
-                    })(),
-                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
-                ]);
-
-                if (saveResult === 'offline' || saveResult === 'timeout') {
-                    await this.queueOfflineEntry(entry);
-                } else {
-                    // If GPS failed initially, retry in background
-                    if (needsGpsRetry && savedEntryId) {
-                        this.retryGpsAndUpdateEntry(savedEntryId);
-                    }
-                    return saveResult;
-                }
-            } catch (_networkError) {
-                await this.queueOfflineEntry(entry);
-            }
-        } else {
-            await this.queueOfflineEntry(entry);
+        // Save the entry (online or offline queue) via the consolidated
+        // helper in EntrySave.ts. Eliminates the 3-way duplicate save-or-
+        // queue block that used to live here, in captureLogEntry, and in
+        // addManualEntry.
+        const { saved, entryId, wasOffline } = await saveEntryOnlineOrOffline(entry);
+        // If GPS failed initially and we DID persist online, retry in background
+        // so the entry's lat/lon backfills when GPS arrives.
+        if (!wasOffline && needsGpsRetry && entryId) {
+            this.retryGpsAndUpdateEntry(entryId);
         }
 
         // Track when this entry was created for background resume catch-up
         this.trackingState.lastEntryTime = timestamp;
         await this.saveTrackingState();
 
-        return entry as ShipLogEntry;
+        // Online success returns the DB-hydrated entry (with id); offline
+        // path falls through with the in-memory entry shape.
+        return saved ?? (entry as ShipLogEntry);
     }
 
     /**
@@ -885,60 +847,14 @@ class ShipLogServiceClass {
                 isOnWater: this.lastWaterStatus,
             };
 
-            // Try to save to Supabase (online)
-            // OFFLINE-FAST-PATH: Skip Supabase entirely when we know we're offline.
-            // This is the critical fix for airplane mode tracking — without it,
-            // supabase.auth.getUser() hangs indefinitely, stalling the entire
-            // flushBufferedTrack pipeline and stopping GPS logging.
-            const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
-            if (supabase && isOnline) {
-                try {
-                    // 5-second timeout: safety net in case navigator.onLine lies
-                    const saveResult = await Promise.race([
-                        (async () => {
-                            const {
-                                data: { user },
-                            } = await supabase.auth.getUser();
-                            if (user) {
-                                const { data, error } = await supabase
-                                    .from(SHIP_LOGS_TABLE)
-                                    .insert(toDbFormat({ ...entry, userId: user.id }))
-                                    .select()
-                                    .single();
+            // Save online or queue offline. The OFFLINE-FAST-PATH lives
+            // inside saveEntryOnlineOrOffline (skips supabase.auth.getUser
+            // when offline so airplane-mode tracking doesn't hang).
+            const { saved } = await saveEntryOnlineOrOffline(entry);
 
-                                if (error) return 'offline' as const;
-
-                                // Update last position in storage
-                                await this.saveLastPosition({
-                                    latitude,
-                                    longitude,
-                                    timestamp,
-                                    cumulativeDistanceNM,
-                                    speedKts,
-                                });
-
-                                return fromDbFormat(data);
-                            }
-                            return 'offline' as const;
-                        })(),
-                        new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
-                    ]);
-
-                    if (saveResult === 'offline' || saveResult === 'timeout') {
-                        await this.queueOfflineEntry(entry);
-                    } else {
-                        return saveResult;
-                    }
-                } catch (_networkError) {
-                    // Offline - queue for later
-                    await this.queueOfflineEntry(entry);
-                }
-            } else {
-                // Offline or no Supabase - queue locally
-                await this.queueOfflineEntry(entry);
-            }
-
-            // Still update last position even if queued
+            // Update last position whether saved online or queued.
+            // (Used by the next captureLogEntry call to compute distanceNM
+            // and the acceleration sanity gate, so it must run regardless.)
             await this.saveLastPosition({
                 latitude,
                 longitude,
@@ -959,7 +875,9 @@ class ShipLogServiceClass {
                 log.warn('captureLogEntry: adaptive reschedule failed', err);
             });
 
-            return entry as ShipLogEntry;
+            // Online success returns the DB-hydrated entry (with id);
+            // offline path falls back to the in-memory entry shape.
+            return saved ?? (entry as ShipLogEntry);
         } catch (error) {
             log.error('captureLogEntry failed', error);
             return null;
@@ -1094,42 +1012,9 @@ class ShipLogServiceClass {
             log.warn('addManualEntry: GPS failed, using placeholder', gpsError);
         }
 
-        // Save the entry (online or offline queue)
-        const isOnline = typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
-        if (supabase && isOnline) {
-            try {
-                const saveResult = await Promise.race([
-                    (async () => {
-                        const {
-                            data: { user },
-                        } = await supabase.auth.getUser();
-                        if (user) {
-                            const { data, error } = await supabase
-                                .from(SHIP_LOGS_TABLE)
-                                .insert(toDbFormat({ ...entry, userId: user.id }))
-                                .select()
-                                .single();
-                            if (error) return 'offline' as const;
-                            return fromDbFormat(data);
-                        }
-                        return 'offline' as const;
-                    })(),
-                    new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 5000)),
-                ]);
-
-                if (saveResult === 'offline' || saveResult === 'timeout') {
-                    await this.queueOfflineEntry(entry);
-                } else {
-                    return saveResult;
-                }
-            } catch (_networkError) {
-                await this.queueOfflineEntry(entry);
-            }
-        } else {
-            await this.queueOfflineEntry(entry);
-        }
-
-        return entry as ShipLogEntry;
+        // Save online or queue offline via the consolidated EntrySave helper.
+        const { saved } = await saveEntryOnlineOrOffline(entry);
+        return saved ?? (entry as ShipLogEntry);
     }
 
     /**
