@@ -259,14 +259,59 @@ async function mintDeepgramToken(): Promise<string> {
 interface PrewarmedAudio {
     context: AudioContext;
     sampleRate: number;
+    /**
+     * Pre-built audio graph nodes. When these are present, the cold-
+     * start path skips createMediaStreamSource + new AudioWorkletNode
+     * + connect(), saving ~10-30ms per tap. More importantly, the
+     * pipeline starts capturing into `ringBuffer` the moment the
+     * AudioContext is `running`, so leading audio (the first few
+     * hundred ms after tap) doesn't get clipped — startDeepgramRecognizer
+     * flushes the ring buffer to the WebSocket BEFORE any new chunks.
+     */
+    micSource?: MediaStreamAudioSourceNode;
+    workletNode?: AudioWorkletNode;
+    /**
+     * Last ~300ms of audio chunks captured by the worklet while the
+     * AudioContext was running but no recognizer was active. Drained
+     * into the WS as the very first send when the recognizer claims
+     * the pipeline. This is the leading-edge fix — no more "tap and
+     * the first word gets cut off".
+     */
+    ringBuffer?: ArrayBuffer[];
+    /** Running tally of bytes in the ring buffer for cap enforcement. */
+    ringBytes?: { total: number };
 }
 let prewarmedAudio: PrewarmedAudio | null = null;
 
+/** Cap the ring buffer at ~500ms of audio at 48kHz mono int16 to keep
+ *  memory bounded if the user takes a long time between console-open
+ *  and tap. ~48000 samples × 2 bytes / 1000 ms × 500 = ~48000 bytes. */
+const RING_BUFFER_MAX_BYTES = 48_000;
+
 /**
- * Pre-warm the AudioContext + PCM worklet. Idempotent — returns the
- * existing prewarmed context if already cached. Returns false on
- * failure without throwing (the cold-start path will fall back to
- * creating these inline).
+ * Pre-warm the AudioContext + PCM worklet + the rest of the audio
+ * graph (mic source + worklet node + ring buffer capture). Idempotent —
+ * returns the existing prewarmed context if already cached. Returns
+ * false on failure without throwing (the cold-start path falls back
+ * to inline construction).
+ *
+ * Why we now also wire the FULL graph during prewarm (and not just
+ * the AudioContext + worklet module): the bigger cold-start win comes
+ * from having the AudioContext in `running` state with audio samples
+ * actively flowing into a ring buffer BEFORE the user taps. On tap we
+ * just swap the worklet handler from "ring buffer" to "WS send" and
+ * flush whatever's in the ring — no AVAudioSession activation latency
+ * to swallow leading words.
+ *
+ * This was attempted before and disabled for "empty transcript
+ * regressions" — the historical theory being that requesting
+ * `sampleRate: 16000` on iOS clashed with the native 48kHz pipeline.
+ * We now let iOS pick the native rate and read it back from
+ * `context.sampleRate` for the Deepgram URL params.
+ *
+ * Caller MUST have prewarmedMicStream populated (i.e. prewarmMicStream()
+ * has resolved) before calling this — we wire the mic source from
+ * that stream.
  */
 export async function prewarmAudioContext(): Promise<boolean> {
     if (prewarmedAudio) return true;
@@ -278,23 +323,120 @@ export async function prewarmAudioContext(): Promise<boolean> {
         if (!Ctx) return false;
 
         const t0 = Date.now();
-        let context: AudioContext;
-        try {
-            context = new Ctx({ sampleRate: 16000 });
-        } catch {
-            context = new Ctx();
-        }
-        // Worklet load — happens before any user gesture, fine on iOS.
-        // Static asset path so CSP `'self'` covers it (same path used
-        // inside startDeepgramRecognizer's normal flow).
+        // Don't request a specific sample rate — iOS will give us its
+        // native rate (48kHz on most modern hardware). Forcing 16kHz
+        // here was the trigger for the empty-transcript regression
+        // that disabled this prewarm previously: iOS often ignores the
+        // hint, but the audio graph downstream got into a confused
+        // state when it did honour it.
+        const context = new Ctx();
+
+        // Worklet module load — gesture-free on iOS.
         await context.audioWorklet.addModule('/pcm-worklet.js');
-        prewarmedAudio = { context, sampleRate: context.sampleRate };
-        emitEvent(`[DG] prewarm audio context @ ${context.sampleRate}Hz + worklet (${Date.now() - t0}ms)`);
+
+        // If we have a prewarmed mic stream, wire the rest of the
+        // graph too. This gets us mic → worklet flowing into a ring
+        // buffer the moment the context is running.
+        let micSource: MediaStreamAudioSourceNode | undefined;
+        let workletNode: AudioWorkletNode | undefined;
+        const ringBuffer: ArrayBuffer[] = [];
+        const ringBytes = { total: 0 };
+
+        if (prewarmedMicStream && prewarmedMicStream.getTracks().every((t) => t.readyState === 'live')) {
+            try {
+                micSource = context.createMediaStreamSource(prewarmedMicStream);
+                workletNode = new AudioWorkletNode(context, 'pcm-processor');
+                // Capture into ring buffer. Drops oldest when capped so
+                // we always keep the most recent audio. The recognizer
+                // flushes this on claim.
+                workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+                    ringBuffer.push(e.data);
+                    ringBytes.total += e.data.byteLength;
+                    while (ringBytes.total > RING_BUFFER_MAX_BYTES && ringBuffer.length > 0) {
+                        const dropped = ringBuffer.shift();
+                        if (dropped) ringBytes.total -= dropped.byteLength;
+                    }
+                };
+                micSource.connect(workletNode);
+                emitEvent(`[DG] prewarm audio graph wired (mic → worklet → ring)`);
+            } catch (graphErr) {
+                emitEvent(`[DG] prewarm graph wire failed: ${(graphErr as Error).message}`);
+                // Pipeline isn't fatal — without it we just lose the
+                // ring-buffer flush optimisation. Keep the
+                // context+worklet so cold-start still benefits.
+                micSource = undefined;
+                workletNode = undefined;
+            }
+
+            // Try resume() — if we're inside a user gesture, this
+            // works and the worklet starts producing chunks
+            // immediately. If not (the typical case post-mount), the
+            // context stays suspended and resume happens at tap time.
+            try {
+                await context.resume();
+                emitEvent(`[DG] prewarm context resumed (state=${context.state})`);
+            } catch {
+                // Not in gesture — context stays suspended. Tap will resume.
+            }
+        }
+
+        prewarmedAudio = {
+            context,
+            sampleRate: context.sampleRate,
+            micSource,
+            workletNode,
+            ringBuffer: micSource ? ringBuffer : undefined,
+            ringBytes: micSource ? ringBytes : undefined,
+        };
+        emitEvent(
+            `[DG] prewarm audio context @ ${context.sampleRate}Hz + worklet (${Date.now() - t0}ms) state=${context.state}`,
+        );
         return true;
     } catch (err) {
         emitEvent(`[DG] prewarm audio failed: ${(err as Error).message}`);
         return false;
     }
+}
+
+/**
+ * Synchronously kick off `audioContext.resume()` on the prewarmed
+ * pipeline. Designed to be called from a `pointerdown` / `touchstart`
+ * handler — that's a gesture, so iOS allows the resume() to actually
+ * start. By the time `click` fires (a few ms later), the AVAudioSession
+ * is warming up, and the worklet may already be producing samples that
+ * land in the ring buffer for the recognizer to flush.
+ *
+ * Idempotent. Safe to call repeatedly.
+ */
+export function primeAudioPipeline(): void {
+    if (!prewarmedAudio) return;
+    if (prewarmedAudio.context.state === 'suspended') {
+        void prewarmedAudio.context.resume().catch(() => undefined);
+    }
+}
+
+/**
+ * Tear down the prewarmed audio pipeline without consuming it. Used
+ * by BosunConsole's unmount cleanup so closing the voice console
+ * without tapping doesn't leak the AudioContext + worklet (and the
+ * iOS mic indicator stays on as long as the context is live).
+ */
+export function releasePrewarmedAudioContext(): void {
+    if (!prewarmedAudio) return;
+    try {
+        if (prewarmedAudio.workletNode) {
+            prewarmedAudio.workletNode.port.onmessage = null;
+            prewarmedAudio.workletNode.disconnect();
+        }
+        if (prewarmedAudio.micSource) {
+            prewarmedAudio.micSource.disconnect();
+        }
+        void prewarmedAudio.context.close().catch(() => undefined);
+    } catch {
+        /* best-effort teardown */
+    }
+    prewarmedAudio = null;
+    emitEvent('[DG] released prewarmed audio context');
 }
 
 /**
@@ -820,17 +962,30 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
 
     let audioContext: AudioContext;
     let workletAlreadyRegistered = false;
+    /** Pre-built audio graph nodes from the prewarmed pipeline.
+     *  When present, we skip createMediaStreamSource + new
+     *  AudioWorkletNode + connect() entirely — those happened during
+     *  console open. We just hand the workletNode a new onmessage
+     *  handler that sends to the WS instead of the ring buffer. */
+    let prewarmedMicSource: MediaStreamAudioSourceNode | undefined;
+    let prewarmedWorkletNode: AudioWorkletNode | undefined;
+    let prewarmedRingBuffer: ArrayBuffer[] | undefined;
     if (prewarmedAudio) {
         audioContext = prewarmedAudio.context;
         workletAlreadyRegistered = true;
-        emitEvent('[DG] reusing prewarmed audio context + worklet');
+        prewarmedMicSource = prewarmedAudio.micSource;
+        prewarmedWorkletNode = prewarmedAudio.workletNode;
+        prewarmedRingBuffer = prewarmedAudio.ringBuffer;
+        emitEvent(
+            `[DG] reusing prewarmed audio context + worklet${
+                prewarmedWorkletNode ? ' + graph + ring buffer' : ''
+            }${prewarmedRingBuffer ? ` (${prewarmedRingBuffer.length} chunks buffered)` : ''}`,
+        );
         prewarmedAudio = null; // consumed; next session re-prewarms
     } else {
-        try {
-            audioContext = new Ctx({ sampleRate: 16000 });
-        } catch {
-            audioContext = new Ctx();
-        }
+        // Don't force sampleRate — iOS often ignores the hint and any
+        // mismatch downstream produces garbage. Native rate it is.
+        audioContext = new Ctx();
     }
 
     // iOS WKWebView starts AudioContext suspended. resume() requires a
@@ -1141,8 +1296,20 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     let firstChunkSent = false;
     let flushInterval: ReturnType<typeof setInterval> | null = null;
     try {
-        micSource = audioContext.createMediaStreamSource(stream);
-        workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+        // Reuse the prewarmed audio graph if available — saves the
+        // createMediaStreamSource + new AudioWorkletNode + connect()
+        // costs from the cold-start path. The prewarmed worklet's
+        // existing onmessage (which was pushing to a ring buffer)
+        // gets replaced below with the WS-send batcher; the buffered
+        // chunks get flushed first so leading audio isn't lost.
+        if (prewarmedWorkletNode && prewarmedMicSource) {
+            workletNode = prewarmedWorkletNode;
+            micSource = prewarmedMicSource;
+            emitEvent('[DG] reusing prewarmed audio graph (mic + worklet already connected)');
+        } else {
+            micSource = audioContext.createMediaStreamSource(stream);
+            workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
+        }
         let chunksSent = 0;
         let bytesSent = 0;
         // Audio batching. The worklet produces 128-frame chunks (256 B
@@ -1192,6 +1359,32 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
                 flushBatch();
             }
         };
+
+        // Flush any leading audio captured into the prewarmed ring
+        // buffer BEFORE the user tapped. This is the leading-edge
+        // fix: the user starts speaking the moment they tap, but
+        // there's typically 100-300ms of AVAudioSession activation
+        // latency before fresh chunks reach the worklet. The ring
+        // buffer captured those bytes; sending them now means the
+        // first words don't get clipped.
+        if (prewarmedRingBuffer && prewarmedRingBuffer.length > 0) {
+            const flushedChunks = prewarmedRingBuffer.length;
+            let flushedBytes = 0;
+            for (const chunk of prewarmedRingBuffer) {
+                batchBuffers.push(chunk);
+                batchSize += chunk.byteLength;
+                flushedBytes += chunk.byteLength;
+                if (batchSize >= BATCH_BYTES_TARGET) {
+                    flushBatch();
+                }
+            }
+            // Force a final flush of whatever's left so leading audio
+            // gets to Deepgram immediately rather than waiting for
+            // more chunks to top up the batch.
+            if (batchSize > 0) flushBatch();
+            emitEvent(`[DG] flushed ${flushedChunks} prewarmed ring chunks (${flushedBytes}B leading audio recovered)`);
+        }
+
         // Safety flush every 100ms so even quiet/short utterances get
         // partial frames to Deepgram (otherwise a quiet 80ms reply
         // would never reach the threshold and never get sent).
@@ -1201,7 +1394,14 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
                 flushBatch();
             }
         }, 100);
-        micSource.connect(workletNode);
+
+        // Connect mic → worklet only if the prewarmed graph wasn't
+        // already wired. Reusing the prewarmed graph means audio's
+        // already flowing — connecting again would be a no-op at best
+        // (already connected) or a duplicate-graph error at worst.
+        if (!prewarmedWorkletNode) {
+            micSource.connect(workletNode);
+        }
         // Worklet is a sink — we don't connect it to ctx.destination
         // because we don't want the mic monitored back into the
         // speakers (would cause feedback on iOS).
