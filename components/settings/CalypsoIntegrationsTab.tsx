@@ -9,16 +9,23 @@
  * AND require an explicit toggle here. Calypso only sees the
  * corresponding tools when both checks pass — no silent registrations.
  *
- * For Gmail specifically: toggling ON kicks off the OAuth flow (pops a
- * system browser to Google's consent screen); toggling OFF clears the
- * stored access + refresh tokens via clearGmailTokens().
+ * For Gmail specifically: toggling ON kicks off a real OAuth 2.0 +
+ * PKCE flow — we generate a code_verifier, derive an S256 challenge,
+ * launch Google's consent screen via @capacitor/browser, then catch
+ * the redirect via App.addListener('appUrlOpen') and exchange the
+ * code for access + refresh tokens. Toggling OFF clears the stored
+ * tokens via clearGmailTokens().
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Browser } from '@capacitor/browser';
+import { App, type URLOpenListenerEvent } from '@capacitor/app';
 import { canAccess } from '../../services/SubscriptionService';
 import {
+    beginAuthorization,
     clearGmailTokens,
-    getAuthorizationUrl,
+    completeAuthorization,
+    extractAuthCodeFromCallbackUrl,
     getConnectedEmail,
     isGmailConfigured,
 } from '../../services/voice/integrations/gmail';
@@ -35,6 +42,10 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
 
     const [gmailConfigured, setGmailConfigured] = useState<boolean | null>(null);
     const [busy, setBusy] = useState(false);
+    /** Tracks whether we're currently mid-OAuth (browser is open, waiting
+     *  for redirect). Lets us ignore stray appUrlOpen events that aren't
+     *  ours, and lets us re-render the toggle as "Connecting…". */
+    const awaitingCallback = useRef(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -63,6 +74,61 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         };
     }, [connectedEmail, onSave]);
 
+    /**
+     * Register the appUrlOpen listener for the lifetime of this tab.
+     * The redirect URL looks like:
+     *   com.googleusercontent.apps.<id>:/oauth2redirect?code=4/...&scope=...
+     * We pull the code, exchange it via completeAuthorization(), and
+     * persist the resulting email. Browser is closed regardless.
+     */
+    useEffect(() => {
+        let listenerHandle: { remove: () => Promise<void> } | undefined;
+        let cancelled = false;
+        const setup = async () => {
+            const handle = await App.addListener('appUrlOpen', (event: URLOpenListenerEvent) => {
+                if (!awaitingCallback.current) return;
+                const url = event.url ?? '';
+                if (!url.startsWith('com.googleusercontent.apps.')) return;
+                const code = extractAuthCodeFromCallbackUrl(url);
+                awaitingCallback.current = false;
+                // Close the in-app browser regardless — user has already
+                // returned to our app via the deep link.
+                void Browser.close().catch(() => undefined);
+                if (!code) {
+                    onSave({ calypsoEmailEnabled: false });
+                    setBusy(false);
+                    return;
+                }
+                void completeAuthorization(code).then((email) => {
+                    if (cancelled) return;
+                    if (email) {
+                        onSave({
+                            calypsoEmailEnabled: true,
+                            calypsoEmailAccount: email,
+                        });
+                    } else {
+                        onSave({ calypsoEmailEnabled: false });
+                        // eslint-disable-next-line no-alert
+                        alert(
+                            'Gmail authorisation failed. Try again — if it keeps failing, check that the OAuth client ID matches your iOS bundle ID in the Google Cloud console.',
+                        );
+                    }
+                    setBusy(false);
+                });
+            });
+            if (cancelled) {
+                await handle.remove();
+            } else {
+                listenerHandle = handle;
+            }
+        };
+        void setup();
+        return () => {
+            cancelled = true;
+            if (listenerHandle) void listenerHandle.remove();
+        };
+    }, [onSave]);
+
     const handleMusicToggle = useCallback(
         (next: boolean) => {
             onSave({ calypsoMusicEnabled: next });
@@ -76,32 +142,36 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
             setBusy(true);
             try {
                 if (next) {
-                    // Toggling ON → OAuth flow. The actual browser
-                    // launch + redirect handler lands in a follow-up
-                    // commit (needs the Google Cloud project set up).
-                    // For now the toggle just records intent + we
-                    // surface a "Connect Gmail" CTA to the skipper.
-                    const url = await getAuthorizationUrl();
+                    const url = await beginAuthorization();
                     if (!url) {
                         onSave({ calypsoEmailEnabled: false });
                         // eslint-disable-next-line no-alert
                         alert(
-                            'Gmail integration is not configured yet. Add VITE_GOOGLE_OAUTH_CLIENT_ID to .env.local — ' +
-                                'see services/voice/integrations/gmail.ts header for the Google Cloud setup steps.',
+                            'Gmail integration is not configured. Add VITE_GOOGLE_OAUTH_CLIENT_ID to .env.local — ' +
+                                'see services/voice/integrations/gmail.ts for the Google Cloud setup steps.',
                         );
+                        setBusy(false);
                         return;
                     }
-                    // OAuth flow not yet wired — just flip the toggle
-                    // for now and show instructions. Next session lands
-                    // the @capacitor/browser launcher + redirect handler.
-                    onSave({ calypsoEmailEnabled: true });
+                    awaitingCallback.current = true;
+                    // Open the OAuth consent URL in the in-app browser.
+                    // We DON'T flip emailEnabled to true yet — that
+                    // happens only after completeAuthorization() succeeds
+                    // in the appUrlOpen handler. setBusy(false) likewise
+                    // moves into that handler.
+                    await Browser.open({ url, presentationStyle: 'popover' });
                 } else {
                     // Toggling OFF → clear stored tokens + email field
                     await clearGmailTokens();
                     onSave({ calypsoEmailEnabled: false, calypsoEmailAccount: undefined });
+                    setBusy(false);
                 }
-            } finally {
+            } catch (err) {
+                awaitingCallback.current = false;
+                onSave({ calypsoEmailEnabled: false });
                 setBusy(false);
+                // eslint-disable-next-line no-alert
+                alert(`Gmail authorisation failed: ${(err as Error).message}`);
             }
         },
         [busy, onSave],
@@ -170,6 +240,11 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                 </div>
                                 {connectedEmail && (
                                     <div className="text-xs text-emerald-400 mt-2">Connected as {connectedEmail}</div>
+                                )}
+                                {busy && (
+                                    <div className="text-xs text-sky-400 mt-2">
+                                        Connecting — finish signing in on Google's screen, then return to Thalassa.
+                                    </div>
                                 )}
                             </div>
                             <Toggle

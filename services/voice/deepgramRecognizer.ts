@@ -1089,8 +1089,12 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         const msgType = (msg as { type?: string }).type;
         if (msgType === 'ProxyHello') return;
         if (msgType !== 'Results') return;
-        const transcript = msg.channel?.alternatives?.[0]?.transcript ?? '';
-        const isFinal = Boolean(msg.is_final);
+        // After the type check, narrow msg to the transcript variant —
+        // the union's Metadata branch lacks `channel`/`is_final`, so we
+        // need the cast to access either without TS complaining.
+        const tmsg = msg as DeepgramTranscriptMessage;
+        const transcript = tmsg.channel?.alternatives?.[0]?.transcript ?? '';
+        const isFinal = Boolean(tmsg.is_final);
         if (transcript.length === 0) {
             // Empty results happen on pure-silence chunks. Don't
             // disturb partials with these.

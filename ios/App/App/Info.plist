@@ -106,5 +106,16 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Thalassa uses local network access to discover Signal K servers on your boat's network for nautical chart overlays and instrument data.</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.thalassa.app.googleoauth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.717700927804-t644h587eb4kaklh3cb495k2ec7q8q6v</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

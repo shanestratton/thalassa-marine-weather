@@ -31,7 +31,30 @@
  */
 
 import { Capacitor } from '@capacitor/core';
-import { App } from '@capacitor/app';
+
+/**
+ * Hand a URL off to the OS shell. We dropped `App.openUrl()` because
+ * it's been removed from `@capacitor/app` since v4 — the recommended
+ * native-platform path is now to set `window.location.href`, which the
+ * WKWebView delegate forwards to UIApplication.openURL for any custom
+ * scheme it doesn't handle internally. For HTTPS Universal Links iOS
+ * still routes through the same delegate, so this works for both
+ * `music://...` and `https://music.apple.com/...`.
+ *
+ * Wrapped in a function so the error path can return a tool result.
+ */
+function dispatchUrl(url: string): void {
+    // Using window.open with `_self` triggers the same WKNavigationDelegate
+    // hook as window.location.href, but doesn't replace the current entry
+    // in the back/forward stack — keeps the app in a sane state if the OS
+    // hand-off fails for any reason.
+    const opened = window.open(url, '_self');
+    if (!opened) {
+        // Fallback: assignment is more aggressive (will throw if the
+        // navigation is blocked, which we want — the catch surfaces it).
+        window.location.href = url;
+    }
+}
 
 /**
  * Open Apple Music with a search-and-play action. Returns immediately
@@ -82,7 +105,7 @@ export async function playMusicByQuery(query: string): Promise<{ content: string
 
     // Native iOS path — try the music:// URL scheme first.
     try {
-        await App.openUrl({ url: nativeUrl });
+        dispatchUrl(nativeUrl);
         return {
             content: JSON.stringify({
                 status: 'launched_apple_music',
@@ -94,7 +117,7 @@ export async function playMusicByQuery(query: string): Promise<{ content: string
     } catch (nativeErr) {
         // Fallback to the universal link
         try {
-            await App.openUrl({ url: universalUrl });
+            dispatchUrl(universalUrl);
             return {
                 content: JSON.stringify({
                     status: 'launched_apple_music_via_universal_link',
@@ -127,7 +150,7 @@ export async function showNowPlaying(): Promise<{ content: string; isError: bool
     try {
         // Generic Apple Music open — lands on whatever screen the app
         // was on, typically Now Playing if music is active.
-        await App.openUrl({ url: 'music://' });
+        dispatchUrl('music://');
         return {
             content: JSON.stringify({ status: 'opened_apple_music' }),
             isError: false,

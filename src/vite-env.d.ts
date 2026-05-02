@@ -37,6 +37,13 @@ interface ImportMetaEnv {
      *  gated pages (Galley / Marketplace / Diary etc.) render normally
      *  without needing to juggle subscription tier in dev tools. */
     readonly VITE_GRANT_ALL_FEATURES: string;
+    /** Cloudflare Worker URL for the Deepgram WebSocket proxy.
+     *  e.g. https://thalassa-deepgram-proxy.thalassacalypso.workers.dev */
+    readonly VITE_DEEPGRAM_PROXY_URL: string;
+    /** Google OAuth 2.0 Client ID (iOS app type) used by Calypso's
+     *  Gmail integration. PKCE flow, no client secret. Falls back to
+     *  empty string when undefined → integration shows "not configured". */
+    readonly VITE_GOOGLE_OAUTH_CLIENT_ID: string;
 
     // Standard Vite Environment Variables
     readonly BASE_URL: string;
