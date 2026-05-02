@@ -183,8 +183,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             return;
         }
 
-        if (otp.length !== 8) {
-            setError('Please enter the 8-digit code.');
+        // Supabase email OTPs can be 6, 7, or 8 digits depending on the
+        // project's Auth → Email → "Email OTP Length" setting. Be lenient
+        // — the actual length validation happens server-side via
+        // verifyOtp. Clamp to digit-only / 6-8 chars so we don't ship
+        // junk to the API.
+        if (otp.length < 6 || otp.length > 8 || !/^\d+$/.test(otp)) {
+            setError('Please enter the code from your email (6–8 digits).');
             return;
         }
 
@@ -305,7 +310,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         <p className="text-sm text-gray-400 mb-6 max-w-xs leading-relaxed">
                             {step === 'input' &&
                                 'Sign in to synchronize your vessel profile, saved routes, and preferences across all your devices.'}
-                            {step === 'otp' && `We sent an 8-digit code to ${email}`}
+                            {step === 'otp' && `We sent a verification code to ${email}`}
                             {step === 'success' && "You're now signed in and your data will sync automatically."}
                         </p>
                     </div>
@@ -381,7 +386,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                         <form onSubmit={handleVerifyOtp} className="w-full space-y-4">
                             <div className="text-left">
                                 <label className="text-sm uppercase font-bold text-gray-400 mb-1.5 ml-1 block">
-                                    8-Digit Code
+                                    Verification Code
                                 </label>
                                 <input
                                     ref={otpInputRef}
@@ -389,8 +394,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                                     inputMode="numeric"
                                     value={otp}
                                     onChange={(e) => handleOtpChange(e.target.value)}
-                                    placeholder="00000000"
+                                    placeholder="••••••"
                                     className={`w-full bg-slate-900 ${t.border.default} rounded-xl px-4 py-4 text-white text-center text-xl font-mono tracking-[0.3em] focus:border-sky-500 outline-none transition-colors`}
+                                    // Accept Supabase's 6-8 digit range; the
+                                    // dashboard setting picks one. Hardcoding 8
+                                    // locked users out when the project setting
+                                    // drifted to 6.
                                     maxLength={8}
                                     autoComplete="one-time-code"
                                 />
@@ -408,8 +417,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                             <button
                                 aria-label="Save account changes"
                                 type="submit"
-                                disabled={loading || otp.length !== 8}
-                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length !== 8 ? 'opacity-50' : 'hover:bg-gray-100'}`}
+                                disabled={loading || otp.length < 6}
+                                className={`w-full py-3.5 bg-white text-slate-900 font-bold rounded-xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 ${otp.length < 6 ? 'opacity-50' : 'hover:bg-gray-100'}`}
                             >
                                 {loading ? (
                                     <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
