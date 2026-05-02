@@ -105,6 +105,18 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
             // exact draft instead of grabbing whatever first draft has
             // dates. Without this, accumulated phantom drafts from
             // earlier test sessions stole the selection.
+            //
+            // 3b. ORPHAN AUTO-HEAL: if the resolved voyage has no
+            //     matching route in the logbook (= the user deleted
+            //     the route or renamed it, or the voyage was created
+            //     via a non-standard flow like manual Cast Off), and
+            //     there IS another draft whose name matches a real
+            //     logbook route, switch to that one and update the
+            //     active-passage cache. This rescues users who see a
+            //     stale voyage stuck as active even after they've
+            //     made a fresh route. Without this, the meal planner
+            //     keeps reading whatever was activated weeks ago even
+            //     if its underlying route is long gone.
             if (!v || (!v.departure_time && !v.eta)) {
                 try {
                     const drafts = await getDraftVoyages();
@@ -121,6 +133,41 @@ export const GalleyCard: React.FC<GalleyCardProps> = ({
                     }
                 } catch {
                     /* offline */
+                }
+            }
+
+            // Orphan auto-heal: check if v has a matching logbook
+            // route. If not, look for ANY voyage that does, and
+            // switch to it. Updates getActivePassageId so the rest of
+            // the app follows along.
+            if (v) {
+                try {
+                    const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
+                    const ra = await fetchRoutesAndTracks();
+                    const norm = (s: string) => s.trim().toLowerCase();
+                    const currentMatches = ra.routes.some((r) => norm(r.label) === norm(v!.voyage_name));
+                    if (!currentMatches && ra.routes.length > 0) {
+                        const drafts = await getDraftVoyages();
+                        const draftWithRoute = drafts.find((d) =>
+                            ra.routes.some((r) => norm(r.label) === norm(d.voyage_name)),
+                        );
+                        if (draftWithRoute && draftWithRoute.id !== v.id) {
+                            console.warn(
+                                `[GalleyCard] orphan auto-heal: "${v.voyage_name}" has no logbook route, switching to "${draftWithRoute.voyage_name}"`,
+                            );
+                            v = draftWithRoute;
+                            // Persist the switch so the rest of the
+                            // app sees the corrected active passage.
+                            try {
+                                const { setActivePassage } = await import('../../services/PassagePlanService');
+                                setActivePassage(draftWithRoute.id);
+                            } catch (e) {
+                                console.warn('[GalleyCard] failed to persist auto-heal', e);
+                            }
+                        }
+                    }
+                } catch (e) {
+                    console.warn('[GalleyCard] orphan check failed', e);
                 }
             }
 
