@@ -517,6 +517,65 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                             </p>
                         </div>
                     )}
+
+                    {/* ── Diagnostic + nuke controls ─────────────────────── */}
+                    {/* Surfaces what's actually populating the dropdown so a */}
+                    {/* "ghost" passage (in DB but no longer in your logbook) */}
+                    {/* can be wiped without poking around in Supabase. */}
+                    <div className="mt-1.5 flex items-center justify-between gap-2 px-1">
+                        <span className="text-[10px] text-gray-500 font-mono">{draftVoyages.length} from logbook</span>
+                        {draftVoyages.length > 0 && (
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    const visibleNames = draftVoyages.map((v) => v.voyage_name || '?').join(', ');
+                                    if (
+                                        !window.confirm(
+                                            `This will delete ALL saved passage routes from your logbook ` +
+                                                `(${draftVoyages.length} item${draftVoyages.length === 1 ? '' : 's'}: ${visibleNames}).\n\n` +
+                                                `Recorded tracks (actual sailed voyages) will NOT be touched. ` +
+                                                `Continue?`,
+                                        )
+                                    ) {
+                                        return;
+                                    }
+                                    triggerHaptic('medium');
+                                    try {
+                                        const { ShipLogService } = await import('../services/ShipLogService');
+                                        // Pull a fresh route list (force = true) and delete each
+                                        // by voyageId — the existing deleteVoyage cascades to
+                                        // both ship_log rows + the matching voyages-table draft.
+                                        const fresh = await fetchRoutesAndTracks(true);
+                                        for (const r of fresh.routes) {
+                                            await ShipLogService.deleteVoyage(r.id);
+                                        }
+                                        // Also cull any draft voyages whose name doesn't
+                                        // correspond to a remaining ship_log route — picks up
+                                        // pre-existing orphans that the cascade can't reach
+                                        // because there are no entries left to link them.
+                                        const remainingDrafts = await getDraftVoyages();
+                                        for (const d of remainingDrafts) {
+                                            if (!d.voyage_name.includes('→')) continue;
+                                            const day = d.created_at.slice(0, 10);
+                                            const { deleteDraftVoyagesByNameAndDay } =
+                                                await import('../services/VoyageService');
+                                            await deleteDraftVoyagesByNameAndDay(d.voyage_name, day);
+                                        }
+                                        setDraftVoyages([]);
+                                        setSelectedPassageId('');
+                                        setActiveVoyageName(null);
+                                        toast.success('All saved passages cleared');
+                                    } catch (err) {
+                                        console.error('[CrewManagement] cleanup failed:', err);
+                                        toast.error('Cleanup failed — try again');
+                                    }
+                                }}
+                                className="text-[10px] uppercase font-bold tracking-widest text-red-400/70 hover:text-red-400 transition-colors"
+                            >
+                                Clear all
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* ── DEPARTURE DATE + CAST OFF (single row) ── */}
