@@ -175,8 +175,11 @@ export const VesselCheckCard: React.FC<VesselCheckCardProps> = ({ voyageId, onRe
     }, []);
 
     useEffect(() => {
+        console.warn(
+            `[VesselCheck] notify parent — checkedCount=${checkedCount}/${totalItems}, allChecked=${allChecked}`,
+        );
         onReviewedChange?.(allChecked);
-    }, [allChecked, onReviewedChange]);
+    }, [allChecked, onReviewedChange, checkedCount, totalItems]);
 
     return (
         <div className="space-y-3">
