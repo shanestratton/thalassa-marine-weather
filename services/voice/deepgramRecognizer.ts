@@ -509,63 +509,106 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     }
 
     // ── 5. Connect WebSocket ────────────────────────────────────────
-    const wsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
-    let ws: WebSocket;
-    try {
-        // Sec-WebSocket-Protocol carries the auth token. Deepgram
-        // validates and responds with the same protocol selected if
-        // valid; if invalid the socket closes immediately with 1011.
-        ws = new WebSocket(wsUrl, ['token', token]);
-        ws.binaryType = 'arraybuffer';
-    } catch (err) {
-        stream.getTracks().forEach((t) => t.stop());
-        await audioContext.close().catch(() => {});
-        emitEvent(`[DG] ws ctor threw: ${(err as Error).message}`);
-        throw new Error(`Deepgram WebSocket failed: ${(err as Error).message}`);
+    // Two auth strategies, tried in order:
+    //   1. Sec-WebSocket-Protocol: ['token', '<jwt>']
+    //      Standard Deepgram browser-side auth. Per their docs.
+    //   2. Query parameter: &access_token=<jwt>  (fallback)
+    //      Some WebSocket implementations (older iOS WKWebView) don't
+    //      negotiate the subprotocol cleanly with multi-element arrays;
+    //      the server-side handshake fails and we get "error before
+    //      OPEN" with no close code. Falling back to URL-param auth
+    //      sidesteps the subprotocol entirely.
+    const baseWsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+
+    async function tryConnect(strategy: 'subprotocol' | 'urlparam'): Promise<WebSocket> {
+        const url = strategy === 'urlparam' ? `${baseWsUrl}&access_token=${encodeURIComponent(token)}` : baseWsUrl;
+        const stratStart = Date.now();
+        let s: WebSocket;
+        try {
+            s = strategy === 'subprotocol' ? new WebSocket(url, ['token', token]) : new WebSocket(url);
+            s.binaryType = 'arraybuffer';
+        } catch (err) {
+            emitEvent(`[DG] ws ctor (${strategy}) threw: ${(err as Error).message}`);
+            throw new Error(`Deepgram WebSocket failed: ${(err as Error).message}`);
+        }
+        // Capture both error and close so we don't lose the close code
+        // when error fires first (which is the common path on auth/
+        // subprotocol failures). We wait briefly after error for close
+        // to arrive with the actual diagnostic code.
+        return await new Promise<WebSocket>((resolve, reject) => {
+            let lastCloseCode: number | null = null;
+            let lastCloseReason = '';
+            let errored = false;
+            const cleanup = () => {
+                s.removeEventListener('open', onOpen);
+                s.removeEventListener('error', onError);
+                s.removeEventListener('close', onClose);
+            };
+            const onOpen = () => {
+                cleanup();
+                emitEvent(
+                    `[DG] ws open via ${strategy} in ${Date.now() - stratStart}ms` +
+                        (s.protocol ? ` (protocol="${s.protocol}")` : ''),
+                );
+                resolve(s);
+            };
+            const onError = () => {
+                errored = true;
+                emitEvent(`[DG] ws error via ${strategy} (waiting for close code…)`);
+                // Don't reject yet — let close fire so we capture the
+                // code. If close doesn't fire within 500ms we'll bail.
+                setTimeout(() => {
+                    if (errored) {
+                        cleanup();
+                        const detail =
+                            lastCloseCode !== null
+                                ? `code=${lastCloseCode} reason=${lastCloseReason}`
+                                : 'no close code';
+                        reject(new Error(`Deepgram WS error via ${strategy} (${detail})`));
+                    }
+                }, 500);
+            };
+            const onClose = (ev: CloseEvent) => {
+                lastCloseCode = ev.code;
+                lastCloseReason = ev.reason || '';
+                if (!errored) {
+                    cleanup();
+                    reject(
+                        new Error(
+                            `Deepgram WS closed before OPEN via ${strategy}: code=${ev.code} reason="${ev.reason || '(none)'}"`,
+                        ),
+                    );
+                }
+                // If errored already, the timeout in onError will fire
+                // soon and reject with the captured code.
+            };
+            s.addEventListener('open', onOpen);
+            s.addEventListener('error', onError);
+            s.addEventListener('close', onClose);
+            setTimeout(() => {
+                cleanup();
+                reject(new Error(`Deepgram WS connect timed out via ${strategy} (5s)`));
+            }, 5_000);
+        });
     }
 
-    // Wait for OPEN — if it never opens we're not going to get usable
-    // audio through. Fail fast so the caller can fall back to Apple SR.
-    const wsOpen = new Promise<void>((resolve, reject) => {
-        const onOpen = () => {
-            ws.removeEventListener('open', onOpen);
-            ws.removeEventListener('error', onError);
-            ws.removeEventListener('close', onCloseEarly);
-            resolve();
-        };
-        const onError = () => {
-            ws.removeEventListener('open', onOpen);
-            ws.removeEventListener('error', onError);
-            ws.removeEventListener('close', onCloseEarly);
-            reject(new Error('Deepgram WebSocket error before OPEN'));
-        };
-        const onCloseEarly = (ev: CloseEvent) => {
-            ws.removeEventListener('open', onOpen);
-            ws.removeEventListener('error', onError);
-            ws.removeEventListener('close', onCloseEarly);
-            reject(new Error(`Deepgram WebSocket closed before OPEN (code=${ev.code})`));
-        };
-        ws.addEventListener('open', onOpen);
-        ws.addEventListener('error', onError);
-        ws.addEventListener('close', onCloseEarly);
-        // Hard ceiling on connection time. Past 5s it's not coming back.
-        setTimeout(() => reject(new Error('Deepgram WebSocket connect timed out (5s)')), 5_000);
-    });
-
+    let ws: WebSocket;
     const wsStart = Date.now();
     try {
-        await wsOpen;
-        emitEvent(`[DG] ws open (${Date.now() - wsStart}ms) — total ${Date.now() - t0}ms`);
-    } catch (err) {
-        stream.getTracks().forEach((t) => t.stop());
-        await audioContext.close().catch(() => {});
+        ws = await tryConnect('subprotocol');
+    } catch (subErr) {
+        emitEvent(`[DG] subprotocol failed → trying URL-param auth: ${(subErr as Error).message}`);
         try {
-            ws.close();
-        } catch {
-            /* ignore */
+            ws = await tryConnect('urlparam');
+        } catch (urlErr) {
+            stream.getTracks().forEach((t) => t.stop());
+            await audioContext.close().catch(() => {});
+            const finalMsg = `${(subErr as Error).message} | fallback: ${(urlErr as Error).message}`;
+            emitEvent(`[DG] both ws strategies failed: ${finalMsg}`);
+            throw new Error(`Deepgram WebSocket failed: ${finalMsg}`);
         }
-        throw err;
     }
+    emitEvent(`[DG] ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
 
     // ── 6. Wire incoming Deepgram messages ──────────────────────────
     ws.addEventListener('message', (event: MessageEvent<string>) => {
