@@ -72,11 +72,8 @@ export const EssentialReservesCard: React.FC<EssentialReservesCardProps> = ({ vo
 
     // Notify parent — all critical items must be checked
     useEffect(() => {
-        console.warn(
-            `[EssentialReserves] notify parent — criticalChecked=${criticalChecked}/${criticalItems.length}, allCriticalDone=${allCriticalDone}`,
-        );
         onReviewedChange?.(allCriticalDone);
-    }, [allCriticalDone, onReviewedChange, criticalChecked, criticalItems.length]);
+    }, [allCriticalDone, onReviewedChange]);
 
     return (
         <div className="space-y-4">
