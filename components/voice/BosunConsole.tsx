@@ -31,6 +31,7 @@ import { publishTurn, startConversationSync, type ConversationSyncHandle } from 
 import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
 import {
     isDeepgramAvailable,
+    prewarmDeepgram,
     setDeepgramEventTap,
     startDeepgramRecognizer,
     type DeepgramRecognizerHandle,
@@ -347,12 +348,24 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // creds) — not a network probe — so it returns instantly. The actual
     // token mint + WS open happens inside startDeepgramRecognizer at
     // tap-time.
+    //
+    // On success, also fire a background prewarm to mint a Deepgram
+    // ephemeral token and cache it for ~20s. This eliminates the
+    // 150-300ms token-mint round-trip from the cold-start critical path
+    // when the skipper actually taps to talk — biggest single
+    // contributor to the "OVER doesn't fire on first run" bug.
     useEffect(() => {
         if (!isOpen) return;
         let cancelled = false;
         void isDeepgramAvailable(true).then((available) => {
             if (cancelled) return;
             setDeepgramStatus(available ? 'available' : 'unavailable');
+            if (available) {
+                // Fire-and-forget. prewarmDeepgram swallows its own
+                // errors (returns false on failure) and the start path
+                // will retry the mint cleanly if the cache is empty.
+                void prewarmDeepgram();
+            }
         });
         return () => {
             cancelled = true;
@@ -943,17 +956,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 }
                 // Cold-start grace period: when a streaming recognizer is
                 // active but hasn't fired any partial yet, give it up to
-                // 250ms before tearing down. Both Apple SR and Deepgram
-                // can have a slow first partial after a cold start (Apple:
-                // engine warm-up, Deepgram: WS handshake + first audio
-                // chunk traversal). Without this wait, an utterance
-                // ending in "over" reaches a manual tap before the live
-                // OVER gesture catches it. Skips entirely on warm cycles.
+                // 500ms before tearing down. Apple SR's first partial can
+                // arrive 200-400ms slower on cold start; Deepgram has to
+                // mint a token (cached after prewarm), open a WebSocket,
+                // load the audio worklet, and stream the first chunk —
+                // typically 400-600ms cold even with prewarm. Without
+                // this wait, an utterance ending in "over" reaches a
+                // manual tap before the live OVER gesture catches it.
+                // Skips entirely on warm cycles (srActive === true).
                 const streamingHandle = dgHandle ?? srHandle;
                 if (streamingHandle && !srActive && firstPartialPromiseRef.current) {
                     await Promise.race([
                         firstPartialPromiseRef.current.promise,
-                        new Promise<void>((resolve) => setTimeout(resolve, 250)),
+                        new Promise<void>((resolve) => setTimeout(resolve, 500)),
                     ]);
                     // The OVER gesture fires synchronously inside onPartial
                     // and clears recognizer refs. If that happened during
