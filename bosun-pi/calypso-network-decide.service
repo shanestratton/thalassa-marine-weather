@@ -1,0 +1,18 @@
+[Unit]
+Description=Calypso boot-time WiFi mode decision (station vs setup AP)
+Documentation=https://github.com/shanestratton/marine-weather/blob/master/docs/BOSUN_NETWORK_SETUP_API.md
+After=NetworkManager.service network-pre.target
+Wants=NetworkManager.service
+Before=bosun-web.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=skipper
+ExecStart=/mnt/nvme/bosun/el-venv/bin/python /usr/local/bin/calypso-network-decide
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target

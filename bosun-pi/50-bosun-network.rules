@@ -1,0 +1,20 @@
+// Polkit rule: grant the `netdev` group full control of NetworkManager
+// without a password prompt.
+//
+// This is what lets the bosun-web service (running as `skipper`, who is
+// in `netdev`) shell out to `nmcli` to bring the AP up/down and add
+// station-mode connections.
+//
+// The boundary is `netdev` membership. On a sealed-appliance Pi, only
+// `skipper` is in that group; the customer never gets shell access.
+//
+// Without this rule, every nmcli call needing `org.freedesktop.NetworkManager.network-control`
+// (i.e. anything that mutates state) would prompt for an admin password
+// and the API requests would just hang waiting for an interactive auth.
+
+polkit.addRule(function(action, subject) {
+    if (action.id.indexOf("org.freedesktop.NetworkManager.") === 0 &&
+        subject.isInGroup("netdev")) {
+        return polkit.Result.YES;
+    }
+});
