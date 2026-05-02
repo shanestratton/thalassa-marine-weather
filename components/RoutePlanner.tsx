@@ -22,6 +22,7 @@ import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { FirstRunHint } from './ui/FirstRunHint';
 import { PageHeader } from './ui/PageHeader';
+import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
 
 export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () => void }> = ({
     onTriggerUpgrade,
@@ -92,6 +93,9 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     return (
         <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
             <PageHeader title="Route Planner" onBack={onBack} />
+            {/* Stays visible across the auto-nav from RoutePlanner → MapHub */}
+            {/* because the chip listens to window events (no React tree dep). */}
+            <RouteEnhancementChip />
 
             {/* FULL SCREEN MAP MODAL - PORTALED TO ESCAPE TRANSFORMS */}
             {isMapOpen &&

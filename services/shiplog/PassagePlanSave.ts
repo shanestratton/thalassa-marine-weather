@@ -9,9 +9,19 @@ import { supabase } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { calculateDistanceNM, calculateBearing, formatPositionDMS, toDbFormat, SHIP_LOGS_TABLE } from './helpers';
 import { queueOfflineEntry } from './OfflineQueue';
+import { invalidateRoutesAndTracks } from './RoutesAndTracks';
 import { createLogger } from '../../utils/logger';
 
 const log = createLogger('PassagePlanSave');
+
+/**
+ * Marker we prefix the saved geometry blob with so RoutesAndTracks can
+ * recognise + parse it when reconstructing the route polyline. Stored
+ * on the first ("Departure") entry's notes field — chosen over a new
+ * column because the existing schema doesn't have a JSON-blob field
+ * and we want this to ship without a migration.
+ */
+export const ROUTE_GEOMETRY_NOTES_PREFIX = '__route_geometry__::';
 
 /**
  * Save a passage plan's route to the logbook as a "planned_route" voyage.
@@ -82,6 +92,29 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             const durationHrs = parseFloat(plan.durationApprox) || 12;
             const entryTime = new Date(depDate.getTime() + fraction * durationHrs * 3600000);
 
+            // Store the full bathymetric route geometry on the first
+            // (Departure) entry's `notes` field so a future view of this
+            // saved route can re-render the curved sea path, not just
+            // the straight-line polyline between waypoints. The marker
+            // prefix lets RoutesAndTracks.ts recognise + parse it back
+            // out without a schema change. The Gemini human-readable
+            // summary is preserved on the SECOND entry (or appended
+            // after the marker on first) so the picker sublabel stays
+            // useful.
+            let firstNote: string | undefined;
+            if (i === 0) {
+                const summary = `Planned: ${plan.origin} → ${plan.destination}`;
+                if (plan.routeGeoJSON?.geometry?.coordinates) {
+                    firstNote =
+                        ROUTE_GEOMETRY_NOTES_PREFIX +
+                        JSON.stringify(plan.routeGeoJSON.geometry.coordinates) +
+                        '\n' +
+                        summary;
+                } else {
+                    firstNote = summary;
+                }
+            }
+
             entries.push({
                 id: `${voyageId}_${i}`,
                 voyageId,
@@ -95,7 +128,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
                 entryType: pt.isWP ? 'waypoint' : 'auto',
                 source: 'planned_route',
                 waypointName: pt.name,
-                notes: i === 0 ? `Planned: ${plan.origin} → ${plan.destination}` : undefined,
+                notes: firstNote,
                 isOnWater: true,
                 createdAt: now,
             });
@@ -134,6 +167,12 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         log.info(
             `✓ Saved planned route "${plan.origin} → ${plan.destination}" with ${entries.length} waypoints (${cumulativeNM.toFixed(1)} NM) [${savedOnline ? 'online' : 'offline'}]`,
         );
+
+        // Drop the RoutesAndTracks 60s cache so the chart picker shows
+        // this route immediately on next open. Without this the user
+        // could save → swap to charts within 60s → not see their new
+        // route → think the save failed.
+        invalidateRoutesAndTracks();
 
         // Fire-and-forget: auto-create a draft voyage from this passage plan
         // and activate it so the Passage Planning card appears

@@ -20,6 +20,7 @@
  * back-to-back. Refresh forces a re-fetch.
  */
 import { getLogEntries } from './EntryCrud';
+import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import type { ShipLogEntry } from '../../types/navigation';
 
 export interface RouteOrTrack {
@@ -77,6 +78,37 @@ function fmtDate(ts: number): string {
     return y === today.getFullYear() ? `${day} ${m}` : `${day} ${m} ${y}`;
 }
 
+/**
+ * Try to recover a saved route's curved geometry from the first entry's
+ * notes blob (see PassagePlanSave.ROUTE_GEOMETRY_NOTES_PREFIX). Returns
+ * the dense polyline if found and valid, null otherwise. The bend
+ * waypoints are still saved as separate entries — those drive the
+ * picker icons / counts; this geometry is purely for the rendered
+ * polyline so the user sees the bathymetric curve, not straight lines.
+ */
+function recoverRouteGeometry(firstEntryNotes: string | null | undefined): Array<{ lat: number; lon: number }> | null {
+    if (typeof firstEntryNotes !== 'string') return null;
+    if (!firstEntryNotes.startsWith(ROUTE_GEOMETRY_NOTES_PREFIX)) return null;
+    const after = firstEntryNotes.slice(ROUTE_GEOMETRY_NOTES_PREFIX.length);
+    // Format: <JSON coords>\n<human summary>. Split on the first newline.
+    const nlIdx = after.indexOf('\n');
+    const jsonStr = nlIdx === -1 ? after : after.slice(0, nlIdx);
+    try {
+        const coords = JSON.parse(jsonStr);
+        if (!Array.isArray(coords)) return null;
+        const out: Array<{ lat: number; lon: number }> = [];
+        for (const c of coords) {
+            if (!Array.isArray(c) || c.length < 2) continue;
+            const [lon, lat] = c;
+            if (typeof lon !== 'number' || typeof lat !== 'number') continue;
+            out.push({ lat, lon });
+        }
+        return out.length >= 2 ? out : null;
+    } catch {
+        return null;
+    }
+}
+
 /** Group entries by voyageId, building a RouteOrTrack per group. */
 function groupByVoyage(entries: ShipLogEntry[]): RouteOrTrack[] {
     const groups = new Map<string, ShipLogEntry[]>();
@@ -96,10 +128,17 @@ function groupByVoyage(entries: ShipLogEntry[]): RouteOrTrack[] {
             .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         if (sorted.length < 2) continue; // Need at least 2 points to draw a line.
 
-        const points = sorted.map((e) => ({
-            lat: e.latitude as number,
-            lon: e.longitude as number,
-        }));
+        // For planned routes, prefer the saved bathymetric geometry over
+        // the straight-line waypoint polyline — the user wants to see
+        // the curved sea path they actually planned, including bends
+        // around shoals/headlands.
+        const recoveredCurve = isPlanned(id) ? recoverRouteGeometry(sorted[0].notes) : null;
+        const points =
+            recoveredCurve ??
+            sorted.map((e) => ({
+                lat: e.latitude as number,
+                lon: e.longitude as number,
+            }));
         const bbox = bboxOfPoints(points);
 
         // Heuristic label: first entry's notes / waypoint name often
