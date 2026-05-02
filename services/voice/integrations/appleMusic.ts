@@ -38,12 +38,29 @@ import { Capacitor, registerPlugin } from '@capacitor/core';
 interface AppleMusicPluginInterface {
     requestAuthorization(): Promise<{ status: string; granted: boolean }>;
     getAuthorizationStatus(): Promise<{ status: string; granted: boolean }>;
+    getLibraryStats(): Promise<{
+        auth_status: string;
+        auth_granted: boolean;
+        artists: number;
+        albums: number;
+        songs: number;
+        playlists: number;
+        sample_artists: string[];
+        sample_playlists: string[];
+    }>;
     searchAndPlay(opts: { query: string; kind?: 'auto' | 'artist' | 'album' | 'playlist' | 'song' }): Promise<{
         status: 'playing' | 'not_found_in_library' | 'permission_denied';
         matched_kind: '' | 'artist' | 'album' | 'playlist' | 'song';
         title: string;
         subtitle?: string;
         track_count?: number;
+        // Library counts surfaced on a miss so Calypso can narrate
+        // ("checked 47 artists, none matched") instead of silently
+        // falling through to catalog.
+        library_artists?: number;
+        library_albums?: number;
+        library_songs?: number;
+        library_playlists?: number;
     }>;
     pause(): Promise<{ status: string }>;
     resume(): Promise<{ status: string }>;
@@ -110,6 +127,16 @@ export async function playMusicByQuery(
         return { content: 'ERROR: empty music query', isError: true };
     }
 
+    /** Tracks whether the native plugin path was attempted but failed
+     *  (e.g. plugin not registered, threw, or returned library-miss).
+     *  Used to attach a more informative `library_miss_detail` to the
+     *  URL-scheme tool result so Calypso narrates exactly what
+     *  happened instead of silently handing off. */
+    let nativeMissDetail:
+        | { reason: 'plugin_error'; error: string }
+        | { reason: 'library_miss'; counts: { artists: number; albums: number; songs: number; playlists: number } }
+        | null = null;
+
     // 1. Native library-first path (iOS only). The plugin handles
     // permission prompting inline on first call.
     if (nativeAvailable()) {
@@ -124,7 +151,7 @@ export async function playMusicByQuery(
                         title: r.title,
                         subtitle: r.subtitle ?? '',
                         track_count: r.track_count ?? 0,
-                        note: `Playing from library. Narrate back what's queued: ${r.title}${r.subtitle ? ` — ${r.subtitle}` : ''}.`,
+                        note: `Playing from the skipper's library. Narrate back briefly: "Playing ${r.title}${r.subtitle ? ` — ${r.subtitle}` : ''} from your library."`,
                     }),
                     isError: false,
                 };
@@ -133,16 +160,27 @@ export async function playMusicByQuery(
                 return {
                     content: JSON.stringify({
                         status: 'permission_denied',
-                        note: 'The skipper denied Apple Music library access. Tell them they can grant it in iOS Settings → Thalassa → Apple Music.',
+                        note: "The skipper denied Apple Music library access (or hasn't granted it yet). Tell them they can flip it on in iOS Settings → Thalassa → Apple Music.",
                     }),
                     isError: false,
                 };
             }
-            // Library miss → fall through to URL-scheme catalog path.
+            // Library miss → capture stats so the URL fallback has
+            // something to narrate ("not in your library — handed
+            // off to Apple Music for catalog search; you've got 47
+            // artists in library, none matched").
+            nativeMissDetail = {
+                reason: 'library_miss',
+                counts: {
+                    artists: r.library_artists ?? 0,
+                    albums: r.library_albums ?? 0,
+                    songs: r.library_songs ?? 0,
+                    playlists: r.library_playlists ?? 0,
+                },
+            };
         } catch (nativeErr) {
             console.warn('[appleMusic] native plugin failed, falling back to URL scheme', nativeErr);
-            // Don't return — fall through to URL scheme as a graceful
-            // degradation if the native plugin throws.
+            nativeMissDetail = { reason: 'plugin_error', error: (nativeErr as Error).message };
         }
     }
 
@@ -172,12 +210,14 @@ export async function playMusicByQuery(
     // Native iOS path — URL hand-off (catalog match)
     try {
         dispatchUrl(nativeUrl);
+        const note = composeFallbackNote(trimmed, nativeMissDetail);
         return {
             content: JSON.stringify({
                 status: 'launched_apple_music_catalog',
                 source: 'catalog',
                 query: trimmed,
-                note: 'Not found in library — handed off to the Apple Music app for catalog search. Calypso cannot read back what plays from this path; only library items report now-playing details.',
+                miss_detail: nativeMissDetail,
+                note,
             }),
             isError: false,
         };
@@ -200,6 +240,93 @@ export async function playMusicByQuery(
                 isError: true,
             };
         }
+    }
+}
+
+/**
+ * Compose the narration note Calypso reads when we fall back to URL.
+ * The whole point of this is that the skipper knows EXACTLY why the
+ * catalog hand-off happened: not in their library (with counts), or
+ * the native plugin failed (with the error), or the plugin isn't
+ * available on this device. Silence on this is what made the bug so
+ * confusing the first time round.
+ */
+function composeFallbackNote(
+    query: string,
+    detail: {
+        reason: 'plugin_error' | 'library_miss';
+        error?: string;
+        counts?: { artists: number; albums: number; songs: number; playlists: number };
+    } | null,
+): string {
+    if (!detail) {
+        // No native attempt was made (web / no plugin). Generic note.
+        return `Handed off to Apple Music for the search. The skipper's iPhone will resolve "${query}". You cannot read back what plays from this path.`;
+    }
+    if (detail.reason === 'plugin_error') {
+        return `The native music plugin returned an error (${detail.error}). Handed off to the Apple Music app instead. Tell the skipper plainly: "I couldn't reach your library directly — opened Apple Music to search instead. May need a clean Xcode build to wire the native plugin properly."`;
+    }
+    // library_miss
+    const counts = detail.counts;
+    if (!counts) {
+        return `"${query}" wasn't in the skipper's library. Handed off to Apple Music for catalog search.`;
+    }
+    if (counts.songs === 0 && counts.artists === 0 && counts.albums === 0 && counts.playlists === 0) {
+        return `The skipper's Apple Music library appears empty (no songs / artists / albums / playlists visible). Handed off to Apple Music. Tell them: "I can see your library but it looks empty — make sure you've added music to your Library, not just streamed it."`;
+    }
+    return `"${query}" wasn't in the skipper's library (checked ${counts.artists} artists, ${counts.albums} albums, ${counts.songs} songs, ${counts.playlists} playlists). Handed off to the Apple Music app for catalog search. Tell the skipper: "Not in your library — opened Apple Music to search the catalog. You'll need to pick a track to play it; I can't auto-play catalog tracks."`;
+}
+
+// ── Diagnostic ─────────────────────────────────────────────────────
+
+/**
+ * Returns a snapshot of what the native plugin can actually see in
+ * the user's Apple Music library. Useful when "play X" silently
+ * falls through to URL — the skipper can ask "Calypso, what music
+ * can you see?" and get a concrete answer instead of guessing
+ * whether it's permissions, an empty library, or the plugin not
+ * being loaded.
+ *
+ * Returns the auth status + counts for each kind + a small sample
+ * of artist + playlist names so Calypso can name a few in the
+ * narration ("you've got 47 artists including Pink Floyd, Dire
+ * Straits, Jimmy Buffett").
+ */
+export async function musicDiagnostic(): Promise<{ content: string; isError: boolean }> {
+    if (!nativeAvailable()) {
+        return {
+            content: JSON.stringify({
+                status: 'unsupported',
+                note: "The diagnostic requires the native iOS plugin. On web / non-iOS we can't inspect the music library.",
+            }),
+            isError: false,
+        };
+    }
+    try {
+        const stats = await AppleMusicNative.getLibraryStats();
+        const total = stats.artists + stats.albums + stats.songs + stats.playlists;
+        return {
+            content: JSON.stringify({
+                status: 'ok',
+                ...stats,
+                empty: total === 0,
+                note: !stats.auth_granted
+                    ? 'Permission for Apple Music library access has not been granted. Tell the skipper: "I don\'t have access to your library yet — first time you ask me to play something, iOS will prompt; or grant it now in Settings → Thalassa → Apple Music."'
+                    : total === 0
+                      ? 'The library is visible but empty. Probably means the skipper streams via Apple Music subscription but hasn\'t saved anything to their Library. Tell them they need to "Add to Library" tracks they want voice-control over.'
+                      : `Library is healthy. ${stats.artists} artists, ${stats.songs} songs, ${stats.playlists} playlists. Sample artists: ${stats.sample_artists.slice(0, 3).join(', ')}. Read a brief summary; mention 2-3 sample artists to make it concrete.`,
+            }),
+            isError: false,
+        };
+    } catch (err) {
+        return {
+            content: JSON.stringify({
+                status: 'plugin_error',
+                error: (err as Error).message,
+                note: 'The native plugin threw — likely the .swift / .m files aren\'t actually compiled into this build yet. Tell the skipper: "Native music plugin isn\'t loaded — Xcode needs a clean build (Product → Clean Build Folder, then rebuild) to pick up the new files."',
+            }),
+            isError: false,
+        };
     }
 }
 
