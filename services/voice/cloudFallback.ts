@@ -21,7 +21,7 @@
  */
 
 import { blobToBase64 } from './audioRecorder';
-import type { VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
+import type { ThalassaContext, VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
@@ -44,6 +44,8 @@ interface AskBody {
     audio_b64?: string;
     mime_type?: string;
     session_id?: string;
+    /** Snapshot of Thalassa state — location, conditions, passage. */
+    context?: ThalassaContext;
 }
 
 async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
@@ -117,7 +119,7 @@ async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
 
 /** Send a typed-text query to the cloud Haiku fallback. */
 export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryResponse> {
-    return postToFallback({ text: req.text, session_id: req.sessionId });
+    return postToFallback({ text: req.text, session_id: req.sessionId, context: req.context });
 }
 
 /**
@@ -125,12 +127,12 @@ export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryRe
  * runs ElevenLabs Scribe for STT, then Haiku, then ElevenLabs TTS, and
  * returns the full VoiceQueryResponse envelope.
  */
-export async function askCloudVoice(audioBlob: Blob): Promise<VoiceQueryResponse> {
+export async function askCloudVoice(audioBlob: Blob, context?: ThalassaContext): Promise<VoiceQueryResponse> {
     const audio_b64 = await blobToBase64(audioBlob);
     if (!audio_b64) {
         throw new CloudFallbackError('Recorded audio is empty — try holding for a moment longer.');
     }
-    return postToFallback({ audio_b64, mime_type: audioBlob.type || 'audio/mp4' });
+    return postToFallback({ audio_b64, mime_type: audioBlob.type || 'audio/mp4', context });
 }
 
 // ── backwards-compat alias for any callers still using askCloud(text) ──
