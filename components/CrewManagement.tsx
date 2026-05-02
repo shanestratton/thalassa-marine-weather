@@ -34,7 +34,8 @@ import {
 import { supabase } from '../services/supabase';
 import { triggerHaptic } from '../utils/system';
 import { toast } from './Toast';
-import { getDraftVoyagesWithLogbookEntries, updateVoyage, type Voyage } from '../services/VoyageService';
+import { createVoyage, getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
+import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
@@ -182,22 +183,70 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         if (isAuthed) loadData();
     }, [isAuthed, loadData]);
 
-    // Load voyage status + draft voyages
+    // Load voyage status + populate the dropdown DIRECTLY from logbook
+    // routes. The voyages-table drafts are no longer the source of truth
+    // for what shows here — they're only the receipt of which one the
+    // user selected as active. This eliminates the filter/auto-heal
+    // dance entirely:
+    //
+    //   - In the logbook → in the dropdown.
+    //   - Not in the logbook → not in the dropdown.
+    //
+    // No drift possible because there's only one source.
+    //
+    // Existing voyages-table drafts that line up by name (case + trim
+    // insensitive) get merged in so we already have a UUID for them
+    // when the user selects (no creation roundtrip). New routes get a
+    // UUID on first select via the on-select handler.
     useEffect(() => {
         import('../services/VoyageService').then(({ getCachedActiveVoyage }) => {
             const v = getCachedActiveVoyage();
             if (v) setActiveVoyageName(v.voyage_name);
         });
-        // Filter the dropdown to drafts that still have a corresponding
-        // planned-route entry in the logbook. Stops orphaned drafts
-        // (left over after the user deleted the route from the logbook
-        // page) from cluttering the active-passage picker.
-        getDraftVoyagesWithLogbookEntries().then((drafts) => {
-            setDraftVoyages(drafts);
-            // Pre-fill departure date for the active passage
+        Promise.all([
+            // Force-refresh so a stale 60s RoutesAndTracks cache can't
+            // miss a just-saved route or include a just-deleted one.
+            fetchRoutesAndTracks(true),
+            getDraftVoyages(),
+        ]).then(([routesAndTracks, allDrafts]) => {
+            const norm = (s: string) => s.trim().toLowerCase();
+            const draftByName = new Map(allDrafts.map((d) => [norm(d.voyage_name), d] as const));
+
+            // For each logbook route, surface a Voyage-shaped row. If a
+            // matching draft already exists, use it (we have its real
+            // UUID). Otherwise stub one out — the on-select handler
+            // creates the actual voyages-table row when the user picks
+            // it, so we don't pollute the table with rows for routes
+            // the user never actually picks.
+            const rows: Voyage[] = routesAndTracks.routes.map((r) => {
+                const matched = draftByName.get(norm(r.label));
+                if (matched) return matched;
+                const [depPart, arrPart] = r.label.split(' → ');
+                // Stub voyage — id starts with "logbook:" so the on-
+                // select handler knows to find-or-create a real row
+                // before calling setActivePassage.
+                return {
+                    id: `logbook:${r.id}`,
+                    user_id: '',
+                    vessel_id: null,
+                    voyage_name: r.label,
+                    departure_port: (depPart ?? '').trim() || null,
+                    destination_port: (arrPart ?? '').trim() || null,
+                    departure_time: null,
+                    eta: null,
+                    crew_count: 1,
+                    status: 'planning',
+                    weather_master_id: null,
+                    notes: null,
+                    created_at: new Date(r.timestamp).toISOString(),
+                    updated_at: new Date(r.timestamp).toISOString(),
+                };
+            });
+
+            setDraftVoyages(rows);
             const activeId = getActivePassageId();
             if (activeId) {
-                const v = drafts.find((d) => d.id === activeId);
+                const v = rows.find((d) => d.id === activeId);
                 if (v?.departure_time) setPlanDeparture(v.departure_time.slice(0, 16));
             }
         });
@@ -400,23 +449,47 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     {draftVoyages.length > 0 ? (
                         <select
                             value={selectedPassageId}
-                            onChange={(e) => {
+                            onChange={async (e) => {
                                 const id = e.target.value;
                                 setSelectedPassageId(id);
-                                if (id) {
-                                    setActivePassage(id);
-                                    triggerHaptic('light');
-                                    const v = draftVoyages.find((v) => v.id === id);
-                                    if (v) {
-                                        setActiveVoyageName(
-                                            v.voyage_name ||
-                                                `${v.departure_port || '?'} → ${v.destination_port || '?'}`,
-                                        );
-                                        // Pre-fill departure date for inline picker
-                                        setPlanDeparture(v.departure_time ? v.departure_time.slice(0, 16) : '');
-                                    }
-                                } else {
+                                if (!id) {
                                     setActiveVoyageName(null);
+                                    return;
+                                }
+
+                                // Stub rows from the logbook have id
+                                // prefixed `logbook:`. Materialise a real
+                                // voyages-table row before activating so
+                                // setActivePassage gets a UUID it can
+                                // resolve back to a voyage downstream.
+                                let realId = id;
+                                let row = draftVoyages.find((v) => v.id === id);
+                                if (id.startsWith('logbook:') && row) {
+                                    const { voyage } = await createVoyage({
+                                        voyage_name: row.voyage_name,
+                                        departure_port: row.departure_port,
+                                        destination_port: row.destination_port,
+                                        crew_count: 1,
+                                    });
+                                    if (voyage) {
+                                        realId = voyage.id;
+                                        // Replace the stub with the real
+                                        // row so future selects in this
+                                        // session use the UUID directly.
+                                        row = voyage;
+                                        setDraftVoyages((prev) => prev.map((d) => (d.id === id ? voyage : d)));
+                                        setSelectedPassageId(voyage.id);
+                                    }
+                                }
+
+                                setActivePassage(realId);
+                                triggerHaptic('light');
+                                if (row) {
+                                    setActiveVoyageName(
+                                        row.voyage_name ||
+                                            `${row.departure_port || '?'} → ${row.destination_port || '?'}`,
+                                    );
+                                    setPlanDeparture(row.departure_time ? row.departure_time.slice(0, 16) : '');
                                 }
                             }}
                             className="w-full bg-white/[0.06] border border-white/[0.12] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-violet-500/40 appearance-none cursor-pointer"

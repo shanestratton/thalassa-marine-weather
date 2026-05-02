@@ -146,90 +146,17 @@ export async function startVoyage(voyageId: string): Promise<Voyage | null> {
     return voyage;
 }
 
-/**
- * Per-name flag set so concurrent dropdown opens don't double-create
- * a draft for the same logbook route. Cleared on resolution.
- */
-const _autoHealInflight = new Set<string>();
-
-/**
- * Get the draft voyages we should show in the active-passage picker.
- *
- * The voyages table and the ship_log "planned_*" entries are two
- * separate data sources that should mirror each other but in practice
- * drift apart — older routes saved before PassagePlanSave's auto-create
- * landed, network glitches that cause the createVoyage call to fail
- * silently, etc. The result is logbook routes with no matching draft —
- * the user knows the passage exists but can't pick it as their active
- * one.
- *
- * This fetcher reconciles the two sources:
- *
- *   1. **Auto-heal forward** — for any logbook route that has no
- *      matching draft, create the draft now. New ones appear in the
- *      dropdown immediately. (Concurrent calls are deduped via
- *      `_autoHealInflight` so opening the dropdown twice doesn't
- *      duplicate.)
- *
- *   2. **Filter backward** — drafts whose name shows the
- *      passage-plan format (`A → B`) but have no matching logbook
- *      route are orphans (deleted-from-logbook), and get hidden.
- *      Drafts without the arrow shape came from manual code paths
- *      (cast-off panel, etc.) and pass through unconditionally.
- *
- * Force-refresh on `fetchRoutesAndTracks(true)` so a stale 60s cache
- * can't slip orphans through.
- *
- * Match key: case + whitespace-normalised `voyage_name` against the
- * RoutesAndTracks `label` (`${departure} → ${arrival}`).
- */
-export async function getDraftVoyagesWithLogbookEntries(): Promise<Voyage[]> {
-    const [initialDrafts, routesAndTracks] = await Promise.all([
-        getDraftVoyages(),
-        import('./shiplog/RoutesAndTracks').then((m) => m.fetchRoutesAndTracks(true)),
-    ]);
-
-    const norm = (s: string) => s.trim().toLowerCase();
-
-    // Auto-heal: for each live logbook route, ensure a matching draft
-    // voyage exists. Run sequentially so we read each just-created
-    // voyage in the next iteration's draftKeys lookup.
-    const draftKeys = new Set(initialDrafts.map((d) => norm(d.voyage_name)));
-    const healed: Voyage[] = [];
-    for (const route of routesAndTracks.routes) {
-        const key = norm(route.label);
-        if (draftKeys.has(key)) continue;
-        if (_autoHealInflight.has(key)) continue;
-        _autoHealInflight.add(key);
-        try {
-            const [depPart, arrPart] = route.label.split(' → ');
-            const { voyage } = await createVoyage({
-                voyage_name: route.label,
-                departure_port: (depPart ?? 'Departure').trim(),
-                destination_port: (arrPart ?? 'Arrival').trim(),
-                crew_count: 1,
-            });
-            if (voyage) {
-                healed.push(voyage);
-                draftKeys.add(key);
-            }
-        } finally {
-            _autoHealInflight.delete(key);
-        }
-    }
-
-    // Filter forward (orphans hidden). Use the union of initial drafts
-    // and the just-healed ones so a newly-healed draft is included on
-    // this same call.
-    const allDrafts = [...initialDrafts, ...healed];
-    const liveRouteNames = new Set(routesAndTracks.routes.map((r) => norm(r.label)));
-    return allDrafts.filter((v) => {
-        // Manually-created drafts (no arrow in name) pass through.
-        if (!v.voyage_name.includes('→')) return true;
-        // Passage-plan-shaped drafts must have a matching logbook route.
-        return liveRouteNames.has(norm(v.voyage_name));
-    });
-}
+// Earlier iterations of this file had a getDraftVoyagesWithLogbookEntries()
+// fetcher that tried to filter or auto-heal the voyages-table to mirror the
+// logbook. That created drift in both directions and caused the dropdown
+// to flicker between empty and showing stale data. Removed in favour of a
+// simpler model in CrewManagement.tsx: read the dropdown directly from
+// fetchRoutesAndTracks() and find-or-create voyages-table rows only at
+// select-time. The voyages table is no longer the source of truth for
+// "what passages exist" — the logbook is.
+//
+// `getDraftVoyages()` (below) is still used by other consumers
+// (GalleyCard, ChannelList, CastOffPanel) that want the raw drafts list.
 
 /**
  * Delete draft (planning) voyages whose `voyage_name` matches `name`
