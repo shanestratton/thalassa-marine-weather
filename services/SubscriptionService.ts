@@ -95,7 +95,9 @@ export type Feature =
     | 'anchorWatch' // Anchor watch alarm
     | 'polars' // Polar diagrams & smart polars
     | 'piCache' // Raspberry Pi local cache server
-    | 'bosunVoice'; // Bosun voice console (PTT to on-boat AI + cloud Haiku)
+    | 'bosunVoice' // Bosun voice console (PTT to on-boat AI + cloud Haiku)
+    | 'calypsoMusic' // Calypso → Apple Music control (search, play, queue)
+    | 'calypsoEmail'; // Calypso → Gmail integration (read inbox, draft, send)
 
 /**
  * Minimum tier required for each feature.
@@ -126,6 +128,8 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     polars: 'owner',
     piCache: 'owner',
     bosunVoice: 'owner', // Skipper-tier (top tier) only — voice console wraps the most expensive features (Pi-based AI, cloud Haiku, ElevenLabs TTS)
+    calypsoMusic: 'owner', // Skipper-tier — Apple Music integration (MusicKit + URL schemes)
+    calypsoEmail: 'owner', // Skipper-tier — Gmail OAuth + read/draft/send
 };
 
 // ── Tier Ranking ──────────────────────────────────────────────

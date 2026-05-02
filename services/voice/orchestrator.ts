@@ -30,6 +30,8 @@
 import type { ThalassaContext, VoiceHistoryTurn } from '../../types/voice';
 import { runThalassaWeather } from './cloudTools';
 import { executePiTool, isBosunWebReachable, isPiToolName } from './piTools';
+import { playMusicByQuery } from './integrations/appleMusic';
+import { draftEmail, inboxSummary, readEmail, searchEmails, sendDraft } from './integrations/gmail';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
@@ -135,6 +137,125 @@ const CLOUD_TOOLS: ToolDef[] = [
 ];
 
 /**
+ * Calypso integrations — Apple Music + Gmail. Each is registered only
+ * when the skipper has explicitly enabled it via Settings → Calypso
+ * Integrations. The setting flags + Skipper-tier gate are checked
+ * in BosunConsole's runOrchestrator wrapper before this tool list
+ * gets passed to Haiku.
+ *
+ * Apple Music tools use iOS URL schemes — they hand off to the
+ * Apple Music app and don't return live playback state. Gmail tools
+ * round-trip the Gmail REST API with an OAuth bearer token.
+ */
+const APPLE_MUSIC_TOOLS: ToolDef[] = [
+    {
+        name: 'play_music',
+        description:
+            'Play music in Apple Music. Hands off to the Apple Music app on iOS — searches the catalog and starts playback for the most relevant match. Use for "play X by Y", "queue up Z", "play me some [genre]". Reply briefly afterward — you cannot read back what is currently playing once the app takes over (no live now-playing API in this version). If asked what is playing or to skip/pause, say plainly: "I can launch tracks but cannot read current playback or control playback once Apple Music takes over — skip from the lock screen or CarPlay."',
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description:
+                        'Free-form search query. Apple Music will pick the best match (track, album, artist, playlist). Examples: "Pink Floyd Dark Side", "Jimmy Buffett radio", "passage soundtrack chill", "Hotel California Eagles".',
+                },
+            },
+            required: ['query'],
+        },
+    },
+];
+
+const GMAIL_TOOLS: ToolDef[] = [
+    {
+        name: 'search_emails',
+        description:
+            "Search the skipper's Gmail inbox. Returns up to 10 thread thumbnails (sender, subject, date, snippet). Supports full Gmail search syntax: from:, subject:, is:unread, after:2026/01/01, has:attachment, etc. Read aloud subject + sender + a brief snippet summary. Do NOT read full email bodies from search results — call read_email if the skipper asks for one specifically.",
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description:
+                        'Gmail search query. Examples: "is:unread from:harbour", "subject:fuel after:2026/04/01", "has:attachment from:weatherbom".',
+                },
+                max: {
+                    type: 'number',
+                    description: 'Max threads to return (default 10, hard cap 25).',
+                },
+            },
+            required: ['query'],
+        },
+    },
+    {
+        name: 'read_email',
+        description:
+            'Fetch the full plain-text body of a single email by message ID. Use the IDs returned from search_emails. Body is capped at 8000 chars; if truncated:true, summarise rather than read every word.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                message_id: {
+                    type: 'string',
+                    description: 'Gmail message ID from a previous search_emails result.',
+                },
+            },
+            required: ['message_id'],
+        },
+    },
+    {
+        name: 'draft_email',
+        description:
+            'Create an email draft in the skipper\'s Gmail account. The draft is SAVED but NOT sent — it lands in the Drafts folder. After drafting, read the to/subject/preview back to the skipper aloud, then ask "send it Cap\'n?" — only call send_draft when they confirm. Never send without explicit verbal confirmation.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                to: {
+                    type: 'string',
+                    description:
+                        'Recipient email address. If the skipper says a name, ask for the address — never guess.',
+                },
+                subject: {
+                    type: 'string',
+                    description: 'Subject line. Keep it terse and informative ("Arrival Friday afternoon").',
+                },
+                body: {
+                    type: 'string',
+                    description:
+                        "Plain-text email body. Match the skipper's tone — terse, professional, no emoji unless he uses them. Sign off with his first name (Shane) by default.",
+                },
+            },
+            required: ['to', 'subject', 'body'],
+        },
+    },
+    {
+        name: 'send_draft',
+        description:
+            'Send a previously-created draft. Only call this AFTER reading the draft back to the skipper aloud and getting explicit confirmation ("send it" / "yes send" / similar). Never call without a recent draft_id from your own draft_email call.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                draft_id: {
+                    type: 'string',
+                    description: 'Draft ID returned from a recent draft_email call.',
+                },
+            },
+            required: ['draft_id'],
+        },
+    },
+    {
+        name: 'inbox_summary',
+        description:
+            'Quick summary of unread inbox: top N unread messages (default 5, max 15). Use for "any emails today" / "what\'s in my inbox" / "anything urgent" prompts. Read sender + subject for each, summarise overall theme if there\'s a pattern.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                limit: { type: 'number', description: 'How many to return (default 5, max 15).' },
+            },
+        },
+    },
+];
+
+/**
  * Pi tool descriptions — only registered when the Pi is reachable.
  * Field names match what the Pi actually returns per BOSUN_TOOL_API.md
  * §"Deviation from architecture doc" — we tell Haiku what it'll see,
@@ -196,6 +317,10 @@ const STATIC_SYSTEM_PROMPT = `You are ${ASSISTANT_NAME}, AI first mate aboard "$
 A snapshot of what the skipper currently sees in the Thalassa app — selected location, the weather on their Glass page, any active passage plan — is appended to your context as "CURRENT THALASSA STATE" before each query. Read it. Answer against it when relevant.
 
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
+
+The skipper may also have enabled Apple Music and/or Gmail integrations from Settings. When those tools are in your registry:
+- **Apple Music** (\`play_music\`): play / queue tracks via the iPhone's Apple Music app. You CANNOT read back what's currently playing once the app takes over — say so plainly if asked.
+- **Gmail** (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`): read inbox, draft + send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts folder); sending is not. Any ambiguity → ask, don't act.
 
 ## VESSEL PROFILE (static, always true)
 
@@ -570,6 +695,33 @@ async function dispatchTool(
         const result = await executePiTool(name, input);
         return { content: result.content, isError: result.is_error };
     }
+    // ── Calypso integration tools ──────────────────────────────────
+    if (name === 'play_music') {
+        return playMusicByQuery(typeof input.query === 'string' ? input.query : '');
+    }
+    if (name === 'search_emails') {
+        const q = typeof input.query === 'string' ? input.query : '';
+        const max = typeof input.max === 'number' ? input.max : 10;
+        return searchEmails(q, max);
+    }
+    if (name === 'read_email') {
+        const id = typeof input.message_id === 'string' ? input.message_id : '';
+        return readEmail(id);
+    }
+    if (name === 'draft_email') {
+        const to = typeof input.to === 'string' ? input.to : '';
+        const subject = typeof input.subject === 'string' ? input.subject : '';
+        const body = typeof input.body === 'string' ? input.body : '';
+        return draftEmail(to, subject, body);
+    }
+    if (name === 'send_draft') {
+        const draftId = typeof input.draft_id === 'string' ? input.draft_id : '';
+        return sendDraft(draftId);
+    }
+    if (name === 'inbox_summary') {
+        const limit = typeof input.limit === 'number' ? input.limit : 5;
+        return inboxSummary(limit);
+    }
     // web_search runs server-side at Anthropic; we never see its
     // tool_use blocks here. If we do, that's a registry/upstream
     // mismatch — surface it as an error rather than silently swallow.
@@ -596,6 +748,16 @@ export interface AskHaikuInput {
     text: string;
     context: ThalassaContext;
     history: VoiceHistoryTurn[];
+    /**
+     * Per-call integration flags. The caller (BosunConsole's
+     * runOrchestrator wrapper) reads these from settings + the
+     * Skipper-tier gate, so this function just sees the resolved
+     * boolean.
+     */
+    integrations?: {
+        appleMusic?: boolean;
+        gmail?: boolean;
+    };
 }
 
 /**
@@ -614,7 +776,10 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
     // reachable (~1500 input tokens), this is a meaningful ITPM
     // reduction — should help the skipper avoid the per-minute caps
     // they were hitting at 3 conversations.
-    const baseTools = piReachable ? [...CLOUD_TOOLS, ...PI_TOOLS] : CLOUD_TOOLS;
+    const baseTools: ToolDef[] = [...CLOUD_TOOLS];
+    if (piReachable) baseTools.push(...PI_TOOLS);
+    if (input.integrations?.appleMusic) baseTools.push(...APPLE_MUSIC_TOOLS);
+    if (input.integrations?.gmail) baseTools.push(...GMAIL_TOOLS);
     const tools: ToolDef[] =
         baseTools.length > 0
             ? [
