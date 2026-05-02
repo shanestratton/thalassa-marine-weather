@@ -394,19 +394,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (cancelled) return;
             setDeepgramStatus(available ? 'available' : 'unavailable');
             if (available) {
-                // Fire-and-forget triple-prewarm. Each one shaves a
-                // chunk off the cold-start latency on first tap:
-                //   - prewarmDeepgram: token mint round-trip
-                //     (~150-300ms — only relevant on Supabase fallback,
-                //     no-op when Cloudflare path skips token entirely)
-                //   - prewarmAudioContext: AudioContext construction +
-                //     /pcm-worklet.js fetch + register (~200-400ms,
-                //     biggest single win)
-                // All swallow their own errors; tap-time path falls
-                // back to inline construction cleanly if any prewarm
-                // failed.
+                // Fire-and-forget token prewarm only. Saves the token
+                // mint round-trip when on the Supabase-proxy fallback;
+                // no-op on the Cloudflare-proxy primary path (which
+                // doesn't use a Deepgram token).
+                //
+                // prewarmAudioContext() was tried here but caused
+                // empty-transcript symptoms on iOS — pre-creating an
+                // AudioContext outside the tap-gesture window appears
+                // to leave AVAudioSession in a mode where the mic
+                // input has wrong gain / routing, so audio reaches
+                // Deepgram but registers as silence. Pulled until we
+                // can reliably detect + recover from that state.
+                // The prewarmAudioContext function is preserved in
+                // deepgramRecognizer.ts for future revival.
                 void prewarmDeepgram();
-                void prewarmAudioContext();
             }
         });
         return () => {
