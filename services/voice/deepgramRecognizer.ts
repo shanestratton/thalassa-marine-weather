@@ -693,36 +693,68 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     let workletNode: AudioWorkletNode | null = null;
     let micSource: MediaStreamAudioSourceNode | null = null;
     let firstChunkSent = false;
+    let flushInterval: ReturnType<typeof setInterval> | null = null;
     try {
         micSource = audioContext.createMediaStreamSource(stream);
         workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
         let chunksSent = 0;
         let bytesSent = 0;
-        workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
-            if (stopped) return;
-            if (ws.readyState !== WebSocket.OPEN) return;
+        // Audio batching. The worklet produces 128-frame chunks (256 B
+        // at 16-bit mono), one every ~2.7ms at 48kHz — that's ~375
+        // tiny WebSocket sends per second. iOS WKWebView's WebSocket
+        // implementation chokes on that rate and tends to close the
+        // socket abruptly with code=1005. Batch up to ~50ms of audio
+        // (8192 bytes at 48kHz mono int16) before sending so we hit
+        // ~20 sends/sec instead — well within any sensible rate limit
+        // and Deepgram is fine with that frame size.
+        const BATCH_BYTES_TARGET = 8192;
+        const batchBuffers: ArrayBuffer[] = [];
+        let batchSize = 0;
+        const flushBatch = (): void => {
+            if (batchBuffers.length === 0) return;
+            // Concatenate the batched chunks into one buffer.
+            const merged = new Uint8Array(batchSize);
+            let offset = 0;
+            for (const buf of batchBuffers) {
+                merged.set(new Uint8Array(buf), offset);
+                offset += buf.byteLength;
+            }
+            batchBuffers.length = 0;
+            const flushed = batchSize;
+            batchSize = 0;
             try {
-                ws.send(e.data);
+                ws.send(merged.buffer);
                 chunksSent++;
-                bytesSent += e.data.byteLength;
+                bytesSent += flushed;
                 if (!firstChunkSent) {
                     firstChunkSent = true;
-                    emitEvent(`[DG] first audio chunk (${e.data.byteLength}B) sent at ${Date.now() - t0}ms`);
+                    emitEvent(`[DG] first audio chunk (${flushed}B) sent at ${Date.now() - t0}ms`);
                 }
-                // Periodic audio-flow check so the debug strip shows
-                // whether iOS is actually capturing — if we see "0
-                // chunks" at stop time we know the worklet isn't
-                // running, separate failure mode from "Deepgram
-                // can't decode the audio".
-                if (chunksSent === 50 || chunksSent === 200) {
-                    emitEvent(`[DG] sent ${chunksSent} chunks (${bytesSent}B) — audio flowing`);
+                if (chunksSent === 10 || chunksSent === 50) {
+                    emitEvent(`[DG] sent ${chunksSent} batched chunks (${bytesSent}B) — audio flowing`);
                 }
             } catch (err) {
-                // Send can throw if WS is closing. Don't crash — next
-                // iteration will see readyState !== OPEN.
                 emitEvent(`[DG] ws.send threw: ${(err as Error).message}`);
             }
         };
+        workletNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+            if (stopped) return;
+            if (ws.readyState !== WebSocket.OPEN) return;
+            batchBuffers.push(e.data);
+            batchSize += e.data.byteLength;
+            if (batchSize >= BATCH_BYTES_TARGET) {
+                flushBatch();
+            }
+        };
+        // Safety flush every 100ms so even quiet/short utterances get
+        // partial frames to Deepgram (otherwise a quiet 80ms reply
+        // would never reach the threshold and never get sent).
+        // Cleared in teardown to stop the timer + flush remaining bytes.
+        flushInterval = setInterval(() => {
+            if (!stopped && ws.readyState === WebSocket.OPEN && batchSize > 0) {
+                flushBatch();
+            }
+        }, 100);
         micSource.connect(workletNode);
         // Worklet is a sink — we don't connect it to ctx.destination
         // because we don't want the mic monitored back into the
@@ -743,6 +775,10 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // ── 8. Teardown helpers ────────────────────────────────────────
     const teardown = async (): Promise<void> => {
         stopped = true;
+        if (flushInterval !== null) {
+            clearInterval(flushInterval);
+            flushInterval = null;
+        }
         try {
             if (workletNode) {
                 workletNode.port.onmessage = null;
