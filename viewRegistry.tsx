@@ -66,6 +66,10 @@ const AnchorWatchPage = lazyRetry(
     'AnchorWatchPage',
 );
 const ChatPage = lazyRetry(() => import('./components/ChatPage').then((m) => ({ default: m.ChatPage })), 'ChatPage');
+const BosunConsolePage = lazyRetry(
+    () => import('./components/voice/BosunConsole').then((m) => ({ default: m.BosunConsole })),
+    'BosunConsole',
+);
 const LogPage = lazyRetry(() => import('./pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage');
 const DiaryPage = lazyRetry(
     () => import('./components/DiaryPage').then((m) => ({ default: m.DiaryPage })),
@@ -186,6 +190,12 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: ChatPage,
         boundaryName: 'Chat',
         group: 'standalone',
+    },
+    voice: {
+        component: BosunConsolePage,
+        boundaryName: 'BosunConsole',
+        group: 'standalone',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('dashboard') }),
     },
 
     // ── Vessel hub ───────────────────────────────────────────────────────

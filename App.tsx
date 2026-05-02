@@ -17,7 +17,6 @@ import { NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons
 import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
-import { BosunConsole } from './components/voice/BosunConsole';
 import { canAccess } from './services/SubscriptionService';
 import { ToastPortal, toast } from './components/Toast';
 import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
@@ -67,11 +66,13 @@ const App: React.FC = () => {
     const mapFromWxRef = useRef(false);
     const [mapPickerActive, setMapPickerActive] = useState(false);
 
-    // Bosun voice console (PTT) — global, accessible from every screen via
-    // the mic button in the app header beside the system-status (i) button.
-    // Gated to Skipper (owner) tier — top tier only, since the voice console
-    // wraps the most expensive features (Pi AI, cloud Haiku, ElevenLabs TTS).
-    const [showVoiceConsole, setShowVoiceConsole] = useState(false);
+    // Bosun voice console — registered as the 'voice' page in
+    // viewRegistry. The mic button in the app header (and the floating
+    // mic on the map) just call setPage('voice'); navigating to any
+    // other tab fully unmounts it like every other registered view.
+    // Gated to Skipper (owner) tier — top tier only, since the voice
+    // console wraps the most expensive features (Pi AI, cloud Haiku,
+    // ElevenLabs TTS, Cloudflare Worker proxy + Deepgram).
     const canUseBosunVoice = canAccess(settings.subscriptionTier, 'bosunVoice');
 
     // ── Bootstrap: chat badge, push notifications, keyboard, DB sync, etc. ──
@@ -260,11 +261,10 @@ const App: React.FC = () => {
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
 
-                {/* BOSUN VOICE CONSOLE — global overlay, opened by mic button
-                    in the app header. Available from every screen for Skipper-tier users. */}
-                {canUseBosunVoice && (
-                    <BosunConsole isOpen={showVoiceConsole} onClose={() => setShowVoiceConsole(false)} />
-                )}
+                {/* Bosun voice console is now the 'voice' registered view —
+                    selected via setPage('voice') from the mic button. No
+                    global overlay; the registry handles mount/unmount on
+                    navigation just like every other page. */}
 
                 {/* PUSH NOTIFICATION FOREGROUND TOAST */}
                 <PushToast
@@ -331,7 +331,7 @@ const App: React.FC = () => {
                             <div className="flex items-center gap-2 pointer-events-auto">
                                 {canUseBosunVoice && (
                                     <button
-                                        onClick={() => setShowVoiceConsole(true)}
+                                        onClick={() => setPage('voice')}
                                         className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md"
                                         aria-label="Open Bosun voice console"
                                         title="Talk to Bosun"
@@ -610,7 +610,7 @@ const App: React.FC = () => {
                         >
                             {canUseBosunVoice && (
                                 <button
-                                    onClick={() => setShowVoiceConsole(true)}
+                                    onClick={() => setPage('voice')}
                                     className="w-11 h-11 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 flex items-center justify-center text-sky-400 transition-colors backdrop-blur-md shadow-lg"
                                     aria-label="Open Bosun voice console"
                                     title="Talk to Bosun"

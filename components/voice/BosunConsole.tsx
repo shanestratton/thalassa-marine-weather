@@ -23,6 +23,7 @@
  */
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PageHeader } from '../ui/PageHeader';
 import { PiSetupWizard } from './PiSetupWizard';
 import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
@@ -143,8 +144,12 @@ function buildHistory(turns: VoiceTurn[]): VoiceHistoryTurn[] {
 }
 
 interface BosunConsoleProps {
-    isOpen: boolean;
-    onClose: () => void;
+    /**
+     * Optional back-navigation callback. When provided, the page header
+     * renders a back button that calls this. Routed pages typically pass
+     * `() => setPage('dashboard')` (or wherever the skipper came from).
+     */
+    onBack?: () => void;
 }
 
 interface TargetState {
@@ -171,7 +176,7 @@ async function checkCloudReachable(): Promise<boolean> {
     return true;
 }
 
-export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) => {
+export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const [buttonState, setButtonState] = useState<TargetState>(initialTargetState);
     // Conversation history persists across console open/close via Zustand +
     // localStorage. Adding a turn auto-trims to MAX_PERSISTED_TURNS in the
@@ -373,7 +378,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
 
     // Probe availability when console opens + every 30s
     useEffect(() => {
-        if (!isOpen) return;
+        // BosunConsole now mounts/unmounts via the page registry, so the
+        // legacy isOpen guard is redundant — effects always run on mount.
         let cancelled = false;
         const probe = async () => {
             const [bosun, cloud] = await Promise.all([isBosunReachable(), checkCloudReachable()]);
@@ -388,7 +394,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             cancelled = true;
             clearInterval(interval);
         };
-    }, [isOpen]);
+    }, []);
 
     // Probe SR availability on console open. Surfaces the result in the
     // header pill so the skipper doesn't need Web Inspector or Xcode logs
@@ -399,7 +405,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // counts against iOS's per-device rate limit and can lock the
     // audio session for 30-60 minutes if quota was already low.
     useEffect(() => {
-        if (!isOpen) return;
+        // BosunConsole now mounts/unmounts via the page registry, so the
+        // legacy isOpen guard is redundant — effects always run on mount.
         if (!ENABLE_APPLE_SR_FALLBACK) {
             // Don't even ask iOS about SR — keep the audio system clean.
             setSrStatus('unsupported');
@@ -440,7 +447,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         return () => {
             cancelled = true;
         };
-    }, [isOpen]);
+    }, []);
 
     // localStorage usage probe on console open. iOS WKWebView caps
     // localStorage at ~5 MB per origin; once full, setItem() throws
@@ -449,7 +456,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // debug strip lets us see at a glance whether storage pressure
     // is the actual cause.
     useEffect(() => {
-        if (!isOpen) return;
+        // BosunConsole now mounts/unmounts via the page registry, so the
+        // legacy isOpen guard is redundant — effects always run on mount.
         try {
             let total = 0;
             const big: Array<{ key: string; size: number }> = [];
@@ -478,7 +486,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 { ts: Date.now(), msg: `[storage] probe failed: ${(err as Error).message}` },
             ]);
         }
-    }, [isOpen]);
+    }, []);
 
     // Probe Deepgram availability on console open. This is a runtime
     // capability check (mediaDevices, WebSocket, AudioWorklet, supabase
@@ -492,7 +500,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // when the skipper actually taps to talk — biggest single
     // contributor to the "OVER doesn't fire on first run" bug.
     useEffect(() => {
-        if (!isOpen) return;
+        // BosunConsole now mounts/unmounts via the page registry, so the
+        // legacy isOpen guard is redundant — effects always run on mount.
         let cancelled = false;
         void isDeepgramAvailable(true).then((available) => {
             if (cancelled) return;
@@ -530,7 +539,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             // is a no-op when the cache is empty).
             releasePrewarmedMicStream();
         };
-    }, [isOpen]);
+    }, []);
 
     // Auto-scroll on new content
     useEffect(() => {
@@ -541,7 +550,8 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // arrive in real time. Unsubscribes on close. Falls back to local-only
     // silently if the user isn't on a vessel.
     useEffect(() => {
-        if (!isOpen) return;
+        // BosunConsole now mounts/unmounts via the page registry, so the
+        // legacy isOpen guard is redundant — effects always run on mount.
         let cancelled = false;
         void startConversationSync({
             onRemoteTurn: (turn) => {
@@ -561,7 +571,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             syncHandleRef.current = null;
             if (handle) void handle.stop();
         };
-    }, [isOpen, upsertTurnSorted]);
+    }, [upsertTurnSorted]);
 
     // Cleanup on unmount: free Blob URLs, abort any in-flight recording + SR
     useEffect(() => {
@@ -1323,73 +1333,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         [buttonState],
     );
 
-    if (!isOpen) return null;
-
     return (
         <div
-            className="fixed inset-0 z-[200] flex flex-col bg-gradient-to-b from-slate-900 via-slate-950 to-black"
-            role="dialog"
+            className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black"
+            role="region"
             aria-label="Calypso voice console"
         >
-            {/* ── Header ──────────────────────────────────── */}
-            <header className="shrink-0 flex items-center justify-between px-5 pt-12 pb-4 border-b border-white/5">
-                <div>
-                    <p className="text-base font-bold text-white">Voice Console</p>
-                    <p className="text-[10px] uppercase tracking-widest text-gray-400">
-                        Tap to talk — tap again or say &ldquo;over&rdquo; to send
-                    </p>
-                    {/* Persistent STT availability pill. Reports the highest- */}
-                    {/* priority path that's ready: Deepgram > Apple SR > */}
-                    {/* "audio fallback only". Skipper can tell at a glance */}
-                    {/* whether they're on the streaming-with-OVER path or */}
-                    {/* about to fall through to MediaRecorder + Scribe. */}
-                    <div className="mt-1.5 flex items-center gap-1.5">
-                        {(() => {
-                            const probing = deepgramStatus === 'unknown' || srStatus === 'unknown';
-                            const dgReady = deepgramStatus === 'available';
-                            const srReady = srStatus === 'available' && ENABLE_APPLE_SR_FALLBACK;
-                            const dot = dgReady
-                                ? 'bg-emerald-400'
-                                : srReady
-                                  ? 'bg-emerald-400'
-                                  : probing
-                                    ? 'bg-gray-500 animate-pulse'
-                                    : 'bg-amber-400';
-                            const label = probing
-                                ? 'Probing STT…'
-                                : dgReady
-                                  ? !ENABLE_APPLE_SR_FALLBACK
-                                      ? 'Deepgram only · SR fallback disabled'
-                                      : srStatus === 'available'
-                                        ? 'Deepgram ready · Apple SR fallback'
-                                        : 'Deepgram ready (fast path)'
-                                  : srReady
-                                    ? 'Apple SR ready (fallback path)'
-                                    : !ENABLE_APPLE_SR_FALLBACK
-                                      ? 'Audio-only fallback · SR fallback disabled'
-                                      : 'Audio-only fallback';
-                            return (
-                                <>
-                                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
-                                    <p className="text-[10px] tracking-wide text-gray-400">{label}</p>
-                                </>
-                            );
-                        })()}
-                    </div>
-                    {/* Pi-setup CTA — visible only when no Pi is */}
-                    {/* discovered on the network. Opens the wizard for */}
-                    {/* a fresh Pi or one whose WiFi password changed. */}
-                    {bosunAvailable === false && (
-                        <button
-                            onClick={() => setPiSetupOpen(true)}
-                            className="mt-1.5 text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
-                        >
-                            Set up Pi →
-                        </button>
-                    )}
-                </div>
-                <div className="flex items-center gap-2">
-                    {turns.length > 0 && (
+            {/* ── Header — shared chrome, matches Ship's Log / Route Planner ── */}
+            <PageHeader
+                title="Calypso"
+                subtitle={'Tap to talk — tap again or say "over" to send'}
+                onBack={onBack}
+                action={
+                    turns.length > 0 ? (
                         <button
                             onClick={clearHistory}
                             className="px-3 h-10 rounded-full bg-white/5 hover:bg-white/10 text-[10px] uppercase tracking-widest text-white/70 hover:text-white transition-colors"
@@ -1397,18 +1353,20 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         >
                             Clear
                         </button>
-                    )}
+                    ) : null
+                }
+            />
+            {/* Pi-setup CTA — surfaces only when no Pi is discovered. */}
+            {bosunAvailable === false && (
+                <div className="shrink-0 px-4 pb-2">
                     <button
-                        onClick={onClose}
-                        className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-white/70 hover:text-white transition-colors"
-                        aria-label="Close console"
+                        onClick={() => setPiSetupOpen(true)}
+                        className="text-[10px] uppercase tracking-widest text-sky-400 hover:text-sky-300 underline-offset-2 hover:underline"
                     >
-                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                        Set up Pi →
                     </button>
                 </div>
-            </header>
+            )}
 
             {/* ── Conversation log ───────────────────────── */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -1465,10 +1423,11 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 </div>
             )}
 
-            {/* ── SR debug strip — last few events, on-device readable ── */}
-            {/* Reproduce the lockup → screenshot this strip → I can tell */}
-            {/* you exactly which step stalled. Hidden when no events yet. */}
-            {srEventLog.length > 0 && (
+            {/* SR debug strip removed from UI per user feedback. The
+                underlying srEventLog state + the various event-tap
+                hooks are kept intact so we can re-add a developer-mode
+                toggle later if needed without rewiring everything. */}
+            {false && srEventLog.length > 0 && (
                 <details className="shrink-0 px-5 pt-1">
                     <summary className="text-[9px] uppercase tracking-widest text-gray-500 cursor-pointer select-none">
                         SR debug ({srEventLog.length})
