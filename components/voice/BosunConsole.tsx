@@ -268,6 +268,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // ── Helpers ─────────────────────────────────────────────────────────
 
     const setOneButton = useCallback((which: 'bosun' | 'cloud', s: TalkButtonState) => {
+        // Mirror state transitions into the debug strip so the skipper can
+        // see exactly where a lockup landed without needing Web Inspector.
+        setSrEventLog((prev) => [...prev.slice(-5), { ts: Date.now(), msg: `[btn] ${which} → ${s}` }]);
         setButtonState((prev) => ({ ...prev, [which]: s }));
     }, []);
 
@@ -485,16 +488,27 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         async (cleanedText: string, target: 'bosun' | 'cloud') => {
             const handle = recorderRef.current;
             const srHandle = speechRecognizerRef.current;
-            if (!handle) return;
+            if (!handle && !srHandle) return;
             recorderRef.current = null;
             speechRecognizerRef.current = null;
             setOneButton(target, 'sending');
             try {
-                const [blob] = await Promise.all([handle.stop(), srHandle ? srHandle.cancel() : Promise.resolve()]);
-                setActiveTarget(null);
-                setLiveTranscript('');
-                setSrActive(false);
-                await sendVoiceQuery(blob, target, cleanedText);
+                if (srHandle) {
+                    // SR-only path — we already have the cleaned text from
+                    // the partial that triggered "over". Cancel SR (don't
+                    // need its final result) and ship the text.
+                    await srHandle.cancel();
+                    setActiveTarget(null);
+                    setLiveTranscript('');
+                    setSrActive(false);
+                    await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText);
+                } else if (handle) {
+                    const blob = await handle.stop();
+                    setActiveTarget(null);
+                    setLiveTranscript('');
+                    setSrActive(false);
+                    await sendVoiceQuery(blob, target, cleanedText);
+                }
             } catch (err) {
                 setErrorMessage((err as Error).message);
                 setOneButton(target, 'error');
@@ -548,58 +562,49 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 setErrorMessage(null);
                 setLiveTranscript('');
                 setSrActive(false);
-                try {
-                    // Order matters on iOS WKWebView: start SR FIRST so it
-                    // claims the AVAudioSession + installs its tap on the
-                    // input node. Then start MediaRecorder, which goes
-                    // through WKWebView's separate getUserMedia path. The
-                    // reverse order (recorder first) often results in SR's
-                    // start() resolving without ever firing any partials —
-                    // a silent failure mode where audio is captured by
-                    // MediaRecorder but the SR audio engine never receives
-                    // input. Diagnose via Safari Web Inspector → console;
-                    // [SR] tagged logs trace each step.
-                    if (which === 'cloud') {
-                        try {
-                            const srHandle = await startSpeechRecognition({
-                                onPartial: (text) => {
-                                    setLiveTranscript(text);
-                                    // Hands-free send: "over" at the end of
-                                    // the utterance triggers the same flow
-                                    // as a second tap. Empty cleaned text
-                                    // (skipper said only "over") → ignore.
-                                    const { matched, cleaned } = detectOverSuffix(text);
-                                    if (matched && cleaned.length > 0) {
-                                        void handleOverGesture(cleaned, which);
-                                    }
-                                },
-                                onFirstPartial: () => setSrActive(true),
-                            });
-                            speechRecognizerRef.current = srHandle;
-                        } catch (err) {
-                            console.warn('[BosunConsole] SR unavailable, will use Scribe:', err);
-                        }
-                    }
 
-                    const handle = await startRecording();
-                    recorderRef.current = handle;
-                    setActiveTarget(which);
-                    setOneButton(which, 'recording');
-                } catch (err) {
-                    setErrorMessage((err as Error).message);
-                    setOneButton(which, 'error');
-                    setTimeout(() => setOneButton(which, 'idle'), 1500);
-                    // If MediaRecorder failed but SR was already running,
-                    // tear it down to avoid leaking the audio engine.
-                    if (speechRecognizerRef.current) {
-                        try {
-                            void speechRecognizerRef.current.cancel();
-                        } catch {
-                            /* ignore */
-                        }
-                        speechRecognizerRef.current = null;
+                // Decide capture path: SR-only when available (avoids the
+                // iOS dual-mic contention that was making partials never
+                // fire), MediaRecorder + Scribe as the fallback when SR
+                // isn't on. Never both.
+                const useSR = which === 'cloud' && srStatus === 'available';
+                let srStarted = false;
+                if (useSR) {
+                    try {
+                        const srHandle = await startSpeechRecognition({
+                            onPartial: (text) => {
+                                setLiveTranscript(text);
+                                const { matched, cleaned } = detectOverSuffix(text);
+                                if (matched && cleaned.length > 0) {
+                                    void handleOverGesture(cleaned, which);
+                                }
+                            },
+                            onFirstPartial: () => setSrActive(true),
+                        });
+                        speechRecognizerRef.current = srHandle;
+                        srStarted = true;
+                    } catch (err) {
+                        // SR start rejected — fall through to MediaRecorder.
+                        // The wrapper already logged the rejection to the
+                        // debug strip via emitEvent.
+                        console.warn('[BosunConsole] SR start failed, falling back to MediaRecorder:', err);
                     }
                 }
+
+                if (!srStarted) {
+                    try {
+                        const handle = await startRecording();
+                        recorderRef.current = handle;
+                    } catch (err) {
+                        setErrorMessage((err as Error).message);
+                        setOneButton(which, 'error');
+                        setTimeout(() => setOneButton(which, 'idle'), 1500);
+                        return;
+                    }
+                }
+
+                setActiveTarget(which);
+                setOneButton(which, 'recording');
                 return;
             }
 
@@ -607,7 +612,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             if (currentState === 'recording') {
                 const handle = recorderRef.current;
                 const srHandle = speechRecognizerRef.current;
-                if (!handle || activeTarget !== which) {
+                if ((!handle && !srHandle) || activeTarget !== which) {
                     setOneButton(which, 'idle');
                     return;
                 }
@@ -615,18 +620,29 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 speechRecognizerRef.current = null;
                 setOneButton(which, 'sending');
                 try {
-                    // Stop both in parallel — MediaRecorder yields the audio
-                    // blob (Scribe fallback), SR yields the on-device text
-                    // (fast path). Resolving both before deciding the route
-                    // means we always have the audio backup ready.
-                    const [blob, sr] = await Promise.all([
-                        handle.stop(),
-                        srHandle ? srHandle.stop() : Promise.resolve(null),
-                    ]);
-                    setActiveTarget(null);
-                    setLiveTranscript('');
-                    setSrActive(false);
-                    await sendVoiceQuery(blob, which, sr?.text ?? null);
+                    if (srHandle) {
+                        // SR-only path: stop SR, get its on-device transcript,
+                        // hit Haiku directly with text. No audio blob.
+                        const sr = await srHandle.stop();
+                        setActiveTarget(null);
+                        setLiveTranscript('');
+                        setSrActive(false);
+                        if (!sr.text) {
+                            setErrorMessage("Couldn't make out what you said — try again.");
+                            setOneButton(which, 'error');
+                            setTimeout(() => setOneButton(which, 'idle'), 1500);
+                            return;
+                        }
+                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, sr.text);
+                    } else if (handle) {
+                        // MediaRecorder fallback path: stop, send blob to
+                        // Scribe-backed edge function for STT.
+                        const blob = await handle.stop();
+                        setActiveTarget(null);
+                        setLiveTranscript('');
+                        setSrActive(false);
+                        await sendVoiceQuery(blob, which, null);
+                    }
                 } catch (err) {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
