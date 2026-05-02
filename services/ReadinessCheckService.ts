@@ -275,10 +275,60 @@ class ReadinessCheckServiceClass {
     }
 
     private _saveLocalChecks(voyageId: string, data: Record<string, Record<string, CheckState>>): void {
+        const key = CACHE_PREFIX + voyageId;
+        const payload = JSON.stringify(data);
         try {
-            localStorage.setItem(CACHE_PREFIX + voyageId, JSON.stringify(data));
-        } catch (e) {
-            log.warn('localStorage write failed:', e);
+            localStorage.setItem(key, payload);
+        } catch {
+            // Quota exceeded — happens on iOS WKWebView after many
+            // voyages accumulate (~5MB cap). Prune all OTHER voyage
+            // caches and retry. We keep only the current voyage's
+            // checks; older voyages re-hydrate from supabase on demand.
+            // Better than spamming the console with quota warnings on
+            // every check toggle.
+            try {
+                this._pruneOtherVoyageCaches(voyageId);
+                localStorage.setItem(key, payload);
+            } catch {
+                // Even after pruning we can't write — the single
+                // payload exceeds quota. Last resort: drop metadata
+                // (notes, photos) and try just the boolean state.
+                try {
+                    const minimal: Record<string, Record<string, CheckState>> = {};
+                    for (const [card, items] of Object.entries(data)) {
+                        minimal[card] = {};
+                        for (const [item, state] of Object.entries(items)) {
+                            minimal[card][item] = {
+                                checked: state.checked,
+                                checked_at: state.checked_at,
+                                checked_by_name: state.checked_by_name,
+                            };
+                        }
+                    }
+                    localStorage.setItem(key, JSON.stringify(minimal));
+                } catch {
+                    /* truly out of room — supabase remains source of truth */
+                }
+            }
+        }
+    }
+
+    /**
+     * Drop every readiness cache except the current voyage's. Called
+     * when localStorage hits quota — frees space for the live voyage
+     * while leaving supabase as the durable record for older trips.
+     */
+    private _pruneOtherVoyageCaches(currentVoyageId: string): void {
+        const keep = CACHE_PREFIX + currentVoyageId;
+        const toRemove: string[] = [];
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const k = localStorage.key(i);
+                if (k && k.startsWith(CACHE_PREFIX) && k !== keep) toRemove.push(k);
+            }
+            for (const k of toRemove) localStorage.removeItem(k);
+        } catch {
+            /* non-critical */
         }
     }
 }
