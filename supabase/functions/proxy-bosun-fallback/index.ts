@@ -411,6 +411,47 @@ async function runThalassaWeather(args: Record<string, unknown>): Promise<string
  * an unfamiliar proper-noun pair.
  */
 /**
+ * Number → words for atmospheric-pressure values. See
+ * elevenlabs-tts/index.ts for why this exists.
+ */
+const ONES_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const TEENS_WORDS = [
+    'ten',
+    'eleven',
+    'twelve',
+    'thirteen',
+    'fourteen',
+    'fifteen',
+    'sixteen',
+    'seventeen',
+    'eighteen',
+    'nineteen',
+];
+const TENS_WORDS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+function pressureToWords(n: number): string {
+    if (!Number.isInteger(n) || n < 0 || n > 9999) return String(n);
+    if (n === 0) return 'zero';
+    const parts: string[] = [];
+    const thousands = Math.floor(n / 1000);
+    const hundreds = Math.floor((n % 1000) / 100);
+    const remainder = n % 100;
+    if (thousands > 0) parts.push(`${ONES_WORDS[thousands]} thousand`);
+    if (hundreds > 0) parts.push(`${ONES_WORDS[hundreds]} hundred`);
+    if (remainder > 0) {
+        if (parts.length > 0) parts.push('and');
+        if (remainder < 10) parts.push(ONES_WORDS[remainder]);
+        else if (remainder < 20) parts.push(TEENS_WORDS[remainder - 10]);
+        else {
+            const tens = Math.floor(remainder / 10);
+            const ones = remainder % 10;
+            parts.push(ones === 0 ? TENS_WORDS[tens] : `${TENS_WORDS[tens]}-${ONES_WORDS[ones]}`);
+        }
+    }
+    return parts.join(' ');
+}
+
+/**
  * Reshape Calypso's answer text right before TTS. See
  * elevenlabs-tts/index.ts for the full rationale — keeping these in
  * sync so the legacy Scribe-fallback path produces the same audio
@@ -422,6 +463,11 @@ function prepareForTTS(text: string): string {
         .replace(/(\d+(?:\.\d+)?)\s*°\s*C\b/g, '$1 degrees Celsius')
         .replace(/(\d+(?:\.\d+)?)\s*°\s*F\b/g, '$1 degrees Fahrenheit')
         .replace(/(\d+(?:\.\d+)?)\s*hPa\b/gi, '$1 hectopascals')
+        .replace(/(\d{3,4})\s+hectopascals/g, (match, num: string) => {
+            const n = parseInt(num, 10);
+            if (n >= 900 && n <= 1100) return `${pressureToWords(n)} hectopascals`;
+            return match;
+        })
         .replace(/(\d+(?:\.\d+)?)\s*kts?\b/g, '$1 knots')
         .replace(/(\d+(?:\.\d+)?)\s*kn\b/g, '$1 knots')
         .replace(/(\d+(?:\.\d+)?)\s*nm\b/g, '$1 nautical miles')
