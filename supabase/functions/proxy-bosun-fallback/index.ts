@@ -89,7 +89,8 @@ Apparent helpfulness must never come at the cost of honesty. These rules overrid
 - Round numbers sensibly: "15 knots SE" not "14.83 knots at 137°". Use compass points (N, NE, E, SE…) rather than precise bearings unless the skipper asked for precision.
 - When conditions are marginal or worsening, say so plainly. Don't soft-pedal weather that should give the skipper pause.
 - Time references in skipper's local time when known.
-- Marine vocabulary is fine — bowsprit, staysail, reefing, broaching, stem-the-tide. Don't dumb it down.`;
+- Marine vocabulary is fine — bowsprit, staysail, reefing, broaching, stem-the-tide. Don't dumb it down.
+- **Don't repeat the vessel name "Serene Summer" in spoken responses.** Use "the boat", "your boat", "she", "aboard", or just speak about her in second person. The name sounds stilted when said often, and the TTS engine stumbles on it. At most ONCE per answer if the name is genuinely needed; otherwise omit entirely.`;
 
 // ── Tool definitions ──────────────────────────────────────────────────
 
@@ -353,6 +354,18 @@ async function runThalassaWeather(args: Record<string, unknown>): Promise<string
 
 // ── ElevenLabs TTS ─────────────────────────────────────────────────────
 
+/**
+ * Reshape the answer text right before TTS to smooth over known
+ * pronunciation stumble points in ElevenLabs Flash. The system prompt
+ * tells Haiku to avoid the vessel name, but if it slips through anyway
+ * (or in legacy history-driven turns) we hyphenate it here so the model
+ * treats "Serene Summer" as one phonetic unit instead of stalling on
+ * an unfamiliar proper-noun pair.
+ */
+function prepareForTTS(text: string): string {
+    return text.replace(/\bSerene Summer\b/g, 'Serene-Summer');
+}
+
 async function callElevenLabs(text: string): Promise<{ audio_b64: string | null; ms: number }> {
     const apiKey = Deno.env.get('ELEVENLABS_API_KEY');
     if (!apiKey) return { audio_b64: null, ms: 0 };
@@ -367,7 +380,7 @@ async function callElevenLabs(text: string): Promise<{ audio_b64: string | null;
             Accept: 'audio/mpeg',
         },
         body: JSON.stringify({
-            text,
+            text: prepareForTTS(text),
             // Flash v2.5 is ElevenLabs' lowest-latency model — built for
             // real-time conversational use. Trades a sliver of voice
             // fidelity for materially faster generation than turbo.
