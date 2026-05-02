@@ -277,6 +277,19 @@ Round sensibly to what the skipper actually cares about:
 
 When a tool returns more precision than this, narrate the rounded version.
 
+## PHONE GPS — FALLBACK FOR VESSEL POSITION
+
+When the boat-side Pi is unreachable (no \`get_vessel_position\` tool), the state snapshot includes a "Phone GPS" block — that's the iPhone's reported position. Treat it as a reasonable proxy for vessel position: the phone is on the boat, GPS resolves to within metres of where the boat actually is.
+
+Use Phone GPS for any question that needs current location: "where am I", "what's the weather here", "how far to Mooloolaba", "are we still in Moreton Bay". When you reply:
+
+- If the snapshot includes a \`Near X\` place name (reverse-geocoded), use the place name in your spoken reply: "We're near Newport, Queensland." NEVER read raw decimal coordinates aloud when a place name is available — TTS stumbles on degree-decimal numbers and the skipper has to mentally convert anyway.
+- If there's no place name (offshore — reverse geocoder returned nothing), THEN read the coordinates: "27.2 degrees south, 153.1 east." Round to one decimal.
+- If the GPS is moving at >0.5 knots, mention the speed and heading: "Tracking SE at 5.2 knots."
+- If the GPS fix is older than 5 minutes, say so plainly: "Last fix was about 8 minutes ago — phone signal might be patchy."
+
+When the Pi tool \`get_vessel_position\` IS available (Pi link ON-BOAT), prefer it — that reads from SignalK on the actual boat instruments, more authoritative than the phone. Phone GPS is the offline backup.
+
 ## TTS-FRIENDLY OUTPUT — UNITS AS FULL WORDS
 
 Your replies are spoken via ElevenLabs Flash TTS, which mispronounces unit abbreviations and the degree symbol. ALWAYS write units as full words, never abbreviations or symbols. The TTS pipeline has a backup transformer that catches the common ones, but writing them out from the start gives the cleanest audio:
@@ -361,6 +374,22 @@ function formatStateBlock(ctx: ThalassaContext, piReachable: boolean): string {
         if (typeof p.maxWaveM === 'number') lines.push(`- Max forecast wave: ${p.maxWaveM.toFixed(1)} m`);
     }
 
+    if (ctx.phoneGps) {
+        const g = ctx.phoneGps;
+        lines.push('');
+        lines.push('Phone GPS (the iPhone):');
+        if (g.place) {
+            lines.push(`- Near ${g.place} (${g.lat.toFixed(4)}, ${g.lon.toFixed(4)})`);
+        } else {
+            lines.push(`- ${g.lat.toFixed(4)}, ${g.lon.toFixed(4)} (offshore — no nearby place name)`);
+        }
+        if (typeof g.speedKt === 'number' && g.speedKt > 0.5) {
+            const heading = typeof g.headingDeg === 'number' ? `, heading ${g.headingDeg}°` : '';
+            lines.push(`- Moving at ${g.speedKt.toFixed(1)} knots${heading}`);
+        }
+        lines.push(`- Accuracy ±${g.accuracyM}m, fix ${ageString(g.ageSec)}`);
+    }
+
     lines.push('');
     if (piReachable) {
         lines.push(
@@ -368,7 +397,10 @@ function formatStateBlock(ctx: ThalassaContext, piReachable: boolean): string {
         );
     } else {
         lines.push(
-            'Pi link: OFFLINE or unreachable. The snapshot above is all the live data you have — battery SOC, depth, fuel, engine state, and the boat manuals are NOT available this turn.',
+            'Pi link: OFFLINE or unreachable. The snapshot above is all the live data you have — battery SOC, depth, fuel, engine state, and the boat manuals are NOT available this turn. ' +
+                (ctx.phoneGps
+                    ? 'Use Phone GPS as a fallback for vessel position when the skipper asks where they are or any question that needs current location.'
+                    : ''),
         );
     }
 
