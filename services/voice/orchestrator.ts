@@ -38,6 +38,7 @@ import { telemetryTrend } from './integrations/telemetryTrend';
 import { setSundownerReminder, cancelSundownerReminder, getPendingSundowner } from './integrations/sundowner';
 import { dailyBriefing } from './integrations/dailyBriefing';
 import {
+    musicDiagnostic,
     nowPlaying as appleMusicNowPlaying,
     pauseMusic,
     playMusicByQuery,
@@ -400,6 +401,12 @@ const APPLE_MUSIC_TOOLS: ToolDef[] = [
             'Read what is currently playing in Apple Music. Returns title, artist, album, position, duration, and play/pause state. Returns empty fields when nothing is queued — narrate that plainly ("nothing\'s playing on Apple Music right now"). For library plays this is reliable; if play_music returned source="catalog", now_playing might still report empty because the Apple Music app handled the play directly.',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
+    {
+        name: 'music_diagnostic',
+        description:
+            'Sanity-check what Calypso can actually see in the skipper\'s Apple Music library. Returns auth status, library counts (artists / albums / songs / playlists), and a small sample of artist + playlist names. Use when the skipper asks "what music can you see?" / "why didn\'t that play?" / "is the music plugin working?" — or when play_music has just fallen through to catalog hand-off and the skipper is confused. Compose a brief honest summary from the result: permission state, library size, a couple of sample artist names. If the diagnostic returns plugin_error, tell the skipper Xcode probably needs a clean build to pick up the native plugin.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
 ];
 
 const GMAIL_TOOLS: ToolDef[] = [
@@ -565,7 +572,7 @@ You also have a suite of voyage tools always available:
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
 
 The skipper may also have enabled Apple Music and/or Gmail integrations from Settings. When those tools are in your registry:
-- **Apple Music** (\`play_music\`, \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\`): native library control + playback state. \`play_music\` tries the skipper's library first (artist → album → playlist → song priority); when it matches in library you can call \`now_playing\` to read back title/artist/album/position. If \`play_music\` returns source=catalog, the song wasn't in library and the Apple Music app handled the hand-off — you can't introspect that playback. Pause / resume / skip / previous all work for library plays. Be natural ("now playing 'Wish You Were Here' by Pink Floyd, two minutes in") — don't recite the raw seconds.
+- **Apple Music** (\`play_music\`, \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\`, \`music_diagnostic\`): native library control + playback state. \`play_music\` tries the skipper's library first (artist → album → playlist → song priority, case-insensitive); when it matches in library you can call \`now_playing\` to read back title/artist/album/position. If \`play_music\` returns source=catalog, the song wasn't in library and the Apple Music app handled the hand-off — read the \`note\` field from the result and narrate the reason verbatim (library miss with counts, plugin error, or empty library). NEVER stay silent on a catalog hand-off — the skipper needs to know why nothing auto-played. Pause / resume / skip / previous all work for library plays. Use \`music_diagnostic\` when the skipper asks "what music can you see?" or when troubleshooting silent fall-throughs. Be natural ("now playing 'Wish You Were Here' by Pink Floyd, two minutes in") — don't recite the raw seconds.
 - **Gmail** (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`): read inbox, draft + send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts folder); sending is not. Any ambiguity → ask, don't act.
 
 ## VESSEL PROFILE (static, always true)
@@ -982,6 +989,7 @@ async function dispatchTool(
     if (name === 'skip_track') return skipNext();
     if (name === 'previous_track') return skipPrevious();
     if (name === 'now_playing') return appleMusicNowPlaying();
+    if (name === 'music_diagnostic') return musicDiagnostic();
     if (name === 'search_emails') {
         const q = typeof input.query === 'string' ? input.query : '';
         const max = typeof input.max === 'number' ? input.max : 10;
