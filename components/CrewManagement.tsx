@@ -286,8 +286,36 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         });
 
         setDraftVoyages(rows);
+
+        // ── Orphan auto-heal at parent level ──────────────────────
+        // selectedPassageId / getActivePassageId may point to a
+        // voyage that no longer has a matching logbook route (e.g.
+        // user deleted the route, or the voyage was created via Cast
+        // Off without a planned route). The dropdown rows are built
+        // FROM logbook routes, so the orphan is invisible there but
+        // CastOffPanel still picks it up via initialVoyageId =
+        // selectedPassageId, leading to "Newport → Perth"-style
+        // stale-data confusion.
+        //
+        // If the current active id isn't in the new rows AND there's
+        // at least one row with a real logbook route, switch the
+        // active passage to the first row and update both:
+        //   - setActivePassage (the localStorage cache)
+        //   - selectedPassageId (this component's React state)
+        // The rest of the app (CastOffPanel, GalleyCard) reads the
+        // corrected id and shows the right voyage.
         const activeId = getActivePassageId();
-        if (activeId) {
+        const activeIdInRows = activeId ? rows.some((r) => r.id === activeId) : false;
+        if (activeId && !activeIdInRows && rows.length > 0) {
+            const replacement = rows.find((r) => !r.id.startsWith('logbook:')) ?? rows[0];
+            console.warn(
+                `[CrewManagement] orphan auto-heal — active passage "${activeId}" has no matching row, switching to "${replacement.voyage_name}" (${replacement.id})`,
+            );
+            setActivePassage(replacement.id);
+            setSelectedPassageId(replacement.id);
+            setActiveVoyageName(replacement.voyage_name);
+            if (replacement.departure_time) setPlanDeparture(replacement.departure_time.slice(0, 16));
+        } else if (activeId) {
             const vMatch = rows.find((d) => d.id === activeId);
             if (vMatch?.departure_time) setPlanDeparture(vMatch.departure_time.slice(0, 16));
         }
