@@ -735,7 +735,28 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                             setTimeout(() => setOneButton(which, 'idle'), 1500);
                             return;
                         }
-                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, sr.text);
+                        // Safety net: if the live partial-stream over-detection
+                        // missed (cold-start cycles where SR fires partials too
+                        // late for the gesture to trigger BEFORE the skipper
+                        // taps), strip a trailing "over" from the final
+                        // transcript so the question to Haiku doesn't contain
+                        // it. Same intent as handleOverGesture, applied
+                        // retroactively at stop time.
+                        const finalText = (() => {
+                            const det = detectOverSuffix(sr.text);
+                            if (det.matched && det.cleaned.length > 0) {
+                                setSrEventLog((prev) => [
+                                    ...prev.slice(-5),
+                                    {
+                                        ts: Date.now(),
+                                        msg: `[over] stripped at stop: "${det.cleaned.slice(0, 60)}"`,
+                                    },
+                                ]);
+                                return det.cleaned;
+                            }
+                            return sr.text;
+                        })();
+                        await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), which, finalText);
                     } else if (handle) {
                         // MediaRecorder fallback path: stop, send blob to
                         // Scribe-backed edge function for STT.
