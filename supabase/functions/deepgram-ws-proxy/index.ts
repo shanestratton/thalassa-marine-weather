@@ -71,9 +71,17 @@ Deno.serve(async (req: Request) => {
     // Accept the client upgrade FIRST so we can echo open/close cleanly
     // even if the upstream connection has trouble.
     const { socket: clientSocket, response } = Deno.upgradeWebSocket(req);
+    // CRITICAL: Deno's upgradeWebSocket defaults binaryType to 'blob'.
+    // We need 'arraybuffer' so audio frames forward as raw bytes
+    // through `upstreamSocket.send()` without an extra Blob→ArrayBuffer
+    // round-trip that loses the binary content type on the upstream.
+    clientSocket.binaryType = 'arraybuffer';
 
     let upstreamSocket: WebSocket | null = null;
     let upstreamReady = false;
+    let clientChunksReceived = 0;
+    let clientBytesReceived = 0;
+    let upstreamMessagesReceived = 0;
     /**
      * Buffer audio chunks that arrive on the client socket BEFORE the
      * upstream has finished handshaking. iOS sends the first PCM chunk
@@ -121,6 +129,13 @@ Deno.serve(async (req: Request) => {
     });
 
     upstreamSocket.addEventListener('message', (ev: MessageEvent) => {
+        upstreamMessagesReceived++;
+        // Sample-log first 5 messages (so we can see the metadata frame
+        // and the first transcript) plus every 50th after that.
+        if (upstreamMessagesReceived <= 5 || upstreamMessagesReceived % 50 === 0) {
+            const preview = typeof ev.data === 'string' ? ev.data.slice(0, 200) : `<binary ${ev.data.byteLength}B>`;
+            console.log(`[dg-proxy] upstream msg #${upstreamMessagesReceived}: ${preview}`);
+        }
         // Pass Deepgram → client. Deepgram only sends JSON text frames
         // (transcript results, metadata, errors) but we forward the
         // event data as-is regardless of type.
@@ -149,8 +164,26 @@ Deno.serve(async (req: Request) => {
     });
 
     clientSocket.addEventListener('message', (ev: MessageEvent) => {
-        // Pass client → Deepgram. ev.data is either ArrayBuffer (audio)
-        // or string (control messages like CloseStream).
+        // Pass client → Deepgram. ev.data is ArrayBuffer (audio) or
+        // string (control messages like CloseStream).
+        clientChunksReceived++;
+        if (typeof ev.data !== 'string' && ev.data instanceof ArrayBuffer) {
+            clientBytesReceived += ev.data.byteLength;
+        }
+        // Diagnostic: log first chunk + every 100th to verify audio
+        // is actually flowing through. If clientChunksReceived stays
+        // at 0 we know iOS isn't sending audio at all; if it's >0 but
+        // upstreamMessagesReceived stays low (just the Metadata frame)
+        // we know Deepgram is receiving audio but can't decode it.
+        if (clientChunksReceived === 1 || clientChunksReceived % 100 === 0) {
+            const dataType =
+                typeof ev.data === 'string'
+                    ? `text:"${(ev.data as string).slice(0, 60)}"`
+                    : ev.data instanceof ArrayBuffer
+                      ? `binary:${ev.data.byteLength}B`
+                      : `unknown:${typeof ev.data}`;
+            console.log(`[dg-proxy] client chunk #${clientChunksReceived} ${dataType} (total ${clientBytesReceived}B)`);
+        }
         if (!upstreamReady) {
             if (earlyBuffer.length < MAX_BUFFERED_CHUNKS) {
                 earlyBuffer.push(ev.data);
@@ -167,7 +200,11 @@ Deno.serve(async (req: Request) => {
     });
 
     clientSocket.addEventListener('close', (ev: CloseEvent) => {
-        console.log(`[dg-proxy] client closed code=${ev.code}`);
+        console.log(
+            `[dg-proxy] client closed code=${ev.code} | session-summary: ` +
+                `client→proxy chunks=${clientChunksReceived} bytes=${clientBytesReceived}, ` +
+                `upstream→client msgs=${upstreamMessagesReceived}`,
+        );
         if (upstreamSocket && upstreamSocket.readyState === WebSocket.OPEN) {
             try {
                 upstreamSocket.close(ev.code, ev.reason);
