@@ -196,7 +196,45 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const firstPartialPromiseRef = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null);
     const [typedQuery, setTypedQuery] = useState('');
-    const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [rawErrorMessage, setRawErrorMessage] = useState<string | null>(null);
+
+    /**
+     * Wrapped error setter that intercepts the bare "The quota has been
+     * exceeded." string — that's Apple's native localizedDescription
+     * for kAFAssistantErrorDomain code 1101 (Apple SR rate limit),
+     * passed through verbatim by @capacitor-community/speech-recognition's
+     * Swift plugin (Plugin.swift line 121). It can leak into our error
+     * paths even when we don't explicitly call SpeechRecognition methods,
+     * because the plugin's recognitionTask resultHandler persists on
+     * the native side across JS reloads — a zombie SR task started in
+     * an earlier session can still fire its callback and reject pending
+     * Capacitor calls with this exact text.
+     *
+     * Map it to actionable text + log the stack so we can identify
+     * which JS path is the unwitting carrier.
+     */
+    const setErrorMessage = useCallback((msg: string | null) => {
+        if (msg && /^The quota has been exceeded\.?$/i.test(msg.trim())) {
+            const friendly =
+                'iOS speech engine is rate-limited (background quota lock from earlier). ' +
+                'Wait 30-60 minutes or fully quit the app and re-open to clear.';
+            // Capture the call stack so we can hunt down which JS path
+            // is propagating the native zombie-SR error into our UI.
+            const stack = new Error('quota-error-trace').stack ?? '(no stack)';
+            console.warn('[quota-trace]', stack);
+            setSrEventLog((prev) => [
+                ...prev.slice(-19),
+                {
+                    ts: Date.now(),
+                    msg: `[quota-trace] origin: ${stack.split('\n').slice(1, 4).join(' → ').slice(0, 200)}`,
+                },
+            ]);
+            setRawErrorMessage(friendly);
+            return;
+        }
+        setRawErrorMessage(msg);
+    }, []);
+    const errorMessage = rawErrorMessage;
     const [activeTarget, setActiveTarget] = useState<'bosun' | 'cloud' | null>(null);
 
     const [bosunAvailable, setBosunAvailable] = useState<boolean | null>(null);
