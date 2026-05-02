@@ -1,24 +1,25 @@
 /**
  * BosunConsole — full-screen voice console.
  *
- * Two buttons, skipper picks:
- *   - Big Blue Bosun (anchor icon) — on-boat brain, knows your vessel,
- *     reads live tools, slow but deep
- *   - White Haiku (cloud icon) — shore brain via Anthropic Haiku 4.5,
- *     fast and conversational, no boat awareness
+ * Two big tap-to-toggle buttons, skipper picks:
+ *   - Big Blue Bosun (anchor icon) — on-boat brain over LAN
+ *   - White Haiku (cloud icon)     — shore brain via Anthropic Haiku 4.5
  *
- * Each button greys out when its respective brain is unavailable. Bosun
- * is unavailable when the boat WiFi isn't reachable. Haiku is unavailable
- * when there's no internet.
+ * Voice transport: MediaRecorder + getUserMedia. The previous Web Speech
+ * API approach was unreliable on iOS WKWebView (audio session conflicts,
+ * second-query failures, inconsistent onend firing). MediaRecorder is a
+ * standards-based API supported on iOS 14.3+ that behaves the same way
+ * as on Chrome. STT happens server-side (Whisper.cpp on the Pi for the
+ * Bosun path; ElevenLabs Scribe in the Edge Function for the cloud path).
  *
  * Both audio AND text are always rendered. Audio auto-plays on response;
  * text is right there if speakers are off, the wind is loud, etc.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { TalkButton, type TalkButtonState } from './TalkButton';
-import { isSpeechRecognitionSupported, startListening } from '../../services/voice/speechRecognition';
-import { askBosun, isBosunReachable } from '../../services/voice/bosunVoice';
-import { askCloud } from '../../services/voice/cloudFallback';
+import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
+import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
+import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
 import type { VoiceQueryResponse, VoiceTurn } from '../../types/voice';
 
 interface BosunConsoleProps {
@@ -26,10 +27,6 @@ interface BosunConsoleProps {
     onClose: () => void;
 }
 
-/** Which brain a press is targeting. Set when the user presses; cleared on send. */
-type ActiveTarget = 'bosun' | 'cloud' | null;
-
-/** Per-target state — tracks which button is currently engaged. */
 interface TargetState {
     bosun: TalkButtonState;
     cloud: TalkButtonState;
@@ -46,24 +43,32 @@ function audioFromBase64(b64: string, mimeType = 'audio/mpeg'): string {
     return URL.createObjectURL(blob);
 }
 
+/** Quick connectivity check for the cloud fallback (any HTTPS reach). */
+async function checkCloudReachable(): Promise<boolean> {
+    if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
+        return navigator.onLine;
+    }
+    return true;
+}
+
 export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) => {
-    const [target, setTarget] = useState<ActiveTarget>(null);
     const [buttonState, setButtonState] = useState<TargetState>(initialTargetState);
     const [turns, setTurns] = useState<VoiceTurn[]>([]);
-    const [partialTranscript, setPartialTranscript] = useState('');
     const [typedQuery, setTypedQuery] = useState('');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
+    const [activeTarget, setActiveTarget] = useState<'bosun' | 'cloud' | null>(null);
 
-    /** Availability — re-probed every 30s while the console is open. */
     const [bosunAvailable, setBosunAvailable] = useState<boolean | null>(null);
     const [cloudAvailable, setCloudAvailable] = useState<boolean | null>(null);
 
-    const recognitionRef = useRef<ReturnType<typeof startListening> | null>(null);
+    const recorderRef = useRef<Awaited<ReturnType<typeof startRecording>> | null>(null);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const audioUrlsRef = useRef<string[]>([]);
     const conversationEndRef = useRef<HTMLDivElement | null>(null);
 
-    // Probe availability on open + every 30s
+    // ── Effects ─────────────────────────────────────────────────────────
+
+    // Probe availability when console opens + every 30s
     useEffect(() => {
         if (!isOpen) return;
         let cancelled = false;
@@ -82,30 +87,33 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         };
     }, [isOpen]);
 
-    // Auto-scroll to bottom on new content
+    // Auto-scroll on new content
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, [turns.length, partialTranscript, errorMessage]);
+    }, [turns.length, errorMessage, buttonState.bosun, buttonState.cloud]);
 
-    // Free Blob URLs on unmount
+    // Cleanup on unmount: free Blob URLs, abort any in-flight recording
     useEffect(() => {
         const urls = audioUrlsRef.current;
         return () => {
             urls.forEach((u) => URL.revokeObjectURL(u));
+            const rec = recorderRef.current;
+            if (rec) {
+                try {
+                    rec.cancel();
+                } catch {
+                    /* ignore */
+                }
+            }
         };
     }, []);
+
+    // ── Helpers ─────────────────────────────────────────────────────────
 
     const setOneButton = useCallback((which: 'bosun' | 'cloud', s: TalkButtonState) => {
         setButtonState((prev) => ({ ...prev, [which]: s }));
     }, []);
 
-    /**
-     * Stop any audio currently playing.
-     *
-     * Called before starting a new recording so iOS's audio session frees up
-     * for the mic — without this, the second SpeechRecognition.start() is
-     * silently denied while the previous response audio is still playing.
-     */
     const stopAudio = useCallback(() => {
         const audio = audioRef.current;
         if (audio && !audio.paused) {
@@ -121,15 +129,10 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     const playResponseAudio = useCallback(
         (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
             if (!response.audio_b64) {
-                // No audio? Skip the 'playing' state and go straight back to idle.
                 setOneButton(to, 'idle');
                 return;
             }
             try {
-                // ALWAYS create a fresh Audio element. Reusing the same one
-                // across responses on iOS WKWebView keeps the previous audio
-                // session attached, which then blocks SpeechRecognition from
-                // claiming the mic on the next press.
                 if (audioRef.current) {
                     try {
                         audioRef.current.pause();
@@ -144,44 +147,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 audio.onended = () => setOneButton(to, 'idle');
                 audio.onerror = () => setOneButton(to, 'idle');
                 audioRef.current = audio;
-                void audio.play().catch(() => {
-                    // Autoplay may be blocked (no user interaction). Text is
-                    // still rendered. Treat as if audio finished so the button
-                    // doesn't stay stuck on 'playing'.
-                    setOneButton(to, 'idle');
-                });
+                void audio.play().catch(() => setOneButton(to, 'idle'));
             } catch {
                 setOneButton(to, 'idle');
             }
         },
         [setOneButton],
-    );
-
-    const sendQueryTo = useCallback(
-        async (text: string, to: 'bosun' | 'cloud') => {
-            if (!text.trim()) {
-                setOneButton(to, 'idle');
-                return;
-            }
-            setOneButton(to, 'awaiting');
-            setErrorMessage(null);
-            try {
-                const response = to === 'bosun' ? await askBosun({ text }) : await askCloud({ text });
-                appendTurn(text, response);
-                setOneButton(to, 'playing');
-                playResponseAudio(response, to);
-                // Safety net: if audio.onended somehow doesn't fire (corrupt MP3,
-                // platform quirk), force idle after 60s so the button never sticks.
-                setTimeout(() => {
-                    setButtonState((s) => (s[to] === 'playing' ? { ...s, [to]: 'idle' } : s));
-                }, 60_000);
-            } catch (err) {
-                setErrorMessage((err as Error).message || 'Something went wrong.');
-                setOneButton(to, 'error');
-                setTimeout(() => setOneButton(to, 'idle'), 1500);
-            }
-        },
-        [setOneButton, playResponseAudio],
     );
 
     const appendTurn = useCallback((transcript: string, response: VoiceQueryResponse) => {
@@ -194,78 +165,121 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
         setTurns((prev) => [...prev.slice(-9), turn]);
     }, []);
 
+    const handleResponse = useCallback(
+        (response: VoiceQueryResponse, to: 'bosun' | 'cloud') => {
+            appendTurn(response.transcript || '(no transcript)', response);
+            setOneButton(to, 'playing');
+            playResponseAudio(response, to);
+            // Safety net: force idle after 60s if onended never fires.
+            setTimeout(() => {
+                setButtonState((s) => (s[to] === 'playing' ? { ...s, [to]: 'idle' } : s));
+            }, 60_000);
+        },
+        [appendTurn, playResponseAudio, setOneButton],
+    );
+
+    const sendVoiceQuery = useCallback(
+        async (audioBlob: Blob, to: 'bosun' | 'cloud') => {
+            if (audioBlob.size === 0) {
+                setErrorMessage('No audio captured — try holding for a moment longer.');
+                setOneButton(to, 'error');
+                setTimeout(() => setOneButton(to, 'idle'), 1500);
+                return;
+            }
+            setOneButton(to, 'awaiting');
+            setErrorMessage(null);
+            try {
+                const response = to === 'bosun' ? await askBosunVoice(audioBlob) : await askCloudVoice(audioBlob);
+                handleResponse(response, to);
+            } catch (err) {
+                setErrorMessage((err as Error).message || 'Something went wrong.');
+                setOneButton(to, 'error');
+                setTimeout(() => setOneButton(to, 'idle'), 1500);
+            }
+        },
+        [handleResponse, setOneButton],
+    );
+
+    const sendTextQuery = useCallback(
+        async (text: string, to: 'bosun' | 'cloud') => {
+            if (!text.trim()) return;
+            setOneButton(to, 'awaiting');
+            setErrorMessage(null);
+            try {
+                const response = to === 'bosun' ? await askBosunText({ text }) : await askCloudText({ text });
+                handleResponse(response, to);
+            } catch (err) {
+                setErrorMessage((err as Error).message || 'Something went wrong.');
+                setOneButton(to, 'error');
+                setTimeout(() => setOneButton(to, 'idle'), 1500);
+            }
+        },
+        [handleResponse, setOneButton],
+    );
+
+    // ── Tap handlers ────────────────────────────────────────────────────
+
     /**
-     * Tap-to-toggle the talk button. State machine:
-     *   idle      → start listening (state becomes 'recording')
-     *   recording → stop listening + send transcript (state becomes 'sending')
-     *   any other → ignore the tap
-     *
-     * Replaces the older hold-to-talk gesture. iOS WKWebView Web Speech is
-     * also more reliable when toggled rather than rapidly restarted, so this
-     * change tends to fix the "second query does nothing" symptom too.
+     * Tap-to-toggle. State machine:
+     *   idle / error / playing → start recording (mic acquired, button glows)
+     *   recording              → stop + send (button shows 'sending', then awaiting)
+     *   sending / awaiting     → ignore (request in flight)
      */
     const handleTalkTap = useCallback(
         async (which: 'bosun' | 'cloud') => {
             const currentState = buttonState[which];
 
-            // ── Start listening ─────────────────────────────────────────
+            // Start recording
             if (currentState === 'idle' || currentState === 'error' || currentState === 'playing') {
-                if (!isSpeechRecognitionSupported()) {
+                if (!isAudioRecordingSupported()) {
                     setErrorMessage('Voice input not supported on this device. Use the text box below instead.');
                     return;
                 }
-                // Free the iOS audio session before claiming the mic.
                 stopAudio();
-                // Cancel any lingering recognition from a prior session.
-                if (recognitionRef.current) {
+                if (recorderRef.current) {
                     try {
-                        recognitionRef.current.cancel();
+                        recorderRef.current.cancel();
                     } catch {
                         /* ignore */
                     }
-                    recognitionRef.current = null;
+                    recorderRef.current = null;
                 }
                 setErrorMessage(null);
-                setPartialTranscript('');
                 try {
-                    const handle = startListening();
-                    handle.onPartial(setPartialTranscript);
-                    recognitionRef.current = handle;
-                    setTarget(which);
+                    const handle = await startRecording();
+                    recorderRef.current = handle;
+                    setActiveTarget(which);
                     setOneButton(which, 'recording');
                 } catch (err) {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
-                    setTimeout(() => setOneButton(which, 'idle'), 1200);
+                    setTimeout(() => setOneButton(which, 'idle'), 1500);
                 }
                 return;
             }
 
-            // ── Stop listening + send ───────────────────────────────────
+            // Stop + send
             if (currentState === 'recording') {
-                const handle = recognitionRef.current;
-                if (!handle) {
-                    // Defensive — shouldn't happen, but recover cleanly.
+                const handle = recorderRef.current;
+                if (!handle || activeTarget !== which) {
                     setOneButton(which, 'idle');
                     return;
                 }
-                recognitionRef.current = null;
+                recorderRef.current = null;
                 setOneButton(which, 'sending');
                 try {
-                    const finalText = await handle.stop();
-                    const text = (finalText || partialTranscript).trim();
-                    setPartialTranscript('');
-                    setTarget(null);
-                    await sendQueryTo(text, which);
+                    const blob = await handle.stop();
+                    setActiveTarget(null);
+                    await sendVoiceQuery(blob, which);
                 } catch (err) {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
-                    setTimeout(() => setOneButton(which, 'idle'), 1200);
+                    setTimeout(() => setOneButton(which, 'idle'), 1500);
                 }
             }
-            // sending / awaiting: ignore — user has to wait for the round-trip.
+            // sending / awaiting: ignore.
         },
-        [buttonState, partialTranscript, sendQueryTo, setOneButton, stopAudio],
+        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio],
     );
 
     const handleTypedSubmit = useCallback(
@@ -274,23 +288,30 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             const text = typedQuery.trim();
             if (!text) return;
             setTypedQuery('');
-            void sendQueryTo(text, to);
+            void sendTextQuery(text, to);
         },
-        [typedQuery, sendQueryTo],
+        [typedQuery, sendTextQuery],
     );
 
     const handleReplay = useCallback(
         (response: VoiceQueryResponse) => {
-            // Replay re-uses the source button's slot for the audio-driven
-            // 'playing' → 'idle' transition. Treat as a brand-new playback.
             const to: 'bosun' | 'cloud' = response.source === 'cloud' ? 'cloud' : 'bosun';
             playResponseAudio(response, to);
         },
         [playResponseAudio],
     );
 
-    /** Pick the default target for typed queries — Bosun if up, else cloud. */
+    /** Default target for typed queries — Bosun if up, else cloud. */
     const typedTarget: 'bosun' | 'cloud' = bosunAvailable ? 'bosun' : 'cloud';
+
+    const isAnyAwaiting = useMemo(
+        () => buttonState.bosun === 'awaiting' || buttonState.cloud === 'awaiting',
+        [buttonState],
+    );
+    const isAnySending = useMemo(
+        () => buttonState.bosun === 'sending' || buttonState.cloud === 'sending',
+        [buttonState],
+    );
 
     if (!isOpen) return null;
 
@@ -304,7 +325,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             <header className="shrink-0 flex items-center justify-between px-5 pt-12 pb-4 border-b border-white/5">
                 <div>
                     <p className="text-base font-bold text-white">Voice Console</p>
-                    <p className="text-[10px] uppercase tracking-widest text-gray-400">Hold a button to talk</p>
+                    <p className="text-[10px] uppercase tracking-widest text-gray-400">
+                        Tap a button to start, tap again to send
+                    </p>
                 </div>
                 <button
                     onClick={onClose}
@@ -319,9 +342,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
 
             {/* ── Conversation log ───────────────────────── */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-                {turns.length === 0 && partialTranscript === '' && !errorMessage && (
+                {turns.length === 0 && !errorMessage && (
                     <div className="flex flex-col items-center justify-center h-full text-center text-gray-500 gap-2 pt-8">
-                        <p className="text-sm font-bold text-gray-400">Pick your brain, hold the button, ask away.</p>
+                        <p className="text-sm font-bold text-gray-400">Pick your brain, tap to talk.</p>
                         <p className="text-xs max-w-[280px]">
                             Bosun knows your boat. Haiku is faster but generic. Either is greyed out when not reachable.
                         </p>
@@ -331,18 +354,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 {turns.map((turn) => (
                     <ConversationTurn key={turn.id} turn={turn} onReplay={handleReplay} />
                 ))}
-
-                {/* Live transcript while recording */}
-                {(buttonState.bosun === 'recording' ||
-                    buttonState.cloud === 'recording' ||
-                    buttonState.bosun === 'sending' ||
-                    buttonState.cloud === 'sending') &&
-                    partialTranscript && (
-                        <div className="px-4 py-3 rounded-2xl bg-sky-500/10 border border-sky-500/20">
-                            <p className="text-[10px] uppercase tracking-widest text-sky-400 mb-1">You said</p>
-                            <p className="text-sm text-white italic">{partialTranscript}</p>
-                        </div>
-                    )}
 
                 {errorMessage && (
                     <div className="px-4 py-3 rounded-2xl bg-red-500/10 border border-red-500/20">
@@ -384,20 +395,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                         onChange={(e) => setTypedQuery(e.target.value)}
                         placeholder={`Or type — sends to ${typedTarget === 'bosun' ? 'Bosun' : 'Haiku'}...`}
                         className="flex-1 px-4 py-3 rounded-full bg-white/5 border border-white/10 text-white placeholder:text-gray-500 text-sm focus:outline-none focus:border-sky-500/50"
-                        disabled={
-                            buttonState.bosun === 'sending' ||
-                            buttonState.cloud === 'sending' ||
-                            buttonState.bosun === 'awaiting' ||
-                            buttonState.cloud === 'awaiting'
-                        }
+                        disabled={isAnyAwaiting || isAnySending}
                     />
                     <button
                         type="submit"
                         disabled={
-                            !typedQuery.trim() ||
-                            (!bosunAvailable && !cloudAvailable) ||
-                            buttonState.bosun === 'awaiting' ||
-                            buttonState.cloud === 'awaiting'
+                            !typedQuery.trim() || (!bosunAvailable && !cloudAvailable) || isAnyAwaiting || isAnySending
                         }
                         className="w-12 h-12 rounded-full bg-sky-500 hover:bg-sky-400 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-white transition-colors shrink-0"
                         aria-label="Send"
@@ -413,18 +416,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
 };
 
 // ───────────────────────────────────────────────────────────────────────
-// Helpers
+// ConversationTurn
 // ───────────────────────────────────────────────────────────────────────
 
-/** Quick connectivity check for the cloud fallback (any HTTPS reach). */
-async function checkCloudReachable(): Promise<boolean> {
-    if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
-        return navigator.onLine;
-    }
-    return true;
-}
-
-/** Single conversation turn — skipper transcript + Bosun/Haiku answer + replay. */
 const ConversationTurn: React.FC<{
     turn: VoiceTurn;
     onReplay: (response: VoiceQueryResponse) => void;
