@@ -27,6 +27,7 @@ import { TalkButton, type TalkButtonState } from './TalkButton';
 import { isAudioRecordingSupported, startRecording } from '../../services/voice/audioRecorder';
 import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/voice/bosunVoice';
 import { askCloudVoice } from '../../services/voice/cloudFallback';
+import { publishTurn, startConversationSync, type ConversationSyncHandle } from '../../services/voice/conversationSync';
 import { askHaiku, synthesiseSpeech } from '../../services/voice/orchestrator';
 import {
     isSpeechRecognitionAvailable,
@@ -135,7 +136,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     // below — UI can show more than we send.
     const turns = useVoiceHistoryStore((s) => s.turns);
     const addTurn = useVoiceHistoryStore((s) => s.addTurn);
+    const upsertTurnSorted = useVoiceHistoryStore((s) => s.upsertTurnSorted);
     const clearHistory = useVoiceHistoryStore((s) => s.clearHistory);
+
+    /**
+     * Realtime sync handle for cross-crew conversation sharing. Resolves
+     * to a no-op handle when the user isn't authenticated or isn't on a
+     * vessel; in that case the console runs local-only as before.
+     */
+    const syncHandleRef = useRef<ConversationSyncHandle | null>(null);
     const [typedQuery, setTypedQuery] = useState('');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [activeTarget, setActiveTarget] = useState<'bosun' | 'cloud' | null>(null);
@@ -269,6 +278,32 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, [turns.length, errorMessage, buttonState.bosun, buttonState.cloud]);
+
+    // Subscribe to per-vessel Realtime when the console opens so crew turns
+    // arrive in real time. Unsubscribes on close. Falls back to local-only
+    // silently if the user isn't on a vessel.
+    useEffect(() => {
+        if (!isOpen) return;
+        let cancelled = false;
+        void startConversationSync({
+            onRemoteTurn: (turn) => {
+                if (cancelled) return;
+                upsertTurnSorted(turn);
+            },
+        }).then((handle) => {
+            if (cancelled) {
+                void handle.stop();
+                return;
+            }
+            syncHandleRef.current = handle;
+        });
+        return () => {
+            cancelled = true;
+            const handle = syncHandleRef.current;
+            syncHandleRef.current = null;
+            if (handle) void handle.stop();
+        };
+    }, [isOpen, upsertTurnSorted]);
 
     // Cleanup on unmount: free Blob URLs, abort any in-flight recording + SR
     useEffect(() => {
@@ -428,6 +463,15 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 response,
             };
             addTurn(turn);
+            // Fire-and-forget: publish to Realtime so crew on the same
+            // vessel see this turn appear in their own conversation log.
+            // No-op if sharing is unavailable (not signed in, not on a
+            // vessel, RLS rejected). We don't await — the local UI
+            // shouldn't wait on the network for what's already on screen.
+            const sync = syncHandleRef.current;
+            if (sync && sync.active) {
+                void publishTurn(sync, turn, response);
+            }
         },
         [addTurn],
     );
@@ -957,10 +1001,25 @@ const ConversationTurn: React.FC<{
     onReplay: (response: VoiceQueryResponse) => void;
 }> = ({ turn, onReplay }) => {
     const isBosun = turn.response.source === 'bosun';
+    // Attribution: turns the local skipper authored have no userName
+    // (we set it on remote turns only). When userName is set, the turn
+    // came from a crewmate and we label it. "You said" stays for self.
+    const speakerLabel = turn.userName ? `${turn.userName} said` : 'You said';
+    const isCrew = Boolean(turn.userName);
     return (
         <div className="space-y-2">
-            <div className="px-4 py-3 rounded-2xl bg-white/5 border border-white/10">
-                <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">You said</p>
+            <div
+                className={`px-4 py-3 rounded-2xl ${
+                    isCrew ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-white/5 border border-white/10'
+                }`}
+            >
+                <p
+                    className={`text-[10px] uppercase tracking-widest mb-1 ${
+                        isCrew ? 'text-amber-300' : 'text-gray-400'
+                    }`}
+                >
+                    {speakerLabel}
+                </p>
                 <p className="text-sm text-white">{turn.transcript}</p>
             </div>
             <div
