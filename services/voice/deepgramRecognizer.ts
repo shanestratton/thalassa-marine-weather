@@ -243,6 +243,61 @@ async function mintDeepgramToken(): Promise<string> {
 }
 
 /**
+ * Pre-warmed AudioContext + worklet, cached at module level. Lets the
+ * tap-to-talk path skip 200-400ms of cold-start work that previously
+ * happened synchronously inside the user gesture window.
+ *
+ * On iOS, AudioContext can be CONSTRUCTED (in suspended state) without
+ * a user gesture; only resume() and any audio output need the gesture.
+ * Loading an AudioWorkletProcessor module via addModule() is also
+ * gesture-free since it's just JS fetch + parse + register. So we can
+ * do all this work on console open and reuse on tap.
+ *
+ * The context is consumed by the first startDeepgramRecognizer() call;
+ * subsequent calls re-prewarm via the next prewarm trigger.
+ */
+interface PrewarmedAudio {
+    context: AudioContext;
+    sampleRate: number;
+}
+let prewarmedAudio: PrewarmedAudio | null = null;
+
+/**
+ * Pre-warm the AudioContext + PCM worklet. Idempotent — returns the
+ * existing prewarmed context if already cached. Returns false on
+ * failure without throwing (the cold-start path will fall back to
+ * creating these inline).
+ */
+export async function prewarmAudioContext(): Promise<boolean> {
+    if (prewarmedAudio) return true;
+    try {
+        if (typeof window === 'undefined') return false;
+        const Ctx =
+            (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext ||
+            (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!Ctx) return false;
+
+        const t0 = Date.now();
+        let context: AudioContext;
+        try {
+            context = new Ctx({ sampleRate: 16000 });
+        } catch {
+            context = new Ctx();
+        }
+        // Worklet load — happens before any user gesture, fine on iOS.
+        // Static asset path so CSP `'self'` covers it (same path used
+        // inside startDeepgramRecognizer's normal flow).
+        await context.audioWorklet.addModule('/pcm-worklet.js');
+        prewarmedAudio = { context, sampleRate: context.sampleRate };
+        emitEvent(`[DG] prewarm audio context @ ${context.sampleRate}Hz + worklet (${Date.now() - t0}ms)`);
+        return true;
+    } catch (err) {
+        emitEvent(`[DG] prewarm audio failed: ${(err as Error).message}`);
+        return false;
+    }
+}
+
+/**
  * Pre-warm the Deepgram token cache. Call from the BosunConsole on open
  * so the very first tap-to-talk skips the token mint round-trip — the
  * worst single contributor to cold-start latency. Refreshing on every
@@ -396,17 +451,25 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     });
     let flushRequested = false;
 
-    // ── 1. Mint ephemeral token ─────────────────────────────────────
-    emitEvent('[DG] start: minting token…');
-    let token: string;
-    const tokenStart = Date.now();
-    try {
-        token = await mintDeepgramToken();
-    } catch (err) {
-        emitEvent(`[DG] token mint failed: ${(err as Error).message}`);
-        throw err;
+    // ── 1. Mint token (only when Supabase fallback is in use) ──────
+    // The Cloudflare Worker proxy holds the Deepgram API key
+    // server-side and authenticates upstream itself, so the iOS
+    // client doesn't need a Deepgram token at all when going through
+    // the Worker — saves 150-300ms off cold start.
+    let token = '';
+    if (!DEEPGRAM_PROXY_URL) {
+        emitEvent('[DG] start: minting token (Supabase path)…');
+        const tokenStart = Date.now();
+        try {
+            token = await mintDeepgramToken();
+        } catch (err) {
+            emitEvent(`[DG] token mint failed: ${(err as Error).message}`);
+            throw err;
+        }
+        emitEvent(`[DG] token ready (${Date.now() - tokenStart}ms)`);
+    } else {
+        emitEvent('[DG] cloudflare path — skipping token mint');
     }
-    emitEvent(`[DG] token ready (${Date.now() - tokenStart}ms)`);
 
     // ── 2. Acquire mic stream ───────────────────────────────────────
     emitEvent('[DG] requesting mic…');
@@ -428,6 +491,10 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     emitEvent(`[DG] mic stream acquired (${Date.now() - micStart}ms)`);
 
     // ── 3. Open AudioContext + load worklet ────────────────────────
+    // Use the pre-warmed context if BosunConsole called
+    // prewarmAudioContext() on open. This skips ~200-400ms of cold
+    // start because the AudioContext construction and worklet module
+    // load already happened idle-time.
     const Ctx =
         (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext ||
         (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
@@ -437,15 +504,18 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     }
 
     let audioContext: AudioContext;
-    try {
-        // Best-effort 16kHz request. iOS often clamps to native rate
-        // (44.1k or 48k). We send whatever rate we end up with to
-        // Deepgram in the URL query — they handle resampling.
-        audioContext = new Ctx({ sampleRate: 16000 });
-    } catch {
-        // Older Safari throws on explicit sampleRate. Fall back to
-        // hardware-default rate.
-        audioContext = new Ctx();
+    let workletAlreadyRegistered = false;
+    if (prewarmedAudio) {
+        audioContext = prewarmedAudio.context;
+        workletAlreadyRegistered = true;
+        emitEvent('[DG] reusing prewarmed audio context + worklet');
+        prewarmedAudio = null; // consumed; next session re-prewarms
+    } else {
+        try {
+            audioContext = new Ctx({ sampleRate: 16000 });
+        } catch {
+            audioContext = new Ctx();
+        }
     }
 
     // iOS WKWebView starts AudioContext suspended. resume() requires a
@@ -463,6 +533,15 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     const sampleRate = audioContext.sampleRate;
     emitEvent(`[DG] audio ctx @ ${sampleRate}Hz state=${audioContext.state} (${Date.now() - ctxStart}ms)`);
 
+    // Skip worklet load entirely if already registered (prewarm hit).
+    // Saves another ~100-300ms of cold-start latency. The same
+    // PCMProcessor class is the one we'd register again here, so
+    // re-registering would actually throw — must skip when present.
+    let workletLoaded = workletAlreadyRegistered;
+    let lastWorkletErr: Error | null = null;
+    if (workletAlreadyRegistered) {
+        emitEvent('[DG] worklet already registered (prewarm)');
+    }
     // Load the worklet. Two strategies in priority order:
     //   1. Static file at /pcm-worklet.js — same-origin, falls under
     //      `'self'` in CSP. This is the WKWebView-friendly path; Blob
@@ -472,15 +551,15 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     //      static asset is missing (e.g. dev server hot-reload edge
     //      case) or when same-origin loading fails for any reason.
     const workletStart = Date.now();
-    let workletLoaded = false;
-    let lastWorkletErr: Error | null = null;
-    try {
-        await audioContext.audioWorklet.addModule('/pcm-worklet.js');
-        workletLoaded = true;
-        emitEvent(`[DG] worklet loaded from /pcm-worklet.js (${Date.now() - workletStart}ms)`);
-    } catch (err) {
-        lastWorkletErr = err as Error;
-        emitEvent(`[DG] static worklet load failed: ${lastWorkletErr.message} — trying blob fallback`);
+    if (!workletLoaded) {
+        try {
+            await audioContext.audioWorklet.addModule('/pcm-worklet.js');
+            workletLoaded = true;
+            emitEvent(`[DG] worklet loaded from /pcm-worklet.js (${Date.now() - workletStart}ms)`);
+        } catch (err) {
+            lastWorkletErr = err as Error;
+            emitEvent(`[DG] static worklet load failed: ${lastWorkletErr.message} — trying blob fallback`);
+        }
     }
     if (!workletLoaded) {
         const workletBlob = new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' });
