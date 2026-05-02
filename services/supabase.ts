@@ -128,6 +128,32 @@ if (URL && KEY) {
     if (!KEY) logConfig('MISSING: Supabase Anon Key');
 }
 
+/**
+ * One-shot migration: copy any existing Supabase session out of
+ * localStorage into Capacitor Preferences so the user doesn't get
+ * bumped out by the storage swap on this update. Idempotent — only
+ * copies if Preferences doesn't already have a value, and nukes
+ * the localStorage copy after to stop iOS evicting the auth token
+ * from there. Best-effort: failure means one extra login, then
+ * we're stable.
+ */
+async function migrateAuthSessionToCapacitor(): Promise<void> {
+    if (typeof localStorage === 'undefined') return;
+    const SESSION_KEY = 'thalassa-auth-session';
+    try {
+        const { value: existing } = await Preferences.get({ key: SESSION_KEY });
+        if (existing) return;
+        const local = localStorage.getItem(SESSION_KEY);
+        if (!local) return;
+        await Preferences.set({ key: SESSION_KEY, value: local });
+        localStorage.removeItem(SESSION_KEY);
+        log.info('migrated auth session: localStorage → Capacitor Preferences');
+    } catch (e) {
+        log.warn('auth session migration failed (one-time)', e);
+    }
+}
+void migrateAuthSessionToCapacitor();
+
 // Only create client if keys are present
 export const supabase =
     URL && KEY
@@ -137,6 +163,12 @@ export const supabase =
                   storageKey: 'thalassa-auth-session', // stable key survives rebuilds
                   autoRefreshToken: true,
                   detectSessionInUrl: true,
+                  // Use native UserDefaults (via Capacitor Preferences)
+                  // instead of localStorage so iOS can't evict the
+                  // session under storage pressure or after long
+                  // inactivity. Web falls back to localStorage inside
+                  // the adapter.
+                  storage: capacitorAuthStorage,
               },
           })
         : null;
