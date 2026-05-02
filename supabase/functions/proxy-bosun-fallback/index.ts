@@ -200,10 +200,16 @@ async function callAnthropic(messages: AnthropicMessage[], stateBlock?: string):
 async function callHaikuWithTools(
     userText: string,
     context: ThalassaContext | undefined,
+    history: VoiceHistoryTurn[] | undefined,
 ): Promise<{ answer: string; ms: number }> {
     const t0 = Date.now();
     const stateBlock = context ? formatStateBlock(context) : undefined;
-    const messages: AnthropicMessage[] = [{ role: 'user', content: userText }];
+    // Prior turns first (oldest → newest), then the current user message.
+    // Anthropic requires alternating user/assistant; client + sanitizer
+    // produce that shape, but if a stray duplicate slips through Anthropic
+    // returns 400 which we surface as a Haiku error rather than guess.
+    const priorMessages = sanitizeHistory(history);
+    const messages: AnthropicMessage[] = [...priorMessages, { role: 'user', content: userText }];
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
         const response = await callAnthropic(messages, stateBlock);
@@ -499,12 +505,43 @@ interface ThalassaContext {
     passage?: ThalassaContextPassage;
 }
 
+interface VoiceHistoryTurn {
+    role: 'user' | 'assistant';
+    text: string;
+}
+
 interface AskRequest {
     text?: string;
     audio_b64?: string;
     mime_type?: string;
     session_id?: string;
     context?: ThalassaContext;
+    /** Prior turns in this console session, oldest first. */
+    history?: VoiceHistoryTurn[];
+}
+
+/**
+ * Server-side cap on how many history turns we accept. The client also
+ * caps; this is the belt-and-braces guard against a misbehaving caller
+ * blowing up the prompt.
+ */
+const MAX_HISTORY_MESSAGES = 24;
+
+function sanitizeHistory(history: VoiceHistoryTurn[] | undefined): AnthropicMessage[] {
+    if (!Array.isArray(history)) return [];
+    const out: AnthropicMessage[] = [];
+    for (const turn of history) {
+        if (!turn || (turn.role !== 'user' && turn.role !== 'assistant')) continue;
+        if (typeof turn.text !== 'string') continue;
+        const text = turn.text.trim();
+        if (!text) continue;
+        out.push({ role: turn.role, content: text });
+    }
+    // Cap from the end — keep the most recent turns when over the limit.
+    if (out.length > MAX_HISTORY_MESSAGES) {
+        return out.slice(out.length - MAX_HISTORY_MESSAGES);
+    }
+    return out;
 }
 
 // ── Render Thalassa state into a markdown block for the system prompt ──
@@ -650,7 +687,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { answer, ms: llmMs } = await callHaikuWithTools(transcript, body.context);
+        const { answer, ms: llmMs } = await callHaikuWithTools(transcript, body.context, body.history);
         const { audio_b64, ms: ttsMs } = await callElevenLabs(answer);
 
         return new Response(

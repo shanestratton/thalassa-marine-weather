@@ -28,7 +28,29 @@ import { askBosunText, askBosunVoice, isBosunReachable } from '../../services/vo
 import { askCloudText, askCloudVoice } from '../../services/voice/cloudFallback';
 import { startSpeechRecognition, type SpeechRecognizerHandle } from '../../services/voice/speechRecognizer';
 import { gatherThalassaContext } from '../../services/voice/thalassaContext';
-import type { VoiceQueryResponse, VoiceTurn } from '../../types/voice';
+import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../types/voice';
+
+/** How many prior turns to send for context. Each turn = one user + one assistant message. */
+const HISTORY_TURN_LIMIT = 10;
+
+/**
+ * Convert recent VoiceTurns into the {role, text} shape the edge function
+ * expects. Drops everything except the user's transcript and the assistant's
+ * final answer text — no tool_use/tool_result blocks, since we replay just
+ * the conversational thread for continuity.
+ */
+function buildHistory(turns: VoiceTurn[]): VoiceHistoryTurn[] {
+    const recent = turns.slice(-HISTORY_TURN_LIMIT);
+    const out: VoiceHistoryTurn[] = [];
+    for (const t of recent) {
+        const userText = (t.transcript || '').trim();
+        const asstText = (t.response.answer_text || '').trim();
+        if (!userText || !asstText) continue;
+        out.push({ role: 'user', text: userText });
+        out.push({ role: 'assistant', text: asstText });
+    }
+    return out;
+}
 
 interface BosunConsoleProps {
     isOpen: boolean;
@@ -292,15 +314,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 // what the skipper currently sees on screen, not whatever was
                 // selected when the console was first opened.
                 const context = gatherThalassaContext();
+                // Recent conversation history so Haiku has continuity across
+                // turns (e.g. "for the next 3 questions, speak like a pirate"
+                // actually persists). Capped at HISTORY_TURN_LIMIT.
+                const history = buildHistory(turns);
                 let response: VoiceQueryResponse;
                 if (to === 'cloud' && preTranscribed) {
                     // FAST PATH: Apple SR already gave us an on-device
                     // transcript — skip the Scribe round-trip entirely and
                     // hit Haiku directly with the text.
-                    response = await askCloudText({ text: preTranscribed, context });
+                    response = await askCloudText({ text: preTranscribed, context, history });
                 } else {
                     response =
-                        to === 'bosun' ? await askBosunVoice(audioBlob) : await askCloudVoice(audioBlob, context);
+                        to === 'bosun'
+                            ? await askBosunVoice(audioBlob)
+                            : await askCloudVoice(audioBlob, context, history);
                 }
                 handleResponse(response, to);
             } catch (err) {
@@ -309,7 +337,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, setOneButton],
+        [handleResponse, setOneButton, turns],
     );
 
     const sendTextQuery = useCallback(
@@ -319,7 +347,9 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             setErrorMessage(null);
             try {
                 const context = gatherThalassaContext();
-                const response = to === 'bosun' ? await askBosunText({ text }) : await askCloudText({ text, context });
+                const history = buildHistory(turns);
+                const response =
+                    to === 'bosun' ? await askBosunText({ text }) : await askCloudText({ text, context, history });
                 handleResponse(response, to);
             } catch (err) {
                 setErrorMessage((err as Error).message || 'Something went wrong.');
@@ -327,7 +357,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 setTimeout(() => setOneButton(to, 'idle'), 1500);
             }
         },
-        [handleResponse, setOneButton],
+        [handleResponse, setOneButton, turns],
     );
 
     // ── Tap handlers ────────────────────────────────────────────────────
