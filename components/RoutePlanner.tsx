@@ -86,21 +86,30 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         // Only fire when voyagePlan transitions from null → populated
         if (voyagePlan && !prevVoyagePlanRef.current) {
             const detail: Record<string, unknown> = {};
+            // Prefer voyagePlan.origin (preserved verbatim from the
+            // user's typed input — see useVoyageForm.handleCalculate)
+            // over the form state `origin`, because voyagePlan is the
+            // single source of truth that survives the async pipeline.
+            // Form state can be cleared between calculate-finish and
+            // event-dispatch if the user navigates fast.
+            const departureName = (typeof voyagePlan.origin === 'string' && voyagePlan.origin) || origin || 'Departure';
+            const arrivalName =
+                (typeof voyagePlan.destination === 'string' && voyagePlan.destination) || destination || 'Arrival';
             if (voyagePlan.originCoordinates) {
                 detail.departure = {
                     lat: voyagePlan.originCoordinates.lat,
                     lon: voyagePlan.originCoordinates.lon,
-                    name: origin,
+                    name: departureName,
                 };
             }
             if (voyagePlan.destinationCoordinates) {
                 detail.arrival = {
                     lat: voyagePlan.destinationCoordinates.lat,
                     lon: voyagePlan.destinationCoordinates.lon,
-                    name: destination,
+                    name: arrivalName,
                 };
             }
-            log.info('[AutoNav] Route calculated, switching to main map');
+            log.info('[AutoNav] Route calculated, switching to main map', { departureName, arrivalName });
             setPage('map');
             setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
@@ -352,18 +361,29 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 <button
                                     onClick={() => {
                                         const detail: Record<string, unknown> = {};
+                                        // Prefer voyagePlan.origin/destination (preserved
+                                        // from the user's typed input via my override in
+                                        // useVoyageForm.handleCalculate) over form state.
+                                        const departureName =
+                                            (typeof voyagePlan.origin === 'string' && voyagePlan.origin) ||
+                                            origin ||
+                                            'Departure';
+                                        const arrivalName =
+                                            (typeof voyagePlan.destination === 'string' && voyagePlan.destination) ||
+                                            destination ||
+                                            'Arrival';
                                         if (voyagePlan.originCoordinates) {
                                             detail.departure = {
                                                 lat: voyagePlan.originCoordinates.lat,
                                                 lon: voyagePlan.originCoordinates.lon,
-                                                name: origin,
+                                                name: departureName,
                                             };
                                         }
                                         if (voyagePlan.destinationCoordinates) {
                                             detail.arrival = {
                                                 lat: voyagePlan.destinationCoordinates.lat,
                                                 lon: voyagePlan.destinationCoordinates.lon,
-                                                name: destination,
+                                                name: arrivalName,
                                             };
                                         }
                                         log.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
