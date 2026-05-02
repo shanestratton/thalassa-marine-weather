@@ -19,8 +19,38 @@
  * subsequent calls are cached in the plugin layer.
  */
 
-import { SpeechRecognition } from '@capacitor-community/speech-recognition';
 import type { PluginListenerHandle } from '@capacitor/core';
+
+// IMPORTANT: @capacitor-community/speech-recognition is imported LAZILY
+// inside the functions that actually need it (isSpeechRecognitionAvailable,
+// startSpeechRecognition). A static import at module scope causes Capacitor
+// to register the Swift plugin on the native side at app launch, which
+// keeps an SFSpeechRecognizer instance alive across JS reloads and is the
+// root cause of the "The quota has been exceeded." zombie-task error: a
+// recognitionTask started in an earlier session keeps firing its
+// resultHandler.reject() callback into our Capacitor bridge with
+// kAFAssistantErrorDomain code 1101's localized description.
+//
+// With the lazy import, when ENABLE_APPLE_SR_FALLBACK=false the plugin
+// is never loaded, never registered, no Swift instance exists, no
+// recognitionTask can be active = no zombie quota errors.
+
+type SpeechRecognitionPlugin = {
+    available: () => Promise<{ available: boolean }>;
+    checkPermissions: () => Promise<{ speechRecognition: 'granted' | 'denied' | 'prompt' | 'prompt-with-rationale' }>;
+    requestPermissions: () => Promise<{ speechRecognition: 'granted' | 'denied' | 'prompt' | 'prompt-with-rationale' }>;
+    addListener: (
+        event: 'partialResults' | 'listeningState',
+        callback: (data: { matches?: string[]; status?: string }) => void,
+    ) => Promise<PluginListenerHandle>;
+    start: (opts: { language: string; partialResults: boolean; maxResults: number }) => Promise<void>;
+    stop: () => Promise<void>;
+};
+
+async function loadSpeechRecognition(): Promise<SpeechRecognitionPlugin> {
+    const mod = await import('@capacitor-community/speech-recognition');
+    return mod.SpeechRecognition as unknown as SpeechRecognitionPlugin;
+}
 
 /**
  * Minimum character count for an SR result to be considered usable.
@@ -96,6 +126,7 @@ let availabilityCached: boolean | null = null;
 export async function isSpeechRecognitionAvailable(force = false): Promise<boolean> {
     if (!force && availabilityCached !== null) return availabilityCached;
     try {
+        const SpeechRecognition = await loadSpeechRecognition();
         const { available } = await SpeechRecognition.available();
         emitEvent(`[SR] available() → ${available}`);
         if (!available) {
@@ -135,6 +166,10 @@ export async function isSpeechRecognitionAvailable(force = false): Promise<boole
 export async function startSpeechRecognition(opts: StartOptions = {}): Promise<SpeechRecognizerHandle> {
     const ok = await isSpeechRecognitionAvailable();
     if (!ok) throw new Error('Speech recognition unavailable or permission denied');
+
+    // Lazy-load — the plugin is ALREADY registered if isSpeechRecognitionAvailable
+    // succeeded above, so this just returns the cached module reference.
+    const SpeechRecognition = await loadSpeechRecognition();
 
     const t0 = Date.now();
     let lastTranscript = '';
