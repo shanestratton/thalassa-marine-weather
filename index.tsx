@@ -29,6 +29,18 @@ if (Capacitor.isNativePlatform()) {
     });
 }
 
+// Wire Apple Watch reverse-direction events (mob trigger, alarm ack)
+// + the weather snapshot push pipeline. No-op on web / Android.
+// Lazy-imported so the watchBridge plugin doesn't load on web bundles.
+import('./services/native/watchBridgeListeners')
+    .then(({ initWatchBridgeListeners }) => initWatchBridgeListeners())
+    .catch((e) => {
+        // Bridge missing or watch not paired — silent ok, the watch is
+        // optional and failure here mustn't block app boot.
+        // eslint-disable-next-line no-console
+        console.info('[index] watchBridgeListeners not initialised:', e);
+    });
+
 // Suppress Recharts "width(-1) and height(-1)" warnings — a known cosmetic issue
 // that fires during the brief window between chart mount and layout stabilization.
 const _origWarn = console.warn;
