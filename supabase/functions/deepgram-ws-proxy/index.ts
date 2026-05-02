@@ -127,6 +127,13 @@ Deno.serve(async (req: Request) => {
     upstreamSocket.addEventListener('open', () => {
         console.log('[dg-proxy] upstream open');
         upstreamReady = true;
+        // Tell the client the upstream is up — diagnostic, lets the
+        // iOS debug strip show whether Deepgram itself ever connected.
+        try {
+            clientSocket.send(JSON.stringify({ type: 'UpstreamOpen', ts: Date.now() }));
+        } catch {
+            /* ignore */
+        }
         // Flush anything we buffered while upstream was handshaking.
         for (const chunk of earlyBuffer) {
             try {
@@ -159,14 +166,30 @@ Deno.serve(async (req: Request) => {
     });
 
     upstreamSocket.addEventListener('close', (ev: CloseEvent) => {
-        console.log(`[dg-proxy] upstream closed code=${ev.code} reason="${ev.reason}"`);
+        console.log(`[dg-proxy] upstream closed code=${ev.code} reason="${ev.reason}" ready=${upstreamReady}`);
+        // Tell the client the upstream just closed. Send BEFORE we
+        // close the client socket so the iOS debug strip sees the
+        // signal. Critical diagnostic when upstream silently dies.
+        try {
+            clientSocket.send(
+                JSON.stringify({
+                    type: 'UpstreamClose',
+                    code: ev.code,
+                    reason: ev.reason || '',
+                    everOpened: upstreamReady,
+                    ts: Date.now(),
+                }),
+            );
+        } catch {
+            /* ignore */
+        }
         if (clientSocket.readyState === WebSocket.OPEN || clientSocket.readyState === WebSocket.CONNECTING) {
             try {
-                // Codes 1005 and 1006 are reserved per RFC 6455 and
-                // can't be sent in a Close frame. Map either to 1011
-                // (server error) so the client gets a real signal
-                // instead of a silent TCP-RST that surfaces as 1005.
-                const safeCode = ev.code === 1005 || ev.code === 1006 ? 1011 : ev.code;
+                // Codes 1005, 1006 (reserved) and 0 (no close frame)
+                // can't be sent in a Close frame. Map any of them to
+                // 1011 (server error) so the client gets a real signal
+                // instead of a silent TCP-RST.
+                const safeCode = ev.code < 1000 || ev.code === 1005 || ev.code === 1006 ? 1011 : ev.code;
                 const safeReason = ev.reason || `upstream closed ${ev.code}`;
                 clientSocket.close(safeCode, safeReason);
             } catch (err) {
@@ -177,6 +200,11 @@ Deno.serve(async (req: Request) => {
 
     upstreamSocket.addEventListener('error', () => {
         console.error('[dg-proxy] upstream error');
+        try {
+            clientSocket.send(JSON.stringify({ type: 'UpstreamError', ts: Date.now() }));
+        } catch {
+            /* ignore */
+        }
     });
 
     clientSocket.addEventListener('message', (ev: MessageEvent) => {
@@ -235,4 +263,4 @@ Deno.serve(async (req: Request) => {
     });
 
     return response;
-});
+}); // Deno.serve handler — Deno keeps the WS alive after response returns.
