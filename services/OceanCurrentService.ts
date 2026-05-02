@@ -102,9 +102,13 @@ export const OceanCurrentService = {
         }
 
         try {
-            // OSCAR ERDDAP — 1/3° resolution, global coverage
-            // Dataset: 'jplOscar_LonPM180' for climatology
-            // NRT dataset: 'jplOscar_LonPM180' with recent time constraint
+            // OSCAR via NOAA CoastWatch ERDDAP. The original
+            // jplOscar_LonPM180 dataset was retired during NASA's
+            // PODAAC migration (~2024-2025). Try the current dataset
+            // ID first, then fall back through a list of known
+            // alternates. If all 404, return an empty briefing rather
+            // than throwing — the OceanCurrents readiness card shows
+            // a "no data available" state instead of an error toast.
             const paddedBbox = {
                 south: Math.max(-80, bbox.south - 1),
                 north: Math.min(80, bbox.north + 1),
@@ -113,19 +117,56 @@ export const OceanCurrentService = {
             };
 
             // Build ERDDAP query — request latest available data
-            const baseUrl = 'https://coastwatch.pfeg.noaa.gov/erddap/griddap/jplOscar_LonPM180.json';
-
             const query = `?u[(last)][(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})][(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})],v[(last)][(${paddedBbox.south.toFixed(1)}):(${paddedBbox.north.toFixed(1)})][(${paddedBbox.west.toFixed(1)}):(${paddedBbox.east.toFixed(1)})]`;
 
-            const url = baseUrl + query;
+            // Datasets to try in order. The first hit wins.
+            const datasets = [
+                'noaacwL3SCcurNRTL3', // NOAA L3 NRT currents
+                'jplOscar_LonPM180', // legacy OSCAR (kept for back-compat if revived)
+                'noaacwL3Scur5dayL3', // NOAA 5-day composite
+            ];
+
             log.info(
-                `Fetching OSCAR ${source} currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
+                `Fetching ${source} currents: ${paddedBbox.south}–${paddedBbox.north}°N, ${paddedBbox.west}–${paddedBbox.east}°E`,
             );
 
-            const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
-            if (!res.ok) throw new Error(`ERDDAP ${res.status}`);
+            let data: { table?: { rows?: unknown[][] } } | null = null;
+            for (const ds of datasets) {
+                const url = `https://coastwatch.pfeg.noaa.gov/erddap/griddap/${ds}.json${query}`;
+                try {
+                    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+                    if (res.ok) {
+                        data = await res.json();
+                        log.info(`OSCAR currents fetched from dataset "${ds}"`);
+                        break;
+                    }
+                } catch {
+                    /* try next dataset */
+                }
+            }
+            if (!data) {
+                // None of the datasets worked. Cache an empty briefing
+                // for a short TTL so we don't hammer ERDDAP with 404s
+                // every time the user re-opens the card.
+                log.warn('No ocean currents available — all ERDDAP datasets returned 404');
+                const empty: CurrentBriefing & { _cachedAt: number } = {
+                    vectors: [],
+                    avgSpeedKts: 0,
+                    maxSpeedKts: 0,
+                    netEffectHours: 0,
+                    source,
+                    fetchedAt: new Date().toISOString(),
+                    segments: [],
+                    _cachedAt: Date.now(),
+                };
+                try {
+                    localStorage.setItem(key, JSON.stringify(empty));
+                } catch {
+                    /* ignore */
+                }
+                return empty;
+            }
 
-            const data = await res.json();
             const rows = data.table?.rows || [];
 
             // Parse rows into vectors — ERDDAP returns [time, lat, lon, u, v]
