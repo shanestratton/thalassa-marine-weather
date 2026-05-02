@@ -37,6 +37,7 @@ import {
     prewarmDeepgram,
     prewarmMicStream,
     prewarmWorkerConnection,
+    prewarmWorkletAsset,
     releasePrewarmedMicStream,
     setDeepgramEventTap,
     startDeepgramRecognizer,
@@ -342,6 +343,18 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
     const [deepgramStatus, setDeepgramStatus] = useState<'unknown' | 'available' | 'unavailable'>('unknown');
 
     /**
+     * Tracks when ALL the cold-start prewarms have completed (mic stream
+     * acquired, Worker TLS path established, worklet asset cached). Used
+     * to gate the talk button's subtitle so the skipper sees "Warming
+     * up…" until everything is actually ready, instead of seeing "Tap
+     * to talk" while iOS is still ~1s into acquiring the mic.
+     *
+     * We also fire a haptic the moment this flips to true — tactile
+     * cue that the system is ready for the tap.
+     */
+    const [prewarmReady, setPrewarmReady] = useState(false);
+
+    /**
      * Open state for the Pi-provisioning wizard. Triggered from the
      * header CTA when the Pi is unreachable. The wizard owns its own
      * step state internally — we just track open/closed here.
@@ -507,28 +520,41 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             if (cancelled) return;
             setDeepgramStatus(available ? 'available' : 'unavailable');
             if (available) {
-                // Fire-and-forget triple-prewarm to slash cold-start
-                // latency on first tap:
+                // Multi-prewarm to slash cold-start latency on first
+                // tap. Each one shaves a chunk off the tap-to-ready
+                // critical path:
                 //   - prewarmDeepgram: token cache (no-op on Cloudflare
-                //     proxy path which doesn't need a token)
-                //   - prewarmMicStream: getUserMedia call. Dominant
-                //     cold-start cost on iOS (~1.0-1.4s). Acquires the
-                //     mic NOW so the tap-to-ready path skips it.
-                //     Tradeoff: iOS shows the mic indicator for the
-                //     entire console session — which is honestly fine
-                //     UX for a voice interface where the user opened
-                //     explicitly to talk.
-                //   - prewarmWorkerConnection: HEAD/GET to the CF
-                //     Worker so DNS+TLS+TCP are established. WKWebView's
-                //     NSURLSession reuses the connection for the WS
-                //     upgrade.
+                //     path which doesn't need a token)
+                //   - prewarmMicStream: getUserMedia. Dominant cold-
+                //     start cost on iOS (~1.0-1.4s). Acquires the mic
+                //     NOW so tap-to-ready skips it.
+                //   - prewarmWorkerConnection: GET to the CF Worker so
+                //     DNS+TLS+TCP are established for WS reuse.
+                //   - prewarmWorkletAsset: pre-fetches /pcm-worklet.js
+                //     so WKWebView caches it, saving ~50-150ms on the
+                //     first audioWorklet.addModule() at tap time.
+                //
+                // We track all four with Promise.all so we can flip
+                // prewarmReady=true the moment everything is warm, fire
+                // a haptic so the skipper feels "ready", and update the
+                // button subtitle from "Warming up…" to the normal
+                // "Tap to talk" state.
                 //
                 // Note: prewarmAudioContext was tried but caused empty-
                 // transcript regressions on iOS. AudioContext stays
                 // tap-time only.
-                void prewarmDeepgram();
-                void prewarmMicStream();
-                void prewarmWorkerConnection();
+                void Promise.all([
+                    prewarmDeepgram(),
+                    prewarmMicStream(),
+                    prewarmWorkerConnection(),
+                    prewarmWorkletAsset(),
+                ]).then(() => {
+                    if (cancelled) return;
+                    setPrewarmReady(true);
+                    void Haptics.impact({ style: ImpactStyle.Medium }).catch(() => {
+                        /* ignore — web/sim has no haptics */
+                    });
+                });
             }
         });
         return () => {
@@ -1320,8 +1346,19 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * the subtitle reflects which brain is currently active.
      */
     const route: 'bosun' | 'cloud' | null = cloudAvailable ? 'cloud' : bosunAvailable ? 'bosun' : null;
-    const brainSubtitle =
-        route === 'cloud' ? 'Calypso cloud' : route === 'bosun' ? 'Calypso local (3B)' : 'Calypso offline';
+    // Subtitle under the talk button. While the prewarms are still
+    // running (mic acquisition is the slow one — ~1-1.4s on iOS) we
+    // surface "Warming up…" so the skipper sees explicit feedback that
+    // the system needs a moment, instead of seeing "Calypso cloud" and
+    // tapping into a still-cold path. A medium haptic fires the moment
+    // prewarm flips ready so they feel the cue too.
+    const brainSubtitle = !prewarmReady
+        ? 'Warming up…'
+        : route === 'cloud'
+          ? 'Calypso cloud'
+          : route === 'bosun'
+            ? 'Calypso local (3B)'
+            : 'Calypso offline';
     const typedTarget: 'bosun' | 'cloud' = route ?? 'cloud';
 
     const isAnyAwaiting = useMemo(
