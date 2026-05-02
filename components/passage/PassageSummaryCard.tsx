@@ -497,7 +497,11 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             )}
 
             {/* ── No Route Message ── */}
-            {!passage.hasRoute && (
+            {/* Only shown when the user has nothing — no passage selected */}
+            {/* AND no route in the store. If they've already picked a draft */}
+            {/* (departPort + destPort populated) they don't need a CTA */}
+            {/* telling them to plan a route, that's exactly what they did. */}
+            {!passage.hasRoute && !departPort && !destPort && (
                 <div className="px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.06] text-center">
                     <p className="text-xs text-gray-500">
                         Plan a route on the Charts page to see the full passage breakdown here.

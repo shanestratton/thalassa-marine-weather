@@ -147,61 +147,86 @@ export async function startVoyage(voyageId: string): Promise<Voyage | null> {
 }
 
 /**
- * Get the draft voyages we should show in the active-passage picker —
- * filtered so orphaned drafts (route already deleted from the logbook)
- * are hidden, but legitimate drafts that came from any other code path
- * still appear.
+ * Per-name flag set so concurrent dropdown opens don't double-create
+ * a draft for the same logbook route. Cleared on resolution.
+ */
+const _autoHealInflight = new Set<string>();
+
+/**
+ * Get the draft voyages we should show in the active-passage picker.
  *
- * Why: every saved passage plan creates BOTH a ship_log "planned_*"
- * voyage AND a row in the `voyages` table (via auto-create in
- * PassagePlanSave). When the user later deletes the planned route
- * from the logbook, only the ship_log entries get wiped — the
- * voyages-table row sits orphaned and pollutes the dropdown.
+ * The voyages table and the ship_log "planned_*" entries are two
+ * separate data sources that should mirror each other but in practice
+ * drift apart — older routes saved before PassagePlanSave's auto-create
+ * landed, network glitches that cause the createVoyage call to fail
+ * silently, etc. The result is logbook routes with no matching draft —
+ * the user knows the passage exists but can't pick it as their active
+ * one.
  *
- * Filter rules (only the FIRST one was previously applied — the
- * others were missing and dropped legitimate drafts):
+ * This fetcher reconciles the two sources:
  *
- *   1. A draft whose `voyage_name` contains " → " came from a
- *      passage plan save (PassagePlanSave constructs the name in
- *      that exact format). It MUST have a matching planned_*
- *      ship_log route to count as live.
+ *   1. **Auto-heal forward** — for any logbook route that has no
+ *      matching draft, create the draft now. New ones appear in the
+ *      dropdown immediately. (Concurrent calls are deduped via
+ *      `_autoHealInflight` so opening the dropdown twice doesn't
+ *      duplicate.)
  *
- *   2. A draft whose name DOESN'T have " → " came from a manual
- *      "New Voyage" button or the cast-off panel. Show it
- *      unconditionally — there's no expected logbook linkage.
+ *   2. **Filter backward** — drafts whose name shows the
+ *      passage-plan format (`A → B`) but have no matching logbook
+ *      route are orphans (deleted-from-logbook), and get hidden.
+ *      Drafts without the arrow shape came from manual code paths
+ *      (cast-off panel, etc.) and pass through unconditionally.
  *
- *   3. If the RoutesAndTracks fetch returned zero routes (could be
- *      a legitimate empty state OR a fetch failure — we can't tell),
- *      show all drafts. Better to show too much than gaslight the
- *      user with an empty dropdown when they know they have a route
- *      saved.
+ * Force-refresh on `fetchRoutesAndTracks(true)` so a stale 60s cache
+ * can't slip orphans through.
  *
  * Match key: case + whitespace-normalised `voyage_name` against the
- * RoutesAndTracks `label` (which is `${departure} → ${arrival}` from
- * the first/last entry's waypointName, the same fields PassagePlanSave
- * uses to construct the voyage_name).
+ * RoutesAndTracks `label` (`${departure} → ${arrival}`).
  */
 export async function getDraftVoyagesWithLogbookEntries(): Promise<Voyage[]> {
-    const [drafts, routesAndTracks] = await Promise.all([
+    const [initialDrafts, routesAndTracks] = await Promise.all([
         getDraftVoyages(),
-        // Lazy import to keep the voyage-service module side-effect-free
-        // when the logbook isn't needed (e.g. in the offline-only path
-        // above where Supabase is unavailable).
-        import('./shiplog/RoutesAndTracks').then((m) => m.fetchRoutesAndTracks()),
+        import('./shiplog/RoutesAndTracks').then((m) => m.fetchRoutesAndTracks(true)),
     ]);
 
-    // Rule 3: routes empty (could be fetch failure) → show all drafts.
-    if (routesAndTracks.routes.length === 0) {
-        return drafts;
+    const norm = (s: string) => s.trim().toLowerCase();
+
+    // Auto-heal: for each live logbook route, ensure a matching draft
+    // voyage exists. Run sequentially so we read each just-created
+    // voyage in the next iteration's draftKeys lookup.
+    const draftKeys = new Set(initialDrafts.map((d) => norm(d.voyage_name)));
+    const healed: Voyage[] = [];
+    for (const route of routesAndTracks.routes) {
+        const key = norm(route.label);
+        if (draftKeys.has(key)) continue;
+        if (_autoHealInflight.has(key)) continue;
+        _autoHealInflight.add(key);
+        try {
+            const [depPart, arrPart] = route.label.split(' → ');
+            const { voyage } = await createVoyage({
+                voyage_name: route.label,
+                departure_port: (depPart ?? 'Departure').trim(),
+                destination_port: (arrPart ?? 'Arrival').trim(),
+                crew_count: 1,
+            });
+            if (voyage) {
+                healed.push(voyage);
+                draftKeys.add(key);
+            }
+        } finally {
+            _autoHealInflight.delete(key);
+        }
     }
 
-    const norm = (s: string) => s.trim().toLowerCase();
+    // Filter forward (orphans hidden). Use the union of initial drafts
+    // and the just-healed ones so a newly-healed draft is included on
+    // this same call.
+    const allDrafts = [...initialDrafts, ...healed];
     const liveRouteNames = new Set(routesAndTracks.routes.map((r) => norm(r.label)));
-
-    return drafts.filter((v) => {
-        // Rule 2: not a passage-plan-shaped name → show.
+    return allDrafts.filter((v) => {
+        // Manually-created drafts (no arrow in name) pass through.
         if (!v.voyage_name.includes('→')) return true;
-        // Rule 1: passage-plan-shaped name → must match a live route.
+        // Passage-plan-shaped drafts must have a matching logbook route.
         return liveRouteNames.has(norm(v.voyage_name));
     });
 }
