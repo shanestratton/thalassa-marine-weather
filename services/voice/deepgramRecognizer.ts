@@ -158,7 +158,22 @@ async function raceTimeout<T>(p: Promise<T>, timeoutMs = CLEANUP_TIMEOUT_MS): Pr
     return Promise.race([p, new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
 }
 
-async function mintDeepgramToken(): Promise<string> {
+/**
+ * Token cache. Pre-warmed on console open via prewarmDeepgram() so the
+ * cold-start path can skip the ~150-300ms token mint round-trip when a
+ * fresh token is already in hand. Tokens come back with `expires_in=30`
+ * (ephemeral path) or no expiry (long-lived fallback); we conservatively
+ * cap the cache at 20s either way to leave headroom for the WS handshake
+ * to complete inside the token's actual TTL.
+ */
+interface TokenCacheEntry {
+    token: string;
+    expiresAt: number;
+}
+let tokenCache: TokenCacheEntry | null = null;
+const TOKEN_CACHE_MAX_AGE_MS = 20_000;
+
+async function fetchDeepgramToken(): Promise<string> {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
         throw new Error('Deepgram token mint unavailable: Supabase credentials missing');
     }
@@ -191,6 +206,46 @@ async function mintDeepgramToken(): Promise<string> {
         throw e;
     } finally {
         clearTimeout(watchdog);
+    }
+}
+
+async function mintDeepgramToken(): Promise<string> {
+    // Cache hit: serve a token that's still inside its conservative
+    // freshness window. On a hit we skip the entire Supabase round-trip,
+    // which on a typical iOS connection saves 150-300ms off cold start.
+    const cached = tokenCache;
+    if (cached && Date.now() < cached.expiresAt) {
+        emitEvent('[DG] token cache hit');
+        return cached.token;
+    }
+    const t0 = Date.now();
+    const token = await fetchDeepgramToken();
+    emitEvent(`[DG] token minted in ${Date.now() - t0}ms`);
+    tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_MAX_AGE_MS };
+    return token;
+}
+
+/**
+ * Pre-warm the Deepgram token cache. Call from the BosunConsole on open
+ * so the very first tap-to-talk skips the token mint round-trip — the
+ * worst single contributor to cold-start latency. Refreshing on every
+ * call is cheap because we only refetch when the cache is stale.
+ *
+ * Resolves to true on successful warm; false on failure (no exception
+ * thrown). The voice console treats both the same — start-time mint
+ * will retry with a clean error path.
+ */
+export async function prewarmDeepgram(): Promise<boolean> {
+    if (tokenCache && Date.now() < tokenCache.expiresAt) return true;
+    try {
+        const t0 = Date.now();
+        const token = await fetchDeepgramToken();
+        tokenCache = { token, expiresAt: Date.now() + TOKEN_CACHE_MAX_AGE_MS };
+        emitEvent(`[DG] prewarm minted token in ${Date.now() - t0}ms`);
+        return true;
+    } catch (err) {
+        emitEvent(`[DG] prewarm failed: ${(err as Error).message}`);
+        return false;
     }
 }
 
@@ -325,17 +380,20 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     let flushRequested = false;
 
     // ── 1. Mint ephemeral token ─────────────────────────────────────
-    emitEvent('[DG] minting token…');
+    emitEvent('[DG] start: minting token…');
     let token: string;
+    const tokenStart = Date.now();
     try {
         token = await mintDeepgramToken();
     } catch (err) {
         emitEvent(`[DG] token mint failed: ${(err as Error).message}`);
         throw err;
     }
+    emitEvent(`[DG] token ready (${Date.now() - tokenStart}ms)`);
 
     // ── 2. Acquire mic stream ───────────────────────────────────────
     emitEvent('[DG] requesting mic…');
+    const micStart = Date.now();
     let stream: MediaStream;
     try {
         stream = await navigator.mediaDevices.getUserMedia({
@@ -350,6 +408,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         emitEvent(`[DG] getUserMedia failed: ${(err as Error).message}`);
         throw new Error(`Microphone access denied: ${(err as Error).message}`);
     }
+    emitEvent(`[DG] mic stream acquired (${Date.now() - micStart}ms)`);
 
     // ── 3. Open AudioContext + load worklet ────────────────────────
     const Ctx =
@@ -375,6 +434,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // iOS WKWebView starts AudioContext suspended. resume() requires a
     // user gesture, but the caller already tapped to invoke us, so we're
     // inside a gesture window.
+    const ctxStart = Date.now();
     if (audioContext.state === 'suspended') {
         try {
             await audioContext.resume();
@@ -384,9 +444,10 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     }
 
     const sampleRate = audioContext.sampleRate;
-    emitEvent(`[DG] audio context @ ${sampleRate}Hz`);
+    emitEvent(`[DG] audio ctx @ ${sampleRate}Hz state=${audioContext.state} (${Date.now() - ctxStart}ms)`);
 
     // Load the inline worklet via Blob URL.
+    const workletStart = Date.now();
     const workletBlob = new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' });
     const workletUrl = URL.createObjectURL(workletBlob);
     try {
@@ -399,6 +460,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         throw new Error(`Failed to load PCM worklet: ${(err as Error).message}`);
     }
     URL.revokeObjectURL(workletUrl);
+    emitEvent(`[DG] worklet loaded (${Date.now() - workletStart}ms)`);
 
     // ── 4. Build WebSocket URL with parameters ─────────────────────
     const params = new URLSearchParams({
@@ -466,9 +528,10 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         setTimeout(() => reject(new Error('Deepgram WebSocket connect timed out (5s)')), 5_000);
     });
 
+    const wsStart = Date.now();
     try {
         await wsOpen;
-        emitEvent('[DG] ws open');
+        emitEvent(`[DG] ws open (${Date.now() - wsStart}ms) — total ${Date.now() - t0}ms`);
     } catch (err) {
         stream.getTracks().forEach((t) => t.stop());
         await audioContext.close().catch(() => {});
@@ -516,7 +579,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         partialCount++;
         if (!firstPartialFired) {
             firstPartialFired = true;
-            emitEvent('[DG] first partial fired — DG is receiving audio');
+            emitEvent(`[DG] first partial in ${Date.now() - t0}ms (audio→partial) — "${transcript.slice(0, 40)}"`);
             opts.onFirstPartial?.();
         }
         opts.onPartial?.(composedTranscript());
@@ -535,6 +598,7 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     // ── 7. Wire mic → worklet → ws ─────────────────────────────────
     let workletNode: AudioWorkletNode | null = null;
     let micSource: MediaStreamAudioSourceNode | null = null;
+    let firstChunkSent = false;
     try {
         micSource = audioContext.createMediaStreamSource(stream);
         workletNode = new AudioWorkletNode(audioContext, 'pcm-processor');
@@ -543,6 +607,10 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
             if (ws.readyState !== WebSocket.OPEN) return;
             try {
                 ws.send(e.data);
+                if (!firstChunkSent) {
+                    firstChunkSent = true;
+                    emitEvent(`[DG] first audio chunk sent (${Date.now() - t0}ms total)`);
+                }
             } catch (err) {
                 // Send can throw if WS is closing. Don't crash — next
                 // iteration will see readyState !== OPEN.
