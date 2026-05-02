@@ -188,6 +188,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             // it renames places), but the *display name* must come from
             // the user's input verbatim. fmtOrigin / fmtDest are already
             // proper-cased by formatLocationInput.
+            console.warn(
+                `[useVoyageForm] override origin/dest — typed:"${fmtOrigin}"/"${fmtDest}" — gemini:"${result.origin}"/"${result.destination}"`,
+            );
             result.origin = fmtOrigin;
             result.destination = fmtDest;
 

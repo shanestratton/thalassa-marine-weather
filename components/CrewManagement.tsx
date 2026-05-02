@@ -252,6 +252,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     }, []);
 
     useEffect(() => {
+        // Wait for auth to land before fetching — fetchRoutesAndTracks
+        // and getDraftVoyages both return [] when supabase has no user.
+        // The auth-check useEffect above runs in parallel, so on first
+        // mount this dropdown loader was firing too early, getting
+        // empty results, and never refreshing. That's why the user saw
+        // "No draft passages yet" even when ship_logs had their saved
+        // routes — it was a race between auth-check and dropdown-load,
+        // and dropdown-load was winning.
+        if (!isAuthed) return;
         void reloadDropdown();
         // Refresh when a passage plan is saved while this page is
         // already mounted — e.g. user saves on the Route Planner and
@@ -266,7 +275,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             return () => window.removeEventListener('thalassa:passage-plan-saved', onSaved);
         }
         return undefined;
-    }, [reloadDropdown]);
+    }, [reloadDropdown, isAuthed]);
 
     // ── Handlers ──
 
