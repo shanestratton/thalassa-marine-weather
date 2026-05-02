@@ -219,7 +219,11 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
             await teardown();
             const trimmed = lastTranscript.trim();
             const durationMs = Date.now() - t0;
-            emitEvent(`[SR] stop() — partials: ${partialCount}, finalChars: ${trimmed.length}, ${durationMs}ms`);
+            // Include the captured text (truncated) in the debug log so
+            // the skipper can see exactly what SR heard — useful for
+            // diagnosing "I said over but the gesture didn't fire" cases.
+            const preview = trimmed.length > 60 ? trimmed.slice(0, 57) + '…' : trimmed;
+            emitEvent(`[SR] stop() — partials: ${partialCount}, ${durationMs}ms, text="${preview || '(empty)'}"`);
             if (trimmed.length < MIN_USABLE_CHARS) {
                 return { text: null, durationMs };
             }
