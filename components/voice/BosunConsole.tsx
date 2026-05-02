@@ -41,13 +41,15 @@ import type { VoiceHistoryTurn, VoiceQueryResponse, VoiceTurn } from '../../type
 
 /**
  * How many prior turns to send for context. Each turn = one user + one
- * assistant message, so 4 turns = 8 messages. Lower than the persisted
- * cap (50) so the UI can show longer history than what we actually pay
- * to send to Haiku. Tuned down from 10 to keep input-token cost
- * predictable; pirate-mode-style instructions still persist within a
- * few turns, but ancient history gets trimmed.
+ * assistant message, so 2 turns = 4 messages. Tuned aggressively down
+ * (was 4, was 10 originally) because each call carries 1.5-3K tokens
+ * of state context + tool definitions + this history slice, which
+ * stacks against per-minute Anthropic rate limits when the skipper
+ * fires several queries in succession. Recent style-instructions still
+ * persist (e.g. "speak like a pirate") within ~2 turns; older context
+ * gets trimmed.
  */
-const HISTORY_TURN_LIMIT = 4;
+const HISTORY_TURN_LIMIT = 2;
 
 /**
  * Detect "over" at the end of an utterance. The skipper can say "over"
@@ -91,8 +93,17 @@ function buildHistory(turns: VoiceTurn[]): VoiceHistoryTurn[] {
     const out: VoiceHistoryTurn[] = [];
     for (const t of recent) {
         const userText = (t.transcript || '').trim();
-        const asstText = (t.response.answer_text || '').trim();
-        if (!userText || !asstText) continue;
+        const asstTextRaw = (t.response.answer_text || '').trim();
+        if (!userText || !asstTextRaw) continue;
+        // Identity-bias fix: persisted history may contain pre-rename
+        // assistant turns where she introduced herself as "Bosun". When
+        // those get sent back as history, the model picks up the old
+        // identity and re-asserts it ("I'm Bosun") even though the
+        // current system prompt says Calypso. Replace on the wire so
+        // the conversation thread is consistent. Captain's user-text
+        // is left alone — they may have legitimately referred to her
+        // as Bosun and we don't rewrite their words.
+        const asstText = asstTextRaw.replace(/\bBosun\b/g, 'Calypso');
         out.push({ role: 'user', text: userText });
         out.push({ role: 'assistant', text: asstText });
     }
@@ -145,6 +156,16 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      * vessel; in that case the console runs local-only as before.
      */
     const syncHandleRef = useRef<ConversationSyncHandle | null>(null);
+
+    /**
+     * Promise that resolves when SR fires its first partial event for
+     * the current recording cycle. Used by the tap-to-stop branch to
+     * wait briefly on cold-start cycles — gives the live OVER gesture
+     * a chance to catch a slow-arriving partial before we tear the
+     * recognizer down. Set fresh on each SR start; resolved by the
+     * onFirstPartial callback.
+     */
+    const firstPartialPromiseRef = useRef<{ promise: Promise<void>; resolve: () => void } | null>(null);
     const [typedQuery, setTypedQuery] = useState('');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [activeTarget, setActiveTarget] = useState<'bosun' | 'cloud' | null>(null);
@@ -666,6 +687,18 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 const useSR = which === 'cloud' && srStatus === 'available';
                 let srStarted = false;
                 if (useSR) {
+                    // Fresh first-partial promise for THIS cycle. Resolved
+                    // by onFirstPartial below; awaited (with timeout) by
+                    // the tap-to-stop branch so cold-start cycles get a
+                    // chance to fire OVER before we tear SR down.
+                    let resolveFirstPartial: () => void = () => {};
+                    const firstPartialPromise = new Promise<void>((resolve) => {
+                        resolveFirstPartial = resolve;
+                    });
+                    firstPartialPromiseRef.current = {
+                        promise: firstPartialPromise,
+                        resolve: resolveFirstPartial,
+                    };
                     try {
                         const srHandle = await startSpeechRecognition({
                             onPartial: (text) => {
@@ -681,7 +714,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                                     void handleOverGesture(cleaned, which);
                                 }
                             },
-                            onFirstPartial: () => setSrActive(true),
+                            onFirstPartial: () => {
+                                setSrActive(true);
+                                // Unblock any tap-to-stop grace period waiting on
+                                // the first partial. Only resolves once per cycle.
+                                firstPartialPromiseRef.current?.resolve();
+                            },
                         });
                         speechRecognizerRef.current = srHandle;
                         srStarted = true;
@@ -717,6 +755,24 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 if ((!handle && !srHandle) || activeTarget !== which) {
                     setOneButton(which, 'idle');
                     return;
+                }
+                // Cold-start grace period: when SR is the active path AND
+                // hasn't fired any partial yet, give it up to 250ms before
+                // tearing down. Apple SR's first partial after app launch
+                // can arrive 200-400ms slower than warmed-up cycles; without
+                // this wait, an utterance ending in "over" gets through to
+                // a manual tap before the live OVER gesture catches it.
+                // Skips entirely on warm cycles (srActive === true) so
+                // no perceptible latency once SR is hot.
+                if (srHandle && !srActive && firstPartialPromiseRef.current) {
+                    await Promise.race([
+                        firstPartialPromiseRef.current.promise,
+                        new Promise<void>((resolve) => setTimeout(resolve, 250)),
+                    ]);
+                    // The OVER gesture fires synchronously inside onPartial
+                    // and clears speechRecognizerRef. If that happened
+                    // during the grace, refs are gone — bail out cleanly.
+                    if (!speechRecognizerRef.current) return;
                 }
                 recorderRef.current = null;
                 speechRecognizerRef.current = null;
@@ -774,7 +830,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             }
             // sending / awaiting: ignore.
         },
-        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio, unlockAudio, handleOverGesture],
+        [buttonState, activeTarget, sendVoiceQuery, setOneButton, stopAudio, unlockAudio, handleOverGesture, srActive],
     );
 
     const handleTypedSubmit = useCallback(
