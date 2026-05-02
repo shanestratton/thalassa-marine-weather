@@ -198,59 +198,75 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // insensitive) get merged in so we already have a UUID for them
     // when the user selects (no creation roundtrip). New routes get a
     // UUID on first select via the on-select handler.
-    useEffect(() => {
-        import('../services/VoyageService').then(({ getCachedActiveVoyage }) => {
+    const reloadDropdown = useCallback(async () => {
+        try {
+            const { getCachedActiveVoyage } = await import('../services/VoyageService');
             const v = getCachedActiveVoyage();
             if (v) setActiveVoyageName(v.voyage_name);
-        });
-        Promise.all([
-            // Force-refresh so a stale 60s RoutesAndTracks cache can't
-            // miss a just-saved route or include a just-deleted one.
-            fetchRoutesAndTracks(true),
-            getDraftVoyages(),
-        ]).then(([routesAndTracks, allDrafts]) => {
-            const norm = (s: string) => s.trim().toLowerCase();
-            const draftByName = new Map(allDrafts.map((d) => [norm(d.voyage_name), d] as const));
+        } catch {
+            /* non-critical */
+        }
+        // Force-refresh so a stale 60s RoutesAndTracks cache can't
+        // miss a just-saved route or include a just-deleted one.
+        const [routesAndTracks, allDrafts] = await Promise.all([fetchRoutesAndTracks(true), getDraftVoyages()]);
+        const norm = (s: string) => s.trim().toLowerCase();
+        const draftByName = new Map(allDrafts.map((d) => [norm(d.voyage_name), d] as const));
 
-            // For each logbook route, surface a Voyage-shaped row. If a
-            // matching draft already exists, use it (we have its real
-            // UUID). Otherwise stub one out — the on-select handler
-            // creates the actual voyages-table row when the user picks
-            // it, so we don't pollute the table with rows for routes
-            // the user never actually picks.
-            const rows: Voyage[] = routesAndTracks.routes.map((r) => {
-                const matched = draftByName.get(norm(r.label));
-                if (matched) return matched;
-                const [depPart, arrPart] = r.label.split(' → ');
-                // Stub voyage — id starts with "logbook:" so the on-
-                // select handler knows to find-or-create a real row
-                // before calling setActivePassage.
-                return {
-                    id: `logbook:${r.id}`,
-                    user_id: '',
-                    vessel_id: null,
-                    voyage_name: r.label,
-                    departure_port: (depPart ?? '').trim() || null,
-                    destination_port: (arrPart ?? '').trim() || null,
-                    departure_time: null,
-                    eta: null,
-                    crew_count: 1,
-                    status: 'planning',
-                    weather_master_id: null,
-                    notes: null,
-                    created_at: new Date(r.timestamp).toISOString(),
-                    updated_at: new Date(r.timestamp).toISOString(),
-                };
-            });
-
-            setDraftVoyages(rows);
-            const activeId = getActivePassageId();
-            if (activeId) {
-                const v = rows.find((d) => d.id === activeId);
-                if (v?.departure_time) setPlanDeparture(v.departure_time.slice(0, 16));
-            }
+        // For each logbook route, surface a Voyage-shaped row. If a
+        // matching draft already exists, use it (we have its real
+        // UUID). Otherwise stub one out — the on-select handler
+        // creates the actual voyages-table row when the user picks
+        // it, so we don't pollute the table with rows for routes
+        // the user never actually picks.
+        const rows: Voyage[] = routesAndTracks.routes.map((r) => {
+            const matched = draftByName.get(norm(r.label));
+            if (matched) return matched;
+            const [depPart, arrPart] = r.label.split(' → ');
+            // Stub voyage — id starts with "logbook:" so the on-
+            // select handler knows to find-or-create a real row
+            // before calling setActivePassage.
+            return {
+                id: `logbook:${r.id}`,
+                user_id: '',
+                vessel_id: null,
+                voyage_name: r.label,
+                departure_port: (depPart ?? '').trim() || null,
+                destination_port: (arrPart ?? '').trim() || null,
+                departure_time: null,
+                eta: null,
+                crew_count: 1,
+                status: 'planning',
+                weather_master_id: null,
+                notes: null,
+                created_at: new Date(r.timestamp).toISOString(),
+                updated_at: new Date(r.timestamp).toISOString(),
+            };
         });
+
+        setDraftVoyages(rows);
+        const activeId = getActivePassageId();
+        if (activeId) {
+            const vMatch = rows.find((d) => d.id === activeId);
+            if (vMatch?.departure_time) setPlanDeparture(vMatch.departure_time.slice(0, 16));
+        }
     }, []);
+
+    useEffect(() => {
+        void reloadDropdown();
+        // Refresh when a passage plan is saved while this page is
+        // already mounted — e.g. user saves on the Route Planner and
+        // navigates straight here without unmounting. Without this,
+        // the new route doesn't appear in the dropdown until the
+        // component fully remounts.
+        const onSaved = () => {
+            void reloadDropdown();
+        };
+        if (typeof window !== 'undefined') {
+            window.addEventListener('thalassa:passage-plan-saved', onSaved);
+            return () => window.removeEventListener('thalassa:passage-plan-saved', onSaved);
+        }
+        return undefined;
+    }, [reloadDropdown]);
 
     // ── Handlers ──
 

@@ -176,6 +176,21 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 userLocation,
             );
 
+            // ── Preserve the user's typed origin/destination names ──
+            // Gemini sometimes rewrites these — e.g. "Newport QLD" becomes
+            // "QLD" (truncated) or "Port Moselle NC" becomes "South
+            // Province" (the administrative region of Nouméa). The
+            // downstream "Country Qualifier" then appends ", Australia"
+            // or ", New Caledonia" to those, so the user sees their
+            // saved logbook entry as "QLD → South Province" instead of
+            // "Newport QLD → Port Moselle NC". The geocoded coordinates
+            // are still correct (Gemini understands geography even when
+            // it renames places), but the *display name* must come from
+            // the user's input verbatim. fmtOrigin / fmtDest are already
+            // proper-cased by formatLocationInput.
+            result.origin = fmtOrigin;
+            result.destination = fmtDest;
+
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveIfActive(result);
             setLoading(false);
