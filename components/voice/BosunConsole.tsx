@@ -149,6 +149,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             audioRef.current.preload = 'auto';
         }
         const audio = audioRef.current;
+        // CRITICAL: clear stale onended/onerror from the previous response.
+        // Without this, the silent unlock WAV's 'ended' event fires the
+        // OLD closure (e.g. setOneButton('cloud', 'idle') from cycle 1)
+        // which then clobbers the 'recording' state we're about to set —
+        // observed as "tap → tap to send → straight back to tap to talk".
+        audio.onended = null;
+        audio.onerror = null;
+
         // Tiny silent WAV (44-byte RIFF header, no samples) — just enough
         // to satisfy iOS that this Audio element is in a "playing" lineage.
         const silentWav = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';
