@@ -509,30 +509,27 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     }
 
     // ── 5. Connect WebSocket ────────────────────────────────────────
-    // Two auth strategies, tried in order:
-    //   1. Sec-WebSocket-Protocol: ['token', '<jwt>']
-    //      Standard Deepgram browser-side auth. Per their docs.
-    //   2. Query parameter: &access_token=<jwt>  (fallback)
-    //      Some WebSocket implementations (older iOS WKWebView) don't
-    //      negotiate the subprotocol cleanly with multi-element arrays;
-    //      the server-side handshake fails and we get "error before
-    //      OPEN" with no close code. Falling back to URL-param auth
-    //      sidesteps the subprotocol entirely.
-    const baseWsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+    // Single auth path: Sec-WebSocket-Protocol: ['token', <api_key>].
+    //
+    // The natural design here would be to use Deepgram's auth-grant
+    // ephemeral JWTs and the 'bearer' subprotocol. We tried that first.
+    // The JWTs are ~485 chars long, and iOS WKWebView's WebSocket
+    // implementation can't pass subprotocol values that long through
+    // its handshake — the WS dies with code=1006 reason="ws error"
+    // before Deepgram even sees the upgrade. The edge function
+    // (deepgram-token) now skips the grant and returns the long-lived
+    // API key (40 hex chars), which fits comfortably into the
+    // subprotocol value field.
+    //
+    // The 'token' subprotocol is the documented Deepgram pattern for
+    // long-lived API keys; the JS SDK uses the same shape internally.
+    const wsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
 
-    async function tryConnect(strategy: 'subprotocol-bearer' | 'urlparam'): Promise<WebSocket> {
-        const url = strategy === 'urlparam' ? `${baseWsUrl}&access_token=${encodeURIComponent(token)}` : baseWsUrl;
+    async function tryConnect(strategy: 'subprotocol-token'): Promise<WebSocket> {
         const stratStart = Date.now();
         let s: WebSocket;
         try {
-            // Deepgram subprotocol: 'bearer' is REQUIRED for JWT
-            // access tokens minted via /v1/auth/grant. Naively using
-            // 'token' (the long-lived-API-key subprotocol) gets you
-            // HTTP 401 INVALID_AUTH on the WS upgrade — confirmed
-            // empirically against Deepgram's server. 'bearer' also
-            // works for raw API keys, so it's the correct universal
-            // choice when the client treats the token opaquely.
-            s = strategy === 'subprotocol-bearer' ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
+            s = new WebSocket(wsUrl, ['token', token]);
             s.binaryType = 'arraybuffer';
         } catch (err) {
             emitEvent(`[DG] ws ctor (${strategy}) threw: ${(err as Error).message}`);
@@ -602,18 +599,12 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     let ws: WebSocket;
     const wsStart = Date.now();
     try {
-        ws = await tryConnect('subprotocol-bearer');
-    } catch (subErr) {
-        emitEvent(`[DG] subprotocol-bearer failed → trying URL-param auth: ${(subErr as Error).message}`);
-        try {
-            ws = await tryConnect('urlparam');
-        } catch (urlErr) {
-            stream.getTracks().forEach((t) => t.stop());
-            await audioContext.close().catch(() => {});
-            const finalMsg = `${(subErr as Error).message} | fallback: ${(urlErr as Error).message}`;
-            emitEvent(`[DG] both ws strategies failed: ${finalMsg}`);
-            throw new Error(`Deepgram WebSocket failed: ${finalMsg}`);
-        }
+        ws = await tryConnect('subprotocol-token');
+    } catch (err) {
+        stream.getTracks().forEach((t) => t.stop());
+        await audioContext.close().catch(() => {});
+        emitEvent(`[DG] ws failed: ${(err as Error).message}`);
+        throw new Error(`Deepgram WebSocket failed: ${(err as Error).message}`);
     }
     emitEvent(`[DG] ws open total ${Date.now() - wsStart}ms (full cold-start ${Date.now() - t0}ms)`);
 

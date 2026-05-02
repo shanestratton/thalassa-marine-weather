@@ -111,27 +111,29 @@ Deno.serve(async (req: Request) => {
         });
     }
 
-    // Try the ephemeral-token path first. If the key doesn't have grant
-    // scope, fall back to returning the long-lived key directly.
-    const granted = await tryGrantToken(apiKey);
-    if (granted) {
-        console.log(`[deepgram-token] minted ephemeral token (expires_in=${granted.expires_in}s)`);
-        return new Response(
-            JSON.stringify({
-                access_token: granted.token,
-                expires_in: granted.expires_in,
-                kind: 'ephemeral',
-            }),
-            { headers: { ...CORS, 'Content-Type': 'application/json' } },
-        );
-    }
-
-    console.log('[deepgram-token] grant unavailable — returning long-lived key');
+    // We deliberately SKIP /v1/auth/grant on this hot path and return
+    // the long-lived API key directly. Reason: the JWTs that grant
+    // returns are ~485 characters long, which iOS WKWebView's WebSocket
+    // implementation cannot pass through the Sec-WebSocket-Protocol
+    // header reliably. Symptom: WS connects briefly then closes with
+    // code=1006 reason="ws error", before any auth check even runs.
+    // Long-lived API keys are 40 hex chars — well within any subprotocol
+    // value length limits — and Deepgram accepts them via the same
+    // bearer/token subprotocol the client already uses.
+    //
+    // Threat model: the long-lived key crosses the wire over an
+    // authenticated, TLS-protected fetch from the iOS app per session.
+    // Same blast radius as anthropic-proxy's pattern. Operational
+    // mitigation is the spending cap on the Deepgram dashboard.
+    //
+    // To revert to ephemeral tokens once iOS WebKit fixes its
+    // subprotocol-length quirk, re-enable the tryGrantToken() call
+    // above; the function declaration is preserved.
+    void tryGrantToken; // intentionally unused — see comment above
+    console.log('[deepgram-token] returning long-lived key (iOS WS subprotocol-length quirk)');
     return new Response(
         JSON.stringify({
             access_token: apiKey,
-            // No expiry — long-lived key. Client treats this as opaque
-            // token regardless; the `kind` field is informational only.
             kind: 'long-lived',
         }),
         { headers: { ...CORS, 'Content-Type': 'application/json' } },
