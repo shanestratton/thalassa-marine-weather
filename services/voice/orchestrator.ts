@@ -30,7 +30,14 @@
 import type { ThalassaContext, VoiceHistoryTurn } from '../../types/voice';
 import { runThalassaWeather } from './cloudTools';
 import { executePiTool, isBosunWebReachable, isPiToolName } from './piTools';
-import { playMusicByQuery } from './integrations/appleMusic';
+import {
+    nowPlaying as appleMusicNowPlaying,
+    pauseMusic,
+    playMusicByQuery,
+    resumeMusic,
+    skipNext,
+    skipPrevious,
+} from './integrations/appleMusic';
 import { draftEmail, inboxSummary, readEmail, searchEmails, sendDraft } from './integrations/gmail';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
@@ -151,18 +158,51 @@ const APPLE_MUSIC_TOOLS: ToolDef[] = [
     {
         name: 'play_music',
         description:
-            'Play music in Apple Music. Hands off to the Apple Music app on iOS — searches the catalog and starts playback for the most relevant match. Use for "play X by Y", "queue up Z", "play me some [genre]". Reply briefly afterward — you cannot read back what is currently playing once the app takes over (no live now-playing API in this version). If asked what is playing or to skip/pause, say plainly: "I can launch tracks but cannot read current playback or control playback once Apple Music takes over — skip from the lock screen or CarPlay."',
+            'Play music. Tries the skipper\'s Apple Music library first (most plays land here); if nothing matches, hands off to the Apple Music app for catalog search. Use for "play X by Y", "queue up Z", "play me some [genre]". The result tells you whether playback came from the library (full now-playing read-back available via now_playing) or the catalog (hand-off only — you can still narrate the original query but cannot inspect what plays).',
         input_schema: {
             type: 'object',
             properties: {
                 query: {
                     type: 'string',
                     description:
-                        'Free-form search query. Apple Music will pick the best match (track, album, artist, playlist). Examples: "Pink Floyd Dark Side", "Jimmy Buffett radio", "passage soundtrack chill", "Hotel California Eagles".',
+                        'Free-form search query. Library search resolves to artist / album / playlist / song in priority order. Examples: "Pink Floyd Dark Side", "Jimmy Buffett radio", "passage soundtrack chill", "Hotel California Eagles".',
+                },
+                kind: {
+                    type: 'string',
+                    enum: ['auto', 'artist', 'album', 'playlist', 'song'],
+                    description:
+                        'Disambiguation hint. "auto" tries each kind in priority order (artist > album > playlist > song). Use a specific kind only when the skipper says it — "play the playlist passage" → "playlist", "play the album Dark Side" → "album". Default "auto".',
                 },
             },
             required: ['query'],
         },
+    },
+    {
+        name: 'pause_music',
+        description: 'Pause the current Apple Music playback. No-op if nothing is playing.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'resume_music',
+        description: 'Resume Apple Music playback after a pause. No-op if nothing is queued.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'skip_track',
+        description: 'Skip to the next track in the current Apple Music queue.',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'previous_track',
+        description:
+            'Go back to the previous track in the current Apple Music queue (or restart the current track from the beginning if very early in playback — Apple Music decides).',
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'now_playing',
+        description:
+            'Read what is currently playing in Apple Music. Returns title, artist, album, position, duration, and play/pause state. Returns empty fields when nothing is queued — narrate that plainly ("nothing\'s playing on Apple Music right now"). For library plays this is reliable; if play_music returned source="catalog", now_playing might still report empty because the Apple Music app handled the play directly.',
+        input_schema: { type: 'object', properties: {}, required: [] },
     },
 ];
 
@@ -319,7 +359,7 @@ A snapshot of what the skipper currently sees in the Thalassa app — selected l
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
 
 The skipper may also have enabled Apple Music and/or Gmail integrations from Settings. When those tools are in your registry:
-- **Apple Music** (\`play_music\`): play / queue tracks via the iPhone's Apple Music app. You CANNOT read back what's currently playing once the app takes over — say so plainly if asked.
+- **Apple Music** (\`play_music\`, \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\`): native library control + playback state. \`play_music\` tries the skipper's library first (artist → album → playlist → song priority); when it matches in library you can call \`now_playing\` to read back title/artist/album/position. If \`play_music\` returns source=catalog, the song wasn't in library and the Apple Music app handled the hand-off — you can't introspect that playback. Pause / resume / skip / previous all work for library plays. Be natural ("now playing 'Wish You Were Here' by Pink Floyd, two minutes in") — don't recite the raw seconds.
 - **Gmail** (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`): read inbox, draft + send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts folder); sending is not. Any ambiguity → ask, don't act.
 
 ## VESSEL PROFILE (static, always true)
@@ -697,8 +737,18 @@ async function dispatchTool(
     }
     // ── Calypso integration tools ──────────────────────────────────
     if (name === 'play_music') {
-        return playMusicByQuery(typeof input.query === 'string' ? input.query : '');
+        const q = typeof input.query === 'string' ? input.query : '';
+        const k =
+            typeof input.kind === 'string' && ['auto', 'artist', 'album', 'playlist', 'song'].includes(input.kind)
+                ? (input.kind as 'auto' | 'artist' | 'album' | 'playlist' | 'song')
+                : 'auto';
+        return playMusicByQuery(q, k);
     }
+    if (name === 'pause_music') return pauseMusic();
+    if (name === 'resume_music') return resumeMusic();
+    if (name === 'skip_track') return skipNext();
+    if (name === 'previous_track') return skipPrevious();
+    if (name === 'now_playing') return appleMusicNowPlaying();
     if (name === 'search_emails') {
         const q = typeof input.query === 'string' ? input.query : '';
         const max = typeof input.max === 'number' ? input.max : 10;

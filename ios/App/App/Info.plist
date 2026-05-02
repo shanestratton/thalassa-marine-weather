@@ -16,6 +16,8 @@
 	<string>Thalassa uses speech recognition to transcribe your spoken questions to the Bosun voice console — letting you ask the boat about weather, systems, and live state without typing.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Thalassa uses the camera to scan barcodes on inventory items and spare parts for quick identification and stock management.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Thalassa uses Apple Music to let Calypso, your AI first mate, search your music library and control playback by voice — "play me Pink Floyd", "skip this track", "what's playing?". Library access is read-only; Calypso never modifies your library.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
