@@ -420,18 +420,44 @@ async function postAnthropic(body: object): Promise<AnthropicResponse> {
         result = await postAnthropicAttempt(body);
     }
     if (result.kind === 'ok') return result.response;
-    // Friendlier message for 429 — most skippers hitting this are
-    // saturating per-minute ITPM after rapid testing, not a real
-    // billing problem. Tell them what's actually happening rather
-    // than dump the raw upstream JSON.
+    // Friendly, source-specific error messages so the skipper knows
+    // exactly which provider is the bottleneck without parsing JSON.
+    // The raw `result.message` is the body text Anthropic returned;
+    // we sniff for known error shapes and rewrite.
+    const lcMessage = (result.message || '').toLowerCase();
     if (result.status === 429) {
-        throw new Error("Calypso's hit Anthropic's rate limit — wait about 30 seconds and try again.");
+        throw new Error('Anthropic rate limit — too many requests in a short window. Wait 30 seconds and try again.');
+    }
+    if (lcMessage.includes('quota') || lcMessage.includes('credit balance') || lcMessage.includes('billing')) {
+        throw new Error(
+            "Anthropic monthly quota exhausted on this account — top up at https://console.anthropic.com/settings/billing or wait until next month's reset.",
+        );
+    }
+    if (lcMessage.includes('overloaded')) {
+        throw new Error('Anthropic is currently overloaded — try again in a moment.');
+    }
+    if (result.status === 401 || result.status === 403) {
+        throw new Error('Anthropic auth failed — the API key on the server is invalid or revoked.');
     }
     const statusBit = result.status > 0 ? `${result.status}` : 'transport';
-    throw new Error(`Anthropic proxy ${statusBit}: ${result.message}`);
+    throw new Error(`Anthropic proxy ${statusBit}: ${result.message.slice(0, 120)}`);
 }
 
 // ── TTS helper ─────────────────────────────────────────────────
+
+/**
+ * Last-known ElevenLabs failure surfaced to the BosunConsole. We don't
+ * THROW from synthesiseSpeech because the answer text is still useful
+ * even with no audio — but the console wants to be able to surface
+ * "TTS quota exhausted" as a transient toast rather than just showing
+ * a silent answer with no replay button.
+ */
+let lastTtsErrorMessage: string | null = null;
+export function consumeLastTtsError(): string | null {
+    const v = lastTtsErrorMessage;
+    lastTtsErrorMessage = null;
+    return v;
+}
 
 export async function synthesiseSpeech(text: string): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
@@ -449,10 +475,28 @@ export async function synthesiseSpeech(text: string): Promise<string | null> {
             body: JSON.stringify({ text }),
             signal: ctrl.signal,
         });
-        if (!r.ok) return null;
+        if (!r.ok) {
+            // Capture quota / billing errors so the console can surface
+            // a real toast instead of silently returning text-only.
+            const body = await r.text().catch(() => '');
+            const lc = body.toLowerCase();
+            if (lc.includes('quota') || lc.includes('credit')) {
+                lastTtsErrorMessage =
+                    'ElevenLabs TTS quota exhausted — Calypso will reply in text only. Top up at https://elevenlabs.io/account/billing.';
+            } else if (r.status === 401 || r.status === 403) {
+                lastTtsErrorMessage = 'ElevenLabs auth failed — Calypso replies will be text only.';
+            } else {
+                lastTtsErrorMessage = `ElevenLabs TTS failed (${r.status}) — Calypso replies will be text only this turn.`;
+            }
+            return null;
+        }
         const data = (await r.json()) as { audio_b64?: string };
         return data.audio_b64 ?? null;
-    } catch {
+    } catch (err) {
+        const e = err as Error;
+        if (e.name !== 'AbortError') {
+            lastTtsErrorMessage = `ElevenLabs TTS unreachable — text-only this turn.`;
+        }
         return null;
     } finally {
         clearTimeout(watchdog);
