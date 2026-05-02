@@ -59,7 +59,28 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
 
+    // ── Reset on every mount ──
+    // Each visit starts fresh — wipes any leftover voyagePlan from a
+    // previous session AND bumps the session id so any in-flight
+    // enhancement-pipeline `saveVoyagePlan` calls from before are
+    // dropped (see useVoyageForm's saveIfActive). This is the fix for
+    // "open RoutePlanner and see half the previous route in the map
+    // pane" — that was the background pipeline writing back to
+    // WeatherContext after the user had already navigated away.
+    //
+    // Mount-only (deps `[]`) is intentional: re-running on every render
+    // would wipe what the user just typed.
+    useEffect(() => {
+        clearVoyagePlan();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // ── Auto-Navigate to Main Map when route completes ──
+    // Note: we no longer clearVoyagePlan() inside this effect after
+    // navigation. Letting the WeatherContext voyagePlan stay populated
+    // means the background enhancement pipeline can keep refining the
+    // route the user is now viewing on MapHub. The mount-reset effect
+    // above wipes it next time the user comes back to RoutePlanner.
     const prevVoyagePlanRef = useRef(voyagePlan);
     useEffect(() => {
         // Only fire when voyagePlan transitions from null → populated
@@ -83,12 +104,10 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
             setPage('map');
             setTimeout(() => {
                 window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
-                // Clear so CTA is visible when user navigates back
-                clearVoyagePlan();
             }, 300);
         }
         prevVoyagePlanRef.current = voyagePlan;
-    }, [voyagePlan, origin, destination, setPage, clearVoyagePlan]);
+    }, [voyagePlan, origin, destination, setPage]);
     return (
         <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
             <PageHeader title="Route Planner" onBack={onBack} />
