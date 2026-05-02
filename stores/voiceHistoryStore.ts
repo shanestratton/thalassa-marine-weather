@@ -32,6 +32,14 @@ const MAX_PERSISTED_TURNS = 50;
 interface VoiceHistoryState {
     turns: VoiceTurn[];
     addTurn: (turn: VoiceTurn) => void;
+    /**
+     * Insert a remote turn (from a crewmate via conversationSync) sorted
+     * by timestamp. De-dupes by id — if the same turn already exists
+     * (because we authored it locally and then Realtime echoed it back)
+     * the call is a no-op. Used by the voice console's Realtime
+     * subscription handler.
+     */
+    upsertTurnSorted: (turn: VoiceTurn) => void;
     clearHistory: () => void;
 }
 
@@ -41,7 +49,23 @@ export const useVoiceHistoryStore = create<VoiceHistoryState>()(
             turns: [],
             addTurn: (turn) =>
                 set((state) => {
+                    // Dedupe local-write echoes too: if a turn with this
+                    // id already exists, leave the existing one alone.
+                    if (state.turns.some((t) => t.id === turn.id)) return state;
                     const next = [...state.turns, turn];
+                    return { turns: next.slice(-MAX_PERSISTED_TURNS) };
+                }),
+            upsertTurnSorted: (turn) =>
+                set((state) => {
+                    if (state.turns.some((t) => t.id === turn.id)) return state;
+                    // Find insert position by timestamp. Most remote turns
+                    // arrive at the end, but a crewmate's older turn could
+                    // race — putting them in chronological order keeps the
+                    // conversation log readable.
+                    const next = [...state.turns];
+                    let i = next.length - 1;
+                    while (i >= 0 && next[i].timestamp > turn.timestamp) i--;
+                    next.splice(i + 1, 0, turn);
                     return { turns: next.slice(-MAX_PERSISTED_TURNS) };
                 }),
             clearHistory: () => set({ turns: [] }),

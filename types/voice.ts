@@ -124,4 +124,17 @@ export interface VoiceTurn {
     timestamp: number;
     transcript: string;
     response: VoiceQueryResponse;
+    /**
+     * The user_id of the crewmate who originated this turn. Set on
+     * remote turns received via conversationSync; null/undefined for
+     * turns this skipper authored locally before sync was wired
+     * (legacy persisted turns).
+     */
+    userId?: string;
+    /**
+     * Display name shown in the conversation log for speaker
+     * attribution ("Shane: …", "Marta: …"). Set on remote turns;
+     * null/undefined means "this skipper" — UI omits attribution.
+     */
+    userName?: string;
 }
