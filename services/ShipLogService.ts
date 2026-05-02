@@ -19,7 +19,6 @@
  * - Works with screen locked, app backgrounded, or terminated
  */
 
-import { Preferences } from '@capacitor/preferences';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from './supabase';
@@ -53,6 +52,17 @@ import {
 } from './shiplog/helpers';
 import { GpsTrackBuffer, thinTrack, bearing, headingDelta, haversineMeters } from './shiplog/GpsTrackBuffer';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
+import {
+    loadTrackingState,
+    saveTrackingState as _saveTrackingState,
+    getLastPosition as _getLastPosition,
+    saveLastPosition as _saveLastPosition,
+    clearVoyageState as _clearVoyageState,
+    type TrackingState,
+    type StoredPosition,
+} from './shiplog/TrackingStateStore';
+import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
+import { EnvironmentPoller } from './shiplog/EnvironmentPoller';
 import {
     queueOfflineEntry as _queueOfflineEntry,
     syncOfflineQueue as _syncOfflineQueue,
@@ -98,38 +108,8 @@ const MAX_PLAUSIBLE_SPEED_KTS = 25;
 // Even a fast cat going from 0 to hull speed takes tens of seconds, not one GPS fix.
 const MAX_ACCELERATION_KTS = 8; // Max knot increase per fix interval
 
-// --- STORAGE KEYS ---
-const TRACKING_STATE_KEY = 'ship_log_tracking_state';
-const LAST_POSITION_KEY = 'ship_log_last_position';
-const VOYAGE_START_KEY = 'ship_log_voyage_start';
-
-// --- INTERFACES ---
-
-interface TrackingState {
-    isTracking: boolean;
-    isPaused: boolean;
-    isRapidMode: boolean;
-    currentVoyageId?: string;
-    voyageStartTime?: string;
-    voyageEndTime?: string;
-    lastMovementTime?: string;
-    lastEntryTime?: string;
-    loggingZone?: LoggingZone;
-    currentIntervalMs?: number;
-    /** Timestamp of the last position-check (whether saved or deduped) */
-    lastCheckTime?: number;
-    /** True if the last position-check was deduped (vessel hasn't moved) */
-    lastCheckDeduped?: boolean;
-}
-
-interface StoredPosition {
-    latitude: number;
-    longitude: number;
-    timestamp: string;
-    cumulativeDistanceNM: number;
-    /** Last recorded speed — used for acceleration-based spike filtering */
-    speedKts?: number;
-}
+// Storage keys + interfaces moved to ./shiplog/TrackingStateStore.ts.
+// `TrackingState` and `StoredPosition` types are re-imported above.
 
 // Helper functions, DB mapping, weather snapshot, and zone detection
 // are now in ./shiplog/helpers.ts — imported above.
@@ -144,7 +124,7 @@ class ShipLogServiceClass {
     private quarterTimeoutId?: NodeJS.Timeout; // For initial quarter-hour alignment
     private syncIntervalId?: NodeJS.Timeout;
     private rapidModeTimeoutId?: NodeJS.Timeout; // 15-minute auto-disable for rapid mode
-    private envCheckIntervalId?: NodeJS.Timeout; // 60s environment polling (water/land + zone)
+    // (envCheckIntervalId moved into EnvironmentPoller — see this.envPoller below)
     private webWatchId?: number; // navigator.geolocation.watchPosition ID (web only)
     private webHeartbeatId?: NodeJS.Timeout; // 60s setInterval heartbeat (web only)
     private trackingState: TrackingState = { isTracking: false, isPaused: false, isRapidMode: false };
@@ -182,42 +162,13 @@ class ShipLogServiceClass {
     private trackBuffer = new GpsTrackBuffer();
 
     // --- POSITION-BASED COURSE CHANGE DETECTION ---
-    // Uses decoupled position anchor + heading baseline:
-    // lastValidPos: slides forward every tick (creates short recent vector)
-    // baselineHeading: stays locked until a turn ≥22.5° is detected
-    private courseCheckIntervalId?: NodeJS.Timeout;
-    private lastValidPos: { lat: number; lon: number } | null = null;
-    private baselineHeading: number | null = null;
-    private static readonly COURSE_CHECK_INTERVAL_MS = 15_000; // Check every 15 seconds
-    private static readonly COURSE_CHANGE_THRESHOLD_DEG = 22.5; // One compass point
-    // MIN_MOVEMENT_M is now adaptive via GpsPrecision.getAdaptedThresholds()
+    // Implementation lives in ./shiplog/CourseChangeDetector.ts. This
+    // orchestrator just owns the instance and wires the callbacks.
+    private courseDetector = new CourseChangeDetector();
 
-    /**
-     * Convert degrees (0-360) to 16-point compass cardinal.
-     * N, NNE, NE, ENE, E, ESE, SE, SSE, S, SSW, SW, WSW, W, WNW, NW, NNW
-     */
-    private static degreesToCardinal16(deg: number): string {
-        const cardinals = [
-            'N',
-            'NNE',
-            'NE',
-            'ENE',
-            'E',
-            'ESE',
-            'SE',
-            'SSE',
-            'S',
-            'SSW',
-            'SW',
-            'WSW',
-            'W',
-            'WNW',
-            'NW',
-            'NNW',
-        ];
-        const index = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
-        return cardinals[index];
-    }
+    // --- 60s ENVIRONMENT POLLING ---
+    // Implementation lives in ./shiplog/EnvironmentPoller.ts. Same pattern.
+    private envPoller = new EnvironmentPoller();
 
     /**
      * Initialize the ship log service. Sets up GPS listeners, app lifecycle
@@ -226,9 +177,9 @@ class ShipLogServiceClass {
      */
     async initialize(): Promise<void> {
         try {
-            const { value } = await Preferences.get({ key: TRACKING_STATE_KEY });
-            if (value) {
-                this.trackingState = JSON.parse(value);
+            const persisted = await loadTrackingState();
+            if (persisted) {
+                this.trackingState = persisted;
 
                 // STALE STATE DETECTION: If tracking was left on from a previous app session
                 // but no interval is running (intervalId is undefined on cold start),
@@ -343,9 +294,9 @@ class ShipLogServiceClass {
 
     /**
      * Clear logging-interval timers (interval + quarter-hour timeout).
-     * NOTE: Does NOT clear courseCheckIntervalId or envCheckIntervalId —
-     * those have independent lifecycles managed by startCourseChangeDetection()
-     * and startEnvironmentPolling() respectively, and must survive interval rescheduling.
+     * NOTE: Does NOT stop courseDetector or envPoller — those have
+     * independent lifecycles owned by ./shiplog/{CourseChangeDetector,
+     * EnvironmentPoller}.ts and must survive interval rescheduling.
      */
     private clearAllTimers(): void {
         if (this.intervalId) {
@@ -527,9 +478,22 @@ class ShipLogServiceClass {
         });
 
         // Reset position-based bearing tracker for new voyage
-        this.lastValidPos = null;
-        this.baselineHeading = null;
-        this.startCourseChangeDetection();
+        this.courseDetector.reset();
+        this.courseDetector.start({
+            getPos: () => this.lastBgLocation,
+            isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
+            onTurn: ({ oldCardinal, newCardinal }) => {
+                // Fire-and-forget waypoint entry on detected turn.
+                this.captureLogEntry(
+                    'waypoint',
+                    `Auto: COG ${oldCardinal} → ${newCardinal}`,
+                    `COG ${oldCardinal} → ${newCardinal}`,
+                    'navigation',
+                ).catch(() => {
+                    /* best effort */
+                });
+            },
+        });
 
         // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
         // rescheduleAdaptiveInterval() runs after every GPS fix and will refine the
@@ -552,40 +516,17 @@ class ShipLogServiceClass {
         // Checks water/land status and re-evaluates logging zone every minute.
         // This lets GPS interval adapt faster when transitioning environments
         // (e.g. leaving marina → offshore, or driving from land to coast).
-        this.startEnvironmentPolling();
-    }
-
-    /**
-     * Start 60-second environment polling.
-     * Checks water/land status and updates the logging zone adaptively.
-     */
-    private startEnvironmentPolling(): void {
-        // Clear any existing timer
-        if (this.envCheckIntervalId) {
-            clearInterval(this.envCheckIntervalId);
-        }
-
-        this.envCheckIntervalId = setInterval(async () => {
-            if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
-
-            const pos = this.lastBgLocation;
-            if (!pos) return;
-
-            try {
-                // 1. Water/Land check
-                const isWater = await checkIsOnWater(pos.latitude, pos.longitude);
-                // Cache for stamping onto subsequent log entries
+        this.envPoller.start({
+            getPos: () => this.lastBgLocation,
+            isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
+            onWaterStatus: (isWater) => {
+                // Cache for stamping onto subsequent log entries.
                 this.lastWaterStatus = isWater;
-                // Update EnvironmentService for UI consumers
+                // Update EnvironmentService for UI consumers.
                 EnvironmentService.updateWaterStatus(isWater);
-
-                // 2. Re-evaluate logging zone (nearshore/coastal/offshore)
-                await this.rescheduleAdaptiveInterval();
-            } catch (e) {
-                log.warn('[ShipLog]', e);
-                // Best effort — don't crash tracking
-            }
-        }, 60_000); // Every 60 seconds
+            },
+            onZoneRecheck: () => this.rescheduleAdaptiveInterval(),
+        });
     }
 
     /**
@@ -808,92 +749,9 @@ class ShipLogServiceClass {
         }
     }
 
-    /**
-     * Start position-based course change detection.
-     * Every 15 seconds, computes a SHORT recent movement vector and
-     * compares it against a locked baseline heading.
-     *
-     * ALGORITHM (decoupled position anchor + heading baseline):
-     * - lastValidPos: slides forward EVERY tick → creates a short recent vector
-     * - baselineHeading: stays locked until cumulative turn ≥22.5° is detected
-     *
-     * This fixes the old "bearing from origin" bug where long straight legs
-     * diluted the turn signal (e.g. sail 1km N, turn NNE → bearing from
-     * origin barely changes because the 1km leg dominates).
-     */
-    private startCourseChangeDetection(): void {
-        // Clear any existing timer
-        if (this.courseCheckIntervalId) {
-            clearInterval(this.courseCheckIntervalId);
-        }
-
-        this.courseCheckIntervalId = setInterval(() => {
-            if (!this.trackingState.isTracking || this.trackingState.isPaused) return;
-
-            const pos = this.lastBgLocation;
-            if (!pos) return;
-
-            const currentPos = { lat: pos.latitude, lon: pos.longitude };
-
-            // 1. Seed the initial position
-            if (!this.lastValidPos) {
-                this.lastValidPos = currentPos;
-                return;
-            }
-
-            // 2. Distance check — filters GPS jitter when stationary
-            const R = 6371000;
-            const dLat = ((currentPos.lat - this.lastValidPos.lat) * Math.PI) / 180;
-            const dLon = ((currentPos.lon - this.lastValidPos.lon) * Math.PI) / 180;
-            const a =
-                Math.sin(dLat / 2) ** 2 +
-                Math.cos((this.lastValidPos.lat * Math.PI) / 180) *
-                    Math.cos((currentPos.lat * Math.PI) / 180) *
-                    Math.sin(dLon / 2) ** 2;
-            const distM = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-            const minMovement = GpsPrecision.getAdaptedThresholds().courseChangeMinMovementM;
-            if (distM < minMovement) return;
-
-            // 3. Calculate RECENT bearing — short vector from last position to current
-            const recentBearing = bearing(this.lastValidPos.lat, this.lastValidPos.lon, currentPos.lat, currentPos.lon);
-
-            // 4. CRITICAL: Slide position anchor forward EVERY tick.
-            //    This ensures the bearing vector is always SHORT and RECENT,
-            //    not diluted by long straight legs behind us.
-            this.lastValidPos = currentPos;
-
-            // 5. Seed the baseline heading on first valid movement
-            if (this.baselineHeading === null) {
-                this.baselineHeading = recentBearing;
-                return;
-            }
-
-            // 6. Compare recent movement vector against locked baseline
-            const delta = headingDelta(this.baselineHeading, recentBearing);
-
-            if (delta >= ShipLogServiceClass.COURSE_CHANGE_THRESHOLD_DEG) {
-                const oldCardinal = ShipLogServiceClass.degreesToCardinal16(this.baselineHeading);
-                const newCardinal = ShipLogServiceClass.degreesToCardinal16(recentBearing);
-
-                // Reset baseline heading to new direction of travel
-                this.baselineHeading = recentBearing;
-
-                log.info(`Turn detected: ${oldCardinal} → ${newCardinal} (Δ${delta.toFixed(1)}°)`);
-
-                // Fire-and-forget waypoint entry
-                this.captureLogEntry(
-                    'waypoint',
-                    `Auto: COG ${oldCardinal} → ${newCardinal}`,
-                    `COG ${oldCardinal} → ${newCardinal}`,
-                    'navigation',
-                ).catch(() => {
-                    /* best effort */
-                });
-            }
-            // No else — baseline heading stays locked at last committed turn
-        }, ShipLogServiceClass.COURSE_CHECK_INTERVAL_MS);
-    }
+    // startCourseChangeDetection moved to ./shiplog/CourseChangeDetector.ts.
+    // The orchestrator now creates a CourseChangeDetector instance in
+    // startTracking and wires `onTurn` to captureLogEntry('waypoint').
 
     /**
      * Clean up all BgGeoManager subscriptions.
@@ -1018,14 +876,8 @@ class ShipLogServiceClass {
         this.clearAllTimers();
 
         // Stop course change detection + environment polling while paused
-        if (this.courseCheckIntervalId) {
-            clearInterval(this.courseCheckIntervalId);
-            this.courseCheckIntervalId = undefined;
-        }
-        if (this.envCheckIntervalId) {
-            clearInterval(this.envCheckIntervalId);
-            this.envCheckIntervalId = undefined;
-        }
+        this.courseDetector.stop();
+        this.envPoller.stop();
 
         // Clear GPS buffer — no points to log while paused
         this.trackBuffer.clear();
@@ -1068,18 +920,10 @@ class ShipLogServiceClass {
         };
         await this.saveTrackingState();
 
-        // Reset course change detection
-        this.lastValidPos = null;
-        this.baselineHeading = null;
-        if (this.courseCheckIntervalId) {
-            clearInterval(this.courseCheckIntervalId);
-            this.courseCheckIntervalId = undefined;
-        }
-        // Stop environment polling
-        if (this.envCheckIntervalId) {
-            clearInterval(this.envCheckIntervalId);
-            this.envCheckIntervalId = undefined;
-        }
+        // Reset course change detection + stop the timers
+        this.courseDetector.stop();
+        this.courseDetector.reset();
+        this.envPoller.stop();
 
         // Reset precision GPS tracker for next voyage
         GpsPrecision.reset();
@@ -1093,9 +937,8 @@ class ShipLogServiceClass {
         // NOW clean up GPS stream subscriptions (after final entry has GPS)
         this.cleanupGpsSubscriptions();
 
-        // Clear voyage data
-        await Preferences.remove({ key: LAST_POSITION_KEY });
-        await Preferences.remove({ key: VOYAGE_START_KEY });
+        // Clear voyage-scoped persistence (last-position + legacy voyage-start key).
+        await _clearVoyageState();
 
         // Stop Transistorsoft background tracking (ref-counted — only stops if no other consumer)
         if (this.isNative) {
@@ -1815,30 +1658,20 @@ class ShipLogServiceClass {
     }
 
     // --- PRIVATE METHODS ---
+    // Persistence delegates to ./shiplog/TrackingStateStore.ts. Keeping
+    // the private wrappers preserves the orchestrator's call-sites without
+    // having to thread `this.trackingState` through every save call.
 
     private async saveTrackingState(): Promise<void> {
-        await Preferences.set({
-            key: TRACKING_STATE_KEY,
-            value: JSON.stringify(this.trackingState),
-        });
+        await _saveTrackingState(this.trackingState);
     }
 
     private async getLastPosition(): Promise<StoredPosition | null> {
-        try {
-            const { value } = await Preferences.get({ key: LAST_POSITION_KEY });
-            return value ? JSON.parse(value) : null;
-        } catch (e) {
-            log.warn('[ShipLog]', e);
-            /* Preferences read/parse failure — null signals no cached position */
-            return null;
-        }
+        return _getLastPosition();
     }
 
     private async saveLastPosition(position: StoredPosition): Promise<void> {
-        await Preferences.set({
-            key: LAST_POSITION_KEY,
-            value: JSON.stringify(position),
-        });
+        await _saveLastPosition(position);
     }
 
     // --- DELEGATED OFFLINE QUEUE METHODS (implementation in ./shiplog/OfflineQueue.ts) ---
