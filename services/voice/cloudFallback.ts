@@ -11,19 +11,25 @@
  *                         → Haiku w/ tools → answer + audio
  *
  * Both return the same VoiceQueryResponse envelope.
+ *
+ * Transport: native fetch() with AbortController. CapacitorHttp's iOS
+ * implementation silently caps at URLSession's 60s timeoutIntervalForRequest
+ * regardless of the readTimeout option, which surfaced as the
+ * "second-query times out at 60s" bug. The Edge Function returns proper
+ * CORS headers (Access-Control-Allow-Origin: *), so cross-origin fetch
+ * works from the WKWebView origin.
  */
 
-import { CapacitorHttp } from '@capacitor/core';
 import { blobToBase64 } from './audioRecorder';
 import type { VoiceQueryRequest, VoiceQueryResponse } from '../../types/voice';
 
 const SUPABASE_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
 const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
 
-// Cloud Haiku in tool-use mode can chain web_search + thalassa_weather +
-// final synthesis + ElevenLabs TTS. Each tool call adds 1-5s, cold Edge
-// Function startup adds another 5-10s, and Scribe STT can take 1-3s.
-// 90s is a generous ceiling that surfaces real hangs without false-positives.
+// Cloud Haiku in tool-use mode can chain Scribe STT + thalassa_weather +
+// final synthesis + ElevenLabs TTS. Each adds 1-5s; cold Edge Function
+// startup adds another 5-10s. 90s ceiling — surfaces real hangs while
+// allowing for genuinely long queries with tool use.
 const CLOUD_REQUEST_TIMEOUT_MS = 90_000;
 
 export class CloudFallbackError extends Error {
@@ -47,29 +53,55 @@ async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
 
     const url = `${SUPABASE_URL}/functions/v1/proxy-bosun-fallback`;
 
-    let response;
+    // AbortController so we can enforce our timeout JavaScript-side. iOS's
+    // CapacitorHttp ignores readTimeout > 60s, so we use native fetch + abort
+    // with the deadline we actually want.
+    const ctrl = new AbortController();
+    const watchdog = setTimeout(() => ctrl.abort(), CLOUD_REQUEST_TIMEOUT_MS);
+
+    let response: Response;
     try {
-        response = await CapacitorHttp.post({
-            url,
+        response = await fetch(url, {
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${SUPABASE_KEY}`,
                 apikey: SUPABASE_KEY,
             },
-            data: body,
-            connectTimeout: 5_000,
-            readTimeout: CLOUD_REQUEST_TIMEOUT_MS,
+            body: JSON.stringify(body),
+            signal: ctrl.signal,
         });
     } catch (err) {
-        throw new CloudFallbackError(`Cloud fallback request failed: ${(err as Error).message}`);
+        const e = err as Error;
+        if (e.name === 'AbortError') {
+            throw new CloudFallbackError(
+                `Cloud fallback timed out after ${Math.round(CLOUD_REQUEST_TIMEOUT_MS / 1000)}s. ` +
+                    `Try again, or switch to typed input.`,
+            );
+        }
+        throw new CloudFallbackError(`Cloud fallback request failed: ${e.message}`);
+    } finally {
+        clearTimeout(watchdog);
     }
 
-    if (response.status < 200 || response.status >= 300) {
-        const errMsg = (response.data as { error?: string })?.error ?? `Cloud responded with HTTP ${response.status}`;
+    if (!response.ok) {
+        let errMsg = `Cloud responded with HTTP ${response.status}`;
+        try {
+            const errBody = await response.json();
+            if (errBody?.error) errMsg = errBody.error;
+        } catch {
+            /* non-JSON body — keep the status code message */
+        }
         throw new CloudFallbackError(errMsg);
     }
 
-    const data = response.data as Partial<VoiceQueryResponse>;
+    let data: Partial<VoiceQueryResponse>;
+    try {
+        data = await response.json();
+    } catch {
+        throw new CloudFallbackError('Cloud fallback returned a non-JSON response');
+    }
+
     if (!data || typeof data.answer_text !== 'string') {
         throw new CloudFallbackError('Cloud fallback returned an unexpected response shape');
     }

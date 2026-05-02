@@ -31,7 +31,9 @@ const CORS: Record<string, string> = {
 
 const HAIKU_MODEL = 'claude-haiku-4-5';
 const DEFAULT_VOICE_ID = 'Wq15xSaY3gWvazBRaGEU';
-const MAX_TOOL_ITERATIONS = 4;
+// 2 iterations = one tool call + final synthesis. Tighter than 4 to keep
+// total round-trip well under the iOS 90s client timeout.
+const MAX_TOOL_ITERATIONS = 2;
 
 const SYSTEM_PROMPT = `You are Bosun, AI first mate aboard "Serene Summer", a 55-foot Tayana yacht (skippered by Shane Stratton).
 
