@@ -36,11 +36,21 @@ const SUPABASE_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.VIT
 
 const HAIKU_MODEL = 'claude-haiku-4-5';
 /**
- * Cap on tool round-trips per skipper query. 3 leaves headroom for
- * "weather + vessel state + final synthesis" while still surfacing
- * runaway tool loops as an error rather than an infinite spin.
+ * Cap on tool round-trips per skipper query. 2 = "one tool call +
+ * final synthesis". Tightened from 3 because each round-trip is a
+ * separate /v1/messages call, which counts against per-minute rate
+ * limits — 3 messages × 3 iterations = 9 calls and the skipper
+ * starts hitting 429s on Tier 1. With 2 iterations and prompt caching
+ * we should comfortably stay inside any reasonable RPM budget.
  */
-const MAX_TOOL_ITERATIONS = 3;
+const MAX_TOOL_ITERATIONS = 2;
+/**
+ * If the Anthropic proxy returns 429 (rate-limited), wait this long
+ * and try once more. Smooths over transient throttle without the
+ * skipper seeing the error. Beyond one retry we surface the message
+ * so they can see whether it's RPM, ITPM, or spend cap.
+ */
+const RATE_LIMIT_BACKOFF_MS = 1500;
 /**
  * Per Anthropic round-trip ceiling. The proxy enforces 90s upstream;
  * we add JS-side abort on top of fetch for parity with bosunVoice's
@@ -310,9 +320,16 @@ function formatStateBlock(ctx: ThalassaContext, piReachable: boolean): string {
 
 // ── Anthropic POST helper ──────────────────────────────────────
 
-async function postAnthropic(body: object): Promise<AnthropicResponse> {
+/**
+ * Single attempt — used by postAnthropic which adds a one-shot retry on
+ * 429. Returns a discriminated result instead of throwing on rate-limit
+ * so the retry decision lives in one place.
+ */
+async function postAnthropicAttempt(
+    body: object,
+): Promise<{ kind: 'ok'; response: AnthropicResponse } | { kind: 'err'; status: number; message: string }> {
     if (!SUPABASE_URL || !SUPABASE_KEY) {
-        throw new Error('Anthropic proxy not configured (missing Supabase credentials).');
+        return { kind: 'err', status: 0, message: 'Anthropic proxy not configured (missing Supabase credentials).' };
     }
     const url = `${SUPABASE_URL}/functions/v1/anthropic-proxy`;
     const ctrl = new AbortController();
@@ -330,20 +347,37 @@ async function postAnthropic(body: object): Promise<AnthropicResponse> {
         });
         if (!r.ok) {
             const errText = await r.text();
-            throw new Error(`Anthropic proxy ${r.status}: ${errText.slice(0, 300)}`);
+            return { kind: 'err', status: r.status, message: errText.slice(0, 300) };
         }
-        return (await r.json()) as AnthropicResponse;
+        return { kind: 'ok', response: (await r.json()) as AnthropicResponse };
     } catch (err) {
         const e = err as Error;
         if (e.name === 'AbortError') {
-            throw new Error(
-                `Haiku request timed out after ${Math.round(ANTHROPIC_REQUEST_TIMEOUT_MS / 1000)}s. Try again.`,
-            );
+            return {
+                kind: 'err',
+                status: 0,
+                message: `Haiku request timed out after ${Math.round(ANTHROPIC_REQUEST_TIMEOUT_MS / 1000)}s.`,
+            };
         }
-        throw e;
+        return { kind: 'err', status: 0, message: e.message || 'Unknown transport error' };
     } finally {
         clearTimeout(watchdog);
     }
+}
+
+async function postAnthropic(body: object): Promise<AnthropicResponse> {
+    let result = await postAnthropicAttempt(body);
+    // 429 = rate-limited. One quick retry with backoff smooths over
+    // transient throttle. If the second attempt also rate-limits we
+    // surface the actual proxy message so the skipper can see whether
+    // it's RPM, input-TPM, or spend-cap.
+    if (result.kind === 'err' && result.status === 429) {
+        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+        result = await postAnthropicAttempt(body);
+    }
+    if (result.kind === 'ok') return result.response;
+    const statusBit = result.status > 0 ? `${result.status}` : 'transport';
+    throw new Error(`Anthropic proxy ${statusBit}: ${result.message}`);
 }
 
 // ── TTS helper ─────────────────────────────────────────────────

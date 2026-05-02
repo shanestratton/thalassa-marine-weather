@@ -54,16 +54,29 @@ const HISTORY_TURN_LIMIT = 4;
  * etiquette. We strip it from the transcript before sending so Haiku
  * doesn't see "over" as part of the question.
  *
+ * Apple SR is autocorrect-happy and tends to insert punctuation that
+ * the previous word-boundary regex couldn't handle ("doing? Over.",
+ * "doing, over!", smart quotes, etc.). The two-stage match below is
+ * more forgiving: strip trailing punctuation/whitespace first, then
+ * look for the literal final word "over".
+ *
  * Examples:
- *   "what's the wind doing over"   → matched, cleaned = "what's the wind doing"
- *   "over."                         → matched, cleaned = ""
- *   "moreover"                      → not matched (no word boundary before)
- *   "the storm's moving over to..." → not matched (not at end of utterance)
+ *   "what's the wind doing over"      → matched, cleaned = "what's the wind doing"
+ *   "What's the wind doing? Over."    → matched, cleaned = "What's the wind doing?"
+ *   "over."                            → matched, cleaned = ""
+ *   "moreover"                         → not matched (no whitespace before)
+ *   "the storm's moving over to it"   → not matched (not at end)
  */
 function detectOverSuffix(text: string): { matched: boolean; cleaned: string } {
-    const m = text.match(/^(.*?)\s*\bover[.,!?]*\s*$/i);
-    if (!m) return { matched: false, cleaned: text };
-    return { matched: true, cleaned: m[1].trim() };
+    // Strip trailing punctuation/whitespace so SR-added periods or
+    // exclamation marks don't break the suffix match.
+    const stripped = text.replace(/[\s.,;:!?'"]+$/, '');
+    if (/^over$/i.test(stripped)) {
+        return { matched: true, cleaned: '' };
+    }
+    const m = stripped.match(/^(.+?)\s+over$/i);
+    if (m) return { matched: true, cleaned: m[1].trim() };
+    return { matched: false, cleaned: text };
 }
 
 /**
@@ -615,6 +628,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                                 setLiveTranscript(text);
                                 const { matched, cleaned } = detectOverSuffix(text);
                                 if (matched && cleaned.length > 0) {
+                                    // Surface in the debug strip so the skipper
+                                    // can see the gesture actually fired.
+                                    setSrEventLog((prev) => [
+                                        ...prev.slice(-5),
+                                        { ts: Date.now(), msg: `[over] fired: "${cleaned.slice(0, 60)}"` },
+                                    ]);
                                     void handleOverGesture(cleaned, which);
                                 }
                             },
@@ -841,10 +860,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             {/* Only shown while recording — disappears on send. The "SR" */}
             {/* dot tells the skipper at a glance whether on-device fast- */}
             {/* path is firing (green) or we'll fall back to Scribe (gray). */}
+            {/* Width and leading tuned so italic letters with ascenders */}
+            {/* (the "d" in "send") aren't clipped by line-height. */}
             {route && buttonState[route] === 'recording' && (
-                <div className="shrink-0 px-5 pt-2 pb-1 min-h-[36px] flex flex-col items-center justify-center gap-1">
-                    <p className="text-xs italic text-sky-200/70 text-center max-w-[320px] line-clamp-2">
-                        {liveTranscript || 'Listening… say "over" or tap to send'}
+                <div className="shrink-0 px-5 pt-3 pb-2 min-h-[56px] flex flex-col items-center justify-center gap-1.5">
+                    <p className="text-sm italic text-sky-200/80 text-center max-w-[340px] leading-relaxed px-2">
+                        {liveTranscript || 'Listening… say "OVER" to send, or tap the button'}
                     </p>
                     <p className="text-[9px] uppercase tracking-widest text-gray-500 flex items-center gap-1.5">
                         <span
