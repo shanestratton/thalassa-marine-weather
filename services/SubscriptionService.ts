@@ -97,7 +97,8 @@ export type Feature =
     | 'piCache' // Raspberry Pi local cache server
     | 'bosunVoice' // Bosun voice console (PTT to on-boat AI + cloud Haiku)
     | 'calypsoMusic' // Calypso → Apple Music control (search, play, queue)
-    | 'calypsoEmail'; // Calypso → Gmail integration (read inbox, draft, send)
+    | 'calypsoEmail' // Calypso → Gmail integration (read inbox, draft, send)
+    | 'calypsoAlerts'; // Calypso proactive "speak up" alerts (NMEA threshold monitor)
 
 /**
  * Minimum tier required for each feature.
@@ -130,6 +131,7 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     bosunVoice: 'owner', // Skipper-tier (top tier) only — voice console wraps the most expensive features (Pi-based AI, cloud Haiku, ElevenLabs TTS)
     calypsoMusic: 'owner', // Skipper-tier — Apple Music integration (MusicKit + URL schemes)
     calypsoEmail: 'owner', // Skipper-tier — Gmail OAuth + read/draft/send
+    calypsoAlerts: 'owner', // Skipper-tier — proactive NMEA threshold alerts via AlertMonitorService
 };
 
 // ── Tier Ranking ──────────────────────────────────────────────

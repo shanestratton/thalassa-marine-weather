@@ -167,13 +167,16 @@ export const OceanCurrentService = {
                 return empty;
             }
 
-            const rows = data.table?.rows || [];
+            // ERDDAP rows come back typed as `unknown[]` because the
+            // surrounding response is loose — typed-narrow them locally
+            // so the destructure + arithmetic compiles under strict TS.
+            const rows = (data.table?.rows ?? []) as Array<[string, number, number, number, number]>;
 
             // Parse rows into vectors — ERDDAP returns [time, lat, lon, u, v]
             const vectors: CurrentVector[] = [];
 
             for (const row of rows) {
-                const [_time, lat, lon, u, v] = row;
+                const [, lat, lon, u, v] = row;
                 if (u != null && v != null && !isNaN(u) && !isNaN(v)) {
                     const speed = Math.sqrt(u * u + v * v);
                     vectors.push({

@@ -29,15 +29,18 @@ import {
     getConnectedEmail,
     isGmailConfigured,
 } from '../../services/voice/integrations/gmail';
+import { AlertMonitorService } from '../../services/AlertMonitorService';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 
 export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const tier = settings.subscriptionTier;
     const canMusic = canAccess(tier, 'calypsoMusic');
     const canEmail = canAccess(tier, 'calypsoEmail');
+    const canAlerts = canAccess(tier, 'calypsoAlerts');
 
     const musicEnabled = settings.calypsoMusicEnabled ?? false;
     const emailEnabled = settings.calypsoEmailEnabled ?? false;
+    const alertsEnabled = settings.calypsoAlertsEnabled ?? false;
     const connectedEmail = settings.calypsoEmailAccount;
 
     const [gmailConfigured, setGmailConfigured] = useState<boolean | null>(null);
@@ -136,6 +139,24 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         [onSave],
     );
 
+    const handleAlertsToggle = useCallback(
+        (next: boolean) => {
+            onSave({ calypsoAlertsEnabled: next });
+            // Service start/stop is handled centrally in App.tsx via a
+            // useEffect on the same setting, so toggling off there
+            // tears down the listener even if this tab unmounts. We
+            // don't call AlertMonitorService.stop() here directly.
+        },
+        [onSave],
+    );
+
+    const handleTestAlert = useCallback(() => {
+        // Sanity-check the wiring without actually waiting for a
+        // threshold violation. Does the same thing a real alert does:
+        // chime → page-takeover → Calypso speaks → history-log turn.
+        AlertMonitorService.fireTestAlert();
+    }, []);
+
     const handleEmailToggle = useCallback(
         async (next: boolean) => {
             if (busy) return;
@@ -183,6 +204,56 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                 Grant Calypso access to integrations on your phone. Each is opt-in — Calypso only sees a tool when you
                 toggle it on here. Skipper-tier only.
             </p>
+
+            <Section title="Calypso speaks up">
+                {!canAlerts ? (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white">Proactive alerts</div>
+                            <div className="text-xs text-amber-400 mt-1">Skipper-tier subscription required.</div>
+                        </div>
+                    </Row>
+                ) : (
+                    <>
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Let Calypso interrupt with alerts</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Calypso watches the NMEA backbone in the background and speaks up when something
+                                    looks wrong — battery low, alternator overcharging, depth shoaling, GPS lost,
+                                    backbone offline. Critical alerts ring a chime, open the voice page, and Calypso
+                                    speaks aloud through the speaker even if the app is backgrounded.
+                                </div>
+                                <div className="text-xs text-gray-500 mt-2">
+                                    Defaults are conservative — no per-rule controls yet, but we won't fire on a single
+                                    bad reading (each rule debounces several samples and rate-limits re-fires).
+                                </div>
+                            </div>
+                            <Toggle
+                                checked={alertsEnabled}
+                                onChange={handleAlertsToggle}
+                                label="Calypso speak-up alerts"
+                            />
+                        </Row>
+                        {alertsEnabled && (
+                            <Row>
+                                <div className="flex-1">
+                                    <div className="text-xs text-gray-400">
+                                        Hear what an alert sounds like — runs the full chain: chime, page takeover,
+                                        Calypso speaks, history log.
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={handleTestAlert}
+                                    className="text-sm font-bold text-sky-400 hover:text-sky-300 px-3 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors"
+                                >
+                                    Test alert
+                                </button>
+                            </Row>
+                        )}
+                    </>
+                )}
+            </Section>
 
             <Section title="Apple Music">
                 {!canMusic ? (
