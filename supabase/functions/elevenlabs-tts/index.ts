@@ -39,6 +39,55 @@ const CORS: Record<string, string> = {
 const DEFAULT_VOICE_ID = 'Wq15xSaY3gWvazBRaGEU';
 
 /**
+ * Convert an integer in the typical atmospheric-pressure range
+ * (~900-1100) to its English word form so ElevenLabs reads it as
+ * "one thousand and twenty hectopascals" instead of the year-style
+ * "ten twenty hectopascals" that 4-digit-number heuristics produce.
+ *
+ * Australian/British convention with "and" before the tens position
+ * because that's the skipper's accent. Outside the supported range
+ * (which covers any real-world atmospheric pressure on Earth) this
+ * returns the original string unchanged so Flash falls back to its
+ * default reading.
+ */
+const ONES_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine'];
+const TEENS_WORDS = [
+    'ten',
+    'eleven',
+    'twelve',
+    'thirteen',
+    'fourteen',
+    'fifteen',
+    'sixteen',
+    'seventeen',
+    'eighteen',
+    'nineteen',
+];
+const TENS_WORDS = ['', '', 'twenty', 'thirty', 'forty', 'fifty', 'sixty', 'seventy', 'eighty', 'ninety'];
+
+function pressureToWords(n: number): string {
+    if (!Number.isInteger(n) || n < 0 || n > 9999) return String(n);
+    if (n === 0) return 'zero';
+    const parts: string[] = [];
+    const thousands = Math.floor(n / 1000);
+    const hundreds = Math.floor((n % 1000) / 100);
+    const remainder = n % 100;
+    if (thousands > 0) parts.push(`${ONES_WORDS[thousands]} thousand`);
+    if (hundreds > 0) parts.push(`${ONES_WORDS[hundreds]} hundred`);
+    if (remainder > 0) {
+        if (parts.length > 0) parts.push('and');
+        if (remainder < 10) parts.push(ONES_WORDS[remainder]);
+        else if (remainder < 20) parts.push(TEENS_WORDS[remainder - 10]);
+        else {
+            const tens = Math.floor(remainder / 10);
+            const ones = remainder % 10;
+            parts.push(ones === 0 ? TENS_WORDS[tens] : `${TENS_WORDS[tens]}-${ONES_WORDS[ones]}`);
+        }
+    }
+    return parts.join(' ');
+}
+
+/**
  * Reshape Calypso's answer text right before TTS so Flash v2.5
  * pronounces marine units correctly. The model SHOULD emit units as
  * full words (system prompt instructs it to), but TTS abbreviation
@@ -47,6 +96,9 @@ const DEFAULT_VOICE_ID = 'Wq15xSaY3gWvazBRaGEU';
  * Observed mispronunciations on Flash before this transform:
  *   - "2.5 m"      → "two point five MINUTES"   (wanted: metres)
  *   - "1020 hPa"   → "ten twenty H P A"         (wanted: hectopascals)
+ *   - "1020 hectopascals" → "ten twenty hectopascals"
+ *                                                (wanted: "one thousand
+ *                                                 and twenty")
  *   - "22°C"       → "twenty-two DECESS"        (wanted: degrees Celsius)
  *   - "15 kt"      → "fifteen K T"              (wanted: knots)
  *
@@ -65,6 +117,15 @@ function prepareForTTS(text: string): string {
             // Pressure: "1020 hPa" / "1020hPa" — ElevenLabs reads "hPa"
             // letter-by-letter as "H P A" or as "huppa" without this.
             .replace(/(\d+(?:\.\d+)?)\s*hPa\b/gi, '$1 hectopascals')
+            // Spell out the pressure number itself in the typical
+            // atmospheric range so Flash reads "one thousand and
+            // twenty hectopascals" instead of "ten twenty
+            // hectopascals" (year-style 4-digit heuristic).
+            .replace(/(\d{3,4})\s+hectopascals/g, (match, num: string) => {
+                const n = parseInt(num, 10);
+                if (n >= 900 && n <= 1100) return `${pressureToWords(n)} hectopascals`;
+                return match;
+            })
             // Wind speed: "15 kt" / "15 kts" / "15 kn" → knots
             .replace(/(\d+(?:\.\d+)?)\s*kts?\b/g, '$1 knots')
             .replace(/(\d+(?:\.\d+)?)\s*kn\b/g, '$1 knots')
