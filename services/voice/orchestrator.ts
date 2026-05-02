@@ -45,12 +45,13 @@ const HAIKU_MODEL = 'claude-haiku-4-5';
  */
 const MAX_TOOL_ITERATIONS = 2;
 /**
- * If the Anthropic proxy returns 429 (rate-limited), wait this long
- * and try once more. Smooths over transient throttle without the
- * skipper seeing the error. Beyond one retry we surface the message
- * so they can see whether it's RPM, ITPM, or spend cap.
+ * Backoff schedule for 429 rate-limit retries. Two attempts with
+ * increasing delays so we ride out short Anthropic throttle bursts
+ * (which can fire when the orchestrator does 2 calls per skipper
+ * query and the skipper is testing in rapid succession). Total
+ * worst-case blocking before surfacing the error: ~5.5s.
  */
-const RATE_LIMIT_BACKOFF_MS = 1500;
+const RATE_LIMIT_BACKOFFS_MS = [1500, 4000];
 /**
  * Per Anthropic round-trip ceiling. The proxy enforces 90s upstream;
  * we add JS-side abort on top of fetch for parity with bosunVoice's
@@ -368,12 +369,13 @@ async function postAnthropicAttempt(
 
 async function postAnthropic(body: object): Promise<AnthropicResponse> {
     let result = await postAnthropicAttempt(body);
-    // 429 = rate-limited. One quick retry with backoff smooths over
-    // transient throttle. If the second attempt also rate-limits we
-    // surface the actual proxy message so the skipper can see whether
-    // it's RPM, input-TPM, or spend-cap.
-    if (result.kind === 'err' && result.status === 429) {
-        await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+    // 429 = rate-limited. Two retries with increasing backoff smooth
+    // over transient throttle without burning the skipper. Beyond two
+    // retries we surface the actual proxy message so they can see
+    // whether it's RPM, input-TPM, or spend-cap.
+    for (const delayMs of RATE_LIMIT_BACKOFFS_MS) {
+        if (result.kind !== 'err' || result.status !== 429) break;
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         result = await postAnthropicAttempt(body);
     }
     if (result.kind === 'ok') return result.response;
@@ -496,12 +498,21 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
 
     for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
         iterations++;
+        // On the FINAL iteration, force tool_choice:'none' so Haiku
+        // synthesises a text answer from whatever tool_results it
+        // already has — instead of asking for more tools we don't have
+        // budget for. Without this guard the loop ran out and we
+        // returned a canned "called tools too many times" message,
+        // which is a worse skipper experience than a slightly
+        // less-informed but real answer.
+        const isFinalIteration = i === MAX_TOOL_ITERATIONS - 1;
         const response = await postAnthropic({
             model: HAIKU_MODEL,
             max_tokens: 200,
             system: systemBlocks,
             tools,
             messages,
+            ...(isFinalIteration ? { tool_choice: { type: 'none' } } : {}),
         });
 
         // Append the assistant turn verbatim so reasoning chain is
@@ -541,8 +552,12 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
         messages.push({ role: 'user', content: toolResults });
     }
 
+    // Should be unreachable now that the final iteration forces
+    // tool_choice:'none'. Kept as a defensive fallback in case Haiku
+    // somehow returns text+tool_use simultaneously on the forced
+    // synthesis turn.
     return {
-        answerText: 'I called tools too many times without resolving the question. Try rephrasing?',
+        answerText: 'I had trouble pulling the data together this turn — try rephrasing or ask again in a moment.',
         toolCalls,
         iterations,
         piWasReachable: piReachable,
