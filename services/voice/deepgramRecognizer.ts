@@ -525,7 +525,14 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
         const stratStart = Date.now();
         let s: WebSocket;
         try {
-            s = strategy === 'subprotocol' ? new WebSocket(url, ['token', token]) : new WebSocket(url);
+            // Deepgram subprotocol: 'bearer' is REQUIRED for JWT
+            // access tokens minted via /v1/auth/grant. Naively using
+            // 'token' (the long-lived-API-key subprotocol) gets you
+            // HTTP 401 INVALID_AUTH on the WS upgrade — confirmed
+            // empirically against Deepgram's server. 'bearer' also
+            // works for raw API keys, so it's the correct universal
+            // choice when the client treats the token opaquely.
+            s = strategy === 'subprotocol' ? new WebSocket(url, ['bearer', token]) : new WebSocket(url);
             s.binaryType = 'arraybuffer';
         } catch (err) {
             emitEvent(`[DG] ws ctor (${strategy}) threw: ${(err as Error).message}`);
