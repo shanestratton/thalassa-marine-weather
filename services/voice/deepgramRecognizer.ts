@@ -446,21 +446,45 @@ export async function startDeepgramRecognizer(opts: StartOptions = {}): Promise<
     const sampleRate = audioContext.sampleRate;
     emitEvent(`[DG] audio ctx @ ${sampleRate}Hz state=${audioContext.state} (${Date.now() - ctxStart}ms)`);
 
-    // Load the inline worklet via Blob URL.
+    // Load the worklet. Two strategies in priority order:
+    //   1. Static file at /pcm-worklet.js — same-origin, falls under
+    //      `'self'` in CSP. This is the WKWebView-friendly path; Blob
+    //      URLs are rejected by the iOS Capacitor CSP even with
+    //      `blob:` whitelisted in script-src/worker-src.
+    //   2. Inline Blob URL — the desktop/dev fallback. Used when the
+    //      static asset is missing (e.g. dev server hot-reload edge
+    //      case) or when same-origin loading fails for any reason.
     const workletStart = Date.now();
-    const workletBlob = new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' });
-    const workletUrl = URL.createObjectURL(workletBlob);
+    let workletLoaded = false;
+    let lastWorkletErr: Error | null = null;
     try {
-        await audioContext.audioWorklet.addModule(workletUrl);
+        await audioContext.audioWorklet.addModule('/pcm-worklet.js');
+        workletLoaded = true;
+        emitEvent(`[DG] worklet loaded from /pcm-worklet.js (${Date.now() - workletStart}ms)`);
     } catch (err) {
-        URL.revokeObjectURL(workletUrl);
+        lastWorkletErr = err as Error;
+        emitEvent(`[DG] static worklet load failed: ${lastWorkletErr.message} — trying blob fallback`);
+    }
+    if (!workletLoaded) {
+        const workletBlob = new Blob([PCM_WORKLET_CODE], { type: 'application/javascript' });
+        const workletUrl = URL.createObjectURL(workletBlob);
+        try {
+            await audioContext.audioWorklet.addModule(workletUrl);
+            workletLoaded = true;
+            emitEvent(`[DG] worklet loaded from blob (${Date.now() - workletStart}ms)`);
+        } catch (err) {
+            lastWorkletErr = err as Error;
+        } finally {
+            URL.revokeObjectURL(workletUrl);
+        }
+    }
+    if (!workletLoaded) {
         stream.getTracks().forEach((t) => t.stop());
         await audioContext.close().catch(() => {});
-        emitEvent(`[DG] worklet load failed: ${(err as Error).message}`);
-        throw new Error(`Failed to load PCM worklet: ${(err as Error).message}`);
+        const msg = lastWorkletErr?.message ?? 'unknown';
+        emitEvent(`[DG] worklet load failed (both paths): ${msg}`);
+        throw new Error(`Failed to load PCM worklet: ${msg}`);
     }
-    URL.revokeObjectURL(workletUrl);
-    emitEvent(`[DG] worklet loaded (${Date.now() - workletStart}ms)`);
 
     // ── 4. Build WebSocket URL with parameters ─────────────────────
     const params = new URLSearchParams({
