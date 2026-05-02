@@ -145,4 +145,13 @@ export interface UserSettings {
      * we don't enable it by default.
      */
     calypsoAlertsEnabled?: boolean;
+
+    /**
+     * Calypso voice preset key — resolves to an ElevenLabs voice_id
+     * via services/voice/voicePresets.ts. We persist the stable preset
+     * key (not the raw voice_id) so we can swap voices upstream
+     * without invalidating saved preferences. Undefined → default
+     * 'calypso' preset (the original warm-female voice).
+     */
+    calypsoVoiceId?: string;
 }
