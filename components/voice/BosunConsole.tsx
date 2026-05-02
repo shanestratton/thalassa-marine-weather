@@ -122,6 +122,14 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
      */
     const [liveTranscript, setLiveTranscript] = useState('');
 
+    /**
+     * Whether the SR engine has actually fired at least one partial event
+     * for the CURRENT recording cycle. If false during recording, SR didn't
+     * start successfully and we'll fall back to Scribe on stop. Visible to
+     * the skipper as a small indicator next to the live transcript.
+     */
+    const [srActive, setSrActive] = useState(false);
+
     // ── Effects ─────────────────────────────────────────────────────────
 
     // Probe availability when console opens + every 30s
@@ -397,6 +405,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 const [blob] = await Promise.all([handle.stop(), srHandle ? srHandle.cancel() : Promise.resolve()]);
                 setActiveTarget(null);
                 setLiveTranscript('');
+                setSrActive(false);
                 await sendVoiceQuery(blob, target, cleanedText);
             } catch (err) {
                 setErrorMessage((err as Error).message);
@@ -450,16 +459,18 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                 }
                 setErrorMessage(null);
                 setLiveTranscript('');
+                setSrActive(false);
                 try {
-                    const handle = await startRecording();
-                    recorderRef.current = handle;
-                    setActiveTarget(which);
-                    setOneButton(which, 'recording');
-
-                    // Best-effort: kick off Apple SR alongside MediaRecorder
-                    // for the on-device fast-path. If it fails (permission,
-                    // unavailable, mic-share conflict) we silently fall back
-                    // to the Scribe path on the recorded blob.
+                    // Order matters on iOS WKWebView: start SR FIRST so it
+                    // claims the AVAudioSession + installs its tap on the
+                    // input node. Then start MediaRecorder, which goes
+                    // through WKWebView's separate getUserMedia path. The
+                    // reverse order (recorder first) often results in SR's
+                    // start() resolving without ever firing any partials —
+                    // a silent failure mode where audio is captured by
+                    // MediaRecorder but the SR audio engine never receives
+                    // input. Diagnose via Safari Web Inspector → console;
+                    // [SR] tagged logs trace each step.
                     if (which === 'cloud') {
                         try {
                             const srHandle = await startSpeechRecognition({
@@ -474,16 +485,32 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                                         void handleOverGesture(cleaned, which);
                                     }
                                 },
+                                onFirstPartial: () => setSrActive(true),
                             });
                             speechRecognizerRef.current = srHandle;
                         } catch (err) {
                             console.warn('[BosunConsole] SR unavailable, will use Scribe:', err);
                         }
                     }
+
+                    const handle = await startRecording();
+                    recorderRef.current = handle;
+                    setActiveTarget(which);
+                    setOneButton(which, 'recording');
                 } catch (err) {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
                     setTimeout(() => setOneButton(which, 'idle'), 1500);
+                    // If MediaRecorder failed but SR was already running,
+                    // tear it down to avoid leaking the audio engine.
+                    if (speechRecognizerRef.current) {
+                        try {
+                            void speechRecognizerRef.current.cancel();
+                        } catch {
+                            /* ignore */
+                        }
+                        speechRecognizerRef.current = null;
+                    }
                 }
                 return;
             }
@@ -510,6 +537,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
                     ]);
                     setActiveTarget(null);
                     setLiveTranscript('');
+                    setSrActive(false);
                     await sendVoiceQuery(blob, which, sr?.text ?? null);
                 } catch (err) {
                     setErrorMessage((err as Error).message);
@@ -622,12 +650,21 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ isOpen, onClose }) =
             </div>
 
             {/* ── Live partial transcript (Apple SR) ─────────────── */}
-            {/* Only shown while recording — disappears on send. Italic so */}
-            {/* it reads as in-progress, not final. */}
+            {/* Only shown while recording — disappears on send. The "SR" */}
+            {/* dot tells the skipper at a glance whether on-device fast- */}
+            {/* path is firing (green) or we'll fall back to Scribe (gray). */}
             {route && buttonState[route] === 'recording' && (
-                <div className="shrink-0 px-5 pt-2 pb-1 min-h-[28px] flex items-center justify-center">
+                <div className="shrink-0 px-5 pt-2 pb-1 min-h-[36px] flex flex-col items-center justify-center gap-1">
                     <p className="text-xs italic text-sky-200/70 text-center max-w-[320px] line-clamp-2">
                         {liveTranscript || 'Listening… say "over" or tap to send'}
+                    </p>
+                    <p className="text-[9px] uppercase tracking-widest text-gray-500 flex items-center gap-1.5">
+                        <span
+                            className={`inline-block w-1.5 h-1.5 rounded-full ${
+                                srActive ? 'bg-emerald-400 animate-pulse' : 'bg-gray-600'
+                            }`}
+                        />
+                        {srActive ? 'On-device SR active' : 'SR pending… (will use Scribe if it stays gray)'}
                     </p>
                 </div>
             )}

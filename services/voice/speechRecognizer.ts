@@ -46,6 +46,13 @@ export interface SpeechRecognizerHandle {
 interface StartOptions {
     /** Called whenever the recognizer emits a partial transcript (for live UI display). */
     onPartial?: (text: string) => void;
+    /**
+     * Called once when the FIRST partial event fires — confirms SR is
+     * actually receiving audio. The most useful diagnostic for the
+     * audio-session-conflict failure mode where start() resolves but no
+     * partials ever arrive (silent failure).
+     */
+    onFirstPartial?: () => void;
 }
 
 let availabilityCached: boolean | null = null;
@@ -60,11 +67,13 @@ export async function isSpeechRecognitionAvailable(force = false): Promise<boole
     if (!force && availabilityCached !== null) return availabilityCached;
     try {
         const { available } = await SpeechRecognition.available();
+        console.log('[SR] available() →', available);
         if (!available) {
             availabilityCached = false;
             return false;
         }
         const status = await SpeechRecognition.checkPermissions();
+        console.log('[SR] checkPermissions() →', status.speechRecognition);
         if (status.speechRecognition === 'granted') {
             availabilityCached = true;
             return true;
@@ -75,10 +84,11 @@ export async function isSpeechRecognitionAvailable(force = false): Promise<boole
         }
         // Not yet asked — trigger the iOS permission prompt.
         const requested = await SpeechRecognition.requestPermissions();
+        console.log('[SR] requestPermissions() →', requested.speechRecognition);
         availabilityCached = requested.speechRecognition === 'granted';
         return availabilityCached;
     } catch (err) {
-        console.warn('[speechRecognizer] availability check failed:', err);
+        console.warn('[SR] availability check failed:', err);
         availabilityCached = false;
         return false;
     }
@@ -98,25 +108,59 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
 
     const t0 = Date.now();
     let lastTranscript = '';
+    let partialCount = 0;
 
     // Subscribe to partial results — track the most recent best match and
     // forward to the caller for live transcript display.
     const listener: PluginListenerHandle = await SpeechRecognition.addListener('partialResults', (data) => {
+        partialCount++;
         const best = data.matches?.[0];
         if (typeof best === 'string') {
             lastTranscript = best;
             opts.onPartial?.(best);
+            // First partial event tells us SR is actually receiving audio —
+            // single most useful diagnostic for the audio-session-conflict
+            // failure mode (start() resolves but no events ever fire).
+            if (partialCount === 1) {
+                console.log('[SR] first partial fired — SR is receiving audio');
+                opts.onFirstPartial?.();
+            }
         }
+    });
+
+    // Listen for plugin-internal listeningState events so we can confirm the
+    // native engine actually started (vs. start() resolving with the engine
+    // failing silently a moment later).
+    const stateListener: PluginListenerHandle = await SpeechRecognition.addListener('listeningState', (data) => {
+        console.log('[SR] listeningState →', data.status);
     });
 
     // partialResults: true means start() returns immediately and events
     // stream until stop(). Australian English bias matches the home-waters
     // default in the system prompt.
-    await SpeechRecognition.start({
-        language: 'en-AU',
-        partialResults: true,
-        maxResults: 1,
-    });
+    console.log('[SR] start() calling…');
+    try {
+        await SpeechRecognition.start({
+            language: 'en-AU',
+            partialResults: true,
+            maxResults: 1,
+        });
+        console.log('[SR] start() resolved');
+    } catch (err) {
+        // Clean up listeners on start failure so we don't leak.
+        try {
+            await listener.remove();
+        } catch {
+            /* ignore */
+        }
+        try {
+            await stateListener.remove();
+        } catch {
+            /* ignore */
+        }
+        console.warn('[SR] start() rejected:', err);
+        throw err;
+    }
 
     return {
         async stop(): Promise<SpeechRecognizerStopResult> {
@@ -126,12 +170,18 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
                 /* ignore — listener may already be torn down */
             }
             try {
+                await stateListener.remove();
+            } catch {
+                /* ignore */
+            }
+            try {
                 await SpeechRecognition.stop();
             } catch (err) {
-                console.warn('[speechRecognizer] stop failed:', err);
+                console.warn('[SR] stop failed:', err);
             }
             const trimmed = lastTranscript.trim();
             const durationMs = Date.now() - t0;
+            console.log(`[SR] stop() — partials: ${partialCount}, finalChars: ${trimmed.length}, ${durationMs}ms`);
             if (trimmed.length < MIN_USABLE_CHARS) {
                 return { text: null, durationMs };
             }
@@ -141,6 +191,11 @@ export async function startSpeechRecognition(opts: StartOptions = {}): Promise<S
         async cancel(): Promise<void> {
             try {
                 await listener.remove();
+            } catch {
+                /* ignore */
+            }
+            try {
+                await stateListener.remove();
             } catch {
                 /* ignore */
             }
