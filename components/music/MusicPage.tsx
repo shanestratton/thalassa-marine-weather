@@ -242,9 +242,7 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap }) 
         {playlist.artworkUrl ? (
             <img src={playlist.artworkUrl} alt={playlist.name} className="w-full h-full object-cover" loading="lazy" />
         ) : (
-            <div className="w-full h-full bg-gradient-to-br from-pink-500/20 to-purple-500/20 flex items-center justify-center">
-                <MusicIcon className="w-12 h-12 text-white/40" />
-            </div>
+            <GeneratedPlaylistArtwork name={playlist.name} />
         )}
         {/* Title overlay */}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
@@ -255,6 +253,107 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap }) 
         </div>
     </button>
 );
+
+// ── Generated playlist artwork ─────────────────────────────────────
+//
+// When a user-made playlist has no curator-assigned cover, MusicKit
+// returns a null artwork URL and we used to drop a sad pink/purple
+// gradient + music-note in there. This generator produces something
+// closer to Apple Music's quality: a three-blob radial mesh gradient
+// in a palette deterministically picked from a hash of the playlist
+// name, a subtle horizon wave at the bottom (the Thalassa nod), and
+// a serif initial overlaid in the centre.
+//
+// Deterministic = the same playlist always renders the same artwork
+// across sessions, and the 2-col grid stays visually varied because
+// adjacent playlists hash to different palettes.
+
+/** 10 marine + sunset palettes — every playlist hashes to one. */
+const PLAYLIST_PALETTES: ReadonlyArray<{ a: string; b: string; c: string; bg: string }> = [
+    { a: '#ff6b9d', b: '#c44dd6', c: '#5a3aa3', bg: '#1e1b4b' }, // pink dusk
+    { a: '#06b6d4', b: '#3b82f6', c: '#1e3a8a', bg: '#0c1f3f' }, // deep ocean
+    { a: '#fbbf24', b: '#f97316', c: '#9a3412', bg: '#3b1d12' }, // sunset
+    { a: '#10b981', b: '#0ea5e9', c: '#1e3a8a', bg: '#0a2540' }, // tropic reef
+    { a: '#a855f7', b: '#7c3aed', c: '#1e1b4b', bg: '#171232' }, // violet night
+    { a: '#f43f5e', b: '#a855f7', c: '#3730a3', bg: '#1f1240' }, // rose horizon
+    { a: '#14b8a6', b: '#0891b2', c: '#0c4a6e', bg: '#082f49' }, // lagoon
+    { a: '#f87171', b: '#fb7185', c: '#9f1239', bg: '#3f0a1f' }, // hibiscus
+    { a: '#fde68a', b: '#fb923c', c: '#7c2d12', bg: '#3a1a0c' }, // golden hour
+    { a: '#67e8f9', b: '#0ea5e9', c: '#1e1b4b', bg: '#0c1530' }, // moonlit bay
+];
+
+function paletteFor(name: string): (typeof PLAYLIST_PALETTES)[number] {
+    let h = 0;
+    for (let i = 0; i < name.length; i++) {
+        h = (h * 31 + name.charCodeAt(i)) | 0;
+    }
+    return PLAYLIST_PALETTES[Math.abs(h) % PLAYLIST_PALETTES.length];
+}
+
+/**
+ * Pick a 1-2 character monogram from the playlist name. Single short
+ * names get two letters ("XO" → "XO"), longer names get the first
+ * letter of the first significant word. Articles ("the", "a", "my")
+ * get skipped so "My Sunset Mix" → "S".
+ */
+function monogramFor(name: string): string {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return '♪';
+    const words = trimmed.split(/\s+/);
+    const skip = new Set(['the', 'a', 'an', 'my', 'our']);
+    const first = words.find((w) => !skip.has(w.toLowerCase())) ?? words[0];
+    if (words.length === 1 && first.length <= 3) return first.toUpperCase();
+    return first.charAt(0).toUpperCase();
+}
+
+const GeneratedPlaylistArtwork: React.FC<{ name: string }> = ({ name }) => {
+    const palette = paletteFor(name);
+    const monogram = monogramFor(name);
+    return (
+        <div
+            className="w-full h-full relative overflow-hidden"
+            style={{
+                background: `
+                    radial-gradient(at 22% 18%, ${palette.a} 0%, transparent 55%),
+                    radial-gradient(at 82% 28%, ${palette.b} 0%, transparent 50%),
+                    radial-gradient(at 48% 88%, ${palette.c} 0%, transparent 55%),
+                    ${palette.bg}
+                `,
+            }}
+        >
+            {/* Bright bloom — adds a touch of polish */}
+            <div
+                className="absolute -top-8 -right-8 w-28 h-28 rounded-full opacity-50 blur-2xl pointer-events-none"
+                style={{ background: palette.a }}
+            />
+            {/* Horizon wave — Thalassa's marine signature, very subtle */}
+            <svg
+                className="absolute bottom-0 left-0 w-full pointer-events-none"
+                viewBox="0 0 200 60"
+                preserveAspectRatio="none"
+                aria-hidden="true"
+            >
+                <path d="M0,30 Q50,12 100,30 T200,30 L200,60 L0,60 Z" fill="white" opacity="0.06" />
+                <path d="M0,40 Q50,22 100,40 T200,40 L200,60 L0,60 Z" fill="white" opacity="0.05" />
+            </svg>
+            {/* Serif monogram — large, semi-translucent, dropshadow for contrast */}
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div
+                    className="text-white/80 leading-none select-none"
+                    style={{
+                        fontFamily: 'Georgia, "Times New Roman", serif',
+                        fontWeight: 600,
+                        fontSize: monogram.length > 1 ? '3.75rem' : '4.5rem',
+                        textShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                        letterSpacing: monogram.length > 1 ? '-0.02em' : '0',
+                    }}
+                >
+                    {monogram}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // ── Now playing bar ────────────────────────────────────────────────
 
@@ -272,8 +371,8 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
             {nowPlaying.artworkUrl ? (
                 <img src={nowPlaying.artworkUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
             ) : (
-                <div className="w-12 h-12 rounded-lg bg-white/5 flex items-center justify-center shrink-0">
-                    <MusicIcon className="w-6 h-6 text-white/40" />
+                <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                    <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
                 </div>
             )}
             <div className="flex-1 min-w-0">
