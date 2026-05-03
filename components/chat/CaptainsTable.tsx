@@ -245,15 +245,23 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     const instructions = (recipe.instructions || []) as RecipeStep[];
 
     return (
+        // z-[1000] keeps RecipeDetail above the ChildCard portal (z-50)
+        // and the MealCalendar Recipe Library shell (z-955) so neither
+        // of those back chevrons leak through and absorb taps meant
+        // for our close button. We also add a matching top-left back
+        // chevron — see CustomRecipeForm for the same fix.
         <div
-            className="fixed inset-0 z-[950] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
         >
             <div
                 className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[90vh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Hero image or fallback */}
+                {/* Hero image or fallback — back chevron at top-left
+                    (matches iOS NavBar + ChildCard convention) and the
+                    existing ✕ stays at top-right as a redundant target
+                    for users who reach there. Both call onClose. */}
                 {recipe.image && !imageBroken ? (
                     <div className="relative">
                         <img
@@ -267,6 +275,21 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                         <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-transparent to-black/10 rounded-t-3xl" />
                         <button
                             onClick={onClose}
+                            className="absolute top-3 left-3 w-10 h-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white active:scale-90 transition-transform"
+                            aria-label="Back to Recipe Library"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
+                        <button
+                            onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white text-xs"
                             aria-label="Close recipe detail"
                         >
@@ -276,6 +299,21 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                 ) : (
                     <div className="relative flex items-center justify-center h-32 bg-gradient-to-br from-amber-500/10 to-orange-500/10 rounded-t-3xl">
                         <span className="text-5xl">{getFallbackIcon(recipe.supabaseId)}</span>
+                        <button
+                            onClick={onClose}
+                            className="absolute top-3 left-3 w-10 h-10 rounded-full bg-black/50 flex items-center justify-center text-white active:scale-90 transition-transform"
+                            aria-label="Back to Recipe Library"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                            </svg>
+                        </button>
                         <button
                             onClick={onClose}
                             className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/50 flex items-center justify-center text-white text-xs"
