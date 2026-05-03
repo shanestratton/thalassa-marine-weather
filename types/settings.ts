@@ -106,12 +106,10 @@ export interface UserSettings {
 
     // ── Calypso integrations (Skipper-tier only, gated by canAccess) ──
     /**
-     * Apple Music access — Calypso can search the catalog, play tracks,
-     * queue songs, control playback. Implementation uses iOS URL schemes
-     * (cheap path) until the native MusicKit plugin lands. The toggle
-     * here just enables the Calypso tools registered with Anthropic;
-     * actual permission to control the Apple Music app is granted by
-     * iOS at first invocation.
+     * @deprecated since 2026-05-04 — Apple Music is now always-on for
+     * Skipper tier. Auth is handled in-app on the dedicated Music page
+     * (MusicKit catalog, ~100M tracks). Field retained for backward
+     * compatibility with persisted settings; no code reads it.
      */
     calypsoMusicEnabled?: boolean;
 

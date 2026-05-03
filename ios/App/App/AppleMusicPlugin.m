@@ -1,24 +1,25 @@
 #import <Foundation/Foundation.h>
 #import <Capacitor/Capacitor.h>
 
-// AppleMusicPlugin — Objective-C bridge for Capacitor
-// Registers the Swift native Apple Music plugin (MediaPlayer.framework
-// based — library reads + system playback control). The JS side calls
-// methods via `registerPlugin<...>('AppleMusic')`.
+// AppleMusicPlugin — Capacitor bridge for the MusicKit-based Swift
+// plugin. Methods exposed to JS via registerPlugin('AppleMusic').
 
 CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
-    CAP_PLUGIN_METHOD(requestAuthorization, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(getAuthorizationStatus, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(getLibraryStats, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(playFirstSong, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(searchLibrary, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(ensureMixingSession, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(playTtsAudio, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(cancelTtsAudio, CAPPluginReturnPromise);
+    // Authorization
+    CAP_PLUGIN_METHOD(requestMusicKitAuthorization, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(getMusicKitAuthorizationStatus, CAPPluginReturnPromise);
+    // Catalog playback
     CAP_PLUGIN_METHOD(searchAndPlay, CAPPluginReturnPromise);
+    // User library
+    CAP_PLUGIN_METHOD(getUserPlaylists, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(playPlaylist, CAPPluginReturnPromise);
+    // Playback control
     CAP_PLUGIN_METHOD(pause, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(resume, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(next, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(previous, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(nowPlaying, CAPPluginReturnPromise);
+    // TTS
+    CAP_PLUGIN_METHOD(playTtsAudio, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(cancelTtsAudio, CAPPluginReturnPromise);
 )
