@@ -1,25 +1,16 @@
 #import <Foundation/Foundation.h>
 #import <Capacitor/Capacitor.h>
 
-// AppleMusicPlugin — Capacitor bridge for the MusicKit-based Swift
-// plugin. Methods exposed to JS via registerPlugin('AppleMusic').
+// AppleMusicPlugin — Capacitor bridge.
+//
+// Reduced 2026-05-04 to TTS-only after the MusicKit refactor was
+// reverted (Swift compile errors with ApplicationMusicPlayer.Queue
+// initialisers). The plugin still hosts native TTS playback because
+// AVAudioPlayer-in-our-app-session sounds noticeably better than
+// HTML5 Audio in WKWebView. Music control was removed entirely;
+// Calypso has no music tools right now.
 
 CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
-    // Authorization
-    CAP_PLUGIN_METHOD(requestMusicKitAuthorization, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(getMusicKitAuthorizationStatus, CAPPluginReturnPromise);
-    // Catalog playback
-    CAP_PLUGIN_METHOD(searchAndPlay, CAPPluginReturnPromise);
-    // User library
-    CAP_PLUGIN_METHOD(getUserPlaylists, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(playPlaylist, CAPPluginReturnPromise);
-    // Playback control
-    CAP_PLUGIN_METHOD(pause, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(resume, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(next, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(previous, CAPPluginReturnPromise);
-    CAP_PLUGIN_METHOD(nowPlaying, CAPPluginReturnPromise);
-    // TTS
     CAP_PLUGIN_METHOD(playTtsAudio, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(cancelTtsAudio, CAPPluginReturnPromise);
 )
