@@ -36,7 +36,9 @@ import {
     inspectLibrary,
     playFirstSong,
     probeNativePluginPresence,
+    searchLibrary,
     type LibraryInspection,
+    type LibrarySearchResult,
     type PlayFirstSongResult,
 } from '../../services/voice/integrations/appleMusic';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
@@ -178,6 +180,27 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
             setMusicTestBusy(null);
         }
     }, [musicTestBusy]);
+
+    /** Free-text query for the "Search library" diagnostic. Drives an
+     *  inline result panel so the skipper can confirm whether a
+     *  specific artist/album/song is visible to the plugin without
+     *  going through Calypso's narration. */
+    const [librarySearchQuery, setLibrarySearchQuery] = useState('');
+    const [librarySearchResult, setLibrarySearchResult] = useState<LibrarySearchResult | null>(null);
+
+    const handleSearchLibrary = useCallback(async () => {
+        const q = librarySearchQuery.trim();
+        if (!q || musicTestBusy) return;
+        setMusicTestBusy('inspect');
+        setLibraryInspection(null);
+        setFirstSongResult(null);
+        try {
+            const r = await searchLibrary(q);
+            setLibrarySearchResult(r);
+        } finally {
+            setMusicTestBusy(null);
+        }
+    }, [librarySearchQuery, musicTestBusy]);
 
     const handlePlayFirstSong = useCallback(async () => {
         if (musicTestBusy) return;
@@ -444,6 +467,100 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                 </button>
                             </div>
                         </Row>
+                        {/* Free-text library search — type a query, see
+                         *  what the plugin actually finds. Confirms whether
+                         *  a specific artist/album/song is visible without
+                         *  involving Calypso. */}
+                        <Row>
+                            <div className="flex-1 flex gap-2">
+                                <input
+                                    type="text"
+                                    value={librarySearchQuery}
+                                    onChange={(e) => setLibrarySearchQuery(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') void handleSearchLibrary();
+                                    }}
+                                    placeholder="Search library… e.g. Led Zeppelin"
+                                    className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-600 bg-black/30 text-white placeholder-gray-500 focus:border-amber-400/60 focus:outline-none"
+                                />
+                                <button
+                                    onClick={() => void handleSearchLibrary()}
+                                    disabled={!!musicTestBusy || !librarySearchQuery.trim()}
+                                    className="text-xs px-3 py-1.5 rounded border transition-colors border-amber-400/40 text-amber-300 hover:bg-amber-400/10 disabled:opacity-50"
+                                >
+                                    Search
+                                </button>
+                            </div>
+                        </Row>
+                        {librarySearchResult && (
+                            <Row>
+                                <div className="flex-1 text-xs space-y-1">
+                                    {!librarySearchResult.available && (
+                                        <div className="text-red-400">
+                                            ✗ Search failed
+                                            {librarySearchResult.reason && ` (${librarySearchResult.reason})`}.
+                                            {librarySearchResult.error && (
+                                                <code className="text-gray-500 ml-1">{librarySearchResult.error}</code>
+                                            )}
+                                        </div>
+                                    )}
+                                    {librarySearchResult.available && librarySearchResult.totalMatches === 0 && (
+                                        <div className="space-y-1">
+                                            <div className="text-amber-400">
+                                                ✗ No matches for "{librarySearchResult.query}" anywhere in your library.
+                                            </div>
+                                            <div className="text-gray-500">
+                                                Either it's not actually in your library, or it's streamed-only and not
+                                                synced. Check iOS Settings → Music → "Sync Library" is ON, and that
+                                                "Show Music Available Offline" is OFF (otherwise only downloaded tracks
+                                                are visible). Streamed-only tracks need "Add to Library" via the Apple
+                                                Music app first.
+                                            </div>
+                                        </div>
+                                    )}
+                                    {librarySearchResult.available && librarySearchResult.totalMatches > 0 && (
+                                        <div className="space-y-1">
+                                            <div className="text-emerald-400">
+                                                ✓ Found {librarySearchResult.totalMatches} match
+                                                {librarySearchResult.totalMatches === 1 ? '' : 'es'} for "
+                                                {librarySearchResult.query}":
+                                            </div>
+                                            {librarySearchResult.artists.length > 0 && (
+                                                <div className="text-gray-300">
+                                                    <span className="text-gray-400">Artists:</span>{' '}
+                                                    {librarySearchResult.artists.join(', ')}
+                                                </div>
+                                            )}
+                                            {librarySearchResult.albums.length > 0 && (
+                                                <div className="text-gray-300">
+                                                    <span className="text-gray-400">Albums:</span>{' '}
+                                                    {librarySearchResult.albums
+                                                        .map((a) => `${a.title}${a.artist ? ` (${a.artist})` : ''}`)
+                                                        .join(', ')}
+                                                </div>
+                                            )}
+                                            {librarySearchResult.playlists.length > 0 && (
+                                                <div className="text-gray-300">
+                                                    <span className="text-gray-400">Playlists:</span>{' '}
+                                                    {librarySearchResult.playlists.join(', ')}
+                                                </div>
+                                            )}
+                                            {librarySearchResult.songs.length > 0 && (
+                                                <div className="text-gray-300">
+                                                    <span className="text-gray-400">Songs:</span>{' '}
+                                                    {librarySearchResult.songs
+                                                        .slice(0, 8)
+                                                        .map((s) => `"${s.title}"${s.artist ? ` — ${s.artist}` : ''}`)
+                                                        .join(', ')}
+                                                    {librarySearchResult.songs.length > 8 &&
+                                                        ` …and ${librarySearchResult.songs.length - 8} more`}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </Row>
+                        )}
                         {libraryInspection && (
                             <Row>
                                 <div className="flex-1 text-xs">
