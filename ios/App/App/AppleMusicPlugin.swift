@@ -66,6 +66,10 @@ public class AppleMusicPlugin: CAPPlugin {
     private var ttsPlayer: AVAudioPlayer?
     /// Pending CAPPluginCall to resolve when current TTS finishes.
     private var ttsPlayerDelegate: TtsPlayerDelegate?
+    /// Whether we paused applicationMusicPlayer for the current TTS
+    /// utterance — used by cancelTtsAudio to know whether to resume
+    /// music if cancelled mid-playback.
+    private var ttsPausedMusic: Bool = false
 
     // MARK: - Authorization
 
@@ -368,21 +372,25 @@ public class AppleMusicPlugin: CAPPlugin {
                 return
             }
 
-            // DELIBERATELY DO NOT TOUCH THE AUDIO SESSION HERE.
+            // EXPLICIT PAUSE AROUND TTS.
             //
-            // applicationMusicPlayer activated the session when music
-            // started; calling setActive(true) again while it's
-            // already active interrupts the music. The session's
-            // category is already .playback + .mixWithOthers (set
-            // by playItems on music start), so AVAudioPlayer will
-            // happily mix into the existing session without any
-            // configuration from us. Trust the existing session
-            // state.
+            // Even though AVAudioPlayer + applicationMusicPlayer both
+            // run in our app's session, iOS treats AVAudioPlayer
+            // playback as an interrupt to MPMusicPlayerController.
+            // Confirmed empirically — every TTS narration kills the
+            // music regardless of session config.
             //
-            // If music isn't currently playing, the session might
-            // be inactive — AVAudioPlayer.play() will activate it
-            // implicitly with the current category. Either way we
-            // don't need to manipulate the session here.
+            // Solution: explicitly pause the music player before
+            // starting TTS, resume after TTS finishes. Both calls are
+            // in-process (applicationMusicPlayer, not systemMusicPlayer)
+            // so they're synchronous + reliable.
+            let musicPlayer = MPMusicPlayerController.applicationMusicPlayer
+            let wasPlayingMusic = musicPlayer.playbackState == .playing
+            if wasPlayingMusic {
+                NSLog("[AppleMusic] playTtsAudio: pausing music (was playing)")
+                musicPlayer.pause()
+            }
+            self.ttsPausedMusic = wasPlayingMusic
 
             // Create + retain the player.
             do {
@@ -392,22 +400,42 @@ public class AppleMusicPlugin: CAPPlugin {
                     NSLog("[AppleMusic] playTtsAudio: playback finished")
                     self?.ttsPlayer = nil
                     self?.ttsPlayerDelegate = nil
-                    call.resolve(["status": "finished"])
+                    // Resume the music player if we paused it for this
+                    // TTS. play() on applicationMusicPlayer is in-process
+                    // and reliable — no IPC, no session juggling needed.
+                    if wasPlayingMusic {
+                        NSLog("[AppleMusic] playTtsAudio: resuming music")
+                        MPMusicPlayerController.applicationMusicPlayer.play()
+                    }
+                    self?.ttsPausedMusic = false
+                    call.resolve([
+                        "status": "finished",
+                        "music_paused_and_resumed": wasPlayingMusic,
+                    ])
                 }
                 player.delegate = delegate
                 self.ttsPlayerDelegate = delegate
                 self.ttsPlayer = player
                 if !player.play() {
+                    // If AVAudioPlayer fails to start, restore music
+                    // immediately rather than leaving it paused.
+                    if wasPlayingMusic {
+                        musicPlayer.play()
+                    }
                     call.reject("AVAudioPlayer.play() returned false")
                     self.ttsPlayer = nil
                     self.ttsPlayerDelegate = nil
                     return
                 }
                 NSLog(
-                    "[AppleMusic] playTtsAudio: started (\(data.count)B, \(String(format: "%.1f", player.duration))s)"
+                    "[AppleMusic] playTtsAudio: started (\(data.count)B, \(String(format: "%.1f", player.duration))s, music_was_playing=\(wasPlayingMusic))"
                 )
             } catch {
                 NSLog("[AppleMusic] playTtsAudio: AVAudioPlayer init failed: \(error)")
+                // Restore music if init failed.
+                if wasPlayingMusic {
+                    musicPlayer.play()
+                }
                 call.reject("AVAudioPlayer init failed: \(error.localizedDescription)")
             }
         }
@@ -423,6 +451,13 @@ public class AppleMusicPlugin: CAPPlugin {
             self?.ttsPlayer?.stop()
             self?.ttsPlayer = nil
             self?.ttsPlayerDelegate = nil
+            // Resume the music if we'd paused it for this TTS — caller
+            // is cutting playback short, but the music shouldn't stay
+            // paused as a side effect.
+            if self?.ttsPausedMusic == true {
+                MPMusicPlayerController.applicationMusicPlayer.play()
+                self?.ttsPausedMusic = false
+            }
             call.resolve(["status": "cancelled"])
         }
     }
