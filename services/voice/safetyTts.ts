@@ -17,13 +17,29 @@
  * offline. The native voice is the safety net — every iOS device has
  * it, no network needed.
  *
- * Latency budget: 4 seconds for ElevenLabs synth + playback start
- * before fallback. Most successful syntheses return in < 2s on a
- * normal connection; 4s gives some margin for cellular/sat connections
- * without making the user wait forever.
+ * Race architecture (rewritten 2026-05-04):
+ *   We race ELEVENLABS *SYNTHESIS* (the network call) against the
+ *   budget — NOT playback start. The previous version tried to detect
+ *   "Calypso started speaking" by polling for HTMLAudioElement that
+ *   was playing, which never worked on iOS native (we play through
+ *   AVAudioPlayer in the AppleMusic plugin, no HTMLAudioElement
+ *   exists). That meant the budget timeout always fired even when
+ *   Calypso WAS about to speak, kicking off the native voice on top
+ *   of Calypso's mid-flight audio — the "two voices over the top"
+ *   bug the skipper hit on MOB/Radio reports.
+ *
+ *   New flow:
+ *     1. Kick off `synthesise(text)` — ElevenLabs network call.
+ *     2. Race that promise against `SAFETY_TTS_BUDGET_MS`.
+ *     3. If synth resolves with audio → commit to Calypso, play
+ *        through the native plugin. No native voice will ever fire.
+ *     4. If synth resolves with null OR timeout fires first → commit
+ *        to native voice. No Calypso playback will ever start.
+ *
+ *   Decision happens before any audio plays, so overlap is impossible.
  */
 
-import { speak as calypsoSpeak, type SpokenHandle } from './ttsClient';
+import { synthesise } from './ttsClient';
 
 /** Hard cap on how long we wait for Calypso TTS before falling back
  *  to native. Set short because safety messages must not stall. */
@@ -56,121 +72,150 @@ export interface SafetyUtteranceHandle {
 }
 
 /**
- * Speak the given text. Try Calypso first; fall back to native
- * `SpeechSynthesisUtterance` if Calypso doesn't deliver audio within
- * `SAFETY_TTS_BUDGET_MS`, errors, or isn't available.
+ * Play base64 MP3 (Calypso's synthesised voice) through whichever
+ * audio path is appropriate for the current platform. On iOS native
+ * we go through the AppleMusic plugin's `playTtsAudio` (AVAudioPlayer
+ * in our `.playback + .mixWithOthers` session). On web/non-iOS we
+ * fall back to HTML5 Audio.
+ *
+ * Returns a handle with a `done` promise that resolves when playback
+ * completes, plus a `cancel()` that stops it mid-stream.
+ */
+async function playCalypsoB64(b64: string): Promise<{ done: Promise<void>; cancel: () => void }> {
+    // Try native plugin first.
+    try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+            const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
+            const plugin = cap?.Plugins?.AppleMusic as
+                | {
+                      playTtsAudio: (opts: { audio_b64: string }) => Promise<{ status: string }>;
+                      cancelTtsAudio: () => Promise<{ status: string }>;
+                  }
+                | undefined;
+            if (plugin) {
+                const playPromise = plugin.playTtsAudio({ audio_b64: b64 });
+                return {
+                    done: playPromise.then(() => undefined).catch(() => undefined),
+                    cancel: () => {
+                        void plugin.cancelTtsAudio().catch(() => undefined);
+                    },
+                };
+            }
+        }
+    } catch {
+        /* fall through to HTML5 */
+    }
+
+    // HTML5 fallback (web / non-iOS-native).
+    try {
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes as unknown as BlobPart], { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.volume = 1.0;
+        audio.setAttribute('playsinline', 'true');
+
+        let cleaned = false;
+        const cleanup = () => {
+            if (cleaned) return;
+            cleaned = true;
+            URL.revokeObjectURL(url);
+        };
+
+        const done = new Promise<void>((resolve) => {
+            audio.addEventListener(
+                'ended',
+                () => {
+                    cleanup();
+                    resolve();
+                },
+                { once: true },
+            );
+            audio.addEventListener(
+                'error',
+                () => {
+                    cleanup();
+                    resolve();
+                },
+                { once: true },
+            );
+            audio.play().catch(() => {
+                cleanup();
+                resolve();
+            });
+        });
+
+        return {
+            done,
+            cancel: () => {
+                try {
+                    audio.pause();
+                } catch {
+                    /* ignore */
+                }
+                cleanup();
+            },
+        };
+    } catch {
+        return { done: Promise.resolve(), cancel: () => undefined };
+    }
+}
+
+/**
+ * Speak the given text. Race ElevenLabs synthesis against
+ * `SAFETY_TTS_BUDGET_MS`; if synth wins, commit to Calypso, otherwise
+ * fall back to native iOS speech synthesis. Decision is made before
+ * any audio plays — the two engines never run simultaneously.
  *
  * Cancellation: returned handle's `cancel()` aborts whichever engine
- * is currently playing. Calling cancel before any engine has started
- * also aborts the in-flight synth.
+ * has been committed to (or the in-flight synthesis if neither has
+ * been committed yet).
  */
 export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = {}): SafetyUtteranceHandle {
     const trimmed = (text || '').trim();
     let cancelled = false;
-    let calypsoHandle: SpokenHandle | null = null;
+    let calypsoCancelFn: (() => void) | null = null;
     let nativeUtt: SpeechSynthesisUtterance | null = null;
     let engineUsed: 'calypso' | 'native' | 'none' = 'none';
 
     const done = (async () => {
         if (!trimmed) return;
 
-        // Race: Calypso synth + playback against the budget. Whichever
-        // wins decides the engine. A `won === 'calypso'` outcome means
-        // Calypso started speaking before the budget expired and we
-        // let it finish; a `won === 'timeout'` outcome means we bail
-        // and switch to native.
-        const calypsoStarted = new Promise<'started'>((resolve, reject) => {
-            try {
-                calypsoHandle = calypsoSpeak(trimmed);
-                // Calypso's `done` promise resolves when playback
-                // ENDS, but for race semantics we want to know when
-                // it STARTS. We approximate "started" by polling for
-                // a brief window — cleaner than threading a callback
-                // through ttsClient.
-                const startCheck = setInterval(() => {
-                    if (cancelled) {
-                        clearInterval(startCheck);
-                        reject(new Error('cancelled'));
-                        return;
-                    }
-                    if (typeof window !== 'undefined') {
-                        // If any HTMLAudioElement is currently playing
-                        // we treat that as "started" — close enough.
-                        const playing = document.querySelectorAll('audio');
-                        for (let i = 0; i < playing.length; i++) {
-                            const el = playing[i] as HTMLAudioElement;
-                            if (!el.paused && el.currentTime > 0) {
-                                clearInterval(startCheck);
-                                resolve('started');
-                                return;
-                            }
-                        }
-                    }
-                }, 100);
-                // If the synth resolves (playback ended) before the
-                // poll caught it, treat that as "started" too — it
-                // played, just very quickly.
-                if (calypsoHandle) {
-                    void calypsoHandle.done
-                        .then(() => {
-                            clearInterval(startCheck);
-                            resolve('started');
-                        })
-                        .catch(() => {
-                            clearInterval(startCheck);
-                            reject(new Error('synth failed'));
-                        });
-                }
-            } catch (err) {
-                reject(err);
-            }
+        // ── Race synthesis against the budget ───────────────────────
+        // Whichever resolves first wins. If synth comes back with
+        // audio_b64, we play Calypso. If synth returns null (failure)
+        // OR the timeout fires, we go native. The race never hands
+        // back a "Calypso is playing — sort of" intermediate state,
+        // so we can't double-fire.
+        const synthPromise: Promise<string | null> = synthesise(trimmed);
+        const timeoutPromise = new Promise<null>((resolve) => {
+            setTimeout(() => resolve(null), SAFETY_TTS_BUDGET_MS);
         });
-
-        const timeout = new Promise<'timeout'>((resolve) => {
-            setTimeout(() => resolve('timeout'), SAFETY_TTS_BUDGET_MS);
-        });
-
-        let won: 'started' | 'timeout' = 'timeout';
-        try {
-            won = await Promise.race([calypsoStarted, timeout]);
-        } catch {
-            won = 'timeout';
-        }
+        const audio_b64 = await Promise.race([synthPromise, timeoutPromise]);
 
         if (cancelled) return;
 
-        // TS's closure-narrowing thinks calypsoHandle is still `null`
-        // here because the assignment happened inside a Promise
-        // executor it can't statically prove ran synchronously. Cast
-        // through unknown to recover the actual runtime type.
-        const handle = calypsoHandle as unknown as SpokenHandle | null;
-        if (won === 'started' && handle) {
+        // ── Calypso path ────────────────────────────────────────────
+        if (audio_b64) {
             engineUsed = 'calypso';
             opts.onPlaybackStart?.('calypso');
-            // Wait for Calypso playback to finish.
-            try {
-                await handle.done;
-            } catch {
-                /* swallow — playback failure already triggered the
-                 *  reject in the race; we're past the start signal so
-                 *  there's nothing graceful to do here. */
+            const handle = await playCalypsoB64(audio_b64);
+            calypsoCancelFn = handle.cancel;
+            if (cancelled) {
+                handle.cancel();
+                return;
             }
+            await handle.done;
             opts.onPlaybackEnd?.();
             return;
         }
 
-        // Calypso didn't start in time. Cancel its in-flight synth so
-        // we don't get a delayed double-speak when it finally arrives.
-        if (handle) {
-            try {
-                handle.cancel();
-            } catch {
-                /* ignore */
-            }
-            calypsoHandle = null;
-        }
-
-        // Native fallback. Always available on iOS — Apple's
+        // ── Native fallback ─────────────────────────────────────────
+        // Calypso couldn't deliver in time (or at all). Play through
+        // iOS speechSynthesis. Always available — Apple's
         // SFSpeechSynthesizer is OS-level, no network needed.
         if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
             opts.onError?.(new Error('No speech synthesis available'));
@@ -211,9 +256,9 @@ export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = 
         done,
         cancel: () => {
             cancelled = true;
-            if (calypsoHandle) {
+            if (calypsoCancelFn) {
                 try {
-                    calypsoHandle.cancel();
+                    calypsoCancelFn();
                 } catch {
                     /* ignore */
                 }
