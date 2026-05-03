@@ -93,6 +93,34 @@ function nativeAvailable(): boolean {
 }
 
 /**
+ * Direct probe into Capacitor's plugin registry. When a plugin's
+ * native implementation IS compiled into the iOS binary, the plugin
+ * appears under `Capacitor.Plugins.AppleMusic` as a real proxy.
+ * When it's NOT compiled, calls to it reject with a standard
+ * "AppleMusic plugin is not implemented on ios" error.
+ *
+ * Surfacing this lets the diagnostic UI distinguish between
+ *   (a) plugin entirely missing from the binary (Xcode build issue)
+ *   (b) plugin present but throwing in a method
+ *   (c) plugin present but auth/library issue
+ *
+ * Returns null on web / non-iOS.
+ */
+export function probeNativePluginPresence(): { registered: boolean; rawShape: string } | null {
+    if (!nativeAvailable()) return null;
+    try {
+        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
+        const plugin = cap?.Plugins?.AppleMusic;
+        return {
+            registered: !!plugin,
+            rawShape: plugin ? typeof plugin : 'undefined',
+        };
+    } catch {
+        return { registered: false, rawShape: 'probe-threw' };
+    }
+}
+
+/**
  * Hand a URL off to the OS shell. We dropped `App.openUrl()` because
  * it's been removed from `@capacitor/app` since v4 — the recommended
  * native-platform path is now to set `window.location.href`, which the

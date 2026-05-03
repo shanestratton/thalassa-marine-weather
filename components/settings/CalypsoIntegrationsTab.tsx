@@ -35,6 +35,7 @@ import { speak } from '../../services/voice/ttsClient';
 import {
     inspectLibrary,
     playFirstSong,
+    probeNativePluginPresence,
     type LibraryInspection,
     type PlayFirstSongResult,
 } from '../../services/voice/integrations/appleMusic';
@@ -156,12 +157,20 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
     const [libraryInspection, setLibraryInspection] = useState<LibraryInspection | null>(null);
     /** Result of the most-recent "Play first song" smoke test. */
     const [firstSongResult, setFirstSongResult] = useState<PlayFirstSongResult | null>(null);
+    /** Snapshot of `Capacitor.Plugins.AppleMusic` at the time of the
+     *  most recent diagnostic. Tells us whether the plugin is
+     *  registered in the native binary at all. Populated alongside
+     *  the inspection so the UI can show both. */
+    const [pluginProbe, setPluginProbe] = useState<{ registered: boolean; rawShape: string } | null>(null);
     const [musicTestBusy, setMusicTestBusy] = useState<'inspect' | 'play' | null>(null);
 
     const handleInspectLibrary = useCallback(async () => {
         if (musicTestBusy) return;
         setMusicTestBusy('inspect');
         setFirstSongResult(null);
+        // Probe FIRST — synchronous registry check. Tells us if the
+        // plugin even exists in the binary before we try to call it.
+        setPluginProbe(probeNativePluginPresence());
         try {
             const r = await inspectLibrary();
             setLibraryInspection(r);
@@ -444,18 +453,59 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                                         </div>
                                     )}
                                     {libraryInspection.reason === 'plugin_error' && (
-                                        <div className="space-y-1">
-                                            <div className="text-red-400">
-                                                ✗ Native plugin not loaded — Xcode hasn't compiled the new Swift files
-                                                into this build.
+                                        <div className="space-y-2">
+                                            <div className="text-red-400 font-bold">
+                                                ✗ Native plugin not registered in this build.
                                             </div>
-                                            <div className="text-gray-500">
-                                                Fix: Xcode → Product → Clean Build Folder (Shift+Cmd+K), then run again.{' '}
-                                                {libraryInspection.error && (
-                                                    <code className="text-gray-600 break-all">
-                                                        ({libraryInspection.error})
+                                            {libraryInspection.error && (
+                                                <div className="text-gray-400">
+                                                    Capacitor error:{' '}
+                                                    <code className="text-amber-300 break-all bg-amber-500/10 px-1.5 py-0.5 rounded">
+                                                        {libraryInspection.error}
                                                     </code>
-                                                )}
+                                                </div>
+                                            )}
+                                            {pluginProbe && (
+                                                <div className="text-gray-500">
+                                                    Plugin registry: registered=
+                                                    <code className="text-gray-400">
+                                                        {String(pluginProbe.registered)}
+                                                    </code>
+                                                </div>
+                                            )}
+                                            <div className="text-gray-300 mt-2 font-bold">
+                                                Fix paths (try in order):
+                                            </div>
+                                            <ol className="list-decimal list-inside text-gray-400 space-y-1.5 pl-1">
+                                                <li>
+                                                    <span className="text-gray-300">Quit Xcode entirely</span> with
+                                                    Cmd+Q (not just close the window).
+                                                </li>
+                                                <li>
+                                                    <span className="text-gray-300">Delete DerivedData</span>:
+                                                    <pre className="text-[10px] bg-black/40 p-1.5 rounded mt-1 overflow-x-auto whitespace-pre-wrap">
+                                                        rm -rf ~/Library/Developer/Xcode/DerivedData
+                                                    </pre>
+                                                </li>
+                                                <li>
+                                                    <span className="text-gray-300">Reopen via the WORKSPACE</span> (not
+                                                    .xcodeproj):
+                                                    <code className="text-sky-400 ml-1">ios/App/App.xcworkspace</code>
+                                                </li>
+                                                <li>
+                                                    <span className="text-gray-300">Rebuild.</span> Cmd+R.
+                                                </li>
+                                            </ol>
+                                            <div className="text-gray-500 mt-2">
+                                                <span className="text-gray-400 font-bold">
+                                                    Still failing after that?
+                                                </span>{' '}
+                                                In Xcode's Project Navigator, expand App → App folder. If{' '}
+                                                <code>AppleMusicPlugin.swift</code> and <code>.m</code> aren't listed,
+                                                right-click App folder → "Add Files to App…" → select both files → tick
+                                                the <strong>App</strong> target → Add. If they ARE listed but greyed
+                                                out, click each → File Inspector (right panel) → under "Target
+                                                Membership" tick App.
                                             </div>
                                         </div>
                                     )}
