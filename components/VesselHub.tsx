@@ -1,12 +1,18 @@
 /**
  * VesselHub — Nav Station dashboard.
  *
- * Premium glassmorphic vertical hierarchy:
- *   Section A: Active Watch — 3-row grid (Voyage Entries/Route Planner, Anchor Watch/Guardian, Radio Report)
- *   Section B½: Passage Planning (standalone)
- *   Section C: Ship's Office vertical list (all office cards)
- *   Section C½: Networking (NMEA Gateway + AvNav Charts)
- *   Section D: Account (settings)
+ * Layout (top → bottom):
+ *   Hero band:           vessel name · voyage state · position fix · time-since-fix
+ *   Quick Actions:       6-tile 2-up grid — log entry, route, anchor, guardian, MOB, radio
+ *   Passage Planning:    voyage prep + GPX import + Notices
+ *   Logbook:             Diary
+ *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
+ *   Reference:           Checklists · Polars · Documents
+ *   Connect:             NMEA Gateway · Boat Network
+ *   Account:             Settings + tier
+ *
+ * Recipe Library has moved to the Galley; keeping it in two places
+ * confused users and the Galley is the natural home for it.
  */
 import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
@@ -16,13 +22,11 @@ import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { lazyRetry } from '../utils/lazyRetry';
+import { GpsService, type GpsPosition } from '../services/GpsService';
+import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
-);
-const CaptainsTable = lazyRetry(
-    () => import('./chat/CaptainsTable').then((m) => ({ default: m.CaptainsTable })),
-    'CaptainsTable_Vessel',
 );
 
 interface VesselHubProps {
@@ -62,9 +66,54 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    const [showRecipeLibrary, setShowRecipeLibrary] = useState(false);
-    const [expanded, setExpanded] = useState<Set<string>>(new Set(['watch', 'passage']));
+    const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick', 'passage']));
     const [_isAdmin, setIsAdmin] = useState(false);
+
+    // ── Hero band state — vessel name, active voyage, GPS fix ──
+    const vesselName: string =
+        ((ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined) || 'Your Vessel';
+    const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
+    const [position, setPosition] = useState<GpsPosition | null>(null);
+
+    useEffect(() => {
+        // Refresh cached voyage on mount (cheap localStorage read).
+        setActiveVoyage(getCachedActiveVoyage());
+    }, []);
+
+    useEffect(() => {
+        // Watch GPS for the hero band. Throttle re-renders by caching
+        // the previous timestamp — we only repaint when we get a fresh
+        // fix (avoids re-rendering on every duplicate event from the
+        // BgGeoManager when the boat is stationary).
+        let lastTs = 0;
+        const unsub = GpsService.watchPosition((pos) => {
+            if (pos.timestamp > lastTs) {
+                lastTs = pos.timestamp;
+                setPosition(pos);
+            }
+        });
+        // Also kick off a one-shot fetch so the hero band has data on
+        // first render even if watchPosition has a slow first emit.
+        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 })
+            .then((pos) => {
+                if (pos && pos.timestamp > lastTs) {
+                    lastTs = pos.timestamp;
+                    setPosition(pos);
+                }
+            })
+            .catch(() => {
+                /* GPS not available — hero band will show "no fix" */
+            });
+        return unsub;
+    }, []);
+
+    // Re-render once a minute so "1 min ago" → "2 min ago" updates
+    // even when the GPS fix hasn't changed.
+    const [, setTick] = useState(0);
+    useEffect(() => {
+        const id = setInterval(() => setTick((t) => t + 1), 60_000);
+        return () => clearInterval(id);
+    }, []);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');
@@ -154,17 +203,28 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             {/* Scrollable content area */}
             <div className="flex-1 min-h-0 overflow-y-auto vessel-hub-no-scrollbar px-4 pt-4 stagger-in">
                 {/* ═══════════════════════════════════════════ */}
-                {/* SECTION A: ACTIVE WATCH — Hero Card        */}
+                {/* HERO BAND — situational awareness           */}
+                {/* Vessel · voyage state · last fix            */}
+                {/* ═══════════════════════════════════════════ */}
+                <NavStationHero
+                    vesselName={vesselName}
+                    voyage={activeVoyage}
+                    position={position}
+                    anchorStatus={anchorStatus}
+                />
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* QUICK ACTIONS — 3-row grid                  */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
                         color="#ef4444"
-                        label="Active Watch"
-                        id="watch"
-                        expanded={expanded.has('watch')}
+                        label="Quick Actions"
+                        id="quick"
+                        expanded={expanded.has('quick')}
                         onToggle={toggleSection}
                     />
-                    <CollapsibleContent open={expanded.has('watch')}>
+                    <CollapsibleContent open={expanded.has('quick')}>
                         {/* Row 1 — Voyage Entries + Route Planner */}
                         <div className="grid grid-cols-2 gap-3 mb-3">
                             <button
@@ -185,7 +245,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                             Voyage Entries
                                         </h4>
                                         <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
-                                            Add Entry
+                                            Log Entry
                                         </p>
                                     </div>
                                 </div>
@@ -216,7 +276,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                                 isObserver ? 'text-gray-500' : 'text-cyan-400'
                                             }`}
                                         >
-                                            {isObserver ? 'Vessel Required' : 'Route Plan'}
+                                            {isObserver ? 'Vessel Required' : 'Plan Passage'}
                                         </p>
                                     </div>
                                 </div>
@@ -279,7 +339,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <div>
                                         <h4 className="text-[13px] font-black text-white tracking-wide">Guardian</h4>
                                         <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                            Bay Watch
+                                            Bay Safety
                                         </p>
                                     </div>
                                 </div>
@@ -309,7 +369,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <div>
                                         <h4 className="text-[13px] font-black text-white tracking-wide">MOB</h4>
                                         <p className="text-[11px] font-bold uppercase tracking-widest text-red-400 mt-0.5">
-                                            Mark &amp; Track
+                                            Person Overboard
                                         </p>
                                     </div>
                                 </div>
@@ -333,7 +393,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                             Radio Report
                                         </h4>
                                         <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                            DSC &amp; Pos
+                                            Position Broadcast
                                         </p>
                                     </div>
                                 </div>
@@ -398,34 +458,50 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* SECTION C: SHIP'S OFFICE — Collapsible      */}
+                {/* LOGBOOK                                     */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
                         color="#0ea5e9"
-                        label="Ship's Office"
-                        id="office"
-                        expanded={expanded.has('office')}
+                        label="Logbook"
+                        id="logbook"
+                        expanded={expanded.has('logbook')}
                         onToggle={toggleSection}
                     />
-                    <CollapsibleContent open={expanded.has('office')}>
+                    <CollapsibleContent open={expanded.has('logbook')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<PenIcon color="#0ea5e9" />}
                                 label="Diary"
                                 status="Daily Notes"
-                                statusColor="#9ca3af"
+                                statusColor="#0ea5e9"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('diary');
                                 }}
                             />
-                            <ListDivider />
+                        </div>
+                    </CollapsibleContent>
+                </div>
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* INVENTORY & MAINTENANCE                     */}
+                {/* ═══════════════════════════════════════════ */}
+                <div className="mb-4">
+                    <SectionHeader
+                        color="#f59e0b"
+                        label="Inventory & Maintenance"
+                        id="inventory"
+                        expanded={expanded.has('inventory')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('inventory')}>
+                        <div style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<BoxIcon color="#f59e0b" />}
                                 label="Ship's Stores"
                                 status="Provisions & Spares"
-                                statusColor="#9ca3af"
+                                statusColor="#f59e0b"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('inventory');
@@ -433,21 +509,48 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<BookIcon color="#0ea5e9" />}
-                                label="Recipe Library"
-                                status="Community Galley"
-                                statusColor="#9ca3af"
+                                icon={<ClipboardIcon color="#ef4444" />}
+                                label="Equipment"
+                                status="Register"
+                                statusColor="#ef4444"
                                 onClick={() => {
                                     triggerHaptic('light');
-                                    setShowRecipeLibrary(true);
+                                    onNavigate('equipment');
                                 }}
                             />
                             <ListDivider />
                             <OfficeRow
+                                icon={<WrenchIcon color="#0ea5e9" />}
+                                label="Repairs & Maintenance"
+                                status="Tasks & Expiry"
+                                statusColor="#0ea5e9"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('maintenance');
+                                }}
+                            />
+                        </div>
+                    </CollapsibleContent>
+                </div>
+
+                {/* ═══════════════════════════════════════════ */}
+                {/* REFERENCE                                   */}
+                {/* ═══════════════════════════════════════════ */}
+                <div className="mb-4">
+                    <SectionHeader
+                        color="#22d3ee"
+                        label="Reference"
+                        id="reference"
+                        expanded={expanded.has('reference')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('reference')}>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
                                 icon={<ChecklistIcon color="#22d3ee" />}
                                 label="Checklists"
                                 status="Safety & Passage"
-                                statusColor="#9ca3af"
+                                statusColor="#22d3ee"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('checklists');
@@ -458,7 +561,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 icon={<ChartIcon color="#22d3ee" />}
                                 label="Polars"
                                 status={isObserver ? 'Vessel Required' : 'Tuning'}
-                                statusColor={isObserver ? '#6b7280' : '#9ca3af'}
+                                statusColor={isObserver ? '#6b7280' : '#22d3ee'}
                                 onClick={() => {
                                     if (isObserver) return;
                                     triggerHaptic('light');
@@ -468,32 +571,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<WrenchIcon color="#0ea5e9" />}
-                                label="R&M"
-                                status="Tasks & Expiry"
-                                statusColor="#9ca3af"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('maintenance');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ClipboardIcon color="#ef4444" />}
-                                label="Equipment"
-                                status="Register"
-                                statusColor="#9ca3af"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('equipment');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
                                 icon={<DocShieldIcon color="#0ea5e9" />}
                                 label="Documents"
                                 status="Legal"
-                                statusColor="#9ca3af"
+                                statusColor="#0ea5e9"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('documents');
@@ -504,23 +585,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* SECTION C½: NETWORKING — NMEA + AvNav       */}
+                {/* CONNECT — instruments, AIS, charts          */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#22d3ee"
-                        label="Networking"
-                        id="network"
-                        expanded={expanded.has('network')}
+                        color="#a855f7"
+                        label="Connect"
+                        id="connect"
+                        expanded={expanded.has('connect')}
                         onToggle={toggleSection}
                     />
-                    <CollapsibleContent open={expanded.has('network')}>
+                    <CollapsibleContent open={expanded.has('connect')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<SignalIcon color="#a855f7" />}
                                 label="NMEA Gateway"
                                 status="Instruments & AIS"
-                                statusColor="#9ca3af"
+                                statusColor="#a855f7"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('nmea');
@@ -530,8 +611,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             <OfficeRow
                                 icon={<MapChartIcon color="#22d3ee" />}
                                 label="Boat Network"
-                                status="Pi, Charts & Instruments"
-                                statusColor="#9ca3af"
+                                status="Pi & Charts"
+                                statusColor="#22d3ee"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('avnav');
@@ -581,31 +662,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
             {/* Admin Panel Modal */}
             <AdminPanel isOpen={showAdminPanel} onClose={() => setShowAdminPanel(false)} />
-
-            {/* Recipe Library — Captain's Table fullscreen takeover */}
-            {showRecipeLibrary && (
-                <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
-                    <div
-                        className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
-                        style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-                    >
-                        <button
-                            onClick={() => setShowRecipeLibrary(false)}
-                            aria-label="Close recipe library"
-                            className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
-                        >
-                            <span className="text-sky-400 text-lg">‹</span>
-                        </button>
-                        <div className="flex-1 min-w-0">
-                            <p className="text-base font-bold text-white truncate">Recipe Library</p>
-                            <p className="text-[11px] text-white/60">Browse community galley recipes</p>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto">
-                        <CaptainsTable fullPage />
-                    </div>
-                </div>
-            )}
         </div>
     );
 });
@@ -614,7 +670,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 // ── Shared Components ──
 // ══════════════════════════════════════
 
-/** Collapsible section header with colored pip and chevron */
+/** Collapsible section header with colored pip and chevron.
+ *  Tap target: min-h-[44px] meets Apple HIG minimum so wet-handed
+ *  taps on a heeled boat actually hit. The previous py-1 was ~24pt
+ *  and missed half the time. */
 const SectionHeader: React.FC<{
     color: string;
     label: string;
@@ -627,7 +686,7 @@ const SectionHeader: React.FC<{
             triggerHaptic('light');
             onToggle(id);
         }}
-        className="w-full flex items-center gap-2 mb-2.5 py-1 active:opacity-70 transition-opacity"
+        className="w-full flex items-center gap-2 mb-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
         aria-expanded={expanded}
         aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
     >
@@ -651,6 +710,105 @@ const SectionHeader: React.FC<{
         </svg>
     </button>
 );
+
+// ══════════════════════════════════════
+// ── NavStationHero — situational-awareness band ──
+// ══════════════════════════════════════
+
+/** Format a relative time like "2 min ago" / "just now" / "1 hr ago". */
+function formatTimeSince(ts: number | null): string {
+    if (!ts) return 'no fix';
+    const delta = Date.now() - ts;
+    if (delta < 30_000) return 'just now';
+    if (delta < 3_600_000) return `${Math.round(delta / 60_000)} min ago`;
+    if (delta < 86_400_000) return `${Math.round(delta / 3_600_000)} hr ago`;
+    return `${Math.round(delta / 86_400_000)} d ago`;
+}
+
+/** Format a coordinate as "27.4673°S 153.1234°E" (degrees + cardinal). */
+function formatCoord(lat: number, lon: number): string {
+    const latStr = `${Math.abs(lat).toFixed(4)}°${lat >= 0 ? 'N' : 'S'}`;
+    const lonStr = `${Math.abs(lon).toFixed(4)}°${lon >= 0 ? 'E' : 'W'}`;
+    return `${latStr}  ${lonStr}`;
+}
+
+/** Derive a one-word voyage state for the hero band. */
+function deriveVoyageState(
+    voyage: Voyage | null,
+    anchorStatus: 'armed' | 'disarmed' | 'alarm',
+): { label: string; color: string; route?: string } {
+    if (anchorStatus === 'alarm') return { label: 'Drag Alarm', color: '#ef4444' };
+    if (voyage && voyage.status === 'active') {
+        const route =
+            voyage.departure_port && voyage.destination_port
+                ? `${voyage.departure_port} → ${voyage.destination_port}`
+                : voyage.voyage_name || 'Underway';
+        return { label: 'Underway', color: '#22d3ee', route };
+    }
+    if (anchorStatus === 'armed') return { label: 'At Anchor', color: '#22d3ee' };
+    if (voyage && voyage.status === 'planning') {
+        const route =
+            voyage.departure_port && voyage.destination_port
+                ? `${voyage.departure_port} → ${voyage.destination_port}`
+                : voyage.voyage_name || 'Drafted';
+        return { label: 'Drafted', color: '#8b5cf6', route };
+    }
+    return { label: 'At Rest', color: '#9ca3af' };
+}
+
+const NavStationHero: React.FC<{
+    vesselName: string;
+    voyage: Voyage | null;
+    position: GpsPosition | null;
+    anchorStatus: 'armed' | 'disarmed' | 'alarm';
+}> = ({ vesselName, voyage, position, anchorStatus }) => {
+    const state = deriveVoyageState(voyage, anchorStatus);
+    return (
+        <div
+            className="mb-4 p-4"
+            style={{
+                ...GLASS.card,
+                background: 'linear-gradient(135deg, rgba(20,25,35,0.7) 0%, rgba(14,165,233,0.06) 100%)',
+                borderColor: 'rgba(255,255,255,0.1)',
+            }}
+        >
+            {/* Top row — vessel name + state pill */}
+            <div className="flex items-baseline gap-2 mb-2">
+                <h2 className="text-lg font-black text-white tracking-tight truncate flex-1">{vesselName}</h2>
+                <span
+                    className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-widest border whitespace-nowrap shrink-0"
+                    style={{
+                        color: state.color,
+                        backgroundColor: `${state.color}1a`,
+                        borderColor: `${state.color}33`,
+                    }}
+                >
+                    {state.label}
+                </span>
+            </div>
+
+            {/* Voyage line */}
+            {state.route && <p className="text-[12px] font-semibold text-white/80 truncate mb-2">{state.route}</p>}
+
+            {/* Position + last-fix line */}
+            <div className="flex items-center gap-2 text-[11px]">
+                <span
+                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{
+                        backgroundColor: position ? '#22d3ee' : '#6b7280',
+                        boxShadow: position ? '0 0 6px rgba(34,211,238,0.6)' : 'none',
+                    }}
+                />
+                <span className="font-mono text-white/70 tabular-nums truncate flex-1">
+                    {position ? formatCoord(position.latitude, position.longitude) : 'Awaiting GPS fix…'}
+                </span>
+                <span className="text-white/40 text-[10px] uppercase tracking-wider shrink-0">
+                    {formatTimeSince(position?.timestamp ?? null)}
+                </span>
+            </div>
+        </div>
+    );
+};
 
 /** Animated collapsible content wrapper */
 const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }> = ({ open, children }) => (
