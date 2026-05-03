@@ -317,7 +317,27 @@ public class AppleMusicPlugin: CAPPlugin {
      * involving the LLM, Calypso's narration, or the URL fallback.
      */
     @objc func playFirstSong(_ call: CAPPluginCall) {
+        // Bring up the iOS permission prompt on first call — the plugin
+        // is no use without it, and the diagnostic UX is much better if
+        // tapping the button just asks for permission rather than
+        // returning "denied" because no one's been asked yet.
         let status = MPMediaLibrary.authorizationStatus()
+        if status == .notDetermined {
+            NSLog("[AppleMusic] playFirstSong: requesting authorization…")
+            MPMediaLibrary.requestAuthorization { [weak self] granted in
+                if granted == .authorized {
+                    self?.runPlayFirstSong(call: call)
+                } else {
+                    call.resolve([
+                        "status": "permission_denied",
+                        "auth_status": Self.authStatusString(granted),
+                        "title": "",
+                        "artist": "",
+                    ])
+                }
+            }
+            return
+        }
         if status != .authorized {
             NSLog("[AppleMusic] playFirstSong: not authorized (\(Self.authStatusString(status)))")
             call.resolve([
@@ -328,6 +348,10 @@ public class AppleMusicPlugin: CAPPlugin {
             ])
             return
         }
+        runPlayFirstSong(call: call)
+    }
+
+    private func runPlayFirstSong(call: CAPPluginCall) {
         let songs = MPMediaQuery.songs().items ?? []
         NSLog("[AppleMusic] playFirstSong: library has \(songs.count) songs")
         guard let first = songs.first else {
@@ -362,6 +386,32 @@ public class AppleMusicPlugin: CAPPlugin {
      */
     @objc func getLibraryStats(_ call: CAPPluginCall) {
         let authStatus = MPMediaLibrary.authorizationStatus()
+        // First-time path — prompt the skipper for Apple Music access
+        // so the diagnostic actually drives the permission grant on the
+        // very first tap. Without this, "Inspect library" before any
+        // music has been played returns a useless "notDetermined" and
+        // there's nothing the skipper can do from iOS Settings either
+        // (the toggle doesn't appear until the app has asked once).
+        if authStatus == .notDetermined {
+            NSLog("[AppleMusic] getLibraryStats: requesting authorization…")
+            MPMediaLibrary.requestAuthorization { [weak self] granted in
+                if granted == .authorized, let self = self {
+                    self.respondWithStats(call: call, authStatus: granted)
+                } else {
+                    call.resolve([
+                        "auth_status": Self.authStatusString(granted),
+                        "auth_granted": false,
+                        "artists": 0,
+                        "albums": 0,
+                        "songs": 0,
+                        "playlists": 0,
+                        "sample_artists": [],
+                        "sample_playlists": [],
+                    ])
+                }
+            }
+            return
+        }
         if authStatus != .authorized {
             call.resolve([
                 "auth_status": Self.authStatusString(authStatus),
@@ -376,6 +426,10 @@ public class AppleMusicPlugin: CAPPlugin {
             return
         }
 
+        respondWithStats(call: call, authStatus: authStatus)
+    }
+
+    private func respondWithStats(call: CAPPluginCall, authStatus: MPMediaLibraryAuthorizationStatus) {
         let stats = quickLibraryStats()
         // First few artist + playlist names so the diagnostic is
         // actually useful — "you've got 47 artists, including Pink
