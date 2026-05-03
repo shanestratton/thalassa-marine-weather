@@ -1,5 +1,13 @@
 <!doctype html>
-<html lang="en">
+<!--
+  writingsuggestions="false" + autocomplete="off" on <html> disables
+  iOS 18.1+ Apple Writing Tools (the "Show Writing Tools" popover
+  that appears over text inputs after long-press / context menu).
+  The attribute is a global HTML hint that cascades through the
+  document tree, so this single anchor turns it off everywhere
+  without needing to mark every input/textarea individually.
+-->
+<html lang="en" writingsuggestions="false" autocomplete="off">
     <head>
         <meta charset="UTF-8" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -203,6 +211,46 @@
                         return true;
                     }
                 });
+            })();
+        </script>
+        <!-- Apple Writing Tools (iOS 18.1+) suppression — belt &
+             suspenders. The `writingsuggestions="false"` attribute
+             on <html> cascades to descendants, but some component
+             libraries explicitly set the attribute back to "true" or
+             create inputs that re-opt-in. Mark every text input +
+             textarea + contenteditable on creation so the popover
+             never fires anywhere in the app. -->
+        <script>
+            (function () {
+                function suppressOn(el) {
+                    if (!el || !el.setAttribute) return;
+                    var tag = el.tagName;
+                    if (tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable) {
+                        el.setAttribute('writingsuggestions', 'false');
+                        // autocorrect=off also softens iOS Writing Tools triggers
+                        // for non-form-fill text fields like our search box.
+                        if (!el.hasAttribute('autocorrect')) {
+                            el.setAttribute('autocorrect', 'off');
+                        }
+                    }
+                }
+                // Cover anything already in the DOM at boot.
+                document.addEventListener('DOMContentLoaded', function () {
+                    document.querySelectorAll('input, textarea, [contenteditable]').forEach(suppressOn);
+                });
+                // Cover anything React/Capacitor mounts later.
+                var mo = new MutationObserver(function (records) {
+                    records.forEach(function (r) {
+                        r.addedNodes.forEach(function (n) {
+                            if (n.nodeType !== 1) return;
+                            suppressOn(n);
+                            if (n.querySelectorAll) {
+                                n.querySelectorAll('input, textarea, [contenteditable]').forEach(suppressOn);
+                            }
+                        });
+                    });
+                });
+                mo.observe(document.documentElement, { childList: true, subtree: true });
             })();
         </script>
         <script type="module" src="/index.tsx"></script>
