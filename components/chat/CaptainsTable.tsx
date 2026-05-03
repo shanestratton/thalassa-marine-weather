@@ -19,6 +19,8 @@ import {
     toggleFavourite,
     getFavouriteIds,
     NAUTICAL_TAG_DEFS,
+    encodeCommunityRecipeShare,
+    shareRecipeToScuttlebutt,
     type CommunityRecipe,
     type CaptainsTableSort,
     type NauticalTag,
@@ -26,6 +28,8 @@ import {
     type RecipeIngredient,
     type RecipeStep,
 } from '../../services/GalleyRecipeService';
+import { ChatService } from '../../services/ChatService';
+import type { ChatChannel } from '../../services/chat/types';
 import { triggerHaptic } from '../../utils/system';
 import { CustomRecipeForm } from './CustomRecipeForm';
 import { toast } from '../Toast';
@@ -149,11 +153,71 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
     const [reportSent, setReportSent] = useState(false);
     const [imageBroken, setImageBroken] = useState(false);
 
+    // ── Post-to-Scuttlebutt state ──
+    const [shareOpen, setShareOpen] = useState(false);
+    const [channels, setChannels] = useState<ChatChannel[]>([]);
+    const [selectedChannelId, setSelectedChannelId] = useState<string>('');
+    const [shareNote, setShareNote] = useState('');
+    const [posting, setPosting] = useState(false);
+    const [posted, setPosted] = useState(false);
+
     useEffect(() => {
         if (recipe.supabaseId) {
             getUserRating(recipe.supabaseId).then(setUserRating);
         }
     }, [recipe.supabaseId]);
+
+    // Lazy-load channels the first time the share panel opens — avoids
+    // the network roundtrip on every recipe view.
+    useEffect(() => {
+        if (!shareOpen || channels.length > 0) return;
+        let cancelled = false;
+        ChatService.getChannels()
+            .then((list) => {
+                if (cancelled) return;
+                // Filter to public global channels only — DMs and
+                // private/regional rooms aren't sensible defaults for
+                // a recipe broadcast.
+                const publicGlobals = list.filter((c) => c.is_global && !c.is_private);
+                setChannels(publicGlobals);
+                // Default to "General" if it's there, otherwise the
+                // first global channel.
+                const general = publicGlobals.find((c) => c.name.toLowerCase() === 'general');
+                setSelectedChannelId(general?.id || publicGlobals[0]?.id || '');
+            })
+            .catch(() => {
+                if (!cancelled) setChannels([]);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [shareOpen, channels.length]);
+
+    const handlePostToScuttlebutt = async () => {
+        if (!selectedChannelId || posting) return;
+        triggerHaptic('medium');
+        setPosting(true);
+        const ok = await shareRecipeToScuttlebutt({
+            recipeShareToken: encodeCommunityRecipeShare(recipe),
+            channelId: selectedChannelId,
+            note: shareNote,
+        });
+        setPosting(false);
+        if (ok) {
+            setPosted(true);
+            const ch = channels.find((c) => c.id === selectedChannelId);
+            toast.success(`Posted to #${ch?.name || 'channel'}`);
+            // Auto-collapse + reset after a beat so the user can post
+            // another recipe later without re-tapping the toggle.
+            setTimeout(() => {
+                setShareOpen(false);
+                setShareNote('');
+                setPosted(false);
+            }, 1600);
+        } else {
+            toast.error('Could not post — check connection and sign-in');
+        }
+    };
 
     const handleRate = async (rating: number) => {
         setSubmitting(true);
@@ -295,6 +359,121 @@ const RecipeDetail: React.FC<RecipeDetailProps> = ({ recipe, onClose, onRated })
                             </div>
                         </div>
                     )}
+
+                    {/* ── Post to Scuttlebutt ──
+                        One-tap share into a public chat channel. The
+                        recipe goes in as a 🍳RECIPE: token that
+                        RecipeCard.tsx already decodes inline, so the
+                        channel feed gets a tappable card — image,
+                        servings, cook time, full details on tap. */}
+                    <div className="pt-2 border-t border-white/[0.04]">
+                        {!shareOpen ? (
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setShareOpen(true);
+                                }}
+                                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-300 text-sm font-bold hover:bg-sky-500/15 active:scale-[0.98] transition-all"
+                                aria-label="Share recipe to Scuttlebutt"
+                            >
+                                <span className="text-base">📣</span>
+                                <span>Post to Scuttlebutt</span>
+                            </button>
+                        ) : (
+                            <div className="space-y-3 p-3 rounded-xl bg-sky-500/[0.05] border border-sky-500/15">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">
+                                        📣 Post to Scuttlebutt
+                                    </p>
+                                    <button
+                                        onClick={() => {
+                                            setShareOpen(false);
+                                            setShareNote('');
+                                        }}
+                                        className="text-[11px] text-gray-500 hover:text-gray-300"
+                                        aria-label="Cancel share"
+                                    >
+                                        Cancel
+                                    </button>
+                                </div>
+
+                                {/* Channel chips */}
+                                {channels.length === 0 ? (
+                                    <p className="text-[11px] text-gray-500 italic">Loading channels...</p>
+                                ) : (
+                                    <div>
+                                        <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">
+                                            Channel
+                                        </p>
+                                        <div className="flex flex-wrap gap-1.5">
+                                            {channels.map((ch) => {
+                                                const isSelected = ch.id === selectedChannelId;
+                                                return (
+                                                    <button
+                                                        key={ch.id}
+                                                        onClick={() => {
+                                                            triggerHaptic('light');
+                                                            setSelectedChannelId(ch.id);
+                                                        }}
+                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-colors ${
+                                                            isSelected
+                                                                ? 'bg-sky-500/20 border-sky-400/40 text-sky-200'
+                                                                : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:bg-white/[0.06]'
+                                                        }`}
+                                                    >
+                                                        {ch.icon} {ch.name}
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Optional note */}
+                                <div>
+                                    <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">
+                                        Note <span className="normal-case text-gray-600">(optional)</span>
+                                    </p>
+                                    <textarea
+                                        value={shareNote}
+                                        onChange={(e) => setShareNote(e.target.value.slice(0, 280))}
+                                        placeholder="Made this on the run to Cairns, crew loved it..."
+                                        rows={2}
+                                        className="w-full px-2.5 py-2 rounded-lg bg-slate-900/60 border border-white/[0.08] text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-sky-400/40 resize-none"
+                                    />
+                                    <p className="text-[10px] text-gray-600 mt-1 text-right">{shareNote.length}/280</p>
+                                </div>
+
+                                {/* Post button */}
+                                <button
+                                    onClick={handlePostToScuttlebutt}
+                                    disabled={!selectedChannelId || posting || posted}
+                                    className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-all active:scale-[0.98] ${
+                                        posted
+                                            ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300'
+                                            : 'bg-sky-500/20 border border-sky-400/40 text-sky-100 hover:bg-sky-500/30 disabled:opacity-50'
+                                    }`}
+                                >
+                                    {posting ? (
+                                        <>
+                                            <div className="w-3 h-3 border-2 border-sky-300 border-t-transparent rounded-full animate-spin" />
+                                            <span>Posting...</span>
+                                        </>
+                                    ) : posted ? (
+                                        <>
+                                            <span>✅</span>
+                                            <span>Posted</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>📣</span>
+                                            <span>Post Recipe</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Report image — only show if recipe has a user-uploaded image */}
                     {recipe.image && (
