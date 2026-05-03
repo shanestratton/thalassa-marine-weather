@@ -4,7 +4,5 @@
 <dict>
 	<key>com.apple.developer.weatherkit</key>
 	<true/>
-	<key>com.apple.developer.musickit</key>
-	<true/>
 </dict>
 </plist>
