@@ -66,38 +66,11 @@ public class AppleMusicPlugin: CAPPlugin {
     private var ttsPlayer: AVAudioPlayer?
     /// Pending CAPPluginCall to resolve when current TTS finishes.
     private var ttsPlayerDelegate: TtsPlayerDelegate?
-    /// Music volume before TTS ducked it. Restored when TTS finishes
-    /// or is cancelled. Nil when no ducking is in flight.
-    private var ttsPreduckedVolume: Float?
-
-    // ── Music playback via AVQueuePlayer ────────────────────────────
-    //
-    // We tried MPMusicPlayerController.systemMusicPlayer (cross-process
-    // IPC quirks, audio routing failures), then .applicationMusicPlayer
-    // (in-process but its volume API is unavailable in modern iOS, and
-    // pause/resume around AVAudioPlayer playback was unreliable). Both
-    // attempts had the same fundamental bug: every TTS narration
-    // killed the music with no clean recovery.
-    //
-    // AVQueuePlayer puts everything in our control: it plays through
-    // standard AVFoundation audio (same engine as AVAudioPlayer for
-    // TTS), it has a settable .volume so we can duck cleanly during
-    // TTS, and pause/resume work reliably because there's no
-    // cross-process mediation.
-    //
-    // Caveat: Apple Music subscription tracks have nil assetURL
-    // (DRM), so we can't play those. Owned (purchased) tracks have
-    // real assetURLs and play fine. Skipper's library skews older
-    // (Pink Floyd / Zeppelin era) so most should be owned, not
-    // streaming-only.
-    private var musicPlayer: AVQueuePlayer?
-    /// The MPMediaItems currently queued in `musicPlayer`. Stored so
-    /// we can answer nowPlaying queries with full metadata (the
-    /// AVPlayerItem doesn't carry artist/album in a convenient way).
-    private var musicQueueItems: [MPMediaItem] = []
-    /// End-of-track observer token so we can swap to the next item
-    /// in the queue when one finishes.
-    private var musicItemEndObserver: NSObjectProtocol?
+    /// Whether we paused applicationMusicPlayer for the current TTS
+    /// utterance — used by the delegate (resume) and cancelTtsAudio
+    /// (resume on cancel) so we don't accidentally start music that
+    /// wasn't playing in the first place.
+    private var ttsPausedMusic: Bool = false
 
     // MARK: - Authorization
 
@@ -311,11 +284,19 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     private func playItems(_ items: [MPMediaItem]) {
+        // MPMusicPlayerController must be used on the main thread.
+        // Permission callback fires on a background queue, so we hop
+        // back to main here regardless of caller context. Sync dispatch
+        // when we're already on main; async otherwise — caller doesn't
+        // need to wait for playback to start before resolving.
         let block = { [weak self] in
-            guard let self = self else { return }
-
-            // Activate session — AVQueuePlayer plays through our app
-            // session, so it needs to be active.
+            // applicationMusicPlayer plays in OUR app's process and
+            // through OUR audio session — so we ACTIVATE the session
+            // here (the opposite of what we'd do with systemMusicPlayer,
+            // which is a remote control to the Music app). Set
+            // .playback so it bypasses the silent switch and routes
+            // through speaker; .mixWithOthers so we coexist with any
+            // other audio (alarms, future system sounds).
             do {
                 let session = AVAudioSession.sharedInstance()
                 try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
@@ -324,43 +305,20 @@ public class AppleMusicPlugin: CAPPlugin {
                 NSLog("[AppleMusic] playItems: session activation failed: \(error)")
             }
 
-            // Stop + dispose of any existing player.
-            self.musicPlayer?.pause()
-            self.musicPlayer?.removeAllItems()
-            if let observer = self.musicItemEndObserver {
-                NotificationCenter.default.removeObserver(observer)
-                self.musicItemEndObserver = nil
-            }
+            // Stash the queue we're about to play so resume() has
+            // something to fall back to if iOS loses queue state
+            // between pause and resume.
+            self?.savedQueueItems = items
+            self?.savedQueuePosition = 0
 
-            // Build AVPlayerItems from MPMediaItem.assetURL. DRM-protected
-            // Apple Music subscription tracks return nil and get
-            // skipped — we log the count so the diagnostic UI can
-            // surface "X of Y tracks playable" if needed.
-            let playable = items.compactMap { item -> (MPMediaItem, AVPlayerItem)? in
-                guard let url = item.assetURL else { return nil }
-                return (item, AVPlayerItem(url: url))
-            }
-            let skipped = items.count - playable.count
-            NSLog("[AppleMusic] playItems: \(playable.count) playable, \(skipped) skipped (DRM/no assetURL)")
-            if playable.isEmpty {
-                NSLog("[AppleMusic] playItems: NO playable items — all DRM-protected")
-                return
-            }
-
-            // Save state for diagnostics + future resume retry.
-            self.musicQueueItems = playable.map { $0.0 }
-            self.savedQueueItems = items
-            self.savedQueuePosition = 0
-
-            // Create + play.
-            let player = AVQueuePlayer(items: playable.map { $0.1 })
-            player.volume = 1.0
-            // Auto-advance is built into AVQueuePlayer — when one item
-            // ends, it moves to the next. No manual queue management
-            // needed.
-            self.musicPlayer = player
+            let collection = MPMediaItemCollection(items: items)
+            let player = MPMusicPlayerController.applicationMusicPlayer
+            player.setQueue(with: collection)
+            // Shuffle off by default — predictability beats randomness
+            // when the skipper just asked for a specific thing.
+            player.shuffleMode = .off
             player.play()
-            NSLog("[AppleMusic] AVQueuePlayer started, rate=\(player.rate) volume=\(player.volume)")
+            NSLog("[AppleMusic] play() called, state=\(player.playbackState.rawValue)")
         }
         if Thread.isMainThread {
             block()
@@ -415,20 +373,30 @@ public class AppleMusicPlugin: CAPPlugin {
                 return
             }
 
-            // VOLUME DUCK on AVQueuePlayer.
+            // PAUSE-AND-RESUME around TTS.
             //
-            // AVQueuePlayer.volume is settable (unlike
-            // MPMusicPlayerController.volume which is unavailable in
-            // modern iOS). Drop to ~18% while Calypso speaks, restore
-            // when she finishes. Music never actually stops.
-            let isPlaying = (self.musicPlayer?.rate ?? 0) > 0
-            if isPlaying, let player = self.musicPlayer {
-                self.ttsPreduckedVolume = player.volume
-                player.volume = 0.18
-                NSLog("[AppleMusic] playTtsAudio: ducked music \(self.ttsPreduckedVolume ?? 1.0) → 0.18")
-            } else {
-                self.ttsPreduckedVolume = nil
+            // Volume ducking attempted but MPMusicPlayerController.volume
+            // is fully unavailable in modern iOS (compiler error, not
+            // deprecation warning). So we're back to pause/resume.
+            //
+            // CRITICAL: the AVAudioPlayer delegate's didFinishPlaying
+            // can fire on a background thread. MPMusicPlayerController
+            // calls from background threads silently no-op, which
+            // explained why earlier resume attempts didn't actually
+            // restart playback. We now dispatch the resume back to
+            // main queue inside the delegate.
+            let musicPlayer = MPMusicPlayerController.applicationMusicPlayer
+            let wasPlayingMusic = musicPlayer.playbackState == .playing
+            if wasPlayingMusic {
+                NSLog(
+                    "[AppleMusic] playTtsAudio: pausing music (state=\(musicPlayer.playbackState.rawValue))"
+                )
+                musicPlayer.pause()
+                NSLog(
+                    "[AppleMusic] playTtsAudio: paused, state now \(musicPlayer.playbackState.rawValue)"
+                )
             }
+            self.ttsPausedMusic = wasPlayingMusic
 
             // Create + retain the player.
             do {
@@ -436,18 +404,57 @@ public class AppleMusicPlugin: CAPPlugin {
                 player.volume = 1.0
                 let delegate = TtsPlayerDelegate { [weak self] in
                     NSLog("[AppleMusic] playTtsAudio: playback finished")
-                    DispatchQueue.main.async {
+                    // CRITICAL DELAY before auto-resume.
+                    //
+                    // The user observed that manually-asked resume worked
+                    // ("I asked Calypso to resume, music resumed") but
+                    // auto-resume in this delegate didn't. The difference:
+                    // ~5-10 second gap between TTS end and the
+                    // user-asked resume vs immediate fire here.
+                    //
+                    // Theory: AVAudioPlayer takes a moment to fully
+                    // release iOS audio resources after playback ends.
+                    // If we call applicationMusicPlayer.play() within
+                    // that release window, iOS treats it as a no-op
+                    // because something is still owning the output.
+                    //
+                    // 500ms gap should be enough for iOS to finish
+                    // tearing down AVAudioPlayer's audio path. Then
+                    // applicationMusicPlayer.play() can grab the output
+                    // cleanly.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         self?.ttsPlayer = nil
                         self?.ttsPlayerDelegate = nil
-                        // Restore music volume if we ducked it.
-                        if let preduck = self?.ttsPreduckedVolume,
-                           let player = self?.musicPlayer {
-                            player.volume = preduck
-                            NSLog("[AppleMusic] playTtsAudio: restored music volume → \(preduck)")
+                        if wasPlayingMusic {
+                            let player = MPMusicPlayerController.applicationMusicPlayer
+                            NSLog(
+                                "[AppleMusic] playTtsAudio.resume (after 500ms delay): state before \(player.playbackState.rawValue)"
+                            )
+                            player.play()
+                            // Verify after another short delay; retry with
+                            // setQueue if play() didn't actually transition
+                            // to .playing.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                let stateAfter = player.playbackState.rawValue
+                                NSLog(
+                                    "[AppleMusic] playTtsAudio.resume: state after \(stateAfter)"
+                                )
+                                if stateAfter != 1 /* .playing */, let savedItems = self?.savedQueueItems,
+                                   !savedItems.isEmpty {
+                                    NSLog("[AppleMusic] playTtsAudio.resume: retrying with setQueue fallback")
+                                    let collection = MPMediaItemCollection(items: savedItems)
+                                    player.setQueue(with: collection)
+                                    if let pos = self?.savedQueuePosition {
+                                        player.currentPlaybackTime = pos
+                                    }
+                                    player.play()
+                                }
+                            }
                         }
-                        self?.ttsPreduckedVolume = nil
+                        self?.ttsPausedMusic = false
                         call.resolve([
                             "status": "finished",
+                            "music_paused_and_resumed": wasPlayingMusic,
                         ])
                     }
                 }
@@ -455,27 +462,27 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.ttsPlayerDelegate = delegate
                 self.ttsPlayer = player
                 if !player.play() {
-                    // If AVAudioPlayer fails to start, restore music
-                    // volume immediately.
-                    if let preduck = self.ttsPreduckedVolume {
-                        self.musicPlayer?.volume = preduck
+                    // If AVAudioPlayer fails to start, resume music
+                    // immediately rather than leaving it paused.
+                    if self.ttsPausedMusic {
+                        musicPlayer.play()
                     }
-                    self.ttsPreduckedVolume = nil
+                    self.ttsPausedMusic = false
                     call.reject("AVAudioPlayer.play() returned false")
                     self.ttsPlayer = nil
                     self.ttsPlayerDelegate = nil
                     return
                 }
                 NSLog(
-                    "[AppleMusic] playTtsAudio: started (\(data.count)B, \(String(format: "%.1f", player.duration))s, music_ducked=\(self.ttsPreduckedVolume != nil))"
+                    "[AppleMusic] playTtsAudio: started (\(data.count)B, \(String(format: "%.1f", player.duration))s, music_was_playing=\(wasPlayingMusic))"
                 )
             } catch {
                 NSLog("[AppleMusic] playTtsAudio: AVAudioPlayer init failed: \(error)")
-                // Restore music volume if init failed.
-                if let preduck = self.ttsPreduckedVolume {
-                    self.musicPlayer?.volume = preduck
+                // Resume music if init failed.
+                if self.ttsPausedMusic {
+                    musicPlayer.play()
                 }
-                self.ttsPreduckedVolume = nil
+                self.ttsPausedMusic = false
                 call.reject("AVAudioPlayer init failed: \(error.localizedDescription)")
             }
         }
@@ -491,12 +498,12 @@ public class AppleMusicPlugin: CAPPlugin {
             self?.ttsPlayer?.stop()
             self?.ttsPlayer = nil
             self?.ttsPlayerDelegate = nil
-            // Restore music volume if we ducked it.
-            if let preduck = self?.ttsPreduckedVolume,
-               let player = self?.musicPlayer {
-                player.volume = preduck
+            // Resume music if we'd paused it — caller is cutting TTS
+            // short, but music shouldn't stay paused as a side effect.
+            if self?.ttsPausedMusic == true {
+                MPMusicPlayerController.applicationMusicPlayer.play()
+                self?.ttsPausedMusic = false
             }
-            self?.ttsPreduckedVolume = nil
             call.resolve(["status": "cancelled"])
         }
     }
@@ -791,50 +798,104 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @objc func pause(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            self?.musicPlayer?.pause()
-            call.resolve(["status": "paused"])
+            let player = MPMusicPlayerController.applicationMusicPlayer
+            // Snapshot the queue + position BEFORE pausing so we can
+            // restore everything in resume() if the simple play()
+            // call doesn't bring playback back. iOS sometimes loses
+            // the queue between pause and resume when our app's
+            // audio session has been activated by WKWebView audio
+            // in the meantime.
+            //
+            // MPMediaQueueDescriptor doesn't let us read the queue
+            // back, so we walk via nowPlayingItem + indexOfNowPlayingItem
+            // and assume the original queue is still indexable.
+            // For pause/resume around a Calypso narration this is
+            // conservative — we only need a few items either side.
+            if let nowItem = player.nowPlayingItem {
+                self?.savedQueueItems = [nowItem]
+                self?.savedQueuePosition = player.currentPlaybackTime
+                NSLog("[AppleMusic] pause: saved nowPlaying='\(nowItem.title ?? "?")' position=\(player.currentPlaybackTime)")
+            } else {
+                self?.savedQueueItems = nil
+                self?.savedQueuePosition = nil
+            }
+            player.pause()
+            call.resolve([
+                "status": "paused",
+                "playback_state": player.playbackState.rawValue,
+            ])
         }
     }
 
     @objc func resume(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            // Re-activate our session in case it got deactivated
-            // somewhere along the way. Cheap, idempotent.
+            // applicationMusicPlayer plays through OUR session, so we
+            // ACTIVATE here (this is the opposite pattern from
+            // systemMusicPlayer where we'd deactivate to let Music
+            // app take over). After the pause/TTS dance, our session
+            // may have been left in a confused state by WKWebView's
+            // HTML5 Audio playback; re-establishing it cleanly is
+            // the canonical fix.
             do {
                 let session = AVAudioSession.sharedInstance()
                 try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
                 try session.setActive(true, options: [])
+                NSLog("[AppleMusic] resume: session reactivated for music playback")
             } catch {
                 NSLog("[AppleMusic] resume: session activation failed: \(error)")
             }
-            self?.musicPlayer?.play()
-            let rate = self?.musicPlayer?.rate ?? 0
-            call.resolve([
-                "status": rate > 0 ? "playing" : "failed",
-                "rate": rate,
-            ])
+
+            let player = MPMusicPlayerController.applicationMusicPlayer
+            let stateBefore = player.playbackState.rawValue
+            player.play()
+
+            // Verify playback actually started — MPMusicPlayerController
+            // sometimes returns from play() without transitioning to
+            // .playing if its queue got dropped. Re-set the queue from
+            // saved state if so.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                let stateAfter = player.playbackState.rawValue
+                NSLog("[AppleMusic] resume: state \(stateBefore) → \(stateAfter)")
+                if stateAfter != 1 /* .playing */, let savedItems = self?.savedQueueItems,
+                   !savedItems.isEmpty {
+                    NSLog("[AppleMusic] resume: play() didn't restart — re-setting queue from saved state")
+                    let collection = MPMediaItemCollection(items: savedItems)
+                    player.setQueue(with: collection)
+                    if let pos = self?.savedQueuePosition {
+                        player.currentPlaybackTime = pos
+                    }
+                    player.play()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        let stateRetry = player.playbackState.rawValue
+                        NSLog("[AppleMusic] resume retry: state → \(stateRetry)")
+                        call.resolve([
+                            "status": stateRetry == 1 ? "playing" : "failed",
+                            "playback_state": stateRetry,
+                            "fallback_used": true,
+                        ])
+                    }
+                } else {
+                    call.resolve([
+                        "status": stateAfter == 1 ? "playing" : "failed",
+                        "playback_state": stateAfter,
+                        "fallback_used": false,
+                    ])
+                }
+            }
         }
     }
 
     @objc func next(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [weak self] in
-            self?.musicPlayer?.advanceToNextItem()
+        DispatchQueue.main.async {
+            MPMusicPlayerController.applicationMusicPlayer.skipToNextItem()
             call.resolve(["status": "skipped"])
         }
     }
 
     @objc func previous(_ call: CAPPluginCall) {
-        // AVQueuePlayer doesn't support skipping backwards in the
-        // queue (it discards items as they finish). For now we just
-        // restart the current item — closer to "press back" semantics
-        // when very early in playback (which is what
-        // MPMusicPlayerController.skipToPreviousItem also does in
-        // practice).
-        DispatchQueue.main.async { [weak self] in
-            if let current = self?.musicPlayer?.currentItem {
-                current.seek(to: .zero, completionHandler: nil)
-            }
-            call.resolve(["status": "restarted-current"])
+        DispatchQueue.main.async {
+            MPMusicPlayerController.applicationMusicPlayer.skipToPreviousItem()
+            call.resolve(["status": "skipped"])
         }
     }
 
@@ -851,11 +912,24 @@ public class AppleMusicPlugin: CAPPlugin {
      * minutes" sounds robotic vs "two minutes").
      */
     @objc func nowPlaying(_ call: CAPPluginCall) {
-        DispatchQueue.main.async { [weak self] in
-            guard let self = self, let player = self.musicPlayer else {
+        DispatchQueue.main.async {
+            let player = MPMusicPlayerController.applicationMusicPlayer
+            let item = player.nowPlayingItem
+            let stateString: String
+            switch player.playbackState {
+            case .stopped:       stateString = "stopped"
+            case .playing:       stateString = "playing"
+            case .paused:        stateString = "paused"
+            case .interrupted:   stateString = "interrupted"
+            case .seekingForward: stateString = "seeking"
+            case .seekingBackward: stateString = "seeking"
+            @unknown default:    stateString = "unknown"
+            }
+
+            guard let nowPlaying = item else {
                 call.resolve([
                     "is_playing": false,
-                    "state": "stopped",
+                    "state": stateString,
                     "title": "",
                     "artist": "",
                     "album": "",
@@ -864,35 +938,15 @@ public class AppleMusicPlugin: CAPPlugin {
                 ])
                 return
             }
-            // AVQueuePlayer doesn't expose its currentItem index
-            // directly — we figure it out by counting how many items
-            // were originally queued vs how many remain. The current
-            // item is at (originalCount - itemsRemaining).
-            let remaining = player.items().count
-            let originalCount = self.musicQueueItems.count
-            let currentIndex = max(0, originalCount - remaining)
-            let mpItem = currentIndex < self.musicQueueItems.count ? self.musicQueueItems[currentIndex] : nil
-            let isPlaying = player.rate > 0
-            let stateString = isPlaying ? "playing" : (player.currentItem == nil ? "stopped" : "paused")
-
-            let positionSec: Int
-            let durationSec: Int
-            if let cur = player.currentItem {
-                positionSec = Int(CMTimeGetSeconds(cur.currentTime()))
-                durationSec = Int(CMTimeGetSeconds(cur.duration))
-            } else {
-                positionSec = 0
-                durationSec = 0
-            }
 
             call.resolve([
-                "is_playing": isPlaying,
+                "is_playing": player.playbackState == .playing,
                 "state": stateString,
-                "title": mpItem?.title ?? "",
-                "artist": mpItem?.artist ?? "",
-                "album": mpItem?.albumTitle ?? "",
-                "position_sec": positionSec,
-                "duration_sec": durationSec,
+                "title": nowPlaying.title ?? "",
+                "artist": nowPlaying.artist ?? "",
+                "album": nowPlaying.albumTitle ?? "",
+                "position_sec": Int(player.currentPlaybackTime),
+                "duration_sec": Int(nowPlaying.playbackDuration),
             ])
         }
     }
