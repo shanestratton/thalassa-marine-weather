@@ -281,13 +281,18 @@ public class AppleMusicPlugin: CAPPlugin {
     private func startPlayback(result: CatalogResult) async -> Bool {
         let player = ApplicationMusicPlayer.shared
         do {
+            // The album/playlist Queue initialisers in this SDK require an
+            // explicit `startingAt:` even though the docs claim a default
+            // — pass `nil as Track?` to disambiguate. For the songs path
+            // we go through the sequence-based init which has its own
+            // working default.
             switch result.queueSource {
             case .songs(let songs):
                 player.queue = ApplicationMusicPlayer.Queue(for: songs)
             case .album(let album):
-                player.queue = ApplicationMusicPlayer.Queue(album: album)
+                player.queue = ApplicationMusicPlayer.Queue(album: album, startingAt: nil as Track?)
             case .playlist(let playlist):
-                player.queue = ApplicationMusicPlayer.Queue(playlist: playlist)
+                player.queue = ApplicationMusicPlayer.Queue(playlist: playlist, startingAt: nil as Track?)
             }
             try await player.prepareToPlay()
             try await player.play()
@@ -392,7 +397,7 @@ public class AppleMusicPlugin: CAPPlugin {
                     return
                 }
                 let player = ApplicationMusicPlayer.shared
-                player.queue = ApplicationMusicPlayer.Queue(playlist: playlist)
+                player.queue = ApplicationMusicPlayer.Queue(playlist: playlist, startingAt: nil as Track?)
                 try await player.prepareToPlay()
                 try await player.play()
                 let detailed = try? await playlist.with([.tracks])
