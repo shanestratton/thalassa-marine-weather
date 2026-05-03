@@ -13,6 +13,8 @@ CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
     CAP_PLUGIN_METHOD(playFirstSong, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(searchLibrary, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(ensureMixingSession, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(playTtsAudio, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(cancelTtsAudio, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(searchAndPlay, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(pause, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(resume, CAPPluginReturnPromise);

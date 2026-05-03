@@ -213,6 +213,7 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
     let cancelled = false;
     let audio: HTMLAudioElement | null = null;
     let objectUrl: string | null = null;
+    let nativeCancel: (() => void) | null = null;
 
     const done = (async () => {
         const trimmed = (text || '').trim();
@@ -220,24 +221,50 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
 
         const b64 = await synthesise(trimmed, opts);
         if (cancelled || !b64) return;
+
+        // Prefer native AVAudioPlayer on iOS — HTML5 Audio in WKWebView
+        // has been observed to interrupt applicationMusicPlayer every
+        // time Calypso speaks. Native player respects our session
+        // config (.playback + .mixWithOthers), so TTS plays alongside
+        // music without killing it.
+        try {
+            const { Capacitor } = await import('@capacitor/core');
+            if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+                const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
+                const plugin = cap?.Plugins?.AppleMusic as
+                    | {
+                          playTtsAudio: (opts: { audio_b64: string }) => Promise<{ status: string }>;
+                          cancelTtsAudio: () => Promise<{ status: string }>;
+                      }
+                    | undefined;
+                if (plugin) {
+                    const playPromise = plugin.playTtsAudio({ audio_b64: b64 });
+                    nativeCancel = () => void plugin.cancelTtsAudio().catch(() => undefined);
+                    if (cancelled) {
+                        nativeCancel();
+                        return;
+                    }
+                    await playPromise.catch(() => undefined);
+                    return; // native path complete — don't fall through
+                }
+            }
+        } catch {
+            // Plugin unavailable — fall through to HTML5 Audio.
+        }
+
+        // ── HTML5 Audio fallback (web / non-iOS-native) ──────────────
+        // On platforms without the native plugin, use the legacy
+        // path. The pause-music-around-TTS dance is preserved here
+        // because HTML5 Audio still has the session-clobbering
+        // problem on iOS when we hit this branch.
         const url = base64Mp3ToObjectUrl(b64);
         if (cancelled || !url) return;
         objectUrl = url;
 
-        // Pause the system music player if it's currently playing —
-        // we resume after Calypso finishes speaking. See header comment
-        // on pauseAppleMusicIfPlaying for why this is a pause rather
-        // than a session-ducking approach.
         const wasPlayingMusic = await pauseAppleMusicIfPlaying();
 
         audio = new Audio(url);
-        // Crank the playback volume to max — the iOS audio session
-        // already bypasses the mute switch (set up by AlarmAudioPlugin),
-        // but the per-element volume defaults to 1.0 anyway. Setting
-        // explicitly is just belt-and-braces.
         audio.volume = 1.0;
-        // playsInline avoids iOS auto-fullscreen on the (invisible)
-        // <audio> element on some WKWebView builds.
         audio.setAttribute('playsinline', 'true');
 
         await new Promise<void>((resolve) => {
@@ -251,7 +278,6 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
             audio.play().catch(() => cleanup());
         });
 
-        // Calypso finished speaking — resume the music if we paused it.
         if (wasPlayingMusic && !cancelled) {
             void resumeAppleMusic();
         }
@@ -261,6 +287,13 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
         done,
         cancel: () => {
             cancelled = true;
+            if (nativeCancel) {
+                try {
+                    nativeCancel();
+                } catch {
+                    /* ignore */
+                }
+            }
             try {
                 audio?.pause();
             } catch {
