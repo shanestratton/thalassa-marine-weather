@@ -151,6 +151,39 @@
                 border-radius: 50%;
                 animation: pulse-ring 2s infinite;
             }
+
+            /* Hero band shake — fires when anchorStatus is "alarm".
+               Brief left-right wobble draws the eye + signals urgency
+               without being so violent that the user can't read the
+               radius/coords. 4 cycles, 0.5s each, infinite while
+               alarm holds. Pairs with the red border pulse on the
+               same element. */
+            @keyframes nav-hero-shake {
+                0%,
+                100% {
+                    transform: translateX(0);
+                }
+                15% {
+                    transform: translateX(-3px);
+                }
+                30% {
+                    transform: translateX(3px);
+                }
+                45% {
+                    transform: translateX(-2px);
+                }
+                60% {
+                    transform: translateX(2px);
+                }
+                75% {
+                    transform: translateX(-1px);
+                }
+            }
+            .nav-hero-alarm {
+                animation: nav-hero-shake 0.6s ease-in-out infinite;
+                border-color: rgba(239, 68, 68, 0.5) !important;
+                box-shadow: 0 0 16px rgba(239, 68, 68, 0.25);
+            }
         </style>
         <!-- Importmap: runtime dependencies only, pinned to exact versions -->
         <script type="importmap">

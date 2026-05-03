@@ -174,6 +174,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [position, setPosition] = useState<GpsPosition | null>(null);
     const [windSpeed, setWindSpeed] = useState<number | null>(null);
     const [windDir, setWindDir] = useState<string | null>(null);
+    const [waveHeight, setWaveHeight] = useState<number | null>(null);
+    const [airTemp, setAirTemp] = useState<number | null>(null);
+    const [seaTemp, setSeaTemp] = useState<number | null>(null);
+    const [visibility, setVisibility] = useState<number | null>(null);
     const [pressureTrend, setPressureTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
     const [tideTrend, setTideTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
     const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
@@ -259,14 +263,24 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     lon: position.longitude,
                 });
                 if (cancelled) return;
-                const ws = report?.current?.windSpeed ?? null;
-                const wd = report?.current?.windDirection ?? null;
-                const pt = report?.current?.pressureTrend ?? null;
-                const tt = report?.current?.tideTrend ?? null;
+                const c = report?.current;
+                if (!c) return;
+                const ws = c.windSpeed ?? null;
+                const wd = c.windDirection ?? null;
+                const pt = c.pressureTrend ?? null;
+                const tt = c.tideTrend ?? null;
+                const wh = c.waveHeight ?? null;
+                const at = c.airTemperature ?? null;
+                const st = c.waterTemperature ?? null;
+                const vis = c.visibility ?? null;
                 if (ws !== null && Number.isFinite(ws)) setWindSpeed(ws);
                 if (wd) setWindDir(wd);
                 if (pt) setPressureTrend(pt);
                 if (tt) setTideTrend(tt);
+                if (wh !== null && Number.isFinite(wh)) setWaveHeight(wh);
+                if (at !== null && Number.isFinite(at)) setAirTemp(at);
+                if (st !== null && Number.isFinite(st)) setSeaTemp(st);
+                if (vis !== null && vis !== undefined && Number.isFinite(vis)) setVisibility(vis);
             } catch {
                 // Wind chip stays empty — non-critical
             }
@@ -598,6 +612,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     anchorBearing={anchorBearing}
                     windSpeed={windSpeed}
                     windDir={windDir}
+                    waveHeight={waveHeight}
+                    airTemp={airTemp}
+                    seaTemp={seaTemp}
+                    visibility={visibility}
                     pressureTrend={pressureTrend}
                     tideTrend={tideTrend}
                     isOnline={isOnline}
@@ -1313,6 +1331,57 @@ function pressureTrendIndicator(trend: 'rising' | 'falling' | 'steady' | null): 
     return { arrow: '↓', color: '#f59e0b', label: 'falling' };
 }
 
+/** Metric chip data — single source of truth for what a chip renders.
+ *  Either icon+value (wind, wave, temp, visibility) OR label+value
+ *  (BAR ↑, TIDE ↓ — trend indicators with no numeric value). */
+interface MetricChipData {
+    key: string;
+    icon?: string;
+    label?: string;
+    value: string;
+    unit?: string;
+    suffix?: string;
+    color?: string;
+    ariaLabel?: string;
+}
+
+/** Compact icon-and-metric chip used on the hero band's environmental
+ *  strip. Tabular-num alignment + monospace so a row of chips reads
+ *  like a row of instrument readouts. */
+const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix, color, ariaLabel }) => (
+    <span
+        className="inline-flex items-center gap-1 font-mono tabular-nums whitespace-nowrap text-[11px] leading-none"
+        style={color ? { color } : undefined}
+        aria-label={ariaLabel}
+        title={ariaLabel}
+    >
+        {icon && <span className="text-[12px] leading-none">{icon}</span>}
+        {label && <span className="text-[10px] uppercase tracking-wider text-white/40">{label}</span>}
+        <span className={color ? 'font-bold text-base leading-none' : 'text-white/85'}>{value}</span>
+        {unit && <span className="text-[10px] text-white/40">{unit}</span>}
+        {suffix && <span className="text-[10px] text-white/60 ml-0.5">{suffix}</span>}
+    </span>
+);
+
+/** A flex-wrap strip of MetricChips. Renders nothing when empty so we
+ *  don't draw a hairline border for no payload. The optional top
+ *  border slots in only when the row above isn't already drawing
+ *  one (i.e. when SOG/COG isn't present). */
+const MetricChipStrip: React.FC<{ chips: MetricChipData[]; showTopBorder?: boolean }> = ({ chips, showTopBorder }) => {
+    if (chips.length === 0) return null;
+    return (
+        <div
+            className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-1.5 pb-3 ${
+                showTopBorder ? 'border-t border-white/[0.06]' : ''
+            }`}
+        >
+            {chips.map((chip) => (
+                <MetricChip {...chip} key={chip.key} />
+            ))}
+        </div>
+    );
+};
+
 /** Anchor swing arc — circular SVG showing the alarm radius AND
  *  the vessel's actual position relative to the anchor point.
  *
@@ -1413,6 +1482,10 @@ const NavStationHero: React.FC<{
     anchorBearing: number;
     windSpeed: number | null;
     windDir: string | null;
+    waveHeight: number | null;
+    airTemp: number | null;
+    seaTemp: number | null;
+    visibility: number | null;
     pressureTrend: 'rising' | 'falling' | 'steady' | null;
     tideTrend: 'rising' | 'falling' | 'steady' | null;
     isOnline: boolean;
@@ -1430,6 +1503,10 @@ const NavStationHero: React.FC<{
     anchorBearing,
     windSpeed,
     windDir,
+    waveHeight,
+    airTemp,
+    seaTemp,
+    visibility,
     pressureTrend,
     tideTrend,
     isOnline,
@@ -1512,11 +1589,12 @@ const NavStationHero: React.FC<{
 
     return (
         <div
-            className="mb-4 overflow-hidden"
+            className={`mb-4 overflow-hidden ${anchorStatus === 'alarm' ? 'nav-hero-alarm' : ''}`}
             style={{
                 ...GLASS.card,
                 background: 'linear-gradient(135deg, rgba(20,25,35,0.75) 0%, rgba(14,165,233,0.08) 100%)',
                 borderColor: 'rgba(255,255,255,0.12)',
+                transition: 'border-color 300ms ease, box-shadow 300ms ease',
             }}
         >
             {/* Top row — vessel name + state pill (and swing arc if anchored) */}
@@ -1556,6 +1634,7 @@ const NavStationHero: React.FC<{
                             color: state.color,
                             backgroundColor: `${state.color}1a`,
                             borderColor: `${state.color}33`,
+                            transition: 'color 300ms ease, background-color 300ms ease, border-color 300ms ease',
                         }}
                     >
                         {state.label}
@@ -1643,54 +1722,81 @@ const NavStationHero: React.FC<{
                 </span>
             </button>
 
-            {/* SOG/COG + Wind/Pressure/Tide line */}
-            {(showSog || showWind || presInd || tideInd) && (
-                <div className="flex items-center gap-3 px-4 pb-3 pt-1.5 border-t border-white/[0.06] text-[11px]">
-                    {showSog && (
-                        <span className="font-mono text-white/85 tabular-nums">
-                            <span className="text-white/40 uppercase tracking-wider mr-1">SOG</span>
-                            {sogKt.toFixed(1)}
-                            <span className="text-white/40 text-[10px] ml-0.5">kt</span>
-                            {cogDeg !== null && (
-                                <span className="ml-2">
-                                    <span className="text-white/40 uppercase tracking-wider mr-1">COG</span>
-                                    {Math.round(cogDeg).toString().padStart(3, '0')}°
-                                </span>
-                            )}
-                        </span>
-                    )}
-                    <span className="ml-auto flex items-center gap-2.5 font-mono text-white/85 tabular-nums">
-                        {showWind && (
-                            <span>
-                                <span className="mr-1">💨</span>
-                                {windKt}
-                                <span className="text-white/40 text-[10px] ml-0.5">kt</span>
-                                <span className="text-white/60 ml-1">{windDir}</span>
-                            </span>
-                        )}
-                        {presInd && (
-                            <span
-                                className="text-[10px] font-bold uppercase tracking-wider"
-                                style={{ color: presInd.color }}
-                                aria-label={`Pressure ${presInd.label}`}
-                                title={`Barometer ${presInd.label}`}
-                            >
-                                BAR <span className="text-base leading-none">{presInd.arrow}</span>
-                            </span>
-                        )}
-                        {tideInd && (
-                            <span
-                                className="text-[10px] font-bold uppercase tracking-wider"
-                                style={{ color: tideInd.color }}
-                                aria-label={`Tide ${tideInd.label}`}
-                                title={`Tide ${tideInd.label}`}
-                            >
-                                TIDE <span className="text-base leading-none">{tideInd.arrow}</span>
+            {/* SOG/COG nav line — left-side, always when underway */}
+            {showSog && (
+                <div className="flex items-center gap-3 px-4 pt-1.5 pb-1 border-t border-white/[0.06] text-[11px]">
+                    <span className="font-mono text-white/85 tabular-nums">
+                        <span className="text-white/40 uppercase tracking-wider mr-1">SOG</span>
+                        {sogKt.toFixed(1)}
+                        <span className="text-white/40 text-[10px] ml-0.5">kt</span>
+                        {cogDeg !== null && (
+                            <span className="ml-2">
+                                <span className="text-white/40 uppercase tracking-wider mr-1">COG</span>
+                                {Math.round(cogDeg).toString().padStart(3, '0')}°
                             </span>
                         )}
                     </span>
                 </div>
             )}
+
+            {/* Environmental metric chips — flex-wrap so they reflow on
+                narrow screens. Icon + value + tiny unit pattern, all
+                font-mono for tabular alignment. Each chip only renders
+                when its source data is present, so an at-dock vessel
+                with no fetched weather won't display empty rails. */}
+            <MetricChipStrip
+                showTopBorder={!showSog}
+                chips={(
+                    [
+                        showWind
+                            ? {
+                                  key: 'wind',
+                                  icon: '💨',
+                                  value: String(windKt),
+                                  unit: 'kt',
+                                  suffix: windDir || undefined,
+                              }
+                            : null,
+                        waveHeight !== null
+                            ? { key: 'wave', icon: '🌊', value: waveHeight.toFixed(1), unit: 'm' }
+                            : null,
+                        airTemp !== null
+                            ? { key: 'air', icon: '🌡', value: `${Math.round(airTemp)}`, unit: '°' }
+                            : null,
+                        seaTemp !== null
+                            ? { key: 'sea', icon: '💧', value: `${Math.round(seaTemp)}`, unit: '°' }
+                            : null,
+                        visibility !== null
+                            ? {
+                                  key: 'vis',
+                                  icon: '👁',
+                                  // Open-Meteo returns metres; convert to NM (1852m).
+                                  // Cap display at ">10" since modern sensors max out.
+                                  value: visibility / 1852 >= 10 ? '>10' : (visibility / 1852).toFixed(1),
+                                  unit: 'NM',
+                              }
+                            : null,
+                        presInd
+                            ? {
+                                  key: 'bar',
+                                  label: 'BAR',
+                                  value: presInd.arrow,
+                                  color: presInd.color,
+                                  ariaLabel: `Barometer ${presInd.label}`,
+                              }
+                            : null,
+                        tideInd
+                            ? {
+                                  key: 'tide',
+                                  label: 'TIDE',
+                                  value: tideInd.arrow,
+                                  color: tideInd.color,
+                                  ariaLabel: `Tide ${tideInd.label}`,
+                              }
+                            : null,
+                    ] as (MetricChipData | null)[]
+                ).filter((c): c is MetricChipData => c !== null)}
+            />
         </div>
     );
 };
@@ -1738,7 +1844,7 @@ const OfficeRow: React.FC<{
         {badge !== undefined && (
             <span
                 className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${
-                    badgeUrgent ? 'bg-red-500/30 text-red-300' : 'bg-amber-500/30 text-amber-300'
+                    badgeUrgent ? 'bg-red-500/30 text-red-300 animate-pulse' : 'bg-amber-500/30 text-amber-300'
                 }`}
             >
                 {badge}
