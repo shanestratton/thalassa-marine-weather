@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AVFoundation
 
 /**
  * ThalassaBridgeViewController — the app's CAPBridgeViewController subclass,
@@ -36,6 +37,30 @@ import Capacitor
 public class ThalassaBridgeViewController: CAPBridgeViewController {
 
     public override func capacitorDidLoad() {
+        // ── Audio session: coexist with system music player ─────────
+        // When Calypso speaks while Apple Music is playing through
+        // MPMusicPlayerController.systemMusicPlayer, we want her TTS
+        // to DUCK the music (lower it briefly) rather than INTERRUPT
+        // it. By default WKWebView's audio session category interrupts
+        // other apps' audio when our app plays sound — which is why
+        // calling play_music + Calypso narrating "playing 8 tracks"
+        // killed the music after a tiny intro. Setting `.playback`
+        // with `.mixWithOthers + .duckOthers` lets Calypso's TTS play
+        // alongside the music, lowering the music briefly while she
+        // speaks; music returns to full volume after.
+        //
+        // AlarmAudioPlugin still saves + restores the previous category
+        // for full-volume mute-bypassed alarm tones, so this baseline
+        // doesn't break anchor watch behaviour.
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
+            try session.setActive(true, options: [])
+            print("[Audio] Session configured: .playback + .mixWithOthers + .duckOthers")
+        } catch {
+            print("[Audio] Failed to configure audio session at launch: \(error)")
+        }
+
         // ── Register all app-local Swift plugins ────────────────────
         // Each needs to match the Swift `@objc(ClassName)` name and be
         // a fresh instance. Capacitor owns the lifecycle after this.
