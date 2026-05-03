@@ -57,6 +57,103 @@ const GLASS = {
 // ── Bathymetric contour background SVG ──
 const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cdefs%3E%3Cpattern id='c' patternUnits='userSpaceOnUse' width='100' height='100'%3E%3Cpath d='M50 10 C60 25,85 30,90 50 C95 70,75 85,50 90 C25 95,10 75,10 50 C10 25,30 5,50 10Z' fill='none' stroke='rgba(100,140,180,0.04)' stroke-width='0.5'/%3E%3Cpath d='M50 25 C55 35,70 38,75 50 C80 62,68 72,50 75 C32 78,22 65,22 50 C22 35,38 28,50 25Z' fill='none' stroke='rgba(100,140,180,0.03)' stroke-width='0.5'/%3E%3C/pattern%3E%3C/defs%3E%3Crect width='400' height='400' fill='url(%23c)'/%3E%3C/svg%3E")`;
 
+// ── Search registry ──
+// Single source of truth for every navigable destination in the Nav
+// Station. The search bar at the top filters this list by label or
+// keyword and renders a flat tap-list — solves the discoverability
+// gap when users know what they want but not which section it lives
+// in. Adding a new destination? Add it here AND to the relevant
+// section render below.
+type Destination = { label: string; page: string; section: string; keywords: string };
+const DESTINATIONS: Destination[] = [
+    // Quick Actions
+    { label: 'Voyage Entries', page: 'details', section: 'Quick Actions', keywords: 'log entry record fix waypoint' },
+    { label: 'Route Planner', page: 'route', section: 'Quick Actions', keywords: 'plan passage navigation waypoints' },
+    {
+        label: 'Anchor Watch',
+        page: 'compass',
+        section: 'Quick Actions',
+        keywords: 'anchor swing radius drag chain rode',
+    },
+    {
+        label: 'Guardian',
+        page: 'guardian',
+        section: 'Quick Actions',
+        keywords: 'guardian bay safety nearby boats hail',
+    },
+    { label: 'MOB', page: 'mob', section: 'Quick Actions', keywords: 'mob person overboard emergency rescue' },
+    { label: 'Radio Report', page: 'radio', section: 'Quick Actions', keywords: 'dsc vhf radio position broadcast' },
+    // Passage Planning
+    {
+        label: 'Passage Planning',
+        page: 'crew',
+        section: 'Passage Planning',
+        keywords: 'passage crew voyage briefing readiness customs',
+    },
+    {
+        label: 'Import GPX',
+        page: 'gpx-import',
+        section: 'Passage Planning',
+        keywords: 'gpx opencpn navionics import route file',
+    },
+    {
+        label: 'Notices to Mariners',
+        page: 'notices',
+        section: 'Passage Planning',
+        keywords: 'notices navarea hydro warnings urgmar',
+    },
+    // Logbook
+    { label: 'Diary', page: 'diary', section: 'Logbook', keywords: 'diary daily notes journal log' },
+    // Inventory & Maintenance
+    {
+        label: "Ship's Stores",
+        page: 'inventory',
+        section: 'Inventory & Maintenance',
+        keywords: 'inventory stores provisions spares supplies food',
+    },
+    {
+        label: 'Equipment',
+        page: 'equipment',
+        section: 'Inventory & Maintenance',
+        keywords: 'equipment register gear safety',
+    },
+    {
+        label: 'Repairs & Maintenance',
+        page: 'maintenance',
+        section: 'Inventory & Maintenance',
+        keywords: 'maintenance tasks expiry repairs servicing engine r&m overdue',
+    },
+    // Reference
+    {
+        label: 'Checklists',
+        page: 'checklists',
+        section: 'Reference',
+        keywords: 'checklists safety passage departure list',
+    },
+    { label: 'Polars', page: 'polars', section: 'Reference', keywords: 'polars tuning sail performance vpp' },
+    {
+        label: 'Documents',
+        page: 'documents',
+        section: 'Reference',
+        keywords: 'documents legal papers registration insurance certificates',
+    },
+    // Connect
+    { label: 'NMEA Gateway', page: 'nmea', section: 'Connect', keywords: 'nmea instruments ais sensors signalk wifi' },
+    {
+        label: 'Boat Network',
+        page: 'avnav',
+        section: 'Connect',
+        keywords: 'avnav boat network pi raspberry charts opencpn',
+    },
+    // Account
+    {
+        label: 'Account & Settings',
+        page: 'settings',
+        section: 'Account',
+        keywords: 'account settings profile tier subscription preferences',
+    },
+];
+
 export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, settings, onSave: _onSave }) => {
     // ── Vessel state ──
     const { settings: ctx } = useSettings();
@@ -197,6 +294,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         return unsub;
     }, []);
 
+    // ── Search ──
+    // Filter is case-insensitive across label + keywords. When the
+    // search has any non-whitespace text we hide the structured
+    // sections and render a flat result list — gets users to a
+    // specific destination in one tap when they know the name but
+    // not the section.
+    const [searchQuery, setSearchQuery] = useState('');
+    const trimmedQuery = searchQuery.trim().toLowerCase();
+    const isSearching = trimmedQuery.length > 0;
+    const searchResults: Destination[] = isSearching
+        ? DESTINATIONS.filter((d) => {
+              const hay = `${d.label} ${d.keywords}`.toLowerCase();
+              // Tokenize query — every token must appear somewhere.
+              return trimmedQuery.split(/\s+/).every((tok) => hay.includes(tok));
+          })
+        : [];
+
     // ── Crew invite badge ──
     const [pendingCrewInvites, setPendingCrewInvites] = useState(0);
     useEffect(() => {
@@ -206,6 +320,102 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 getPendingInviteCount().then(setPendingCrewInvites);
             }
         });
+    }, []);
+
+    // ── Live tile state — entries today, draft count, guardian, maintenance overdue ──
+    const [entriesToday, setEntriesToday] = useState<number | null>(null);
+    const [draftCount, setDraftCount] = useState<number | null>(null);
+    const [guardianArmed, setGuardianArmed] = useState<boolean>(false);
+    const [guardianNearby, setGuardianNearby] = useState<number>(0);
+    const [overdueCount, setOverdueCount] = useState<number>(0);
+
+    useEffect(() => {
+        // Entries logged today (current voyage or any voyage). Source
+        // of truth is ship_logs; we just need a count of entries
+        // whose timestamp is on the current local day.
+        let cancelled = false;
+        (async () => {
+            try {
+                const { getLogEntries } = await import('../services/shiplog/EntryCrud');
+                const entries = await getLogEntries(200);
+                if (cancelled) return;
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+                const cutoff = startOfDay.getTime();
+                const todays = entries.filter((e) => Date.parse(e.timestamp) >= cutoff).length;
+                setEntriesToday(todays);
+            } catch {
+                /* offline — leave null */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        // Draft passage count for the Route Planner tile.
+        let cancelled = false;
+        (async () => {
+            try {
+                const { getDraftVoyages } = await import('../services/VoyageService');
+                const drafts = await getDraftVoyages();
+                if (cancelled) return;
+                setDraftCount(drafts.filter((v) => v.status === 'planning').length);
+            } catch {
+                /* offline — leave null */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    useEffect(() => {
+        // Subscribe to Guardian for live armed-state + nearby-count.
+        let cancelled = false;
+        let unsub: (() => void) | null = null;
+        (async () => {
+            try {
+                const { GuardianService } = await import('../services/GuardianService');
+                unsub = GuardianService.subscribe((state) => {
+                    if (cancelled) return;
+                    setGuardianArmed(!!state.armed);
+                    setGuardianNearby(state.nearbyCount || 0);
+                });
+            } catch {
+                /* Guardian not available */
+            }
+        })();
+        return () => {
+            cancelled = true;
+            if (unsub) unsub();
+        };
+    }, []);
+
+    useEffect(() => {
+        // Count overdue maintenance tasks for the badge on the
+        // Repairs & Maintenance row. We only check date-based overdue
+        // (next_due_date < now); the engine-hours dimension would need
+        // a live engine-hours read which is more cost than the badge
+        // is worth at this surface level. The user sees the full
+        // breakdown when they tap into the maintenance page.
+        let cancelled = false;
+        (async () => {
+            try {
+                const { MaintenanceService } = await import('../services/MaintenanceService');
+                const tasks = await MaintenanceService.getTasks();
+                if (cancelled) return;
+                const now = Date.now();
+                const overdue = tasks.filter((t) => t.next_due_date && Date.parse(t.next_due_date) < now).length;
+                setOverdueCount(overdue);
+            } catch {
+                /* offline — no badge */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     // ── Draft passage plans ──
@@ -270,450 +480,577 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 />
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* QUICK ACTIONS — 3-row grid                  */}
+                {/* SEARCH — single field, filters everything   */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#ef4444"
-                        label="Quick Actions"
-                        id="quick"
-                        expanded={expanded.has('quick')}
-                        onToggle={toggleSection}
+                <div className="mb-4 relative">
+                    <input
+                        type="search"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search the nav station…"
+                        className="w-full pl-10 pr-10 py-3 min-h-[44px] rounded-2xl bg-white/[0.04] border border-white/[0.08] text-sm text-white placeholder:text-gray-500 focus:outline-none focus:border-sky-400/40 focus:bg-white/[0.06] transition-all"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        aria-label="Search nav station destinations"
                     />
-                    <CollapsibleContent open={expanded.has('quick')}>
-                        {/* Row 1 — Voyage Entries + Route Planner */}
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                            <button
-                                aria-label="Open voyage entries log book"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('details');
-                                }}
-                                style={GLASS.card}
-                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                    <svg
+                        className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 pointer-events-none"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M21 21l-5.2-5.2M17 10.5A6.5 6.5 0 1 1 4 10.5a6.5 6.5 0 0 1 13 0z"
+                        />
+                    </svg>
+                    {isSearching && (
+                        <button
+                            onClick={() => setSearchQuery('')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full hover:bg-white/[0.08] flex items-center justify-center text-gray-400 active:scale-90 transition-all"
+                            aria-label="Clear search"
+                        >
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2}
                             >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(14, 165, 233, 0.12)' }}>
-                                        <BookIcon color="#0ea5e9" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">
-                                            Voyage Entries
-                                        </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
-                                            Log Entry
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    )}
+                </div>
 
-                            <button
-                                aria-label="Route Planner"
-                                onClick={() => {
-                                    if (isObserver) return;
-                                    triggerHaptic('light');
-                                    onNavigate('route');
-                                }}
-                                style={GLASS.card}
-                                className={`p-3.5 text-left transition-all active:scale-[0.98] card-lift ${
-                                    isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
-                                }`}
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(34, 211, 238, 0.12)' }}>
-                                        <CompassIcon />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">
-                                            Route Planner
-                                        </h4>
-                                        <p
-                                            className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${
-                                                isObserver ? 'text-gray-500' : 'text-cyan-400'
-                                            }`}
-                                        >
-                                            {isObserver ? 'Vessel Required' : 'Plan Passage'}
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-
-                        {/* Row 2 — Anchor Watch + Guardian */}
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                            <button
-                                aria-label="Anchor Watch"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('compass');
-                                }}
-                                style={GLASS.card}
-                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div
-                                        className="p-2 rounded-lg flex items-center justify-center"
-                                        style={{ background: `${anchorColor}1f` }}
-                                    >
-                                        <div
-                                            className="w-3 h-3 rounded-full"
-                                            style={{
-                                                backgroundColor: anchorColor,
-                                                boxShadow:
-                                                    anchorStatus !== 'disarmed' ? `0 0 8px ${anchorColor}60` : 'none',
-                                                animation: anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                {/* ═══════════════════════════════════════════ */}
+                {/* SEARCH RESULTS — flat list when searching   */}
+                {/* ═══════════════════════════════════════════ */}
+                {isSearching && (
+                    <div className="mb-4">
+                        {searchResults.length === 0 ? (
+                            <div className="text-center py-8 text-sm text-gray-400" style={GLASS.listContainer}>
+                                <p>No matches for &ldquo;{searchQuery}&rdquo;</p>
+                                <p className="text-xs text-gray-500 mt-1">Try fewer words or a different term.</p>
+                            </div>
+                        ) : (
+                            <div style={GLASS.listContainer}>
+                                {searchResults.map((d, i) => (
+                                    <React.Fragment key={d.page}>
+                                        {i > 0 && <ListDivider />}
+                                        <button
+                                            aria-label={d.label}
+                                            onClick={() => {
+                                                triggerHaptic('light');
+                                                setSearchQuery('');
+                                                onNavigate(d.page);
                                             }}
-                                        />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">
-                                            Anchor Watch
-                                        </h4>
-                                        <p
-                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
-                                            style={{ color: anchorColor }}
+                                            className="w-full flex items-center gap-3 px-4 py-3 text-left transition-all active:scale-[0.98] hover:bg-white/[0.03]"
                                         >
-                                            {anchorLabel}
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-
-                            <button
-                                aria-label="Open Guardian bay watch"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('guardian');
-                                }}
-                                style={GLASS.card}
-                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
-                                        <ShieldIcon color="#f59e0b" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">Guardian</h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                            Bay Safety
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-
-                        {/* Row 3 — MOB + Radio Report */}
-                        <div className="grid grid-cols-2 gap-3">
-                            <button
-                                aria-label="Man Overboard"
-                                onClick={() => {
-                                    triggerHaptic('heavy');
-                                    onNavigate('mob');
-                                }}
-                                style={{
-                                    ...GLASS.card,
-                                    background:
-                                        'linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(20,25,35,0.6) 100%)',
-                                    borderColor: 'rgba(239,68,68,0.35)',
-                                }}
-                                className="p-3.5 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(239, 68, 68, 0.18)' }}>
-                                        <MobIcon color="#ef4444" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">MOB</h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-red-400 mt-0.5">
-                                            Person Overboard
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-
-                            <button
-                                aria-label="Open radio position reporting"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('radio');
-                                }}
-                                style={GLASS.card}
-                                className="p-3.5 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-2.5">
-                                    <div className="p-2 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.12)' }}>
-                                        <SignalIcon color="#f59e0b" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-[13px] font-black text-white tracking-wide">
-                                            Radio Report
-                                        </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
-                                            Position Broadcast
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-                    </CollapsibleContent>
-                </div>
+                                            <span className="flex-1 text-[13px] font-bold text-white tracking-wide">
+                                                {d.label}
+                                            </span>
+                                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-500">
+                                                {d.section}
+                                            </span>
+                                            <ChevronRight />
+                                        </button>
+                                    </React.Fragment>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* SECTION B½: PASSAGE PLANNING — Standalone  */}
+                {/* SECTIONS — hidden when search is active     */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#8b5cf6"
-                        label="Passage Planning"
-                        id="passage"
-                        expanded={expanded.has('passage')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('passage')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<CrewIcon color="#8b5cf6" />}
+                {!isSearching && (
+                    <>
+                        <div className="mb-4">
+                            <SectionHeader
+                                color="#ef4444"
+                                label="Quick Actions"
+                                id="quick"
+                                expanded={expanded.has('quick')}
+                                onToggle={toggleSection}
+                            />
+                            <CollapsibleContent open={expanded.has('quick')}>
+                                {/* Row 1 — Voyage Entries + Route Planner */}
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <button
+                                        aria-label="Open voyage entries log book"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('details');
+                                        }}
+                                        style={GLASS.card}
+                                        className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="p-2.5 rounded-lg"
+                                                style={{ background: 'rgba(14, 165, 233, 0.12)' }}
+                                            >
+                                                <BookIcon color="#0ea5e9" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                                    Voyage Entries
+                                                </h4>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
+                                                    {entriesToday !== null && entriesToday > 0
+                                                        ? `${entriesToday} Today`
+                                                        : 'Log Entry'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        aria-label="Route Planner"
+                                        onClick={() => {
+                                            if (isObserver) return;
+                                            triggerHaptic('light');
+                                            onNavigate('route');
+                                        }}
+                                        style={GLASS.card}
+                                        className={`p-4 text-left transition-all active:scale-[0.98] card-lift ${
+                                            isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="p-2.5 rounded-lg"
+                                                style={{ background: 'rgba(34, 211, 238, 0.12)' }}
+                                            >
+                                                <CompassIcon />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                                    Route Planner
+                                                </h4>
+                                                <p
+                                                    className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${
+                                                        isObserver ? 'text-gray-500' : 'text-cyan-400'
+                                                    }`}
+                                                >
+                                                    {isObserver
+                                                        ? 'Vessel Required'
+                                                        : draftCount !== null && draftCount > 0
+                                                          ? `${draftCount} Draft${draftCount === 1 ? '' : 's'}`
+                                                          : 'Plan Passage'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+
+                                {/* Row 2 — Anchor Watch + Guardian */}
+                                <div className="grid grid-cols-2 gap-3 mb-3">
+                                    <button
+                                        aria-label="Anchor Watch"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('compass');
+                                        }}
+                                        style={GLASS.card}
+                                        className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="p-2.5 rounded-lg flex items-center justify-center"
+                                                style={{ background: `${anchorColor}1f` }}
+                                            >
+                                                <div
+                                                    className="w-3 h-3 rounded-full"
+                                                    style={{
+                                                        backgroundColor: anchorColor,
+                                                        boxShadow:
+                                                            anchorStatus !== 'disarmed'
+                                                                ? `0 0 8px ${anchorColor}60`
+                                                                : 'none',
+                                                        animation:
+                                                            anchorStatus === 'alarm' ? 'pulse 1s infinite' : 'none',
+                                                    }}
+                                                />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                                    Anchor Watch
+                                                </h4>
+                                                <p
+                                                    className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                                    style={{ color: anchorColor }}
+                                                >
+                                                    {anchorLabel}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        aria-label="Open Guardian bay watch"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('guardian');
+                                        }}
+                                        style={GLASS.card}
+                                        className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="p-2.5 rounded-lg"
+                                                style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                            >
+                                                <ShieldIcon color="#f59e0b" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                                    Guardian
+                                                </h4>
+                                                <p
+                                                    className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                                    style={{ color: guardianArmed ? '#10b981' : '#f59e0b' }}
+                                                >
+                                                    {guardianArmed
+                                                        ? guardianNearby > 0
+                                                            ? `Watching · ${guardianNearby} nearby`
+                                                            : 'Watching'
+                                                        : 'Bay Safety'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+
+                                {/* Row 3 — MOB + Radio Report */}
+                                <div className="grid grid-cols-2 gap-3">
+                                    <button
+                                        aria-label="Man Overboard"
+                                        onClick={() => {
+                                            triggerHaptic('heavy');
+                                            onNavigate('mob');
+                                        }}
+                                        style={{
+                                            ...GLASS.card,
+                                            background:
+                                                'linear-gradient(135deg, rgba(239,68,68,0.18) 0%, rgba(20,25,35,0.6) 100%)',
+                                            borderColor: 'rgba(239,68,68,0.35)',
+                                        }}
+                                        className="p-4 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="p-2.5 rounded-lg"
+                                                style={{ background: 'rgba(239, 68, 68, 0.18)' }}
+                                            >
+                                                <MobIcon color="#ef4444" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[13px] font-black text-white tracking-wide">MOB</h4>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-red-400 mt-0.5">
+                                                    Person Overboard
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </button>
+
+                                    <button
+                                        aria-label="Open radio position reporting"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('radio');
+                                        }}
+                                        style={GLASS.card}
+                                        className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div
+                                                className="p-2.5 rounded-lg"
+                                                style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                            >
+                                                <SignalIcon color="#f59e0b" />
+                                            </div>
+                                            <div>
+                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                                    Radio Report
+                                                </h4>
+                                                <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                                    Position Broadcast
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </button>
+                                </div>
+                            </CollapsibleContent>
+                        </div>
+
+                        {/* ═══════════════════════════════════════════ */}
+                        {/* SECTION B½: PASSAGE PLANNING — Standalone  */}
+                        {/* ═══════════════════════════════════════════ */}
+                        <div className="mb-4">
+                            <SectionHeader
+                                color="#8b5cf6"
                                 label="Passage Planning"
-                                status={
-                                    passageCrewCount > 0
-                                        ? `${passageCrewCount} crew`
-                                        : pendingCrewInvites > 0
-                                          ? `${pendingCrewInvites} Pending`
-                                          : 'Plan Your Voyage'
-                                }
-                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('crew');
-                                }}
-                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                                id="passage"
+                                expanded={expanded.has('passage')}
+                                onToggle={toggleSection}
                             />
-                            <OfficeRow
-                                icon={<GpxIcon color="#10b981" />}
-                                label="Import GPX"
-                                status="OpenCPN • Navionics"
-                                statusColor="#10b981"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('gpx-import');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<NoticeIcon color="#ef4444" />}
-                                label="Notices to Mariners"
-                                status="NAVAREA • HYDRO"
-                                statusColor="#ef4444"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('notices');
-                                }}
-                            />
+                            <CollapsibleContent open={expanded.has('passage')}>
+                                <div style={GLASS.listContainer}>
+                                    <OfficeRow
+                                        icon={<CrewIcon color="#8b5cf6" />}
+                                        label="Passage Planning"
+                                        status={
+                                            passageCrewCount > 0
+                                                ? `${passageCrewCount} crew`
+                                                : pendingCrewInvites > 0
+                                                  ? `${pendingCrewInvites} Pending`
+                                                  : 'Plan Your Voyage'
+                                        }
+                                        statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('crew');
+                                        }}
+                                        badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                                    />
+                                    <OfficeRow
+                                        icon={<GpxIcon color="#10b981" />}
+                                        label="Import GPX"
+                                        status="OpenCPN • Navionics"
+                                        statusColor="#10b981"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('gpx-import');
+                                        }}
+                                    />
+                                    <ListDivider />
+                                    <OfficeRow
+                                        icon={<NoticeIcon color="#ef4444" />}
+                                        label="Notices to Mariners"
+                                        status="NAVAREA • HYDRO"
+                                        statusColor="#ef4444"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('notices');
+                                        }}
+                                    />
+                                </div>
+                            </CollapsibleContent>
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* LOGBOOK                                     */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#0ea5e9"
-                        label="Logbook"
-                        id="logbook"
-                        expanded={expanded.has('logbook')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('logbook')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<PenIcon color="#0ea5e9" />}
-                                label="Diary"
-                                status="Daily Notes"
-                                statusColor="#0ea5e9"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('diary');
-                                }}
+                        {/* ═══════════════════════════════════════════ */}
+                        {/* LOGBOOK                                     */}
+                        {/* ═══════════════════════════════════════════ */}
+                        <div className="mb-4">
+                            <SectionHeader
+                                color="#0ea5e9"
+                                label="Logbook"
+                                id="logbook"
+                                expanded={expanded.has('logbook')}
+                                onToggle={toggleSection}
                             />
+                            <CollapsibleContent open={expanded.has('logbook')}>
+                                <div style={GLASS.listContainer}>
+                                    <OfficeRow
+                                        icon={<PenIcon color="#0ea5e9" />}
+                                        label="Diary"
+                                        status="Daily Notes"
+                                        statusColor="#0ea5e9"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('diary');
+                                        }}
+                                    />
+                                </div>
+                            </CollapsibleContent>
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* INVENTORY & MAINTENANCE                     */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#f59e0b"
-                        label="Inventory & Maintenance"
-                        id="inventory"
-                        expanded={expanded.has('inventory')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('inventory')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<BoxIcon color="#f59e0b" />}
-                                label="Ship's Stores"
-                                status="Provisions & Spares"
-                                statusColor="#f59e0b"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('inventory');
-                                }}
+                        {/* ═══════════════════════════════════════════ */}
+                        {/* INVENTORY & MAINTENANCE                     */}
+                        {/* ═══════════════════════════════════════════ */}
+                        <div className="mb-4">
+                            <SectionHeader
+                                color="#f59e0b"
+                                label="Inventory & Maintenance"
+                                id="inventory"
+                                expanded={expanded.has('inventory')}
+                                onToggle={toggleSection}
                             />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ClipboardIcon color="#ef4444" />}
-                                label="Equipment"
-                                status="Register"
-                                statusColor="#ef4444"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('equipment');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<WrenchIcon color="#0ea5e9" />}
-                                label="Repairs & Maintenance"
-                                status="Tasks & Expiry"
-                                statusColor="#0ea5e9"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('maintenance');
-                                }}
-                            />
+                            <CollapsibleContent open={expanded.has('inventory')}>
+                                <div style={GLASS.listContainer}>
+                                    <OfficeRow
+                                        icon={<BoxIcon color="#f59e0b" />}
+                                        label="Ship's Stores"
+                                        status="Provisions & Spares"
+                                        statusColor="#f59e0b"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('inventory');
+                                        }}
+                                    />
+                                    <ListDivider />
+                                    <OfficeRow
+                                        icon={<ClipboardIcon color="#ef4444" />}
+                                        label="Equipment"
+                                        status="Register"
+                                        statusColor="#ef4444"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('equipment');
+                                        }}
+                                    />
+                                    <ListDivider />
+                                    <OfficeRow
+                                        icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#0ea5e9'} />}
+                                        label="Repairs & Maintenance"
+                                        status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
+                                        statusColor={overdueCount > 0 ? '#ef4444' : '#0ea5e9'}
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('maintenance');
+                                        }}
+                                        badge={overdueCount > 0 ? overdueCount : undefined}
+                                        badgeUrgent={overdueCount > 0}
+                                    />
+                                </div>
+                            </CollapsibleContent>
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* REFERENCE                                   */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#22d3ee"
-                        label="Reference"
-                        id="reference"
-                        expanded={expanded.has('reference')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('reference')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<ChecklistIcon color="#22d3ee" />}
-                                label="Checklists"
-                                status="Safety & Passage"
-                                statusColor="#22d3ee"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('checklists');
-                                }}
+                        {/* ═══════════════════════════════════════════ */}
+                        {/* REFERENCE                                   */}
+                        {/* ═══════════════════════════════════════════ */}
+                        <div className="mb-4">
+                            <SectionHeader
+                                color="#22d3ee"
+                                label="Reference"
+                                id="reference"
+                                expanded={expanded.has('reference')}
+                                onToggle={toggleSection}
                             />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ChartIcon color="#22d3ee" />}
-                                label="Polars"
-                                status={isObserver ? 'Vessel Required' : 'Tuning'}
-                                statusColor={isObserver ? '#6b7280' : '#22d3ee'}
-                                onClick={() => {
-                                    if (isObserver) return;
-                                    triggerHaptic('light');
-                                    onNavigate('polars');
-                                }}
-                                disabled={isObserver}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<DocShieldIcon color="#0ea5e9" />}
-                                label="Documents"
-                                status="Legal"
-                                statusColor="#0ea5e9"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('documents');
-                                }}
-                            />
+                            <CollapsibleContent open={expanded.has('reference')}>
+                                <div style={GLASS.listContainer}>
+                                    <OfficeRow
+                                        icon={<ChecklistIcon color="#22d3ee" />}
+                                        label="Checklists"
+                                        status="Safety & Passage"
+                                        statusColor="#22d3ee"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('checklists');
+                                        }}
+                                    />
+                                    <ListDivider />
+                                    <OfficeRow
+                                        icon={<ChartIcon color="#22d3ee" />}
+                                        label="Polars"
+                                        status={isObserver ? 'Vessel Required' : 'Tuning'}
+                                        statusColor={isObserver ? '#6b7280' : '#22d3ee'}
+                                        onClick={() => {
+                                            if (isObserver) return;
+                                            triggerHaptic('light');
+                                            onNavigate('polars');
+                                        }}
+                                        disabled={isObserver}
+                                    />
+                                    <ListDivider />
+                                    <OfficeRow
+                                        icon={<DocShieldIcon color="#0ea5e9" />}
+                                        label="Documents"
+                                        status="Legal"
+                                        statusColor="#0ea5e9"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('documents');
+                                        }}
+                                    />
+                                </div>
+                            </CollapsibleContent>
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* CONNECT — instruments, AIS, charts          */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#a855f7"
-                        label="Connect"
-                        id="connect"
-                        expanded={expanded.has('connect')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('connect')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<SignalIcon color="#a855f7" />}
-                                label="NMEA Gateway"
-                                status="Instruments & AIS"
-                                statusColor="#a855f7"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('nmea');
-                                }}
+                        {/* ═══════════════════════════════════════════ */}
+                        {/* CONNECT — instruments, AIS, charts          */}
+                        {/* ═══════════════════════════════════════════ */}
+                        <div className="mb-4">
+                            <SectionHeader
+                                color="#a855f7"
+                                label="Connect"
+                                id="connect"
+                                expanded={expanded.has('connect')}
+                                onToggle={toggleSection}
                             />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<MapChartIcon color="#22d3ee" />}
-                                label="Boat Network"
-                                status="Pi & Charts"
-                                statusColor="#22d3ee"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('avnav');
-                                }}
-                            />
+                            <CollapsibleContent open={expanded.has('connect')}>
+                                <div style={GLASS.listContainer}>
+                                    <OfficeRow
+                                        icon={<SignalIcon color="#a855f7" />}
+                                        label="NMEA Gateway"
+                                        status="Instruments & AIS"
+                                        statusColor="#a855f7"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('nmea');
+                                        }}
+                                    />
+                                    <ListDivider />
+                                    <OfficeRow
+                                        icon={<MapChartIcon color="#22d3ee" />}
+                                        label="Boat Network"
+                                        status="Pi & Charts"
+                                        statusColor="#22d3ee"
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('avnav');
+                                        }}
+                                    />
+                                </div>
+                            </CollapsibleContent>
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* SECTION D: ACCOUNT — Settings only         */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-6">
-                    <SectionHeader
-                        color="#9ca3af"
-                        label="Account"
-                        id="account"
-                        expanded={expanded.has('account')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('account')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<UserIcon color="#9ca3af" />}
-                                label="Account & Settings"
-                                status={(() => {
-                                    const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                    if (tier === 'owner') return 'Vessel Owner';
-                                    if (tier === 'crew') return 'Crew Plan';
-                                    return 'Free Plan';
-                                })()}
-                                statusColor={(() => {
-                                    const tier = (settings as Record<string, unknown>).subscriptionTier as string;
-                                    if (tier === 'owner') return '#f59e0b';
-                                    if (tier === 'crew') return '#22d3ee';
-                                    return '#9ca3af';
-                                })()}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('settings');
-                                }}
+                        {/* ═══════════════════════════════════════════ */}
+                        {/* SECTION D: ACCOUNT — Settings only         */}
+                        {/* ═══════════════════════════════════════════ */}
+                        <div className="mb-6">
+                            <SectionHeader
+                                color="#9ca3af"
+                                label="Account"
+                                id="account"
+                                expanded={expanded.has('account')}
+                                onToggle={toggleSection}
                             />
+                            <CollapsibleContent open={expanded.has('account')}>
+                                <div style={GLASS.listContainer}>
+                                    <OfficeRow
+                                        icon={<UserIcon color="#9ca3af" />}
+                                        label="Account & Settings"
+                                        status={(() => {
+                                            const tier = (settings as Record<string, unknown>)
+                                                .subscriptionTier as string;
+                                            if (tier === 'owner') return 'Vessel Owner';
+                                            if (tier === 'crew') return 'Crew Plan';
+                                            return 'Free Plan';
+                                        })()}
+                                        statusColor={(() => {
+                                            const tier = (settings as Record<string, unknown>)
+                                                .subscriptionTier as string;
+                                            if (tier === 'owner') return '#f59e0b';
+                                            if (tier === 'crew') return '#22d3ee';
+                                            return '#9ca3af';
+                                        })()}
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            onNavigate('settings');
+                                        }}
+                                    />
+                                </div>
+                            </CollapsibleContent>
                         </div>
-                    </CollapsibleContent>
-                </div>
+                    </>
+                )}
             </div>
 
             {/* Admin Panel Modal */}
@@ -977,7 +1314,9 @@ const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }>
 /** Divider between list rows */
 const ListDivider: React.FC = () => <div className="mx-4" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }} />;
 
-/** Ship's Office list row */
+/** Ship's Office list row.
+ *  When `badgeUrgent` is true, the badge renders red (overdue / needs
+ *  immediate action). Default amber (informational pending count). */
 const OfficeRow: React.FC<{
     icon: React.ReactNode;
     label: string;
@@ -986,7 +1325,8 @@ const OfficeRow: React.FC<{
     onClick: () => void;
     disabled?: boolean;
     badge?: number;
-}> = ({ icon, label, status, statusColor, onClick, disabled, badge }) => (
+    badgeUrgent?: boolean;
+}> = ({ icon, label, status, statusColor, onClick, disabled, badge, badgeUrgent }) => (
     <button
         aria-label={label}
         onClick={onClick}
@@ -999,7 +1339,11 @@ const OfficeRow: React.FC<{
         </div>
         <span className="flex-1 text-[13px] font-bold text-white tracking-wide">{label}</span>
         {badge !== undefined && (
-            <span className="px-1.5 py-0.5 bg-amber-500/30 text-amber-300 text-[11px] font-bold rounded-full">
+            <span
+                className={`px-1.5 py-0.5 text-[11px] font-bold rounded-full ${
+                    badgeUrgent ? 'bg-red-500/30 text-red-300' : 'bg-amber-500/30 text-amber-300'
+                }`}
+            >
                 {badge}
             </span>
         )}
