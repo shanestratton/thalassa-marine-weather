@@ -13,6 +13,10 @@ CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
     // User library
     CAP_PLUGIN_METHOD(getUserPlaylists, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(playPlaylist, CAPPluginReturnPromise);
+    // Playlist detail (long-press sheet on the Music page)
+    CAP_PLUGIN_METHOD(getPlaylistTracks, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(addPlaylistToQueue, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(playTrackInPlaylist, CAPPluginReturnPromise);
     // Playback control
     CAP_PLUGIN_METHOD(pause, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(resume, CAPPluginReturnPromise);

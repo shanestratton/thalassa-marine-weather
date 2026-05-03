@@ -17,7 +17,7 @@
  * Future iterations: catalog search UI, queue management, radio
  * stations, recommendations. V1 is deliberately tight.
  */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
 import {
     getUserPlaylists,
@@ -29,9 +29,14 @@ import {
     getNowPlaying,
     requestAuthorization,
     getAuthorizationStatus,
+    getPlaylistTracks,
+    addPlaylistToQueue,
+    playTrackInPlaylist,
     type UserPlaylist,
     type NowPlaying,
+    type PlaylistTrack,
 } from '../../services/voice/integrations/appleMusic';
+import { triggerHaptic } from '../../utils/system';
 
 interface MusicPageProps {
     onBack: () => void;
@@ -138,6 +143,78 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         setNowPlaying(np);
     }, []);
 
+    // ── Long-press → playlist detail sheet ────────────────────────
+    /** Currently-open detail sheet, plus its track list (loaded
+     *  on-demand when the sheet opens). null = sheet closed. */
+    const [detailPlaylist, setDetailPlaylist] = useState<UserPlaylist | null>(null);
+    const [detailTracks, setDetailTracks] = useState<PlaylistTrack[]>([]);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detailError, setDetailError] = useState<string | null>(null);
+
+    const openDetail = useCallback(async (playlist: UserPlaylist) => {
+        triggerHaptic('medium');
+        setDetailPlaylist(playlist);
+        setDetailTracks([]);
+        setDetailError(null);
+        setDetailLoading(true);
+        try {
+            const r = await getPlaylistTracks(playlist.id);
+            if (!r.available) {
+                setDetailError(r.error ?? 'failed to load tracks');
+            } else {
+                setDetailTracks(r.tracks);
+            }
+        } finally {
+            setDetailLoading(false);
+        }
+    }, []);
+
+    const closeDetail = useCallback(() => {
+        setDetailPlaylist(null);
+        setDetailTracks([]);
+        setDetailError(null);
+    }, []);
+
+    const handlePlayAll = useCallback(async () => {
+        if (!detailPlaylist) return;
+        triggerHaptic('light');
+        const r = await playPlaylist(detailPlaylist.id);
+        if (r.success) {
+            setActivePlaylistId(detailPlaylist.id);
+            closeDetail();
+        } else {
+            setDetailError(`Couldn't play: ${r.error}`);
+        }
+    }, [detailPlaylist, closeDetail]);
+
+    const handleAddToQueue = useCallback(async () => {
+        if (!detailPlaylist) return;
+        triggerHaptic('light');
+        const r = await addPlaylistToQueue(detailPlaylist.id);
+        if (r.success) {
+            // Stay on the sheet so the skipper sees the success — close
+            // after a beat so the action feels acknowledged.
+            setTimeout(() => closeDetail(), 600);
+        } else {
+            setDetailError(`Couldn't add: ${r.error}`);
+        }
+    }, [detailPlaylist, closeDetail]);
+
+    const handlePlayTrack = useCallback(
+        async (trackId: string) => {
+            if (!detailPlaylist) return;
+            triggerHaptic('light');
+            const r = await playTrackInPlaylist(detailPlaylist.id, trackId);
+            if (r.success) {
+                setActivePlaylistId(detailPlaylist.id);
+                closeDetail();
+            } else {
+                setDetailError(`Couldn't play: ${r.error}`);
+            }
+        },
+        [detailPlaylist, closeDetail],
+    );
+
     return (
         <div className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black">
             <PageHeader title="Music" subtitle="Apple Music playlists" onBack={onBack} />
@@ -204,6 +281,7 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 playlist={p}
                                 active={activePlaylistId === p.id}
                                 onTap={() => void handlePlayPlaylist(p.id)}
+                                onLongPress={() => void openDetail(p)}
                             />
                         ))}
                     </div>
@@ -220,6 +298,20 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     onPrevious={() => void handlePrevious()}
                 />
             )}
+
+            {/* Playlist detail sheet — opens on long-press */}
+            {detailPlaylist && (
+                <PlaylistDetailSheet
+                    playlist={detailPlaylist}
+                    tracks={detailTracks}
+                    loading={detailLoading}
+                    error={detailError}
+                    onClose={closeDetail}
+                    onPlayAll={() => void handlePlayAll()}
+                    onAddToQueue={() => void handleAddToQueue()}
+                    onPlayTrack={(trackId) => void handlePlayTrack(trackId)}
+                />
+            )}
         </div>
     );
 };
@@ -230,22 +322,72 @@ interface PlaylistTileProps {
     playlist: UserPlaylist;
     active: boolean;
     onTap: () => void;
+    onLongPress: () => void;
 }
 
-const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap }) => {
+/** Hold this long for the tap to register as a long-press. Matches
+ *  iOS's default long-press recognition window so it feels native. */
+const LONG_PRESS_MS = 500;
+
+const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, onLongPress }) => {
     // Track whether the remote artwork URL fails to load. Apple Music's
     // user-library artwork URLs sometimes need credentials WKWebView
     // can't supply, or the CDN host blocks the cross-origin fetch from
     // capacitor://localhost — in either case the <img> renders blank.
     // When that happens we swap to the generated mesh-gradient cover.
     const [imageFailed, setImageFailed] = useState(false);
+    const [pressing, setPressing] = useState(false);
     const showRemote = !!playlist.artworkUrl && !imageFailed;
+
+    // Long-press detection. Touch start kicks off a 500ms timer; if it
+    // fires, we call onLongPress and flag suppressClick so the
+    // subsequent onClick (which iOS fires after touchend) is ignored.
+    // Touch move / cancel / quick lift cancels the timer cleanly.
+    const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const suppressClickRef = useRef(false);
+
+    const startPress = useCallback(() => {
+        suppressClickRef.current = false;
+        setPressing(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => {
+            suppressClickRef.current = true;
+            setPressing(false);
+            onLongPress();
+        }, LONG_PRESS_MS);
+    }, [onLongPress]);
+
+    const cancelPress = useCallback(() => {
+        if (timerRef.current) {
+            clearTimeout(timerRef.current);
+            timerRef.current = null;
+        }
+        setPressing(false);
+    }, []);
+
+    const handleClick = useCallback(() => {
+        // If long-press already fired, swallow the click that iOS
+        // synthesises after touchend.
+        if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            return;
+        }
+        onTap();
+    }, [onTap]);
+
     return (
         <button
-            onClick={onTap}
-            className={`relative aspect-square rounded-2xl overflow-hidden border transition-all active:scale-[0.97] ${
-                active ? 'border-pink-400/60 ring-2 ring-pink-400/40' : 'border-white/10 hover:border-white/30'
-            }`}
+            onClick={handleClick}
+            onTouchStart={startPress}
+            onTouchEnd={cancelPress}
+            onTouchMove={cancelPress}
+            onTouchCancel={cancelPress}
+            onMouseDown={startPress}
+            onMouseUp={cancelPress}
+            onMouseLeave={cancelPress}
+            className={`relative aspect-square rounded-2xl overflow-hidden border transition-all ${
+                pressing ? 'scale-[0.94]' : 'active:scale-[0.97]'
+            } ${active ? 'border-pink-400/60 ring-2 ring-pink-400/40' : 'border-white/10 hover:border-white/30'}`}
         >
             {showRemote ? (
                 <img
@@ -268,6 +410,160 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap }) 
         </button>
     );
 };
+
+// ── Playlist detail sheet — long-press → bottom sheet w/ tracks ────
+
+interface PlaylistDetailSheetProps {
+    playlist: UserPlaylist;
+    tracks: PlaylistTrack[];
+    loading: boolean;
+    error: string | null;
+    onClose: () => void;
+    onPlayAll: () => void;
+    onAddToQueue: () => void;
+    onPlayTrack: (trackId: string) => void;
+}
+
+const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
+    playlist,
+    tracks,
+    loading,
+    error,
+    onClose,
+    onPlayAll,
+    onAddToQueue,
+    onPlayTrack,
+}) => {
+    const [imageFailed, setImageFailed] = useState(false);
+    const [mounted, setMounted] = useState(false);
+    // Trigger the slide-up animation by toggling `mounted` on next
+    // frame after mount. Without rAF the initial render and the
+    // animated state would batch into the same paint.
+    useEffect(() => {
+        const id = requestAnimationFrame(() => setMounted(true));
+        return () => cancelAnimationFrame(id);
+    }, []);
+
+    const showRemote = !!playlist.artworkUrl && !imageFailed;
+
+    return (
+        <div className="fixed inset-0 z-50 flex flex-col">
+            {/* Backdrop */}
+            <button
+                aria-label="Close playlist details"
+                onClick={onClose}
+                className={`absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-300 ${
+                    mounted ? 'opacity-100' : 'opacity-0'
+                }`}
+            />
+            {/* Sheet */}
+            <div
+                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 max-h-[88vh] flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
+                    mounted ? 'translate-y-0' : 'translate-y-full'
+                }`}
+            >
+                {/* Drag handle */}
+                <div className="flex justify-center pt-3 pb-1">
+                    <div className="w-12 h-1.5 rounded-full bg-white/25" />
+                </div>
+
+                {/* Hero */}
+                <div className="flex items-center gap-4 px-5 py-4">
+                    <div className="w-20 h-20 rounded-xl overflow-hidden shrink-0 shadow-lg ring-1 ring-white/10">
+                        {showRemote ? (
+                            <img
+                                src={playlist.artworkUrl}
+                                alt=""
+                                className="w-full h-full object-cover"
+                                onError={() => setImageFailed(true)}
+                            />
+                        ) : (
+                            <GeneratedPlaylistArtwork name={playlist.name} />
+                        )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-white font-bold text-lg truncate leading-tight">{playlist.name}</div>
+                        <div className="text-white/60 text-sm mt-0.5">
+                            {loading
+                                ? 'Loading…'
+                                : tracks.length > 0
+                                  ? `${tracks.length} track${tracks.length === 1 ? '' : 's'}`
+                                  : 'No tracks'}
+                        </div>
+                        {playlist.curator && (
+                            <div className="text-white/40 text-xs truncate mt-0.5">{playlist.curator}</div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Action buttons */}
+                <div className="flex gap-2 px-5 pb-3">
+                    <button
+                        onClick={onPlayAll}
+                        disabled={loading || tracks.length === 0}
+                        className="flex-1 py-3 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                    >
+                        <PlayIcon className="w-4 h-4" />
+                        <span>Play</span>
+                    </button>
+                    <button
+                        onClick={onAddToQueue}
+                        disabled={loading || tracks.length === 0}
+                        className="flex-1 py-3 rounded-2xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                    >
+                        <PlusIcon className="w-5 h-5" />
+                        <span>Add</span>
+                    </button>
+                </div>
+
+                {/* Error banner */}
+                {error && (
+                    <div className="mx-5 mb-2 px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs">
+                        {error}
+                    </div>
+                )}
+
+                {/* Track list */}
+                <div className="flex-1 overflow-y-auto px-3 pb-8">
+                    {loading && (
+                        <div className="flex flex-col items-center justify-center py-12 text-white/40 text-sm gap-2">
+                            <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin" />
+                            Loading tracks…
+                        </div>
+                    )}
+                    {!loading &&
+                        tracks.map((track, i) => (
+                            <button
+                                key={track.id}
+                                onClick={() => onPlayTrack(track.id)}
+                                className="w-full flex items-center gap-3 px-2 py-2.5 rounded-xl active:bg-white/10 transition-colors text-left"
+                            >
+                                <div className="w-8 text-center text-white/40 text-sm font-medium tabular-nums shrink-0">
+                                    {i + 1}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-white text-sm font-medium truncate">{track.title}</div>
+                                    <div className="text-white/50 text-xs truncate mt-0.5">{track.artist}</div>
+                                </div>
+                                <div className="text-white/40 text-xs tabular-nums shrink-0">
+                                    {formatDuration(track.durationMs)}
+                                </div>
+                            </button>
+                        ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+/** Format a millisecond duration as "m:ss" — e.g. 184_000 → "3:04". */
+function formatDuration(ms: number): string {
+    if (!Number.isFinite(ms) || ms <= 0) return '—';
+    const total = Math.round(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
 
 // ── Generated playlist artwork ─────────────────────────────────────
 //
@@ -477,5 +773,18 @@ const SkipNextIcon: React.FC<{ className?: string }> = ({ className }) => (
 const SkipPrevIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
         <path d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z" />
+    </svg>
+);
+
+const PlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+    >
+        <path d="M12 5v14M5 12h14" />
     </svg>
 );
