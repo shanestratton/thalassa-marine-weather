@@ -487,6 +487,204 @@ public class AppleMusicPlugin: CAPPlugin {
         }
     }
 
+    // MARK: - Playlist detail (track list, queue ops)
+
+    /**
+     * Return all tracks in a user-library playlist with metadata for
+     * the playlist-detail bottom sheet on the Music page. Each track
+     * carries its id (so we can play-from-this-track later), title,
+     * artist, duration in milliseconds, and a 200x200 artwork URL.
+     */
+    @available(iOS 15.0, *)
+    @objc func getPlaylistTracks(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("id is required")
+            return
+        }
+        Task {
+            do {
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                guard let playlist = resp.items.first(where: { $0.id.rawValue == id }) else {
+                    await MainActor.run {
+                        call.resolve(["status": "not_found", "id": id])
+                    }
+                    return
+                }
+                let detailed = try await playlist.with([.tracks])
+                let tracks = detailed.tracks ?? MusicItemCollection<Track>([])
+                let trackList: [[String: Any]] = tracks.map { track in
+                    var item: [String: Any] = [
+                        "id": track.id.rawValue,
+                        "title": track.title,
+                        "artist": track.artistName,
+                        "duration_ms": Int((track.duration ?? 0) * 1000),
+                    ]
+                    if let url = track.artwork?.url(width: 200, height: 200) {
+                        item["artwork_url"] = url.absoluteString
+                    } else {
+                        item["artwork_url"] = ""
+                    }
+                    return item
+                }
+                await MainActor.run {
+                    call.resolve([
+                        "status": "ok",
+                        "playlist_name": playlist.name,
+                        "tracks": trackList,
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] getPlaylistTracks failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
+     * Add every track in a playlist to the current playback queue. If
+     * nothing is playing, behaves like playPlaylist (set queue + play).
+     * If something IS playing, appends each track at the tail so the
+     * current track keeps going.
+     */
+    @available(iOS 15.0, *)
+    @objc func addPlaylistToQueue(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("id is required")
+            return
+        }
+        Task {
+            do {
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                guard let playlist = resp.items.first(where: { $0.id.rawValue == id }) else {
+                    await MainActor.run {
+                        call.resolve(["status": "not_found", "id": id])
+                    }
+                    return
+                }
+                let detailed = try await playlist.with([.tracks])
+                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "error",
+                            "error": "playlist has no tracks",
+                        ])
+                    }
+                    return
+                }
+                let player = ApplicationMusicPlayer.shared
+                let isActive = player.state.playbackStatus == .playing
+                    || player.state.playbackStatus == .paused
+                if isActive {
+                    // Append each track to the tail of the existing queue.
+                    for track in tracks {
+                        try await player.queue.insert(track, position: .tail)
+                    }
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "queued",
+                            "playlist_name": playlist.name,
+                            "track_count": tracks.count,
+                        ])
+                    }
+                } else {
+                    player.queue = ApplicationMusicPlayer.Queue(for: tracks)
+                    try await player.prepareToPlay()
+                    try await player.play()
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "playing",
+                            "playlist_name": playlist.name,
+                            "track_count": tracks.count,
+                        ])
+                    }
+                }
+            } catch {
+                NSLog("[AppleMusic] addPlaylistToQueue failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
+     * Play a specific track in a playlist, queuing the rest of the
+     * playlist (from that track onwards) after it. Mirrors the
+     * "tap-a-song-in-an-album" UX.
+     */
+    @available(iOS 15.0, *)
+    @objc func playTrackInPlaylist(_ call: CAPPluginCall) {
+        guard let playlistId = call.getString("playlist_id"), !playlistId.isEmpty else {
+            call.reject("playlist_id is required")
+            return
+        }
+        guard let trackId = call.getString("track_id"), !trackId.isEmpty else {
+            call.reject("track_id is required")
+            return
+        }
+        Task {
+            do {
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                guard let playlist = resp.items.first(where: { $0.id.rawValue == playlistId }) else {
+                    await MainActor.run {
+                        call.resolve(["status": "not_found", "id": playlistId])
+                    }
+                    return
+                }
+                let detailed = try await playlist.with([.tracks])
+                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "error",
+                            "error": "playlist has no tracks",
+                        ])
+                    }
+                    return
+                }
+                let trackArray = Array(tracks)
+                guard let idx = trackArray.firstIndex(where: { $0.id.rawValue == trackId }) else {
+                    await MainActor.run {
+                        call.resolve(["status": "track_not_found", "track_id": trackId])
+                    }
+                    return
+                }
+                // Slice from this track to end so the rest queues up.
+                let fromHere = Array(trackArray[idx...])
+                let player = ApplicationMusicPlayer.shared
+                player.queue = ApplicationMusicPlayer.Queue(for: fromHere)
+                try await player.prepareToPlay()
+                try await player.play()
+                let firstTrack = fromHere.first
+                await MainActor.run {
+                    call.resolve([
+                        "status": "playing",
+                        "title": firstTrack?.title ?? "",
+                        "artist": firstTrack?.artistName ?? "",
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] playTrackInPlaylist failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
     // MARK: - Playback control
 
     @available(iOS 15.0, *)

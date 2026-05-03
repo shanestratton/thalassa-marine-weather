@@ -62,6 +62,30 @@ interface AppleMusicPluginInterface {
         first_track_artist?: string;
         error?: string;
     }>;
+    getPlaylistTracks(opts: { id: string }): Promise<{
+        status: 'ok' | 'not_found' | 'error';
+        playlist_name?: string;
+        tracks?: Array<{
+            id: string;
+            title: string;
+            artist: string;
+            duration_ms: number;
+            artwork_url: string;
+        }>;
+        error?: string;
+    }>;
+    addPlaylistToQueue(opts: { id: string }): Promise<{
+        status: 'queued' | 'playing' | 'not_found' | 'error';
+        playlist_name?: string;
+        track_count?: number;
+        error?: string;
+    }>;
+    playTrackInPlaylist(opts: { playlist_id: string; track_id: string }): Promise<{
+        status: 'playing' | 'not_found' | 'track_not_found' | 'error';
+        title?: string;
+        artist?: string;
+        error?: string;
+    }>;
 
     // Playback control
     pause(): Promise<{ status: string }>;
@@ -183,6 +207,106 @@ export async function playPlaylist(id: string): Promise<{
                     ? { title: r.first_track_title, artist: r.first_track_artist ?? '' }
                     : undefined,
             };
+        }
+        return { success: false, error: r.error ?? r.status };
+    } catch (err) {
+        return { success: false, error: (err as Error).message };
+    }
+}
+
+// ── Playlist detail (for the long-press bottom sheet) ──────────────
+
+export interface PlaylistTrack {
+    id: string;
+    title: string;
+    artist: string;
+    durationMs: number;
+    artworkUrl: string;
+}
+
+export interface PlaylistDetailResult {
+    available: boolean;
+    name: string;
+    tracks: PlaylistTrack[];
+    error?: string;
+}
+
+export async function getPlaylistTracks(id: string): Promise<PlaylistDetailResult> {
+    if (!nativeAvailable()) {
+        return { available: false, name: '', tracks: [], error: 'unsupported' };
+    }
+    try {
+        const r = await AppleMusicNative.getPlaylistTracks({ id });
+        if (r.status !== 'ok' || !r.tracks) {
+            return {
+                available: false,
+                name: r.playlist_name ?? '',
+                tracks: [],
+                error: r.error ?? r.status,
+            };
+        }
+        return {
+            available: true,
+            name: r.playlist_name ?? '',
+            tracks: r.tracks.map((t) => ({
+                id: t.id,
+                title: t.title,
+                artist: t.artist,
+                durationMs: t.duration_ms,
+                artworkUrl: t.artwork_url,
+            })),
+        };
+    } catch (err) {
+        return { available: false, name: '', tracks: [], error: (err as Error).message };
+    }
+}
+
+/**
+ * Add every track in a playlist to the current playback queue. If
+ * nothing is playing, behaves like playPlaylist (set queue + play).
+ * If something IS playing, the playlist's tracks queue up after.
+ */
+export async function addPlaylistToQueue(id: string): Promise<{
+    success: boolean;
+    appended: boolean; // true if appended to existing queue, false if started fresh playback
+    name?: string;
+    trackCount?: number;
+    error?: string;
+}> {
+    if (!nativeAvailable()) return { success: false, appended: false, error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.addPlaylistToQueue({ id });
+        if (r.status === 'queued' || r.status === 'playing') {
+            return {
+                success: true,
+                appended: r.status === 'queued',
+                name: r.playlist_name,
+                trackCount: r.track_count,
+            };
+        }
+        return { success: false, appended: false, error: r.error ?? r.status };
+    } catch (err) {
+        return { success: false, appended: false, error: (err as Error).message };
+    }
+}
+
+/**
+ * Play a specific track in a playlist, queuing the rest of the
+ * playlist (from that track onwards) after it. The "tap a song in
+ * an album" UX.
+ */
+export async function playTrackInPlaylist(
+    playlistId: string,
+    trackId: string,
+): Promise<{ success: boolean; title?: string; artist?: string; error?: string }> {
+    if (!nativeAvailable()) return { success: false, error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.playTrackInPlaylist({
+            playlist_id: playlistId,
+            track_id: trackId,
+        });
+        if (r.status === 'playing') {
+            return { success: true, title: r.title, artist: r.artist };
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
