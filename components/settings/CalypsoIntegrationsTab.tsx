@@ -31,6 +31,7 @@ import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitive
 
 export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const tier = settings.subscriptionTier;
+    const canMusic = canAccess(tier, 'calypsoMusic');
     const canEmail = canAccess(tier, 'calypsoEmail');
     const canAlerts = canAccess(tier, 'calypsoAlerts');
 
@@ -214,6 +215,10 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         [busy, onSave],
     );
 
+    const handleOpenMusicPage = useCallback(() => {
+        window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }));
+    }, []);
+
     return (
         <div className="px-4 pb-8">
             <p className="text-sm text-gray-400 mb-6">
@@ -324,6 +329,38 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             </Row>
                         )}
                     </>
+                )}
+            </Section>
+
+            <Section title="Apple Music">
+                {!canMusic ? (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white">Apple Music access</div>
+                            <div className="text-xs text-amber-400 mt-1">Skipper-tier subscription required.</div>
+                        </div>
+                    </Row>
+                ) : (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white font-bold">Music lives on its own page</div>
+                            <div className="text-xs text-gray-400 mt-1">
+                                Calypso can search and play anything in the Apple Music catalog (~100 million tracks).
+                                Auth, your playlists, and transport controls live on the dedicated Music page — tap the
+                                pink music icon next to Calypso, or use the button below.
+                            </div>
+                            <div className="text-xs text-gray-500 mt-2">
+                                Voice commands work the moment you're authorised: "Calypso, play me some Pink Floyd",
+                                "skip this track", "what's playing?" Music keeps playing while she talks.
+                            </div>
+                        </div>
+                        <button
+                            onClick={handleOpenMusicPage}
+                            className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                        >
+                            Open Music
+                        </button>
+                    </Row>
                 )}
             </Section>
 

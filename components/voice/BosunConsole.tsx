@@ -837,15 +837,16 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
      * standard VoiceQueryResponse envelope so handleResponse can stay
      * agnostic to which path produced the answer.
      */
-    // Settings → Calypso integrations. Gmail requires (a) tier access
-    // AND (b) an explicit toggle in Settings → Calypso Integrations
-    // (because it kicks off an OAuth flow and links a real email
-    // account). Music is currently disabled — see commit history for
-    // the MusicKit revert.
+    // Settings → Calypso integrations. Apple Music is always on for
+    // Skipper tier — auth is handled in-app on the Music page, no
+    // separate toggle. Gmail still requires (a) tier access AND (b)
+    // an explicit toggle in Settings → Calypso Integrations (because
+    // it kicks off an OAuth flow and links a real email account).
     const tier = useSettingsStore((s) => s.settings.subscriptionTier);
     const calypsoEmailEnabled = useSettingsStore((s) => s.settings.calypsoEmailEnabled ?? false);
     const integrationsEnabled = useMemo(
         () => ({
+            appleMusic: canAccess(tier, 'calypsoMusic'),
             gmail: calypsoEmailEnabled && canAccess(tier, 'calypsoEmail'),
         }),
         [tier, calypsoEmailEnabled],
@@ -1440,15 +1441,34 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 subtitle={'Tap to talk — tap again or say "over" to send'}
                 onBack={onBack}
                 action={
-                    turns.length > 0 ? (
+                    <div className="flex items-center gap-2">
+                        {/* Music page — opens MusicPage for playlist
+                         *  browsing + playback. Always visible because
+                         *  music can be triggered from any console
+                         *  state (idle, talking, listening). */}
                         <button
-                            onClick={clearHistory}
-                            className="px-3 h-10 rounded-full bg-white/5 hover:bg-white/10 text-[10px] uppercase tracking-widest text-white/70 hover:text-white transition-colors"
-                            aria-label="Clear conversation history"
+                            onClick={() => {
+                                window.dispatchEvent(
+                                    new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }),
+                                );
+                            }}
+                            className="w-10 h-10 rounded-full bg-pink-500/15 border border-pink-400/30 flex items-center justify-center text-pink-300 hover:bg-pink-500/25 active:scale-95 transition-all"
+                            aria-label="Open music"
                         >
-                            Clear
+                            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
+                            </svg>
                         </button>
-                    ) : null
+                        {turns.length > 0 && (
+                            <button
+                                onClick={clearHistory}
+                                className="px-3 h-10 rounded-full bg-white/5 hover:bg-white/10 text-[10px] uppercase tracking-widest text-white/70 hover:text-white transition-colors"
+                                aria-label="Clear conversation history"
+                            >
+                                Clear
+                            </button>
+                        )}
+                    </div>
                 }
             />
             {/* Pi-setup CTA — surfaces only when no Pi is discovered. */}
