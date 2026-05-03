@@ -274,20 +274,19 @@ public class AppleMusicPlugin: CAPPlugin {
         // when we're already on main; async otherwise — caller doesn't
         // need to wait for playback to start before resolving.
         let block = { [weak self] in
-            // CRITICAL: deactivate OUR audio session before calling
-            // play() on the system music player. Without this, our
-            // active session blocks the music player from reclaiming
-            // the audio output (verified by the skipper observing
-            // play-from-Control-Center worked while our programmatic
-            // play() didn't — Control Center bypasses our app
-            // entirely via Media Remote).
-            //
-            // `.notifyOthersOnDeactivation` tells the music player
-            // explicitly that it can take the output now.
+            // applicationMusicPlayer plays in OUR app's process and
+            // through OUR audio session — so we ACTIVATE the session
+            // here (the opposite of what we'd do with systemMusicPlayer,
+            // which is a remote control to the Music app). Set
+            // .playback so it bypasses the silent switch and routes
+            // through speaker; .mixWithOthers so we coexist with any
+            // other audio (alarms, future system sounds).
             do {
-                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true, options: [])
             } catch {
-                NSLog("[AppleMusic] playItems: session deactivation failed: \(error)")
+                NSLog("[AppleMusic] playItems: session activation failed: \(error)")
             }
 
             // Stash the queue we're about to play so resume() has
@@ -297,7 +296,7 @@ public class AppleMusicPlugin: CAPPlugin {
             self?.savedQueuePosition = 0
 
             let collection = MPMediaItemCollection(items: items)
-            let player = MPMusicPlayerController.systemMusicPlayer
+            let player = MPMusicPlayerController.applicationMusicPlayer
             player.setQueue(with: collection)
             // Shuffle off by default — predictability beats randomness
             // when the skipper just asked for a specific thing.
@@ -602,7 +601,7 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @objc func pause(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            let player = MPMusicPlayerController.systemMusicPlayer
+            let player = MPMusicPlayerController.applicationMusicPlayer
             // Snapshot the queue + position BEFORE pausing so we can
             // restore everything in resume() if the simple play()
             // call doesn't bring playback back. iOS sometimes loses
@@ -633,27 +632,23 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @objc func resume(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            // CRITICAL: deactivate OUR app's audio session before
-            // calling play(). Confirmed empirically — the system
-            // music player can't reclaim the audio output while our
-            // session is active. The skipper observed that pressing
-            // play in iOS Control Center DID work (because that
-            // bypasses our app entirely and uses Media Remote
-            // directly), but our programmatic play() call did not.
-            //
-            // The `.notifyOthersOnDeactivation` option tells other
-            // audio apps (including the system music player) "you
-            // can take the output now". This is the canonical iOS
-            // pattern for stepping out of the way when another app
-            // should be playing.
+            // applicationMusicPlayer plays through OUR session, so we
+            // ACTIVATE here (this is the opposite pattern from
+            // systemMusicPlayer where we'd deactivate to let Music
+            // app take over). After the pause/TTS dance, our session
+            // may have been left in a confused state by WKWebView's
+            // HTML5 Audio playback; re-establishing it cleanly is
+            // the canonical fix.
             do {
-                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-                NSLog("[AppleMusic] resume: deactivated our session, music player can take output")
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true, options: [])
+                NSLog("[AppleMusic] resume: session reactivated for music playback")
             } catch {
-                NSLog("[AppleMusic] resume: session deactivation failed: \(error)")
+                NSLog("[AppleMusic] resume: session activation failed: \(error)")
             }
 
-            let player = MPMusicPlayerController.systemMusicPlayer
+            let player = MPMusicPlayerController.applicationMusicPlayer
             let stateBefore = player.playbackState.rawValue
             player.play()
 
@@ -695,14 +690,14 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @objc func next(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            MPMusicPlayerController.systemMusicPlayer.skipToNextItem()
+            MPMusicPlayerController.applicationMusicPlayer.skipToNextItem()
             call.resolve(["status": "skipped"])
         }
     }
 
     @objc func previous(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            MPMusicPlayerController.systemMusicPlayer.skipToPreviousItem()
+            MPMusicPlayerController.applicationMusicPlayer.skipToPreviousItem()
             call.resolve(["status": "skipped"])
         }
     }
@@ -721,7 +716,7 @@ public class AppleMusicPlugin: CAPPlugin {
      */
     @objc func nowPlaying(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            let player = MPMusicPlayerController.systemMusicPlayer
+            let player = MPMusicPlayerController.applicationMusicPlayer
             let item = player.nowPlayingItem
             let stateString: String
             switch player.playbackState {
