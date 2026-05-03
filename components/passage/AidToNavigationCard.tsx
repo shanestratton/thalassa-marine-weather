@@ -118,15 +118,19 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
 
     return (
         <div className="space-y-4">
-            {/* ── Header Warning ── */}
+            {/* ── Header Warning ──
+                Legal text — bumped from text-xs to text-sm and base
+                section header from text-sm to text-base. The previous
+                11–12px sizing was too small for important legal text
+                that the skipper has to actually read and understand. */}
             <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-4">
                 <div className="flex items-start gap-3">
                     <span className="text-2xl mt-0.5">⚓</span>
                     <div>
-                        <h5 className="text-sm font-bold text-amber-300 mb-1">
+                        <h5 className="text-base font-bold text-amber-300 mb-1.5">
                             Aid to Navigation — Legal Acknowledgment
                         </h5>
-                        <p className="text-xs text-gray-400 leading-relaxed">
+                        <p className="text-sm text-gray-300 leading-relaxed">
                             Thalassa provides weather data, route suggestions, and passage planning tools as an{' '}
                             <strong className="text-amber-200">aid to navigation only</strong>. The skipper retains full
                             responsibility for all decisions. By acknowledging the items below, you confirm
@@ -138,10 +142,10 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
 
             {/* ── Acknowledgment Checklist ── */}
             <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
-                <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
+                <h4 className="text-sm font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
                     ✍️ Skipper's Acknowledgments
                     <span
-                        className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
+                        className={`ml-auto px-2 py-0.5 rounded-full text-xs font-bold border ${
                             allAcknowledged
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-amber-500/10 border-amber-500/20 text-amber-400'
@@ -187,10 +191,10 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
                                     )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 mb-0.5">
-                                        <span className="text-sm">{item.icon}</span>
+                                    <div className="flex items-center gap-1.5 mb-1">
+                                        <span className="text-base">{item.icon}</span>
                                         <span
-                                            className={`text-xs font-bold ${
+                                            className={`text-sm font-bold ${
                                                 isChecked ? 'text-emerald-300' : 'text-white'
                                             }`}
                                         >
@@ -198,8 +202,8 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
                                         </span>
                                     </div>
                                     <p
-                                        className={`text-[11px] leading-relaxed ${
-                                            isChecked ? 'text-emerald-400/50 line-through' : 'text-gray-400'
+                                        className={`text-sm leading-relaxed ${
+                                            isChecked ? 'text-emerald-400/60 line-through' : 'text-gray-300'
                                         }`}
                                     >
                                         {item.description}
@@ -216,8 +220,8 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
                 <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-amber-500/5 border border-amber-500/15">
                     <span className="text-lg">⚠️</span>
                     <div>
-                        <p className="text-xs font-bold text-amber-400">Acknowledgments complete</p>
-                        <p className="text-[11px] text-amber-400/60 mt-0.5">
+                        <p className="text-sm font-bold text-amber-400">Acknowledgments complete</p>
+                        <p className="text-xs text-amber-400/70 mt-0.5">
                             Complete all other readiness checks to enable Cast Off
                         </p>
                     </div>
@@ -228,8 +232,8 @@ export const AidToNavigationCard: React.FC<AidToNavigationCardProps> = ({
                 <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     <span className="text-lg">✅</span>
                     <div>
-                        <p className="text-xs font-bold text-emerald-400">Ready to Cast Off</p>
-                        <p className="text-[11px] text-emerald-400/60 mt-0.5">
+                        <p className="text-sm font-bold text-emerald-400">Ready to Cast Off</p>
+                        <p className="text-xs text-emerald-400/70 mt-0.5">
                             All acknowledgments accepted — vessel cleared for departure
                         </p>
                     </div>

@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import type { MultiModelResult } from '../../services/weather/MultiModelWeatherService';
+import type { ForecastDay } from '../../types/weather';
 import { ModelComparisonCard } from './ModelComparisonCard';
 import { triggerHaptic } from '../../utils/system';
 import { useReadinessSync } from '../../hooks/useReadinessSync';
@@ -21,6 +22,11 @@ interface WeatherBriefingCardProps {
     voyageId?: string;
     departPort?: string;
     destPort?: string;
+    /** Departure coords to anchor the forecast fetch */
+    departureCoords?: { lat: number; lon: number };
+    /** ISO timestamps bracketing the days the boat is at sea */
+    departureTime?: string | null;
+    eta?: string | null;
     multiModelData?: MultiModelResult | null;
     /** Callback: (reviewed: boolean) */
     onReviewedChange?: (reviewed: boolean) => void;
@@ -41,6 +47,9 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
     voyageId,
     departPort,
     destPort,
+    departureCoords,
+    departureTime,
+    eta,
     multiModelData,
     onReviewedChange,
 }) => {
@@ -53,7 +62,58 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
         }
     });
 
+    // Forecast for the days the boat is at sea — fetched on mount and
+    // re-fetched whenever the departure coords / dates change.
+    const [passageForecast, setPassageForecast] = useState<ForecastDay[] | null>(null);
+    const [forecastLoading, setForecastLoading] = useState(false);
+
     const { syncCheck } = useReadinessSync(voyageId, 'weather_briefing', checkedItems, setCheckedItems, STORAGE_KEY);
+
+    // Fetch the actual weather forecast for the passage. We pull a 7-
+    // day open-meteo forecast for the departure point and slice it to
+    // the [departureTime, eta] window so the skipper sees exactly the
+    // days they'll be at sea — not generic "weather here today".
+    useEffect(() => {
+        if (!departureCoords || !departureTime) {
+            setPassageForecast(null);
+            return;
+        }
+        let cancelled = false;
+        const fetchForecast = async () => {
+            setForecastLoading(true);
+            try {
+                const { fetchFastWeather } = await import('../../services/weather');
+                const report = await fetchFastWeather(departPort || 'Departure', departureCoords);
+                if (cancelled) return;
+                const depMs = Date.parse(departureTime);
+                const arrMs = eta ? Date.parse(eta) : depMs + 7 * 24 * 3_600_000;
+                const allDays = report.forecast || [];
+                // Filter to days that overlap the passage window.
+                // Open-Meteo's forecast.day is 'YYYY-MM-DD' or 'EEE'
+                // depending on source, so we lean on isoDate when
+                // available and fall back to date.
+                const filtered = allDays.filter((d) => {
+                    const iso = d.isoDate || d.date;
+                    if (!iso) return false;
+                    const dayMs = Date.parse(iso);
+                    if (!isFinite(dayMs)) return false;
+                    // Window is half-open [dep, arr+1day) so the arrival
+                    // day is included.
+                    return dayMs >= depMs - 12 * 3_600_000 && dayMs <= arrMs + 24 * 3_600_000;
+                });
+                setPassageForecast(filtered.length > 0 ? filtered : allDays.slice(0, 7));
+            } catch (e) {
+                console.warn('[WeatherBriefingCard] forecast fetch failed', e);
+                if (!cancelled) setPassageForecast(null);
+            } finally {
+                if (!cancelled) setForecastLoading(false);
+            }
+        };
+        fetchForecast();
+        return () => {
+            cancelled = true;
+        };
+    }, [departureCoords, departureTime, eta, departPort]);
 
     const totalItems = BRIEFING_ITEMS.length;
     const checkedCount = BRIEFING_ITEMS.filter((item) => checkedItems[item.key]).length;
@@ -93,6 +153,87 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
                 </div>
             )}
 
+            {/* ── Daily Passage Forecast ──
+                The skipper needs to see weather for the days they'll be
+                at sea — not a generic "weather here today" or a "run a
+                route plan" placeholder. We pull a 7-day open-meteo
+                report for the departure point and slice it to
+                [departureTime, eta]. */}
+            {(passageForecast || forecastLoading) && (
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
+                    <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-3 flex items-center gap-2">
+                        🌤️ Forecast — Days at Sea
+                        {passageForecast && passageForecast.length > 0 && (
+                            <span className="ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-500/10 border border-sky-500/20 text-sky-400">
+                                {passageForecast.length} {passageForecast.length === 1 ? 'day' : 'days'}
+                            </span>
+                        )}
+                    </h4>
+                    {forecastLoading && (
+                        <div className="text-center py-6">
+                            <div className="inline-block w-6 h-6 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin"></div>
+                            <p className="text-xs text-gray-400 mt-2">Fetching passage forecast...</p>
+                        </div>
+                    )}
+                    {!forecastLoading && passageForecast && passageForecast.length > 0 && (
+                        <div className="space-y-1.5">
+                            {passageForecast.map((day, i) => {
+                                const wind = Math.round(day.windSpeed);
+                                const gust = day.windGust ? Math.round(day.windGust) : Math.round(day.windSpeed * 1.3);
+                                const wave = day.waveHeight.toFixed(1);
+                                const isHeavy = day.windSpeed > 20 || day.waveHeight > 2.5;
+                                return (
+                                    <div
+                                        key={`${day.isoDate || day.date}-${i}`}
+                                        className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${
+                                            isHeavy
+                                                ? 'bg-amber-500/[0.05] border-amber-500/15'
+                                                : 'bg-white/[0.02] border-white/[0.06]'
+                                        }`}
+                                    >
+                                        <div className="min-w-[48px]">
+                                            <p className="text-sm font-bold text-white leading-tight">{day.day}</p>
+                                            <p className="text-[10px] text-gray-400 uppercase tracking-wide">
+                                                {day.date}
+                                            </p>
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <p className="text-xs text-gray-300 capitalize truncate">{day.condition}</p>
+                                            <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                                <span className="text-[11px] text-gray-400">
+                                                    💨 <span className="text-white font-mono font-bold">{wind}</span>
+                                                    <span className="text-amber-300/80">/{gust}</span> kn
+                                                </span>
+                                                <span className="text-[11px] text-gray-400">
+                                                    🌊 <span className="text-white font-mono font-bold">{wave}</span> m
+                                                </span>
+                                                {day.swellPeriod && (
+                                                    <span className="text-[11px] text-gray-400">
+                                                        ⏱{' '}
+                                                        <span className="text-white font-mono font-bold">
+                                                            {Math.round(day.swellPeriod)}
+                                                        </span>
+                                                        s
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        {isHeavy && (
+                                            <span className="text-amber-400 text-base shrink-0" title="Heavy weather">
+                                                ⚠️
+                                            </span>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                            <p className="text-[10px] text-gray-500 mt-2 text-center">
+                                Open-Meteo · forecast at departure point · review hourly detail before departure
+                            </p>
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* ── Model Comparison (if data available) ── */}
             {multiModelData && (
                 <div>
@@ -103,12 +244,14 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
                 </div>
             )}
 
-            {/* ── If no model data, show prompt ── */}
-            {!multiModelData && (
+            {/* ── No forecast & no model data ── */}
+            {!passageForecast && !forecastLoading && !multiModelData && (
                 <div className="bg-white/[0.02] border border-white/[0.06] rounded-xl p-4 text-center">
                     <span className="text-2xl">🛰️</span>
                     <p className="text-xs text-gray-400 mt-2 font-semibold">
-                        Run a Route Plan to see multi-model comparison data here.
+                        {!departureCoords
+                            ? 'Plan a route to see your passage forecast here.'
+                            : 'Forecast unavailable — check connection.'}
                     </p>
                     <p className="text-[11px] text-gray-500 mt-1">GFS · ECMWF · ICON · ACCESS-G ensemble analysis</p>
                 </div>

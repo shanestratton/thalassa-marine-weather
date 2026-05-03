@@ -359,6 +359,9 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     voyageId={selectedPassageId}
                     departPort={departPort || undefined}
                     destPort={destPort || undefined}
+                    departureCoords={activeVoyage?.departureCoords}
+                    departureTime={activeVoyage?.departure_time || null}
+                    eta={activeVoyage?.eta || null}
                     onReviewedChange={onWeatherChange}
                 />
             </CardAccordion>
