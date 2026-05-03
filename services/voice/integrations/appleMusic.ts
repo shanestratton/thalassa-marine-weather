@@ -62,6 +62,13 @@ interface AppleMusicPluginInterface {
         title: string;
         subtitle?: string;
         track_count?: number;
+        // First track surfaced so Calypso can narrate the actual song
+        // playing without a follow-up now_playing call (which has
+        // historically clobbered playback by triggering a second TTS
+        // session duck that didn't recover cleanly).
+        first_track_title?: string;
+        first_track_artist?: string;
+        first_track_album?: string;
         // Library counts surfaced on a miss so Calypso can narrate
         // ("checked 47 artists, none matched") instead of silently
         // falling through to catalog.
@@ -70,6 +77,7 @@ interface AppleMusicPluginInterface {
         library_songs?: number;
         library_playlists?: number;
     }>;
+    ensureMixingSession(): Promise<{ status: 'applied' | 'failed'; error?: string }>;
     pause(): Promise<{ status: string }>;
     resume(): Promise<{ status: string }>;
     next(): Promise<{ status: string }>;
@@ -179,6 +187,21 @@ export async function playMusicByQuery(
         try {
             const r = await AppleMusicNative.searchAndPlay({ query: trimmed, kind: kind ?? 'auto' });
             if (r.status === 'playing') {
+                const trackTitle = r.first_track_title ?? '';
+                const trackArtist = r.first_track_artist ?? '';
+                // Compose Calypso's narration line from the first track
+                // so she has everything she needs RIGHT NOW — no
+                // follow-up tool call. Crucial: every extra TTS
+                // narration ducks the system music player, and stacking
+                // ducks too close together has been observed to leave
+                // the music stopped instead of recovering.
+                const phrase = trackTitle
+                    ? `Playing "${trackTitle}"${trackArtist ? ` by ${trackArtist}` : ''}${
+                          r.matched_kind === 'artist' && r.track_count
+                              ? ` — ${r.track_count} tracks queued from your library`
+                              : ' from your library'
+                      }.`
+                    : `Playing ${r.title}${r.subtitle ? ` — ${r.subtitle}` : ''} from your library.`;
                 return {
                     content: JSON.stringify({
                         status: 'playing',
@@ -187,7 +210,15 @@ export async function playMusicByQuery(
                         title: r.title,
                         subtitle: r.subtitle ?? '',
                         track_count: r.track_count ?? 0,
-                        note: `Playing from the skipper's library. Narrate back briefly: "Playing ${r.title}${r.subtitle ? ` — ${r.subtitle}` : ''} from your library."`,
+                        first_track_title: trackTitle,
+                        first_track_artist: trackArtist,
+                        first_track_album: r.first_track_album ?? '',
+                        suggested_phrase: phrase,
+                        note:
+                            "Playing from the skipper's library. Read the suggested_phrase aloud verbatim — that is your full response. " +
+                            'CRITICAL: do NOT call now_playing immediately after this; you already have the track + artist. ' +
+                            'A second TTS narration right after play_music is what kills the music — every extra speech duck ' +
+                            'is one more chance for the system music player to fail to recover. One narration, then stop.',
                     }),
                     isError: false,
                 };
@@ -311,6 +342,23 @@ function composeFallbackNote(
         return `The skipper's Apple Music library appears empty (no songs / artists / albums / playlists visible). Handed off to Apple Music. Tell them: "I can see your library but it looks empty — make sure you've added music to your Library, not just streamed it."`;
     }
     return `"${query}" wasn't in the skipper's library (checked ${counts.artists} artists, ${counts.albums} albums, ${counts.songs} songs, ${counts.playlists} playlists). Handed off to the Apple Music app for catalog search. Tell the skipper: "Not in your library — opened Apple Music to search the catalog. You'll need to pick a track to play it; I can't auto-play catalog tracks."`;
+}
+
+/**
+ * Re-apply the friendly audio session category (.playback +
+ * .mixWithOthers + .duckOthers). Used as a safety belt before TTS
+ * playback when there's a risk that something has reset the session
+ * to an interrupting category. Cheap to call — single Swift
+ * round-trip, no UI implications.
+ */
+export async function ensureMixingSession(): Promise<{ ok: boolean; error?: string }> {
+    if (!nativeAvailable()) return { ok: false, error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.ensureMixingSession();
+        return { ok: r.status === 'applied', error: r.error };
+    } catch (err) {
+        return { ok: false, error: (err as Error).message };
+    }
 }
 
 // ── Smoke-test playback ────────────────────────────────────────────
