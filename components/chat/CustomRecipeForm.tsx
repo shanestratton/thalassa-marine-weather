@@ -488,29 +488,48 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     // ── Render ──────────────────────────────────────────────────────────────
 
     return (
+        // z-[1000] sits ABOVE the ChildCard portal (z-50) that wraps
+        // the Recipe Library + above the MealCalendar Recipe Library
+        // shell (z-955), so neither of those back chevrons leak
+        // through and confuse the user about which "back" they're
+        // tapping. The form's own back chevron (top-left) is the
+        // single, unambiguous way out.
         <div
-            className="fixed inset-0 z-[950] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
+            className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
         >
             <div
                 className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
                 onClick={(e) => e.stopPropagation()}
             >
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b border-white/[0.06]">
-                    <div>
+                {/* Header — back chevron at top-left matches iOS
+                    convention + the ChildCard back pattern the user is
+                    reaching for. The previous ✕ at top-right was the
+                    only close affordance and didn't match where the
+                    user's muscle memory points. */}
+                <div className="flex items-center gap-2 p-4 border-b border-white/[0.06]">
+                    <button
+                        type="button"
+                        onClick={onClose}
+                        className="p-2 -ml-2 rounded-xl hover:bg-white/[0.06] active:scale-90 transition-all flex items-center justify-center min-w-[44px] min-h-[44px]"
+                        aria-label="Back to Recipe Library"
+                    >
+                        <svg
+                            className="w-5 h-5 text-white"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
+                        </svg>
+                    </button>
+                    <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-white">📝 New Recipe</p>
-                        <p className="text-[11px] text-gray-500">
+                        <p className="text-[11px] text-gray-500 truncate">
                             Step {step + 1} of {STEPS.length} — {STEPS[step]}
                         </p>
                     </div>
-                    <button
-                        onClick={onClose}
-                        className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-gray-400 hover:text-white transition-colors"
-                        aria-label="Close recipe form"
-                    >
-                        ✕
-                    </button>
                 </div>
 
                 {/* Progress bar */}
