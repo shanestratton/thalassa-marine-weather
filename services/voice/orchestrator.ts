@@ -899,6 +899,19 @@ export function consumeLastTtsError(): string | null {
 
 export async function synthesiseSpeech(text: string): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+    // Text-only mode when Apple Music is playing — see ttsClient.ts
+    // header for full rationale. Skips both the ElevenLabs synth
+    // call and any subsequent playback; the response renders in
+    // the conversation log as text only, music keeps playing.
+    try {
+        const tts = await import('./ttsClient');
+        if (await tts.isMusicPlayingForTtsGating()) {
+            console.info('[orchestrator] music playing — synthesiseSpeech returning null, response text-only');
+            return null;
+        }
+    } catch {
+        /* if the gating check fails, fall through to normal synth */
+    }
     const url = `${SUPABASE_URL}/functions/v1/elevenlabs-tts`;
     const ctrl = new AbortController();
     const watchdog = setTimeout(() => ctrl.abort(), TTS_REQUEST_TIMEOUT_MS);

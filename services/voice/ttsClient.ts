@@ -68,10 +68,54 @@ export function consumeTtsClientError(): string | null {
  * can pass raw text like "Battery 11.4 volts" and the synth will
  * pronounce it as "Battery eleven point four volts".
  */
+/**
+ * Quick check whether Apple Music is currently playing through our
+ * applicationMusicPlayer. When it is, we skip TTS entirely (return
+ * null from synthesise / speak) and let the response render as
+ * text-only in the conversation log. Music keeps playing
+ * uninterrupted — this is the deliberate trade-off after the iOS
+ * audio session fight proved unwinnable for DRM-protected Apple
+ * Music subscription content.
+ *
+ * Returns false on web / non-iOS / when the plugin isn't loaded
+ * (allowing TTS to proceed normally on those platforms).
+ */
+export async function isMusicPlayingForTtsGating(): Promise<boolean> {
+    try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return false;
+        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
+        const plugin = cap?.Plugins?.AppleMusic as { nowPlaying: () => Promise<{ is_playing: boolean }> } | undefined;
+        if (!plugin) return false;
+        const np = await plugin.nowPlaying();
+        return np.is_playing === true;
+    } catch {
+        return false;
+    }
+}
+
 export async function synthesise(text: string, opts?: { voiceId?: string }): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
     const trimmed = (text || '').trim();
     if (!trimmed) return null;
+
+    // TEXT-ONLY MODE WHEN MUSIC IS PLAYING.
+    //
+    // The iOS audio session conflict between Apple Music subscription
+    // playback (applicationMusicPlayer) and our TTS (AVAudioPlayer in
+    // the same session) is unsolvable without MusicKit + a server-
+    // signed developer token. After many attempts (pause/resume,
+    // volume duck, interruption observer), we accept the limitation:
+    // when music is playing, Calypso's response renders as text in
+    // the conversation log only — no spoken voice. Music keeps
+    // playing uninterrupted.
+    //
+    // Saves the ElevenLabs synth call too (no audio is going to be
+    // played, so no point synthesising).
+    if (await isMusicPlayingForTtsGating()) {
+        console.info('[ttsClient] music is playing — skipping TTS synth, response will render text-only');
+        return null;
+    }
 
     const url = `${SUPABASE_URL}/functions/v1/elevenlabs-tts`;
     const ctrl = new AbortController();
