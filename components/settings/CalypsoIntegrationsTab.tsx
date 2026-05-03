@@ -2,19 +2,14 @@
  * Calypso Integrations — Settings tab.
  *
  * Lets the skipper grant Calypso (the voice assistant) access to:
- *   - Apple Music (catalog search + playback hand-off)
- *   - Gmail (read inbox / draft / send with explicit confirmation)
+ *   - Apple Music — managed entirely on the dedicated Music page
+ *     (auth gate + playlist tiles + transport). No toggle here; if
+ *     you have Skipper tier, Calypso has it.
+ *   - Gmail — read inbox / draft / send with explicit confirmation.
+ *     Real OAuth 2.0 + PKCE flow, opt-in toggle.
+ *   - Proactive alerts — Calypso speaks up on threshold violations.
  *
- * Both are gated behind the Skipper-tier subscription via canAccess(),
- * AND require an explicit toggle here. Calypso only sees the
- * corresponding tools when both checks pass — no silent registrations.
- *
- * For Gmail specifically: toggling ON kicks off a real OAuth 2.0 +
- * PKCE flow — we generate a code_verifier, derive an S256 challenge,
- * launch Google's consent screen via @capacitor/browser, then catch
- * the redirect via App.addListener('appUrlOpen') and exchange the
- * code for access + refresh tokens. Toggling OFF clears the stored
- * tokens via clearGmailTokens().
+ * Voice picker also lives here (which voice Calypso speaks in).
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -32,15 +27,6 @@ import {
 import { AlertMonitorService } from '../../services/AlertMonitorService';
 import { CALYPSO_VOICE_PRESETS, DEFAULT_VOICE_PRESET_ID } from '../../services/voice/voicePresets';
 import { speak } from '../../services/voice/ttsClient';
-import {
-    inspectLibrary,
-    playFirstSong,
-    probeNativePluginPresence,
-    searchLibrary,
-    type LibraryInspection,
-    type LibrarySearchResult,
-    type PlayFirstSongResult,
-} from '../../services/voice/integrations/appleMusic';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 
 export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
@@ -49,7 +35,6 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
     const canEmail = canAccess(tier, 'calypsoEmail');
     const canAlerts = canAccess(tier, 'calypsoAlerts');
 
-    const musicEnabled = settings.calypsoMusicEnabled ?? false;
     const emailEnabled = settings.calypsoEmailEnabled ?? false;
     const alertsEnabled = settings.calypsoAlertsEnabled ?? false;
     const connectedEmail = settings.calypsoEmailAccount;
@@ -143,77 +128,6 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         };
     }, [onSave]);
 
-    const handleMusicToggle = useCallback(
-        (next: boolean) => {
-            onSave({ calypsoMusicEnabled: next });
-        },
-        [onSave],
-    );
-
-    // ── Apple Music diagnostics ────────────────────────────────────
-    /** Result of the most-recent "Inspect library" tap. Drives an
-     *  inline panel under the Apple Music toggle so the skipper can
-     *  see exactly what the native plugin is reporting — auth state,
-     *  library size, sample artist names — without going through
-     *  Calypso's narration. */
-    const [libraryInspection, setLibraryInspection] = useState<LibraryInspection | null>(null);
-    /** Result of the most-recent "Play first song" smoke test. */
-    const [firstSongResult, setFirstSongResult] = useState<PlayFirstSongResult | null>(null);
-    /** Snapshot of `Capacitor.Plugins.AppleMusic` at the time of the
-     *  most recent diagnostic. Tells us whether the plugin is
-     *  registered in the native binary at all. Populated alongside
-     *  the inspection so the UI can show both. */
-    const [pluginProbe, setPluginProbe] = useState<{ registered: boolean; rawShape: string } | null>(null);
-    const [musicTestBusy, setMusicTestBusy] = useState<'inspect' | 'play' | null>(null);
-
-    const handleInspectLibrary = useCallback(async () => {
-        if (musicTestBusy) return;
-        setMusicTestBusy('inspect');
-        setFirstSongResult(null);
-        // Probe FIRST — synchronous registry check. Tells us if the
-        // plugin even exists in the binary before we try to call it.
-        setPluginProbe(probeNativePluginPresence());
-        try {
-            const r = await inspectLibrary();
-            setLibraryInspection(r);
-        } finally {
-            setMusicTestBusy(null);
-        }
-    }, [musicTestBusy]);
-
-    /** Free-text query for the "Search library" diagnostic. Drives an
-     *  inline result panel so the skipper can confirm whether a
-     *  specific artist/album/song is visible to the plugin without
-     *  going through Calypso's narration. */
-    const [librarySearchQuery, setLibrarySearchQuery] = useState('');
-    const [librarySearchResult, setLibrarySearchResult] = useState<LibrarySearchResult | null>(null);
-
-    const handleSearchLibrary = useCallback(async () => {
-        const q = librarySearchQuery.trim();
-        if (!q || musicTestBusy) return;
-        setMusicTestBusy('inspect');
-        setLibraryInspection(null);
-        setFirstSongResult(null);
-        try {
-            const r = await searchLibrary(q);
-            setLibrarySearchResult(r);
-        } finally {
-            setMusicTestBusy(null);
-        }
-    }, [librarySearchQuery, musicTestBusy]);
-
-    const handlePlayFirstSong = useCallback(async () => {
-        if (musicTestBusy) return;
-        setMusicTestBusy('play');
-        setLibraryInspection(null);
-        try {
-            const r = await playFirstSong();
-            setFirstSongResult(r);
-        } finally {
-            setMusicTestBusy(null);
-        }
-    }, [musicTestBusy]);
-
     const handleAlertsToggle = useCallback(
         (next: boolean) => {
             onSave({ calypsoAlertsEnabled: next });
@@ -300,6 +214,10 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         },
         [busy, onSave],
     );
+
+    const handleOpenMusicPage = useCallback(() => {
+        window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }));
+    }, []);
 
     return (
         <div className="px-4 pb-8">
@@ -423,299 +341,26 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                         </div>
                     </Row>
                 ) : (
-                    <>
-                        <Row>
-                            <div className="flex-1">
-                                <div className="text-sm text-white font-bold">Allow music control</div>
-                                <div className="text-xs text-gray-400 mt-1">
-                                    "Calypso, play me some Pink Floyd" — searches your library first, falls back to
-                                    Apple Music catalog hand-off if not in library.
-                                </div>
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white font-bold">Music lives on its own page</div>
+                            <div className="text-xs text-gray-400 mt-1">
+                                Calypso can search and play anything in the Apple Music catalog (~100 million tracks).
+                                Auth, your playlists, and transport controls live on the dedicated Music page — tap the
+                                pink music icon next to Calypso, or use the button below.
                             </div>
-                            <Toggle checked={musicEnabled} onChange={handleMusicToggle} label="Apple Music access" />
-                        </Row>
-                        {/* Diagnostic buttons — direct calls to the native
-                         *  plugin, bypass Calypso entirely. Tells you in
-                         *  seconds whether the plugin is loaded, library is
-                         *  visible, and playback actually works. The
-                         *  failure mode for "Calypso can't play music" is
-                         *  almost always one of these surfaced clearly. */}
-                        <Row>
-                            <div className="flex-1">
-                                <div className="text-xs text-gray-400">
-                                    <strong className="text-gray-300">Diagnostic.</strong> Bypass Calypso to test the
-                                    native plugin directly. Tells you whether the plugin loaded, your library is
-                                    visible, and playback actually works.
-                                </div>
+                            <div className="text-xs text-gray-500 mt-2">
+                                Voice commands work the moment you're authorised: "Calypso, play me some Pink Floyd",
+                                "skip this track", "what's playing?" Music keeps playing while she talks.
                             </div>
-                        </Row>
-                        <Row>
-                            <div className="flex-1 flex gap-2">
-                                <button
-                                    onClick={() => void handleInspectLibrary()}
-                                    disabled={!!musicTestBusy}
-                                    className="text-xs px-3 py-1.5 rounded border transition-colors border-sky-400/40 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50"
-                                >
-                                    {musicTestBusy === 'inspect' ? 'Inspecting…' : 'Inspect library'}
-                                </button>
-                                <button
-                                    onClick={() => void handlePlayFirstSong()}
-                                    disabled={!!musicTestBusy}
-                                    className="text-xs px-3 py-1.5 rounded border transition-colors border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10 disabled:opacity-50"
-                                >
-                                    {musicTestBusy === 'play' ? 'Playing…' : 'Play first song'}
-                                </button>
-                            </div>
-                        </Row>
-                        {/* Free-text library search — type a query, see
-                         *  what the plugin actually finds. Confirms whether
-                         *  a specific artist/album/song is visible without
-                         *  involving Calypso. */}
-                        <Row>
-                            <div className="flex-1 flex gap-2">
-                                <input
-                                    type="text"
-                                    value={librarySearchQuery}
-                                    onChange={(e) => setLibrarySearchQuery(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') void handleSearchLibrary();
-                                    }}
-                                    placeholder="Search library… e.g. Led Zeppelin"
-                                    className="flex-1 text-xs px-2 py-1.5 rounded border border-gray-600 bg-black/30 text-white placeholder-gray-500 focus:border-amber-400/60 focus:outline-none"
-                                />
-                                <button
-                                    onClick={() => void handleSearchLibrary()}
-                                    disabled={!!musicTestBusy || !librarySearchQuery.trim()}
-                                    className="text-xs px-3 py-1.5 rounded border transition-colors border-amber-400/40 text-amber-300 hover:bg-amber-400/10 disabled:opacity-50"
-                                >
-                                    Search
-                                </button>
-                            </div>
-                        </Row>
-                        {librarySearchResult && (
-                            <Row>
-                                <div className="flex-1 text-xs space-y-1">
-                                    {!librarySearchResult.available && (
-                                        <div className="text-red-400">
-                                            ✗ Search failed
-                                            {librarySearchResult.reason && ` (${librarySearchResult.reason})`}.
-                                            {librarySearchResult.error && (
-                                                <code className="text-gray-500 ml-1">{librarySearchResult.error}</code>
-                                            )}
-                                        </div>
-                                    )}
-                                    {librarySearchResult.available && librarySearchResult.totalMatches === 0 && (
-                                        <div className="space-y-1">
-                                            <div className="text-amber-400">
-                                                ✗ No matches for "{librarySearchResult.query}" anywhere in your library.
-                                            </div>
-                                            <div className="text-gray-500">
-                                                Either it's not actually in your library, or it's streamed-only and not
-                                                synced. Check iOS Settings → Music → "Sync Library" is ON, and that
-                                                "Show Music Available Offline" is OFF (otherwise only downloaded tracks
-                                                are visible). Streamed-only tracks need "Add to Library" via the Apple
-                                                Music app first.
-                                            </div>
-                                        </div>
-                                    )}
-                                    {librarySearchResult.available && librarySearchResult.totalMatches > 0 && (
-                                        <div className="space-y-1">
-                                            <div className="text-emerald-400">
-                                                ✓ Found {librarySearchResult.totalMatches} match
-                                                {librarySearchResult.totalMatches === 1 ? '' : 'es'} for "
-                                                {librarySearchResult.query}":
-                                            </div>
-                                            {librarySearchResult.artists.length > 0 && (
-                                                <div className="text-gray-300">
-                                                    <span className="text-gray-400">Artists:</span>{' '}
-                                                    {librarySearchResult.artists.join(', ')}
-                                                </div>
-                                            )}
-                                            {librarySearchResult.albums.length > 0 && (
-                                                <div className="text-gray-300">
-                                                    <span className="text-gray-400">Albums:</span>{' '}
-                                                    {librarySearchResult.albums
-                                                        .map((a) => `${a.title}${a.artist ? ` (${a.artist})` : ''}`)
-                                                        .join(', ')}
-                                                </div>
-                                            )}
-                                            {librarySearchResult.playlists.length > 0 && (
-                                                <div className="text-gray-300">
-                                                    <span className="text-gray-400">Playlists:</span>{' '}
-                                                    {librarySearchResult.playlists.join(', ')}
-                                                </div>
-                                            )}
-                                            {librarySearchResult.songs.length > 0 && (
-                                                <div className="text-gray-300">
-                                                    <span className="text-gray-400">Songs:</span>{' '}
-                                                    {librarySearchResult.songs
-                                                        .slice(0, 8)
-                                                        .map((s) => `"${s.title}"${s.artist ? ` — ${s.artist}` : ''}`)
-                                                        .join(', ')}
-                                                    {librarySearchResult.songs.length > 8 &&
-                                                        ` …and ${librarySearchResult.songs.length - 8} more`}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </Row>
-                        )}
-                        {libraryInspection && (
-                            <Row>
-                                <div className="flex-1 text-xs">
-                                    {libraryInspection.reason === 'unsupported' && (
-                                        <div className="text-amber-400">
-                                            Native plugin only available on iOS — running in a web context.
-                                        </div>
-                                    )}
-                                    {libraryInspection.reason === 'plugin_error' && (
-                                        <div className="space-y-2">
-                                            <div className="text-red-400 font-bold">
-                                                ✗ Native plugin not registered in this build.
-                                            </div>
-                                            {libraryInspection.error && (
-                                                <div className="text-gray-400">
-                                                    Capacitor error:{' '}
-                                                    <code className="text-amber-300 break-all bg-amber-500/10 px-1.5 py-0.5 rounded">
-                                                        {libraryInspection.error}
-                                                    </code>
-                                                </div>
-                                            )}
-                                            {pluginProbe && (
-                                                <div className="text-gray-500">
-                                                    Plugin registry: registered=
-                                                    <code className="text-gray-400">
-                                                        {String(pluginProbe.registered)}
-                                                    </code>
-                                                </div>
-                                            )}
-                                            <div className="text-gray-300 mt-2 font-bold">
-                                                Fix paths (try in order):
-                                            </div>
-                                            <ol className="list-decimal list-inside text-gray-400 space-y-1.5 pl-1">
-                                                <li>
-                                                    <span className="text-gray-300">Quit Xcode entirely</span> with
-                                                    Cmd+Q (not just close the window).
-                                                </li>
-                                                <li>
-                                                    <span className="text-gray-300">Delete DerivedData</span>:
-                                                    <pre className="text-[10px] bg-black/40 p-1.5 rounded mt-1 overflow-x-auto whitespace-pre-wrap">
-                                                        rm -rf ~/Library/Developer/Xcode/DerivedData
-                                                    </pre>
-                                                </li>
-                                                <li>
-                                                    <span className="text-gray-300">Reopen via the WORKSPACE</span> (not
-                                                    .xcodeproj):
-                                                    <code className="text-sky-400 ml-1">ios/App/App.xcworkspace</code>
-                                                </li>
-                                                <li>
-                                                    <span className="text-gray-300">Rebuild.</span> Cmd+R.
-                                                </li>
-                                            </ol>
-                                            <div className="text-gray-500 mt-2">
-                                                <span className="text-gray-400 font-bold">
-                                                    Still failing after that?
-                                                </span>{' '}
-                                                In Xcode's Project Navigator, expand App → App folder. If{' '}
-                                                <code>AppleMusicPlugin.swift</code> and <code>.m</code> aren't listed,
-                                                right-click App folder → "Add Files to App…" → select both files → tick
-                                                the <strong>App</strong> target → Add. If they ARE listed but greyed
-                                                out, click each → File Inspector (right panel) → under "Target
-                                                Membership" tick App.
-                                            </div>
-                                        </div>
-                                    )}
-                                    {libraryInspection.reason === 'permission_denied' && (
-                                        <div className="space-y-1">
-                                            <div className="text-amber-400">
-                                                ✗ Apple Music library access denied (status:{' '}
-                                                {libraryInspection.auth_status}).
-                                            </div>
-                                            <div className="text-gray-500">
-                                                Fix: iOS Settings → Thalassa → Apple Music → enable. Or trigger the
-                                                first-time prompt by saying "Calypso, play me a song" once.
-                                            </div>
-                                        </div>
-                                    )}
-                                    {libraryInspection.available && (
-                                        <div className="space-y-1">
-                                            <div className="text-emerald-400">✓ Plugin loaded and library visible.</div>
-                                            <div className="text-gray-300">
-                                                {libraryInspection.artists} artists · {libraryInspection.albums} albums
-                                                · {libraryInspection.songs} songs · {libraryInspection.playlists}{' '}
-                                                playlists
-                                            </div>
-                                            {libraryInspection.songs === 0 && (
-                                                <div className="text-amber-400 mt-1">
-                                                    Library is empty — you may be streaming via Apple Music subscription
-                                                    without "Add to Library". Calypso can only see music that's been
-                                                    added to your library.
-                                                </div>
-                                            )}
-                                            {libraryInspection.sample_artists.length > 0 && (
-                                                <div className="text-gray-500">
-                                                    Sample artists:{' '}
-                                                    {libraryInspection.sample_artists.slice(0, 5).join(', ')}
-                                                </div>
-                                            )}
-                                            {libraryInspection.sample_playlists.length > 0 && (
-                                                <div className="text-gray-500">
-                                                    Sample playlists:{' '}
-                                                    {libraryInspection.sample_playlists.slice(0, 5).join(', ')}
-                                                </div>
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
-                            </Row>
-                        )}
-                        {firstSongResult && (
-                            <Row>
-                                <div className="flex-1 text-xs">
-                                    {firstSongResult.status === 'plugin_error' && (
-                                        <div className="space-y-1">
-                                            <div className="text-red-400">
-                                                ✗ Native plugin not loaded.{' '}
-                                                {firstSongResult.error && (
-                                                    <code className="text-gray-600 break-all">
-                                                        ({firstSongResult.error})
-                                                    </code>
-                                                )}
-                                            </div>
-                                            <div className="text-gray-500">Xcode → Product → Clean Build Folder.</div>
-                                        </div>
-                                    )}
-                                    {firstSongResult.status === 'unsupported' && (
-                                        <div className="text-amber-400">Native plugin only available on iOS.</div>
-                                    )}
-                                    {firstSongResult.status === 'permission_denied' && (
-                                        <div className="text-amber-400">
-                                            ✗ Permission denied. iOS Settings → Thalassa → Apple Music → enable.
-                                        </div>
-                                    )}
-                                    {firstSongResult.status === 'library_empty' && (
-                                        <div className="text-amber-400">
-                                            Library is empty (no songs). Add tracks to your library first.
-                                        </div>
-                                    )}
-                                    {firstSongResult.status === 'playing' && (
-                                        <div className="space-y-1">
-                                            <div className="text-emerald-400">
-                                                ✓ Playback started — should hear "{firstSongResult.title}" by{' '}
-                                                {firstSongResult.artist} now.
-                                            </div>
-                                            <div className="text-gray-500">
-                                                If you hear nothing, the playback pipeline works but audio isn't
-                                                reaching the speaker — check volume / silent switch / audio routing. If
-                                                you hear it, the plugin is solid; "play_music" failures are search-side.
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            </Row>
-                        )}
-                    </>
+                        </div>
+                        <button
+                            onClick={handleOpenMusicPage}
+                            className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                        >
+                            Open Music
+                        </button>
+                    </Row>
                 )}
             </Section>
 
@@ -775,17 +420,6 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                         </Row>
                     </>
                 )}
-            </Section>
-
-            <Section title="Coming soon">
-                <Row>
-                    <div className="flex-1">
-                        <div className="text-xs text-gray-500">
-                            Native Apple Music playback control (skip / pause / now-playing read-back) — pending the
-                            MusicKit native plugin. Currently Calypso uses URL-scheme hand-off.
-                        </div>
-                    </div>
-                </Row>
             </Section>
         </div>
     );

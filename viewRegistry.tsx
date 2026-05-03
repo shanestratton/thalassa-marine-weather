@@ -70,6 +70,10 @@ const BosunConsolePage = lazyRetry(
     () => import('./components/voice/BosunConsole').then((m) => ({ default: m.BosunConsole })),
     'BosunConsole',
 );
+const MusicPageView = lazyRetry(
+    () => import('./components/music/MusicPage').then((m) => ({ default: m.MusicPage })),
+    'MusicPage',
+);
 const LogPage = lazyRetry(() => import('./pages/LogPage').then((m) => ({ default: m.LogPage })), 'LogPage');
 const DiaryPage = lazyRetry(
     () => import('./components/DiaryPage').then((m) => ({ default: m.DiaryPage })),
@@ -196,6 +200,15 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         boundaryName: 'BosunConsole',
         group: 'standalone',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('dashboard') }),
+    },
+    music: {
+        component: MusicPageView,
+        boundaryName: 'MusicPage',
+        group: 'standalone',
+        // Skipper-tier gate kept consistent with Apple Music being a
+        // premium feature; non-Skipper users see the upgrade card.
+        gatedFeature: 'calypsoMusic',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('voice') }),
     },
 
     // ── Vessel hub ───────────────────────────────────────────────────────

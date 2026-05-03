@@ -38,7 +38,6 @@ import { telemetryTrend } from './integrations/telemetryTrend';
 import { setSundownerReminder, cancelSundownerReminder, getPendingSundowner } from './integrations/sundowner';
 import { dailyBriefing } from './integrations/dailyBriefing';
 import {
-    musicDiagnostic,
     nowPlaying as appleMusicNowPlaying,
     pauseMusic,
     playMusicByQuery,
@@ -341,34 +340,35 @@ const CLOUD_TOOLS: ToolDef[] = [
 ];
 
 /**
- * Calypso integrations — Apple Music + Gmail. Each is registered only
- * when the skipper has explicitly enabled it via Settings → Calypso
- * Integrations. The setting flags + Skipper-tier gate are checked
- * in BosunConsole's runOrchestrator wrapper before this tool list
- * gets passed to Haiku.
+ * Calypso integrations — Apple Music (MusicKit) + Gmail. Music tools
+ * are always registered when the skipper holds the Skipper tier —
+ * MusicKit gives us full catalog access (~100M tracks) without any
+ * library-sync prerequisite, so there's nothing to opt into. Gmail
+ * tools still require an explicit toggle (OAuth flow, account link).
  *
- * Apple Music tools use iOS URL schemes — they hand off to the
- * Apple Music app and don't return live playback state. Gmail tools
- * round-trip the Gmail REST API with an OAuth bearer token.
+ * Apple Music tools call into the native MusicKit plugin
+ * (ApplicationMusicPlayer.shared) — full catalog search + DRM
+ * subscription playback + live now-playing. Gmail tools round-trip
+ * the Gmail REST API with an OAuth bearer token.
  */
 const APPLE_MUSIC_TOOLS: ToolDef[] = [
     {
         name: 'play_music',
         description:
-            'Play music. Tries the skipper\'s Apple Music library first (most plays land here); if nothing matches, hands off to the Apple Music app for catalog search. Use for "play X by Y", "queue up Z", "play me some [genre]". The result tells you whether playback came from the library (full now-playing read-back available via now_playing) or the catalog (hand-off only — you can still narrate the original query but cannot inspect what plays).',
+            'Search the entire Apple Music catalog (~100M tracks) and start playback. Use for "play X by Y", "queue up Z", "play me some [genre]". Returns a `suggested_phrase` field — read it aloud verbatim to confirm what started playing. Music plays through MusicKit\'s ApplicationMusicPlayer and mixes with Calypso\'s voice cleanly (you can keep talking while music plays).',
         input_schema: {
             type: 'object',
             properties: {
                 query: {
                     type: 'string',
                     description:
-                        'Free-form search query. Library search resolves to artist / album / playlist / song in priority order. Examples: "Pink Floyd Dark Side", "Jimmy Buffett radio", "passage soundtrack chill", "Hotel California Eagles".',
+                        'Free-form search query. Examples: "Pink Floyd Dark Side", "Jimmy Buffett", "Hotel California Eagles", "lo-fi beats".',
                 },
                 kind: {
                     type: 'string',
-                    enum: ['auto', 'artist', 'album', 'playlist', 'song'],
+                    enum: ['auto', 'songs', 'albums', 'artists', 'playlists'],
                     description:
-                        'Disambiguation hint. "auto" tries each kind in priority order (artist > album > playlist > song). Use a specific kind only when the skipper says it — "play the playlist passage" → "playlist", "play the album Dark Side" → "album". Default "auto".',
+                        'Disambiguation hint. "auto" picks the best match across all types. Use a specific kind only when the skipper says it — "play the album Dark Side" → "albums", "play that playlist" → "playlists". Default "auto".',
                 },
             },
             required: ['query'],
@@ -398,13 +398,7 @@ const APPLE_MUSIC_TOOLS: ToolDef[] = [
     {
         name: 'now_playing',
         description:
-            'Read what is currently playing in Apple Music. Returns title, artist, album, position, duration, and play/pause state. Returns empty fields when nothing is queued — narrate that plainly ("nothing\'s playing on Apple Music right now"). For library plays this is reliable; if play_music returned source="catalog", now_playing might still report empty because the Apple Music app handled the play directly.',
-        input_schema: { type: 'object', properties: {}, required: [] },
-    },
-    {
-        name: 'music_diagnostic',
-        description:
-            'Sanity-check what Calypso can actually see in the skipper\'s Apple Music library. Returns auth status, library counts (artists / albums / songs / playlists), and a small sample of artist + playlist names. Use when the skipper asks "what music can you see?" / "why didn\'t that play?" / "is the music plugin working?" — or when play_music has just fallen through to catalog hand-off and the skipper is confused. Compose a brief honest summary from the result: permission state, library size, a couple of sample artist names. If the diagnostic returns plugin_error, tell the skipper Xcode probably needs a clean build to pick up the native plugin.',
+            'Read what is currently playing in Apple Music. Returns title, artist, album, artwork URL, and play/pause state. Returns empty title when nothing is queued — narrate that plainly ("nothing\'s playing right now"). Be natural: "now playing \'Wish You Were Here\' by Pink Floyd."',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
 ];
@@ -571,8 +565,8 @@ You also have a suite of voyage tools always available:
 
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
 
-The skipper may also have enabled Apple Music and/or Gmail integrations from Settings. When those tools are in your registry:
-- **Apple Music** (\`play_music\`, \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\`, \`music_diagnostic\`): native library control + playback state. \`play_music\` tries the skipper's library first (artist → album → playlist → song priority, case-insensitive); when it matches in library you can call \`now_playing\` to read back title/artist/album/position. If \`play_music\` returns source=catalog, the song wasn't in library and the Apple Music app handled the hand-off — read the \`note\` field from the result and narrate the reason verbatim (library miss with counts, plugin error, or empty library). NEVER stay silent on a catalog hand-off — the skipper needs to know why nothing auto-played. Pause / resume / skip / previous all work for library plays. Use \`music_diagnostic\` when the skipper asks "what music can you see?" or when troubleshooting silent fall-throughs. Be natural ("now playing 'Wish You Were Here' by Pink Floyd, two minutes in") — don't recite the raw seconds.
+The skipper may also have enabled Gmail integration from Settings. Apple Music tools are available whenever the skipper holds the Skipper tier:
+- **Apple Music** (\`play_music\`, \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\`): full Apple Music catalog (~100M tracks) via MusicKit. \`play_music\` searches the catalog and starts playback in-app. Result includes a \`suggested_phrase\` — read it aloud verbatim ("Playing 'Wish You Were Here' by Pink Floyd."). Music keeps playing while you talk — your voice and the music mix cleanly. If status is \`permission_denied\`, tell the skipper to grant access via the Music page in the app. If \`not_found\`, say so plainly. \`now_playing\` reads back the current track when the skipper asks "what's playing?". Pause / resume / skip / previous all work on whatever's currently queued.
 - **Gmail** (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`): read inbox, draft + send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts folder); sending is not. Any ambiguity → ask, don't act.
 
 ## VESSEL PROFILE (static, always true)
@@ -899,19 +893,6 @@ export function consumeLastTtsError(): string | null {
 
 export async function synthesiseSpeech(text: string): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
-    // Text-only mode when Apple Music is playing — see ttsClient.ts
-    // header for full rationale. Skips both the ElevenLabs synth
-    // call and any subsequent playback; the response renders in
-    // the conversation log as text only, music keeps playing.
-    try {
-        const tts = await import('./ttsClient');
-        if (await tts.isMusicPlayingForTtsGating()) {
-            console.info('[orchestrator] music playing — synthesiseSpeech returning null, response text-only');
-            return null;
-        }
-    } catch {
-        /* if the gating check fails, fall through to normal synth */
-    }
     const url = `${SUPABASE_URL}/functions/v1/elevenlabs-tts`;
     const ctrl = new AbortController();
     const watchdog = setTimeout(() => ctrl.abort(), TTS_REQUEST_TIMEOUT_MS);
@@ -992,8 +973,8 @@ async function dispatchTool(
     if (name === 'play_music') {
         const q = typeof input.query === 'string' ? input.query : '';
         const k =
-            typeof input.kind === 'string' && ['auto', 'artist', 'album', 'playlist', 'song'].includes(input.kind)
-                ? (input.kind as 'auto' | 'artist' | 'album' | 'playlist' | 'song')
+            typeof input.kind === 'string' && ['auto', 'songs', 'albums', 'artists', 'playlists'].includes(input.kind)
+                ? (input.kind as 'auto' | 'songs' | 'albums' | 'artists' | 'playlists')
                 : 'auto';
         return playMusicByQuery(q, k);
     }
@@ -1002,7 +983,6 @@ async function dispatchTool(
     if (name === 'skip_track') return skipNext();
     if (name === 'previous_track') return skipPrevious();
     if (name === 'now_playing') return appleMusicNowPlaying();
-    if (name === 'music_diagnostic') return musicDiagnostic();
     if (name === 'search_emails') {
         const q = typeof input.query === 'string' ? input.query : '';
         const max = typeof input.max === 'number' ? input.max : 10;
@@ -1139,6 +1119,10 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
     // they were hitting at 3 conversations.
     const baseTools: ToolDef[] = [...CLOUD_TOOLS];
     if (piReachable) baseTools.push(...PI_TOOLS);
+    // Apple Music is always on for Skipper tier (BosunConsole's
+    // runOrchestrator wrapper resolves the tier check before passing
+    // appleMusic:true here). No per-toggle opt-in: MusicKit auth is
+    // handled inline via the dedicated Music page.
     if (input.integrations?.appleMusic) baseTools.push(...APPLE_MUSIC_TOOLS);
     if (input.integrations?.gmail) baseTools.push(...GMAIL_TOOLS);
     const tools: ToolDef[] =

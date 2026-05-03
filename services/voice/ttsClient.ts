@@ -9,13 +9,13 @@
  *   - synthesise(text) → base64 MP3 (or null on failure)
  *   - speak(text)      → synthesise + playback in one call
  *
- * Playback uses an HTML5 Audio element, which iOS routes through the
- * AVAudioSession the AlarmAudioPlugin keeps in `.playback` mode while
- * the app is alive. That session bypasses the mute switch and survives
- * app backgrounding (the `audio` UIBackgroundMode in Info.plist) — so
- * Calypso will speak through the device speaker even when the app is
- * minimised, which is exactly the "interrupt the skipper to flag a
- * problem" behaviour the alert system needs.
+ * On iOS, playback routes through the native AppleMusic plugin's
+ * `playTtsAudio` method, which uses AVAudioPlayer in our `.playback +
+ * .mixWithOthers` audio session. That sits cleanly alongside MusicKit's
+ * `ApplicationMusicPlayer` — Calypso speaks AND music keeps playing,
+ * no pause/resume dance, no session collisions. The web/non-iOS
+ * fallback uses HTML5 Audio which is fine on those platforms (no
+ * MusicKit to compete with).
  *
  * Note on quota / failure modes: synthesise returns null on quota
  * exhaustion, network failure, or auth issues. Callers should treat
@@ -68,54 +68,10 @@ export function consumeTtsClientError(): string | null {
  * can pass raw text like "Battery 11.4 volts" and the synth will
  * pronounce it as "Battery eleven point four volts".
  */
-/**
- * Quick check whether Apple Music is currently playing through our
- * applicationMusicPlayer. When it is, we skip TTS entirely (return
- * null from synthesise / speak) and let the response render as
- * text-only in the conversation log. Music keeps playing
- * uninterrupted — this is the deliberate trade-off after the iOS
- * audio session fight proved unwinnable for DRM-protected Apple
- * Music subscription content.
- *
- * Returns false on web / non-iOS / when the plugin isn't loaded
- * (allowing TTS to proceed normally on those platforms).
- */
-export async function isMusicPlayingForTtsGating(): Promise<boolean> {
-    try {
-        const { Capacitor } = await import('@capacitor/core');
-        if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return false;
-        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
-        const plugin = cap?.Plugins?.AppleMusic as { nowPlaying: () => Promise<{ is_playing: boolean }> } | undefined;
-        if (!plugin) return false;
-        const np = await plugin.nowPlaying();
-        return np.is_playing === true;
-    } catch {
-        return false;
-    }
-}
-
 export async function synthesise(text: string, opts?: { voiceId?: string }): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
     const trimmed = (text || '').trim();
     if (!trimmed) return null;
-
-    // TEXT-ONLY MODE WHEN MUSIC IS PLAYING.
-    //
-    // The iOS audio session conflict between Apple Music subscription
-    // playback (applicationMusicPlayer) and our TTS (AVAudioPlayer in
-    // the same session) is unsolvable without MusicKit + a server-
-    // signed developer token. After many attempts (pause/resume,
-    // volume duck, interruption observer), we accept the limitation:
-    // when music is playing, Calypso's response renders as text in
-    // the conversation log only — no spoken voice. Music keeps
-    // playing uninterrupted.
-    //
-    // Saves the ElevenLabs synth call too (no audio is going to be
-    // played, so no point synthesising).
-    if (await isMusicPlayingForTtsGating()) {
-        console.info('[ttsClient] music is playing — skipping TTS synth, response will render text-only');
-        return null;
-    }
 
     const url = `${SUPABASE_URL}/functions/v1/elevenlabs-tts`;
     const ctrl = new AbortController();
@@ -198,61 +154,13 @@ export interface SpokenHandle {
  * preempts a lower one).
  *
  * Idempotent against falsy text — `speak('')` resolves immediately.
- */
-/**
- * If Apple Music is currently playing through the system music player,
- * pause it before our TTS plays and resume after — far more reliable
- * than fighting iOS's audio session ducking, which has been observed
- * to leave the system music player in a stopped state after our TTS
- * audio plays through WKWebView's HTML5 Audio (the WebView's audio
- * playback path doesn't always honour our app session's
- * .mixWithOthers / .duckOthers options).
  *
- * Pause is explicit, resume is explicit. The music briefly stops
- * during Calypso's narration and continues right after — clean
- * compared to the previous behaviour of music dying after one TTS
- * narration with no recovery.
- *
- * Lazy-imported so this file doesn't pull in the entire AppleMusic
- * integration as a dependency on every TTS path.
+ * Playback path:
+ *   - iOS native: AppleMusic plugin's `playTtsAudio` (AVAudioPlayer
+ *     in our `.playback + .mixWithOthers` session — mixes cleanly
+ *     with MusicKit's ApplicationMusicPlayer)
+ *   - Web / non-iOS: HTML5 Audio fallback
  */
-async function pauseAppleMusicIfPlaying(): Promise<boolean> {
-    try {
-        const { Capacitor } = await import('@capacitor/core');
-        if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return false;
-        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
-        const plugin = cap?.Plugins?.AppleMusic as
-            | {
-                  nowPlaying: () => Promise<{ is_playing: boolean; title: string }>;
-                  pause: () => Promise<{ status: string }>;
-              }
-            | undefined;
-        if (!plugin) return false;
-        const np = await plugin.nowPlaying();
-        if (np.is_playing) {
-            await plugin.pause();
-            return true;
-        }
-    } catch {
-        /* AppleMusic plugin not available or query failed — fine, just
-         *  proceed with TTS without pausing. */
-    }
-    return false;
-}
-
-async function resumeAppleMusic(): Promise<void> {
-    try {
-        const { Capacitor } = await import('@capacitor/core');
-        if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') return;
-        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } }).Capacitor;
-        const plugin = cap?.Plugins?.AppleMusic as { resume: () => Promise<{ status: string }> } | undefined;
-        if (!plugin) return;
-        await plugin.resume();
-    } catch {
-        /* swallow — failing to resume music isn't a critical TTS bug. */
-    }
-}
-
 export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
     let cancelled = false;
     let audio: HTMLAudioElement | null = null;
@@ -266,11 +174,10 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
         const b64 = await synthesise(trimmed, opts);
         if (cancelled || !b64) return;
 
-        // Prefer native AVAudioPlayer on iOS — HTML5 Audio in WKWebView
-        // has been observed to interrupt applicationMusicPlayer every
-        // time Calypso speaks. Native player respects our session
-        // config (.playback + .mixWithOthers), so TTS plays alongside
-        // music without killing it.
+        // Prefer native AVAudioPlayer on iOS — its `.mixWithOthers`
+        // session lets it sit cleanly alongside MusicKit playback.
+        // HTML5 Audio in WKWebView doesn't always honour our session
+        // config, so it's only used as a fallback off-platform.
         try {
             const { Capacitor } = await import('@capacitor/core');
             if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
@@ -297,15 +204,9 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
         }
 
         // ── HTML5 Audio fallback (web / non-iOS-native) ──────────────
-        // On platforms without the native plugin, use the legacy
-        // path. The pause-music-around-TTS dance is preserved here
-        // because HTML5 Audio still has the session-clobbering
-        // problem on iOS when we hit this branch.
         const url = base64Mp3ToObjectUrl(b64);
         if (cancelled || !url) return;
         objectUrl = url;
-
-        const wasPlayingMusic = await pauseAppleMusicIfPlaying();
 
         audio = new Audio(url);
         audio.volume = 1.0;
@@ -321,10 +222,6 @@ export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
             audio.addEventListener('error', cleanup, { once: true });
             audio.play().catch(() => cleanup());
         });
-
-        if (wasPlayingMusic && !cancelled) {
-            void resumeAppleMusic();
-        }
     })();
 
     return {
