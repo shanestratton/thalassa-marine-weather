@@ -1137,7 +1137,25 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
             : baseTools;
 
     const stateBlock = formatStateBlock(input.context, piReachable);
-    const systemBlocks = [
+    /**
+     * Persona overlay matches Calypso's tone to the voice the skipper
+     * chose. Lazy-imported to avoid coupling the orchestrator's hot
+     * path to the settings store on cold start. Returns null when
+     * the active voice has no overlay (most voices use the default
+     * warm-helpful persona baked into STATIC_SYSTEM_PROMPT).
+     */
+    let personalityOverlay: string | null = null;
+    try {
+        const settingsMod = await import('../../stores/settingsStore');
+        const presetsMod = await import('./voicePresets');
+        personalityOverlay = presetsMod.resolveVoicePersonality(
+            settingsMod.useSettingsStore.getState().settings.calypsoVoiceId,
+        );
+    } catch {
+        // Defensive: settings unavailable → default persona, fine.
+    }
+
+    const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
         {
             type: 'text',
             text: STATIC_SYSTEM_PROMPT,
@@ -1146,6 +1164,13 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
         // BP2: per-request state. Not cached — changes every call.
         { type: 'text', text: stateBlock },
     ];
+    if (personalityOverlay) {
+        // Persona overlay block. Not cached separately — it changes
+        // when the skipper picks a new voice, which is rare but
+        // happens. Adding cache_control here would consume one of our
+        // four cache breakpoints for marginal benefit.
+        systemBlocks.push({ type: 'text', text: personalityOverlay });
+    }
 
     // Sanitize history: alternating user/assistant, no empties.
     const recent = input.history.slice(-HISTORY_TURN_LIMIT * 2);

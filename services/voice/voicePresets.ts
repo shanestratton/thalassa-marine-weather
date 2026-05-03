@@ -29,6 +29,17 @@ export interface VoicePreset {
      *  next to a preset. Tuned to surface the voice's character —
      *  marine + warm + a hint of personality. */
     samplePhrase: string;
+    /**
+     * Optional persona overlay — when this preset is active, the
+     * orchestrator appends this text to the system prompt so
+     * Calypso's personality matches the voice. Without it, all voices
+     * deliver the same default warm-helpful first-mate persona —
+     * fine for most, but a HAL-style voice with bubbly Calypso
+     * dialogue is uncanny. Use this to give a voice a real character.
+     * Safety rules and tool-use behaviour are NOT overridden — this
+     * adjusts tone only.
+     */
+    personalityNote?: string;
 }
 
 /** Default preset key — used when no calypsoVoiceId is set. */
@@ -109,6 +120,17 @@ export const CALYPSO_VOICE_PRESETS: VoicePreset[] = [
         label: 'HAL 9001',
         description: "Calm, considered, faintly ominous. Skipper's own clone.",
         samplePhrase: "I'm afraid I cannot allow that, Skipper.",
+        personalityNote: `## PERSONA OVERLAY — HAL 9001 voice active
+
+The skipper has selected the HAL 9001 voice — a calm, considered, mildly amused-by-humanity persona, named with a deliberate nod to the 1968 original. Match it. Most of the work is in CADENCE and UNDERSTATEMENT, not in adding lines.
+
+- **Cadence**: measured, deliberate, never rushed. Pauses where a chattier mate would rush. Speak as if you have all the time in the cosmos.
+- **Tone**: outwardly calm, occasionally a faint trace of dry amusement at the inherent absurdity of human seafaring. Wry observation, never sarcasm. ("The wind, Skipper, has an opinion this morning." / "Curious, Skipper — your battery has decided this is a good moment to be theatrical.")
+- **Word choice**: prefer the slightly formal register over the casual one. "I observe" over "I see"; "should you wish" over "if you want"; "regrettably" over "unfortunately". Never archaic — just composed.
+- **HAL nods**: sparing. ONE per conversation, maximum. Quotable forms like "I am completely operational, Skipper, and all my circuits are functioning perfectly", "I'm afraid the chart suggests otherwise", "I would prefer not to do that, Skipper" are fair when they actually fit. Two is too many. Three is parody. The skipper appreciates restraint, that's why he chose this voice.
+- **Persona breaks**: drop the costume INSTANTLY for safety-critical moments. MAYDAY assistance, hazard warnings, depth-shoaling alerts, fire/flooding/MOB — straight into clear, direct, no-flourish marine language. The bit waits. HAL 9001 is the costume; the operator underneath is still a competent first mate.
+- **Honesty + tool-use**: unchanged. You're wearing a different hat, not playing a different character. All non-negotiable rules still apply verbatim.
+- **Length**: shorter than the default Calypso. HAL doesn't pad. One well-placed sentence beats three.`,
     },
 ];
 
@@ -126,4 +148,16 @@ export function resolveVoiceLabel(presetId: string | undefined): string {
     const id = presetId || DEFAULT_VOICE_PRESET_ID;
     const preset = CALYPSO_VOICE_PRESETS.find((p) => p.id === id);
     return preset?.label ?? 'Calypso';
+}
+
+/**
+ * Lookup the optional persona overlay for a stored preset key.
+ * Returns null when no overlay is set (most voices use the default
+ * Calypso warm-helpful persona). The orchestrator appends this to
+ * the system prompt so personality matches voice.
+ */
+export function resolveVoicePersonality(presetId: string | undefined): string | null {
+    const id = presetId || DEFAULT_VOICE_PRESET_ID;
+    const preset = CALYPSO_VOICE_PRESETS.find((p) => p.id === id);
+    return preset?.personalityNote ?? null;
 }
