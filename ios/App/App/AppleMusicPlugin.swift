@@ -66,10 +66,10 @@ public class AppleMusicPlugin: CAPPlugin {
     private var ttsPlayer: AVAudioPlayer?
     /// Pending CAPPluginCall to resolve when current TTS finishes.
     private var ttsPlayerDelegate: TtsPlayerDelegate?
-    /// Whether we paused applicationMusicPlayer for the current TTS
-    /// utterance — used by cancelTtsAudio to know whether to resume
-    /// music if cancelled mid-playback.
-    private var ttsPausedMusic: Bool = false
+    /// Music volume before we ducked it for TTS playback. Restored
+    /// when TTS finishes / is cancelled. Nil when no ducking is in
+    /// flight.
+    private var ttsPreduckedVolume: Float?
 
     // MARK: - Authorization
 
@@ -372,25 +372,36 @@ public class AppleMusicPlugin: CAPPlugin {
                 return
             }
 
-            // EXPLICIT PAUSE AROUND TTS.
+            // VOLUME DUCKING (skipper's request).
             //
-            // Even though AVAudioPlayer + applicationMusicPlayer both
-            // run in our app's session, iOS treats AVAudioPlayer
-            // playback as an interrupt to MPMusicPlayerController.
-            // Confirmed empirically — every TTS narration kills the
-            // music regardless of session config.
+            // Pause/resume around TTS proved unreliable in practice:
+            // music wouldn't always come back after TTS finished, even
+            // with applicationMusicPlayer.play() called in-process from
+            // the AVAudioPlayer's didFinishPlaying delegate.
             //
-            // Solution: explicitly pause the music player before
-            // starting TTS, resume after TTS finishes. Both calls are
-            // in-process (applicationMusicPlayer, not systemMusicPlayer)
-            // so they're synchronous + reliable.
+            // Volume duck instead: lower applicationMusicPlayer's
+            // volume to a quieter level (so Calypso is clearly audible
+            // over the music) while TTS plays, restore to the previous
+            // level after TTS finishes. The music never actually stops
+            // — it just gets quieter for a few seconds.
+            //
+            // applicationMusicPlayer.volume is technically deprecated
+            // but still functional; Apple's deprecation guidance is
+            // about discouraging apps from grabbing global volume
+            // control, but programmatic volume on this player still
+            // works. If that ever changes (iOS 19+?), we'd switch
+            // to AVAudioEngine-based playback for full mixer control.
             let musicPlayer = MPMusicPlayerController.applicationMusicPlayer
             let wasPlayingMusic = musicPlayer.playbackState == .playing
             if wasPlayingMusic {
-                NSLog("[AppleMusic] playTtsAudio: pausing music (was playing)")
-                musicPlayer.pause()
+                let currentVolume = musicPlayer.volume
+                self.ttsPreduckedVolume = currentVolume
+                let duckedVolume: Float = 0.18 // ~18% — quiet but still audible
+                musicPlayer.volume = duckedVolume
+                NSLog("[AppleMusic] playTtsAudio: ducked music \(currentVolume) → \(duckedVolume)")
+            } else {
+                self.ttsPreduckedVolume = nil
             }
-            self.ttsPausedMusic = wasPlayingMusic
 
             // Create + retain the player.
             do {
@@ -400,28 +411,30 @@ public class AppleMusicPlugin: CAPPlugin {
                     NSLog("[AppleMusic] playTtsAudio: playback finished")
                     self?.ttsPlayer = nil
                     self?.ttsPlayerDelegate = nil
-                    // Resume the music player if we paused it for this
-                    // TTS. play() on applicationMusicPlayer is in-process
-                    // and reliable — no IPC, no session juggling needed.
-                    if wasPlayingMusic {
-                        NSLog("[AppleMusic] playTtsAudio: resuming music")
-                        MPMusicPlayerController.applicationMusicPlayer.play()
+                    // Restore music volume to whatever it was before
+                    // we ducked. If music wasn't playing, this is a
+                    // no-op (preducked is nil).
+                    if let preduck = self?.ttsPreduckedVolume {
+                        MPMusicPlayerController.applicationMusicPlayer.volume = preduck
+                        NSLog("[AppleMusic] playTtsAudio: restored music volume → \(preduck)")
                     }
-                    self?.ttsPausedMusic = false
+                    self?.ttsPreduckedVolume = nil
                     call.resolve([
                         "status": "finished",
-                        "music_paused_and_resumed": wasPlayingMusic,
+                        "music_was_ducked": wasPlayingMusic,
                     ])
                 }
                 player.delegate = delegate
                 self.ttsPlayerDelegate = delegate
                 self.ttsPlayer = player
                 if !player.play() {
-                    // If AVAudioPlayer fails to start, restore music
-                    // immediately rather than leaving it paused.
-                    if wasPlayingMusic {
-                        musicPlayer.play()
+                    // If AVAudioPlayer fails to start, restore the
+                    // music volume immediately rather than leaving
+                    // music in ducked state.
+                    if let preduck = self.ttsPreduckedVolume {
+                        musicPlayer.volume = preduck
                     }
+                    self.ttsPreduckedVolume = nil
                     call.reject("AVAudioPlayer.play() returned false")
                     self.ttsPlayer = nil
                     self.ttsPlayerDelegate = nil
@@ -432,10 +445,11 @@ public class AppleMusicPlugin: CAPPlugin {
                 )
             } catch {
                 NSLog("[AppleMusic] playTtsAudio: AVAudioPlayer init failed: \(error)")
-                // Restore music if init failed.
-                if wasPlayingMusic {
-                    musicPlayer.play()
+                // Restore music volume if init failed.
+                if let preduck = self.ttsPreduckedVolume {
+                    musicPlayer.volume = preduck
                 }
+                self.ttsPreduckedVolume = nil
                 call.reject("AVAudioPlayer init failed: \(error.localizedDescription)")
             }
         }
@@ -451,12 +465,11 @@ public class AppleMusicPlugin: CAPPlugin {
             self?.ttsPlayer?.stop()
             self?.ttsPlayer = nil
             self?.ttsPlayerDelegate = nil
-            // Resume the music if we'd paused it for this TTS — caller
-            // is cutting playback short, but the music shouldn't stay
-            // paused as a side effect.
-            if self?.ttsPausedMusic == true {
-                MPMusicPlayerController.applicationMusicPlayer.play()
-                self?.ttsPausedMusic = false
+            // Restore the music volume if we'd ducked it — caller is
+            // cutting TTS short, music shouldn't stay quiet.
+            if let preduck = self?.ttsPreduckedVolume {
+                MPMusicPlayerController.applicationMusicPlayer.volume = preduck
+                self?.ttsPreduckedVolume = nil
             }
             call.resolve(["status": "cancelled"])
         }
