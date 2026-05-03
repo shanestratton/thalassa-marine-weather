@@ -250,8 +250,31 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             const departureCoords = first ? { lat: first.lat, lon: first.lon } : undefined;
             const arrivalCoords = last ? { lat: last.lat, lon: last.lon } : undefined;
             const durationHours = r.durationHours;
+            // The route's first-entry timestamp is what the user typed
+            // as plan.departureDate at save time (PassagePlanSave seeds
+            // entries[0].timestamp = depDate). Use it as the inferred
+            // departure for stub rows AND as a fallback for matched
+            // drafts that haven't had their date persisted yet.
+            const inferredDeparture = new Date(r.timestamp).toISOString();
+            const inferredEta =
+                durationHours && durationHours > 0
+                    ? new Date(r.timestamp + durationHours * 3_600_000).toISOString()
+                    : null;
             const matched = draftByName.get(norm(r.label));
-            if (matched) return { ...matched, departureCoords, arrivalCoords, durationHours };
+            if (matched) {
+                return {
+                    ...matched,
+                    // Fall back to the route-derived dates only when the
+                    // matched draft hasn't been given them yet. Don't
+                    // overwrite a date the user has explicitly set via
+                    // the dropdown's date picker.
+                    departure_time: matched.departure_time ?? inferredDeparture,
+                    eta: matched.eta ?? inferredEta,
+                    departureCoords,
+                    arrivalCoords,
+                    durationHours,
+                };
+            }
             const [depPart, arrPart] = r.label.split(' → ');
             // Stub voyage — id starts with "logbook:" so the on-
             // select handler knows to find-or-create a real row
@@ -263,8 +286,8 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 voyage_name: r.label,
                 departure_port: (depPart ?? '').trim() || null,
                 destination_port: (arrPart ?? '').trim() || null,
-                departure_time: null,
-                eta: null,
+                departure_time: inferredDeparture,
+                eta: inferredEta,
                 crew_count: 1,
                 status: 'planning',
                 weather_master_id: null,
@@ -594,6 +617,14 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                         departure_port: row.departure_port,
                                         destination_port: row.destination_port,
                                         crew_count: 1,
+                                        // Persist the route-inferred dates
+                                        // when promoting a stub. Without
+                                        // this, picking a logbook route in
+                                        // the dropdown for the first time
+                                        // creates a voyage with null dates
+                                        // and the user has to re-pick.
+                                        departure_time: row.departure_time,
+                                        eta: row.eta,
                                     });
                                     if (voyage) {
                                         realId = voyage.id;
