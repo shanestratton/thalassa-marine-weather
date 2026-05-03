@@ -5,7 +5,7 @@
  *   Hero band:           vessel name · voyage state · position fix · time-since-fix
  *   Quick Actions:       6-tile 2-up grid — log entry, route, anchor, guardian, MOB, radio
  *   Passage Planning:    voyage prep + GPX import + Notices
- *   Logbook:             Diary
+ *   Diary:               Daily journal (voyage entries live in Quick Actions)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
  *   Connect:             NMEA Gateway · Boat Network
@@ -102,8 +102,8 @@ const DESTINATIONS: Destination[] = [
         section: 'Passage Planning',
         keywords: 'notices navarea hydro warnings urgmar',
     },
-    // Logbook
-    { label: 'Diary', page: 'diary', section: 'Logbook', keywords: 'diary daily notes journal log' },
+    // Diary (voyage entries are in Quick Actions; this is the personal journal)
+    { label: 'Diary', page: 'diary', section: 'Diary', keywords: 'diary daily notes journal log' },
     // Inventory & Maintenance
     {
         label: "Ship's Stores",
@@ -400,10 +400,24 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 const { getLogEntries } = await import('../services/shiplog/EntryCrud');
                 const entries = await getLogEntries(200);
                 if (cancelled) return;
-                const startOfDay = new Date();
-                startOfDay.setHours(0, 0, 0, 0);
-                const cutoff = startOfDay.getTime();
-                const todays = entries.filter((e) => Date.parse(e.timestamp) >= cutoff).length;
+                // Compare by LOCAL calendar day, not ms-since-epoch
+                // cutoff. The previous version used `setHours(0,0,0,0)`
+                // which is correct local midnight — but a ship_log
+                // timestamp stored as bare ISO (no timezone marker)
+                // can be parsed as UTC by `Date.parse`, and an entry
+                // made yesterday 23:30 AEST (= UTC 13:30 same day)
+                // can then look like today UTC and incorrectly pass
+                // `>= localMidnight`. Comparing year/month/day strings
+                // sidesteps the parse ambiguity entirely: an entry
+                // counts as "today" only if its rendered calendar date
+                // matches today's calendar date.
+                const today = new Date();
+                const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+                const todays = entries.filter((e) => {
+                    const d = new Date(e.timestamp);
+                    if (Number.isNaN(d.getTime())) return false;
+                    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey;
+                }).length;
                 setEntriesToday(todays);
             } catch {
                 /* offline — leave null */
@@ -958,17 +972,18 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         </div>
 
                         {/* ═══════════════════════════════════════════ */}
-                        {/* LOGBOOK                                     */}
+                        {/* DIARY — personal journal                    */}
+                        {/* (voyage log entries live in Quick Actions)  */}
                         {/* ═══════════════════════════════════════════ */}
                         <div className="mb-4">
                             <SectionHeader
                                 color="#0ea5e9"
-                                label="Logbook"
-                                id="logbook"
-                                expanded={expanded.has('logbook')}
+                                label="Diary"
+                                id="diary"
+                                expanded={expanded.has('diary')}
                                 onToggle={toggleSection}
                             />
-                            <CollapsibleContent open={expanded.has('logbook')}>
+                            <CollapsibleContent open={expanded.has('diary')}>
                                 <div style={GLASS.listContainer}>
                                     <OfficeRow
                                         icon={<PenIcon color="#0ea5e9" />}
