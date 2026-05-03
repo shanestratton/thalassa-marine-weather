@@ -174,6 +174,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [position, setPosition] = useState<GpsPosition | null>(null);
     const [windSpeed, setWindSpeed] = useState<number | null>(null);
     const [windDir, setWindDir] = useState<string | null>(null);
+    const [pressureTrend, setPressureTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
     const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
     useEffect(() => {
@@ -247,8 +248,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 if (cancelled) return;
                 const ws = report?.current?.windSpeed ?? null;
                 const wd = report?.current?.windDirection ?? null;
+                const pt = report?.current?.pressureTrend ?? null;
                 if (ws !== null && Number.isFinite(ws)) setWindSpeed(ws);
                 if (wd) setWindDir(wd);
+                if (pt) setPressureTrend(pt);
             } catch {
                 // Wind chip stays empty — non-critical
             }
@@ -473,8 +476,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     voyage={activeVoyage}
                     position={position}
                     anchorStatus={anchorStatus}
+                    anchorRadius={anchorRadius}
                     windSpeed={windSpeed}
                     windDir={windDir}
+                    pressureTrend={pressureTrend}
                     isOnline={isOnline}
                     onNavigate={onNavigate}
                 />
@@ -1079,12 +1084,12 @@ const SectionHeader: React.FC<{
             triggerHaptic('light');
             onToggle(id);
         }}
-        className="w-full flex items-center gap-2 mb-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
+        className="w-full flex items-center gap-2.5 mb-2 py-3 min-h-[44px] active:opacity-70 transition-opacity"
         aria-expanded={expanded}
         aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
     >
-        <div className="w-1 h-3.5 rounded-full" style={{ backgroundColor: color }} />
-        <span className="text-[11px] font-black uppercase tracking-[0.2em] flex-1 text-left" style={{ color }}>
+        <div className="w-1.5 h-4 rounded-full" style={{ backgroundColor: color }} />
+        <span className="text-xs font-black uppercase tracking-[0.2em] flex-1 text-left" style={{ color }}>
             {label}
         </span>
         <svg
@@ -1156,17 +1161,118 @@ function deriveVoyageState(
     return { label: 'At Rest', color: '#9ca3af' };
 }
 
+/** Format a duration in milliseconds to a compact "5h 23m" / "23m" / "1d 4h". */
+function formatDuration(ms: number): string {
+    if (ms <= 0) return 'now';
+    const min = Math.floor(ms / 60_000);
+    if (min < 60) return `${min}m`;
+    const hrs = Math.floor(min / 60);
+    const remMin = min % 60;
+    if (hrs < 24) return remMin > 0 ? `${hrs}h ${remMin}m` : `${hrs}h`;
+    const days = Math.floor(hrs / 24);
+    const remHrs = hrs % 24;
+    return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
+}
+
+/** Map a pressure trend to an indicator (arrow + colour). */
+function pressureTrendIndicator(trend: 'rising' | 'falling' | 'steady' | null): {
+    arrow: string;
+    color: string;
+    label: string;
+} | null {
+    if (!trend || trend === 'steady') return null;
+    if (trend === 'rising') return { arrow: '↑', color: '#10b981', label: 'rising' };
+    return { arrow: '↓', color: '#f59e0b', label: 'falling' };
+}
+
+/** Anchor swing arc — small circular SVG showing the swing radius.
+ *  Visible only when the anchor is armed. Pulses red on alarm. */
+const SwingArc: React.FC<{ radiusM: number; alarm: boolean }> = ({ radiusM, alarm }) => {
+    const size = 44;
+    const cx = size / 2;
+    const cy = size / 2;
+    const ringR = size / 2 - 3;
+    const color = alarm ? '#ef4444' : '#22d3ee';
+    return (
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+            <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+                {/* Outer alarm ring (dashed) */}
+                <circle
+                    cx={cx}
+                    cy={cy}
+                    r={ringR}
+                    fill="none"
+                    stroke={color}
+                    strokeOpacity={0.45}
+                    strokeWidth={1.25}
+                    strokeDasharray="2 3"
+                />
+                {/* Inner solid ring (current swing) */}
+                <circle
+                    cx={cx}
+                    cy={cy}
+                    r={ringR * 0.6}
+                    fill="none"
+                    stroke={color}
+                    strokeOpacity={0.85}
+                    strokeWidth={1.5}
+                />
+                {/* Center dot — vessel position */}
+                <circle cx={cx} cy={cy} r={2.25} fill={color} />
+                {/* Anchor mark — small line from center toward bottom */}
+                <line
+                    x1={cx}
+                    y1={cy}
+                    x2={cx}
+                    y2={cy + ringR * 0.78}
+                    stroke={color}
+                    strokeOpacity={0.6}
+                    strokeWidth={1}
+                />
+            </svg>
+            <div
+                className="absolute inset-0 flex items-end justify-center pointer-events-none"
+                style={{ paddingBottom: 1 }}
+            >
+                <span className="text-[9px] font-mono font-bold leading-none tabular-nums" style={{ color }}>
+                    {Math.round(radiusM)}m
+                </span>
+            </div>
+            {alarm && (
+                <div
+                    className="absolute inset-0 rounded-full pointer-events-none"
+                    style={{ animation: 'pulse 1s infinite', boxShadow: '0 0 12px rgba(239,68,68,0.5)' }}
+                />
+            )}
+        </div>
+    );
+};
+
 const NavStationHero: React.FC<{
     vesselName: string;
     vesselNameSet: boolean;
     voyage: Voyage | null;
     position: GpsPosition | null;
     anchorStatus: 'armed' | 'disarmed' | 'alarm';
+    anchorRadius: number;
     windSpeed: number | null;
     windDir: string | null;
+    pressureTrend: 'rising' | 'falling' | 'steady' | null;
     isOnline: boolean;
     onNavigate: (page: string) => void;
-}> = ({ vesselName, vesselNameSet, voyage, position, anchorStatus, windSpeed, windDir, isOnline, onNavigate }) => {
+}> = ({
+    vesselName,
+    vesselNameSet,
+    voyage,
+    position,
+    anchorStatus,
+    anchorRadius,
+    windSpeed,
+    windDir,
+    pressureTrend,
+    isOnline,
+    onNavigate,
+}) => {
     const state = deriveVoyageState(voyage, anchorStatus);
 
     // Underway = SOG > ~1 kt (0.51 m/s). Below that it's noise from
@@ -1180,6 +1286,19 @@ const NavStationHero: React.FC<{
     const showWind = windSpeed !== null && windDir;
     const windKt = windSpeed !== null ? Math.round(windSpeed) : 0;
 
+    // Pressure trend — only render when meaningfully rising/falling.
+    const trendInd = pressureTrendIndicator(pressureTrend);
+
+    // ETA — show when voyage is active and ETA is set in the future.
+    const etaMs = voyage?.eta ? Date.parse(voyage.eta) : null;
+    const showEta = state.label === 'Underway' && etaMs && Number.isFinite(etaMs) && etaMs > Date.now();
+    const etaRemaining = showEta && etaMs ? formatDuration(etaMs - Date.now()) : null;
+
+    // Show the anchor swing arc when armed (or alarm). Lives in the
+    // top row next to the state pill — gives the most-relevant
+    // situational detail real estate when actually at anchor.
+    const showSwing = anchorStatus !== 'disarmed' && anchorRadius > 0;
+
     const handleVesselTap = () => {
         triggerHaptic('light');
         onNavigate('settings');
@@ -1192,6 +1311,10 @@ const NavStationHero: React.FC<{
         triggerHaptic('light');
         onNavigate('map');
     };
+    const handleAnchorTap = () => {
+        triggerHaptic('light');
+        onNavigate('compass');
+    };
 
     return (
         <div
@@ -1202,41 +1325,70 @@ const NavStationHero: React.FC<{
                 borderColor: 'rgba(255,255,255,0.12)',
             }}
         >
-            {/* Top row — vessel name (tap → settings) + state pill */}
-            <button
-                type="button"
-                onClick={handleVesselTap}
-                aria-label={vesselNameSet ? 'Open vessel settings' : 'Set vessel name'}
-                className="w-full flex items-baseline gap-2 px-4 pt-4 pb-2 active:opacity-70 transition-opacity text-left"
-            >
-                {vesselNameSet ? (
-                    <h2 className="text-lg font-black text-white tracking-tight truncate flex-1">{vesselName}</h2>
-                ) : (
-                    <h2 className="text-lg font-black text-white/50 tracking-tight truncate flex-1 italic">
-                        Tap to name your vessel
-                    </h2>
-                )}
-                <span
-                    className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-widest border whitespace-nowrap shrink-0"
-                    style={{
-                        color: state.color,
-                        backgroundColor: `${state.color}1a`,
-                        borderColor: `${state.color}33`,
-                    }}
+            {/* Top row — vessel name + state pill (and swing arc if anchored) */}
+            <div className="flex items-center gap-2 px-4 pt-4 pb-2">
+                <button
+                    type="button"
+                    onClick={handleVesselTap}
+                    aria-label={vesselNameSet ? 'Open vessel settings' : 'Set vessel name'}
+                    className="flex-1 min-w-0 active:opacity-70 transition-opacity text-left"
                 >
-                    {state.label}
-                </span>
-            </button>
+                    {vesselNameSet ? (
+                        <h2 className="text-lg font-black text-white tracking-tight truncate">{vesselName}</h2>
+                    ) : (
+                        <h2 className="text-lg font-black text-white/50 tracking-tight truncate italic">
+                            Tap to name your vessel
+                        </h2>
+                    )}
+                </button>
+                {showSwing ? (
+                    <button
+                        type="button"
+                        onClick={handleAnchorTap}
+                        aria-label={`Anchor watch ${anchorStatus}, ${Math.round(anchorRadius)}m swing`}
+                        className="active:scale-95 transition-transform"
+                    >
+                        <SwingArc radiusM={anchorRadius} alarm={anchorStatus === 'alarm'} />
+                    </button>
+                ) : (
+                    <span
+                        className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-widest border whitespace-nowrap shrink-0"
+                        style={{
+                            color: state.color,
+                            backgroundColor: `${state.color}1a`,
+                            borderColor: `${state.color}33`,
+                        }}
+                    >
+                        {state.label}
+                    </span>
+                )}
+            </div>
 
-            {/* Voyage row (tap → passage planning) */}
+            {/* When anchored, the swing arc replaces the state pill — bring
+                back the state label as a small line below the vessel name
+                so the user always sees what state they're in. */}
+            {showSwing && (
+                <div className="px-4 pb-1">
+                    <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: state.color }}>
+                        {state.label}
+                    </span>
+                </div>
+            )}
+
+            {/* Voyage row (tap → passage planning) — with optional ETA pill */}
             {state.route && (
                 <button
                     type="button"
                     onClick={handleVoyageTap}
                     aria-label="Open passage planning"
-                    className="w-full px-4 py-1 active:opacity-70 transition-opacity text-left"
+                    className="w-full flex items-center gap-2 px-4 py-1 active:opacity-70 transition-opacity text-left"
                 >
-                    <p className="text-[12px] font-semibold text-white/80 truncate">{state.route}</p>
+                    <p className="text-[12px] font-semibold text-white/80 truncate flex-1">{state.route}</p>
+                    {etaRemaining && (
+                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-emerald-500/15 text-emerald-300 border border-emerald-500/25 shrink-0 tabular-nums">
+                            ETA {etaRemaining}
+                        </span>
+                    )}
                 </button>
             )}
 
@@ -1247,8 +1399,6 @@ const NavStationHero: React.FC<{
                 aria-label="Open chart at current position"
                 className="w-full flex items-center gap-2 px-4 pt-1.5 pb-2 text-[11px] active:opacity-70 transition-opacity text-left"
             >
-                {/* GPS+online indicator — green dot if both, amber if GPS but offline,
-                    grey if no fix. */}
                 <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
@@ -1267,9 +1417,8 @@ const NavStationHero: React.FC<{
                 </span>
             </button>
 
-            {/* SOG/COG + Wind line — only when there's something useful to show.
-                Sits in a tight bottom band with subtle separation. */}
-            {(showSog || showWind) && (
+            {/* SOG/COG + Wind/Pressure line */}
+            {(showSog || showWind || trendInd) && (
                 <div className="flex items-center gap-3 px-4 pb-3 pt-1.5 border-t border-white/[0.06] text-[11px]">
                     {showSog && (
                         <span className="font-mono text-white/85 tabular-nums">
@@ -1284,14 +1433,26 @@ const NavStationHero: React.FC<{
                             )}
                         </span>
                     )}
-                    {showWind && (
-                        <span className="ml-auto font-mono text-white/85 tabular-nums">
-                            <span className="mr-1">💨</span>
-                            {windKt}
-                            <span className="text-white/40 text-[10px] ml-0.5">kt</span>
-                            <span className="text-white/60 ml-1">{windDir}</span>
-                        </span>
-                    )}
+                    <span className="ml-auto flex items-center gap-2.5 font-mono text-white/85 tabular-nums">
+                        {showWind && (
+                            <span>
+                                <span className="mr-1">💨</span>
+                                {windKt}
+                                <span className="text-white/40 text-[10px] ml-0.5">kt</span>
+                                <span className="text-white/60 ml-1">{windDir}</span>
+                            </span>
+                        )}
+                        {trendInd && (
+                            <span
+                                className="text-[10px] font-bold uppercase tracking-wider"
+                                style={{ color: trendInd.color }}
+                                aria-label={`Pressure ${trendInd.label}`}
+                                title={`Barometer ${trendInd.label}`}
+                            >
+                                BAR <span className="text-base leading-none">{trendInd.arrow}</span>
+                            </span>
+                        )}
+                    </span>
                 </div>
             )}
         </div>
