@@ -368,19 +368,21 @@ public class AppleMusicPlugin: CAPPlugin {
                 return
             }
 
-            // Configure session: .playback so audio bypasses silent
-            // switch, .mixWithOthers so applicationMusicPlayer's music
-            // (running in the same session) isn't interrupted.
-            // No .duckOthers — that affects OTHER apps' audio, not
-            // within-session mixing; for in-session ducking we'd
-            // adjust applicationMusicPlayer.volume directly.
-            do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                try session.setActive(true, options: [])
-            } catch {
-                NSLog("[AppleMusic] playTtsAudio: session config failed: \(error)")
-            }
+            // DELIBERATELY DO NOT TOUCH THE AUDIO SESSION HERE.
+            //
+            // applicationMusicPlayer activated the session when music
+            // started; calling setActive(true) again while it's
+            // already active interrupts the music. The session's
+            // category is already .playback + .mixWithOthers (set
+            // by playItems on music start), so AVAudioPlayer will
+            // happily mix into the existing session without any
+            // configuration from us. Trust the existing session
+            // state.
+            //
+            // If music isn't currently playing, the session might
+            // be inactive — AVAudioPlayer.play() will activate it
+            // implicitly with the current category. Either way we
+            // don't need to manipulate the session here.
 
             // Create + retain the player.
             do {
