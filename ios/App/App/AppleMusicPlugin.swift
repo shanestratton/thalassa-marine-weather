@@ -281,18 +281,31 @@ public class AppleMusicPlugin: CAPPlugin {
     private func startPlayback(result: CatalogResult) async -> Bool {
         let player = ApplicationMusicPlayer.shared
         do {
-            // The album/playlist Queue initialisers in this SDK require an
-            // explicit `startingAt:` even though the docs claim a default
-            // — pass `nil as Track?` to disambiguate. For the songs path
-            // we go through the sequence-based init which has its own
-            // working default.
+            // We avoid Queue(album:) and Queue(playlist:) here — those
+            // initialisers on this SDK require non-optional startingAt
+            // parameters with awkward types (Track for album,
+            // Playlist.Entry for playlist) and there's no clean way to
+            // express "just start from the top". Instead we hydrate the
+            // tracks via .with([.tracks]) and pass them through the
+            // Queue(for:) sequence init, which behaves the same way for
+            // playback purposes.
             switch result.queueSource {
             case .songs(let songs):
                 player.queue = ApplicationMusicPlayer.Queue(for: songs)
             case .album(let album):
-                player.queue = ApplicationMusicPlayer.Queue(album: album, startingAt: nil as Track?)
+                let detailed = try await album.with([.tracks])
+                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                    NSLog("[AppleMusic] album has no tracks: \(album.title)")
+                    return false
+                }
+                player.queue = ApplicationMusicPlayer.Queue(for: tracks)
             case .playlist(let playlist):
-                player.queue = ApplicationMusicPlayer.Queue(playlist: playlist, startingAt: nil as Track?)
+                let detailed = try await playlist.with([.tracks])
+                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                    NSLog("[AppleMusic] playlist has no tracks: \(playlist.name)")
+                    return false
+                }
+                player.queue = ApplicationMusicPlayer.Queue(for: tracks)
             }
             try await player.prepareToPlay()
             try await player.play()
@@ -397,12 +410,26 @@ public class AppleMusicPlugin: CAPPlugin {
                     return
                 }
                 let player = ApplicationMusicPlayer.shared
-                player.queue = ApplicationMusicPlayer.Queue(playlist: playlist, startingAt: nil as Track?)
+                // Same Queue(for:) workaround as startPlayback() — the
+                // Queue(playlist:) init wants a non-optional
+                // Playlist.Entry for startingAt: on this SDK, so we
+                // hydrate the tracks first and feed them through the
+                // sequence-based init.
+                let detailed = try await playlist.with([.tracks])
+                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "error",
+                            "error": "playlist has no tracks",
+                        ])
+                    }
+                    return
+                }
+                player.queue = ApplicationMusicPlayer.Queue(for: tracks)
                 try await player.prepareToPlay()
                 try await player.play()
-                let detailed = try? await playlist.with([.tracks])
-                let trackCount = detailed?.tracks?.count ?? 0
-                let firstTrack = detailed?.tracks?.first
+                let trackCount = tracks.count
+                let firstTrack = tracks.first
                 await MainActor.run {
                     call.resolve([
                         "status": "playing",
