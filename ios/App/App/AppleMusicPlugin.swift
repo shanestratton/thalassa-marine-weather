@@ -145,8 +145,15 @@ public class AppleMusicPlugin: CAPPlugin {
             default:                        kindsToTry = ["artists", "albums", "playlists", "songs"]
             }
 
+            // Track the first error we encounter — surfaced if no kind
+            // returns a match, so the JS side can tell apart "Apple
+            // legitimately has no Pink Floyd" from "MusicKit auth
+            // failed, the app is missing an entitlement / capability".
+            var firstError: String?
             for kind in kindsToTry {
-                if let result = await self.runCatalogSearch(query: query, kind: kind) {
+                let outcome = await self.runCatalogSearch(query: query, kind: kind)
+                switch outcome {
+                case .match(let result):
                     NSLog("[AppleMusic] kind=\(kind) → playing '\(result.title)'")
                     let played = await self.startPlayback(result: result)
                     await MainActor.run {
@@ -169,10 +176,28 @@ public class AppleMusicPlugin: CAPPlugin {
                         }
                     }
                     return
+                case .empty:
+                    continue
+                case .failed(let msg):
+                    if firstError == nil { firstError = msg }
+                    continue
                 }
             }
 
-            // No match in any kind.
+            // No match in any kind. Surface the underlying error if
+            // there was one — usually means the app is missing the
+            // MusicKit entitlement or the user has no subscription.
+            if let err = firstError {
+                NSLog("[AppleMusic] catalog search '\(query)' failed: \(err)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "playback_failed",
+                        "query": query,
+                        "error": err,
+                    ])
+                }
+                return
+            }
             NSLog("[AppleMusic] no MusicKit catalog match for '\(query)'")
             await MainActor.run {
                 call.resolve([
@@ -181,6 +206,16 @@ public class AppleMusicPlugin: CAPPlugin {
                 ])
             }
         }
+    }
+
+    /// Outcome of a single-kind catalog search. Distinguishes "Apple
+    /// has nothing matching this term" from "the request itself
+    /// failed" so the caller can produce a useful error.
+    @available(iOS 15.0, *)
+    private enum SearchOutcome {
+        case match(CatalogResult)
+        case empty
+        case failed(String)
     }
 
     /// Internal search-result envelope.
@@ -202,78 +237,79 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     @available(iOS 15.0, *)
-    private func runCatalogSearch(query: String, kind: String) async -> CatalogResult? {
+    private func runCatalogSearch(query: String, kind: String) async -> SearchOutcome {
         do {
             switch kind {
             case "songs":
                 var req = MusicCatalogSearchRequest(term: query, types: [Song.self])
                 req.limit = 25
                 let resp = try await req.response()
-                guard let song = resp.songs.first else { return nil }
-                return CatalogResult(
+                guard let song = resp.songs.first else { return .empty }
+                return .match(CatalogResult(
                     title: song.title,
                     subtitle: song.artistName,
                     firstTrackTitle: song.title,
                     firstTrackArtist: song.artistName,
                     trackCount: 1,
                     queueSource: .songs([song])
-                )
+                ))
             case "artists":
                 var req = MusicCatalogSearchRequest(term: query, types: [Artist.self])
                 req.limit = 5
                 let resp = try await req.response()
-                guard let artist = resp.artists.first else { return nil }
+                guard let artist = resp.artists.first else { return .empty }
                 let detailedArtist = try await artist.with([.topSongs])
                 guard let topSongs = detailedArtist.topSongs, !topSongs.isEmpty else {
-                    return nil
+                    return .empty
                 }
                 let songsArr = Array(topSongs)
-                return CatalogResult(
+                return .match(CatalogResult(
                     title: artist.name,
                     subtitle: "\(songsArr.count) tracks",
                     firstTrackTitle: songsArr.first?.title ?? "",
                     firstTrackArtist: songsArr.first?.artistName ?? artist.name,
                     trackCount: songsArr.count,
                     queueSource: .songs(songsArr)
-                )
+                ))
             case "albums":
                 var req = MusicCatalogSearchRequest(term: query, types: [Album.self])
                 req.limit = 5
                 let resp = try await req.response()
-                guard let album = resp.albums.first else { return nil }
+                guard let album = resp.albums.first else { return .empty }
                 let detailedAlbum = try await album.with([.tracks])
                 let trackCount = detailedAlbum.tracks?.count ?? 0
                 let firstTrack = detailedAlbum.tracks?.first
-                return CatalogResult(
+                return .match(CatalogResult(
                     title: album.title,
                     subtitle: album.artistName,
                     firstTrackTitle: firstTrack?.title ?? "",
                     firstTrackArtist: firstTrack?.artistName ?? album.artistName,
                     trackCount: trackCount,
                     queueSource: .album(album)
-                )
+                ))
             case "playlists":
                 var req = MusicCatalogSearchRequest(term: query, types: [Playlist.self])
                 req.limit = 5
                 let resp = try await req.response()
-                guard let playlist = resp.playlists.first else { return nil }
+                guard let playlist = resp.playlists.first else { return .empty }
                 let detailedPlaylist = try await playlist.with([.tracks])
                 let trackCount = detailedPlaylist.tracks?.count ?? 0
                 let firstTrack = detailedPlaylist.tracks?.first
-                return CatalogResult(
+                return .match(CatalogResult(
                     title: playlist.name,
                     subtitle: playlist.curatorName ?? "Apple Music",
                     firstTrackTitle: firstTrack?.title ?? "",
                     firstTrackArtist: firstTrack?.artistName ?? "",
                     trackCount: trackCount,
                     queueSource: .playlist(playlist)
-                )
+                ))
             default:
-                return nil
+                return .empty
             }
         } catch {
-            NSLog("[AppleMusic] catalog search '\(kind)' failed: \(error)")
-            return nil
+            let msg = String(describing: error)
+            NSLog("[AppleMusic] catalog search '\(kind)' failed: \(msg)")
+            return .failed(msg)
         }
     }
 
