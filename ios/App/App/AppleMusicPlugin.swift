@@ -72,6 +72,14 @@ public class AppleMusicPlugin: CAPPlugin {
     /// wasn't playing in the first place.
     private var ttsPausedMusic: Bool = false
 
+    /// Tracks whether we want music to resume after an interruption.
+    /// Set true when AVAudioPlayer (TTS) starts and music was playing.
+    /// The interruption-ended notification handler reads this to
+    /// decide whether to call applicationMusicPlayer.play().
+    private var wantMusicResumeOnInterruptionEnd: Bool = false
+    /// One-time observer registration flag.
+    private var hasRegisteredInterruptionObserver: Bool = false
+
     // MARK: - Authorization
 
     @objc func requestAuthorization(_ call: CAPPluginCall) {
@@ -352,11 +360,73 @@ public class AppleMusicPlugin: CAPPlugin {
      * cancels any in-flight one. Matches the JS-side `cancel()`
      * semantics on SpokenHandle.
      */
+    /**
+     * Listen for AVAudioSession interruption notifications. When
+     * AVAudioPlayer plays our TTS, iOS delivers `.began` to the
+     * music player's audio path. When AVAudioPlayer finishes, iOS
+     * delivers `.ended` — usually with `.shouldResume` set, which is
+     * iOS explicitly telling us "you can resume the previous audio
+     * source now".
+     *
+     * This is the canonical iOS pattern for handling audio source
+     * conflicts and the most likely path to make
+     * applicationMusicPlayer resume reliably after a TTS interrupt.
+     * The delay-based auto-resume in the AVAudioPlayer delegate ran
+     * too early (iOS hadn't fully released the resources yet); this
+     * fires at exactly the right moment because iOS itself is the
+     * one telling us.
+     */
+    private func ensureInterruptionObserver() {
+        if hasRegisteredInterruptionObserver { return }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAudioSessionInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: nil
+        )
+        hasRegisteredInterruptionObserver = true
+        NSLog("[AppleMusic] registered AVAudioSession interruption observer")
+    }
+
+    @objc private func handleAudioSessionInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            NSLog("[AppleMusic] audio session interruption .began (TTS taking over)")
+        case .ended:
+            let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: optionsValue)
+            let shouldResume = options.contains(.shouldResume)
+            NSLog("[AppleMusic] audio session interruption .ended shouldResume=\(shouldResume) wantResume=\(wantMusicResumeOnInterruptionEnd)")
+            if wantMusicResumeOnInterruptionEnd {
+                DispatchQueue.main.async { [weak self] in
+                    let player = MPMusicPlayerController.applicationMusicPlayer
+                    NSLog("[AppleMusic] interruption-driven resume: state before \(player.playbackState.rawValue)")
+                    player.play()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                        NSLog("[AppleMusic] interruption-driven resume: state after \(player.playbackState.rawValue)")
+                    }
+                    self?.wantMusicResumeOnInterruptionEnd = false
+                }
+            }
+        @unknown default:
+            break
+        }
+    }
+
     @objc func playTtsAudio(_ call: CAPPluginCall) {
         guard let b64 = call.getString("audio_b64"), !b64.isEmpty else {
             call.reject("audio_b64 is required")
             return
         }
+        // Register the interruption observer on first TTS playback.
+        // It stays registered for the plugin's lifetime — receiving
+        // every audio session interruption from now on.
+        ensureInterruptionObserver()
+
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
 
@@ -373,28 +443,28 @@ public class AppleMusicPlugin: CAPPlugin {
                 return
             }
 
-            // PAUSE-AND-RESUME around TTS.
+            // INTERRUPTION-OBSERVER STRATEGY.
             //
-            // Volume ducking attempted but MPMusicPlayerController.volume
-            // is fully unavailable in modern iOS (compiler error, not
-            // deprecation warning). So we're back to pause/resume.
+            // Don't explicitly pause music. Let AVAudioPlayer's
+            // playback naturally interrupt the music player — iOS
+            // sends an interruption-began event on the audio session.
+            // When AVAudioPlayer finishes, iOS sends interruption-
+            // ended (usually with .shouldResume). Our observer (set
+            // up by ensureInterruptionObserver) sees that and calls
+            // applicationMusicPlayer.play() at exactly the moment iOS
+            // is telling us we can.
             //
-            // CRITICAL: the AVAudioPlayer delegate's didFinishPlaying
-            // can fire on a background thread. MPMusicPlayerController
-            // calls from background threads silently no-op, which
-            // explained why earlier resume attempts didn't actually
-            // restart playback. We now dispatch the resume back to
-            // main queue inside the delegate.
+            // This is the canonical iOS audio interruption pattern.
+            // Previous delay-based attempts had to guess when iOS
+            // had finished releasing AVAudioPlayer's audio path; the
+            // notification fires precisely then.
             let musicPlayer = MPMusicPlayerController.applicationMusicPlayer
             let wasPlayingMusic = musicPlayer.playbackState == .playing
             if wasPlayingMusic {
-                NSLog(
-                    "[AppleMusic] playTtsAudio: pausing music (state=\(musicPlayer.playbackState.rawValue))"
-                )
-                musicPlayer.pause()
-                NSLog(
-                    "[AppleMusic] playTtsAudio: paused, state now \(musicPlayer.playbackState.rawValue)"
-                )
+                NSLog("[AppleMusic] playTtsAudio: music is playing, will use interruption observer to resume")
+                self.wantMusicResumeOnInterruptionEnd = true
+            } else {
+                self.wantMusicResumeOnInterruptionEnd = false
             }
             self.ttsPausedMusic = wasPlayingMusic
 
@@ -403,58 +473,20 @@ public class AppleMusicPlugin: CAPPlugin {
                 let player = try AVAudioPlayer(data: data)
                 player.volume = 1.0
                 let delegate = TtsPlayerDelegate { [weak self] in
-                    NSLog("[AppleMusic] playTtsAudio: playback finished")
-                    // CRITICAL DELAY before auto-resume.
-                    //
-                    // The user observed that manually-asked resume worked
-                    // ("I asked Calypso to resume, music resumed") but
-                    // auto-resume in this delegate didn't. The difference:
-                    // ~5-10 second gap between TTS end and the
-                    // user-asked resume vs immediate fire here.
-                    //
-                    // Theory: AVAudioPlayer takes a moment to fully
-                    // release iOS audio resources after playback ends.
-                    // If we call applicationMusicPlayer.play() within
-                    // that release window, iOS treats it as a no-op
-                    // because something is still owning the output.
-                    //
-                    // 500ms gap should be enough for iOS to finish
-                    // tearing down AVAudioPlayer's audio path. Then
-                    // applicationMusicPlayer.play() can grab the output
-                    // cleanly.
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    NSLog("[AppleMusic] playTtsAudio: playback finished — releasing player; interruption observer will fire resume")
+                    DispatchQueue.main.async {
+                        // Release the AVAudioPlayer ref. Once the
+                        // player is gone, iOS will send the
+                        // interruption-ended notification, which our
+                        // observer handles by calling
+                        // applicationMusicPlayer.play() — at the
+                        // exact right moment, no guessing on timing.
                         self?.ttsPlayer = nil
                         self?.ttsPlayerDelegate = nil
-                        if wasPlayingMusic {
-                            let player = MPMusicPlayerController.applicationMusicPlayer
-                            NSLog(
-                                "[AppleMusic] playTtsAudio.resume (after 500ms delay): state before \(player.playbackState.rawValue)"
-                            )
-                            player.play()
-                            // Verify after another short delay; retry with
-                            // setQueue if play() didn't actually transition
-                            // to .playing.
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                                let stateAfter = player.playbackState.rawValue
-                                NSLog(
-                                    "[AppleMusic] playTtsAudio.resume: state after \(stateAfter)"
-                                )
-                                if stateAfter != 1 /* .playing */, let savedItems = self?.savedQueueItems,
-                                   !savedItems.isEmpty {
-                                    NSLog("[AppleMusic] playTtsAudio.resume: retrying with setQueue fallback")
-                                    let collection = MPMediaItemCollection(items: savedItems)
-                                    player.setQueue(with: collection)
-                                    if let pos = self?.savedQueuePosition {
-                                        player.currentPlaybackTime = pos
-                                    }
-                                    player.play()
-                                }
-                            }
-                        }
                         self?.ttsPausedMusic = false
                         call.resolve([
                             "status": "finished",
-                            "music_paused_and_resumed": wasPlayingMusic,
+                            "interruption_resume_pending": wasPlayingMusic,
                         ])
                     }
                 }
@@ -462,11 +494,9 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.ttsPlayerDelegate = delegate
                 self.ttsPlayer = player
                 if !player.play() {
-                    // If AVAudioPlayer fails to start, resume music
-                    // immediately rather than leaving it paused.
-                    if self.ttsPausedMusic {
-                        musicPlayer.play()
-                    }
+                    // AVAudioPlayer didn't actually start. Music wasn't
+                    // interrupted, so don't expect interruption-ended.
+                    self.wantMusicResumeOnInterruptionEnd = false
                     self.ttsPausedMusic = false
                     call.reject("AVAudioPlayer.play() returned false")
                     self.ttsPlayer = nil
@@ -478,10 +508,9 @@ public class AppleMusicPlugin: CAPPlugin {
                 )
             } catch {
                 NSLog("[AppleMusic] playTtsAudio: AVAudioPlayer init failed: \(error)")
-                // Resume music if init failed.
-                if self.ttsPausedMusic {
-                    musicPlayer.play()
-                }
+                // Init failed → no interruption happened → don't
+                // expect interruption-ended.
+                self.wantMusicResumeOnInterruptionEnd = false
                 self.ttsPausedMusic = false
                 call.reject("AVAudioPlayer init failed: \(error.localizedDescription)")
             }
@@ -498,12 +527,11 @@ public class AppleMusicPlugin: CAPPlugin {
             self?.ttsPlayer?.stop()
             self?.ttsPlayer = nil
             self?.ttsPlayerDelegate = nil
-            // Resume music if we'd paused it — caller is cutting TTS
-            // short, but music shouldn't stay paused as a side effect.
-            if self?.ttsPausedMusic == true {
-                MPMusicPlayerController.applicationMusicPlayer.play()
-                self?.ttsPausedMusic = false
-            }
+            // Stopping the player will trigger interruption-ended via
+            // our observer, which handles the music resume. We just
+            // make sure the want-resume flag is correctly set.
+            // (It already was, set in playTtsAudio.)
+            self?.ttsPausedMusic = false
             call.resolve(["status": "cancelled"])
         }
     }
