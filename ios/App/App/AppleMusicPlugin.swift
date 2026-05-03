@@ -1,6 +1,7 @@
 import Foundation
 import Capacitor
 import MediaPlayer
+import AVFoundation
 
 /**
  * AppleMusicPlugin — Native Apple Music control for Calypso.
@@ -55,6 +56,16 @@ public class AppleMusicPlugin: CAPPlugin {
     // the queue is the canonical workaround.
     private var savedQueueItems: [MPMediaItem]?
     private var savedQueuePosition: TimeInterval?
+
+    // ── Native TTS playback ─────────────────────────────────────────
+    //
+    // Holding ref so AVAudioPlayer doesn't get deallocated while
+    // playing. Set when a TTS playback starts, cleared when it ends.
+    // Single concurrent utterance — a new playTtsAudio call cancels
+    // the in-flight one.
+    private var ttsPlayer: AVAudioPlayer?
+    /// Pending CAPPluginCall to resolve when current TTS finishes.
+    private var ttsPlayerDelegate: TtsPlayerDelegate?
 
     // MARK: - Authorization
 
@@ -308,6 +319,109 @@ public class AppleMusicPlugin: CAPPlugin {
             block()
         } else {
             DispatchQueue.main.async(execute: block)
+        }
+    }
+
+    // MARK: - Native TTS playback
+
+    /**
+     * Play Calypso's TTS audio (base64-encoded MP3) through a native
+     * AVAudioPlayer instead of WKWebView's HTML5 Audio.
+     *
+     * Why this exists: HTML5 Audio in WKWebView activates the audio
+     * session in ways we can't fully control — it clobbers our
+     * applicationMusicPlayer's playback every time Calypso speaks,
+     * even when our session is configured for mixing. Native
+     * AVAudioPlayer respects whatever session config we set
+     * deterministically. With our session at .playback +
+     * .mixWithOthers, TTS plays alongside the music without
+     * interrupting it.
+     *
+     * Pattern: synchronous start (resolve immediately when playback
+     * begins), but the JS caller awaits a separate event for end-of-
+     * playback if it wants to know when speaking finishes. For now
+     * we use a delegate that resolves a stored CAPPluginCall on
+     * audioPlayerDidFinishPlaying.
+     *
+     * Single concurrent utterance: starting a new TTS playback
+     * cancels any in-flight one. Matches the JS-side `cancel()`
+     * semantics on SpokenHandle.
+     */
+    @objc func playTtsAudio(_ call: CAPPluginCall) {
+        guard let b64 = call.getString("audio_b64"), !b64.isEmpty else {
+            call.reject("audio_b64 is required")
+            return
+        }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+
+            // Cancel any in-flight TTS — single utterance at a time.
+            if let prev = self.ttsPlayer {
+                prev.stop()
+                self.ttsPlayer = nil
+            }
+            self.ttsPlayerDelegate = nil
+
+            // Decode base64 MP3.
+            guard let data = Data(base64Encoded: b64) else {
+                call.reject("invalid base64 audio")
+                return
+            }
+
+            // Configure session: .playback so audio bypasses silent
+            // switch, .mixWithOthers so applicationMusicPlayer's music
+            // (running in the same session) isn't interrupted.
+            // No .duckOthers — that affects OTHER apps' audio, not
+            // within-session mixing; for in-session ducking we'd
+            // adjust applicationMusicPlayer.volume directly.
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true, options: [])
+            } catch {
+                NSLog("[AppleMusic] playTtsAudio: session config failed: \(error)")
+            }
+
+            // Create + retain the player.
+            do {
+                let player = try AVAudioPlayer(data: data)
+                player.volume = 1.0
+                let delegate = TtsPlayerDelegate { [weak self] in
+                    NSLog("[AppleMusic] playTtsAudio: playback finished")
+                    self?.ttsPlayer = nil
+                    self?.ttsPlayerDelegate = nil
+                    call.resolve(["status": "finished"])
+                }
+                player.delegate = delegate
+                self.ttsPlayerDelegate = delegate
+                self.ttsPlayer = player
+                if !player.play() {
+                    call.reject("AVAudioPlayer.play() returned false")
+                    self.ttsPlayer = nil
+                    self.ttsPlayerDelegate = nil
+                    return
+                }
+                NSLog(
+                    "[AppleMusic] playTtsAudio: started (\(data.count)B, \(String(format: "%.1f", player.duration))s)"
+                )
+            } catch {
+                NSLog("[AppleMusic] playTtsAudio: AVAudioPlayer init failed: \(error)")
+                call.reject("AVAudioPlayer init failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /**
+     * Cancel any in-flight TTS playback. Used by the JS layer when
+     * the SpokenHandle's cancel() is invoked (e.g., a new alert
+     * preempts a lower-priority utterance).
+     */
+    @objc func cancelTtsAudio(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            self?.ttsPlayer?.stop()
+            self?.ttsPlayer = nil
+            self?.ttsPlayerDelegate = nil
+            call.resolve(["status": "cancelled"])
         }
     }
 
@@ -752,5 +866,24 @@ public class AppleMusicPlugin: CAPPlugin {
                 "duration_sec": Int(nowPlaying.playbackDuration),
             ])
         }
+    }
+}
+
+/**
+ * AVAudioPlayerDelegate that fires a closure when playback finishes
+ * (or errors out). Used by playTtsAudio to resolve its CAPPluginCall
+ * at the right moment.
+ */
+private final class TtsPlayerDelegate: NSObject, AVAudioPlayerDelegate {
+    let onFinish: () -> Void
+    init(onFinish: @escaping () -> Void) {
+        self.onFinish = onFinish
+    }
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinish()
+    }
+    func audioPlayerDecodeErrorDidOccur(_ player: AVAudioPlayer, error: Error?) {
+        NSLog("[AppleMusic] TtsPlayer decode error: \(String(describing: error))")
+        onFinish()
     }
 }
