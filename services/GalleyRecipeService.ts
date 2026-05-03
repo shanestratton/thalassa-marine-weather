@@ -1773,6 +1773,14 @@ export function encodeRecipeShare(recipe: StoredRecipe): string {
 }
 
 /**
+ * Encode a CommunityRecipe (different field names) into the same
+ * chat-shareable string. Used when sharing from The Captain's Table.
+ */
+export function encodeCommunityRecipeShare(recipe: CommunityRecipe): string {
+    return `${RECIPE_SHARE_PREFIX}${recipe.supabaseId}|${recipe.title}|${recipe.servings}|${recipe.readyInMinutes}|${recipe.image || ''}`;
+}
+
+/**
  * Decode a recipe share message back into structured data.
  * Returns null if the message is not a valid recipe share.
  */
@@ -1800,43 +1808,92 @@ export function decodeRecipeShare(message: string): {
 /**
  * Fetch a full recipe by ID (local-first, then Supabase).
  * Used when someone taps a recipe card in chat.
+ *
+ * Looks in two places on the cloud, in order:
+ *   1. `recipes` — the legacy personal-recipe table.
+ *   2. `community_recipes` — where saveCustomRecipe + Captain's Table
+ *      recipes actually live. Without this fallback, tapping a shared
+ *      recipe card in Scuttlebutt would say "Recipe not available
+ *      offline" because the lookup pointed at the wrong table.
+ *
+ * Visibility values differ between the two tables:
+ *   - `recipes`            uses 'personal' | 'shared'
+ *   - `community_recipes`  uses 'private'  | 'community'
+ * We translate community_recipes values onto the StoredRecipe shape
+ * (community → 'shared', private → 'personal').
  */
 export async function getRecipeById(recipeId: string): Promise<StoredRecipe | null> {
     // Check local first
     const local = query<StoredRecipe>(RECIPE_TABLE, (r) => r.id === recipeId);
     if (local.length > 0) return local[0];
 
-    // Fetch from Supabase
-    if (supabase) {
-        try {
-            const { data } = await supabase.from('recipes').select('*').eq('id', recipeId).single();
+    if (!supabase) return null;
 
-            if (data) {
-                const recipe: StoredRecipe = {
-                    id: data.id,
-                    spoonacular_id: null,
-                    user_id: data.user_id,
-                    title: data.title,
-                    image_url: data.image_url || '',
-                    ready_in_minutes: data.ready_in_minutes,
-                    servings: data.servings,
-                    source_url: '',
-                    instructions: data.instructions || '',
-                    ingredients: data.ingredients || [],
-                    is_favorite: data.is_favorite || false,
-                    is_custom: true,
-                    visibility: data.visibility || 'personal',
-                    tags: data.tags || [],
-                    created_at: data.created_at,
-                    updated_at: data.updated_at,
-                };
-                // Cache locally for offline access
-                await insertLocal(RECIPE_TABLE, recipe);
-                return recipe;
-            }
-        } catch {
-            // Offline
+    // 1. Try the `recipes` table (legacy personal recipes).
+    try {
+        const { data } = await supabase.from('recipes').select('*').eq('id', recipeId).single();
+
+        if (data) {
+            const recipe: StoredRecipe = {
+                id: data.id,
+                spoonacular_id: null,
+                user_id: data.user_id,
+                title: data.title,
+                image_url: data.image_url || '',
+                ready_in_minutes: data.ready_in_minutes,
+                servings: data.servings,
+                source_url: '',
+                instructions: data.instructions || '',
+                ingredients: data.ingredients || [],
+                is_favorite: data.is_favorite || false,
+                is_custom: true,
+                visibility: data.visibility || 'personal',
+                tags: data.tags || [],
+                created_at: data.created_at,
+                updated_at: data.updated_at,
+            };
+            await insertLocal(RECIPE_TABLE, recipe);
+            return recipe;
         }
+    } catch {
+        // Continue to community fallback
+    }
+
+    // 2. Fall back to `community_recipes` (shared/community recipes
+    //    created via the Captain's Table or CustomRecipeForm).
+    try {
+        const { data } = await supabase.from('community_recipes').select('*').eq('id', recipeId).single();
+
+        if (data) {
+            // instructions in community_recipes is a JSON array of
+            // RecipeStep[]; StoredRecipe.instructions is a string.
+            // Stringify the array so RecipeCard can JSON.parse it.
+            const instructionsStr =
+                typeof data.instructions === 'string' ? data.instructions : JSON.stringify(data.instructions || []);
+
+            const recipe: StoredRecipe = {
+                id: data.id,
+                spoonacular_id: null,
+                user_id: data.user_id,
+                title: data.title,
+                image_url: data.image_url || '',
+                ready_in_minutes: data.ready_in_minutes,
+                servings: data.servings,
+                source_url: '',
+                instructions: instructionsStr,
+                ingredients: (data.ingredients as RecipeIngredient[]) || [],
+                is_favorite: false,
+                is_custom: true,
+                visibility: data.visibility === 'community' ? 'shared' : 'personal',
+                tags: (data.tags as string[]) || [],
+                created_at: data.created_at,
+                updated_at: data.updated_at,
+            };
+            await insertLocal(RECIPE_TABLE, recipe);
+            return recipe;
+        }
+    } catch {
+        // Offline — nothing more to try
     }
 
     return null;
@@ -1976,4 +2033,53 @@ export async function reportRecipeImage(recipeId: string, reason: string = 'inap
         return false;
     }
     return true;
+}
+
+// ── Post-to-Scuttlebutt ────────────────────────────────────────────────────
+
+export interface ShareToScuttlebuttArgs {
+    /** Encoded recipe share token — built via encodeCommunityRecipeShare or encodeRecipeShare */
+    recipeShareToken: string;
+    /** Target chat channel UUID */
+    channelId: string;
+    /** Optional sailor note prepended to the recipe card */
+    note?: string;
+}
+
+/**
+ * Post a recipe share token to a Scuttlebutt (chat) channel as a
+ * regular chat message. The token is the same `🍳RECIPE:...` payload
+ * that RecipeCard.tsx already decodes, so the message renders
+ * inline as a tappable recipe card in the channel feed.
+ *
+ * If a note is supplied, it's prepended above the token on its own
+ * line — e.g.
+ *   "Made this on the run to Cairns, crew loved it"
+ *   🍳RECIPE:abc-123|Beef Stew|4|45|https://...
+ *
+ * Returns true on success, false if the message failed to send (no
+ * auth, muted user, network error — all already handled by
+ * ChatService.sendMessage which queues offline as a fallback).
+ */
+export async function shareRecipeToScuttlebutt({
+    recipeShareToken,
+    channelId,
+    note,
+}: ShareToScuttlebuttArgs): Promise<boolean> {
+    const trimmedNote = (note || '').trim();
+    const fullText = trimmedNote ? `${trimmedNote}\n${recipeShareToken}` : recipeShareToken;
+
+    // Lazy-import ChatService so this module's static graph stays
+    // free of chat dependencies (GalleyRecipeService is imported by
+    // a lot — recipe forms, meal planner, the diary, etc.). The
+    // chat module pulls in supabase realtime + moderation, which is
+    // weight we don't want on the recipe path.
+    try {
+        const { ChatService } = await import('./ChatService');
+        const result = await ChatService.sendRecipeShareChannel(channelId, fullText);
+        return !!result;
+    } catch (e) {
+        log.warn('shareRecipeToScuttlebutt failed:', e);
+        return false;
+    }
 }
