@@ -232,27 +232,42 @@ interface PlaylistTileProps {
     onTap: () => void;
 }
 
-const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap }) => (
-    <button
-        onClick={onTap}
-        className={`relative aspect-square rounded-2xl overflow-hidden border transition-all active:scale-[0.97] ${
-            active ? 'border-pink-400/60 ring-2 ring-pink-400/40' : 'border-white/10 hover:border-white/30'
-        }`}
-    >
-        {playlist.artworkUrl ? (
-            <img src={playlist.artworkUrl} alt={playlist.name} className="w-full h-full object-cover" loading="lazy" />
-        ) : (
-            <GeneratedPlaylistArtwork name={playlist.name} />
-        )}
-        {/* Title overlay */}
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
-            <div className="text-white font-bold text-sm truncate text-left">{playlist.name}</div>
-            {playlist.curator && (
-                <div className="text-white/60 text-xs truncate text-left mt-0.5">{playlist.curator}</div>
+const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap }) => {
+    // Track whether the remote artwork URL fails to load. Apple Music's
+    // user-library artwork URLs sometimes need credentials WKWebView
+    // can't supply, or the CDN host blocks the cross-origin fetch from
+    // capacitor://localhost — in either case the <img> renders blank.
+    // When that happens we swap to the generated mesh-gradient cover.
+    const [imageFailed, setImageFailed] = useState(false);
+    const showRemote = !!playlist.artworkUrl && !imageFailed;
+    return (
+        <button
+            onClick={onTap}
+            className={`relative aspect-square rounded-2xl overflow-hidden border transition-all active:scale-[0.97] ${
+                active ? 'border-pink-400/60 ring-2 ring-pink-400/40' : 'border-white/10 hover:border-white/30'
+            }`}
+        >
+            {showRemote ? (
+                <img
+                    src={playlist.artworkUrl}
+                    alt={playlist.name}
+                    className="w-full h-full object-cover"
+                    loading="lazy"
+                    onError={() => setImageFailed(true)}
+                />
+            ) : (
+                <GeneratedPlaylistArtwork name={playlist.name} />
             )}
-        </div>
-    </button>
-);
+            {/* Title overlay */}
+            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
+                <div className="text-white font-bold text-sm truncate text-left">{playlist.name}</div>
+                {playlist.curator && (
+                    <div className="text-white/60 text-xs truncate text-left mt-0.5">{playlist.curator}</div>
+                )}
+            </div>
+        </button>
+    );
+};
 
 // ── Generated playlist artwork ─────────────────────────────────────
 //
@@ -365,56 +380,73 @@ interface NowPlayingBarProps {
     onPrevious: () => void;
 }
 
-const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onResume, onNext, onPrevious }) => (
-    <div className="shrink-0 border-t border-white/10 bg-black/60 backdrop-blur-md p-3">
-        <div className="flex items-center gap-3">
-            {nowPlaying.artworkUrl ? (
-                <img src={nowPlaying.artworkUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
-            ) : (
-                <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
-                    <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
-                </div>
-            )}
-            <div className="flex-1 min-w-0">
-                <div className="text-white font-bold text-sm truncate">{nowPlaying.title}</div>
-                {nowPlaying.artist && <div className="text-white/60 text-xs truncate mt-0.5">{nowPlaying.artist}</div>}
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-                <button
-                    onClick={onPrevious}
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:bg-white/10 active:scale-90 transition-all"
-                    aria-label="Previous"
-                >
-                    <SkipPrevIcon className="w-5 h-5" />
-                </button>
-                {nowPlaying.isPlaying ? (
-                    <button
-                        onClick={onPause}
-                        className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform"
-                        aria-label="Pause"
-                    >
-                        <PauseIcon className="w-5 h-5" />
-                    </button>
+const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onResume, onNext, onPrevious }) => {
+    const [imageFailed, setImageFailed] = useState(false);
+    const showRemote = !!nowPlaying.artworkUrl && !imageFailed;
+    // Reset the failure flag whenever the track changes — different
+    // artwork URLs deserve fresh load attempts.
+    const trackKey = nowPlaying.artworkUrl ?? '';
+    useEffect(() => {
+        setImageFailed(false);
+    }, [trackKey]);
+    return (
+        <div className="shrink-0 border-t border-white/10 bg-black/60 backdrop-blur-md p-3">
+            <div className="flex items-center gap-3">
+                {showRemote ? (
+                    <img
+                        src={nowPlaying.artworkUrl}
+                        alt=""
+                        className="w-12 h-12 rounded-lg object-cover shrink-0"
+                        onError={() => setImageFailed(true)}
+                    />
                 ) : (
-                    <button
-                        onClick={onResume}
-                        className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform"
-                        aria-label="Play"
-                    >
-                        <PlayIcon className="w-5 h-5 ml-0.5" />
-                    </button>
+                    <div className="w-12 h-12 rounded-lg overflow-hidden shrink-0">
+                        <GeneratedPlaylistArtwork name={nowPlaying.title || nowPlaying.album || 'Music'} />
+                    </div>
                 )}
-                <button
-                    onClick={onNext}
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:bg-white/10 active:scale-90 transition-all"
-                    aria-label="Next"
-                >
-                    <SkipNextIcon className="w-5 h-5" />
-                </button>
+                <div className="flex-1 min-w-0">
+                    <div className="text-white font-bold text-sm truncate">{nowPlaying.title}</div>
+                    {nowPlaying.artist && (
+                        <div className="text-white/60 text-xs truncate mt-0.5">{nowPlaying.artist}</div>
+                    )}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                    <button
+                        onClick={onPrevious}
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:bg-white/10 active:scale-90 transition-all"
+                        aria-label="Previous"
+                    >
+                        <SkipPrevIcon className="w-5 h-5" />
+                    </button>
+                    {nowPlaying.isPlaying ? (
+                        <button
+                            onClick={onPause}
+                            className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform"
+                            aria-label="Pause"
+                        >
+                            <PauseIcon className="w-5 h-5" />
+                        </button>
+                    ) : (
+                        <button
+                            onClick={onResume}
+                            className="w-11 h-11 rounded-full bg-white text-black flex items-center justify-center active:scale-90 transition-transform"
+                            aria-label="Play"
+                        >
+                            <PlayIcon className="w-5 h-5 ml-0.5" />
+                        </button>
+                    )}
+                    <button
+                        onClick={onNext}
+                        className="w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:bg-white/10 active:scale-90 transition-all"
+                        aria-label="Next"
+                    >
+                        <SkipNextIcon className="w-5 h-5" />
+                    </button>
+                </div>
             </div>
         </div>
-    </div>
-);
+    );
+};
 
 // ── Icons (inline SVG, no external dep) ────────────────────────────
 
