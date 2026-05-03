@@ -78,6 +78,16 @@ interface AppleMusicPluginInterface {
         library_playlists?: number;
     }>;
     ensureMixingSession(): Promise<{ status: 'applied' | 'failed'; error?: string }>;
+    searchLibrary(opts: { query: string }): Promise<{
+        status: 'ok' | 'permission_denied';
+        query: string;
+        artists: string[];
+        albums: Array<{ title: string; artist: string }>;
+        playlists: string[];
+        songs: Array<{ title: string; artist: string; album: string }>;
+        total_matches: number;
+        auth_status?: string;
+    }>;
     pause(): Promise<{ status: string }>;
     resume(): Promise<{ status: string }>;
     next(): Promise<{ status: string }>;
@@ -342,6 +352,64 @@ function composeFallbackNote(
         return `The skipper's Apple Music library appears empty (no songs / artists / albums / playlists visible). Handed off to Apple Music. Tell them: "I can see your library but it looks empty — make sure you've added music to your Library, not just streamed it."`;
     }
     return `"${query}" wasn't in the skipper's library (checked ${counts.artists} artists, ${counts.albums} albums, ${counts.songs} songs, ${counts.playlists} playlists). Handed off to the Apple Music app for catalog search. Tell the skipper: "Not in your library — opened Apple Music to search the catalog. You'll need to pick a track to play it; I can't auto-play catalog tracks."`;
+}
+
+/**
+ * Read-only library search — Settings UI uses this to let the
+ * skipper sanity-check what's actually visible. Returns matches
+ * in artists / albums / playlists / songs (capped at 20 each)
+ * for a free-form query.
+ *
+ * Distinct from `playMusicByQuery` (which actually plays) — this
+ * never starts playback, never falls through to URL hand-off,
+ * just answers "is X in my library and what does it look like?".
+ */
+export interface LibrarySearchResult {
+    available: boolean;
+    reason?: 'unsupported' | 'plugin_error' | 'permission_denied';
+    error?: string;
+    query: string;
+    artists: string[];
+    albums: Array<{ title: string; artist: string }>;
+    playlists: string[];
+    songs: Array<{ title: string; artist: string; album: string }>;
+    totalMatches: number;
+}
+
+export async function searchLibrary(query: string): Promise<LibrarySearchResult> {
+    const empty = {
+        query,
+        artists: [],
+        albums: [],
+        playlists: [],
+        songs: [],
+        totalMatches: 0,
+    };
+    if (!nativeAvailable()) {
+        return { ...empty, available: false, reason: 'unsupported' };
+    }
+    try {
+        const r = await AppleMusicNative.searchLibrary({ query });
+        if (r.status === 'permission_denied') {
+            return { ...empty, available: false, reason: 'permission_denied' };
+        }
+        return {
+            available: true,
+            query: r.query,
+            artists: r.artists,
+            albums: r.albums,
+            playlists: r.playlists,
+            songs: r.songs,
+            totalMatches: r.total_matches,
+        };
+    } catch (err) {
+        return {
+            ...empty,
+            available: false,
+            reason: 'plugin_error',
+            error: (err as Error).message,
+        };
+    }
 }
 
 /**

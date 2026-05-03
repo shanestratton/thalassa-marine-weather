@@ -290,6 +290,80 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     /**
+     * Read-only library search — returns matches for the query across
+     * artists, albums, playlists, and songs WITHOUT playing anything.
+     * Lets the skipper sanity-check what the plugin can actually see
+     * for a specific query: "do I have Led Zeppelin? Or is the
+     * library hiding tracks?". Used by the Settings → Calypso →
+     * Apple Music "Search library" diagnostic.
+     */
+    @objc func searchLibrary(_ call: CAPPluginCall) {
+        guard let query = call.getString("query"), !query.isEmpty else {
+            call.reject("query is required")
+            return
+        }
+        let status = MPMediaLibrary.authorizationStatus()
+        if status != .authorized {
+            call.resolve([
+                "status": "permission_denied",
+                "auth_status": Self.authStatusString(status),
+                "artists": [], "albums": [], "playlists": [], "songs": [],
+            ])
+            return
+        }
+        let lcQuery = query.lowercased()
+
+        // Walk each grouping, filter case-insensitive contains. Cap
+        // each at 20 so we don't return a 500-track wall when the
+        // skipper searches a common term.
+        let artistMatches: [String] = (MPMediaQuery.artists().collections ?? [])
+            .compactMap { $0.representativeItem?.artist }
+            .filter { $0.lowercased().contains(lcQuery) }
+            .prefix(20)
+            .map { $0 }
+
+        let albumMatches: [[String: String]] = (MPMediaQuery.albums().collections ?? [])
+            .filter { ($0.representativeItem?.albumTitle ?? "").lowercased().contains(lcQuery) }
+            .prefix(20)
+            .map {
+                [
+                    "title": $0.representativeItem?.albumTitle ?? "",
+                    "artist": $0.representativeItem?.albumArtist ?? $0.representativeItem?.artist ?? "",
+                ]
+            }
+
+        let playlistMatches: [String] = (MPMediaQuery.playlists().collections ?? [])
+            .compactMap { ($0 as? MPMediaPlaylist)?.name }
+            .filter { $0.lowercased().contains(lcQuery) }
+            .prefix(20)
+            .map { $0 }
+
+        let songMatches: [[String: String]] = (MPMediaQuery.songs().items ?? [])
+            .filter { ($0.title ?? "").lowercased().contains(lcQuery) }
+            .prefix(20)
+            .map {
+                [
+                    "title": $0.title ?? "",
+                    "artist": $0.artist ?? "",
+                    "album": $0.albumTitle ?? "",
+                ]
+            }
+
+        NSLog(
+            "[AppleMusic] searchLibrary '\(query)' → artists:\(artistMatches.count) albums:\(albumMatches.count) playlists:\(playlistMatches.count) songs:\(songMatches.count)"
+        )
+        call.resolve([
+            "status": "ok",
+            "query": query,
+            "artists": artistMatches,
+            "albums": albumMatches,
+            "playlists": playlistMatches,
+            "songs": songMatches,
+            "total_matches": artistMatches.count + albumMatches.count + playlistMatches.count + songMatches.count,
+        ])
+    }
+
+    /**
      * Public entry point so the JS layer can re-apply our friendly
      * audio session config on demand — typically right before TTS
      * playback to avoid the second-narration-kills-music symptom.
@@ -476,14 +550,17 @@ public class AppleMusicPlugin: CAPPlugin {
 
     private func respondWithStats(call: CAPPluginCall, authStatus: MPMediaLibraryAuthorizationStatus) {
         let stats = quickLibraryStats()
-        // First few artist + playlist names so the diagnostic is
-        // actually useful — "you've got 47 artists, including Pink
-        // Floyd, Dire Straits, Jimmy Buffett" beats raw counts.
+        // Sample artist + playlist names so the diagnostic is actually
+        // useful — bumped from 5 to 25 because the previous limit
+        // showed only the alphabetic head ("seems to only see the As")
+        // and made the skipper think the library was filtered when it
+        // wasn't. 25 gives a real sense of breadth — if Led Zeppelin
+        // doesn't show in 25 artists, maybe it really isn't there.
         let sampleArtists: [String] = (MPMediaQuery.artists().collections ?? [])
-            .prefix(5)
+            .prefix(25)
             .compactMap { $0.representativeItem?.artist }
         let samplePlaylists: [String] = (MPMediaQuery.playlists().collections ?? [])
-            .prefix(5)
+            .prefix(25)
             .compactMap { ($0 as? MPMediaPlaylist)?.name }
 
         call.resolve([
