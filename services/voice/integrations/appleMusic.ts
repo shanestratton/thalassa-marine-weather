@@ -48,6 +48,14 @@ interface AppleMusicPluginInterface {
         sample_artists: string[];
         sample_playlists: string[];
     }>;
+    playFirstSong(): Promise<{
+        status: 'playing' | 'permission_denied' | 'library_empty';
+        auth_status?: string;
+        title: string;
+        artist: string;
+        album?: string;
+        library_song_count?: number;
+    }>;
     searchAndPlay(opts: { query: string; kind?: 'auto' | 'artist' | 'album' | 'playlist' | 'song' }): Promise<{
         status: 'playing' | 'not_found_in_library' | 'permission_denied';
         matched_kind: '' | 'artist' | 'album' | 'playlist' | 'song';
@@ -275,6 +283,121 @@ function composeFallbackNote(
         return `The skipper's Apple Music library appears empty (no songs / artists / albums / playlists visible). Handed off to Apple Music. Tell them: "I can see your library but it looks empty — make sure you've added music to your Library, not just streamed it."`;
     }
     return `"${query}" wasn't in the skipper's library (checked ${counts.artists} artists, ${counts.albums} albums, ${counts.songs} songs, ${counts.playlists} playlists). Handed off to the Apple Music app for catalog search. Tell the skipper: "Not in your library — opened Apple Music to search the catalog. You'll need to pick a track to play it; I can't auto-play catalog tracks."`;
+}
+
+// ── Smoke-test playback ────────────────────────────────────────────
+
+/**
+ * Play the first song in the library directly. Bypasses search,
+ * matching, the LLM round-trip, and the URL fallback. Pure smoke
+ * test of the playback path: "is `MPMusicPlayerController.play()`
+ * actually doing anything when we hand it a known-valid item?"
+ *
+ * Used by the Settings → Calypso → Apple Music "Play first song"
+ * diagnostic button. If this WORKS but `play_music` doesn't, the
+ * problem is search-side. If this ALSO doesn't work, it's the
+ * playback pipeline (audio session conflict, permission, hardware).
+ */
+export interface PlayFirstSongResult {
+    success: boolean;
+    status: 'playing' | 'permission_denied' | 'library_empty' | 'plugin_error' | 'unsupported';
+    title?: string;
+    artist?: string;
+    album?: string;
+    library_song_count?: number;
+    auth_status?: string;
+    error?: string;
+}
+
+/**
+ * Direct-call wrapper around the native plugin's getLibraryStats.
+ * Returns a clean object for the Settings UI's "Inspect library"
+ * button — separate from `musicDiagnostic` (which envelopes the
+ * data in a Calypso-tool-result shape).
+ */
+export interface LibraryInspection {
+    available: boolean;
+    /** Reason the inspection failed when available=false. */
+    reason?: 'unsupported' | 'plugin_error' | 'permission_denied';
+    error?: string;
+    auth_status?: string;
+    auth_granted?: boolean;
+    artists: number;
+    albums: number;
+    songs: number;
+    playlists: number;
+    sample_artists: string[];
+    sample_playlists: string[];
+}
+
+export async function inspectLibrary(): Promise<LibraryInspection> {
+    if (!nativeAvailable()) {
+        return {
+            available: false,
+            reason: 'unsupported',
+            artists: 0,
+            albums: 0,
+            songs: 0,
+            playlists: 0,
+            sample_artists: [],
+            sample_playlists: [],
+        };
+    }
+    try {
+        const r = await AppleMusicNative.getLibraryStats();
+        return {
+            available: r.auth_granted,
+            reason: r.auth_granted ? undefined : 'permission_denied',
+            auth_status: r.auth_status,
+            auth_granted: r.auth_granted,
+            artists: r.artists,
+            albums: r.albums,
+            songs: r.songs,
+            playlists: r.playlists,
+            sample_artists: r.sample_artists,
+            sample_playlists: r.sample_playlists,
+        };
+    } catch (err) {
+        return {
+            available: false,
+            reason: 'plugin_error',
+            error: (err as Error).message,
+            artists: 0,
+            albums: 0,
+            songs: 0,
+            playlists: 0,
+            sample_artists: [],
+            sample_playlists: [],
+        };
+    }
+}
+
+export async function playFirstSong(): Promise<PlayFirstSongResult> {
+    if (!nativeAvailable()) {
+        return {
+            success: false,
+            status: 'unsupported',
+            error: 'Native plugin only available on iOS.',
+        };
+    }
+    try {
+        const r = await AppleMusicNative.playFirstSong();
+        return {
+            success: r.status === 'playing',
+            status: r.status,
+            title: r.title,
+            artist: r.artist,
+            album: r.album,
+            library_song_count: r.library_song_count,
+            auth_status: r.auth_status,
+        };
+    } catch (err) {
+        return {
+            success: false,
+            status: 'plugin_error',
+            error: (err as Error).message,
+        };
+    }
 }
 
 // ── Diagnostic ─────────────────────────────────────────────────────

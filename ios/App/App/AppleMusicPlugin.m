@@ -10,6 +10,7 @@ CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
     CAP_PLUGIN_METHOD(requestAuthorization, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(getAuthorizationStatus, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(getLibraryStats, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(playFirstSong, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(searchAndPlay, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(pause, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(resume, CAPPluginReturnPromise);
