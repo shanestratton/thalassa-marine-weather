@@ -1225,6 +1225,32 @@ export const COUNTRY_DB: Record<string, CountryClearance> = {
 
 // Common name aliases so Gemini's free-text country names match our keys
 export const COUNTRY_ALIASES: Record<string, string> = {
+    // Australian states (so 'Newport, QLD' resolves to Australia).
+    // Without these, the customs card falls through to the
+    // 'both ports unknown → assume domestic' branch in isSameCountry,
+    // which silently hides international clearance even on legit
+    // departures like 'Newport, QLD' → 'Port Moselle, NC'.
+    qld: 'australia',
+    queensland: 'australia',
+    nsw: 'australia',
+    'new south wales': 'australia',
+    vic: 'australia',
+    victoria: 'australia',
+    tas: 'australia',
+    tasmania: 'australia',
+    sa: 'australia',
+    'south australia': 'australia',
+    nt: 'australia',
+    'northern territory': 'australia',
+    act: 'australia',
+    // 'wa' is omitted: too easily confused with Washington State USA.
+    // 'Western Australia' is full enough to disambiguate.
+    'western australia': 'australia',
+    // New Caledonia (NC) — common shorthand on cruising charts.
+    nc: 'new caledonia',
+    'new cal': 'new caledonia',
+    noumea: 'new caledonia',
+    // Other countries
     tahiti: 'french polynesia',
     'french poly': 'french polynesia',
     bvi: 'british virgin islands',
@@ -1235,8 +1261,6 @@ export const COUNTRY_ALIASES: Record<string, string> = {
     'st. maarten': 'sint maarten',
     'saint martin': 'sint maarten',
     'saint-martin': 'sint maarten',
-    'new cal': 'new caledonia',
-    noumea: 'new caledonia',
     uk: 'united kingdom',
     'great britain': 'united kingdom',
     us: 'united states',

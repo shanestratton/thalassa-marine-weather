@@ -83,20 +83,56 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
 
     if (!customs?.required) return null;
 
-    const departCountry = customs.departingCountry;
-    const arriveCountry = customs.destinationCountry;
-    const departData = findCountryData(departCountry);
-    const arriveData = findCountryData(arriveCountry);
+    // The plan's customs.departingCountry / destinationCountry can
+    // arrive as either a country name ('Australia') or a port string
+    // ('Newport, QLD'). findCountryData handles both via alias-substring
+    // matching, so we get the country data regardless. For the user-
+    // facing labels and POE check we keep the original port input on
+    // hand too.
+    const departInput = customs.departingCountry;
+    const arriveInput = customs.destinationCountry;
+    const departData = findCountryData(departInput);
+    const arriveData = findCountryData(arriveInput);
+
+    // Display name: prefer the resolved country (e.g. 'Australia') over
+    // the raw port input ('Newport, QLD'). Falls back to the input if
+    // the country couldn't be resolved.
+    const departLabel = departData?.country || departInput || 'Departure';
+    const arriveLabel = arriveData?.country || arriveInput || 'Arrival';
+
+    /**
+     * Detect whether the user's typed port matches a designated port
+     * of entry for the resolved country. If not, the user must clear
+     * at one of the listed POEs — not the port they're sitting at.
+     * Match is case-insensitive substring either way; handles
+     * 'Nouméa (Port Moselle)' against 'Port Moselle, NC'.
+     */
+    const isPortAnEntryPort = (portInput: string | undefined, portsOfEntry: string[] | undefined): boolean => {
+        if (!portInput || !portsOfEntry) return false;
+        const cleaned = portInput
+            .toLowerCase()
+            .split(',')[0] // strip ', QLD' / ', NC' suffixes
+            .trim();
+        if (!cleaned) return false;
+        return portsOfEntry.some((p) => {
+            const pl = p.toLowerCase();
+            return pl.includes(cleaned) || cleaned.includes(pl);
+        });
+    };
+    const departPortIsPOE = isPortAnEntryPort(departInput, departData?.portsOfEntry);
+    const arrivePortIsPOE = isPortAnEntryPort(arriveInput, arriveData?.portsOfEntry);
 
     // Which clearance data to show
     const activeData = activeTab === 'depart' ? departData : arriveData;
-    const activeCountryName = activeTab === 'depart' ? departCountry || 'Departure' : arriveCountry || 'Arrival';
+    const activeCountryName = activeTab === 'depart' ? departLabel : arriveLabel;
+    const activePortInput = activeTab === 'depart' ? departInput : arriveInput;
+    const activePortIsPOE = activeTab === 'depart' ? departPortIsPOE : arrivePortIsPOE;
 
     return (
         <div className="space-y-4">
             {/* ── Country Tabs ── */}
             <div className="flex gap-2 bg-white/[0.03] rounded-xl p-1 border border-white/[0.06]">
-                {departCountry && (
+                {departInput && (
                     <button
                         aria-label="Active Tab"
                         onClick={() => setActiveTab('depart')}
@@ -106,7 +142,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                                 : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                         }`}
                     >
-                        {departData?.flag || '🚢'} Departing {departCountry}
+                        {departData?.flag || '🚢'} Departing {departLabel}
                     </button>
                 )}
                 <button
@@ -118,9 +154,43 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                             : 'text-gray-400 hover:text-gray-300 hover:bg-white/5 border border-transparent'
                     }`}
                 >
-                    {arriveData?.flag || '🏁'} Arriving {arriveCountry}
+                    {arriveData?.flag || '🏁'} Arriving {arriveLabel}
                 </button>
             </div>
+
+            {/* ── POE warning ────────────────────────────────────────
+                User's actual port isn't a designated port of entry —
+                they MUST clear at one of the country's POEs. Without
+                this banner the user sees Australia's clearance info
+                and assumes they can do it from Newport, when really
+                they need to detour to Brisbane / Bundaberg / etc. */}
+            {activeData && activePortInput && !activePortIsPOE && activeData.portsOfEntry.length > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl p-4">
+                    <div className="flex items-start gap-3">
+                        <span className="text-xl">⚠️</span>
+                        <div className="flex-1">
+                            <p className="text-xs font-bold text-amber-300 uppercase tracking-widest mb-1">
+                                {activePortInput} is not a designated port of entry
+                            </p>
+                            <p className="text-[11px] text-amber-200/90 leading-relaxed mb-2">
+                                {activeTab === 'depart'
+                                    ? `You'll need to clear out at one of ${activeData.country}'s designated ports of entry before departing internationally:`
+                                    : `You'll need to clear in at one of ${activeData.country}'s designated ports of entry on arrival — flying the Q flag until cleared:`}
+                            </p>
+                            <div className="flex flex-wrap gap-1.5">
+                                {activeData.portsOfEntry.map((port, i) => (
+                                    <span
+                                        key={i}
+                                        className="text-[11px] text-amber-200 bg-amber-500/10 border border-amber-500/20 rounded-full px-2.5 py-1"
+                                    >
+                                        {port}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {activeData ? (
                 <div className="animate-in fade-in duration-200 space-y-4">
@@ -392,7 +462,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     {activeTab === 'depart' && customs?.departureProcedures && (
                         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                             <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-2">
-                                Departure Procedures — {departCountry}
+                                Departure Procedures — {departLabel}
                             </h4>
                             <p className="text-xs text-gray-300 leading-relaxed">{customs.departureProcedures}</p>
                         </div>
@@ -401,7 +471,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     {activeTab === 'arrive' && customs?.procedures && (
                         <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4">
                             <h4 className="text-xs font-bold text-white uppercase tracking-widest mb-2">
-                                Arrival Procedures — {arriveCountry}
+                                Arrival Procedures — {arriveLabel}
                             </h4>
                             <p className="text-xs text-gray-300 leading-relaxed">{customs.procedures}</p>
                         </div>
