@@ -69,11 +69,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick', 'passage']));
     const [_isAdmin, setIsAdmin] = useState(false);
 
-    // ── Hero band state — vessel name, active voyage, GPS fix ──
-    const vesselName: string =
-        ((ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined) || 'Your Vessel';
+    // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
+    const rawVesselName = (ctx as { vessel?: { name?: string } })?.vessel?.name as string | undefined;
+    const vesselName: string = rawVesselName || 'Your Vessel';
+    const vesselNameSet = !!rawVesselName && rawVesselName.trim().length > 0;
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
     const [position, setPosition] = useState<GpsPosition | null>(null);
+    const [windSpeed, setWindSpeed] = useState<number | null>(null);
+    const [windDir, setWindDir] = useState<string | null>(null);
+    const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
     useEffect(() => {
         // Refresh cached voyage on mount (cheap localStorage read).
@@ -114,6 +118,53 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         const id = setInterval(() => setTick((t) => t + 1), 60_000);
         return () => clearInterval(id);
     }, []);
+
+    // Online/offline indicator — boats lose connectivity. Show it.
+    // Uses standard browser events; no @capacitor/network dep needed.
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const goOnline = () => setIsOnline(true);
+        const goOffline = () => setIsOnline(false);
+        window.addEventListener('online', goOnline);
+        window.addEventListener('offline', goOffline);
+        return () => {
+            window.removeEventListener('online', goOnline);
+            window.removeEventListener('offline', goOffline);
+        };
+    }, []);
+
+    // Fetch local wind for the hero band's weather chip.
+    // Triggered when position first arrives, then refreshed every
+    // 15 minutes — frequent enough to track a frontal change, sparse
+    // enough to be Open-Meteo-friendly. Won't fetch offline.
+    useEffect(() => {
+        if (!position || !isOnline) return;
+        let cancelled = false;
+        const fetchWind = async () => {
+            try {
+                const { fetchFastWeather } = await import('../services/weather');
+                const report = await fetchFastWeather('Current Position', {
+                    lat: position.latitude,
+                    lon: position.longitude,
+                });
+                if (cancelled) return;
+                const ws = report?.current?.windSpeed ?? null;
+                const wd = report?.current?.windDirection ?? null;
+                if (ws !== null && Number.isFinite(ws)) setWindSpeed(ws);
+                if (wd) setWindDir(wd);
+            } catch {
+                // Wind chip stays empty — non-critical
+            }
+        };
+        fetchWind();
+        const id = setInterval(fetchWind, 15 * 60_000);
+        return () => {
+            cancelled = true;
+            clearInterval(id);
+        };
+        // Round position to 0.1° so tiny drift doesn't refetch.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [position && Math.round(position.latitude * 10), position && Math.round(position.longitude * 10), isOnline]);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');
@@ -208,9 +259,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <NavStationHero
                     vesselName={vesselName}
+                    vesselNameSet={vesselNameSet}
                     voyage={activeVoyage}
                     position={position}
                     anchorStatus={anchorStatus}
+                    windSpeed={windSpeed}
+                    windDir={windDir}
+                    isOnline={isOnline}
+                    onNavigate={onNavigate}
                 />
 
                 {/* ═══════════════════════════════════════════ */}
@@ -732,7 +788,14 @@ function formatCoord(lat: number, lon: number): string {
     return `${latStr}  ${lonStr}`;
 }
 
-/** Derive a one-word voyage state for the hero band. */
+/** Derive a one-word voyage state for the hero band.
+ *  Distinct colors per state so two states never share a hue:
+ *    drag alarm   → red       (urgent)
+ *    underway     → emerald   (motion / OK to be at sea)
+ *    at anchor    → cyan      (still / watching)
+ *    drafted      → violet    (planning)
+ *    at rest      → grey      (idle)
+ */
 function deriveVoyageState(
     voyage: Voyage | null,
     anchorStatus: 'armed' | 'disarmed' | 'alarm',
@@ -743,7 +806,7 @@ function deriveVoyageState(
             voyage.departure_port && voyage.destination_port
                 ? `${voyage.departure_port} → ${voyage.destination_port}`
                 : voyage.voyage_name || 'Underway';
-        return { label: 'Underway', color: '#22d3ee', route };
+        return { label: 'Underway', color: '#10b981', route };
     }
     if (anchorStatus === 'armed') return { label: 'At Anchor', color: '#22d3ee' };
     if (voyage && voyage.status === 'planning') {
@@ -758,23 +821,64 @@ function deriveVoyageState(
 
 const NavStationHero: React.FC<{
     vesselName: string;
+    vesselNameSet: boolean;
     voyage: Voyage | null;
     position: GpsPosition | null;
     anchorStatus: 'armed' | 'disarmed' | 'alarm';
-}> = ({ vesselName, voyage, position, anchorStatus }) => {
+    windSpeed: number | null;
+    windDir: string | null;
+    isOnline: boolean;
+    onNavigate: (page: string) => void;
+}> = ({ vesselName, vesselNameSet, voyage, position, anchorStatus, windSpeed, windDir, isOnline, onNavigate }) => {
     const state = deriveVoyageState(voyage, anchorStatus);
+
+    // Underway = SOG > ~1 kt (0.51 m/s). Below that it's noise from
+    // GPS jitter at anchor — don't print "SOG 0.3 kt" on a stationary boat.
+    const sogMs = position?.speed ?? 0;
+    const sogKt = sogMs * 1.94384;
+    const showSog = sogKt > 1;
+    const cogDeg = position?.heading ?? null;
+
+    // Wind chip — show kn + cardinal direction. Both must be present.
+    const showWind = windSpeed !== null && windDir;
+    const windKt = windSpeed !== null ? Math.round(windSpeed) : 0;
+
+    const handleVesselTap = () => {
+        triggerHaptic('light');
+        onNavigate('settings');
+    };
+    const handleVoyageTap = () => {
+        triggerHaptic('light');
+        onNavigate('crew');
+    };
+    const handlePositionTap = () => {
+        triggerHaptic('light');
+        onNavigate('map');
+    };
+
     return (
         <div
-            className="mb-4 p-4"
+            className="mb-4 overflow-hidden"
             style={{
                 ...GLASS.card,
-                background: 'linear-gradient(135deg, rgba(20,25,35,0.7) 0%, rgba(14,165,233,0.06) 100%)',
-                borderColor: 'rgba(255,255,255,0.1)',
+                background: 'linear-gradient(135deg, rgba(20,25,35,0.75) 0%, rgba(14,165,233,0.08) 100%)',
+                borderColor: 'rgba(255,255,255,0.12)',
             }}
         >
-            {/* Top row — vessel name + state pill */}
-            <div className="flex items-baseline gap-2 mb-2">
-                <h2 className="text-lg font-black text-white tracking-tight truncate flex-1">{vesselName}</h2>
+            {/* Top row — vessel name (tap → settings) + state pill */}
+            <button
+                type="button"
+                onClick={handleVesselTap}
+                aria-label={vesselNameSet ? 'Open vessel settings' : 'Set vessel name'}
+                className="w-full flex items-baseline gap-2 px-4 pt-4 pb-2 active:opacity-70 transition-opacity text-left"
+            >
+                {vesselNameSet ? (
+                    <h2 className="text-lg font-black text-white tracking-tight truncate flex-1">{vesselName}</h2>
+                ) : (
+                    <h2 className="text-lg font-black text-white/50 tracking-tight truncate flex-1 italic">
+                        Tap to name your vessel
+                    </h2>
+                )}
                 <span
                     className="px-2 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-widest border whitespace-nowrap shrink-0"
                     style={{
@@ -785,27 +889,74 @@ const NavStationHero: React.FC<{
                 >
                     {state.label}
                 </span>
-            </div>
+            </button>
 
-            {/* Voyage line */}
-            {state.route && <p className="text-[12px] font-semibold text-white/80 truncate mb-2">{state.route}</p>}
+            {/* Voyage row (tap → passage planning) */}
+            {state.route && (
+                <button
+                    type="button"
+                    onClick={handleVoyageTap}
+                    aria-label="Open passage planning"
+                    className="w-full px-4 py-1 active:opacity-70 transition-opacity text-left"
+                >
+                    <p className="text-[12px] font-semibold text-white/80 truncate">{state.route}</p>
+                </button>
+            )}
 
-            {/* Position + last-fix line */}
-            <div className="flex items-center gap-2 text-[11px]">
+            {/* Position row (tap → map) */}
+            <button
+                type="button"
+                onClick={handlePositionTap}
+                aria-label="Open chart at current position"
+                className="w-full flex items-center gap-2 px-4 pt-1.5 pb-2 text-[11px] active:opacity-70 transition-opacity text-left"
+            >
+                {/* GPS+online indicator — green dot if both, amber if GPS but offline,
+                    grey if no fix. */}
                 <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                        backgroundColor: position ? '#22d3ee' : '#6b7280',
-                        boxShadow: position ? '0 0 6px rgba(34,211,238,0.6)' : 'none',
+                        backgroundColor: !position ? '#6b7280' : isOnline ? '#22d3ee' : '#f59e0b',
+                        boxShadow: position
+                            ? `0 0 6px ${isOnline ? 'rgba(34,211,238,0.6)' : 'rgba(245,158,11,0.6)'}`
+                            : 'none',
                     }}
+                    aria-label={!position ? 'No GPS fix' : isOnline ? 'GPS fix, online' : 'GPS fix, offline'}
                 />
                 <span className="font-mono text-white/70 tabular-nums truncate flex-1">
                     {position ? formatCoord(position.latitude, position.longitude) : 'Awaiting GPS fix…'}
                 </span>
                 <span className="text-white/40 text-[10px] uppercase tracking-wider shrink-0">
-                    {formatTimeSince(position?.timestamp ?? null)}
+                    {!isOnline ? 'OFFLINE' : formatTimeSince(position?.timestamp ?? null)}
                 </span>
-            </div>
+            </button>
+
+            {/* SOG/COG + Wind line — only when there's something useful to show.
+                Sits in a tight bottom band with subtle separation. */}
+            {(showSog || showWind) && (
+                <div className="flex items-center gap-3 px-4 pb-3 pt-1.5 border-t border-white/[0.06] text-[11px]">
+                    {showSog && (
+                        <span className="font-mono text-white/85 tabular-nums">
+                            <span className="text-white/40 uppercase tracking-wider mr-1">SOG</span>
+                            {sogKt.toFixed(1)}
+                            <span className="text-white/40 text-[10px] ml-0.5">kt</span>
+                            {cogDeg !== null && (
+                                <span className="ml-2">
+                                    <span className="text-white/40 uppercase tracking-wider mr-1">COG</span>
+                                    {Math.round(cogDeg).toString().padStart(3, '0')}°
+                                </span>
+                            )}
+                        </span>
+                    )}
+                    {showWind && (
+                        <span className="ml-auto font-mono text-white/85 tabular-nums">
+                            <span className="mr-1">💨</span>
+                            {windKt}
+                            <span className="text-white/40 text-[10px] ml-0.5">kt</span>
+                            <span className="text-white/60 ml-1">{windDir}</span>
+                        </span>
+                    )}
+                </div>
+            )}
         </div>
     );
 };
