@@ -56,9 +56,19 @@ export function getCachedActiveVoyage(): Voyage | null {
 
 // ── CRUD ────────────────────────────────────────────────────────────────
 
-/** Create a new voyage (starts in 'planning' status) */
+/**
+ * Create a new voyage (starts in 'planning' status).
+ *
+ * Optional departure_time / eta let the caller seed the dates at
+ * creation — used by PassagePlanSave so a route saved with a typed
+ * departureDate doesn't lose it when re-opened in Passage Planning.
+ */
 export async function createVoyage(
-    data: Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port' | 'crew_count'> & { vessel_id?: string },
+    data: Pick<Voyage, 'voyage_name' | 'departure_port' | 'destination_port' | 'crew_count'> & {
+        vessel_id?: string;
+        departure_time?: string | null;
+        eta?: string | null;
+    },
 ): Promise<{ voyage: Voyage | null; error?: string }> {
     if (!supabase) return { voyage: null, error: 'Offline — no Supabase connection' };
 

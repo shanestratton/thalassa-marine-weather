@@ -270,7 +270,17 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         invalidateRoutesAndTracks();
 
         // Fire-and-forget: auto-create a draft voyage from this passage plan
-        // and activate it so the Passage Planning card appears
+        // and activate it so the Passage Planning card appears.
+        //
+        // Seed departure_time + eta from the plan so reopening the
+        // route in Passage Planning shows the date the user typed at
+        // route-planning time. Previously we left both null and only
+        // the dropdown's date picker filled them in, which meant a
+        // saved route lost its date on restart and made the meal
+        // planner / weather windows wait on a manual re-pick. The
+        // entries[0] timestamp == plan.departureDate (PassagePlanSave
+        // spreads entries linearly across plan.durationApprox), so
+        // round-tripping is exact.
         try {
             const { createVoyage } = await import('../VoyageService');
             const departureName = typeof plan.origin === 'string' ? trimCountrySuffix(plan.origin) : 'Departure';
@@ -278,11 +288,18 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
                 typeof plan.destination === 'string' ? trimCountrySuffix(plan.destination) : 'Arrival';
             const voyageName = `${departureName} → ${destinationName}`;
 
+            const departureTimeIso = entries[0]?.timestamp ?? null;
+            const lastTs = entries[entries.length - 1]?.timestamp ?? null;
+            const etaIso =
+                departureTimeIso && lastTs && Date.parse(lastTs) > Date.parse(departureTimeIso) ? lastTs : null;
+
             const { voyage: v, error: vErr } = await createVoyage({
                 voyage_name: voyageName,
                 departure_port: departureName,
                 destination_port: destinationName,
                 crew_count: 1,
+                departure_time: departureTimeIso,
+                eta: etaIso,
             });
             if (v) {
                 log.info(`✓ Auto-created draft voyage "${voyageName}" from passage plan`);
