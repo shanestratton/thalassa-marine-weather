@@ -175,7 +175,20 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [windSpeed, setWindSpeed] = useState<number | null>(null);
     const [windDir, setWindDir] = useState<string | null>(null);
     const [pressureTrend, setPressureTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
+    const [tideTrend, setTideTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
     const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
+
+    // Extended anchor snapshot for the relative swing viz — vessel
+    // offset (m) and bearing FROM anchor TO vessel (deg). Both come
+    // off the AnchorWatchSnapshot directly.
+    const [anchorOffset, setAnchorOffset] = useState<number>(0);
+    const [anchorBearing, setAnchorBearing] = useState<number>(0);
+
+    // Active route destination — populated by PassageStore when the
+    // user has planned a route. Used for distance-remaining on the
+    // voyage row in the hero band.
+    const [destCoords, setDestCoords] = useState<{ lat: number; lon: number } | null>(null);
+    const [routeNm, setRouteNm] = useState<number | null>(null);
 
     useEffect(() => {
         // Refresh cached voyage on mount (cheap localStorage read).
@@ -249,9 +262,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 const ws = report?.current?.windSpeed ?? null;
                 const wd = report?.current?.windDirection ?? null;
                 const pt = report?.current?.pressureTrend ?? null;
+                const tt = report?.current?.tideTrend ?? null;
                 if (ws !== null && Number.isFinite(ws)) setWindSpeed(ws);
                 if (wd) setWindDir(wd);
                 if (pt) setPressureTrend(pt);
+                if (tt) setTideTrend(tt);
             } catch {
                 // Wind chip stays empty — non-critical
             }
@@ -293,8 +308,49 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             setAnchorStatus(
                 snapshot.state === 'alarm' ? 'alarm' : snapshot.state === 'watching' ? 'armed' : 'disarmed',
             );
+            // Extended snapshot for the relative swing viz — keeps the
+            // hero arc showing the boat's actual offset/bearing from
+            // the anchor point, not just a static radius circle.
+            setAnchorOffset(snapshot.distanceFromAnchor || 0);
+            setAnchorBearing(snapshot.bearingToAnchor || 0);
         });
         return unsub;
+    }, []);
+
+    // Subscribe to PassageStore for the active planned route's
+    // destination coords + total distance. Populated when the user
+    // plans a route from the Charts page; stays null otherwise.
+    useEffect(() => {
+        let cancelled = false;
+        let unsub: (() => void) | null = null;
+        (async () => {
+            try {
+                const { PassageStore } = await import('../stores/PassageStore');
+                const apply = (s: {
+                    hasRoute: boolean;
+                    arriveLat: number | null;
+                    arriveLon: number | null;
+                    totalDistanceNM: number;
+                }) => {
+                    if (cancelled) return;
+                    if (s.hasRoute && s.arriveLat !== null && s.arriveLon !== null) {
+                        setDestCoords({ lat: s.arriveLat, lon: s.arriveLon });
+                        setRouteNm(s.totalDistanceNM || null);
+                    } else {
+                        setDestCoords(null);
+                        setRouteNm(null);
+                    }
+                };
+                apply(PassageStore.getState());
+                unsub = PassageStore.subscribe(apply);
+            } catch {
+                /* PassageStore not loaded yet */
+            }
+        })();
+        return () => {
+            cancelled = true;
+            if (unsub) unsub();
+        };
     }, []);
 
     // ── Search ──
@@ -331,6 +387,8 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [guardianArmed, setGuardianArmed] = useState<boolean>(false);
     const [guardianNearby, setGuardianNearby] = useState<number>(0);
     const [overdueCount, setOverdueCount] = useState<number>(0);
+    const [expiringDocsCount, setExpiringDocsCount] = useState<number>(0);
+    const [expiringEquipCount, setExpiringEquipCount] = useState<number>(0);
 
     useEffect(() => {
         // Entries logged today (current voyage or any voyage). Source
@@ -421,6 +479,51 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         };
     }, []);
 
+    // Count documents expiring (or already expired) in the next 30
+    // days — surfaces compliance attention at the surface level.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { LocalDocumentService } = await import('../services/vessel/LocalDocumentService');
+                const docs = LocalDocumentService.getAll();
+                if (cancelled) return;
+                const cutoff = Date.now() + 30 * 86_400_000;
+                const expiring = docs.filter((d) => d.expiry_date && Date.parse(d.expiry_date) <= cutoff).length;
+                setExpiringDocsCount(expiring);
+            } catch {
+                /* offline — no badge */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    // Count equipment with warranty expiring in the next 30 days.
+    // Lower urgency than documents — warranty lapses are inconvenient,
+    // not illegal. Amber badge.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { LocalEquipmentService } = await import('../services/vessel/LocalEquipmentService');
+                const items = LocalEquipmentService.getAll();
+                if (cancelled) return;
+                const cutoff = Date.now() + 30 * 86_400_000;
+                const expiring = items.filter(
+                    (e) => e.warranty_expiry && Date.parse(e.warranty_expiry) <= cutoff,
+                ).length;
+                setExpiringEquipCount(expiring);
+            } catch {
+                /* offline — no badge */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     // ── Draft passage plans ──
     const [passageCrewCount, setPassageCrewCount] = useState(0);
     useEffect(() => {
@@ -477,10 +580,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     position={position}
                     anchorStatus={anchorStatus}
                     anchorRadius={anchorRadius}
+                    anchorOffset={anchorOffset}
+                    anchorBearing={anchorBearing}
                     windSpeed={windSpeed}
                     windDir={windDir}
                     pressureTrend={pressureTrend}
+                    tideTrend={tideTrend}
                     isOnline={isOnline}
+                    destCoords={destCoords}
+                    routeNm={routeNm}
                     onNavigate={onNavigate}
                 />
 
@@ -903,12 +1011,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     <OfficeRow
                                         icon={<ClipboardIcon color="#ef4444" />}
                                         label="Equipment"
-                                        status="Register"
-                                        statusColor="#ef4444"
+                                        status={
+                                            expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'
+                                        }
+                                        statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#ef4444'}
                                         onClick={() => {
                                             triggerHaptic('light');
                                             onNavigate('equipment');
                                         }}
+                                        badge={expiringEquipCount > 0 ? expiringEquipCount : undefined}
                                     />
                                     <ListDivider />
                                     <OfficeRow
@@ -965,14 +1076,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     />
                                     <ListDivider />
                                     <OfficeRow
-                                        icon={<DocShieldIcon color="#0ea5e9" />}
+                                        icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#0ea5e9'} />}
                                         label="Documents"
-                                        status="Legal"
-                                        statusColor="#0ea5e9"
+                                        status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
+                                        statusColor={expiringDocsCount > 0 ? '#ef4444' : '#0ea5e9'}
                                         onClick={() => {
                                             triggerHaptic('light');
                                             onNavigate('documents');
                                         }}
+                                        badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
+                                        badgeUrgent={expiringDocsCount > 0}
                                     />
                                 </div>
                             </CollapsibleContent>
@@ -1185,18 +1298,47 @@ function pressureTrendIndicator(trend: 'rising' | 'falling' | 'steady' | null): 
     return { arrow: '↓', color: '#f59e0b', label: 'falling' };
 }
 
-/** Anchor swing arc — small circular SVG showing the swing radius.
- *  Visible only when the anchor is armed. Pulses red on alarm. */
-const SwingArc: React.FC<{ radiusM: number; alarm: boolean }> = ({ radiusM, alarm }) => {
+/** Anchor swing arc — circular SVG showing the alarm radius AND
+ *  the vessel's actual position relative to the anchor point.
+ *
+ *  Pass 4 had a static "swing radius circle". Pass 5 plots the
+ *  vessel dot at its real bearing/offset — so a skipper glancing
+ *  at the hero band can see "I'm at 35m to the south-east, my
+ *  alarm is at 50m". The arc speaks the same language as a real
+ *  electronic anchor display.
+ *
+ *  - Center cross   = anchor point
+ *  - Outer dashed   = alarm radius (pre-set swing)
+ *  - Inner faint    = ½ alarm radius reference
+ *  - Vessel dot     = current position (bearing + offset)
+ *  - Track line     = anchor → vessel (visual indicator of drift)
+ *  - On alarm: whole arc pulses red. */
+const SwingArc: React.FC<{
+    radiusM: number;
+    offsetM: number;
+    bearingDeg: number;
+    alarm: boolean;
+}> = ({ radiusM, offsetM, bearingDeg, alarm }) => {
     const size = 44;
     const cx = size / 2;
     const cy = size / 2;
     const ringR = size / 2 - 3;
     const color = alarm ? '#ef4444' : '#22d3ee';
+
+    // Plot vessel: bearing 0° = north (top of arc). Map polar
+    // (bearing, ratio) → cartesian. Clamp ratio just past 1 so a
+    // dragging boat visibly sits beyond the alarm ring.
+    const safeRadius = Math.max(radiusM, 1);
+    const ratio = Math.min(offsetM / safeRadius, 1.05);
+    const r = ringR * ratio;
+    const angleRad = ((bearingDeg - 90) * Math.PI) / 180;
+    const vx = cx + r * Math.cos(angleRad);
+    const vy = cy + r * Math.sin(angleRad);
+
     return (
         <div className="relative shrink-0" style={{ width: size, height: size }}>
             <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-                {/* Outer alarm ring (dashed) */}
+                {/* Alarm boundary ring (dashed) */}
                 <circle
                     cx={cx}
                     cy={cy}
@@ -1207,28 +1349,25 @@ const SwingArc: React.FC<{ radiusM: number; alarm: boolean }> = ({ radiusM, alar
                     strokeWidth={1.25}
                     strokeDasharray="2 3"
                 />
-                {/* Inner solid ring (current swing) */}
+                {/* Inner reference ring at ½ alarm radius */}
                 <circle
                     cx={cx}
                     cy={cy}
-                    r={ringR * 0.6}
+                    r={ringR * 0.5}
                     fill="none"
                     stroke={color}
-                    strokeOpacity={0.85}
-                    strokeWidth={1.5}
-                />
-                {/* Center dot — vessel position */}
-                <circle cx={cx} cy={cy} r={2.25} fill={color} />
-                {/* Anchor mark — small line from center toward bottom */}
-                <line
-                    x1={cx}
-                    y1={cy}
-                    x2={cx}
-                    y2={cy + ringR * 0.78}
-                    stroke={color}
-                    strokeOpacity={0.6}
+                    strokeOpacity={0.22}
                     strokeWidth={1}
                 />
+                {/* Anchor — center cross */}
+                <line x1={cx - 2.5} y1={cy} x2={cx + 2.5} y2={cy} stroke={color} strokeOpacity={0.7} strokeWidth={1} />
+                <line x1={cx} y1={cy - 2.5} x2={cx} y2={cy + 2.5} stroke={color} strokeOpacity={0.7} strokeWidth={1} />
+                {/* Track line from anchor to vessel */}
+                {offsetM > 1 && (
+                    <line x1={cx} y1={cy} x2={vx} y2={vy} stroke={color} strokeOpacity={0.4} strokeWidth={0.8} />
+                )}
+                {/* Vessel dot — actual offset position */}
+                <circle cx={vx} cy={vy} r={2.5} fill={color} />
             </svg>
             <div
                 className="absolute inset-0 flex items-end justify-center pointer-events-none"
@@ -1255,10 +1394,15 @@ const NavStationHero: React.FC<{
     position: GpsPosition | null;
     anchorStatus: 'armed' | 'disarmed' | 'alarm';
     anchorRadius: number;
+    anchorOffset: number;
+    anchorBearing: number;
     windSpeed: number | null;
     windDir: string | null;
     pressureTrend: 'rising' | 'falling' | 'steady' | null;
+    tideTrend: 'rising' | 'falling' | 'steady' | null;
     isOnline: boolean;
+    destCoords: { lat: number; lon: number } | null;
+    routeNm: number | null;
     onNavigate: (page: string) => void;
 }> = ({
     vesselName,
@@ -1267,10 +1411,15 @@ const NavStationHero: React.FC<{
     position,
     anchorStatus,
     anchorRadius,
+    anchorOffset,
+    anchorBearing,
     windSpeed,
     windDir,
     pressureTrend,
+    tideTrend,
     isOnline,
+    destCoords,
+    routeNm,
     onNavigate,
 }) => {
     const state = deriveVoyageState(voyage, anchorStatus);
@@ -1286,17 +1435,47 @@ const NavStationHero: React.FC<{
     const showWind = windSpeed !== null && windDir;
     const windKt = windSpeed !== null ? Math.round(windSpeed) : 0;
 
-    // Pressure trend — only render when meaningfully rising/falling.
-    const trendInd = pressureTrendIndicator(pressureTrend);
+    // Pressure / tide trends — render only when meaningfully moving.
+    const presInd = pressureTrendIndicator(pressureTrend);
+    const tideInd =
+        tideTrend && tideTrend !== 'steady'
+            ? tideTrend === 'rising'
+                ? { arrow: '↑', color: '#22d3ee', label: 'flood' }
+                : { arrow: '↓', color: '#a855f7', label: 'ebb' }
+            : null;
 
     // ETA — show when voyage is active and ETA is set in the future.
     const etaMs = voyage?.eta ? Date.parse(voyage.eta) : null;
     const showEta = state.label === 'Underway' && etaMs && Number.isFinite(etaMs) && etaMs > Date.now();
     const etaRemaining = showEta && etaMs ? formatDuration(etaMs - Date.now()) : null;
 
-    // Show the anchor swing arc when armed (or alarm). Lives in the
-    // top row next to the state pill — gives the most-relevant
-    // situational detail real estate when actually at anchor.
+    // Voyage day counter — "Day 2" of the passage. Only when underway
+    // and a departure_time is set.
+    const depMs = voyage?.departure_time ? Date.parse(voyage.departure_time) : null;
+    const voyageDay =
+        state.label === 'Underway' && depMs && Number.isFinite(depMs) && depMs <= Date.now()
+            ? Math.max(1, Math.floor((Date.now() - depMs) / 86_400_000) + 1)
+            : null;
+
+    // Distance remaining (NM) — current position to active route's
+    // destination. Only when underway and we have both points.
+    let distRemainingNm: number | null = null;
+    if (state.label === 'Underway' && position && destCoords) {
+        // Inline haversine — avoids dragging in navigationCalculations
+        // for one call. Earth radius in NM (3440.065).
+        const toRad = (d: number) => (d * Math.PI) / 180;
+        const dLat = toRad(destCoords.lat - position.latitude);
+        const dLon = toRad(destCoords.lon - position.longitude);
+        const a =
+            Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(position.latitude)) * Math.cos(toRad(destCoords.lat)) * Math.sin(dLon / 2) ** 2;
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distRemainingNm = 3440.065 * c;
+    }
+    // Fall back to total route NM if we have the route but no GPS yet.
+    const showRouteNm = !distRemainingNm && routeNm !== null && state.label === 'Underway';
+
+    // Show the anchor swing arc when armed (or alarm).
     const showSwing = anchorStatus !== 'disarmed' && anchorRadius > 0;
 
     const handleVesselTap = () => {
@@ -1345,10 +1524,15 @@ const NavStationHero: React.FC<{
                     <button
                         type="button"
                         onClick={handleAnchorTap}
-                        aria-label={`Anchor watch ${anchorStatus}, ${Math.round(anchorRadius)}m swing`}
+                        aria-label={`Anchor watch ${anchorStatus}, ${Math.round(anchorOffset)}m of ${Math.round(anchorRadius)}m swing`}
                         className="active:scale-95 transition-transform"
                     >
-                        <SwingArc radiusM={anchorRadius} alarm={anchorStatus === 'alarm'} />
+                        <SwingArc
+                            radiusM={anchorRadius}
+                            offsetM={anchorOffset}
+                            bearingDeg={anchorBearing}
+                            alarm={anchorStatus === 'alarm'}
+                        />
                     </button>
                 ) : (
                     <span
@@ -1375,7 +1559,7 @@ const NavStationHero: React.FC<{
                 </div>
             )}
 
-            {/* Voyage row (tap → passage planning) — with optional ETA pill */}
+            {/* Voyage row (tap → passage planning) */}
             {state.route && (
                 <button
                     type="button"
@@ -1390,6 +1574,33 @@ const NavStationHero: React.FC<{
                         </span>
                     )}
                 </button>
+            )}
+
+            {/* Voyage progress row — Day N · 142.3 NM remaining.
+                Only renders when underway and we have something to show. */}
+            {state.label === 'Underway' && (voyageDay !== null || distRemainingNm !== null || showRouteNm) && (
+                <div className="w-full flex items-center gap-3 px-4 py-1 text-[11px]">
+                    {voyageDay !== null && (
+                        <span className="font-mono text-white/70 tabular-nums">
+                            <span className="text-white/40 uppercase tracking-wider mr-1">Day</span>
+                            {voyageDay}
+                        </span>
+                    )}
+                    {distRemainingNm !== null && (
+                        <span className="ml-auto font-mono text-white/85 tabular-nums">
+                            {distRemainingNm.toFixed(1)}
+                            <span className="text-white/40 text-[10px] ml-0.5">NM</span>
+                            <span className="text-white/40 text-[10px] uppercase tracking-wider ml-1">to go</span>
+                        </span>
+                    )}
+                    {showRouteNm && routeNm !== null && (
+                        <span className="ml-auto font-mono text-white/60 tabular-nums">
+                            {routeNm.toFixed(0)}
+                            <span className="text-white/40 text-[10px] ml-0.5">NM</span>
+                            <span className="text-white/40 text-[10px] uppercase tracking-wider ml-1">total</span>
+                        </span>
+                    )}
+                </div>
             )}
 
             {/* Position row (tap → map) */}
@@ -1417,8 +1628,8 @@ const NavStationHero: React.FC<{
                 </span>
             </button>
 
-            {/* SOG/COG + Wind/Pressure line */}
-            {(showSog || showWind || trendInd) && (
+            {/* SOG/COG + Wind/Pressure/Tide line */}
+            {(showSog || showWind || presInd || tideInd) && (
                 <div className="flex items-center gap-3 px-4 pb-3 pt-1.5 border-t border-white/[0.06] text-[11px]">
                     {showSog && (
                         <span className="font-mono text-white/85 tabular-nums">
@@ -1442,14 +1653,24 @@ const NavStationHero: React.FC<{
                                 <span className="text-white/60 ml-1">{windDir}</span>
                             </span>
                         )}
-                        {trendInd && (
+                        {presInd && (
                             <span
                                 className="text-[10px] font-bold uppercase tracking-wider"
-                                style={{ color: trendInd.color }}
-                                aria-label={`Pressure ${trendInd.label}`}
-                                title={`Barometer ${trendInd.label}`}
+                                style={{ color: presInd.color }}
+                                aria-label={`Pressure ${presInd.label}`}
+                                title={`Barometer ${presInd.label}`}
                             >
-                                BAR <span className="text-base leading-none">{trendInd.arrow}</span>
+                                BAR <span className="text-base leading-none">{presInd.arrow}</span>
+                            </span>
+                        )}
+                        {tideInd && (
+                            <span
+                                className="text-[10px] font-bold uppercase tracking-wider"
+                                style={{ color: tideInd.color }}
+                                aria-label={`Tide ${tideInd.label}`}
+                                title={`Tide ${tideInd.label}`}
+                            >
+                                TIDE <span className="text-base leading-none">{tideInd.arrow}</span>
                             </span>
                         )}
                     </span>
