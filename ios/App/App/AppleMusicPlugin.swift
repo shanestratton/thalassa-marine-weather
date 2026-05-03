@@ -150,12 +150,23 @@ public class AppleMusicPlugin: CAPPlugin {
                 NSLog("[AppleMusic] playing \(items.count) items from kind=\(kind)")
                 playItems(items)
                 let summary = summarise(kind: kind, items: items)
+                // Surface the FIRST track's title + artist + album so
+                // Calypso has full narration content right from
+                // play_music — no need for her to call now_playing
+                // immediately after, which kills the music (each
+                // TTS narration ducks the system music player; doing
+                // it twice in succession sometimes leaves it stopped
+                // because the second duck doesn't recover cleanly).
+                let first = items.first
                 call.resolve([
                     "status": "playing",
                     "matched_kind": kind,
                     "title": summary.title,
                     "subtitle": summary.subtitle,
                     "track_count": items.count,
+                    "first_track_title": first?.title ?? "",
+                    "first_track_artist": first?.artist ?? "",
+                    "first_track_album": first?.albumTitle ?? "",
                 ])
                 return
             }
@@ -247,6 +258,21 @@ public class AppleMusicPlugin: CAPPlugin {
         // when we're already on main; async otherwise — caller doesn't
         // need to wait for playback to start before resolving.
         let block = {
+            // Defensive: re-apply our app's friendly audio session
+            // (.playback + .mixWithOthers + .duckOthers) right before
+            // we kick off music playback. The session was set at app
+            // launch in ThalassaBridgeViewController.capacitorDidLoad
+            // but Calypso's TTS playback through WKWebView can sometimes
+            // de-activate the session as a side effect; re-applying
+            // here keeps Apple Music alive while she narrates around it.
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
+                try session.setActive(true, options: [])
+            } catch {
+                NSLog("[AppleMusic] re-apply audio session failed: \(error)")
+            }
+
             let collection = MPMediaItemCollection(items: items)
             let player = MPMusicPlayerController.systemMusicPlayer
             player.setQueue(with: collection)
@@ -260,6 +286,25 @@ public class AppleMusicPlugin: CAPPlugin {
             block()
         } else {
             DispatchQueue.main.async(execute: block)
+        }
+    }
+
+    /**
+     * Public entry point so the JS layer can re-apply our friendly
+     * audio session config on demand — typically right before TTS
+     * playback to avoid the second-narration-kills-music symptom.
+     * No-op except for the session reconfigure.
+     */
+    @objc func ensureMixingSession(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
+                try session.setActive(true, options: [])
+                call.resolve(["status": "applied"])
+            } catch {
+                call.resolve(["status": "failed", "error": String(describing: error)])
+            }
         }
     }
 

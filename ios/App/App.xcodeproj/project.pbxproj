@@ -15,6 +15,8 @@
 		504EC30F1FED79650016851F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 504EC30E1FED79650016851F /* Assets.xcassets */; };
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
+		A51059EE2FA6E9A50083AF02 /* AppleMusicPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = A51059EC2FA6E9A50083AF02 /* AppleMusicPlugin.m */; };
+		A51059EF2FA6E9A50083AF02 /* AppleMusicPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51059ED2FA6E9A50083AF02 /* AppleMusicPlugin.swift */; };
 		A5CCB7372F98653D00778C68 /* ThalassaWatch Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A5CCB72D2F98653B00778C68 /* ThalassaWatch Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000001AAAA000100000002 /* SceneDelegate.swift */; };
 		AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */; };
@@ -67,6 +69,8 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		654E8B1F072CA359E75B78A4 /* Pods-App.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-App.release.xcconfig"; path = "Target Support Files/Pods-App/Pods-App.release.xcconfig"; sourceTree = "<group>"; };
+		A51059EC2FA6E9A50083AF02 /* AppleMusicPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AppleMusicPlugin.m; sourceTree = "<group>"; };
+		A51059ED2FA6E9A50083AF02 /* AppleMusicPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleMusicPlugin.swift; sourceTree = "<group>"; };
 		A5CCB72D2F98653B00778C68 /* ThalassaWatch Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "ThalassaWatch Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000001AAAA000100000002 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		AA000002AAAA000200000002 /* AlarmAudioPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlarmAudioPlugin.swift; sourceTree = "<group>"; };
@@ -83,17 +87,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		A5CCB72E2F98653B00778C68 /* ThalassaWatch Watch App */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = "ThalassaWatch Watch App";
-			sourceTree = "<group>";
-		};
+		A5CCB72E2F98653B00778C68 /* ThalassaWatch Watch App */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = "ThalassaWatch Watch App"; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -138,6 +132,8 @@
 		504EC3061FED79650016851F /* App */ = {
 			isa = PBXGroup;
 			children = (
+				A51059EC2FA6E9A50083AF02 /* AppleMusicPlugin.m */,
+				A51059ED2FA6E9A50083AF02 /* AppleMusicPlugin.swift */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
 				AA000001AAAA000100000002 /* SceneDelegate.swift */,
@@ -349,6 +345,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A51059EE2FA6E9A50083AF02 /* AppleMusicPlugin.m in Sources */,
+				A51059EF2FA6E9A50083AF02 /* AppleMusicPlugin.swift in Sources */,
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				AA000001AAAA000100000001 /* SceneDelegate.swift in Sources */,
 				AA000002AAAA000200000001 /* AlarmAudioPlugin.swift in Sources */,
