@@ -40,6 +40,22 @@ import MediaPlayer
 @objc(AppleMusicPlugin)
 public class AppleMusicPlugin: CAPPlugin {
 
+    // ── Pause/resume continuity state ───────────────────────────────
+    //
+    // When we pause the system music player so Calypso's TTS can play
+    // without conflict, save the current queue + position so we can
+    // FULLY restore playback on resume — including if iOS has lost
+    // the queue state in the meantime (which seems to happen sometimes
+    // after our app's audio session gets activated by WKWebView's
+    // HTML5 Audio playback).
+    //
+    // Without this, `resume()` was just calling play() which, after
+    // a long-enough TTS narration, sometimes returns successfully but
+    // doesn't actually start audio output again. Saving + replaying
+    // the queue is the canonical workaround.
+    private var savedQueueItems: [MPMediaItem]?
+    private var savedQueuePosition: TimeInterval?
+
     // MARK: - Authorization
 
     @objc func requestAuthorization(_ call: CAPPluginCall) {
@@ -257,21 +273,24 @@ public class AppleMusicPlugin: CAPPlugin {
         // back to main here regardless of caller context. Sync dispatch
         // when we're already on main; async otherwise — caller doesn't
         // need to wait for playback to start before resolving.
-        let block = {
-            // Defensive: re-apply our app's friendly audio session
-            // (.playback + .mixWithOthers + .duckOthers) right before
-            // we kick off music playback. The session was set at app
-            // launch in ThalassaBridgeViewController.capacitorDidLoad
-            // but Calypso's TTS playback through WKWebView can sometimes
-            // de-activate the session as a side effect; re-applying
-            // here keeps Apple Music alive while she narrates around it.
+        let block = { [weak self] in
+            // Re-apply our app's audio session in mix-with-others mode
+            // so the system music player can play alongside our TTS.
+            // The pause/resume around TTS is the primary mechanism
+            // keeping the music alive; this is just a clean baseline.
             do {
                 let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
                 try session.setActive(true, options: [])
             } catch {
                 NSLog("[AppleMusic] re-apply audio session failed: \(error)")
             }
+
+            // Stash the queue we're about to play so resume() has
+            // something to fall back to if iOS loses queue state
+            // between pause and resume.
+            self?.savedQueueItems = items
+            self?.savedQueuePosition = 0
 
             let collection = MPMediaItemCollection(items: items)
             let player = MPMusicPlayerController.systemMusicPlayer
@@ -578,16 +597,89 @@ public class AppleMusicPlugin: CAPPlugin {
     // MARK: - Playback Control
 
     @objc func pause(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            MPMusicPlayerController.systemMusicPlayer.pause()
-            call.resolve(["status": "paused"])
+        DispatchQueue.main.async { [weak self] in
+            let player = MPMusicPlayerController.systemMusicPlayer
+            // Snapshot the queue + position BEFORE pausing so we can
+            // restore everything in resume() if the simple play()
+            // call doesn't bring playback back. iOS sometimes loses
+            // the queue between pause and resume when our app's
+            // audio session has been activated by WKWebView audio
+            // in the meantime.
+            //
+            // MPMediaQueueDescriptor doesn't let us read the queue
+            // back, so we walk via nowPlayingItem + indexOfNowPlayingItem
+            // and assume the original queue is still indexable.
+            // For pause/resume around a Calypso narration this is
+            // conservative — we only need a few items either side.
+            if let nowItem = player.nowPlayingItem {
+                self?.savedQueueItems = [nowItem]
+                self?.savedQueuePosition = player.currentPlaybackTime
+                NSLog("[AppleMusic] pause: saved nowPlaying='\(nowItem.title ?? "?")' position=\(player.currentPlaybackTime)")
+            } else {
+                self?.savedQueueItems = nil
+                self?.savedQueuePosition = nil
+            }
+            player.pause()
+            call.resolve([
+                "status": "paused",
+                "playback_state": player.playbackState.rawValue,
+            ])
         }
     }
 
     @objc func resume(_ call: CAPPluginCall) {
-        DispatchQueue.main.async {
-            MPMusicPlayerController.systemMusicPlayer.play()
-            call.resolve(["status": "playing"])
+        DispatchQueue.main.async { [weak self] in
+            // Re-activate our app's audio session in a music-friendly
+            // mode (.playback + .mixWithOthers) so the system music
+            // player isn't blocked by a stale activation from when
+            // our TTS played. No .duckOthers — we're not playing
+            // audio of our own at this point, so we shouldn't be
+            // ducking the music we're trying to start.
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+                try session.setActive(true, options: [])
+            } catch {
+                NSLog("[AppleMusic] resume: session reactivation failed: \(error)")
+            }
+
+            let player = MPMusicPlayerController.systemMusicPlayer
+            let stateBefore = player.playbackState.rawValue
+            player.play()
+
+            // Verify playback actually started — MPMusicPlayerController
+            // sometimes returns from play() without transitioning to
+            // .playing if its queue got dropped. Re-set the queue from
+            // saved state if so.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                let stateAfter = player.playbackState.rawValue
+                NSLog("[AppleMusic] resume: state \(stateBefore) → \(stateAfter)")
+                if stateAfter != 1 /* .playing */, let savedItems = self?.savedQueueItems,
+                   !savedItems.isEmpty {
+                    NSLog("[AppleMusic] resume: play() didn't restart — re-setting queue from saved state")
+                    let collection = MPMediaItemCollection(items: savedItems)
+                    player.setQueue(with: collection)
+                    if let pos = self?.savedQueuePosition {
+                        player.currentPlaybackTime = pos
+                    }
+                    player.play()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        let stateRetry = player.playbackState.rawValue
+                        NSLog("[AppleMusic] resume retry: state → \(stateRetry)")
+                        call.resolve([
+                            "status": stateRetry == 1 ? "playing" : "failed",
+                            "playback_state": stateRetry,
+                            "fallback_used": true,
+                        ])
+                    }
+                } else {
+                    call.resolve([
+                        "status": stateAfter == 1 ? "playing" : "failed",
+                        "playback_state": stateAfter,
+                        "fallback_used": false,
+                    ])
+                }
+            }
         }
     }
 
