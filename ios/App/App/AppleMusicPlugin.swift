@@ -274,16 +274,20 @@ public class AppleMusicPlugin: CAPPlugin {
         // when we're already on main; async otherwise — caller doesn't
         // need to wait for playback to start before resolving.
         let block = { [weak self] in
-            // Re-apply our app's audio session in mix-with-others mode
-            // so the system music player can play alongside our TTS.
-            // The pause/resume around TTS is the primary mechanism
-            // keeping the music alive; this is just a clean baseline.
+            // CRITICAL: deactivate OUR audio session before calling
+            // play() on the system music player. Without this, our
+            // active session blocks the music player from reclaiming
+            // the audio output (verified by the skipper observing
+            // play-from-Control-Center worked while our programmatic
+            // play() didn't — Control Center bypasses our app
+            // entirely via Media Remote).
+            //
+            // `.notifyOthersOnDeactivation` tells the music player
+            // explicitly that it can take the output now.
             do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                try session.setActive(true, options: [])
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
             } catch {
-                NSLog("[AppleMusic] re-apply audio session failed: \(error)")
+                NSLog("[AppleMusic] playItems: session deactivation failed: \(error)")
             }
 
             // Stash the queue we're about to play so resume() has
@@ -629,18 +633,24 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @objc func resume(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            // Re-activate our app's audio session in a music-friendly
-            // mode (.playback + .mixWithOthers) so the system music
-            // player isn't blocked by a stale activation from when
-            // our TTS played. No .duckOthers — we're not playing
-            // audio of our own at this point, so we shouldn't be
-            // ducking the music we're trying to start.
+            // CRITICAL: deactivate OUR app's audio session before
+            // calling play(). Confirmed empirically — the system
+            // music player can't reclaim the audio output while our
+            // session is active. The skipper observed that pressing
+            // play in iOS Control Center DID work (because that
+            // bypasses our app entirely and uses Media Remote
+            // directly), but our programmatic play() call did not.
+            //
+            // The `.notifyOthersOnDeactivation` option tells other
+            // audio apps (including the system music player) "you
+            // can take the output now". This is the canonical iOS
+            // pattern for stepping out of the way when another app
+            // should be playing.
             do {
-                let session = AVAudioSession.sharedInstance()
-                try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-                try session.setActive(true, options: [])
+                try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+                NSLog("[AppleMusic] resume: deactivated our session, music player can take output")
             } catch {
-                NSLog("[AppleMusic] resume: session reactivation failed: \(error)")
+                NSLog("[AppleMusic] resume: session deactivation failed: \(error)")
             }
 
             let player = MPMusicPlayerController.systemMusicPlayer

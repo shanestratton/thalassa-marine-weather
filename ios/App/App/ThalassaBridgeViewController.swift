@@ -37,28 +37,31 @@ import AVFoundation
 public class ThalassaBridgeViewController: CAPBridgeViewController {
 
     public override func capacitorDidLoad() {
-        // ── Audio session: coexist with system music player ─────────
-        // When Calypso speaks while Apple Music is playing through
-        // MPMusicPlayerController.systemMusicPlayer, we want her TTS
-        // to DUCK the music (lower it briefly) rather than INTERRUPT
-        // it. By default WKWebView's audio session category interrupts
-        // other apps' audio when our app plays sound — which is why
-        // calling play_music + Calypso narrating "playing 8 tracks"
-        // killed the music after a tiny intro. Setting `.playback`
-        // with `.mixWithOthers + .duckOthers` lets Calypso's TTS play
-        // alongside the music, lowering the music briefly while she
-        // speaks; music returns to full volume after.
+        // ── Audio session: set category, do NOT activate at launch ──
+        // Set our session category to .playback + .mixWithOthers so
+        // any audio we play (TTS, alarms via AlarmAudioPlugin, etc.)
+        // plays back-route through the speaker bypassing the silent
+        // switch (.playback) and is friendly with other apps'
+        // audio (.mixWithOthers).
         //
-        // AlarmAudioPlugin still saves + restores the previous category
-        // for full-volume mute-bypassed alarm tones, so this baseline
-        // doesn't break anchor watch behaviour.
+        // CRITICAL: do NOT call setActive(true) here. Eager activation
+        // was found to block the system music player from taking the
+        // audio output — confirmed by the skipper noting that pressing
+        // play in iOS Control Center worked when our programmatic
+        // play() call didn't. Holding the session active stops other
+        // apps from playing.
+        //
+        // Each playback path that NEEDS the session active will
+        // activate it explicitly (HTML5 Audio in WKWebView does this
+        // automatically; AlarmAudioPlugin does it manually for alarm
+        // tones; AppleMusicPlugin DEACTIVATES with notifyOthers
+        // before triggering system music playback).
         do {
             let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers, .duckOthers])
-            try session.setActive(true, options: [])
-            print("[Audio] Session configured: .playback + .mixWithOthers + .duckOthers")
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            print("[Audio] Session category configured: .playback + .mixWithOthers (NOT activated)")
         } catch {
-            print("[Audio] Failed to configure audio session at launch: \(error)")
+            print("[Audio] Failed to set audio session category at launch: \(error)")
         }
 
         // ── Register all app-local Swift plugins ────────────────────
