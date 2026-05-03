@@ -32,6 +32,12 @@ import {
 import { AlertMonitorService } from '../../services/AlertMonitorService';
 import { CALYPSO_VOICE_PRESETS, DEFAULT_VOICE_PRESET_ID } from '../../services/voice/voicePresets';
 import { speak } from '../../services/voice/ttsClient';
+import {
+    inspectLibrary,
+    playFirstSong,
+    type LibraryInspection,
+    type PlayFirstSongResult,
+} from '../../services/voice/integrations/appleMusic';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 
 export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
@@ -140,6 +146,41 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         },
         [onSave],
     );
+
+    // ── Apple Music diagnostics ────────────────────────────────────
+    /** Result of the most-recent "Inspect library" tap. Drives an
+     *  inline panel under the Apple Music toggle so the skipper can
+     *  see exactly what the native plugin is reporting — auth state,
+     *  library size, sample artist names — without going through
+     *  Calypso's narration. */
+    const [libraryInspection, setLibraryInspection] = useState<LibraryInspection | null>(null);
+    /** Result of the most-recent "Play first song" smoke test. */
+    const [firstSongResult, setFirstSongResult] = useState<PlayFirstSongResult | null>(null);
+    const [musicTestBusy, setMusicTestBusy] = useState<'inspect' | 'play' | null>(null);
+
+    const handleInspectLibrary = useCallback(async () => {
+        if (musicTestBusy) return;
+        setMusicTestBusy('inspect');
+        setFirstSongResult(null);
+        try {
+            const r = await inspectLibrary();
+            setLibraryInspection(r);
+        } finally {
+            setMusicTestBusy(null);
+        }
+    }, [musicTestBusy]);
+
+    const handlePlayFirstSong = useCallback(async () => {
+        if (musicTestBusy) return;
+        setMusicTestBusy('play');
+        setLibraryInspection(null);
+        try {
+            const r = await playFirstSong();
+            setFirstSongResult(r);
+        } finally {
+            setMusicTestBusy(null);
+        }
+    }, [musicTestBusy]);
 
     const handleAlertsToggle = useCallback(
         (next: boolean) => {
@@ -355,12 +396,158 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                             <div className="flex-1">
                                 <div className="text-sm text-white font-bold">Allow music control</div>
                                 <div className="text-xs text-gray-400 mt-1">
-                                    "Calypso, play me some Pink Floyd" — opens Apple Music with the requested track or
-                                    playlist. Hand-off only: Calypso can't read back what's playing.
+                                    "Calypso, play me some Pink Floyd" — searches your library first, falls back to
+                                    Apple Music catalog hand-off if not in library.
                                 </div>
                             </div>
                             <Toggle checked={musicEnabled} onChange={handleMusicToggle} label="Apple Music access" />
                         </Row>
+                        {/* Diagnostic buttons — direct calls to the native
+                         *  plugin, bypass Calypso entirely. Tells you in
+                         *  seconds whether the plugin is loaded, library is
+                         *  visible, and playback actually works. The
+                         *  failure mode for "Calypso can't play music" is
+                         *  almost always one of these surfaced clearly. */}
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-xs text-gray-400">
+                                    <strong className="text-gray-300">Diagnostic.</strong> Bypass Calypso to test the
+                                    native plugin directly. Tells you whether the plugin loaded, your library is
+                                    visible, and playback actually works.
+                                </div>
+                            </div>
+                        </Row>
+                        <Row>
+                            <div className="flex-1 flex gap-2">
+                                <button
+                                    onClick={() => void handleInspectLibrary()}
+                                    disabled={!!musicTestBusy}
+                                    className="text-xs px-3 py-1.5 rounded border transition-colors border-sky-400/40 text-sky-300 hover:bg-sky-400/10 disabled:opacity-50"
+                                >
+                                    {musicTestBusy === 'inspect' ? 'Inspecting…' : 'Inspect library'}
+                                </button>
+                                <button
+                                    onClick={() => void handlePlayFirstSong()}
+                                    disabled={!!musicTestBusy}
+                                    className="text-xs px-3 py-1.5 rounded border transition-colors border-emerald-400/40 text-emerald-300 hover:bg-emerald-400/10 disabled:opacity-50"
+                                >
+                                    {musicTestBusy === 'play' ? 'Playing…' : 'Play first song'}
+                                </button>
+                            </div>
+                        </Row>
+                        {libraryInspection && (
+                            <Row>
+                                <div className="flex-1 text-xs">
+                                    {libraryInspection.reason === 'unsupported' && (
+                                        <div className="text-amber-400">
+                                            Native plugin only available on iOS — running in a web context.
+                                        </div>
+                                    )}
+                                    {libraryInspection.reason === 'plugin_error' && (
+                                        <div className="space-y-1">
+                                            <div className="text-red-400">
+                                                ✗ Native plugin not loaded — Xcode hasn't compiled the new Swift files
+                                                into this build.
+                                            </div>
+                                            <div className="text-gray-500">
+                                                Fix: Xcode → Product → Clean Build Folder (Shift+Cmd+K), then run again.{' '}
+                                                {libraryInspection.error && (
+                                                    <code className="text-gray-600 break-all">
+                                                        ({libraryInspection.error})
+                                                    </code>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {libraryInspection.reason === 'permission_denied' && (
+                                        <div className="space-y-1">
+                                            <div className="text-amber-400">
+                                                ✗ Apple Music library access denied (status:{' '}
+                                                {libraryInspection.auth_status}).
+                                            </div>
+                                            <div className="text-gray-500">
+                                                Fix: iOS Settings → Thalassa → Apple Music → enable. Or trigger the
+                                                first-time prompt by saying "Calypso, play me a song" once.
+                                            </div>
+                                        </div>
+                                    )}
+                                    {libraryInspection.available && (
+                                        <div className="space-y-1">
+                                            <div className="text-emerald-400">✓ Plugin loaded and library visible.</div>
+                                            <div className="text-gray-300">
+                                                {libraryInspection.artists} artists · {libraryInspection.albums} albums
+                                                · {libraryInspection.songs} songs · {libraryInspection.playlists}{' '}
+                                                playlists
+                                            </div>
+                                            {libraryInspection.songs === 0 && (
+                                                <div className="text-amber-400 mt-1">
+                                                    Library is empty — you may be streaming via Apple Music subscription
+                                                    without "Add to Library". Calypso can only see music that's been
+                                                    added to your library.
+                                                </div>
+                                            )}
+                                            {libraryInspection.sample_artists.length > 0 && (
+                                                <div className="text-gray-500">
+                                                    Sample artists:{' '}
+                                                    {libraryInspection.sample_artists.slice(0, 5).join(', ')}
+                                                </div>
+                                            )}
+                                            {libraryInspection.sample_playlists.length > 0 && (
+                                                <div className="text-gray-500">
+                                                    Sample playlists:{' '}
+                                                    {libraryInspection.sample_playlists.slice(0, 5).join(', ')}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            </Row>
+                        )}
+                        {firstSongResult && (
+                            <Row>
+                                <div className="flex-1 text-xs">
+                                    {firstSongResult.status === 'plugin_error' && (
+                                        <div className="space-y-1">
+                                            <div className="text-red-400">
+                                                ✗ Native plugin not loaded.{' '}
+                                                {firstSongResult.error && (
+                                                    <code className="text-gray-600 break-all">
+                                                        ({firstSongResult.error})
+                                                    </code>
+                                                )}
+                                            </div>
+                                            <div className="text-gray-500">Xcode → Product → Clean Build Folder.</div>
+                                        </div>
+                                    )}
+                                    {firstSongResult.status === 'unsupported' && (
+                                        <div className="text-amber-400">Native plugin only available on iOS.</div>
+                                    )}
+                                    {firstSongResult.status === 'permission_denied' && (
+                                        <div className="text-amber-400">
+                                            ✗ Permission denied. iOS Settings → Thalassa → Apple Music → enable.
+                                        </div>
+                                    )}
+                                    {firstSongResult.status === 'library_empty' && (
+                                        <div className="text-amber-400">
+                                            Library is empty (no songs). Add tracks to your library first.
+                                        </div>
+                                    )}
+                                    {firstSongResult.status === 'playing' && (
+                                        <div className="space-y-1">
+                                            <div className="text-emerald-400">
+                                                ✓ Playback started — should hear "{firstSongResult.title}" by{' '}
+                                                {firstSongResult.artist} now.
+                                            </div>
+                                            <div className="text-gray-500">
+                                                If you hear nothing, the playback pipeline works but audio isn't
+                                                reaching the speaker — check volume / silent switch / audio routing. If
+                                                you hear it, the plugin is solid; "play_music" failures are search-side.
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </Row>
+                        )}
                     </>
                 )}
             </Section>

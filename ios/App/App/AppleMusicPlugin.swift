@@ -304,6 +304,52 @@ public class AppleMusicPlugin: CAPPlugin {
     // MARK: - Diagnostics
 
     /**
+     * Smoke-test playback: grab the FIRST song in the library and
+     * play it. No search, no kind matching, no fancy logic — just
+     * "is the playback path actually working at all". If this
+     * succeeds and `searchAndPlay` doesn't, the issue is in search
+     * (matching, library visibility for queried terms, etc.). If
+     * this also fails, the playback pipeline itself is broken
+     * (permission, audio session, MPMusicPlayerController).
+     *
+     * Settings UI exposes this as the "Play first song" diagnostic
+     * button so the skipper can verify end-to-end audio without
+     * involving the LLM, Calypso's narration, or the URL fallback.
+     */
+    @objc func playFirstSong(_ call: CAPPluginCall) {
+        let status = MPMediaLibrary.authorizationStatus()
+        if status != .authorized {
+            NSLog("[AppleMusic] playFirstSong: not authorized (\(Self.authStatusString(status)))")
+            call.resolve([
+                "status": "permission_denied",
+                "auth_status": Self.authStatusString(status),
+                "title": "",
+                "artist": "",
+            ])
+            return
+        }
+        let songs = MPMediaQuery.songs().items ?? []
+        NSLog("[AppleMusic] playFirstSong: library has \(songs.count) songs")
+        guard let first = songs.first else {
+            call.resolve([
+                "status": "library_empty",
+                "title": "",
+                "artist": "",
+                "library_song_count": 0,
+            ])
+            return
+        }
+        playItems([first])
+        call.resolve([
+            "status": "playing",
+            "title": first.title ?? "",
+            "artist": first.artist ?? "",
+            "album": first.albumTitle ?? "",
+            "library_song_count": songs.count,
+        ])
+    }
+
+    /**
      * Public diagnostic — lets the JS layer ask "what does the
      * plugin actually see?" without trying to play anything.
      * Returns: auth status, library counts, and a sample of the
