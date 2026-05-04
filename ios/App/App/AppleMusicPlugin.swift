@@ -51,6 +51,35 @@ public class AppleMusicPlugin: CAPPlugin {
     private var ttsPlayer: AVAudioPlayer?
     private var ttsPlayerDelegate: TtsPlayerDelegate?
 
+    // ── Hydrated playlist cache ─────────────────────────────────────
+    // After getPlaylistTracks hydrates a playlist via .with([.tracks]),
+    // we stash the resulting Track array here keyed by playlist ID.
+    // Subsequent playTrackInPlaylist / addPlaylistToQueue calls can
+    // skip the (slow on large libraries) MusicLibraryRequest +
+    // .with([.tracks]) round-trip and just use the cached objects.
+    //
+    // Stored as `Any` because `Track` is `@available(iOS 15.0, *)` —
+    // class properties can't carry availability constraints, so we
+    // erase the type and cast on use. The two helper methods below
+    // contain the cast in one place.
+    private var hydratedTrackCache: [String: Any] = [:]
+    private var hydratedNameCache: [String: String] = [:]
+
+    @available(iOS 15.0, *)
+    private func cachePlaylist(id: String, name: String, tracks: [Track]) {
+        hydratedTrackCache[id] = tracks
+        hydratedNameCache[id] = name
+    }
+
+    @available(iOS 15.0, *)
+    private func cachedPlaylist(id: String) -> (name: String, tracks: [Track])? {
+        guard let tracks = hydratedTrackCache[id] as? [Track],
+              let name = hydratedNameCache[id] else {
+            return nil
+        }
+        return (name, tracks)
+    }
+
     // MARK: - Authorization
 
     @available(iOS 15.0, *)
@@ -521,7 +550,12 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
                 let detailed = try await playlist.with([.tracks])
                 let tracks = detailed.tracks ?? MusicItemCollection<Track>([])
-                let trackList: [[String: Any]] = tracks.map { track in
+                let trackArray = Array(tracks)
+                // Cache the hydrated tracks so playTrackInPlaylist /
+                // addPlaylistToQueue don't have to redo the slow
+                // MusicLibraryRequest + .with([.tracks]) round-trip.
+                self.cachePlaylist(id: id, name: playlist.name, tracks: trackArray)
+                let trackList: [[String: Any]] = trackArray.map { track in
                     var item: [String: Any] = [
                         "id": track.id.rawValue,
                         "title": track.title,
@@ -555,10 +589,33 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     /**
-     * Add every track in a playlist to the current playback queue. If
-     * nothing is playing, behaves like playPlaylist (set queue + play).
-     * If something IS playing, appends each track at the tail so the
-     * current track keeps going.
+     * Internal helper: resolve a playlist's hydrated tracks, preferring
+     * the cache populated by getPlaylistTracks. Falls back to a fresh
+     * MusicLibraryRequest + .with([.tracks]) only if the cache misses.
+     */
+    @available(iOS 15.0, *)
+    private func resolveHydrated(id: String) async throws -> (name: String, tracks: [Track])? {
+        if let cached = cachedPlaylist(id: id) {
+            return cached
+        }
+        let req = MusicLibraryRequest<Playlist>()
+        let resp = try await req.response()
+        guard let playlist = resp.items.first(where: { $0.id.rawValue == id }) else {
+            return nil
+        }
+        let detailed = try await playlist.with([.tracks])
+        let trackArray = Array(detailed.tracks ?? MusicItemCollection<Track>([]))
+        cachePlaylist(id: id, name: playlist.name, tracks: trackArray)
+        return (playlist.name, trackArray)
+    }
+
+    /**
+     * Replace the player's queue with a playlist's tracks and start
+     * playing. Used by the detail sheet's "Play" button. We previously
+     * also exposed a separate addPlaylistToQueue that used queue.insert
+     * to append, but that path hung intermittently on iOS — replacing
+     * the queue is the reliable behaviour and matches the "Play this
+     * playlist" intent the skipper actually wants.
      */
     @available(iOS 15.0, *)
     @objc func addPlaylistToQueue(_ call: CAPPluginCall) {
@@ -568,50 +625,28 @@ public class AppleMusicPlugin: CAPPlugin {
         }
         Task {
             do {
-                let req = MusicLibraryRequest<Playlist>()
-                let resp = try await req.response()
-                guard let playlist = resp.items.first(where: { $0.id.rawValue == id }) else {
+                guard let resolved = try await resolveHydrated(id: id) else {
                     await MainActor.run {
                         call.resolve(["status": "not_found", "id": id])
                     }
                     return
                 }
-                let detailed = try await playlist.with([.tracks])
-                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                guard !resolved.tracks.isEmpty else {
                     await MainActor.run {
-                        call.resolve([
-                            "status": "error",
-                            "error": "playlist has no tracks",
-                        ])
+                        call.resolve(["status": "error", "error": "playlist has no tracks"])
                     }
                     return
                 }
                 let player = ApplicationMusicPlayer.shared
-                let isActive = player.state.playbackStatus == .playing
-                    || player.state.playbackStatus == .paused
-                if isActive {
-                    // Append each track to the tail of the existing queue.
-                    for track in tracks {
-                        try await player.queue.insert(track, position: .tail)
-                    }
-                    await MainActor.run {
-                        call.resolve([
-                            "status": "queued",
-                            "playlist_name": playlist.name,
-                            "track_count": tracks.count,
-                        ])
-                    }
-                } else {
-                    player.queue = ApplicationMusicPlayer.Queue(for: tracks)
-                    try await player.prepareToPlay()
-                    try await player.play()
-                    await MainActor.run {
-                        call.resolve([
-                            "status": "playing",
-                            "playlist_name": playlist.name,
-                            "track_count": tracks.count,
-                        ])
-                    }
+                player.queue = ApplicationMusicPlayer.Queue(for: resolved.tracks)
+                try await player.prepareToPlay()
+                try await player.play()
+                await MainActor.run {
+                    call.resolve([
+                        "status": "playing",
+                        "playlist_name": resolved.name,
+                        "track_count": resolved.tracks.count,
+                    ])
                 }
             } catch {
                 NSLog("[AppleMusic] addPlaylistToQueue failed: \(error)")
@@ -628,7 +663,9 @@ public class AppleMusicPlugin: CAPPlugin {
     /**
      * Play a specific track in a playlist, queuing the rest of the
      * playlist (from that track onwards) after it. Mirrors the
-     * "tap-a-song-in-an-album" UX.
+     * "tap-a-song-in-an-album" UX. Reads from the same hydrated
+     * cache as addPlaylistToQueue so back-to-back interactions on
+     * the same playlist don't re-fetch.
      */
     @available(iOS 15.0, *)
     @objc func playTrackInPlaylist(_ call: CAPPluginCall) {
@@ -642,33 +679,25 @@ public class AppleMusicPlugin: CAPPlugin {
         }
         Task {
             do {
-                let req = MusicLibraryRequest<Playlist>()
-                let resp = try await req.response()
-                guard let playlist = resp.items.first(where: { $0.id.rawValue == playlistId }) else {
+                guard let resolved = try await resolveHydrated(id: playlistId) else {
                     await MainActor.run {
                         call.resolve(["status": "not_found", "id": playlistId])
                     }
                     return
                 }
-                let detailed = try await playlist.with([.tracks])
-                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                guard !resolved.tracks.isEmpty else {
                     await MainActor.run {
-                        call.resolve([
-                            "status": "error",
-                            "error": "playlist has no tracks",
-                        ])
+                        call.resolve(["status": "error", "error": "playlist has no tracks"])
                     }
                     return
                 }
-                let trackArray = Array(tracks)
-                guard let idx = trackArray.firstIndex(where: { $0.id.rawValue == trackId }) else {
+                guard let idx = resolved.tracks.firstIndex(where: { $0.id.rawValue == trackId }) else {
                     await MainActor.run {
                         call.resolve(["status": "track_not_found", "track_id": trackId])
                     }
                     return
                 }
-                // Slice from this track to end so the rest queues up.
-                let fromHere = Array(trackArray[idx...])
+                let fromHere = Array(resolved.tracks[idx...])
                 let player = ApplicationMusicPlayer.shared
                 player.queue = ApplicationMusicPlayer.Queue(for: fromHere)
                 try await player.prepareToPlay()
