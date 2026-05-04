@@ -235,19 +235,42 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
 
     const nowPlayingVisible = !!(nowPlaying && nowPlaying.title);
 
+    // ── Scroll-fade mask ───────────────────────────────────────────
+    // Tiles scrolling toward the bottom of the page would otherwise
+    // pass UNDER the floating NowPlayingBar, looking smudged through
+    // its backdrop-blur. Apply a CSS mask-image gradient to the
+    // scroll area so content fades to transparent ~60px above the
+    // bar's top edge — tiles dissolve into the dark before reaching
+    // it instead of sliding under. When the bar isn't visible we
+    // still fade above the global nav for the same reason.
+    //
+    // Math:
+    //   - 4rem  = global bottom-nav height
+    //   - 80px  = floating bar height (artwork 48 + p-3 + pb-2)
+    //   - 60px  = fade gradient height (the soft transition zone)
+    const maskBottomEnd = nowPlayingVisible
+        ? 'calc(4rem + env(safe-area-inset-bottom) + 80px)'
+        : 'calc(4rem + env(safe-area-inset-bottom))';
+    const maskFadeStart = `calc(${maskBottomEnd} + 60px)`;
+    const fadeMask = `linear-gradient(to bottom, black 0, black calc(100% - ${maskFadeStart}), transparent calc(100% - ${maskBottomEnd}))`;
+
     return (
         <div className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black">
             <PageHeader title="Music" subtitle="Apple Music playlists" onBack={onBack} />
 
             {/* Body — bottom padding accounts for the global nav, plus
              *  extra room when the floating NowPlayingBar is visible
-             *  so the last row of tiles can scroll into view above it. */}
+             *  so the last row of tiles can scroll into view above it.
+             *  The mask-image gradient fades content to transparent
+             *  just above the bar so tiles don't smudge under it. */}
             <div
                 className="flex-1 overflow-y-auto px-4"
                 style={{
                     paddingBottom: nowPlayingVisible
                         ? 'calc(4rem + 4.75rem + env(safe-area-inset-bottom) + 1rem)'
                         : 'calc(4rem + env(safe-area-inset-bottom) + 1rem)',
+                    maskImage: fadeMask,
+                    WebkitMaskImage: fadeMask,
                 }}
             >
                 {authGranted === false && (
