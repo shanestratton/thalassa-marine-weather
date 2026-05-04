@@ -610,6 +610,105 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     /**
+     * Voice-controlled "play one of my library playlists by name."
+     * Fuzzy-matches the query against the skipper's saved playlist
+     * names — exact match wins, then full-substring, then word-overlap
+     * scoring. This is the library-only counterpart to searchAndPlay
+     * (which hits the catalog and currently fails without a working
+     * developer token); useful for "Calypso, play my rock rotation"
+     * even while catalog auth is unsettled.
+     */
+    @available(iOS 15.0, *)
+    @objc func playLibraryPlaylist(_ call: CAPPluginCall) {
+        guard let query = call.getString("query"), !query.isEmpty else {
+            call.reject("query is required")
+            return
+        }
+        Task {
+            do {
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                let lowered = query.lowercased().trimmingCharacters(in: .whitespaces)
+                let queryWords = lowered
+                    .split(whereSeparator: { $0.isWhitespace })
+                    .map { String($0) }
+                    .filter { !$0.isEmpty }
+
+                // Score each candidate. Exact name match > full substring
+                // > all-words-match > partial-words-match. Higher score
+                // wins; ties go to the first one encountered.
+                struct Scored {
+                    let playlist: Playlist
+                    let score: Int
+                }
+                var bestSoFar: Scored? = nil
+                for playlist in resp.items {
+                    let name = playlist.name.lowercased()
+                    var score = 0
+                    if name == lowered {
+                        score = 100
+                    } else if name.contains(lowered) {
+                        score = 80
+                    } else if !queryWords.isEmpty {
+                        let matched = queryWords.filter { name.contains($0) }.count
+                        if matched == queryWords.count {
+                            score = 60
+                        } else if matched > 0 {
+                            score = matched * 10
+                        }
+                    }
+                    if score > 0 && (bestSoFar == nil || score > bestSoFar!.score) {
+                        bestSoFar = Scored(playlist: playlist, score: score)
+                    }
+                }
+
+                guard let best = bestSoFar?.playlist else {
+                    NSLog("[AppleMusic] playLibraryPlaylist: no match for '\(query)'")
+                    await MainActor.run {
+                        call.resolve(["status": "not_found", "query": query])
+                    }
+                    return
+                }
+
+                let detailed = try await best.with([.tracks])
+                guard let tracks = detailed.tracks, !tracks.isEmpty else {
+                    await MainActor.run {
+                        call.resolve(["status": "empty", "playlist_name": best.name])
+                    }
+                    return
+                }
+                // Cache so a subsequent voice command (e.g. "next track")
+                // doesn't have to refetch.
+                let trackArray = Array(tracks)
+                self.cachePlaylist(id: best.id.rawValue, name: best.name, tracks: trackArray)
+
+                let player = ApplicationMusicPlayer.shared
+                player.queue = ApplicationMusicPlayer.Queue(for: trackArray)
+                try await player.prepareToPlay()
+                try await player.play()
+                let firstTrack = trackArray.first
+                await MainActor.run {
+                    call.resolve([
+                        "status": "playing",
+                        "playlist_name": best.name,
+                        "track_count": trackArray.count,
+                        "first_track_title": firstTrack?.title ?? "",
+                        "first_track_artist": firstTrack?.artistName ?? "",
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] playLibraryPlaylist failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
      * Replace the player's queue with a playlist's tracks and start
      * playing. Used by the detail sheet's "Play" button. We previously
      * also exposed a separate addPlaylistToQueue that used queue.insert
@@ -650,6 +749,147 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
             } catch {
                 NSLog("[AppleMusic] addPlaylistToQueue failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    // MARK: - Library mutations (create playlist, add tracks)
+
+    /**
+     * Create a new (empty) playlist in the skipper's library. Used by
+     * the music page's "+" button and by the create_playlist voice
+     * tool. Returns the new playlist's id + name so callers can
+     * re-render the grid or open the detail sheet on it.
+     */
+    @available(iOS 16.0, *)
+    @objc func createPlaylist(_ call: CAPPluginCall) {
+        guard let name = call.getString("name"), !name.isEmpty else {
+            call.reject("name is required")
+            return
+        }
+        let description = call.getString("description")
+        Task {
+            do {
+                let playlist: Playlist
+                if let description = description, !description.isEmpty {
+                    playlist = try await MusicLibrary.shared.createPlaylist(
+                        name: name,
+                        description: description
+                    )
+                } else {
+                    playlist = try await MusicLibrary.shared.createPlaylist(name: name)
+                }
+                NSLog("[AppleMusic] createPlaylist '\(name)' → \(playlist.id.rawValue)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "ok",
+                        "id": playlist.id.rawValue,
+                        "name": playlist.name,
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] createPlaylist failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
+     * Add the currently-playing track to a named library playlist.
+     * Fuzzy-matches the playlist name (same logic as playLibraryPlaylist)
+     * so the skipper can say "save this to my passage mix" without
+     * needing the exact playlist name.
+     *
+     * Reads the now-playing item off ApplicationMusicPlayer's queue
+     * via currentEntry.item, which is an enum (Song / MusicVideo). We
+     * only support adding songs — music-video adds aren't useful for
+     * sailing playlists.
+     */
+    @available(iOS 16.0, *)
+    @objc func addCurrentTrackToPlaylist(_ call: CAPPluginCall) {
+        guard let playlistQuery = call.getString("playlist"), !playlistQuery.isEmpty else {
+            call.reject("playlist query is required")
+            return
+        }
+        Task {
+            do {
+                // Find playlist by fuzzy name
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                let lowered = playlistQuery.lowercased().trimmingCharacters(in: .whitespaces)
+                let queryWords = lowered
+                    .split(whereSeparator: { $0.isWhitespace })
+                    .map { String($0) }
+                    .filter { !$0.isEmpty }
+
+                var bestPlaylist: Playlist? = nil
+                var bestScore = 0
+                for p in resp.items {
+                    let nm = p.name.lowercased()
+                    var s = 0
+                    if nm == lowered { s = 100 }
+                    else if nm.contains(lowered) { s = 80 }
+                    else if !queryWords.isEmpty {
+                        let m = queryWords.filter { nm.contains($0) }.count
+                        if m == queryWords.count { s = 60 }
+                        else if m > 0 { s = m * 10 }
+                    }
+                    if s > bestScore { bestScore = s; bestPlaylist = p }
+                }
+                guard let playlist = bestPlaylist else {
+                    await MainActor.run {
+                        call.resolve(["status": "playlist_not_found", "query": playlistQuery])
+                    }
+                    return
+                }
+
+                // Pull current track off the player
+                let player = ApplicationMusicPlayer.shared
+                guard let entry = player.queue.currentEntry, let item = entry.item else {
+                    await MainActor.run {
+                        call.resolve(["status": "no_track_playing"])
+                    }
+                    return
+                }
+
+                switch item {
+                case .song(let song):
+                    try await MusicLibrary.shared.add(song, to: playlist)
+                    NSLog("[AppleMusic] added '\(song.title)' to playlist '\(playlist.name)'")
+                    // Invalidate cache for this playlist so a subsequent
+                    // sheet open re-fetches the freshly-extended track list.
+                    self.hydratedTrackCache.removeValue(forKey: playlist.id.rawValue)
+                    self.hydratedNameCache.removeValue(forKey: playlist.id.rawValue)
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "ok",
+                            "playlist_name": playlist.name,
+                            "track_title": song.title,
+                            "track_artist": song.artistName,
+                        ])
+                    }
+                case .musicVideo:
+                    await MainActor.run {
+                        call.resolve(["status": "not_a_song"])
+                    }
+                @unknown default:
+                    await MainActor.run {
+                        call.resolve(["status": "not_a_song"])
+                    }
+                }
+            } catch {
+                NSLog("[AppleMusic] addCurrentTrackToPlaylist failed: \(error)")
                 await MainActor.run {
                     call.resolve([
                         "status": "error",
