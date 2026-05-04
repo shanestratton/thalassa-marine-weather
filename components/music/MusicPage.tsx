@@ -217,7 +217,14 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     );
 
     return (
-        <div className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black">
+        <div
+            className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black"
+            // Pad the bottom by the global bottom-nav height (4rem) plus
+            // the iOS home-indicator safe area, so the NowPlayingBar
+            // (the last flex child below) sits above the nav rather
+            // than underneath it.
+            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+        >
             <PageHeader title="Music" subtitle="Apple Music playlists" onBack={onBack} />
 
             {/* Body */}
