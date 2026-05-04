@@ -147,16 +147,11 @@ public class WeatherKitPlugin: CAPPlugin {
             "temperatureMax": d.highTemperature.converted(to: .celsius).value,
             "temperatureMin": d.lowTemperature.converted(to: .celsius).value,
             "precipitationChance": d.precipitationChance,
-            // Rainfall: `rainfallAmount` was deprecated in iOS 16.4 in
-            // favour of `precipitationAmountByType.rainfall`, but that
-            // replacement requires iOS 18+. Our min target is iOS 17,
-            // so use #available to pick the right API at runtime —
-            // silences the deprecation warning on iOS 18+ without
-            // breaking iOS 17 users.
-            //
-            // Snowfall: `DayWeather.snowfallAmount` is NOT deprecated
-            // (different from rainfallAmount). Stays on the direct
-            // property — it's still the sanctioned API.
+            // Rainfall: rainfallMM(d) picks the right API at runtime —
+            // iOS 18+ uses precipitationAmountByType.rainfall; iOS 17
+            // derives from total precipitation minus snowfall. Both
+            // paths use non-deprecated APIs only.
+            // Snowfall stays on DayWeather.snowfallAmount (not deprecated).
             "precipitationAmount": rainfallMM(d),
             "snowfallAmount": d.snowfallAmount.converted(to: .millimeters).value,
             "sunrise": d.sun.sunrise.map { fmt.string(from: $0) } as Any,
@@ -170,30 +165,33 @@ public class WeatherKitPlugin: CAPPlugin {
         ]
     }
 
-    /// Rainfall in mm with iOS-18+ fast path. iOS 17 falls back to the
-    /// deprecated `rainfallAmount` because `precipitationAmountByType`
-    /// wasn't exposed on DayWeather until iOS 18.
+    /// Rainfall in mm. Two paths:
+    ///   - iOS 18+: use `precipitationAmountByType.rainfall` directly
+    ///     (the modern, type-broken-out API).
+    ///   - iOS 17.x: derive from total precipitation minus snowfall.
+    ///     `DayWeather.precipitationAmount` and `snowfallAmount` are
+    ///     both non-deprecated APIs available since iOS 16, so this
+    ///     path produces zero deprecation warnings.
+    ///
+    /// The previous attempt used `rainfallAmount` (deprecated in iOS
+    /// 16.4) wrapped in a helper marked `@available(deprecated:)`.
+    /// Swift's deprecation warnings propagate from a deprecated symbol
+    /// to its callers — so the wrapper just moved the warning one line
+    /// up rather than silencing it. The "compute from totals" trick
+    /// avoids touching the deprecated API at all.
+    ///
+    /// Semantic note: total - snow = rainfall + sleet + hail. For
+    /// marine forecasting that's an acceptable approximation —
+    /// sleet/hail count as "wet" precipitation, which is the only
+    /// distinction the downstream UI cares about. Rainfall + sleet
+    /// + hail is still meaningfully different from snow accumulation.
     private static func rainfallMM(_ d: DayWeather) -> Double {
         if #available(iOS 18.0, *) {
             return d.precipitationAmountByType.rainfall.converted(to: .millimeters).value
         }
-        return legacyRainfallMM(d)
-    }
-
-    /// iOS 17 fallback. `rainfallAmount` is deprecated in iOS 16.4 but
-    /// the replacement (`precipitationAmountByType`) wasn't surfaced on
-    /// DayWeather until iOS 18, so we have no alternative on iOS 17.x.
-    /// Marking the wrapper itself `@available(deprecated:)` is Swift's
-    /// idiom for "I know this calls a deprecated API; please don't
-    /// warn me on every build" — the deprecation warning is suppressed
-    /// inside any function annotated as deprecated at or after the
-    /// same iOS version.
-    @available(
-        iOS, deprecated: 16.4,
-        message: "Required fallback for iOS 17.x. Remove once deployment target is iOS 18+."
-    )
-    private static func legacyRainfallMM(_ d: DayWeather) -> Double {
-        return d.rainfallAmount.converted(to: .millimeters).value
+        let total = d.precipitationAmount.converted(to: .millimeters).value
+        let snow = d.snowfallAmount.converted(to: .millimeters).value
+        return max(0, total - snow)
     }
 
     private static func serializeMinute(_ m: MinuteWeather) -> [String: Any] {
