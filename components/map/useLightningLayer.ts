@@ -29,13 +29,24 @@ import {
 const log = createLogger('LightningLayer');
 
 // ── Layer/Source IDs ──
+//
+// Visual recipe is a 4-layer stack designed to look like a meteorite
+// impact, not a faint pixel:
+//   1. SHOCKWAVE   (bottom)  — hollow ring that expands + fades in the
+//                              first ~1.5s, the "boom" of a fresh hit
+//   2. BLAST HALO            — large soft yellow-orange glow, full TTL
+//   3. HIT CORE              — bright white-hot centre dot
+//   4. BOLT       (top)      — ⚡ glyph that sits on the impact point
 const LIGHTNING_SOURCE = 'lightning-blitz-source';
-// Hit-spot — small dark dot at the lat/lon where the lightning grounded.
-// Lives UNDER the bolt symbol so the bolt visually "lands" on the dot.
+const LIGHTNING_LAYER_SHOCKWAVE = 'lightning-blitz-layer-shockwave';
+const LIGHTNING_LAYER_HALO = 'lightning-blitz-layer-halo';
 const LIGHTNING_LAYER_HIT = 'lightning-blitz-layer-hit';
-// Bolt — white ⚡ glyph rendered as a Mapbox text-symbol. Bottom-anchored
-// so the base of the bolt sits at the hit-spot.
 const LIGHTNING_LAYER_BOLT = 'lightning-blitz-layer-bolt';
+
+// How long the expanding shockwave ring takes to play out. Short
+// enough to read as "BANG" not "shimmer", long enough to actually
+// catch the eye on a 60Hz device.
+const SHOCKWAVE_MS = 1500;
 
 // How long a strike stays visible on the chart. User-tuned to 10 min
 // (2026-04-25) — long enough that a passing thunderstorm leaves a visible
@@ -58,6 +69,12 @@ interface StrikeFeatureProps {
     pol: 'positive' | 'negative' | 'unknown';
     /** Pre-computed alpha (0..1) — refreshed on the repaint loop. */
     alpha: number;
+    /** 0..1 — how much the shockwave ring has expanded (1 = full radius).
+     *  Drives the data-driven `circle-radius` expression on the
+     *  shockwave layer so each strike's ring grows independently. */
+    shockExpand: number;
+    /** 0..1 — opacity for the shockwave ring (peaks early, fades fast). */
+    shockAlpha: number;
 }
 
 export function useLightningLayer(
@@ -96,11 +113,75 @@ export function useLightningLayer(
                     styleLayers.find((l) => l.type === 'symbol')?.id ??
                     (map.getLayer('route-line-layer') ? 'route-line-layer' : undefined);
 
-                // Hit-spot — small dark dot at the lat/lon where the
-                // lightning grounded. Sits UNDER the bolt so the bolt
-                // appears to land on it. Polarity tints (subtle) so a
-                // burst of -CG strikes looks tonally distinct from a
-                // burst of +CG strikes.
+                // 1. SHOCKWAVE — hollow ring that expands and fades in
+                //    the first ~1.5s of each strike. This is the
+                //    "meteorite hit" visual cue: a brief expanding ring
+                //    that tells the eye SOMETHING JUST HAPPENED HERE.
+                //    Stays invisible (opacity 0) for the rest of the
+                //    strike's life so it doesn't clutter old strikes.
+                if (!map.getLayer(LIGHTNING_LAYER_SHOCKWAVE)) {
+                    map.addLayer(
+                        {
+                            id: LIGHTNING_LAYER_SHOCKWAVE,
+                            type: 'circle',
+                            source: LIGHTNING_SOURCE,
+                            paint: {
+                                // Base radius scales with zoom; per-strike
+                                // expansion factor (0..1) multiplies it
+                                // so each ring grows independently from
+                                // the others on screen.
+                                'circle-radius': [
+                                    '*',
+                                    ['interpolate', ['linear'], ['zoom'], 2, 18, 5, 28, 10, 48, 14, 72],
+                                    ['+', 0.4, ['*', 0.6, ['get', 'shockExpand']]],
+                                ],
+                                'circle-color': 'rgba(0,0,0,0)',
+                                'circle-stroke-color': '#fbbf24', // amber lightning glow
+                                'circle-stroke-width': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 10, 2.5, 14, 3.5],
+                                'circle-stroke-opacity': ['get', 'shockAlpha'],
+                            },
+                        },
+                        beforeId,
+                    );
+                }
+
+                // 2. BLAST HALO — soft warm glow that persists through
+                //    the whole TTL. Gives every strike spatial presence
+                //    so a stationary chart still reads "thunderstorm
+                //    here" between expansions. Polarity tints the glow
+                //    subtly so a burst of -CG vs +CG looks distinct.
+                if (!map.getLayer(LIGHTNING_LAYER_HALO)) {
+                    map.addLayer(
+                        {
+                            id: LIGHTNING_LAYER_HALO,
+                            type: 'circle',
+                            source: LIGHTNING_SOURCE,
+                            paint: {
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 8, 5, 14, 10, 22, 14, 32],
+                                'circle-color': [
+                                    'match',
+                                    ['get', 'pol'],
+                                    'positive',
+                                    '#fb923c', // warm orange for +CG
+                                    'negative',
+                                    '#fbbf24', // amber for -CG (most common)
+                                    /* unknown */ '#facc15', // bright yellow
+                                ],
+                                'circle-blur': 0.65,
+                                // Halo at ~40% of the strike's overall alpha — present
+                                // but subordinate to the bright core.
+                                'circle-opacity': ['*', 0.45, ['get', 'alpha']],
+                            },
+                        },
+                        beforeId,
+                    );
+                }
+
+                // 3. HIT CORE — bright white-hot centre. Bumped 3-4×
+                //    from the previous radius (1.5–6px → 5–18px) so a
+                //    single strike actually reads at hand-held viewing
+                //    distance. White stroke turns the core into a
+                //    visibly-glowing dot rather than a dark pixel.
                 if (!map.getLayer(LIGHTNING_LAYER_HIT)) {
                     map.addLayer(
                         {
@@ -108,18 +189,10 @@ export function useLightningLayer(
                             type: 'circle',
                             source: LIGHTNING_SOURCE,
                             paint: {
-                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 1.5, 5, 2.5, 10, 4, 14, 6],
-                                'circle-color': [
-                                    'match',
-                                    ['get', 'pol'],
-                                    'positive',
-                                    '#7c2d12', // deep amber-brown for +CG
-                                    'negative',
-                                    '#0c4a6e', // deep navy for -CG (most strikes)
-                                    /* unknown */ '#312e81', // deep indigo
-                                ],
+                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 2, 5, 5, 8, 10, 12, 14, 18],
+                                'circle-color': '#fef3c7', // pale yellow-white core
                                 'circle-stroke-color': '#ffffff',
-                                'circle-stroke-width': 0.5,
+                                'circle-stroke-width': 1.5,
                                 'circle-opacity': ['get', 'alpha'],
                                 'circle-stroke-opacity': ['get', 'alpha'],
                             },
@@ -128,12 +201,13 @@ export function useLightningLayer(
                     );
                 }
 
-                // Bolt — white ⚡ glyph rendered via Mapbox's text-field.
-                // Using the unicode glyph means we don't need to ship a
-                // PNG/SVG icon image and register it with the map; iOS's
-                // built-in emoji fonts handle the rasterising. Bottom-
-                // anchored + a small upward offset so the base of the
-                // bolt visually touches the hit-spot dot.
+                // 4. BOLT — white ⚡ glyph rendered via Mapbox's text-field.
+                //    Using the unicode glyph means we don't need to ship a
+                //    PNG/SVG icon image and register it with the map; iOS's
+                //    built-in emoji fonts handle the rasterising. Bottom-
+                //    anchored + a small upward offset so the base of the
+                //    bolt visually touches the hit-spot dot. Bumped ~50%
+                //    larger to match the new core/halo scale.
                 if (!map.getLayer(LIGHTNING_LAYER_BOLT)) {
                     map.addLayer(
                         {
@@ -142,9 +216,7 @@ export function useLightningLayer(
                             source: LIGHTNING_SOURCE,
                             layout: {
                                 'text-field': '⚡',
-                                // Size grows with zoom so a strike is visible
-                                // at world-view but not absurd at z14.
-                                'text-size': ['interpolate', ['linear'], ['zoom'], 2, 12, 5, 16, 10, 22, 14, 28],
+                                'text-size': ['interpolate', ['linear'], ['zoom'], 2, 18, 5, 24, 10, 34, 14, 44],
                                 'text-anchor': 'bottom',
                                 'text-offset': [0, -0.1],
                                 'text-allow-overlap': true,
@@ -157,7 +229,7 @@ export function useLightningLayer(
                             paint: {
                                 'text-color': '#ffffff',
                                 'text-halo-color': 'rgba(0, 0, 0, 0.55)',
-                                'text-halo-width': 1.2,
+                                'text-halo-width': 1.5,
                                 'text-opacity': ['get', 'alpha'],
                             },
                         },
@@ -187,11 +259,19 @@ export function useLightningLayer(
                 // "is the storm I'm watching intensifying?". The viewport
                 // window for rate is the last 60s.
                 const VIEWPORT_RATE_WINDOW_MS = 60 * 1000;
+                // Repaint cadence: ~16Hz (60ms) so the shockwave-ring
+                // expansion animation reads as smooth motion rather than
+                // a steppy flicker. The previous 250ms tick gave only
+                // 6 frames per shockwave — enough for a fade alpha
+                // change but not enough to see the ring grow. setData
+                // on the GeoJSON source is cheap (Mapbox diffs it),
+                // so 16Hz with up to 5000 features is well within
+                // budget.
                 let lastTick = 0;
                 let lastViewportPush = 0;
                 const tick = (now: number) => {
                     if (!rafRef.current) return;
-                    if (now - lastTick > 250) {
+                    if (now - lastTick > 60) {
                         lastTick = now;
                         repaintStrikes(map, strikesRef.current);
                     }
@@ -254,6 +334,16 @@ export function useLightningLayer(
                 /* already removed */
             }
             try {
+                if (map.getLayer(LIGHTNING_LAYER_HALO)) map.removeLayer(LIGHTNING_LAYER_HALO);
+            } catch {
+                /* already removed */
+            }
+            try {
+                if (map.getLayer(LIGHTNING_LAYER_SHOCKWAVE)) map.removeLayer(LIGHTNING_LAYER_SHOCKWAVE);
+            } catch {
+                /* already removed */
+            }
+            try {
                 if (map.getSource(LIGHTNING_SOURCE)) map.removeSource(LIGHTNING_SOURCE);
             } catch {
                 /* already removed */
@@ -288,6 +378,22 @@ function computeAlpha(ageMs: number): number {
     return Math.max(0, 0.85 * remaining);
 }
 
+/** Compute the shockwave-ring expansion + alpha for a strike given its
+ *  age. Plays for the first SHOCKWAVE_MS of a strike's life, then
+ *  collapses to zero so old strikes don't carry rings. */
+function computeShockwave(ageMs: number): { expand: number; alpha: number } {
+    if (ageMs < 0 || ageMs > SHOCKWAVE_MS) return { expand: 0, alpha: 0 };
+    const t = ageMs / SHOCKWAVE_MS; // 0..1
+    // Ease-out expansion — fast at first, slower as it spreads. Final
+    // factor reaches 1 at SHOCKWAVE_MS; the layer expression then
+    // multiplies it with the zoom-scaled max radius.
+    const expand = 1 - Math.pow(1 - t, 2);
+    // Alpha peaks early (at ~15% in) then fades to zero. Gives the
+    // ring a brief BANG of brightness before it dissipates outward.
+    const alpha = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+    return { expand, alpha: Math.max(0, alpha) };
+}
+
 function repaintStrikes(map: mapboxgl.Map, strikes: Map<string, LightningStrike>): void {
     const now = Date.now();
     const expired: string[] = [];
@@ -299,6 +405,7 @@ function repaintStrikes(map: mapboxgl.Map, strikes: Map<string, LightningStrike>
             expired.push(s.id);
             return;
         }
+        const sw = computeShockwave(age);
         features.push({
             type: 'Feature',
             geometry: { type: 'Point', coordinates: [s.lon, s.lat] },
@@ -306,6 +413,8 @@ function repaintStrikes(map: mapboxgl.Map, strikes: Map<string, LightningStrike>
                 t: s.time,
                 pol: s.polarity,
                 alpha: computeAlpha(age),
+                shockExpand: sw.expand,
+                shockAlpha: sw.alpha,
             },
         });
     });
