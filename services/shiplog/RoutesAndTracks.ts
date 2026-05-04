@@ -205,7 +205,20 @@ export async function fetchRoutesAndTracks(force = false): Promise<RoutesAndTrac
     return inflight;
 }
 
-/** Drop the cache so the next fetch hits Supabase. Call after a save. */
+/** Drop the cache so the next fetch hits Supabase. Call after a save.
+ *  Also broadcasts a `routes-and-tracks-changed` window event so any
+ *  surface that displays a count (Nav Station hero tiles, etc.) can
+ *  re-fetch without polling. The event is fire-and-forget — listeners
+ *  that aren't registered are no-ops. */
+export const ROUTES_AND_TRACKS_CHANGED_EVENT = 'thalassa:routes-and-tracks-changed';
+
 export function invalidateRoutesAndTracks(): void {
     cache = null;
+    if (typeof window !== 'undefined') {
+        try {
+            window.dispatchEvent(new CustomEvent(ROUTES_AND_TRACKS_CHANGED_EVENT));
+        } catch {
+            /* CustomEvent not available (very old browsers) — silent fallback */
+        }
+    }
 }
