@@ -51,6 +51,7 @@ interface AppleMusicPluginInterface {
             name: string;
             curator: string;
             artwork_url: string;
+            preview_tracks?: Array<{ title: string; artist: string }>;
         }>;
         error?: string;
     }>;
@@ -141,11 +142,20 @@ export async function getAuthorizationStatus(): Promise<AuthResult> {
 
 // ── User playlists ─────────────────────────────────────────────────
 
+export interface PlaylistTrackPreview {
+    title: string;
+    artist: string;
+}
+
 export interface UserPlaylist {
     id: string;
     name: string;
     curator: string;
     artworkUrl: string;
+    /** First few tracks in the playlist, surfaced on the tile cover
+     *  so the skipper can see what's inside at a glance. Empty when
+     *  the playlist has no tracks (or hydration failed). */
+    previewTracks: PlaylistTrackPreview[];
 }
 
 export interface UserPlaylistsResult {
@@ -176,6 +186,10 @@ export async function getUserPlaylists(): Promise<UserPlaylistsResult> {
                 name: p.name,
                 curator: p.curator,
                 artworkUrl: p.artwork_url,
+                previewTracks: (p.preview_tracks ?? []).map((t) => ({
+                    title: t.title,
+                    artist: t.artist,
+                })),
             })),
         };
     } catch (err) {

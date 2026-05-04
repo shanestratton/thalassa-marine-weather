@@ -390,22 +390,47 @@ public class AppleMusicPlugin: CAPPlugin {
                 var req = MusicLibraryRequest<Playlist>()
                 req.limit = 100
                 let resp = try await req.response()
-                let playlists: [[String: Any]] = resp.items.map { playlist in
-                    var item: [String: Any] = [
-                        "id": playlist.id.rawValue,
-                        "name": playlist.name,
-                        "curator": playlist.curatorName ?? "",
-                    ]
-                    // Artwork URL for tile rendering on the Music page.
-                    if let artwork = playlist.artwork {
-                        let url = artwork.url(width: 400, height: 400)
-                        item["artwork_url"] = url?.absoluteString ?? ""
-                    } else {
-                        item["artwork_url"] = ""
+                // Hydrate each playlist with its first few tracks so the
+                // tile cover can preview the songs inside. Run the
+                // hydrations in parallel via TaskGroup but track the
+                // index so we preserve the user's playlist order.
+                let indexed = await withTaskGroup(of: (Int, [String: Any]).self) {
+                    group -> [(Int, [String: Any])] in
+                    for (idx, playlist) in resp.items.enumerated() {
+                        group.addTask {
+                            var item: [String: Any] = [
+                                "id": playlist.id.rawValue,
+                                "name": playlist.name,
+                                "curator": playlist.curatorName ?? "",
+                            ]
+                            if let artwork = playlist.artwork {
+                                let url = artwork.url(width: 400, height: 400)
+                                item["artwork_url"] = url?.absoluteString ?? ""
+                            } else {
+                                item["artwork_url"] = ""
+                            }
+                            // First 5 tracks for the cover preview. Best-effort
+                            // — if hydration throws, we just emit an empty list.
+                            let detailed = try? await playlist.with([.tracks])
+                            let tracks = detailed?.tracks ?? MusicItemCollection<Track>([])
+                            let previewTracks: [[String: String]] = tracks.prefix(5).map { track in
+                                [
+                                    "title": track.title,
+                                    "artist": track.artistName,
+                                ]
+                            }
+                            item["preview_tracks"] = previewTracks
+                            return (idx, item)
+                        }
                     }
-                    return item
+                    var collected: [(Int, [String: Any])] = []
+                    for await pair in group {
+                        collected.append(pair)
+                    }
+                    return collected
                 }
-                NSLog("[AppleMusic] getUserPlaylists → \(playlists.count) playlists")
+                let playlists = indexed.sorted { $0.0 < $1.0 }.map { $0.1 }
+                NSLog("[AppleMusic] getUserPlaylists → \(playlists.count) playlists (with previews)")
                 await MainActor.run {
                     call.resolve([
                         "status": "ok",

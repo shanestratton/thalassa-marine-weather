@@ -35,6 +35,7 @@ import {
     type UserPlaylist,
     type NowPlaying,
     type PlaylistTrack,
+    type PlaylistTrackPreview,
 } from '../../services/voice/integrations/appleMusic';
 import { triggerHaptic } from '../../utils/system';
 
@@ -398,7 +399,7 @@ const PlaylistTile: React.FC<PlaylistTileProps> = ({ playlist, active, onTap, on
                     onError={() => setImageFailed(true)}
                 />
             ) : (
-                <GeneratedPlaylistArtwork name={playlist.name} />
+                <GeneratedPlaylistArtwork name={playlist.name} previewTracks={playlist.previewTracks} />
             )}
             {/* Title overlay */}
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
@@ -617,8 +618,18 @@ function monogramFor(name: string): string {
     return first.charAt(0).toUpperCase();
 }
 
-const GeneratedPlaylistArtwork: React.FC<{ name: string }> = ({ name }) => {
+const GeneratedPlaylistArtwork: React.FC<{
+    name: string;
+    /** First few tracks to preview on the cover. When provided we
+     *  render a song list instead of the serif monogram — gives the
+     *  skipper a peek at what's inside without opening the playlist.
+     *  Empty / undefined falls back to the monogram (e.g. now-playing
+     *  thumbnail where the list wouldn't fit anyway). */
+    previewTracks?: PlaylistTrackPreview[];
+}> = ({ name, previewTracks }) => {
     const palette = paletteFor(name);
+    const tracks = previewTracks ?? [];
+    const showList = tracks.length > 0;
     const monogram = monogramFor(name);
     return (
         <div
@@ -647,21 +658,46 @@ const GeneratedPlaylistArtwork: React.FC<{ name: string }> = ({ name }) => {
                 <path d="M0,30 Q50,12 100,30 T200,30 L200,60 L0,60 Z" fill="white" opacity="0.06" />
                 <path d="M0,40 Q50,22 100,40 T200,40 L200,60 L0,60 Z" fill="white" opacity="0.05" />
             </svg>
-            {/* Serif monogram — large, semi-translucent, dropshadow for contrast */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div
-                    className="text-white/80 leading-none select-none"
-                    style={{
-                        fontFamily: 'Georgia, "Times New Roman", serif',
-                        fontWeight: 600,
-                        fontSize: monogram.length > 1 ? '3.75rem' : '4.5rem',
-                        textShadow: '0 4px 16px rgba(0,0,0,0.35)',
-                        letterSpacing: monogram.length > 1 ? '-0.02em' : '0',
-                    }}
-                >
-                    {monogram}
+            {showList ? (
+                /* Track list — title flush left, artist indented underneath.
+                 * Sits in the upper portion of the tile; the bottom title
+                 * overlay (rendered by the caller) hides anything that
+                 * runs past the safe zone, so we don't need to clip
+                 * exactly N tracks — just enough to fill comfortably. */
+                <div className="absolute inset-x-2.5 top-2.5 bottom-14 overflow-hidden pointer-events-none">
+                    <div className="space-y-1.5">
+                        {tracks.slice(0, 4).map((t, i) => (
+                            <div key={i} className="leading-tight">
+                                <div
+                                    className="text-white text-[10.5px] font-semibold truncate"
+                                    style={{ textShadow: '0 1px 4px rgba(0,0,0,0.35)' }}
+                                >
+                                    {t.title}
+                                </div>
+                                {t.artist && (
+                                    <div className="text-white/65 text-[9px] truncate pl-2.5 mt-0.5">{t.artist}</div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            ) : (
+                /* Empty playlist — fall back to the serif monogram. */
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div
+                        className="text-white/80 leading-none select-none"
+                        style={{
+                            fontFamily: 'Georgia, "Times New Roman", serif',
+                            fontWeight: 600,
+                            fontSize: monogram.length > 1 ? '3.75rem' : '4.5rem',
+                            textShadow: '0 4px 16px rgba(0,0,0,0.35)',
+                            letterSpacing: monogram.length > 1 ? '-0.02em' : '0',
+                        }}
+                    >
+                        {monogram}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
