@@ -191,6 +191,22 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             result.origin = fmtOrigin;
             result.destination = fmtDest;
 
+            // ── Preserve the user's typed departure date too ──
+            // Same family of bug as origin/destination: Gemini's schema
+            // asks for "YYYY-MM-DD" and it's free to return whatever
+            // date it wants. In practice it sometimes returns today's
+            // date, sometimes a date a few days off, sometimes echoes
+            // correctly. User picked May 8 → saved passage shows May 2,
+            // because Gemini hallucinated the date and we didn't
+            // override. The user's typed value is the only authoritative
+            // source — pin it. PassagePlanSave reads `plan.departureDate`
+            // to timestamp entries[0]; that flows through to
+            // voyage.departure_time on save and the Passage Planning
+            // dropdown displays it on load.
+            if (departureDate) {
+                result.departureDate = departureDate;
+            }
+
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveIfActive(result);
             setLoading(false);

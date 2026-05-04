@@ -687,21 +687,29 @@ const SlotPicker: React.FC<{
         day: 'numeric',
     });
 
-    // Debounced search
+    // Debounced search. Pass `immediate: true` to skip the 400ms
+    // debounce — used when the user picks a suggestion explicitly
+    // (dropdown change), so they don't sit watching nothing happen
+    // for nearly half a second after a deliberate action.
     const handleSearch = useCallback(
-        (q: string) => {
+        (q: string, immediate = false) => {
             setSearchQuery(q);
             if (searchTimeout.current) clearTimeout(searchTimeout.current);
             if (!q.trim()) {
                 setResults([]);
                 return;
             }
-            searchTimeout.current = setTimeout(async () => {
+            const run = async () => {
                 setSearching(true);
                 const r = await searchRecipes(q, slot === 'breakfast' ? 'breakfast' : undefined);
                 setResults(r);
                 setSearching(false);
-            }, 400);
+            };
+            if (immediate) {
+                void run();
+            } else {
+                searchTimeout.current = setTimeout(run, 400);
+            }
         },
         [slot],
     );
@@ -800,57 +808,95 @@ const SlotPicker: React.FC<{
                         role="listbox"
                         aria-label="Recipe results"
                     >
-                        {/* Quick suggestions when search is empty */}
+                        {/* Quick suggestions when search is empty.
+                            Replaced 8-pill grid with a native <select>
+                            dropdown — pills were ~28px tall (below the
+                            iOS HIG 44pt minimum), and competing with
+                            the focused search input above sometimes
+                            ate the tap during keyboard dismissal.
+                            Native select renders as iOS's full-screen
+                            wheel picker, has reliable hit-target
+                            behaviour, and reads cleaner. */}
                         {!searchQuery && results.length === 0 && !searching && (
                             <div className="space-y-2 pb-2">
                                 <p className="text-[11px] text-gray-500 font-bold uppercase tracking-wider px-1">
                                     Suggestions for {slotLabel?.label || 'this meal'}
                                 </p>
-                                <div className="flex flex-wrap gap-1.5">
-                                    {(slot === 'breakfast'
-                                        ? [
-                                              'Scrambled Eggs',
-                                              'Pancakes',
-                                              'Porridge',
-                                              'French Toast',
-                                              'Omelette',
-                                              'Baked Beans on Toast',
-                                              'Smoothie Bowl',
-                                              'Eggs Benedict',
-                                          ]
-                                        : slot === 'lunch'
-                                          ? [
-                                                'Chicken Wrap',
-                                                'Tuna Salad',
-                                                'Fried Rice',
-                                                'BLT Sandwich',
-                                                'Soup',
-                                                'Quesadilla',
-                                                'Fish Tacos',
-                                                'Pasta Salad',
-                                            ]
-                                          : [
-                                                'Spaghetti Bolognese',
-                                                'Grilled Chicken',
-                                                'Beef Stew',
-                                                'Fish Curry',
-                                                'Stir Fry',
-                                                'Lamb Chops',
-                                                'Chilli Con Carne',
-                                                'Pad Thai',
-                                            ]
-                                    ).map((suggestion) => (
-                                        <button
-                                            key={suggestion}
-                                            onClick={() => {
-                                                setSearchQuery(suggestion);
-                                                handleSearch(suggestion);
-                                            }}
-                                            className="px-2.5 py-1.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/15 text-[11px] text-amber-400/80 font-medium hover:bg-amber-500/15 hover:text-amber-300 transition-all active:scale-95"
-                                        >
-                                            {suggestion}
-                                        </button>
-                                    ))}
+                                <div className="relative">
+                                    <select
+                                        value=""
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            if (!v) return;
+                                            triggerHaptic('light');
+                                            // Fire the search RIGHT NOW (no 400ms debounce) —
+                                            // the user explicitly picked, so don't make them
+                                            // wait. handleSearch sets the search query AND
+                                            // cancels any pending debounced call internally.
+                                            handleSearch(v, true);
+                                        }}
+                                        className="w-full bg-amber-500/[0.06] border border-amber-500/20 rounded-xl px-3 py-3 text-sm text-amber-300 font-medium focus:outline-none focus:border-amber-500/50 appearance-none pr-9 [color-scheme:dark]"
+                                        aria-label="Pick a popular recipe"
+                                    >
+                                        <option value="" className="bg-slate-900 text-amber-400/70">
+                                            💡 Pick a popular {slotLabel?.label?.toLowerCase() || 'meal'}…
+                                        </option>
+                                        {(slot === 'breakfast'
+                                            ? [
+                                                  'Scrambled Eggs',
+                                                  'Pancakes',
+                                                  'Porridge',
+                                                  'French Toast',
+                                                  'Omelette',
+                                                  'Baked Beans on Toast',
+                                                  'Smoothie Bowl',
+                                                  'Eggs Benedict',
+                                              ]
+                                            : slot === 'lunch'
+                                              ? [
+                                                    'Chicken Wrap',
+                                                    'Tuna Salad',
+                                                    'Fried Rice',
+                                                    'BLT Sandwich',
+                                                    'Soup',
+                                                    'Quesadilla',
+                                                    'Fish Tacos',
+                                                    'Pasta Salad',
+                                                ]
+                                              : [
+                                                    'Spaghetti Bolognese',
+                                                    'Grilled Chicken',
+                                                    'Beef Stew',
+                                                    'Fish Curry',
+                                                    'Stir Fry',
+                                                    'Lamb Chops',
+                                                    'Chilli Con Carne',
+                                                    'Pad Thai',
+                                                ]
+                                        ).map((suggestion) => (
+                                            <option
+                                                key={suggestion}
+                                                value={suggestion}
+                                                className="bg-slate-900 text-white"
+                                            >
+                                                {suggestion}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {/* Custom chevron — the native one is hidden by appearance-none */}
+                                    <svg
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400/70 pointer-events-none"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M19.5 8.25l-7.5 7.5-7.5-7.5"
+                                        />
+                                    </svg>
                                 </div>
                             </div>
                         )}

@@ -79,7 +79,11 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         // this line tells us whether the bad name arrived in the plan
         // or got built from something else further down. Uses .warn
         // because .info is silenced in production builds (createLogger).
-        log.warn(`savePassagePlan input — origin="${plan.origin}", destination="${plan.destination}"`);
+        // Also log the date — Gemini sometimes hallucinates departureDate
+        // and we need to see what's actually arriving here.
+        log.warn(
+            `savePassagePlan input — origin="${plan.origin}", destination="${plan.destination}", departureDate=${plan.departureDate ?? '(none)'}`,
+        );
 
         // ── Duplicate check ─────────────────────────────────────────────
         // Prevent the same (origin → destination) pair on the same calendar
