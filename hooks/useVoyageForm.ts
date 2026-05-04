@@ -207,6 +207,64 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 result.departureDate = departureDate;
             }
 
+            // ── Recompute distance + duration from real coords + vessel speed ──
+            // Gemini's `distanceApprox` and `durationApprox` strings are
+            // pure hallucination — for a 1000 NM Newport→Port Moselle
+            // passage it claimed "1.9 days" when at 6 knots that's
+            // actually ~7 days. The user has a real vessel with a real
+            // cruising speed in settings; use it.
+            //
+            // Distance: haversine sum across origin → waypoints → dest.
+            // Speed: vessel.cruisingSpeed (kn). Falls back to 6 — same
+            // floor used elsewhere in the app for unset profiles.
+            // Duration: distance NM ÷ speed kn = hours.
+            //
+            // Both strings retain the same shape downstream consumers
+            // expect ("nautical miles" suffix in distance,
+            // "hours" / "days" suffix in duration) so PassagePlanSave's
+            // `parseFloat(plan.durationApprox)` keeps working.
+            try {
+                const points: Array<{ lat: number; lon: number }> = [];
+                if (result.originCoordinates) {
+                    points.push({ lat: result.originCoordinates.lat, lon: result.originCoordinates.lon });
+                }
+                for (const wp of result.waypoints || []) {
+                    if (wp.coordinates) {
+                        points.push({ lat: wp.coordinates.lat, lon: wp.coordinates.lon });
+                    }
+                }
+                if (result.destinationCoordinates) {
+                    points.push({ lat: result.destinationCoordinates.lat, lon: result.destinationCoordinates.lon });
+                }
+
+                if (points.length >= 2) {
+                    const { calculateDistance } = await import('../utils/navigationCalculations');
+                    let distNM = 0;
+                    for (let i = 1; i < points.length; i++) {
+                        distNM += calculateDistance(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
+                    }
+
+                    const speedKn = vessel?.cruisingSpeed && vessel.cruisingSpeed > 0 ? vessel.cruisingSpeed : 6;
+                    const hours = distNM / speedKn;
+
+                    result.distanceApprox = `${Math.round(distNM)} nautical miles`;
+                    // Format as "Xh" / "Xd Yh" so it reads naturally on
+                    // the summary card without needing a separate "1.9
+                    // days" → hours conversion downstream.
+                    if (hours < 24) {
+                        result.durationApprox = `${Math.round(hours)} hours`;
+                    } else {
+                        const days = Math.floor(hours / 24);
+                        const remHrs = Math.round(hours % 24);
+                        result.durationApprox = remHrs > 0 ? `${days}d ${remHrs}h` : `${days} days`;
+                    }
+                }
+            } catch (e) {
+                // Non-critical — fall back to Gemini's strings if our
+                // computation fails (e.g. missing coords).
+                console.warn('[useVoyageForm] duration recompute failed, using Gemini values:', e);
+            }
+
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveIfActive(result);
             setLoading(false);
