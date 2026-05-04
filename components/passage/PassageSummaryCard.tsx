@@ -299,27 +299,29 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             {/* ── Key Stats Grid ── */}
             <div className="grid grid-cols-2 gap-2">
                 {/* Optimal Departure Time
-                    The native iOS <input type="time"> renders its own
-                    chevron + spinner chrome alongside the text. With
-                    text-lg (18px) + font-bold + font-mono and no spare
-                    width inside the half-grid stat card, the digits
-                    were rendering past the card's right border on
-                    narrow phones (iPhone SE, ~320pt). Trimmed font to
-                    text-base, dropped text-center (was fighting the
-                    native chrome), and reduced inner padding so the
-                    chevron has somewhere to live without pushing the
-                    digits over the edge. */}
+                    The native iOS <input type="time"> imposes its own
+                    min-width for the picker chrome (~140pt on iOS),
+                    which on a narrow phone can ignore the parent's
+                    width and bleed past the right edge of the stat
+                    card. Wrapping in a flex container with
+                    justify-center centers whatever natural width the
+                    OS gives us, and overflow-hidden on the outer card
+                    clips any final stragglers. The input itself drops
+                    w-full so it sizes to its content rather than
+                    stretching past the parent. */}
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 min-w-0 overflow-hidden">
                     <div className="text-[11px] text-gray-400 uppercase tracking-widest font-bold mb-1.5 flex items-center gap-1">
                         Departure Time
                     </div>
-                    <input
-                        type="time"
-                        value={effectiveTime}
-                        onChange={handleTimeChange}
-                        className="w-full max-w-full bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all"
-                        style={{ colorScheme: 'dark', boxSizing: 'border-box' }}
-                    />
+                    <div className="flex justify-center">
+                        <input
+                            type="time"
+                            value={effectiveTime}
+                            onChange={handleTimeChange}
+                            className="bg-white/5 border border-white/10 rounded-lg px-2 py-2 text-base font-bold text-white font-mono focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all max-w-full"
+                            style={{ colorScheme: 'dark', boxSizing: 'border-box' }}
+                        />
+                    </div>
                 </div>
 
                 {/* Duration */}
