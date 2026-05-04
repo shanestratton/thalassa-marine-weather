@@ -52,7 +52,18 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const [activePlaylistId, setActivePlaylistId] = useState<string | null>(null);
     const [nowPlaying, setNowPlaying] = useState<NowPlaying | null>(null);
 
-    /** Load playlists. Triggered after auth + on manual refresh. */
+    /** Load playlists. Triggered after auth + on manual refresh.
+     *
+     * Two-phase load to avoid the hang we hit when hydrating every
+     * playlist's track list in parallel inside the Swift plugin
+     * (MusicKit can't handle N concurrent .with([.tracks]) calls
+     * cleanly on a real library):
+     *   Phase 1: fetch playlist metadata only — fast, gets the grid up
+     *   Phase 2: fire getPlaylistTracks per playlist in the background
+     *           and merge each preview into its tile as it arrives.
+     *           If one stalls, only that tile is missing the song
+     *           list (falls back to monogram).
+     */
     const loadPlaylists = useCallback(async () => {
         setLoadingPlaylists(true);
         setLoadError(null);
@@ -61,9 +72,29 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             if (!r.available) {
                 setLoadError(r.reason ?? 'unknown');
                 setPlaylists([]);
-            } else {
-                setPlaylists(r.playlists);
+                return;
             }
+            setPlaylists(r.playlists);
+            // Background phase: fetch first-few tracks per playlist
+            // in parallel and patch them onto each tile as they
+            // resolve. Errors on individual playlists swallow.
+            void Promise.all(
+                r.playlists.map(async (p) => {
+                    try {
+                        const detail = await getPlaylistTracks(p.id);
+                        if (!detail.available) return;
+                        const preview = detail.tracks.slice(0, 5).map((t) => ({
+                            title: t.title,
+                            artist: t.artist,
+                        }));
+                        setPlaylists((prev) =>
+                            prev.map((pl) => (pl.id === p.id ? { ...pl, previewTracks: preview } : pl)),
+                        );
+                    } catch {
+                        /* per-playlist preview failure → tile keeps monogram */
+                    }
+                }),
+            ).catch(() => undefined);
         } finally {
             setLoadingPlaylists(false);
         }
@@ -216,19 +247,23 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         [detailPlaylist, closeDetail],
     );
 
+    const nowPlayingVisible = !!(nowPlaying && nowPlaying.title);
+
     return (
-        <div
-            className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black"
-            // Pad the bottom by the global bottom-nav height (4rem) plus
-            // the iOS home-indicator safe area, so the NowPlayingBar
-            // (the last flex child below) sits above the nav rather
-            // than underneath it.
-            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
-        >
+        <div className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black">
             <PageHeader title="Music" subtitle="Apple Music playlists" onBack={onBack} />
 
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto px-4 pb-4">
+            {/* Body — bottom padding accounts for the global nav, plus
+             *  extra room when the floating NowPlayingBar is visible
+             *  so the last row of tiles can scroll into view above it. */}
+            <div
+                className="flex-1 overflow-y-auto px-4"
+                style={{
+                    paddingBottom: nowPlayingVisible
+                        ? 'calc(4rem + 4.75rem + env(safe-area-inset-bottom) + 1rem)'
+                        : 'calc(4rem + env(safe-area-inset-bottom) + 1rem)',
+                }}
+            >
                 {authGranted === false && (
                     <div className="flex flex-col items-center justify-center pt-16 px-6 text-center">
                         <div className="w-20 h-20 rounded-full bg-pink-500/10 flex items-center justify-center mb-4">
@@ -296,15 +331,29 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                 )}
             </div>
 
-            {/* Now-playing footer */}
-            {nowPlaying && nowPlaying.title && (
-                <NowPlayingBar
-                    nowPlaying={nowPlaying}
-                    onPause={() => void handlePause()}
-                    onResume={() => void handleResume()}
-                    onNext={() => void handleNext()}
-                    onPrevious={() => void handlePrevious()}
-                />
+            {/* Floating now-playing bar — fixed-positioned above the
+             *  global bottom-nav so it overlays the playlist grid
+             *  rather than pushing tiles upward. The grid scroll area
+             *  above gets extra bottom padding so the last row stays
+             *  reachable. z-[800] sits below the nav (z-[900]) and
+             *  above page content. */}
+            {nowPlayingVisible && (
+                <div
+                    className="fixed left-0 right-0 z-[800] pointer-events-none"
+                    style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+                >
+                    <div className="pointer-events-auto px-3 pb-2">
+                        <div className="rounded-2xl overflow-hidden bg-black/70 backdrop-blur-xl border border-white/10 shadow-2xl">
+                            <NowPlayingBar
+                                nowPlaying={nowPlaying!}
+                                onPause={() => void handlePause()}
+                                onResume={() => void handleResume()}
+                                onNext={() => void handleNext()}
+                                onPrevious={() => void handlePrevious()}
+                            />
+                        </div>
+                    </div>
+                </div>
             )}
 
             {/* Playlist detail sheet — opens on long-press */}
@@ -729,7 +778,7 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
         setImageFailed(false);
     }, [trackKey]);
     return (
-        <div className="shrink-0 border-t border-white/10 bg-black/60 backdrop-blur-md p-3">
+        <div className="p-3">
             <div className="flex items-center gap-3">
                 {showRemote ? (
                     <img
