@@ -30,7 +30,7 @@ interface CastOffPanelProps {
     initialVoyageId?: string;
 }
 
-type Step = 'select' | 'create' | 'preflight' | 'track_prompt' | 'active' | 'arrive' | 'depart_leg';
+type Step = 'select' | 'create' | 'preflight' | 'active' | 'arrive' | 'depart_leg';
 
 export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, initialVoyageId }) => {
     const [step, setStep] = useState<Step>('select');
@@ -132,24 +132,30 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
         const result = await castOff(selected.id);
         if (result.ok && result.voyage) {
             setActiveVoyage(result.voyage);
-            setStep('track_prompt'); // Ask about track logging before going to active
+
+            // Casting off and NOT starting the GPS trip log is almost
+            // never what the skipper actually wants — we used to show a
+            // separate "Log this track?" step that everyone tapped Yes
+            // on. Just start it. The Nav Station hero band's "Underway"
+            // pill keys off this; without this start, casting off
+            // would produce a stale "active" voyage with no trip log
+            // (the exact bug that motivated this change).
+            try {
+                const { ShipLogService } = await import('../../services/ShipLogService');
+                await ShipLogService.startTracking(false, result.voyage.id);
+            } catch (e) {
+                console.warn('[CastOffPanel] auto-start tracking failed:', e);
+                /* best effort — user can still start tracking manually
+                   from LogPage. The voyage is already cast off. */
+            }
+
+            setStep('active');
             onCastOff?.(result.voyage);
         } else {
             setError(result.error || 'Cast off failed');
         }
         setCasting(false);
     }, [selected, safetyConfirmed, onCastOff]);
-
-    const handleStartTracking = useCallback(async () => {
-        triggerHaptic('medium');
-        try {
-            const { ShipLogService } = await import('../../services/ShipLogService');
-            await ShipLogService.startTracking(false);
-        } catch (e) {
-            /* best effort — tracking can be started manually */
-        }
-        setStep('active');
-    }, []);
 
     const handleEndVoyage = useCallback(async () => {
         if (!activeVoyage) return;
@@ -212,32 +218,28 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                             <h2 className="text-base font-black text-white">
                                 {step === 'active'
                                     ? 'Active Voyage'
-                                    : step === 'track_prompt'
-                                      ? 'Cast Off!'
-                                      : step === 'preflight'
-                                        ? 'Ready to Sail?'
-                                        : step === 'create'
-                                          ? 'New Voyage'
-                                          : step === 'arrive'
-                                            ? 'Port Arrival'
-                                            : step === 'depart_leg'
-                                              ? 'Next Leg'
-                                              : 'Select Voyage'}
+                                    : step === 'preflight'
+                                      ? 'Ready to Sail?'
+                                      : step === 'create'
+                                        ? 'New Voyage'
+                                        : step === 'arrive'
+                                          ? 'Port Arrival'
+                                          : step === 'depart_leg'
+                                            ? 'Next Leg'
+                                            : 'Select Voyage'}
                             </h2>
                             <p className="text-[11px] text-amber-400/60 uppercase tracking-widest">
                                 {step === 'active'
                                     ? 'Watch Mode'
-                                    : step === 'track_prompt'
-                                      ? 'Track Logging'
-                                      : step === 'preflight'
-                                        ? 'Pre-Departure Check'
-                                        : step === 'create'
-                                          ? 'Quick Create'
-                                          : step === 'arrive'
+                                    : step === 'preflight'
+                                      ? 'Pre-Departure Check'
+                                      : step === 'create'
+                                        ? 'Quick Create'
+                                        : step === 'arrive'
+                                          ? 'Passage Legs'
+                                          : step === 'depart_leg'
                                             ? 'Passage Legs'
-                                            : step === 'depart_leg'
-                                              ? 'Passage Legs'
-                                              : 'Draft Voyages'}
+                                            : 'Draft Voyages'}
                             </p>
                         </div>
                     </div>
@@ -257,32 +259,9 @@ export const CastOffPanel: React.FC<CastOffPanelProps> = ({ onCastOff, onClose, 
                     </div>
                 )}
 
-                {/* ── Track Logging Prompt ── */}
-                {step === 'track_prompt' && (
-                    <div className="p-5 pt-2 space-y-4">
-                        <div className="text-center py-4">
-                            <div className="text-5xl mb-3">🛠️</div>
-                            <h3 className="text-lg font-black text-white mb-1">Log This Track?</h3>
-                            <p className="text-sm text-gray-400 max-w-xs mx-auto">
-                                Start GPS track logging for this voyage. Your track will be saved to the Ship's Log.
-                            </p>
-                        </div>
-
-                        <button
-                            onClick={handleStartTracking}
-                            className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl text-base font-black text-black uppercase tracking-[0.15em] transition-all active:scale-[0.96] shadow-lg shadow-emerald-500/20"
-                        >
-                            📡 Yes — Start Logging
-                        </button>
-
-                        <button
-                            onClick={() => setStep('active')}
-                            className="w-full py-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                        >
-                            Skip — I'll start later
-                        </button>
-                    </div>
-                )}
+                {/* The "Log this track?" prompt is gone — Cast Off
+                    auto-starts the GPS trip log now. The wizard goes
+                    select → preflight → active. */}
 
                 {/* ── Step 1: Active Voyage Warning ── */}
                 {step === 'active' && activeVoyage && (

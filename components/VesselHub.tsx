@@ -197,6 +197,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     useEffect(() => {
         // Refresh cached voyage on mount (cheap localStorage read).
         setActiveVoyage(getCachedActiveVoyage());
+
+        // Validate the cache against Supabase so a stale "active"
+        // voyage from a deleted route can't keep showing in the hero
+        // band. getActiveVoyage() queries the DB for any voyage with
+        // status='active' for this user; if there's none, it clears
+        // the local cache for us via cacheVoyage(null) inside.
+        let cancelled = false;
+        (async () => {
+            try {
+                const { getActiveVoyage } = await import('../services/VoyageService');
+                const fresh = await getActiveVoyage();
+                if (!cancelled) setActiveVoyage(fresh);
+            } catch {
+                /* offline — keep the cached value */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
     }, []);
 
     useEffect(() => {
