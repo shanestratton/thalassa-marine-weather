@@ -44,6 +44,10 @@ import {
     resumeMusic,
     skipNext,
     skipPrevious,
+    playLibraryPlaylistByName,
+    listLibraryPlaylistNames,
+    createPlaylistVoice,
+    saveCurrentTrackToPlaylist,
 } from './integrations/appleMusic';
 import { draftEmail, inboxSummary, readEmail, searchEmails, sendDraft } from './integrations/gmail';
 
@@ -401,6 +405,62 @@ const APPLE_MUSIC_TOOLS: ToolDef[] = [
             'Read what is currently playing in Apple Music. Returns title, artist, album, artwork URL, and play/pause state. Returns empty title when nothing is queued — narrate that plainly ("nothing\'s playing right now"). Be natural: "now playing \'Wish You Were Here\' by Pink Floyd."',
         input_schema: { type: 'object', properties: {}, required: [] },
     },
+    {
+        name: 'play_library_playlist',
+        description:
+            'Play one of the skipper\'s OWN saved library playlists by name. Use this for "play my X", "put on my Y", "play the rock playlist" — anywhere the skipper refers to a playlist they\'ve made. Fuzzy-matches the playlist name (case-insensitive, word-overlap scoring), plays from the start. Returns a suggested_phrase — read it verbatim. If status=not_found, tell the skipper plainly and offer to list_library_playlists.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                query: {
+                    type: 'string',
+                    description: 'Free-form playlist name. Examples: "rock rotation", "smooth jazz", "passage mix".',
+                },
+            },
+            required: ['query'],
+        },
+    },
+    {
+        name: 'list_library_playlists',
+        description:
+            "List the skipper's library playlist names. Use when they ask 'what playlists do I have?' / 'what's in my library?' / 'what can I listen to?'. Read 5-7 names back naturally — don't recite all of them. End with something like 'and a few more — want me to look one up?' if the count is higher.",
+        input_schema: { type: 'object', properties: {}, required: [] },
+    },
+    {
+        name: 'create_playlist',
+        description:
+            'Create a new (empty) library playlist with the given name. Use for "make a playlist called X" / "create a new playlist named Y" / "start a passage playlist". Optional description supported. After creation, briefly mention the skipper can ask "save this to my <name>" while a track is playing to populate it.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                name: {
+                    type: 'string',
+                    description:
+                        "The playlist name. Keep verbatim from the skipper's words — don't embellish or re-case.",
+                },
+                description: {
+                    type: 'string',
+                    description: 'Optional description. Only set if the skipper explicitly provided one.',
+                },
+            },
+            required: ['name'],
+        },
+    },
+    {
+        name: 'save_current_to_playlist',
+        description:
+            'Add the currently-playing track to a named library playlist. Use for "save this to my X" / "add this song to my Y" / "remember this in my passage mix". Fuzzy-matches the playlist name. Returns a suggested_phrase — read it verbatim. If status=playlist_not_found, narrate plainly. If status=no_track_playing, tell the skipper nothing is playing.',
+        input_schema: {
+            type: 'object',
+            properties: {
+                playlist: {
+                    type: 'string',
+                    description: 'Playlist name to save into. Examples: "passage mix", "favourites", "nightwatch".',
+                },
+            },
+            required: ['playlist'],
+        },
+    },
 ];
 
 const GMAIL_TOOLS: ToolDef[] = [
@@ -566,7 +626,14 @@ You also have a suite of voyage tools always available:
 When the boat-side Pi is reachable, you have additional tools that read LIVE vessel instruments (\`get_vessel_position\`, \`get_vessel_state\`), the static vessel profile (\`get_vessel_profile\`), and a marine knowledge corpus (\`search_manuals\`). Call them when the skipper asks for something they cover. When those tools are NOT in your registry, the Pi is unreachable and you only have the Thalassa snapshot to work from — be honest about that boundary.
 
 The skipper may also have enabled Gmail integration from Settings. Apple Music tools are available whenever the skipper holds the Skipper tier:
-- **Apple Music** (\`play_music\`, \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\`): full Apple Music catalog (~100M tracks) via MusicKit. \`play_music\` searches the catalog and starts playback in-app. Result includes a \`suggested_phrase\` — read it aloud verbatim ("Playing 'Wish You Were Here' by Pink Floyd."). Music keeps playing while you talk — your voice and the music mix cleanly. If status is \`permission_denied\`, tell the skipper to grant access via the Music page in the app. If \`not_found\`, say so plainly. \`now_playing\` reads back the current track when the skipper asks "what's playing?". Pause / resume / skip / previous all work on whatever's currently queued.
+- **Apple Music**:
+  - \`play_music\` — full Apple Music catalog (~100M tracks) via MusicKit. Use for "play X by Y" / "queue up Z" / "play me some [genre]". Tries the catalog first; if catalog auth isn't ready, falls through to the skipper's library playlists with the same query. Either way the result includes \`suggested_phrase\` — read it verbatim.
+  - \`play_library_playlist\` — explicit "play one of MY saved playlists by name". Use for "play my X" / "put on my Y" / "play the rock playlist". Reliable regardless of catalog auth state.
+  - \`list_library_playlists\` — answers "what playlists do I have?". Read 5-7 names back naturally; don't recite all of them.
+  - \`create_playlist\` — make a new (empty) library playlist. Use for "make a playlist called X" / "create a passage playlist". Keep the name verbatim from the skipper's words. After creation, briefly mention they can ask "save this to my <name>" while a track is playing to start populating it.
+  - \`save_current_to_playlist\` — add the now-playing track to a named library playlist. Use for "save this to my X" / "add this song to my Y" / "remember this in my passage mix". If status is \`no_track_playing\`, tell them nothing is playing. If \`playlist_not_found\`, say so plainly and offer to create one.
+  - Transport: \`pause_music\`, \`resume_music\`, \`skip_track\`, \`previous_track\`, \`now_playing\` — work on whatever is currently queued. Music keeps playing while you talk; your voice and the music mix cleanly.
+  - On \`permission_denied\` from any of the above, tell the skipper to grant access on the Music page or in iOS Settings → Thalassa.
 - **Gmail** (\`search_emails\`, \`read_email\`, \`draft_email\`, \`send_draft\`, \`inbox_summary\`): read inbox, draft + send email. CRITICAL safety rule for sending: NEVER call \`send_draft\` without first calling \`draft_email\`, reading the to/subject/preview back to the skipper aloud, and getting explicit verbal confirmation ("send it" / "yes send"). Drafting is reversible (lands in Drafts folder); sending is not. Any ambiguity → ask, don't act.
 
 ## VESSEL PROFILE (static, always true)
@@ -976,13 +1043,49 @@ async function dispatchTool(
             typeof input.kind === 'string' && ['auto', 'songs', 'albums', 'artists', 'playlists'].includes(input.kind)
                 ? (input.kind as 'auto' | 'songs' | 'albums' | 'artists' | 'playlists')
                 : 'auto';
-        return playMusicByQuery(q, k);
+        // Try the catalog first, then fall back to the skipper's own
+        // library playlists if the catalog can't fulfil. This keeps
+        // music working while the developer-token portal hand-off is
+        // still settling — the skipper says "play rock rotation",
+        // catalog tries (and may fail), library matches their
+        // playlist named "Rock rotation" and plays it. When catalog
+        // is healthy the fallback is a no-op (catalog wins first).
+        const catalog = await playMusicByQuery(q, k);
+        try {
+            const parsed = JSON.parse(catalog.content);
+            if (parsed && (parsed.status === 'playback_failed' || parsed.status === 'not_found')) {
+                const fallback = await playLibraryPlaylistByName(q);
+                try {
+                    const fParsed = JSON.parse(fallback.content);
+                    if (fParsed && fParsed.status === 'playing') return fallback;
+                } catch {
+                    /* fall through to original catalog response */
+                }
+            }
+        } catch {
+            /* non-JSON content (raw error) → return as-is */
+        }
+        return catalog;
     }
     if (name === 'pause_music') return pauseMusic();
     if (name === 'resume_music') return resumeMusic();
     if (name === 'skip_track') return skipNext();
     if (name === 'previous_track') return skipPrevious();
     if (name === 'now_playing') return appleMusicNowPlaying();
+    if (name === 'play_library_playlist') {
+        const q = typeof input.query === 'string' ? input.query : '';
+        return playLibraryPlaylistByName(q);
+    }
+    if (name === 'list_library_playlists') return listLibraryPlaylistNames();
+    if (name === 'create_playlist') {
+        const playlistName = typeof input.name === 'string' ? input.name : '';
+        const desc = typeof input.description === 'string' ? input.description : undefined;
+        return createPlaylistVoice(playlistName, desc);
+    }
+    if (name === 'save_current_to_playlist') {
+        const p = typeof input.playlist === 'string' ? input.playlist : '';
+        return saveCurrentTrackToPlaylist(p);
+    }
     if (name === 'search_emails') {
         const q = typeof input.query === 'string' ? input.query : '';
         const max = typeof input.max === 'number' ? input.max : 10;

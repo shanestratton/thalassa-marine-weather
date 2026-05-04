@@ -87,6 +87,29 @@ interface AppleMusicPluginInterface {
         artist?: string;
         error?: string;
     }>;
+    playLibraryPlaylist(opts: { query: string }): Promise<{
+        status: 'playing' | 'not_found' | 'empty' | 'error';
+        playlist_name?: string;
+        track_count?: number;
+        first_track_title?: string;
+        first_track_artist?: string;
+        query?: string;
+        error?: string;
+    }>;
+    createPlaylist(opts: { name: string; description?: string }): Promise<{
+        status: 'ok' | 'error';
+        id?: string;
+        name?: string;
+        error?: string;
+    }>;
+    addCurrentTrackToPlaylist(opts: { playlist: string }): Promise<{
+        status: 'ok' | 'playlist_not_found' | 'no_track_playing' | 'not_a_song' | 'error';
+        playlist_name?: string;
+        track_title?: string;
+        track_artist?: string;
+        query?: string;
+        error?: string;
+    }>;
 
     // Playback control
     pause(): Promise<{ status: string }>;
@@ -325,6 +348,237 @@ export async function playTrackInPlaylist(
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
         return { success: false, error: (err as Error).message };
+    }
+}
+
+// ── Library playlist by name (voice tool) ─────────────────────────
+
+/**
+ * Voice-friendly "play one of my library playlists by name." Returns
+ * the orchestrator-shaped { content, isError } envelope so it slots
+ * straight into the tool dispatcher. Fuzzy-matches the playlist name
+ * server-side; reliably works without catalog auth.
+ */
+export async function playLibraryPlaylistByName(query: string): Promise<{ content: string; isError: boolean }> {
+    const trimmed = (query || '').trim();
+    if (!trimmed) return { content: 'ERROR: empty playlist query', isError: true };
+    if (!nativeAvailable()) {
+        return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
+    }
+    try {
+        const r = await AppleMusicNative.playLibraryPlaylist({ query: trimmed });
+        if (r.status === 'playing') {
+            const phrase = r.first_track_title
+                ? `Playing "${r.first_track_title}"${
+                      r.first_track_artist ? ` by ${r.first_track_artist}` : ''
+                  } from your "${r.playlist_name}" playlist.`
+                : `Playing your "${r.playlist_name}" playlist.`;
+            return {
+                content: JSON.stringify({
+                    status: 'playing',
+                    playlist_name: r.playlist_name,
+                    track_count: r.track_count,
+                    suggested_phrase: phrase,
+                    note: 'Read the suggested_phrase aloud verbatim.',
+                }),
+                isError: false,
+            };
+        }
+        if (r.status === 'not_found') {
+            return {
+                content: JSON.stringify({
+                    status: 'not_found',
+                    query: trimmed,
+                    note: `No library playlist matches "${trimmed}". Tell the skipper plainly. They can ask "what playlists do I have?" to hear the list.`,
+                }),
+                isError: false,
+            };
+        }
+        if (r.status === 'empty') {
+            return {
+                content: JSON.stringify({
+                    status: 'empty',
+                    playlist_name: r.playlist_name,
+                    note: `The playlist "${r.playlist_name}" matched but it has no tracks.`,
+                }),
+                isError: false,
+            };
+        }
+        return {
+            content: JSON.stringify({
+                status: 'error',
+                error: r.error ?? 'unknown',
+            }),
+            isError: false,
+        };
+    } catch (err) {
+        return {
+            content: `ERROR: playLibraryPlaylist failed — ${(err as Error).message}`,
+            isError: true,
+        };
+    }
+}
+
+/**
+ * Return a short list of playlist names for "what playlists do I have?".
+ * Wraps getUserPlaylists; trims to 15 names so the spoken response
+ * stays digestible.
+ */
+export async function listLibraryPlaylistNames(): Promise<{ content: string; isError: boolean }> {
+    if (!nativeAvailable()) {
+        return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
+    }
+    const r = await getUserPlaylists();
+    if (!r.available) {
+        return {
+            content: JSON.stringify({
+                status: r.reason ?? 'error',
+                error: r.error,
+            }),
+            isError: false,
+        };
+    }
+    const names = r.playlists.map((p) => p.name).slice(0, 15);
+    return {
+        content: JSON.stringify({
+            status: 'ok',
+            count: r.playlists.length,
+            names,
+            note:
+                names.length === 0
+                    ? "Skipper has no playlists yet. Tell them they can build some in Apple Music or say 'create a playlist called X'."
+                    : "Read 5-7 names back naturally — don't recite all of them. End with something like 'and a few more — want me to look one up?' if there are more.",
+        }),
+        isError: false,
+    };
+}
+
+// ── Library mutations (create + add track) ─────────────────────────
+
+export async function createPlaylistByName(
+    name: string,
+    description?: string,
+): Promise<{ success: boolean; id?: string; name?: string; error?: string }> {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return { success: false, error: 'empty name' };
+    if (!nativeAvailable()) return { success: false, error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.createPlaylist({
+            name: trimmed,
+            description: description?.trim() || undefined,
+        });
+        if (r.status === 'ok') {
+            return { success: true, id: r.id, name: r.name };
+        }
+        return { success: false, error: r.error ?? r.status };
+    } catch (err) {
+        return { success: false, error: (err as Error).message };
+    }
+}
+
+/**
+ * Voice-friendly version of createPlaylist for the orchestrator.
+ */
+export async function createPlaylistVoice(
+    name: string,
+    description?: string,
+): Promise<{ content: string; isError: boolean }> {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return { content: 'ERROR: empty playlist name', isError: true };
+    if (!nativeAvailable()) {
+        return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
+    }
+    const r = await createPlaylistByName(trimmed, description);
+    if (!r.success) {
+        return {
+            content: JSON.stringify({
+                status: 'error',
+                error: r.error,
+                note: 'Could not create the playlist. Tell the skipper plainly.',
+            }),
+            isError: false,
+        };
+    }
+    return {
+        content: JSON.stringify({
+            status: 'ok',
+            playlist_name: r.name,
+            suggested_phrase: `Created your "${r.name}" playlist.`,
+            note: 'Read the suggested_phrase aloud. Briefly mention they can now ask to add the current track to it.',
+        }),
+        isError: false,
+    };
+}
+
+/**
+ * Voice-friendly "add what's playing now to my <playlist>" helper.
+ */
+export async function saveCurrentTrackToPlaylist(
+    playlistQuery: string,
+): Promise<{ content: string; isError: boolean }> {
+    const trimmed = (playlistQuery || '').trim();
+    if (!trimmed) return { content: 'ERROR: empty playlist query', isError: true };
+    if (!nativeAvailable()) {
+        return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
+    }
+    try {
+        const r = await AppleMusicNative.addCurrentTrackToPlaylist({ playlist: trimmed });
+        if (r.status === 'ok') {
+            return {
+                content: JSON.stringify({
+                    status: 'ok',
+                    playlist_name: r.playlist_name,
+                    track_title: r.track_title,
+                    track_artist: r.track_artist,
+                    suggested_phrase: `Saved "${r.track_title}"${
+                        r.track_artist ? ` by ${r.track_artist}` : ''
+                    } to your "${r.playlist_name}" playlist.`,
+                    note: 'Read the suggested_phrase verbatim.',
+                }),
+                isError: false,
+            };
+        }
+        if (r.status === 'playlist_not_found') {
+            return {
+                content: JSON.stringify({
+                    status: 'playlist_not_found',
+                    query: trimmed,
+                    note: `No library playlist matches "${trimmed}". Tell the skipper plainly.`,
+                }),
+                isError: false,
+            };
+        }
+        if (r.status === 'no_track_playing') {
+            return {
+                content: JSON.stringify({
+                    status: 'no_track_playing',
+                    note: 'Nothing is currently playing — there is no track to save. Tell the skipper plainly.',
+                }),
+                isError: false,
+            };
+        }
+        if (r.status === 'not_a_song') {
+            return {
+                content: JSON.stringify({
+                    status: 'not_a_song',
+                    note: 'Current item is a music video, not a song. Save is only supported for songs.',
+                }),
+                isError: false,
+            };
+        }
+        return {
+            content: JSON.stringify({
+                status: 'error',
+                error: r.error ?? 'unknown',
+                note: 'Could not save the track. Tell the skipper plainly.',
+            }),
+            isError: false,
+        };
+    } catch (err) {
+        return {
+            content: `ERROR: addCurrentTrackToPlaylist failed — ${(err as Error).message}`,
+            isError: true,
+        };
     }
 }
 
