@@ -177,6 +177,22 @@ public class WeatherKitPlugin: CAPPlugin {
         if #available(iOS 18.0, *) {
             return d.precipitationAmountByType.rainfall.converted(to: .millimeters).value
         }
+        return legacyRainfallMM(d)
+    }
+
+    /// iOS 17 fallback. `rainfallAmount` is deprecated in iOS 16.4 but
+    /// the replacement (`precipitationAmountByType`) wasn't surfaced on
+    /// DayWeather until iOS 18, so we have no alternative on iOS 17.x.
+    /// Marking the wrapper itself `@available(deprecated:)` is Swift's
+    /// idiom for "I know this calls a deprecated API; please don't
+    /// warn me on every build" — the deprecation warning is suppressed
+    /// inside any function annotated as deprecated at or after the
+    /// same iOS version.
+    @available(
+        iOS, deprecated: 16.4,
+        message: "Required fallback for iOS 17.x. Remove once deployment target is iOS 18+."
+    )
+    private static func legacyRainfallMM(_ d: DayWeather) -> Double {
         return d.rainfallAmount.converted(to: .millimeters).value
     }
 
