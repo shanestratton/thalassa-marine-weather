@@ -30,7 +30,6 @@ import {
     requestAuthorization,
     getAuthorizationStatus,
     getPlaylistTracks,
-    addPlaylistToQueue,
     playTrackInPlaylist,
     type UserPlaylist,
     type NowPlaying,
@@ -219,19 +218,6 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         }
     }, [detailPlaylist, closeDetail]);
 
-    const handleAddToQueue = useCallback(async () => {
-        if (!detailPlaylist) return;
-        triggerHaptic('light');
-        const r = await addPlaylistToQueue(detailPlaylist.id);
-        if (r.success) {
-            // Stay on the sheet so the skipper sees the success — close
-            // after a beat so the action feels acknowledged.
-            setTimeout(() => closeDetail(), 600);
-        } else {
-            setDetailError(`Couldn't add: ${r.error}`);
-        }
-    }, [detailPlaylist, closeDetail]);
-
     const handlePlayTrack = useCallback(
         async (trackId: string) => {
             if (!detailPlaylist) return;
@@ -365,7 +351,6 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     error={detailError}
                     onClose={closeDetail}
                     onPlayAll={() => void handlePlayAll()}
-                    onAddToQueue={() => void handleAddToQueue()}
                     onPlayTrack={(trackId) => void handlePlayTrack(trackId)}
                 />
             )}
@@ -477,7 +462,6 @@ interface PlaylistDetailSheetProps {
     error: string | null;
     onClose: () => void;
     onPlayAll: () => void;
-    onAddToQueue: () => void;
     onPlayTrack: (trackId: string) => void;
 }
 
@@ -488,7 +472,6 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
     error,
     onClose,
     onPlayAll,
-    onAddToQueue,
     onPlayTrack,
 }) => {
     const [imageFailed, setImageFailed] = useState(false);
@@ -554,22 +537,14 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 </div>
 
                 {/* Action buttons */}
-                <div className="flex gap-2 px-5 pb-3">
+                <div className="px-5 pb-3">
                     <button
                         onClick={onPlayAll}
                         disabled={loading || tracks.length === 0}
-                        className="flex-1 py-3 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                        className="w-full py-3 rounded-2xl bg-white text-black font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
                     >
                         <PlayIcon className="w-4 h-4" />
                         <span>Play</span>
-                    </button>
-                    <button
-                        onClick={onAddToQueue}
-                        disabled={loading || tracks.length === 0}
-                        className="flex-1 py-3 rounded-2xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
-                    >
-                        <PlusIcon className="w-5 h-5" />
-                        <span>Add</span>
                     </button>
                 </div>
 
@@ -865,18 +840,5 @@ const SkipNextIcon: React.FC<{ className?: string }> = ({ className }) => (
 const SkipPrevIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
         <path d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z" />
-    </svg>
-);
-
-const PlusIcon: React.FC<{ className?: string }> = ({ className }) => (
-    <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-    >
-        <path d="M12 5v14M5 12h14" />
     </svg>
 );
