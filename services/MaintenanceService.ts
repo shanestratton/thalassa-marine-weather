@@ -6,6 +6,7 @@
  */
 import { supabase } from './supabase';
 import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../types';
+import { DATA_EVENTS, dispatchDataChange } from '../utils/dataChangeEvents';
 
 const TASKS_TABLE = 'maintenance_tasks';
 const HISTORY_TABLE = 'maintenance_history';
@@ -154,6 +155,7 @@ export class MaintenanceService {
             .single();
 
         if (error) throw new Error(`Failed to create task: ${error.message}`);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
         return data as MaintenanceTask;
     }
 
@@ -164,6 +166,7 @@ export class MaintenanceService {
         const { data, error } = await getClient().from(TASKS_TABLE).update(updates).eq('id', id).select().single();
 
         if (error) throw new Error(`Failed to update task: ${error.message}`);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
         return data as MaintenanceTask;
     }
 
@@ -172,6 +175,7 @@ export class MaintenanceService {
         const { error } = await getClient().from(TASKS_TABLE).update({ is_active: false }).eq('id', id);
 
         if (error) throw new Error(`Failed to deactivate task: ${error.message}`);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
 
     /** Hard-delete a task */
@@ -179,6 +183,7 @@ export class MaintenanceService {
         const { error } = await getClient().from(TASKS_TABLE).delete().eq('id', id);
 
         if (error) throw new Error(`Failed to delete task: ${error.message}`);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
 
     // ── LOG SERVICE (The Reset Loop) ──
@@ -201,6 +206,10 @@ export class MaintenanceService {
         });
 
         if (error) throw new Error(`Failed to log service: ${error.message}`);
+        // The "tick off" path — service logged, next_due reset on the
+        // task. The Nav Station overdue badge needs to refresh; this
+        // event is what makes that happen.
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
         return data as { history_id: string; next_due_date: string | null; next_due_hours: number | null };
     }
 
