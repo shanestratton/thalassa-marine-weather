@@ -156,6 +156,7 @@ class ShipLogServiceClass {
                         voyageEndTime: this.trackingState.voyageEndTime || new Date().toISOString(),
                     };
                     await this.saveTrackingState();
+                    this.notifyTrackingChanged();
                 }
             }
 
@@ -337,6 +338,7 @@ class ShipLogServiceClass {
         };
 
         await this.saveTrackingState();
+        this.notifyTrackingChanged();
 
         // --- BATTLE-HARDENED GPS STREAMING ---
         // Wire up continuous position caching + the speed-tier debounce +
@@ -461,6 +463,7 @@ class ShipLogServiceClass {
         this.trackingState.isTracking = false;
         this.trackingState.isPaused = true;
         await this.saveTrackingState();
+        this.notifyTrackingChanged();
     }
 
     /**
@@ -492,6 +495,7 @@ class ShipLogServiceClass {
             voyageEndTime: voyageEndTime,
         };
         await this.saveTrackingState();
+        this.notifyTrackingChanged();
 
         // Reset course change detection + stop the timers
         this.courseDetector.stop();
@@ -696,6 +700,42 @@ class ShipLogServiceClass {
     getCurrentVoyageId(): string | undefined {
         // Only return voyage ID if actively tracking - prevents stale "active" status
         return this.trackingState.isTracking ? this.trackingState.currentVoyageId : undefined;
+    }
+
+    /** Whether GPS trip-logging is currently active. Mirrors
+     *  trackingState.isTracking — exposed publicly so the Nav Station
+     *  hero band can distinguish "voyage marked active in DB" from
+     *  "boat is actually moving / recording right now". */
+    isTracking(): boolean {
+        return this.trackingState.isTracking === true;
+    }
+
+    // ── Tracking-state listeners ──
+    // Lightweight pub/sub so the Nav Station hero band can react to
+    // start/stop/pause without polling. Fires on every state mutation
+    // that flips `isTracking` or `isPaused`. Returns an unsubscribe.
+    private trackingListeners = new Set<(tracking: boolean, paused: boolean) => void>();
+
+    onTrackingStateChange(listener: (tracking: boolean, paused: boolean) => void): () => void {
+        this.trackingListeners.add(listener);
+        // Fire once with the current state so subscribers don't have
+        // to read it separately on mount.
+        listener(this.trackingState.isTracking === true, this.trackingState.isPaused === true);
+        return () => {
+            this.trackingListeners.delete(listener);
+        };
+    }
+
+    private notifyTrackingChanged(): void {
+        const tracking = this.trackingState.isTracking === true;
+        const paused = this.trackingState.isPaused === true;
+        this.trackingListeners.forEach((fn) => {
+            try {
+                fn(tracking, paused);
+            } catch {
+                /* listener errors don't poison the loop */
+            }
+        });
     }
 
     // --- DELEGATED CRUD METHODS (implementation in ./shiplog/EntryCrud.ts) ---
