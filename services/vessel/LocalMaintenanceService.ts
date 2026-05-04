@@ -9,6 +9,7 @@
  */
 import { getAll, getById, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
 import { calculateStatus, sortByUrgency, type TaskWithStatus } from '../MaintenanceService';
+import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
 import type { MaintenanceTask, MaintenanceHistory, MaintenanceCategory } from '../../types';
 
 const TASKS_TABLE = 'maintenance_tasks';
@@ -53,12 +54,16 @@ export class LocalMaintenanceService {
             updated_at: now,
         };
 
-        return await insertLocal<MaintenanceTask>(TASKS_TABLE, record);
+        const inserted = await insertLocal<MaintenanceTask>(TASKS_TABLE, record);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+        return inserted;
     }
 
     /** Update a task */
     static async updateTask(id: string, updates: Partial<MaintenanceTask>): Promise<MaintenanceTask | null> {
-        return await updateLocal<MaintenanceTask>(TASKS_TABLE, id, updates);
+        const updated = await updateLocal<MaintenanceTask>(TASKS_TABLE, id, updates);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
+        return updated;
     }
 
     /** Soft-delete (pause) a task */
@@ -66,11 +71,13 @@ export class LocalMaintenanceService {
         await updateLocal<MaintenanceTask>(TASKS_TABLE, id, {
             is_active: false,
         } as Partial<MaintenanceTask>);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
 
     /** Hard-delete a task */
     static async deleteTask(id: string): Promise<void> {
         await deleteLocal(TASKS_TABLE, id);
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
     }
 
     // ── LOG SERVICE (The Reset Loop — Offline) ──
@@ -138,6 +145,11 @@ export class LocalMaintenanceService {
             next_due_hours: nextDueHours,
             last_completed: now,
         } as Partial<MaintenanceTask>);
+
+        // The "tick off" path. Without this dispatch, the Nav Station
+        // overdue badge would keep showing the stale count until the
+        // user backgrounds + foregrounds the app.
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
 
         return {
             historyId: historyRecord.id,
@@ -219,6 +231,7 @@ export class LocalMaintenanceService {
             await insertLocal<MaintenanceTask>(TASKS_TABLE, record);
         }
 
+        dispatchDataChange(DATA_EVENTS.MAINTENANCE);
         return DEFAULT_MAINTENANCE_TASKS.length;
     }
 }

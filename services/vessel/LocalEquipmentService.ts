@@ -5,6 +5,7 @@
  * Mutations are queued for background sync to Supabase.
  */
 import { getAll, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
+import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
 import type { EquipmentItem, EquipmentCategory } from '../../types';
 
 const TABLE = 'equipment_register';
@@ -50,16 +51,21 @@ export class LocalEquipmentService {
             created_at: now,
             updated_at: now,
         };
-        return await insertLocal<EquipmentItem>(TABLE, record);
+        const inserted = await insertLocal<EquipmentItem>(TABLE, record);
+        dispatchDataChange(DATA_EVENTS.EQUIPMENT);
+        return inserted;
     }
 
     /** Update an equipment item */
     static async update(id: string, updates: Partial<EquipmentItem>): Promise<EquipmentItem | null> {
-        return await updateLocal<EquipmentItem>(TABLE, id, updates);
+        const updated = await updateLocal<EquipmentItem>(TABLE, id, updates);
+        dispatchDataChange(DATA_EVENTS.EQUIPMENT);
+        return updated;
     }
 
     /** Delete an equipment item */
     static async delete(id: string): Promise<void> {
         await deleteLocal(TABLE, id);
+        dispatchDataChange(DATA_EVENTS.EQUIPMENT);
     }
 }

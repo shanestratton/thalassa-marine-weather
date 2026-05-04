@@ -5,6 +5,7 @@
  * Mutations are queued for background sync to Supabase.
  */
 import { getAll, query, insertLocal, updateLocal, deleteLocal, generateUUID } from './LocalDatabase';
+import { DATA_EVENTS, dispatchDataChange } from '../../utils/dataChangeEvents';
 import type { ShipDocument, DocumentCategory } from '../../types';
 
 const TABLE = 'ship_documents';
@@ -42,14 +43,19 @@ export class LocalDocumentService {
             created_at: now,
             updated_at: now,
         };
-        return await insertLocal<ShipDocument>(TABLE, record);
+        const inserted = await insertLocal<ShipDocument>(TABLE, record);
+        dispatchDataChange(DATA_EVENTS.DOCUMENTS);
+        return inserted;
     }
 
     static async update(id: string, updates: Partial<ShipDocument>): Promise<ShipDocument | null> {
-        return await updateLocal<ShipDocument>(TABLE, id, updates);
+        const updated = await updateLocal<ShipDocument>(TABLE, id, updates);
+        dispatchDataChange(DATA_EVENTS.DOCUMENTS);
+        return updated;
     }
 
     static async delete(id: string): Promise<void> {
         await deleteLocal(TABLE, id);
+        dispatchDataChange(DATA_EVENTS.DOCUMENTS);
     }
 }

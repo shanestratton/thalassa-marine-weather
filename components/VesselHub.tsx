@@ -566,36 +566,61 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         };
     }, []);
 
+    // ── Live counts for Inventory & Maintenance row badges ──
+    //
+    // Maintenance overdue / Documents expiring / Equipment warranty
+    // counts all need to update the moment the user changes
+    // something elsewhere (ticks off a service, edits a document,
+    // adds equipment) — the user reported "1 Overdue" still showing
+    // after they ticked the task off, because these effects only
+    // ran on mount.
+    //
+    // Each fetch listens for its own data-change window event (fired
+    // from the corresponding service's mutations) AND for
+    // visibilitychange (so backgrounding + returning re-validates
+    // even when changes happened on another device). Combined Maint
+    // + Doc + Equip refetch in one effect to keep teardown clean.
     useEffect(() => {
-        // Count overdue maintenance tasks for the badge on the
-        // Repairs & Maintenance row. We only check date-based overdue
-        // (next_due_date < now); the engine-hours dimension would need
-        // a live engine-hours read which is more cost than the badge
-        // is worth at this surface level. The user sees the full
-        // breakdown when they tap into the maintenance page.
         let cancelled = false;
-        (async () => {
-            try {
-                const { MaintenanceService } = await import('../services/MaintenanceService');
-                const tasks = await MaintenanceService.getTasks();
-                if (cancelled) return;
-                const now = Date.now();
-                const overdue = tasks.filter((t) => t.next_due_date && Date.parse(t.next_due_date) < now).length;
-                setOverdueCount(overdue);
-            } catch {
-                /* offline — no badge */
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
 
-    // Count documents expiring (or already expired) in the next 30
-    // days — surfaces compliance attention at the surface level.
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
+        const refetchMaintenance = async () => {
+            try {
+                // Pull from BOTH sources — local cache (offline-first
+                // primary) AND cloud — so the count reflects whichever
+                // store has the freshest state. Local mutations fire
+                // the event immediately; cloud-only mutations lag but
+                // catch up on the visibility tick.
+                const [{ LocalMaintenanceService }, { MaintenanceService }] = await Promise.all([
+                    import('../services/vessel/LocalMaintenanceService'),
+                    import('../services/MaintenanceService'),
+                ]);
+                if (cancelled) return;
+
+                const localTasks = LocalMaintenanceService.getTasks();
+                let cloudTasks: typeof localTasks = [];
+                try {
+                    cloudTasks = await MaintenanceService.getTasks();
+                } catch {
+                    /* offline — local-only count */
+                }
+
+                // Merge by id; cloud wins on conflict (server is
+                // canonical for serviced/unserviced state once synced).
+                const merged = new Map<string, (typeof localTasks)[number]>();
+                for (const t of localTasks) merged.set(t.id, t);
+                for (const t of cloudTasks) merged.set(t.id, t);
+
+                const now = Date.now();
+                const overdue = Array.from(merged.values()).filter(
+                    (t) => t.is_active && t.next_due_date && Date.parse(t.next_due_date) < now,
+                ).length;
+                if (!cancelled) setOverdueCount(overdue);
+            } catch {
+                /* both sources unavailable — leave previous count */
+            }
+        };
+
+        const refetchDocs = async () => {
             try {
                 const { LocalDocumentService } = await import('../services/vessel/LocalDocumentService');
                 const docs = LocalDocumentService.getAll();
@@ -606,18 +631,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             } catch {
                 /* offline — no badge */
             }
-        })();
-        return () => {
-            cancelled = true;
         };
-    }, []);
 
-    // Count equipment with warranty expiring in the next 30 days.
-    // Lower urgency than documents — warranty lapses are inconvenient,
-    // not illegal. Amber badge.
-    useEffect(() => {
-        let cancelled = false;
-        (async () => {
+        const refetchEquip = async () => {
             try {
                 const { LocalEquipmentService } = await import('../services/vessel/LocalEquipmentService');
                 const items = LocalEquipmentService.getAll();
@@ -630,9 +646,41 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             } catch {
                 /* offline — no badge */
             }
-        })();
+        };
+
+        // Initial fetch.
+        void refetchMaintenance();
+        void refetchDocs();
+        void refetchEquip();
+
+        // Per-source listeners — fire only when their data changes.
+        const onMaintenance = () => void refetchMaintenance();
+        const onDocs = () => void refetchDocs();
+        const onEquip = () => void refetchEquip();
+
+        // Visibility change refetches everything in case the user
+        // mutated state in a different tab / from a synced device.
+        const onVisibility = () => {
+            if (document.visibilityState !== 'visible') return;
+            void refetchMaintenance();
+            void refetchDocs();
+            void refetchEquip();
+        };
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('thalassa:maintenance-changed', onMaintenance);
+            window.addEventListener('thalassa:documents-changed', onDocs);
+            window.addEventListener('thalassa:equipment-changed', onEquip);
+            document.addEventListener('visibilitychange', onVisibility);
+        }
         return () => {
             cancelled = true;
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('thalassa:maintenance-changed', onMaintenance);
+                window.removeEventListener('thalassa:documents-changed', onDocs);
+                window.removeEventListener('thalassa:equipment-changed', onEquip);
+                document.removeEventListener('visibilitychange', onVisibility);
+            }
         };
     }, []);
 
