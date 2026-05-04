@@ -18,6 +18,7 @@ import React, { useState, useEffect } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
+import { useWeather } from '../context/WeatherContext';
 import { triggerHaptic } from '../utils/system';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
@@ -172,14 +173,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const vesselNameSet = !!rawVesselName && rawVesselName.trim().length > 0;
     const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
     const [position, setPosition] = useState<GpsPosition | null>(null);
-    const [windSpeed, setWindSpeed] = useState<number | null>(null);
-    const [windDir, setWindDir] = useState<string | null>(null);
-    const [waveHeight, setWaveHeight] = useState<number | null>(null);
-    const [airTemp, setAirTemp] = useState<number | null>(null);
-    const [seaTemp, setSeaTemp] = useState<number | null>(null);
-    const [visibility, setVisibility] = useState<number | null>(null);
-    const [pressureTrend, setPressureTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
-    const [tideTrend, setTideTrend] = useState<'rising' | 'falling' | 'steady' | null>(null);
+    // ── Hero band weather chips: single source of truth ──
+    // Pull from WeatherContext (the same orchestrator the Glass page
+    // uses) instead of running a parallel fetchFastWeather call.
+    // Glass and Nav Station now read identical numbers from the same
+    // cache — no more "wind is 12kt on Glass but 14kt on Nav Station"
+    // mismatch from two independent fetch paths racing each other.
+    //
+    // The orchestrator handles its own refresh schedule; Nav Station
+    // re-renders automatically when weatherData changes.
+    const { weatherData, fetchWeather } = useWeather();
+    const current = weatherData?.current;
+    const windSpeed = current?.windSpeed ?? null;
+    const windDir = current?.windDirection || null;
+    const waveHeight = current?.waveHeight ?? null;
+    const airTemp = current?.airTemperature ?? null;
+    const seaTemp = current?.waterTemperature ?? null;
+    const visibility = current?.visibility ?? null;
+    const pressureTrend = current?.pressureTrend ?? null;
+    const tideTrend = current?.tideTrend ?? null;
     const [isOnline, setIsOnline] = useState<boolean>(typeof navigator !== 'undefined' ? navigator.onLine : true);
 
     // Extended anchor snapshot for the relative swing viz — vessel
@@ -296,52 +308,31 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         };
     }, []);
 
-    // Fetch local wind for the hero band's weather chip.
-    // Triggered when position first arrives, then refreshed every
-    // 15 minutes — frequent enough to track a frontal change, sparse
-    // enough to be Open-Meteo-friendly. Won't fetch offline.
+    // If WeatherContext has no data yet (user landed on Nav Station
+    // first, before the Dashboard auto-fetched), kick off a fetch via
+    // the shared orchestrator using our GPS position. This populates
+    // the SAME cache the Glass page reads — no parallel pipeline.
+    // Refreshes are handled by the orchestrator's schedule (already
+    // running in WeatherContext); we don't poll here.
     useEffect(() => {
+        if (weatherData) return; // already populated — orchestrator handles refresh
         if (!position || !isOnline) return;
-        let cancelled = false;
-        const fetchWind = async () => {
-            try {
-                const { fetchFastWeather } = await import('../services/weather');
-                const report = await fetchFastWeather('Current Position', {
-                    lat: position.latitude,
-                    lon: position.longitude,
-                });
-                if (cancelled) return;
-                const c = report?.current;
-                if (!c) return;
-                const ws = c.windSpeed ?? null;
-                const wd = c.windDirection ?? null;
-                const pt = c.pressureTrend ?? null;
-                const tt = c.tideTrend ?? null;
-                const wh = c.waveHeight ?? null;
-                const at = c.airTemperature ?? null;
-                const st = c.waterTemperature ?? null;
-                const vis = c.visibility ?? null;
-                if (ws !== null && Number.isFinite(ws)) setWindSpeed(ws);
-                if (wd) setWindDir(wd);
-                if (pt) setPressureTrend(pt);
-                if (tt) setTideTrend(tt);
-                if (wh !== null && Number.isFinite(wh)) setWaveHeight(wh);
-                if (at !== null && Number.isFinite(at)) setAirTemp(at);
-                if (st !== null && Number.isFinite(st)) setSeaTemp(st);
-                if (vis !== null && vis !== undefined && Number.isFinite(vis)) setVisibility(vis);
-            } catch {
-                // Wind chip stays empty — non-critical
-            }
-        };
-        fetchWind();
-        const id = setInterval(fetchWind, 15 * 60_000);
-        return () => {
-            cancelled = true;
-            clearInterval(id);
-        };
-        // Round position to 0.1° so tiny drift doesn't refetch.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [position && Math.round(position.latitude * 10), position && Math.round(position.longitude * 10), isOnline]);
+        // Round to 0.1° to dedupe near-identical re-renders.
+        const lat = Math.round(position.latitude * 10) / 10;
+        const lon = Math.round(position.longitude * 10) / 10;
+        // silent=true so the orchestrator doesn't show a loading
+        // overlay — the Nav Station hero chips just stay empty until
+        // the data lands.
+        fetchWeather('Current Position', false, { lat, lon }, false, true).catch(() => {
+            /* offline — chips stay empty */
+        });
+    }, [
+        weatherData,
+        position && Math.round(position.latitude * 10),
+        position && Math.round(position.longitude * 10),
+        isOnline,
+        fetchWeather,
+    ]);
 
     const toggleSection = (id: string) => {
         triggerHaptic('light');
