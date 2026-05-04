@@ -414,9 +414,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         });
     }, []);
 
-    // ── Live tile state — entries today, draft count, guardian, maintenance overdue ──
+    // ── Live tile state — entries today, suggested/actual track counts, guardian, maintenance overdue ──
     const [entriesToday, setEntriesToday] = useState<number | null>(null);
-    const [draftCount, setDraftCount] = useState<number | null>(null);
+    // Suggested/Actual track counts for the Voyage Entries tile —
+    // sourced from RoutesAndTracks (planned_* voyageIds vs everything
+    // else). Refetches whenever a route is saved or a voyage deleted
+    // (window event from invalidateRoutesAndTracks).
+    const [routeCount, setRouteCount] = useState<number | null>(null);
+    const [trackCount, setTrackCount] = useState<number | null>(null);
     const [guardianArmed, setGuardianArmed] = useState<boolean>(false);
     const [guardianNearby, setGuardianNearby] = useState<number>(0);
     const [overdueCount, setOverdueCount] = useState<number>(0);
@@ -462,20 +467,51 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     }, []);
 
     useEffect(() => {
-        // Draft passage count for the Route Planner tile.
+        // Suggested + Actual track counts for the Voyage Entries
+        // tile. Source of truth is RoutesAndTracks:
+        //   routes  → planned_* voyageIds  (suggested / not yet sailed)
+        //   tracks  → every other voyageId (actual / sailed passages)
+        //
+        // Dynamic: re-fetches on the `routes-and-tracks-changed`
+        // window event (fired by invalidateRoutesAndTracks() from
+        // PassagePlanSave + EntryCrud.deleteVoyage), and again when
+        // the page becomes visible (skipper backgrounded the app and
+        // came back). No polling.
         let cancelled = false;
-        (async () => {
+
+        const refetch = async () => {
             try {
-                const { getDraftVoyages } = await import('../services/VoyageService');
-                const drafts = await getDraftVoyages();
+                const { fetchRoutesAndTracks } = await import('../services/shiplog/RoutesAndTracks');
+                // Force=true bypasses the 60s cache so a delete reflects
+                // immediately rather than waiting up to a minute.
+                const data = await fetchRoutesAndTracks(true);
                 if (cancelled) return;
-                setDraftCount(drafts.filter((v) => v.status === 'planning').length);
+                setRouteCount(data.routes.length);
+                setTrackCount(data.tracks.length);
             } catch {
-                /* offline — leave null */
+                /* offline — leave nulls so the tile shows the CTA */
             }
-        })();
+        };
+
+        refetch();
+
+        const onChanged = () => {
+            void refetch();
+        };
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') void refetch();
+        };
+
+        if (typeof window !== 'undefined') {
+            window.addEventListener('thalassa:routes-and-tracks-changed', onChanged);
+            document.addEventListener('visibilitychange', onVisibility);
+        }
         return () => {
             cancelled = true;
+            if (typeof window !== 'undefined') {
+                window.removeEventListener('thalassa:routes-and-tracks-changed', onChanged);
+                document.removeEventListener('visibilitychange', onVisibility);
+            }
         };
     }, []);
 
@@ -761,14 +797,32 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                             >
                                                 <BookIcon color="#0ea5e9" />
                                             </div>
-                                            <div>
-                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                            {/* Voyage Entries shows both counts on one line:
+                                                  N PLAN  = saved suggested routes (not yet sailed)
+                                                  N SAIL  = actually-logged tracks
+                                                Tracking is `wide` (not `widest`) so 2-digit
+                                                counts still fit inside the half-grid tile on
+                                                a small phone — `tracking-widest` blew past
+                                                the card edge. min-w-0 + truncate are belt &
+                                                suspenders if a future change pushes the
+                                                length out further. */}
+                                            <div className="min-w-0 flex-1">
+                                                <h4 className="text-[13px] font-black text-white tracking-wide truncate">
                                                     Voyage Entries
                                                 </h4>
-                                                <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
-                                                    {entriesToday !== null && entriesToday > 0
-                                                        ? `${entriesToday} Today`
-                                                        : 'Log Entry'}
+                                                <p className="text-[11px] font-bold uppercase tracking-wide text-sky-400 mt-0.5 tabular-nums truncate">
+                                                    {(() => {
+                                                        const r = routeCount ?? 0;
+                                                        const t = trackCount ?? 0;
+                                                        if (r === 0 && t === 0) {
+                                                            return entriesToday !== null && entriesToday > 0
+                                                                ? `${entriesToday} Today`
+                                                                : 'Log Entry';
+                                                        }
+                                                        if (r === 0) return `${t} Sail`;
+                                                        if (t === 0) return `${r} Plan`;
+                                                        return `${r} Plan · ${t} Sail`;
+                                                    })()}
                                                 </p>
                                             </div>
                                         </div>
@@ -793,8 +847,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                             >
                                                 <CompassIcon />
                                             </div>
-                                            <div>
-                                                <h4 className="text-[13px] font-black text-white tracking-wide">
+                                            {/* Route Planner is a CTA, not a status surface.
+                                                Draft count moved to Voyage Entries (where
+                                                "suggested tracks" belongs alongside actual
+                                                ones). This tile just invites the action. */}
+                                            <div className="min-w-0 flex-1">
+                                                <h4 className="text-[13px] font-black text-white tracking-wide truncate">
                                                     Route Planner
                                                 </h4>
                                                 <p
@@ -802,11 +860,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                                         isObserver ? 'text-gray-500' : 'text-cyan-400'
                                                     }`}
                                                 >
-                                                    {isObserver
-                                                        ? 'Vessel Required'
-                                                        : draftCount !== null && draftCount > 0
-                                                          ? `${draftCount} Draft${draftCount === 1 ? '' : 's'}`
-                                                          : 'Plan Passage'}
+                                                    {isObserver ? 'Vessel Required' : 'Plan Passage'}
                                                 </p>
                                             </div>
                                         </div>
