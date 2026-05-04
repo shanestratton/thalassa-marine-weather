@@ -194,6 +194,35 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [destCoords, setDestCoords] = useState<{ lat: number; lon: number } | null>(null);
     const [routeNm, setRouteNm] = useState<number | null>(null);
 
+    // ── Trip-log state ──
+    // The hero band's "Underway" pill shouldn't fire just because a
+    // voyage row is marked status:active in the DB — that label means
+    // "actively logging right now". Subscribe to ShipLogService for
+    // live start/stop so a stale active voyage from a deleted route
+    // can't show "Underway" with the boat sitting at the dock.
+    const [tripLogActive, setTripLogActive] = useState<boolean>(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        let unsub: (() => void) | null = null;
+        (async () => {
+            try {
+                const { ShipLogService } = await import('../services/ShipLogService');
+                if (cancelled) return;
+                unsub = ShipLogService.onTrackingStateChange((tracking, paused) => {
+                    if (cancelled) return;
+                    setTripLogActive(tracking && !paused);
+                });
+            } catch {
+                /* ShipLogService unavailable — leave inactive */
+            }
+        })();
+        return () => {
+            cancelled = true;
+            if (unsub) unsub();
+        };
+    }, []);
+
     useEffect(() => {
         // Refresh cached voyage on mount (cheap localStorage read).
         setActiveVoyage(getCachedActiveVoyage());
@@ -660,6 +689,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     vesselName={vesselName}
                     vesselNameSet={vesselNameSet}
                     voyage={activeVoyage}
+                    tripLogActive={tripLogActive}
                     position={position}
                     anchorStatus={anchorStatus}
                     anchorRadius={anchorRadius}
@@ -1360,16 +1390,42 @@ function formatCoord(lat: number, lon: number): string {
 function deriveVoyageState(
     voyage: Voyage | null,
     anchorStatus: 'armed' | 'disarmed' | 'alarm',
+    tripLogActive: boolean,
 ): { label: string; color: string; route?: string } {
     if (anchorStatus === 'alarm') return { label: 'Drag Alarm', color: '#ef4444' };
+
+    // "Underway" requires the GPS trip log to actually be recording —
+    // not just `voyage.status === 'active'` in the DB. A stale active
+    // voyage from a deleted route, a paused log, or a Cast Off without
+    // GPS would otherwise lie and show "Underway" at the dock.
+    if (tripLogActive) {
+        const route =
+            voyage && voyage.departure_port && voyage.destination_port
+                ? `${voyage.departure_port} → ${voyage.destination_port}`
+                : voyage?.voyage_name || undefined;
+        return { label: 'Underway', color: '#10b981', route };
+    }
+
+    if (anchorStatus === 'armed') {
+        const route =
+            voyage && voyage.departure_port && voyage.destination_port
+                ? `${voyage.departure_port} → ${voyage.destination_port}`
+                : undefined;
+        return { label: 'At Anchor', color: '#22d3ee', route };
+    }
+
+    // Voyage is marked active in DB but the trip log isn't running.
+    // Boat sitting at the dock with a dangling "active" status.
+    // Show "Standby" so the user knows the voyage is set up but they
+    // haven't actually cast off (or the log was stopped mid-passage).
     if (voyage && voyage.status === 'active') {
         const route =
             voyage.departure_port && voyage.destination_port
                 ? `${voyage.departure_port} → ${voyage.destination_port}`
-                : voyage.voyage_name || 'Underway';
-        return { label: 'Underway', color: '#10b981', route };
+                : voyage.voyage_name || 'Standby';
+        return { label: 'Standby', color: '#0ea5e9', route };
     }
-    if (anchorStatus === 'armed') return { label: 'At Anchor', color: '#22d3ee' };
+
     if (voyage && voyage.status === 'planning') {
         const route =
             voyage.departure_port && voyage.destination_port
@@ -1377,6 +1433,7 @@ function deriveVoyageState(
                 : voyage.voyage_name || 'Drafted';
         return { label: 'Drafted', color: '#8b5cf6', route };
     }
+
     return { label: 'At Rest', color: '#9ca3af' };
 }
 
@@ -1548,6 +1605,7 @@ const NavStationHero: React.FC<{
     vesselName: string;
     vesselNameSet: boolean;
     voyage: Voyage | null;
+    tripLogActive: boolean;
     position: GpsPosition | null;
     anchorStatus: 'armed' | 'disarmed' | 'alarm';
     anchorRadius: number;
@@ -1569,6 +1627,7 @@ const NavStationHero: React.FC<{
     vesselName,
     vesselNameSet,
     voyage,
+    tripLogActive,
     position,
     anchorStatus,
     anchorRadius,
@@ -1587,7 +1646,7 @@ const NavStationHero: React.FC<{
     routeNm,
     onNavigate,
 }) => {
-    const state = deriveVoyageState(voyage, anchorStatus);
+    const state = deriveVoyageState(voyage, anchorStatus, tripLogActive);
 
     // Underway = SOG > ~1 kt (0.51 m/s). Below that it's noise from
     // GPS jitter at anchor — don't print "SOG 0.3 kt" on a stationary boat.
