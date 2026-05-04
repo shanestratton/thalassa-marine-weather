@@ -64,15 +64,25 @@ post_install do |installer|
   # know — run it every build, stop warning". Also silences the
   # "Ignoring duplicate libraries -lc++ -lsqlite3 -lz" linker warning
   # by opting out of the new duplicate-library detection.
+  #
+  # `[CP] Copy XCFrameworks` lives in Pods.xcodeproj (each pod target
+  # that vendors a pre-built XCFramework gets one), so we have to patch
+  # `installer.pods_project` too — the previous version only patched
+  # App.xcodeproj and missed all the XCFramework-copy phases.
+  silence_cp_phases = ->(project) {
+    project.targets.each do |target|
+      target.build_phases.each do |phase|
+        next unless phase.respond_to?(:name) && phase.name
+        phase.always_out_of_date = '1' if phase.name.start_with?('[CP]')
+      end
+    end
+  }
+
   app_project_path = File.join(__dir__, 'App.xcodeproj')
   app_project = Xcodeproj::Project.open(app_project_path)
-  app_project.targets.each do |target|
-    # Script phases (CocoaPods)
-    target.build_phases.each do |phase|
-      next unless phase.respond_to?(:name) && phase.name
-      phase.always_out_of_date = '1' if phase.name.start_with?('[CP]')
-    end
+  silence_cp_phases.call(app_project)
 
+  app_project.targets.each do |target|
     # Linker: opt out of "duplicate library" warnings. The new ld64
     # emits these for -lc++/-lsqlite3/-lz appearing across system + Pods.
     # Harmless; the symbols are dedup'd. `-no_warn_duplicate_libraries`
@@ -86,4 +96,11 @@ post_install do |installer|
     end
   end
   app_project.save
+
+  # Pods.xcodeproj — same treatment for the [CP] phases living inside
+  # individual pod targets (Copy XCFrameworks, etc). installer.pods_project
+  # is already in memory from the integrate step; saving it persists
+  # the alwaysOutOfDate flag through the next build.
+  silence_cp_phases.call(installer.pods_project)
+  installer.pods_project.save
 end
