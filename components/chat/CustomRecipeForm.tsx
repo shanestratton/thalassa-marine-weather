@@ -92,6 +92,59 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
     // Nautical tags (selectable in Basics step)
     const [selectedTags, setSelectedTags] = useState<Set<NauticalTag>>(new Set());
 
+    // ── Keyboard avoidance ──
+    // The form is a centered modal with max-h-[85dvh]. When the iOS
+    // keyboard slides up, it covers the bottom ~40-45% of the screen.
+    // The previous behaviour was: input gets covered, user can't see
+    // what they're typing. Tracking the keyboard height lets us shrink
+    // the modal AND scroll the focused field into view above it.
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+    useEffect(() => {
+        let cleanup: (() => void) | undefined;
+        // Use a feature-detect pattern instead of importing Capacitor at
+        // top-level — keeps this component web-friendly. The Keyboard
+        // plugin only resolves on native; on web we fall back to the
+        // visualViewport API below.
+        import('@capacitor/core')
+            .then(async ({ Capacitor }) => {
+                if (!Capacitor.isNativePlatform()) return;
+                const { Keyboard } = await import('@capacitor/keyboard');
+                const showHandle = Keyboard.addListener('keyboardDidShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight);
+                    // Give the modal a beat to shrink, then scroll the
+                    // focused field into the visible area. iOS doesn't
+                    // resize the WKWebView when keyboard shows (we set
+                    // KeyboardResize.None), so we MUST scroll manually.
+                    setTimeout(() => {
+                        const focused = document.activeElement as HTMLElement | null;
+                        if (
+                            focused &&
+                            (focused.tagName === 'INPUT' ||
+                                focused.tagName === 'TEXTAREA' ||
+                                focused.tagName === 'SELECT')
+                        ) {
+                            focused.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    }, 200);
+                });
+                const hideHandle = Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+                cleanup = () => {
+                    showHandle.then((h) => h.remove());
+                    hideHandle.then((h) => h.remove());
+                };
+            })
+            .catch(() => {
+                /* Capacitor unavailable (web build) — nothing to do */
+            });
+
+        return () => {
+            cleanup?.();
+        };
+    }, []);
+
     // Auto-suggest tags when title changes
     useEffect(() => {
         if (title.trim().length > 2) {
@@ -214,7 +267,6 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                     placeholder="e.g. Mum's Spaghetti Bolognese"
                     className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
                     autoFocus
-                    data-no-keyboard-scroll
                 />
             </div>
 
@@ -338,7 +390,6 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         onChange={(e) => updateIngredient(ing.key, 'name', e.target.value)}
                         placeholder="Ingredient"
                         className="flex-1 min-w-0 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2.5 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30"
-                        data-no-keyboard-scroll
                     />
                     <input
                         value={ing.amount}
@@ -348,7 +399,6 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         inputMode="decimal"
                         step="0.1"
                         className="w-16 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30 text-center"
-                        data-no-keyboard-scroll
                     />
                     <select
                         value={ing.unit}
@@ -395,7 +445,6 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
                         placeholder={`Step ${i + 1}…`}
                         rows={2}
                         className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-xl px-3 py-2 text-xs text-white placeholder-gray-500 focus:outline-none focus:border-amber-500/30 resize-none"
-                        data-no-keyboard-scroll
                     />
                     <button
                         onClick={() => removeDirection(i)}
@@ -497,9 +546,15 @@ export const CustomRecipeForm: React.FC<CustomRecipeFormProps> = ({ onSaved, onC
         <div
             className="fixed inset-0 z-[1000] flex items-start justify-center bg-black/70 backdrop-blur-sm animate-in fade-in duration-200 pt-[max(1rem,env(safe-area-inset-top))]"
             onClick={onClose}
+            // Reserve space for the iOS keyboard at the bottom of the
+            // modal's containing flex region. When keyboardHeight > 0,
+            // adding it as bottom padding shrinks the available area
+            // so the modal's max-h-[85dvh] gets clamped above the
+            // keyboard rather than being covered by it.
+            style={keyboardHeight > 0 ? { paddingBottom: `${keyboardHeight}px` } : undefined}
         >
             <div
-                className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
+                className="w-[calc(100%-1.5rem)] max-w-lg bg-slate-900 border border-white/[0.1] rounded-3xl max-h-[85dvh] flex flex-col shadow-2xl animate-in slide-in-from-bottom-4 duration-300 transition-[max-height] duration-200"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header — back chevron at top-left matches iOS
