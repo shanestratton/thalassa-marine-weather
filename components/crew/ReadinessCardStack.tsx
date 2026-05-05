@@ -255,6 +255,17 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                                 destPort={activeVoyage.destination_port || undefined}
                                 departureTime={activeVoyage.departure_time}
                                 eta={activeVoyage.eta}
+                                /* Coords from the active voyage's first/last
+                                   logbook points — single source of truth for
+                                   the map. Without these the card had to fall
+                                   back to PassageStore localStorage which can
+                                   carry stale data from previous sessions and
+                                   cause the map to render as a globe view
+                                   with a (0,0) marker. */
+                                departLat={activeVoyage.departureCoords?.lat}
+                                departLon={activeVoyage.departureCoords?.lon}
+                                arriveLat={activeVoyage.arrivalCoords?.lat}
+                                arriveLon={activeVoyage.arrivalCoords?.lon}
                             />
                         </div>
                     </details>
