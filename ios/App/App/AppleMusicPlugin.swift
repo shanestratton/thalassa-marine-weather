@@ -1323,45 +1323,50 @@ public class AppleMusicPlugin: CAPPlugin {
 
             // For library tracks, MusicKit's Artwork.url() returns a
             // `musicKit://` scheme URL that WKWebView's <img> can't
-            // load. Detect that, resolve through MPMusicPlayerController
-            // (which gives us a UIImage we can JPEG-encode and pass as
-            // a data: URL), and replace the unloadable URL with the
-            // data URL the WebView can render directly. Cache by
-            // persistent ID so we encode once per track, not every poll.
+            // load. Resolve that through MPNowPlayingInfoCenter, which
+            // is the system-wide now-playing dictionary that gets
+            // updated by ANY app's playback (including MusicKit's
+            // ApplicationMusicPlayer.shared). We encode the artwork
+            // as a JPEG data URL so the WebView can render it
+            // natively.
             //
-            // CRITICAL: use applicationQueuePlayer NOT systemMusicPlayer.
-            // systemMusicPlayer reflects what the Apple Music app is
-            // playing — its nowPlayingItem is unrelated to OUR app's
-            // playback and is typically a stale leftover from
-            // whatever the user last played there. applicationQueuePlayer
-            // shares state with ApplicationMusicPlayer.shared (the
-            // MusicKit Swift player we use) — so its nowPlayingItem
-            // is the track we're actually playing right now.
+            // We previously tried MPMusicPlayerController.systemMusicPlayer
+            // (returned the wrong app's nowPlayingItem) and
+            // applicationQueuePlayer (returned nil because that
+            // MediaPlayer-framework player doesn't share state with
+            // MusicKit's Swift player). MPNowPlayingInfoCenter is the
+            // right surface — it's where the OS centralises now-playing
+            // info for the lock screen, Control Center, and any
+            // process subscribing to it.
+            //
+            // Cached by the original musicKit:// URL string so each
+            // track's encoded artwork is reused across the 2s poll.
             if artworkUrl.hasPrefix("musicKit://") || artworkUrl.isEmpty {
-                let item = MPMusicPlayerController.applicationQueuePlayer.nowPlayingItem
-                if let mediaItem = item {
-                    let cacheKey = String(mediaItem.persistentID)
-                    if let cached = self.artworkDataUrlCache[cacheKey] {
-                        artworkUrl = cached
-                        artworkSource = "mpmedia-cached"
-                    } else if let mpArtwork = mediaItem.artwork,
-                              let image = mpArtwork.image(at: CGSize(width: 240, height: 240)),
-                              let data = image.jpegData(compressionQuality: 0.85) {
-                        let dataUrl = "data:image/jpeg;base64,\(data.base64EncodedString())"
-                        self.artworkDataUrlCache[cacheKey] = dataUrl
-                        self.artworkCacheOrder.append(cacheKey)
-                        // Trim cache to max size — drop oldest entries.
-                        while self.artworkCacheOrder.count > self.maxArtworkCache {
-                            let oldest = self.artworkCacheOrder.removeFirst()
-                            self.artworkDataUrlCache.removeValue(forKey: oldest)
-                        }
-                        artworkUrl = dataUrl
-                        artworkSource = "mpmedia-fresh"
-                    } else if mediaItem.artwork == nil {
-                        artworkSource = "mpmedia-no-artwork"
-                    } else {
-                        artworkSource = "mpmedia-decode-failed"
+                let cacheKey = artworkUrl.isEmpty ? "<empty>:\(title)" : artworkUrl
+                if let cached = self.artworkDataUrlCache[cacheKey] {
+                    artworkUrl = cached
+                    artworkSource = "info-cached"
+                } else if let info = MPNowPlayingInfoCenter.default().nowPlayingInfo,
+                          let mpArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork,
+                          let image = mpArtwork.image(at: CGSize(width: 240, height: 240)),
+                          let data = image.jpegData(compressionQuality: 0.85) {
+                    let dataUrl = "data:image/jpeg;base64,\(data.base64EncodedString())"
+                    self.artworkDataUrlCache[cacheKey] = dataUrl
+                    self.artworkCacheOrder.append(cacheKey)
+                    while self.artworkCacheOrder.count > self.maxArtworkCache {
+                        let oldest = self.artworkCacheOrder.removeFirst()
+                        self.artworkDataUrlCache.removeValue(forKey: oldest)
                     }
+                    artworkUrl = dataUrl
+                    artworkSource = "info-fresh"
+                } else {
+                    // No artwork available via MPNowPlayingInfoCenter
+                    // either. Return empty URL so the JS layer falls
+                    // back cleanly to the generated monogram instead
+                    // of trying to render the unloadable musicKit://
+                    // string.
+                    artworkUrl = ""
+                    artworkSource = "info-unavailable"
                 }
             }
 
