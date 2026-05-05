@@ -1276,11 +1276,26 @@ public class AppleMusicPlugin: CAPPlugin {
         var artworkUrl = ""
         if let entry = entry {
             title = entry.title
+            // Pull artwork off the queue Entry directly — it's more
+            // reliably populated than the inner item's artwork,
+            // especially for tracks queued from a library playlist
+            // where the item may wrap differently.
+            if let url = entry.artwork?.url(width: 400, height: 400) {
+                artworkUrl = url.absoluteString
+            }
+            // Entry subtitle is typically "Artist" or "Artist — Album"
+            // — use as a default artist line in case the inner item
+            // doesn't surface artistName cleanly.
+            artist = entry.subtitle ?? ""
             switch entry.item {
             case .song(let song):
-                artist = song.artistName
+                if !song.artistName.isEmpty {
+                    artist = song.artistName
+                }
                 album = song.albumTitle ?? ""
-                if let url = song.artwork?.url(width: 400, height: 400) {
+                // Fall back to the song's own artwork only if the
+                // entry didn't have one.
+                if artworkUrl.isEmpty, let url = song.artwork?.url(width: 400, height: 400) {
                     artworkUrl = url.absoluteString
                 }
             default:
