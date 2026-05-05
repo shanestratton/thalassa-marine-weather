@@ -94,6 +94,101 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [voyagePlan?.departureDate]);
 
+    /**
+     * Setting the departure date in the form should also push the new
+     * date through to the active voyage record so the Passage Summary
+     * card and the Crew Management dropdown both reflect it
+     * immediately. Without this the user changes the date, navigates
+     * to Crew Management, and still sees the old date because the
+     * voyage record was only ever updated at Calculate-time.
+     *
+     * Match strategy: trimCountrySuffix on the active plan's origin /
+     * destination, look up the matching draft voyage by name, update
+     * its departure_time + recompute eta (preserving the original
+     * duration delta). Mirrors WeatherWindowCard.acceptWindow.
+     *
+     * Non-blocking — if the voyage update fails (no Supabase auth, no
+     * matching voyage, network error), we still update the form
+     * state. The user can still re-Calculate to force a save.
+     */
+    const handleDateChange = useCallback(
+        async (newDate: string) => {
+            setDepartureDate(newDate);
+            if (!voyagePlan?.origin || !voyagePlan?.destination) return;
+
+            try {
+                // Build the expected voyage_name the same way
+                // PassagePlanSave.createVoyage did:
+                //   "{trimCountrySuffix(origin)} → {trimCountrySuffix(destination)}"
+                // Inline the trim so we don't take a service dependency.
+                const trim = (name: string) => {
+                    const parts = name
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean);
+                    if (parts.length === 0) return name;
+                    if (parts.length === 1) return parts[0];
+                    const last = parts[parts.length - 1];
+                    if (/^[A-Z]{2,4}$/.test(last)) return parts.slice(0, -1).join(', ');
+                    if (parts.length >= 3) return parts.slice(0, -1).join(', ');
+                    return parts.join(', ');
+                };
+                const expectedName = `${trim(voyagePlan.origin)} → ${trim(voyagePlan.destination)}`;
+
+                const { getDraftVoyages, updateVoyage } = await import('../services/VoyageService');
+                const drafts = await getDraftVoyages();
+                const match = drafts.find((v) => v.voyage_name === expectedName);
+                if (!match) return;
+
+                // Compute new departure_time as midnight UTC of the
+                // selected date. Preserve duration: if the existing
+                // voyage has a valid (departure_time, eta) pair, the
+                // new eta = new departure + (oldEta - oldDeparture).
+                const newDepartureIso = new Date(`${newDate}T00:00:00Z`).toISOString();
+                const patch: { departure_time: string; eta?: string } = {
+                    departure_time: newDepartureIso,
+                };
+                if (match.departure_time && match.eta) {
+                    const oldDep = new Date(match.departure_time).getTime();
+                    const oldEta = new Date(match.eta).getTime();
+                    if (!isNaN(oldDep) && !isNaN(oldEta) && oldEta > oldDep) {
+                        const durationMs = oldEta - oldDep;
+                        patch.eta = new Date(new Date(newDepartureIso).getTime() + durationMs).toISOString();
+                    }
+                }
+                await updateVoyage(match.id, patch);
+
+                // Update voyagePlan in WeatherContext so the form +
+                // any other consumers see the new date without a
+                // remount.
+                saveVoyagePlan({ ...voyagePlan, departureDate: newDate });
+
+                // Notify any open PassageSummaryCard / banner / etc.
+                // to re-read the new departure time. Same event the
+                // WeatherWindowCard fires on accept.
+                try {
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:departure-time-updated', {
+                            detail: {
+                                voyageId: match.id,
+                                hhmm: '00:00',
+                                iso: newDepartureIso,
+                            },
+                        }),
+                    );
+                } catch {
+                    /* SSR safety */
+                }
+            } catch (e) {
+                // Non-critical — user can still re-Calculate to force
+                // a save. Form state already updated by setDepartureDate
+                // above.
+                console.warn('[useVoyageForm] handleDateChange voyage sync failed:', e);
+            }
+        },
+        [voyagePlan, saveVoyagePlan],
+    );
+
     // Loading Animation Loop
     useEffect(() => {
         let interval: ReturnType<typeof setInterval> | undefined;
@@ -818,6 +913,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setVia,
         departureDate,
         setDepartureDate,
+        handleDateChange,
         isMapOpen,
         setIsMapOpen,
         mapSelectionTarget,
