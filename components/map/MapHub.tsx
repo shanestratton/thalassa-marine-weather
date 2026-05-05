@@ -382,6 +382,117 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [routePickerOpen, setRoutePickerOpen] = useState(false);
     const [trackPickerOpen, setTrackPickerOpen] = useState(false);
 
+    /** Active Voyage Mode flag — mirrored from the voyages cache. When
+     *  true, the chart auto-displays the boat's GPS position, the live
+     *  voyage track, and the planned route, regardless of which weather
+     *  layer is on. Listens for `thalassa:active-voyage-changed` so the
+     *  flag flips the moment Cast Off / End Voyage runs. */
+    const [activeVoyageMode, setActiveVoyageMode] = useState<boolean>(() => {
+        try {
+            const raw = localStorage.getItem('thalassa_active_voyage');
+            if (!raw) return false;
+            const parsed = JSON.parse(raw);
+            return parsed?.status === 'active';
+        } catch {
+            return false;
+        }
+    });
+    const [activeVoyageId, setActiveVoyageId] = useState<string | null>(() => {
+        try {
+            const raw = localStorage.getItem('thalassa_active_voyage');
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed?.status === 'active' ? (parsed.id as string) : null;
+        } catch {
+            return null;
+        }
+    });
+    const [activeVoyageName, setActiveVoyageName] = useState<string | null>(() => {
+        try {
+            const raw = localStorage.getItem('thalassa_active_voyage');
+            if (!raw) return null;
+            const parsed = JSON.parse(raw);
+            return parsed?.status === 'active' ? (parsed.voyage_name as string) : null;
+        } catch {
+            return null;
+        }
+    });
+    useEffect(() => {
+        const sync = () => {
+            try {
+                const raw = localStorage.getItem('thalassa_active_voyage');
+                const v = raw ? JSON.parse(raw) : null;
+                const isActive = v?.status === 'active';
+                setActiveVoyageMode(isActive);
+                setActiveVoyageId(isActive ? (v.id as string) : null);
+                setActiveVoyageName(isActive ? (v.voyage_name as string) : null);
+            } catch {
+                setActiveVoyageMode(false);
+                setActiveVoyageId(null);
+                setActiveVoyageName(null);
+            }
+        };
+        window.addEventListener('thalassa:active-voyage-changed', sync);
+        return () => window.removeEventListener('thalassa:active-voyage-changed', sync);
+    }, []);
+
+    /** Vessel position + trail are FORCED visible during Active Voyage
+     *  Mode, regardless of the user's persisted toggle. The user can
+     *  still toggle off in normal mode; toggling off mid-voyage is a
+     *  no-op for the actual rendering (the underlying preference is
+     *  preserved for when the voyage ends). */
+    const effectiveVesselTrackingVisible = vesselTrackingVisible || activeVoyageMode;
+
+    /** Auto-select the active voyage's planned route + sailed track on
+     *  the chart so the skipper sees "I am here, I came from there, I'm
+     *  heading there" from one glance — no manual route/track picking
+     *  required while underway. Match planned route by normalised name
+     *  (matches the same scheme CrewManagement uses); match track by
+     *  voyage.id (ShipLogService.startTracking seeds entries.voyageId
+     *  with the voyages-table UUID at Cast Off time). */
+    useEffect(() => {
+        if (!activeVoyageMode || !activeVoyageId) return;
+        let cancelled = false;
+        const sync = async () => {
+            try {
+                const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
+                // Force-refresh — newly logged GPS points need to flow into
+                // the rendered track without waiting on the 60s cache.
+                const { routes, tracks } = await fetchRoutesAndTracks(true);
+                if (cancelled) return;
+
+                const norm = (s: string) => s.trim().toLowerCase();
+                if (activeVoyageName) {
+                    const wantLabel = norm(activeVoyageName);
+                    const matchedRoute = routes.find((r) => norm(r.label) === wantLabel) ?? null;
+                    if (matchedRoute) {
+                        setActiveChartRoute((cur) => (cur?.id === matchedRoute.id ? cur : matchedRoute));
+                    }
+                }
+
+                const matchedTrack = tracks.find((t) => t.id === activeVoyageId) ?? null;
+                if (matchedTrack) {
+                    setActiveChartTrack((cur) => (cur?.id === matchedTrack.id ? cur : matchedTrack));
+                }
+            } catch (e) {
+                log.warn('Active voyage auto-select failed:', e);
+            }
+        };
+        sync();
+
+        const onRefresh = () => sync();
+        window.addEventListener('thalassa:routes-and-tracks-changed', onRefresh);
+        // Periodic refresh while underway so the trail extends as new GPS
+        // points come in. 60s matches the RoutesAndTracks cache TTL — any
+        // shorter and we'd just hit the cache anyway.
+        const t = setInterval(sync, 60_000);
+        return () => {
+            cancelled = true;
+            window.removeEventListener('thalassa:routes-and-tracks-changed', onRefresh);
+            clearInterval(t);
+        };
+    }, [activeVoyageMode, activeVoyageId, activeVoyageName]);
+
     // Start the silent FPS watchdog when the chart screen mounts. It
     // runs essentially free (one rAF callback) and writes to
     // localStorage when sustained FPS goes below 35 — the next launch
@@ -704,7 +815,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     });
 
     // ── Location Dot (basic fallback — disabled when vessel tracker is active) ──
-    useLocationDot(mapRef, locationDotRef, mapReady && !vesselTrackingVisible);
+    useLocationDot(mapRef, locationDotRef, mapReady && !effectiveVesselTrackingVisible);
 
     // ── Fly to the selected weather location when it arrives / changes ──
     // `initialCenter` on useMapInit sets the mount-time centre, but when the
@@ -815,7 +926,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [weatherCoords?.lat, weatherCoords?.lon, embedded, pickerMode, isPinView]);
 
     // ── GPS Vessel Tracker Layer ──
-    const { flyToVessel } = useVesselTracker(mapRef, mapReady, vesselTrackingVisible);
+    const { flyToVessel } = useVesselTracker(mapRef, mapReady, effectiveVesselTrackingVisible);
 
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);
