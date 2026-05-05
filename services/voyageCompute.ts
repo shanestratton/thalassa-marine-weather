@@ -76,7 +76,14 @@ export const computeVoyagePlan = async (
     _generalUnits?: unknown,
     _via?: string,
     _weatherContext?: Record<string, unknown>,
-    _userLocation?: { lat: number; lon: number },
+    /**
+     * User's current GPS — passed straight through to parseLocation
+     * as Mapbox proximity bias. Without this, "Newport, QLD" might
+     * resolve to Newport, NC (USA) because Mapbox doesn't recognise
+     * QLD as Queensland. With proximity, the closest match wins —
+     * a user in Brisbane gets the right Newport.
+     */
+    userLocation?: { lat: number; lon: number },
 ): Promise<VoyagePlan> => {
     if (!origin || !destination) {
         throw new Error('Origin and destination are required.');
@@ -88,7 +95,13 @@ export const computeVoyagePlan = async (
     // Gemini autocorrect-suggester. It throws on hard-fail, which we
     // bubble up so the caller's try/catch shows the user a sensible
     // "Location 'foo' not found" instead of a hallucinated route.
-    const [originGeo, destGeo] = await Promise.all([parseLocation(origin), parseLocation(destination)]);
+    //
+    // userLocation is forwarded as proximity bias — critical for
+    // disambiguating short region codes like "QLD"/"NC"/"NSW"/"WA".
+    const [originGeo, destGeo] = await Promise.all([
+        parseLocation(origin, userLocation),
+        parseLocation(destination, userLocation),
+    ]);
 
     if (originGeo.lat === 0 && originGeo.lon === 0) {
         throw new Error(`Could not geocode origin: "${origin}"`);
