@@ -399,7 +399,11 @@ export async function enhanceVoyagePlanWithIsochrone(
             coordinates: [n.lon, n.lat] as [number, number],
             distance_from_start_nm: Math.round(n.distance * 10) / 10,
             time_offset_hours: Math.round(n.timeHours * 10) / 10,
-            name: undefined,
+            // Intermediate waypoints have no name; first/last get
+            // overwritten with origin/destination below. TrackPoint
+            // declares `name: string` so we use empty string, not
+            // undefined.
+            name: '',
             lateral_offset_nm: 0,
             conditions: {
                 depth_m: n.depth_m ?? null,
