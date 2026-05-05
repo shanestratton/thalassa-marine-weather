@@ -46,6 +46,13 @@ interface LegPickerDropdownProps {
      *  When the user picks a leg with a known arrival we fill it; for new legs we clear so they
      *  type the next hop fresh. */
     onSelectDestination?: (port: string) => void;
+    /** Optional auto-calculate callback — fired with (departure, destination)
+     *  when the user picks a leg whose BOTH endpoints are known. Lets the
+     *  route planner immediately re-run the routing engine without making
+     *  the user hit the Calculate slider. For "future" legs (destination
+     *  unknown) we don't fire this — the user has to type the next hop's
+     *  destination first. */
+    onAutoCalculate?: (departure: string, destination: string) => void;
 }
 
 /** Internal model — a "leg" of a trip as the picker sees it. */
@@ -165,7 +172,11 @@ const LEG_STATUS_LABEL: Record<UiLeg['status'], string> = {
     future: 'New leg',
 };
 
-export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDeparture, onSelectDestination }) => {
+export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
+    onSelectDeparture,
+    onSelectDestination,
+    onAutoCalculate,
+}) => {
     const [trips, setTrips] = useState<UiTrip[]>([NEW_TRIP]);
     const [tripId, setTripId] = useState<string>(NEW_TRIP_ID);
     const [legNumber, setLegNumber] = useState<number>(1);
@@ -242,15 +253,43 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
             // For Leg N+1 (future), clear Destination so the user types
             // the next hop. For completed legs we fill with the known
             // arrival so the form mirrors the saved route.
+            let nextDestination: string | null = null;
             if (onSelectDestination) {
                 if (leg.status === 'future') {
                     onSelectDestination('');
+                    nextDestination = '';
                 } else if (leg.arrivalPort) {
                     onSelectDestination(leg.arrivalPort);
+                    nextDestination = leg.arrivalPort;
+                }
+            }
+
+            // Auto-fire the routing engine when the picked leg has both
+            // endpoints known. Re-planning a saved/completed leg with
+            // fresh weather is what the skipper almost always wants
+            // when they tap an existing leg — saves them an extra
+            // "Slide to Calculate" gesture. For "future" legs (only
+            // departure known), the destination is empty so we skip
+            // auto-fire and wait for the user to type the next hop.
+            if (
+                onAutoCalculate &&
+                leg.departurePort &&
+                leg.status !== 'future' &&
+                (leg.arrivalPort || (nextDestination && nextDestination.length > 0))
+            ) {
+                const dest = leg.arrivalPort ?? nextDestination ?? '';
+                if (dest) {
+                    // Defer to the next microtask so the React state
+                    // setters above (setOrigin / setDestination) have
+                    // a chance to flush — even though we pass values
+                    // directly, calculate also touches voyagePlan via
+                    // the saveVoyagePlan side-channel and benefits
+                    // from a clean settle window.
+                    Promise.resolve().then(() => onAutoCalculate(leg.departurePort, dest));
                 }
             }
         },
-        [onSelectDeparture, onSelectDestination],
+        [onSelectDeparture, onSelectDestination, onAutoCalculate],
     );
 
     const pickTrip = useCallback(

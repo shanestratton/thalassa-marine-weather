@@ -245,7 +245,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
     // HANDLERS
 
-    const handleCalculate = async (e?: React.FormEvent) => {
+    const handleCalculate = async (
+        e?: React.FormEvent,
+        overrides?: { origin?: string; destination?: string; via?: string },
+    ) => {
         if (e) e.preventDefault();
 
         // PAYWALL INTERCEPTION
@@ -254,7 +257,18 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             return;
         }
 
-        if (!origin || !destination) return;
+        // Resolve effective inputs — overrides win over form state. The
+        // override path is for callers like the LegPickerDropdown that
+        // want to trigger calculate immediately after a state-setter
+        // update; in that case the form state hasn't flushed yet and
+        // reading `origin` / `destination` from the closure would see
+        // the stale values, so the caller passes the new values
+        // directly. Form state setters still run below for UI sync.
+        const effOrigin = overrides?.origin ?? origin;
+        const effDest = overrides?.destination ?? destination;
+        const effVia = overrides?.via ?? via;
+
+        if (!effOrigin || !effDest) return;
 
         // SAFEGUARD: Ensure vessel profile exists before calculation
         if (!vessel) {
@@ -263,9 +277,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         }
 
         // Auto-Format inputs before submission
-        const fmtOrigin = formatLocationInput(origin);
-        const fmtDest = formatLocationInput(destination);
-        const fmtVia = via ? formatLocationInput(via) : '';
+        const fmtOrigin = formatLocationInput(effOrigin);
+        const fmtDest = formatLocationInput(effDest);
+        const fmtVia = effVia ? formatLocationInput(effVia) : '';
 
         setOrigin(fmtOrigin);
         setDestination(fmtDest);

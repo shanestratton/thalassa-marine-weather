@@ -227,15 +227,30 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         covers the input the user just tapped into). */}
                     <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
 
-                    {/* Multi-leg passage helper — only renders when a
-                        voyage is active and has legs (Cast Off creates
-                        Leg 1 automatically). For a Brisbane → Fiji
-                        voyage sailed as Brisbane → Nouméa → Vanuatu →
-                        Fiji, this lets the skipper pick which leg
-                        they're planning so the Departure box auto-fills
-                        with the correct port — no re-typing "Nouméa"
-                        when they've already arrived there. */}
-                    <LegPickerDropdown onSelectDeparture={setOrigin} onSelectDestination={setDestination} />
+                    {/* Multi-leg passage helper — always visible. Every
+                        passage starts as Leg 1 by default; the skipper
+                        opens the leg dropdown to add Leg 2, 3, … with
+                        the Departure box prefilled from the previous
+                        leg's arrival. When the picked leg has both
+                        endpoints known (re-planning a completed leg),
+                        the routing engine auto-fires via
+                        onAutoCalculate so the user doesn't need to
+                        manually slide-to-calculate. For "future" legs
+                        (destination unknown until the user types it),
+                        auto-fire is suppressed — the user types the
+                        next hop's destination, then hits the slider. */}
+                    <LegPickerDropdown
+                        onSelectDeparture={setOrigin}
+                        onSelectDestination={setDestination}
+                        onAutoCalculate={(dep, dst) => {
+                            // Pass the values directly — the form
+                            // state setters above haven't flushed by
+                            // the time this fires. handleCalculate's
+                            // override path bypasses the closure and
+                            // uses these literals instead.
+                            handleCalculate(undefined, { origin: dep, destination: dst });
+                        }}
+                    />
 
                     {/* Origin */}
                     <div className="relative group">
