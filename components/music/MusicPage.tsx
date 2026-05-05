@@ -336,20 +336,28 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         [detailPlaylist],
     );
 
-    /** Close the add-tracks sheet AND refresh the playlist's tracks
-     *  so any newly-added songs appear immediately in the detail sheet
-     *  underneath. */
+    /** Close the add-tracks sheet. We DO re-fetch the playlist tracks
+     *  so the detail sheet stays accurate, but the merge logic below
+     *  protects the optimistic adds: any track we just optimistically
+     *  appended that hasn't yet appeared in Apple's authoritative
+     *  list (their library sync is laggy) stays visible. Without
+     *  this merge, a fresh fetch right after an add would clobber
+     *  the optimistic state and the skipper sees "the song wasn't
+     *  added" when actually it was. */
     const handleCloseAddTracks = useCallback(async () => {
         setAddTracksOpen(false);
-        if (detailPlaylist) {
-            // Re-fetch the playlist's tracks so the detail sheet is
-            // up-to-date. getPlaylistTracks() also refreshes the
-            // native cache after our adds invalidated it.
-            const r = await getPlaylistTracks(detailPlaylist.id);
-            if (r.available) {
-                setDetailTracks(r.tracks);
-            }
-        }
+        if (!detailPlaylist) return;
+        const r = await getPlaylistTracks(detailPlaylist.id);
+        if (!r.available) return;
+        setDetailTracks((prev) => {
+            const freshIds = new Set(r.tracks.map((t) => t.id));
+            // Tracks we have locally that the fresh fetch is missing
+            // — these are recent optimistic adds Apple hasn't synced.
+            // Keep them at the end so the skipper still sees what
+            // they added.
+            const optimisticOnly = prev.filter((t) => !freshIds.has(t.id));
+            return [...r.tracks, ...optimisticOnly];
+        });
     }, [detailPlaylist]);
 
     /** Show the delete confirmation prompt. The actual delete fires on

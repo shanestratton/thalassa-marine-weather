@@ -1109,11 +1109,15 @@ public class AppleMusicPlugin: CAPPlugin {
             throw NSError(domain: "AppleMusic", code: -2,
                 userInfo: [NSLocalizedDescriptionKey: "no HTTP response"])
         }
-        // 200/201/204 are all "accepted". Anything else is a failure;
-        // include the body in the thrown error so we can debug.
+        let bodyStr = String(data: data, encoding: .utf8) ?? "<no body>"
+        // Apple's "Add Tracks to a Library Playlist" endpoint
+        // documents 201 Created for actual additions. Some
+        // installations return 200 OK with a body that may or may
+        // not indicate the action took. We log the full status +
+        // body so we can tell from Xcode console what Apple's
+        // saying. Anything outside 2xx is treated as an error.
+        NSLog("[AppleMusic] REST POST tracks → HTTP \(http.statusCode), body: \(bodyStr)")
         if !(200...299).contains(http.statusCode) {
-            let bodyStr = String(data: data, encoding: .utf8) ?? "<no body>"
-            NSLog("[AppleMusic] REST add HTTP \(http.statusCode): \(bodyStr)")
             throw NSError(domain: "AppleMusic", code: http.statusCode,
                 userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)", "body": bodyStr])
         }
