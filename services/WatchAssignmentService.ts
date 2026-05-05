@@ -252,7 +252,11 @@ export const WatchAssignmentService = {
      */
     subscribeToUpdates(voyageId: string, onUpdate: () => void): () => void {
         if (!supabase || !voyageId) return () => {};
-        const channel = supabase
+        // Capture the non-null reference once so the cleanup closure
+        // doesn't have to re-narrow against the module-level binding
+        // (which TS sees as possibly-null).
+        const sb = supabase;
+        const channel = sb
             .channel(`watch-schedule-${voyageId}`)
             .on('broadcast', { event: 'schedule_published' }, () => {
                 onUpdate();
@@ -275,7 +279,7 @@ export const WatchAssignmentService = {
             )
             .subscribe();
         return () => {
-            supabase.removeChannel(channel);
+            sb.removeChannel(channel);
         };
     },
 
