@@ -778,7 +778,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     >
                                         <div style={{ width: `${heroGaugeSize}px`, height: `${heroGaugeSize}px` }}>
                                             <HeroArcGauge
-                                                value={tws.value}
+                                                value={tws.value ?? 0}
                                                 min={0}
                                                 max={60}
                                                 unit="kts"
@@ -791,7 +791,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                                     { from: 40, to: 60, color: '#ef4444' },
                                                 ]}
                                                 majorTick={10}
-                                                isLive={tws.freshness !== 'dead'}
+                                                isLive={tws.value !== null && tws.freshness !== 'dead'}
                                             />
                                         </div>
                                     </div>
