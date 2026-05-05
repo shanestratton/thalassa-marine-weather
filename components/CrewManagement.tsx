@@ -771,7 +771,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                     // tells the user "set departure & eta"
                                     // even though departure IS set.
                                     if (selectedPassageId && val) {
-                                        const departureIso = new Date(val + 'T00:00:00').toISOString();
+                                        // Store the picked date as UTC midnight, NOT
+                                        // local midnight. `new Date(val)` (where val is
+                                        // YYYY-MM-DD) parses as UTC per the ECMAScript
+                                        // spec — and slicing the resulting ISO back to
+                                        // the first 10 chars gives the same calendar
+                                        // day regardless of the user's timezone. The
+                                        // previous `${val}T00:00:00` (no Z) was parsed
+                                        // as local time, which in AEST shifted the
+                                        // stored value back to the previous day's UTC
+                                        // — user picked May 12, ISO stored as May 11.
+                                        const departureIso = new Date(val).toISOString();
                                         const row = draftVoyages.find((v) => v.id === selectedPassageId);
                                         const durHours = row?.durationHours;
                                         const update: Parameters<typeof updateVoyage>[1] = {

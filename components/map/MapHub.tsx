@@ -44,7 +44,10 @@ import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYER
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner } from './usePassagePlanner';
-import { useRouteNudge } from './useRouteNudge';
+// useRouteNudge removed 2026-05-05 — long-press-to-drag the route line was
+// half-implemented (the dispatched 'route-nudge' just set arrival to the
+// via-point, dropping the actual destination) and unreliable in practice.
+// Manual route editing happens through the route planner instead.
 import { useAisLayer } from './useAisLayer';
 import { useAisStreamLayer } from './useAisStreamLayer';
 import { useChokepointLayer } from './useChokepointLayer';
@@ -817,8 +820,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Picker Mode ──
     usePickerMode(mapRef, pinMarkerRef, pickerMode, onLocationSelect);
 
-    // ── Route Nudge (long-press-to-drag on route line) ──
-    useRouteNudge(mapRef, mapReady, passage.showPassage);
+    // Route Nudge removed — see import note above.
 
     // ── Weather Layers ──
     const weather = useWeatherLayers(mapRef, mapReady, embedded, location);
