@@ -1004,38 +1004,130 @@ public class AppleMusicPlugin: CAPPlugin {
                     }
                     return
                 }
-                try await MusicLibrary.shared.add(song, to: playlist)
-                NSLog("[AppleMusic] added '\(song.title)' to '\(playlist.name)'")
-                // Invalidate cached tracks for this playlist so a
-                // subsequent detail-sheet open re-fetches.
-                self.hydratedTrackCache.removeValue(forKey: playlistId)
-                self.hydratedNameCache.removeValue(forKey: playlistId)
-                await MainActor.run {
-                    call.resolve([
-                        "status": "ok",
-                        "playlist_name": playlist.name,
-                        "song_title": song.title,
-                        "song_artist": song.artistName,
-                    ])
+                // Two-tier add. The native MusicLibrary.shared.add API
+                // works for *some* playlists in *some* iOS versions but
+                // is consistently rejected by MPErrorDomain Code 5 for
+                // playlists the app didn't create. The Apple Music REST
+                // API at api.music.apple.com is more permissive — it
+                // operates on the user's cloud library directly and
+                // accepts adds to any of the user's playlists. So we
+                // try native first (cheap, succeeds when allowed,
+                // forward-compatible if Apple ever opens this up),
+                // and on the specific MPError-5 rejection we fall
+                // through to a signed REST call.
+                var nativeMpError: NSError? = nil
+                do {
+                    try await MusicLibrary.shared.add(song, to: playlist)
+                    NSLog("[AppleMusic] native add '\(song.title)' → '\(playlist.name)' succeeded")
+                    self.hydratedTrackCache.removeValue(forKey: playlistId)
+                    self.hydratedNameCache.removeValue(forKey: playlistId)
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "ok",
+                            "playlist_name": playlist.name,
+                            "song_title": song.title,
+                            "song_artist": song.artistName,
+                            "via": "native",
+                        ])
+                    }
+                    return
+                } catch let nsError as NSError {
+                    nativeMpError = nsError
+                    NSLog("[AppleMusic] native add failed: \(nsError) — trying REST fallback")
                 }
-            } catch let nsError as NSError {
-                NSLog("[AppleMusic] addSongToPlaylist failed: \(nsError)")
-                // MPErrorDomain Code 5 ("The requested action is not
-                // supported") is what MusicKit returns when third-party
-                // apps try to mutate a library playlist's tracks.
-                // Apple deliberately restricts playlist editing to their
-                // own Music app. Surface this distinctly so the UI can
-                // pivot to "open in Apple Music" instead of just showing
-                // a generic failure.
-                let isNotSupported = nsError.domain == "MPErrorDomain" && nsError.code == 5
+
+                // REST fallback. Get a developer + user token via the
+                // shared MusicKit provider (same chain that authorises
+                // catalog search). Then POST the track id to
+                // /v1/me/library/playlists/{id}/tracks.
+                if let nsError = nativeMpError,
+                   nsError.domain == "MPErrorDomain" && nsError.code == 5 {
+                    do {
+                        try await self.restAddSongToPlaylist(songId: songId, playlistId: playlistId)
+                        NSLog("[AppleMusic] REST add '\(song.title)' → '\(playlist.name)' succeeded")
+                        self.hydratedTrackCache.removeValue(forKey: playlistId)
+                        self.hydratedNameCache.removeValue(forKey: playlistId)
+                        await MainActor.run {
+                            call.resolve([
+                                "status": "ok",
+                                "playlist_name": playlist.name,
+                                "song_title": song.title,
+                                "song_artist": song.artistName,
+                                "via": "rest",
+                            ])
+                        }
+                        return
+                    } catch {
+                        NSLog("[AppleMusic] REST add failed: \(error)")
+                        await MainActor.run {
+                            call.resolve([
+                                "status": "not_supported",
+                                "error": String(describing: error),
+                                "song_id": songId,
+                            ])
+                        }
+                        return
+                    }
+                }
+
+                // Other native errors (network, search miss, etc.)
+                let err = nativeMpError ?? NSError(domain: "AppleMusic", code: -1)
                 await MainActor.run {
                     call.resolve([
-                        "status": isNotSupported ? "not_supported" : "error",
-                        "error": nsError.localizedDescription,
+                        "status": "error",
+                        "error": err.localizedDescription,
                         "song_id": songId,
                     ])
                 }
             }
+        }
+    }
+
+    /**
+     * REST-API path for adding a catalog song to a user library
+     * playlist. Used as the fallback when native MusicLibrary.add
+     * throws MPErrorDomain Code 5. Hits the documented Apple Music
+     * Web API endpoint with both the developer token and the music
+     * user token in headers.
+     *
+     * Throws on any HTTP non-2xx, network failure, or token fetch
+     * failure. Caller swallows + maps to a "not_supported" status.
+     */
+    @available(iOS 16.0, *)
+    private func restAddSongToPlaylist(songId: String, playlistId: String) async throws {
+        let provider = DefaultMusicTokenProvider()
+        let options = MusicTokenRequestOptions()
+        let devToken = try await provider.developerToken(options: options)
+        let userToken = try await provider.userToken(for: devToken, options: options)
+
+        let urlString = "https://api.music.apple.com/v1/me/library/playlists/\(playlistId)/tracks"
+        guard let url = URL(string: urlString) else {
+            throw NSError(domain: "AppleMusic", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "bad URL"])
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(devToken)", forHTTPHeaderField: "Authorization")
+        request.setValue(userToken, forHTTPHeaderField: "Music-User-Token")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let payload: [String: Any] = [
+            "data": [["id": songId, "type": "songs"]]
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload, options: [])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw NSError(domain: "AppleMusic", code: -2,
+                userInfo: [NSLocalizedDescriptionKey: "no HTTP response"])
+        }
+        // 200/201/204 are all "accepted". Anything else is a failure;
+        // include the body in the thrown error so we can debug.
+        if !(200...299).contains(http.statusCode) {
+            let bodyStr = String(data: data, encoding: .utf8) ?? "<no body>"
+            NSLog("[AppleMusic] REST add HTTP \(http.statusCode): \(bodyStr)")
+            throw NSError(domain: "AppleMusic", code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode)", "body": bodyStr])
         }
     }
 
