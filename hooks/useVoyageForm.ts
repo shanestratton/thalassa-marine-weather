@@ -251,13 +251,47 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     console.warn(`[useVoyageForm] bend detection failed`, _);
                 }
 
-                // Step 2: Weather routing — corridor optimization (depends on Step 1)
+                // Step 2a: Isochrone routing — wavefront propagation (PRIMARY).
+                // This is the same routing approach PredictWind, Expedition,
+                // qtVlm, Squid all use. Wavefronts propagate from departure
+                // every timeStep hours, weighted by polar performance at the
+                // local wind/wave conditions; the optimal path is whichever
+                // node reaches destination first.
+                //
+                // Returns null when:
+                //   - route is < 100 NM (coastal — bathymetric channel
+                //     geometry is more useful than isochrone)
+                //   - no wind grid available
+                //   - polar lookup empty
+                //   - engine fails or times out
+                // In those cases the corridor router below picks up the slack.
+                let isochroneSucceeded = false;
                 try {
-                    const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
-                    enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
-                    saveIfActive(enhancedPlan);
+                    const { enhanceVoyagePlanWithIsochrone } = await import('../services/isochroneEnhancer');
+                    const isoResult = await enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, departureDate);
+                    if (isoResult) {
+                        enhancedPlan = isoResult;
+                        isochroneSucceeded = true;
+                        saveIfActive(enhancedPlan);
+                    }
                 } catch (_) {
-                    console.warn(`[useVoyageForm]`, _);
+                    console.warn(`[useVoyageForm] isochrone enhancement failed`, _);
+                }
+
+                // Step 2b: Weather routing — corridor optimisation (FALLBACK).
+                // Runs only when the isochrone engine couldn't produce a
+                // route. Builds a 30 NM-wide corridor along the centerline
+                // and runs A* through it. Less optimal than isochrone for
+                // bluewater but still benefits coastal short hops where the
+                // bathymetric routeGeoJSON is the real workhorse.
+                if (!isochroneSucceeded) {
+                    try {
+                        const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
+                        enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
+                        saveIfActive(enhancedPlan);
+                    } catch (_) {
+                        console.warn(`[useVoyageForm]`, _);
+                    }
                 }
 
                 // Steps 3 & 4 can run in parallel (both read from enhancedPlan, write to separate fields)
