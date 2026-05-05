@@ -64,6 +64,18 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         mapboxToken,
     } = useVoyageForm(onTriggerUpgrade);
 
+    // Comfort accordion expanded state lives here (lifted up from the
+    // ComfortQuickConfig) so we can imperatively collapse the panel
+    // the moment the user taps into the origin/destination/date
+    // inputs. Without this, an open Comfort panel pushes those inputs
+    // below the keyboard line — the on-screen keyboard then covers
+    // them and the user can't see what they're typing.
+    const [comfortExpanded, setComfortExpanded] = React.useState(false);
+    const handleInputFocus = React.useCallback((e: React.FocusEvent<HTMLInputElement>) => {
+        setComfortExpanded(false);
+        scrollInputAboveKeyboard(e);
+    }, []);
+
     // departureTime state removed 2026-05-05 — see comment near the
     // date input above. Time-of-day is set in Passage Planning.
 
@@ -206,8 +218,12 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         conditions exceed the user's tolerance. Replaced the
                         old Passage Intelligence Comfort Profile card which
                         wrote to a separate localStorage key the router
-                        never read. */}
-                    <ComfortQuickConfig />
+                        never read.
+
+                        Controlled by RoutePlanner so we can auto-collapse
+                        on input focus (the on-screen keyboard otherwise
+                        covers the input the user just tapped into). */}
+                    <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
 
                     {/* Origin */}
                     <div className="relative group">
@@ -218,7 +234,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                             type="text"
                             value={origin}
                             onChange={(e) => setOrigin(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
+                            onFocus={handleInputFocus}
                             placeholder="Type departure port or tap map…"
                             aria-label="Departure port or location"
                             className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
@@ -254,7 +270,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                             type="text"
                             value={destination}
                             onChange={(e) => setDestination(e.target.value)}
-                            onFocus={scrollInputAboveKeyboard}
+                            onFocus={handleInputFocus}
                             placeholder="Type destination or tap map…"
                             aria-label="Destination port or location"
                             className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
@@ -288,7 +304,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                 const d = e.target.value;
                                 if (!minDate || d >= minDate) setDepartureDate(d);
                             }}
-                            onFocus={scrollInputAboveKeyboard}
+                            onFocus={handleInputFocus}
                             aria-label="Departure date"
                             className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
                             style={{ WebkitAppearance: 'none' }}
