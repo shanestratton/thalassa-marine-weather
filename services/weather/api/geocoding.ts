@@ -311,18 +311,10 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
 };
 
 /**
- * Maritime abbreviation expansion table. Mapbox doesn't reliably
- * recognise these short codes — "Newport, QLD" might match Newport,
- * North Carolina because Mapbox doesn't know "QLD" means Queensland.
- * Pre-expanding the abbreviation helps the geocoder pick the right
- * region before proximity bias kicks in.
- *
- * Codes that COLLIDE with US states (NC, WA, NT, SA) are intentionally
- * NOT expanded here — those rely on the proximity bias instead, since
- * "Newport, NC" is ambiguous (could be North Carolina USA or New
- * Caledonia depending on where the user is).
+ * Maritime abbreviation expansion — non-collision codes.
+ * These don't conflict with US state codes so they expand unconditionally.
  */
-const MARITIME_ABBREV_EXPAND: Record<string, string> = {
+const MARITIME_ABBREV_UNCONDITIONAL: Record<string, string> = {
     QLD: 'Queensland, Australia',
     NSW: 'New South Wales, Australia',
     VIC: 'Victoria, Australia',
@@ -331,17 +323,72 @@ const MARITIME_ABBREV_EXPAND: Record<string, string> = {
 };
 
 /**
+ * Collision codes — these match BOTH a maritime region AND a US state.
+ * They expand to the maritime interpretation only when the user's
+ * proximity is in the relevant region (Oceania for AU/NC codes).
+ *
+ *   NC = North Carolina (USA)  vs  Nouvelle-Calédonie (New Caledonia)
+ *   WA = Washington (USA)       vs  Western Australia
+ *   NT = nothing common in USA  vs  Northern Territory, Australia
+ *   SA = nothing common in USA  vs  South Australia
+ *
+ * Without this, proximity bias alone isn't enough — Mapbox's "NC =
+ * North Carolina" signal is so strong that even with proximity hint
+ * pointing at Brisbane, it still returns the US match for
+ * "Port Moselle, NC". Pre-expanding to "New Caledonia" forces the
+ * right country before Mapbox starts guessing.
+ */
+const MARITIME_ABBREV_OCEANIA_COLLISIONS: Record<string, string> = {
+    NC: 'New Caledonia',
+    WA: 'Western Australia',
+    NT: 'Northern Territory, Australia',
+    SA: 'South Australia',
+};
+
+/**
+ * Bounding boxes for "is the user in maritime region X?" tests.
+ * Oceania: roughly Australia + NZ + New Caledonia + Vanuatu + Fiji.
+ * Generous boundaries on purpose — any user planning a passage from
+ * within this box should treat the collision codes as maritime.
+ */
+const OCEANIA_BBOX = { latMin: -50, latMax: 0, lonMin: 110, lonMax: 180 };
+
+function isInOceania(p: { lat: number; lon: number }): boolean {
+    return (
+        p.lat >= OCEANIA_BBOX.latMin &&
+        p.lat <= OCEANIA_BBOX.latMax &&
+        p.lon >= OCEANIA_BBOX.lonMin &&
+        p.lon <= OCEANIA_BBOX.lonMax
+    );
+}
+
+/**
  * If the input looks like "Place, ABBR" where ABBR is a known maritime
  * region code, expand it. e.g. "Newport, QLD" → "Newport, Queensland,
  * Australia". Returns the original string if no abbreviation matched.
+ *
+ * For codes that collide with US state codes (NC/WA/NT/SA), expand
+ * only when the user's proximity is in Oceania — otherwise let
+ * Mapbox handle the disambiguation (the user is probably in the USA
+ * and means the state).
  */
-function expandMaritimeAbbreviations(location: string): string {
+function expandMaritimeAbbreviations(location: string, proximity?: { lat: number; lon: number }): string {
     const m = location.match(/^(.+?),\s*([A-Z]{2,4})\s*$/);
     if (!m) return location;
     const place = m[1].trim();
     const abbr = m[2].toUpperCase();
-    const expansion = MARITIME_ABBREV_EXPAND[abbr];
-    return expansion ? `${place}, ${expansion}` : location;
+
+    // Tier 1: unconditional expansions (no US-state collision)
+    if (MARITIME_ABBREV_UNCONDITIONAL[abbr]) {
+        return `${place}, ${MARITIME_ABBREV_UNCONDITIONAL[abbr]}`;
+    }
+
+    // Tier 2: collision codes — expand only when proximity is in Oceania
+    if (proximity && isInOceania(proximity) && MARITIME_ABBREV_OCEANIA_COLLISIONS[abbr]) {
+        return `${place}, ${MARITIME_ABBREV_OCEANIA_COLLISIONS[abbr]}`;
+    }
+
+    return location;
 }
 
 export const parseLocation = async (
@@ -403,11 +450,12 @@ export const parseLocation = async (
         }
     } else {
         // 4. Forward geocode via Mapbox (commercial, licensed)
-        // Pre-expand known maritime abbreviations ("QLD" → "Queensland,
-        // Australia") that don't collide with US states. Ambiguous
-        // codes like NC/WA/NT/SA are handled by the proximity bias
-        // (see fetchMapboxGeo proximity param below).
-        const expandedQuery = expandMaritimeAbbreviations(location);
+        // Pre-expand known maritime abbreviations:
+        //   - Unconditional: QLD/NSW/VIC/TAS/NZ (no US-state collision)
+        //   - Conditional: NC/WA/NT/SA expand to AU/NC only when the
+        //     user's GPS is in Oceania — otherwise the user is probably
+        //     in the USA and means the state, so leave for Mapbox.
+        const expandedQuery = expandMaritimeAbbreviations(location, proximity);
         if (expandedQuery !== location) {
             log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
         }
