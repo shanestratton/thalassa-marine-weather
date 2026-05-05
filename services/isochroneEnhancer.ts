@@ -390,6 +390,45 @@ export async function enhanceVoyagePlanWithIsochrone(
             return null;
         }
 
+        // ── 5b. GEBCO full-resolution island validation ──
+        // The IsochroneRouter does multi-pass land avoidance against the
+        // local 0.1° bathymetry grid (~6 NM resolution). That catches
+        // major coastlines but can miss small islands, reefs, and shoals
+        // sitting between waypoints — especially in places like the
+        // Coral Sea, Bahamas, or Indonesian archipelago.
+        //
+        // validateRouteSegments samples every segment at 0.5 NM intervals
+        // against GEBCO's full-resolution depth data, then inserts
+        // perpendicular detour waypoints around any island/reef/shoal
+        // crossings the coarse grid missed.
+        //
+        // Same logic the inline-map passage planner already runs — we
+        // were just not invoking it from the form pipeline. Without
+        // this step, the form-calculated route renders before the
+        // user with potentially-island-clipping geometry.
+        //
+        // Capped at 15s (matches usePassagePlanner). If GEBCO is slow
+        // or down, we ship the unvalidated route — better than failing
+        // the whole pipeline.
+        try {
+            const { validateRouteSegments } = await import('./isochrone/landAvoidance');
+            const validated = await Promise.race([
+                validateRouteSegments(isoResult.route),
+                new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+            ]);
+            if (validated && validated.length !== isoResult.route.length) {
+                const added = validated.length - isoResult.route.length;
+                log.info(`GEBCO island validation: inserted ${added} detour waypoint(s)`);
+                isoResult = {
+                    ...isoResult,
+                    route: validated,
+                    routeCoordinates: validated.map((n) => [n.lon, n.lat] as [number, number]),
+                };
+            }
+        } catch (e) {
+            log.warn('GEBCO island validation failed — using local-grid-only route:', e);
+        }
+
         // ── 6. Map isochrone result back to VoyagePlan ──
         const merged: VoyagePlan = { ...voyagePlan };
 
