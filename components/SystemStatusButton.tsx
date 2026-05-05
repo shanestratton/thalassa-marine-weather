@@ -13,6 +13,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
+import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
 import { NmeaListenerService } from '../services/NmeaListenerService';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
@@ -27,6 +28,19 @@ import { toast } from './Toast';
 // ── Types ──
 
 interface SystemState {
+    /**
+     * Active Voyage Mode — true while there's a voyage with status
+     * 'active' (i.e. the user has Cast Off and hasn't ended the
+     * voyage). Surfaced in the System Status modal so the skipper
+     * can see at a glance that the boat is in Active Voyage Mode +
+     * which voyage. Drives the same hero-card "Underway" label in
+     * VesselHub.
+     */
+    activeVoyageMode: {
+        active: boolean;
+        voyageName: string;
+        route: string;
+    };
     gpsTracking: {
         active: boolean;
         isMoving: boolean;
@@ -107,6 +121,7 @@ const SystemStatusModal: React.FC<{
     onDismissChange: _onDismissChange,
 }) => {
     const activeCount = [
+        state.activeVoyageMode.active,
         state.gpsTracking.active,
         state.anchorWatch.active,
         state.nmea.active,
@@ -161,6 +176,23 @@ const SystemStatusModal: React.FC<{
 
                 {/* Systems Grid */}
                 <div className="px-5 py-4 space-y-3">
+                    {/* ── Active Voyage Mode ──
+                        Surfaces the post-Cast-Off "Underway" state at
+                        the top of the system list since it's the most
+                        consequential mode the boat can be in. Stays
+                        active until the user explicitly ends the
+                        voyage from the passage planner. */}
+                    {state.activeVoyageMode.active && (
+                        <SystemRow
+                            icon={<span className="text-sm leading-none">⛵</span>}
+                            label="Active Voyage Mode"
+                            active={state.activeVoyageMode.active}
+                            detail={state.activeVoyageMode.route || 'Underway'}
+                            dotColor="bg-emerald-400"
+                            pulse={true}
+                        />
+                    )}
+
                     {/* ── GPS Tracking (Passage) ── */}
                     <SystemRow
                         icon={
@@ -483,6 +515,26 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
         return () => clearInterval(id);
     }, [showModal]);
 
+    // ── Active Voyage state ──
+    // Read from getCachedActiveVoyage (synchronous, localStorage-backed).
+    // Refreshed every 5s while the modal is open + on a window event
+    // dispatched by Cast Off / End Voyage flows. No network call.
+    const [activeVoyage, setActiveVoyage] = useState<Voyage | null>(() => getCachedActiveVoyage());
+    useEffect(() => {
+        const refresh = () => setActiveVoyage(getCachedActiveVoyage());
+        // Window event from castOff() / endVoyage() — fired by
+        // VoyageService when the active voyage changes.
+        const handler = () => refresh();
+        window.addEventListener('thalassa:active-voyage-changed', handler);
+        // Tighter polling while modal is open (5s cadence — same as
+        // piCache); cheap because it's a localStorage read.
+        const interval = showModal ? setInterval(refresh, 5_000) : null;
+        return () => {
+            window.removeEventListener('thalassa:active-voyage-changed', handler);
+            if (interval) clearInterval(interval);
+        };
+    }, [showModal]);
+
     // ── GPS Tracking state ──
     const [gpsTracking, setGpsTracking] = useState(() => ShipLogService.getTrackingStatus());
     const [isMoving, setIsMoving] = useState(false);
@@ -602,6 +654,14 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     // ── Build system state ──
     const systemState: SystemState = useMemo(
         () => ({
+            activeVoyageMode: {
+                active: !!activeVoyage && activeVoyage.status === 'active',
+                voyageName: activeVoyage?.voyage_name || '',
+                route:
+                    activeVoyage?.departure_port && activeVoyage?.destination_port
+                        ? `${activeVoyage.departure_port} → ${activeVoyage.destination_port}`
+                        : activeVoyage?.voyage_name || '',
+            },
             gpsTracking: {
                 active: gpsTracking.isTracking,
                 isMoving,
@@ -668,6 +728,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
             },
         }),
         [
+            activeVoyage,
             gpsTracking,
             isMoving,
             anchorSnapshot,
@@ -690,6 +751,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
 
     // ── Active count ──
     const activeCount = [
+        systemState.activeVoyageMode.active,
         systemState.gpsTracking.active,
         systemState.anchorWatch.active,
         systemState.nmea.active,

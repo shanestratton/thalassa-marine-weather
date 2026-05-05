@@ -1438,18 +1438,6 @@ function deriveVoyageState(
 ): { label: string; color: string; route?: string } {
     if (anchorStatus === 'alarm') return { label: 'Drag Alarm', color: '#ef4444' };
 
-    // "Underway" requires the GPS trip log to actually be recording —
-    // not just `voyage.status === 'active'` in the DB. A stale active
-    // voyage from a deleted route, a paused log, or a Cast Off without
-    // GPS would otherwise lie and show "Underway" at the dock.
-    if (tripLogActive) {
-        const route =
-            voyage && voyage.departure_port && voyage.destination_port
-                ? `${voyage.departure_port} → ${voyage.destination_port}`
-                : voyage?.voyage_name || undefined;
-        return { label: 'Underway', color: '#10b981', route };
-    }
-
     if (anchorStatus === 'armed') {
         const route =
             voyage && voyage.departure_port && voyage.destination_port
@@ -1458,16 +1446,23 @@ function deriveVoyageState(
         return { label: 'At Anchor', color: '#22d3ee', route };
     }
 
-    // Voyage is marked active in DB but the trip log isn't running.
-    // Boat sitting at the dock with a dangling "active" status.
-    // Show "Standby" so the user knows the voyage is set up but they
-    // haven't actually cast off (or the log was stopped mid-passage).
-    if (voyage && voyage.status === 'active') {
+    // Updated 2026-05-05 per user feedback: Cast Off should put the
+    // hero card into "Underway" and stay there until the user
+    // explicitly ends the voyage. Previously the gate was
+    // tripLogActive (GPS trip log recording), which meant the card
+    // would slip back to "Standby" any time the log paused — boat
+    // moored for a refuel, etc. That looked wrong: the user had cast
+    // off, they're in Active Voyage Mode, the card should reflect
+    // that. Now the gate is `voyage.status === 'active' OR
+    // tripLogActive` — once the voyage is active, "Underway" sticks
+    // until endVoyage() is called.
+    const inActiveVoyageMode = !!voyage && voyage.status === 'active';
+    if (tripLogActive || inActiveVoyageMode) {
         const route =
-            voyage.departure_port && voyage.destination_port
+            voyage && voyage.departure_port && voyage.destination_port
                 ? `${voyage.departure_port} → ${voyage.destination_port}`
-                : voyage.voyage_name || 'Standby';
-        return { label: 'Standby', color: '#0ea5e9', route };
+                : voyage?.voyage_name || undefined;
+        return { label: 'Underway', color: '#10b981', route };
     }
 
     if (voyage && voyage.status === 'planning') {
