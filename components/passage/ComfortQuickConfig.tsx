@@ -43,9 +43,33 @@ const ANGLE_PILLS: { key: PreferredAngle; label: string; desc: string }[] = [
 
 const ALL_ANGLES: PreferredAngle[] = ANGLE_PILLS.map((a) => a.key);
 
-export const ComfortQuickConfig: React.FC = () => {
+interface ComfortQuickConfigProps {
+    /**
+     * Optional controlled-component props. When both are provided, the
+     * parent owns the expand/collapse state — used by RoutePlanner to
+     * auto-collapse the panel the moment the user taps into the
+     * origin/destination/departure inputs (otherwise the open accordion
+     * pushes those inputs off-screen and the keyboard covers what's
+     * left of them).
+     *
+     * If omitted, the component falls back to internal useState for
+     * standalone use cases.
+     */
+    expanded?: boolean;
+    onExpandedChange?: (expanded: boolean) => void;
+}
+
+export const ComfortQuickConfig: React.FC<ComfortQuickConfigProps> = ({ expanded: expandedProp, onExpandedChange }) => {
     const { settings, updateSettings } = useSettings();
-    const [expanded, setExpanded] = useState(false);
+    const [internalExpanded, setInternalExpanded] = useState(false);
+    // Controlled-or-uncontrolled: prefer parent-provided state when present
+    const isControlled = expandedProp !== undefined && onExpandedChange !== undefined;
+    const expanded = isControlled ? expandedProp! : internalExpanded;
+    const setExpanded = (next: boolean | ((prev: boolean) => boolean)) => {
+        const resolved = typeof next === 'function' ? (next as (p: boolean) => boolean)(expanded) : next;
+        if (isControlled) onExpandedChange!(resolved);
+        else setInternalExpanded(resolved);
+    };
 
     const params: ComfortParams = settings.comfortParams ?? {};
     const maxWind = params.maxWindKts ?? 35;
