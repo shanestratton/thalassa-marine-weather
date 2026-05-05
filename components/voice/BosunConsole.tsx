@@ -752,45 +752,79 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 setOneButton(to, 'idle');
                 return;
             }
-            try {
-                const url = audioFromBase64(response.audio_b64);
-                audioUrlsRef.current.push(url);
 
-                // Reuse the unlocked Audio element from the user tap. If it
-                // doesn't exist (text-input path), create one — playback may
-                // not work on iOS but text is still rendered.
-                let audio = audioRef.current;
-                if (!audio) {
-                    audio = new Audio();
-                    audioRef.current = audio;
-                }
+            // ── iOS native: route through the AppleMusic plugin's
+            //    playTtsAudio. That path uses AVAudioPlayer in our
+            //    `.playback + .mixWithOthers` session AND explicitly
+            //    pauses MusicKit before playback / resumes after, so
+            //    Calypso narrating doesn't kill the user's music. The
+            //    HTML5 fallback below activates a different audio
+            //    session that interrupts MusicKit permanently.
+            const audio_b64 = response.audio_b64;
+            void (async () => {
                 try {
-                    audio.pause();
-                } catch {
-                    /* ignore */
-                }
-                audio.src = url;
-                audio.muted = false;
-                audio.currentTime = 0;
-                audio.onended = () => setOneButton(to, 'idle');
-                audio.onerror = () => setOneButton(to, 'idle');
-
-                const playPromise = audio.play();
-                if (playPromise && typeof playPromise.then === 'function') {
-                    playPromise.catch((err: Error) => {
-                        // Surface autoplay-blocked failures rather than
-                        // silently going idle, so the user knows why.
-                        if (err?.name === 'NotAllowedError') {
-                            setErrorMessage(
-                                'Audio playback blocked by iOS — tap a talk button first to enable, then replay this answer.',
-                            );
+                    const { Capacitor } = await import('@capacitor/core');
+                    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+                        const cap = (window as unknown as { Capacitor?: { Plugins?: Record<string, unknown> } })
+                            .Capacitor;
+                        const plugin = cap?.Plugins?.AppleMusic as
+                            | {
+                                  playTtsAudio: (opts: { audio_b64: string }) => Promise<{ status: string }>;
+                              }
+                            | undefined;
+                        if (plugin) {
+                            try {
+                                await plugin.playTtsAudio({ audio_b64 });
+                            } catch {
+                                /* swallow — TTS already failed; nothing to surface */
+                            }
+                            setOneButton(to, 'idle');
+                            return;
                         }
-                        setOneButton(to, 'idle');
-                    });
+                    }
+                } catch {
+                    /* fall through to HTML5 path */
                 }
-            } catch {
-                setOneButton(to, 'idle');
-            }
+
+                // ── HTML5 Audio fallback (web / non-iOS-native) ──
+                try {
+                    const url = audioFromBase64(audio_b64);
+                    audioUrlsRef.current.push(url);
+
+                    // Reuse the unlocked Audio element from the user tap. If
+                    // it doesn't exist (text-input path), create one —
+                    // playback may not work on iOS but text is still rendered.
+                    let audio = audioRef.current;
+                    if (!audio) {
+                        audio = new Audio();
+                        audioRef.current = audio;
+                    }
+                    try {
+                        audio.pause();
+                    } catch {
+                        /* ignore */
+                    }
+                    audio.src = url;
+                    audio.muted = false;
+                    audio.currentTime = 0;
+                    audio.onended = () => setOneButton(to, 'idle');
+                    audio.onerror = () => setOneButton(to, 'idle');
+
+                    const playPromise = audio.play();
+                    if (playPromise && typeof playPromise.then === 'function') {
+                        playPromise.catch((err: Error) => {
+                            if (err?.name === 'NotAllowedError') {
+                                setErrorMessage(
+                                    'Audio playback blocked by iOS — tap a talk button first to enable, then replay this answer.',
+                                );
+                            }
+                            setOneButton(to, 'idle');
+                        });
+                    }
+                } catch {
+                    setOneButton(to, 'idle');
+                }
+            })();
         },
         [setOneButton],
     );
