@@ -20,8 +20,18 @@ interface WatchScheduleCardProps {
     voyageId?: string;
     crewCount: number;
     passageDurationHours?: number;
+    /** ISO timestamp — anchors the watch rotation in real time so
+     *  pre-watch alarms can fire at the correct moment. Without this,
+     *  the schedule is just a display table with no alarm support. */
+    departureTimeIso?: string | null;
     onReviewedChange?: (reviewed: boolean) => void;
 }
+
+/** Default minutes-before for the pre-watch alarm. Stored per-user in
+ *  localStorage so the choice persists across voyages. */
+const ALARM_LEAD_KEY = 'thalassa_watch_alarm_lead_min';
+const DEFAULT_ALARM_MIN = 15;
+const ALARM_LEAD_OPTIONS = [5, 10, 15, 30] as const;
 
 const STORAGE_KEY = 'thalassa_watch_schedule';
 
@@ -90,6 +100,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     voyageId,
     crewCount,
     passageDurationHours,
+    departureTimeIso,
     onReviewedChange,
 }) => {
     const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
@@ -144,6 +155,81 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         return () => {
             cancelled = true;
         };
+    }, [voyageId]);
+
+    // ── Pre-watch alarm scheduling ──
+    // Each crew member's device runs WatchAlarmService independently —
+    // it reads assignments where assigned_crew_email === this user's
+    // email and schedules iOS LocalNotifications for `alarmLeadMin`
+    // minutes before each watch starts. Re-runs whenever the
+    // assignment Map changes so a freshly-assigned watch gets its
+    // alarm set immediately.
+    const [alarmEnabled, setAlarmEnabled] = useState(true);
+    const [alarmLeadMin, setAlarmLeadMin] = useState<number>(() => {
+        try {
+            const stored = localStorage.getItem(ALARM_LEAD_KEY);
+            if (stored) {
+                const n = parseInt(stored, 10);
+                if (ALARM_LEAD_OPTIONS.includes(n as (typeof ALARM_LEAD_OPTIONS)[number])) return n;
+            }
+        } catch {
+            /* ignore */
+        }
+        return DEFAULT_ALARM_MIN;
+    });
+    const [alarmCount, setAlarmCount] = useState(0);
+
+    // Persist user's chosen lead time
+    useEffect(() => {
+        try {
+            localStorage.setItem(ALARM_LEAD_KEY, String(alarmLeadMin));
+        } catch {
+            /* ignore */
+        }
+    }, [alarmLeadMin]);
+
+    useEffect(() => {
+        if (!voyageId || !departureTimeIso || !alarmEnabled) {
+            setAlarmCount(0);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const { WatchAlarmService } = await import('../../services/WatchAlarmService');
+                // Request permission first (no-op if already granted).
+                // iOS shows the system prompt only the first time.
+                const granted = await WatchAlarmService.requestPermissions();
+                if (!granted || cancelled) return;
+                const count = await WatchAlarmService.scheduleForVoyage(voyageId, departureTimeIso, alarmLeadMin);
+                if (!cancelled) setAlarmCount(count);
+            } catch {
+                /* non-critical — alarm is a nice-to-have */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // assignments-as-map dep — rebuild alarms when slots change
+    }, [voyageId, departureTimeIso, alarmEnabled, alarmLeadMin, assignments]);
+
+    // Cancel alarms when component unmounts (e.g., user navigates away
+    // from Crew Management) — keeps stale alarms from firing if the
+    // voyage gets deleted later
+    useEffect(() => {
+        return () => {
+            if (!voyageId) return;
+            // Fire-and-forget cancel
+            (async () => {
+                try {
+                    const { WatchAlarmService } = await import('../../services/WatchAlarmService');
+                    await WatchAlarmService.cancelForVoyage(voyageId);
+                } catch {
+                    /* ignore */
+                }
+            })();
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [voyageId]);
 
     const handleAssign = useCallback(
@@ -234,6 +320,60 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         </div>
                     )}
                 </div>
+
+                {/* Pre-watch alarm controls — only render when we
+                    have a voyage + departure time anchor. Toggles
+                    iOS LocalNotifications scheduled by
+                    WatchAlarmService for the current user's
+                    assigned watches. */}
+                {voyageId && departureTimeIso && (
+                    <div className="mb-3 px-3 py-2.5 rounded-lg bg-amber-500/[0.06] border border-amber-500/20 flex items-center gap-3 flex-wrap">
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={alarmEnabled}
+                            onClick={() => {
+                                setAlarmEnabled((v) => !v);
+                                triggerHaptic('light');
+                            }}
+                            className={`shrink-0 relative inline-flex h-5 w-9 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                                alarmEnabled ? 'bg-amber-500' : 'bg-slate-700'
+                            }`}
+                            aria-label="Enable pre-watch alarm"
+                        >
+                            <span
+                                aria-hidden="true"
+                                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                                    alarmEnabled ? 'translate-x-4' : 'translate-x-0'
+                                }`}
+                            />
+                        </button>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-bold text-white">⏰ Pre-watch alarm</p>
+                            <p className="text-[10px] text-amber-200/70">
+                                {alarmEnabled
+                                    ? alarmCount > 0
+                                        ? `${alarmCount} alarm${alarmCount > 1 ? 's' : ''} scheduled — fires ${alarmLeadMin} min before your watch`
+                                        : 'Assign yourself to a watch to schedule alarms'
+                                    : 'Off — you won’t be woken up'}
+                            </p>
+                        </div>
+                        {alarmEnabled && (
+                            <select
+                                value={alarmLeadMin}
+                                onChange={(e) => setAlarmLeadMin(parseInt(e.target.value, 10))}
+                                aria-label="Alarm lead time in minutes"
+                                className="shrink-0 bg-slate-900/60 border border-amber-500/20 rounded-md px-2 py-1 text-[11px] font-bold text-amber-200 outline-none focus:border-amber-500"
+                            >
+                                {ALARM_LEAD_OPTIONS.map((m) => (
+                                    <option key={m} value={m}>
+                                        {m} min
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+                    </div>
+                )}
 
                 {/* Watch rotation table — each row tappable to open
                     the crew assignment sheet. Assigned slots show the

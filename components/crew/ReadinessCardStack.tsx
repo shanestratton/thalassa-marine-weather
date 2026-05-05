@@ -448,6 +448,12 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 <WatchScheduleCard
                     voyageId={selectedPassageId}
                     crewCount={planCrewCount}
+                    /* departure_time anchors the watch rotation in
+                       real time so WatchAlarmService can fire iOS
+                       LocalNotifications N min before each watch the
+                       current user is assigned to. */
+                    departureTimeIso={activeVoyage?.departure_time || null}
+                    passageDurationHours={activeVoyage?.durationHours}
                     onReviewedChange={onWatchChange}
                 />
             </CardAccordion>
