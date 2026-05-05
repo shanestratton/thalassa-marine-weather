@@ -966,16 +966,24 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                 }`}
             />
             <div
-                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 max-h-[88vh] flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
+                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
                 style={{
+                    // Lift the entire sheet above the keyboard. Bottom
+                    // sheets need full keyboard-height translation
+                    // (centred modals only need half — different math).
+                    // Also clamp max-h when the keyboard is up so the
+                    // sheet doesn't render with its top edge above the
+                    // viewport — the inner scroll handles overflow but
+                    // the user can't scroll into off-screen space.
                     transform:
                         keyboardHeight > 0
-                            ? `translateY(-${Math.round(keyboardHeight / 2)}px)`
+                            ? `translateY(-${keyboardHeight}px)`
                             : mounted
                               ? 'translateY(0)'
                               : 'translateY(100%)',
+                    maxHeight: keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px - 2rem)` : '88vh',
                 }}
             >
                 {/* Drag handle */}
@@ -983,10 +991,19 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                     <div className="w-12 h-1.5 rounded-full bg-white/25" />
                 </div>
 
-                {/* Title */}
-                <div className="px-5 pt-2 pb-3">
-                    <div className="text-white font-bold text-lg leading-tight">Add tracks</div>
-                    <div className="text-white/50 text-xs mt-0.5 truncate">to "{playlistName}"</div>
+                {/* Header — back button + title */}
+                <div className="flex items-center gap-3 px-5 pt-1 pb-3">
+                    <button
+                        onClick={onClose}
+                        className="w-9 h-9 -ml-2 rounded-full flex items-center justify-center text-white/80 active:bg-white/10 transition-colors shrink-0"
+                        aria-label="Back to playlist"
+                    >
+                        <ChevronLeftIcon className="w-6 h-6" />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                        <div className="text-white font-bold text-lg leading-tight">Add tracks</div>
+                        <div className="text-white/50 text-xs mt-0.5 truncate">to "{playlistName}"</div>
+                    </div>
                 </div>
 
                 {/* Search input */}
@@ -1615,5 +1632,19 @@ const ExternalLinkIcon: React.FC<{ className?: string }> = ({ className }) => (
         strokeLinejoin="round"
     >
         <path d="M7 17L17 7M9 7h8v8" />
+    </svg>
+);
+
+const ChevronLeftIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M15 18l-6-6 6-6" />
     </svg>
 );
