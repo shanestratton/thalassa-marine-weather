@@ -32,6 +32,7 @@ import { type BathymetryGrid, isLand, isNearShore, getDepthFromCache } from './B
 // ── Re-export all public types and functions from sub-modules ────
 export type {
     WindField,
+    CurrentField,
     IsochroneConfig,
     IsochroneNode,
     Isochrone,
@@ -44,7 +45,7 @@ export { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 export { isochroneToGeoJSON, detectTurnWaypoints } from './isochrone/output';
 
 // ── Import internal dependencies from sub-modules ────────────────
-import type { WindField, IsochroneNode, IsochroneConfig } from './isochrone/types';
+import type { WindField, CurrentField, IsochroneNode, IsochroneConfig } from './isochrone/types';
 import { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 import { haversineNm, initialBearing, projectPosition, calcTWA, R_NM, toRad, toDeg } from './isochrone/geodesy';
 import { createPolarSpeedLookup } from './isochrone/polar';
@@ -83,6 +84,17 @@ export async function computeIsochrones(
     windField: WindField,
     config: Partial<IsochroneConfig> = {},
     bathyGrid?: BathymetryGrid | null,
+    /**
+     * Optional ocean current field. When provided, each candidate
+     * position is advected by current * timeStep — converting boat
+     * speed-through-water (STW) from the polar into speed-over-ground
+     * (SOG). Major impact on routes through Gulf Stream, Agulhas,
+     * Kuroshio, Antarctic Circumpolar.
+     *
+     * Pass null/undefined to route without current advection (the
+     * engine treats absent current data as "0 kts everywhere").
+     */
+    currentField?: CurrentField | null,
 ): Promise<import('./isochrone/types').IsochroneResult | null> {
     const cfg = { ...DEFAULT_ISOCHRONE_CONFIG, ...config };
     const depTime = new Date(departureTime);
@@ -177,9 +189,30 @@ export async function computeIsochrones(
             const parent = currentFront[nodeIdx];
             const nodeToDest = initialBearing(parent.lat, parent.lon, destination.lat, destination.lon);
 
-            // ── Hoist: Wind, Parent Trig, and Polar TWS Bracket ──
+            // ── Hoist: Wind, Current, Parent Trig, and Polar TWS Bracket ──
             const wind = windField.getWind(parent.lat, parent.lon, timeHours - cfg.timeStepHours);
             const hasWind = wind !== null && wind.speed >= 0;
+
+            // Current at parent location, hoisted out of the bearing loop —
+            // current is a function of (lat, lon, t) and changes slowly over
+            // ~120 NM scales, so re-using one value across all bearing
+            // candidates from this parent is well within OSCAR's resolution.
+            //
+            // We pre-compute the east/north components in knots so the
+            // per-bearing loop only needs an addition, not a trig call.
+            // Direction is "TO" (oceanographic): u = east component,
+            // v = north component.
+            let currU = 0;
+            let currV = 0;
+            if (currentField) {
+                const current = currentField.getCurrent(parent.lat, parent.lon, timeHours - cfg.timeStepHours);
+                if (current && current.speed > 0.05) {
+                    const dirRad = toRad(current.direction);
+                    currU = current.speed * Math.sin(dirRad);
+                    currV = current.speed * Math.cos(dirRad);
+                }
+            }
+            const hasCurrent = currU !== 0 || currV !== 0;
 
             const lat1Rad = toRad(parent.lat);
             const lon1Rad = toRad(parent.lon);
@@ -217,10 +250,34 @@ export async function computeIsochrones(
                     }
                 }
 
+                // ── Speed-over-ground & course-over-ground ──
+                // boatSpeed is speed-through-water (STW) from the polar.
+                // When current is present, the ground velocity is the
+                // STW vector + current vector. SOG = |ground vector|,
+                // COG = bearing of ground vector.
+                //
+                // node.bearing keeps the boat HEADING (absoluteBearing)
+                // because that's the value the polar lookup is keyed off
+                // for the next step's TWA computation. The projected
+                // position uses COG so the wavefront expands to where
+                // the boat actually ends up over ground.
+                let projBearing = absoluteBearing;
+                let projDistance = boatSpeed * cfg.timeStepHours;
+                if (hasCurrent) {
+                    const headingRad = toRad(absoluteBearing);
+                    const stwU = boatSpeed * Math.sin(headingRad);
+                    const stwV = boatSpeed * Math.cos(headingRad);
+                    const gU = stwU + currU;
+                    const gV = stwV + currV;
+                    const sog = Math.sqrt(gU * gU + gV * gV);
+                    if (sog < 0.5) continue; // foul current overpowering: drop candidate
+                    projBearing = ((Math.atan2(gU, gV) * 180) / Math.PI + 360) % 360;
+                    projDistance = sog * cfg.timeStepHours;
+                }
+
                 // Inlined projectPosition (reusing sinLat1, cosLat1)
-                const distanceStep = boatSpeed * cfg.timeStepHours;
-                const dRad = distanceStep / R_NM;
-                const brngRad = toRad(absoluteBearing);
+                const dRad = projDistance / R_NM;
+                const brngRad = toRad(projBearing);
                 const sinD = Math.sin(dRad);
                 const cosD = Math.cos(dRad);
 
@@ -241,7 +298,7 @@ export async function computeIsochrones(
                     tws,
                     twa,
                     parentIndex: nodeIdx,
-                    distance: parent.distance + distanceStep,
+                    distance: parent.distance + projDistance,
                 };
 
                 const distToDest = haversineNm(node.lat, node.lon, destination.lat, destination.lon);

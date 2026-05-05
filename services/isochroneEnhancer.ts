@@ -207,6 +207,49 @@ export async function enhanceVoyagePlanWithIsochrone(
                 return null;
             }
 
+            // ── 4b. Ocean currents via OSCAR ──
+            // For ocean passages currents shift ETA by ±20% on routes
+            // aligned with major systems (Gulf Stream, Agulhas, Kuroshio,
+            // East Australian Current, Antarctic Circumpolar). Fetching
+            // a sparse OSCAR field lets the engine advect each candidate
+            // by set/drift, producing a true SOG-based wavefront.
+            //
+            // Non-blocking on failure — if OSCAR / ERDDAP is down, the
+            // engine routes on STW alone (same behaviour as before this
+            // upgrade). Better to ship a route without currents than no
+            // route at all.
+            let currentField = null;
+            try {
+                const { OceanCurrentService } = await import('./OceanCurrentService');
+                const { createCurrentFieldFromVectors } = await import('./weather/CurrentFieldAdapter');
+                const courseBearing =
+                    (Math.atan2(
+                        Math.sin(dLon) * Math.cos(φ2),
+                        Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(dLon),
+                    ) *
+                        180) /
+                    Math.PI;
+                const briefing = await OceanCurrentService.fetchCurrents(
+                    {
+                        north: Math.max(origin.lat, destination.lat) + 1,
+                        south: Math.min(origin.lat, destination.lat) - 1,
+                        east: Math.max(origin.lon, destination.lon) + 1,
+                        west: Math.min(origin.lon, destination.lon) - 1,
+                    },
+                    ((courseBearing % 360) + 360) % 360,
+                    straightNM,
+                    vessel.cruisingSpeed || 6,
+                );
+                currentField = createCurrentFieldFromVectors(briefing.vectors);
+                if (currentField) {
+                    log.info(
+                        `OSCAR currents loaded: ${briefing.vectors.length} vectors, max ${briefing.maxSpeedKts} kts, source=${briefing.source}`,
+                    );
+                }
+            } catch (e) {
+                log.warn('current fetch failed — routing on STW only:', e);
+            }
+
             // ── 5. Run the isochrone engine ──
             isoResult = await computeIsochrones(
                 origin,
@@ -231,6 +274,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                             : undefined,
                 },
                 bathyGrid,
+                currentField,
             );
         }
 

@@ -18,6 +18,35 @@ export interface WindField {
     } | null;
 }
 
+// ── Current Field Interface ──────────────────────────────────────
+
+/**
+ * Ocean current data provider. Used by the isochrone engine to advect
+ * projected positions with set/drift — the difference between speed
+ * through water (STW) and speed over ground (SOG).
+ *
+ * For a Gulf Stream northbound transit the difference is +3 kts; for a
+ * southbound transit it's -3 kts. PredictWind, Expedition, qtVlm all
+ * factor this into routing because for ocean passages it can shift ETA
+ * by ±20% on currents-aligned routes.
+ */
+export interface CurrentField {
+    /**
+     * Get ocean current at a position and time offset (hours from departure).
+     * @returns speed in knots, direction in degrees TO (oceanographic
+     *          convention — direction current flows toward, opposite of
+     *          wind which is FROM)
+     */
+    getCurrent(
+        lat: number,
+        lon: number,
+        timeOffsetHours: number,
+    ): {
+        speed: number; // kts
+        direction: number; // degrees true (TO which current flows)
+    } | null;
+}
+
 // ── Configuration ────────────────────────────────────────────────
 
 export interface IsochroneConfig {
