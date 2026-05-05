@@ -8,7 +8,7 @@
  * the passage planner computes a route on the Charts page).
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { usePassageStore, type PassageLeg } from '../../stores/PassageStore';
 import { PassageRouteMap } from './PassageRouteMap';
@@ -34,6 +34,13 @@ interface PassageSummaryCardProps {
 }
 
 const STORAGE_KEY = 'thalassa_passage_departure_time';
+
+/**
+ * Module-scope stable empty-array reference. Used as the
+ * "no waypoints" fallback for PassageRouteMap so we never hand it
+ * a fresh `[]` (which would remount the Mapbox map every render).
+ */
+const EMPTY_WAYPOINTS: { id: string; name: string; lat: number; lon: number }[] = [];
 
 const formatCoord = (lat: number, lon: number): string => {
     const latDir = lat >= 0 ? 'N' : 'S';
@@ -271,29 +278,118 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     const effectiveArriveLon =
         arriveLon ?? (isValidLatLon(passage.arriveLat, passage.arriveLon) ? passage.arriveLon : null);
 
-    // Distance: prefer prop (from voyage), fall back to PassageStore,
-    // OR compute great-circle from coords if both stale. The
-    // great-circle is a reasonable estimate when nothing else
-    // available.
-    let effectiveDistance = distanceNm ?? (passage.hasRoute ? passage.totalDistanceNM : undefined);
-    if (
-        (effectiveDistance == null || effectiveDistance <= 0 || effectiveDistance > 12000) &&
-        effectiveDepartLat != null &&
-        effectiveDepartLon != null &&
-        effectiveArriveLat != null &&
-        effectiveArriveLon != null
-    ) {
-        // Great-circle from coords when stored value is missing or
-        // wildly unreasonable (>12000 NM is roughly half the earth —
-        // bigger than any practical sailing passage).
+    // Distance: compute the true great-circle from coords first, then
+    // sanity-check the stored value against it. If the stored value
+    // is missing OR more than 2× the great-circle (i.e. obviously
+    // junk from a previous broken save), fall back to the great-
+    // circle. Earlier check used a flat 12000 NM ceiling but
+    // 8584 NM stale-data slipped under that — comparing relative to
+    // the actual great-circle catches all magnitudes of staleness.
+    const greatCircleNM = useMemo(() => {
+        if (
+            effectiveDepartLat == null ||
+            effectiveDepartLon == null ||
+            effectiveArriveLat == null ||
+            effectiveArriveLon == null
+        )
+            return null;
         const R = 3440.065;
         const φ1 = (effectiveDepartLat * Math.PI) / 180;
         const φ2 = (effectiveArriveLat * Math.PI) / 180;
         const dφ = ((effectiveArriveLat - effectiveDepartLat) * Math.PI) / 180;
         const dλ = ((effectiveArriveLon - effectiveDepartLon) * Math.PI) / 180;
         const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
-        effectiveDistance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }, [effectiveDepartLat, effectiveDepartLon, effectiveArriveLat, effectiveArriveLon]);
+
+    let effectiveDistance = distanceNm ?? (passage.hasRoute ? passage.totalDistanceNM : undefined);
+    if (
+        greatCircleNM != null &&
+        (effectiveDistance == null ||
+            effectiveDistance <= 0 ||
+            // Stored value > 2× great-circle = stale junk. Real
+            // routes are usually 1.0-1.3× great-circle (small
+            // detours for waypoints + weather routing).
+            effectiveDistance > greatCircleNM * 2)
+    ) {
+        effectiveDistance = greatCircleNM;
     }
+
+    // ── Map prop memoisation ──
+    // PassageRouteMap's useEffect re-creates the entire Mapbox map
+    // whenever its routeCoordinates / turnWaypoints prop reference
+    // changes. Without memoising these here, every render of
+    // PassageSummaryCard (which includes the time tick from the
+    // briefing card etc) handed the map a fresh array → map.remove()
+    // + new map() → flashing + heavy CPU + the "slow as a wet week"
+    // performance the user reported.
+    //
+    // Memo key uses primitive coord values so the array is only
+    // rebuilt when actual numbers change.
+    const mapRouteCoords = useMemo<[number, number][]>(() => {
+        if (
+            effectiveDepartLat == null ||
+            effectiveDepartLon == null ||
+            effectiveArriveLat == null ||
+            effectiveArriveLon == null
+        )
+            return [];
+        const storeCoordsMatch =
+            passage.hasRoute &&
+            passage.routeCoordinates.length >= 2 &&
+            passage.departLat != null &&
+            passage.arriveLat != null &&
+            Math.abs(passage.departLat - effectiveDepartLat) < 1 &&
+            Math.abs((passage.departLon ?? 0) - effectiveDepartLon) < 1 &&
+            Math.abs(passage.arriveLat - effectiveArriveLat) < 1 &&
+            Math.abs((passage.arriveLon ?? 0) - effectiveArriveLon) < 1;
+        if (storeCoordsMatch) return passage.routeCoordinates;
+        return [
+            [effectiveDepartLon, effectiveDepartLat],
+            [effectiveArriveLon, effectiveArriveLat],
+        ];
+    }, [
+        effectiveDepartLat,
+        effectiveDepartLon,
+        effectiveArriveLat,
+        effectiveArriveLon,
+        passage.hasRoute,
+        passage.routeCoordinates,
+        passage.departLat,
+        passage.departLon,
+        passage.arriveLat,
+        passage.arriveLon,
+    ]);
+
+    const mapTurnWaypoints = useMemo(() => {
+        // Only feed turnWaypoints when PassageStore.routeCoordinates
+        // is fresh (we trust the same coords-match check). Empty array
+        // is a stable-reference singleton for the "no waypoints" case.
+        const storeCoordsMatch =
+            passage.hasRoute &&
+            effectiveDepartLat != null &&
+            effectiveDepartLon != null &&
+            effectiveArriveLat != null &&
+            effectiveArriveLon != null &&
+            passage.departLat != null &&
+            passage.arriveLat != null &&
+            Math.abs(passage.departLat - effectiveDepartLat) < 1 &&
+            Math.abs((passage.departLon ?? 0) - effectiveDepartLon) < 1 &&
+            Math.abs(passage.arriveLat - effectiveArriveLat) < 1 &&
+            Math.abs((passage.arriveLon ?? 0) - effectiveArriveLon) < 1;
+        return storeCoordsMatch ? passage.turnWaypoints : EMPTY_WAYPOINTS;
+    }, [
+        passage.hasRoute,
+        passage.turnWaypoints,
+        passage.departLat,
+        passage.departLon,
+        passage.arriveLat,
+        passage.arriveLon,
+        effectiveDepartLat,
+        effectiveDepartLon,
+        effectiveArriveLat,
+        effectiveArriveLon,
+    ]);
 
     const effectiveMaxWind = maxWindKt ?? (passage.hasRoute ? passage.maxWindKt : undefined);
     const effectiveMaxWave = maxWaveM ?? (passage.hasRoute ? passage.maxWaveM : undefined);
@@ -380,52 +476,20 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             </div>
 
             {/* ── Route Map ── */}
-            {/* Map renders whenever we have valid depart/arrive coords
-                (either from the voyage props or PassageStore — see
-                effectiveDepartLat etc above for the merge). The
-                routeCoordinates polyline comes from PassageStore if
-                it has fresh data for THIS route; otherwise we fall
-                back to a straight depart→arrive great-circle line so
-                the user still sees a proper A-to-B map.
-
-                Stale-data check: PassageStore.routeCoordinates is only
-                trusted when its endpoints sit close to the voyage's
-                actual depart/arrive coords (within ~1°). Without this,
-                a fresh "Newport → Nouméa" voyage would render with
-                stale "Brisbane → Sydney" route geometry from a
-                previous session. */}
             {effectiveDepartLat != null &&
                 effectiveDepartLon != null &&
                 effectiveArriveLat != null &&
-                effectiveArriveLon != null &&
-                (() => {
-                    const storeCoordsMatch =
-                        passage.hasRoute &&
-                        passage.routeCoordinates.length >= 2 &&
-                        passage.departLat != null &&
-                        passage.arriveLat != null &&
-                        Math.abs(passage.departLat - effectiveDepartLat) < 1 &&
-                        Math.abs((passage.departLon ?? 0) - effectiveDepartLon) < 1 &&
-                        Math.abs(passage.arriveLat - effectiveArriveLat) < 1 &&
-                        Math.abs((passage.arriveLon ?? 0) - effectiveArriveLon) < 1;
-                    const routeCoords: [number, number][] = storeCoordsMatch
-                        ? passage.routeCoordinates
-                        : [
-                              [effectiveDepartLon, effectiveDepartLat],
-                              [effectiveArriveLon, effectiveArriveLat],
-                          ];
-                    return (
-                        <PassageRouteMap
-                            routeCoordinates={routeCoords}
-                            departLat={effectiveDepartLat}
-                            departLon={effectiveDepartLon}
-                            arriveLat={effectiveArriveLat}
-                            arriveLon={effectiveArriveLon}
-                            turnWaypoints={storeCoordsMatch ? passage.turnWaypoints : []}
-                            height={220}
-                        />
-                    );
-                })()}
+                effectiveArriveLon != null && (
+                    <PassageRouteMap
+                        routeCoordinates={mapRouteCoords}
+                        departLat={effectiveDepartLat}
+                        departLon={effectiveDepartLon}
+                        arriveLat={effectiveArriveLat}
+                        arriveLon={effectiveArriveLon}
+                        turnWaypoints={mapTurnWaypoints}
+                        height={220}
+                    />
+                )}
 
             {/* ── Key Stats Grid ── */}
             <div className="grid grid-cols-2 gap-2">
