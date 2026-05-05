@@ -114,7 +114,25 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const handleDateChange = useCallback(
         async (newDate: string) => {
             setDepartureDate(newDate);
-            if (!voyagePlan?.origin || !voyagePlan?.destination) return;
+
+            // Try to find the matching active voyage and update its
+            // departure_time. We try three sources of origin/destination
+            // names, in priority order:
+            //   1. voyagePlan (post-Calculate, canonical)
+            //   2. form state origin/destination (user typed but
+            //      hasn't hit Calculate yet)
+            //   3. nothing — bail out
+            //
+            // The previous version only used (1), which meant a user who
+            // opened the form and changed the date WITHOUT first hitting
+            // Calculate got their typed date saved into the form state
+            // but the voyage record stayed on whatever date was saved
+            // when the route was last calculated. The Passage Summary
+            // then kept showing today (or whatever stale date the
+            // voyage record had).
+            const planOrigin = voyagePlan?.origin || origin;
+            const planDestination = voyagePlan?.destination || destination;
+            if (!planOrigin || !planDestination) return;
 
             try {
                 // Build the expected voyage_name the same way
@@ -133,12 +151,28 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     if (parts.length >= 3) return parts.slice(0, -1).join(', ');
                     return parts.join(', ');
                 };
-                const expectedName = `${trim(voyagePlan.origin)} → ${trim(voyagePlan.destination)}`;
+                const expectedName = `${trim(planOrigin)} → ${trim(planDestination)}`;
 
                 const { getDraftVoyages, updateVoyage } = await import('../services/VoyageService');
                 const drafts = await getDraftVoyages();
-                const match = drafts.find((v) => v.voyage_name === expectedName);
-                if (!match) return;
+                let match = drafts.find((v) => v.voyage_name === expectedName);
+                // Fallback: case-insensitive partial match on the place
+                // names. Handles canonical-vs-typed differences (e.g.
+                // saved "Newport → Nouméa" but form has "Newport, QLD").
+                if (!match) {
+                    const trimmedOrigin = trim(planOrigin).toLowerCase();
+                    const trimmedDest = trim(planDestination).toLowerCase();
+                    match = drafts.find((v) => {
+                        const name = (v.voyage_name || '').toLowerCase();
+                        return name.includes(trimmedOrigin) && name.includes(trimmedDest);
+                    });
+                }
+                if (!match) {
+                    console.warn(
+                        `[useVoyageForm] handleDateChange: no draft voyage matching "${expectedName}" — date saved in form only`,
+                    );
+                    return;
+                }
 
                 // Compute new departure_time as midnight UTC of the
                 // selected date. Preserve duration: if the existing
@@ -160,8 +194,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
                 // Update voyagePlan in WeatherContext so the form +
                 // any other consumers see the new date without a
-                // remount.
-                saveVoyagePlan({ ...voyagePlan, departureDate: newDate });
+                // remount. Only do this if voyagePlan exists — if the
+                // user hasn't Calculated yet, the WeatherContext has
+                // no plan to update.
+                if (voyagePlan) {
+                    saveVoyagePlan({ ...voyagePlan, departureDate: newDate });
+                }
 
                 // Notify any open PassageSummaryCard / banner / etc.
                 // to re-read the new departure time. Same event the
@@ -186,7 +224,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 console.warn('[useVoyageForm] handleDateChange voyage sync failed:', e);
             }
         },
-        [voyagePlan, saveVoyagePlan],
+        [voyagePlan, saveVoyagePlan, origin, destination],
     );
 
     // Loading Animation Loop

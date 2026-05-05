@@ -392,9 +392,21 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const onSaved = () => {
             void reloadDropdown();
         };
+        // Also refresh when the departure time changes elsewhere
+        // (RoutePlanner date input, WeatherWindowCard accept). Without
+        // this the active voyage's date stays stale in the dropdown
+        // and the Passage Summary card until the user manually
+        // remounts the page.
+        const onDepartureUpdate = () => {
+            void reloadDropdown();
+        };
         if (typeof window !== 'undefined') {
             window.addEventListener('thalassa:passage-plan-saved', onSaved);
-            return () => window.removeEventListener('thalassa:passage-plan-saved', onSaved);
+            window.addEventListener('thalassa:departure-time-updated', onDepartureUpdate);
+            return () => {
+                window.removeEventListener('thalassa:passage-plan-saved', onSaved);
+                window.removeEventListener('thalassa:departure-time-updated', onDepartureUpdate);
+            };
         }
         return undefined;
     }, [reloadDropdown, isAuthed]);
