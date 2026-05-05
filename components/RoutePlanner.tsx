@@ -17,6 +17,7 @@ import {
 import { SlideToAction } from './ui/SlideToAction';
 import { MapHub } from './map/MapHub';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
+import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
@@ -198,6 +199,16 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
             {/* ═══ FORM INPUTS — always visible at top ═══ */}
             <div className="shrink-0 px-4 pb-3">
                 <div className="max-w-xl mx-auto w-full space-y-2.5">
+                    {/* Comfort thresholds — collapsible accordion at the top
+                        of the form. Sets settings.comfortParams (canonical
+                        store) which the isochrone router reads at compute
+                        time to drop candidates whose wind/wave/angle
+                        conditions exceed the user's tolerance. Replaced the
+                        old Passage Intelligence Comfort Profile card which
+                        wrote to a separate localStorage key the router
+                        never read. */}
+                    <ComfortQuickConfig />
+
                     {/* Origin */}
                     <div className="relative group">
                         <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-emerald-400">

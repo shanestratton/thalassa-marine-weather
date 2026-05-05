@@ -21,8 +21,7 @@ import { CustomsClearanceCard } from '../passage/CustomsClearanceCard';
 import { isSameCountry } from '../../data/customsDb';
 import { GalleyCard } from '../chat/GalleyCard';
 import { DelegationBadge } from './DelegationBadge';
-import { VesselProfileCard } from '../passage/VesselProfileCard';
-import { ComfortProfileCard } from '../passage/ComfortProfileCard';
+import { VesselProfileSummary } from '../passage/VesselProfileSummary';
 import { WeatherWindowCard } from '../passage/WeatherWindowCard';
 import { OceanCurrentsCard } from '../passage/OceanCurrentsCard';
 
@@ -215,10 +214,14 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
         onAssign: onAssignCard,
     };
 
-    // Passage Intelligence readiness summary
-    const piReadyCount = [vesselProfileReady, comfortProfileReady, weatherWindowReady, currentsBriefed].filter(
-        Boolean,
-    ).length;
+    // Passage Intelligence readiness summary.
+    // Comfort Profile dropped from this list 2026-05-05 — it lives in
+    // the RoutePlanner now (ComfortQuickConfig at top of the form),
+    // where it's actually consumed by the isochrone router. Vessel
+    // Profile is now read-only (canonical source = settings.vessel
+    // from onboarding). Three cards remain: vessel summary + weather
+    // windows + currents briefing.
+    const piReadyCount = [vesselProfileReady, weatherWindowReady, currentsBriefed].filter(Boolean).length;
 
     // Auto-clear customs for domestic routes
     const isDomestic = !!(departPort && destPort && isSameCountry(departPort, destPort));
@@ -262,51 +265,49 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             <div className="mb-2">
                 <div className="flex items-center gap-2 mb-3 mt-1">
                     <div
-                        className={`w-1 h-4 rounded-full ${piReadyCount === 4 ? 'bg-emerald-400' : 'bg-violet-400'}`}
+                        className={`w-1 h-4 rounded-full ${piReadyCount === 3 ? 'bg-emerald-400' : 'bg-violet-400'}`}
                     />
                     <span
-                        className={`text-[11px] font-black uppercase tracking-[0.2em] ${piReadyCount === 4 ? 'text-emerald-400' : 'text-violet-400'}`}
+                        className={`text-[11px] font-black uppercase tracking-[0.2em] ${piReadyCount === 3 ? 'text-emerald-400' : 'text-violet-400'}`}
                     >
                         Passage Intelligence
                     </span>
                     <span
                         className={`ml-auto px-2 py-0.5 rounded-full text-[11px] font-bold border ${
-                            piReadyCount === 4
+                            piReadyCount === 3
                                 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'
                                 : 'bg-violet-500/10 border-violet-500/20 text-violet-400'
                         }`}
                     >
-                        {piReadyCount}/4
+                        {piReadyCount}/3
                     </span>
                 </div>
 
-                {/* PI-1: VESSEL PROFILE */}
+                {/* PI-1: VESSEL PROFILE — read-only summary.
+                    The canonical record is settings.vessel (configured
+                    during onboarding + Settings → Vessel Profile). This
+                    card just confirms which boat the route uses; tap the
+                    edit link to change it. */}
                 <CardAccordion
                     isReady={vesselProfileReady}
                     emoji="⚓"
                     title="Vessel Profile"
-                    subtitle="Hull type · LOA · Cruising speed"
-                    readySubtitle="✅ Performance profile configured"
+                    subtitle="Confirm active boat for routing"
+                    readySubtitle="✅ Vessel ready for routing"
                     cardKey="vessel_profile"
                     {...delegationProps}
                 >
-                    <VesselProfileCard voyageId={selectedPassageId} onReviewedChange={onVesselProfileChange} />
+                    <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
                 </CardAccordion>
 
-                {/* PI-2: COMFORT PROFILE */}
-                <CardAccordion
-                    isReady={comfortProfileReady}
-                    emoji="⛵"
-                    title="Comfort Profile"
-                    subtitle="Wind · Wave · Angle thresholds"
-                    readySubtitle="✅ Comfort limits configured"
-                    cardKey="comfort_profile"
-                    {...delegationProps}
-                >
-                    <ComfortProfileCard voyageId={selectedPassageId} onReviewedChange={onComfortProfileChange} />
-                </CardAccordion>
+                {/* Comfort Profile card removed 2026-05-05 — moved into
+                    the RoutePlanner form (ComfortQuickConfig at top) so
+                    the values flow directly into settings.comfortParams
+                    and the isochrone engine actually reads them. The old
+                    PI card wrote to a third localStorage key the router
+                    never consulted. */}
 
-                {/* PI-3: WEATHER WINDOWS */}
+                {/* PI-2: WEATHER WINDOWS */}
                 <CardAccordion
                     isReady={weatherWindowReady}
                     emoji="🌊"
@@ -325,7 +326,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     />
                 </CardAccordion>
 
-                {/* PI-4: OCEAN CURRENTS */}
+                {/* PI-3: OCEAN CURRENTS */}
                 <CardAccordion
                     isReady={currentsBriefed}
                     emoji="🌀"

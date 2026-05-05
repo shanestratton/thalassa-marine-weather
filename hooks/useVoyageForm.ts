@@ -601,6 +601,32 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 /* non-critical */
             }
 
+            // Comfort params: blend vessel mechanical caps + user prefs +
+            // preferredAngles. Mirrors the same logic isochroneEnhancer
+            // uses so departure-window scenarios apply the same filter
+            // as the full-resolution route compute.
+            const userComfort = settings.comfortParams ?? {};
+            const tightestWind =
+                vessel.maxWindSpeed != null && userComfort.maxWindKts != null
+                    ? Math.min(vessel.maxWindSpeed, userComfort.maxWindKts)
+                    : (vessel.maxWindSpeed ?? userComfort.maxWindKts);
+            const tightestWave =
+                vessel.maxWaveHeight != null && userComfort.maxWaveM != null
+                    ? Math.min(vessel.maxWaveHeight, userComfort.maxWaveM)
+                    : (vessel.maxWaveHeight ?? userComfort.maxWaveM);
+            const blendedComfort =
+                tightestWind != null ||
+                tightestWave != null ||
+                userComfort.maxGustKts != null ||
+                userComfort.preferredAngles
+                    ? {
+                          maxWindKts: tightestWind,
+                          maxWaveM: tightestWave,
+                          maxGustKts: userComfort.maxGustKts,
+                          preferredAngles: userComfort.preferredAngles,
+                      }
+                    : undefined;
+
             // 3. Run the planner
             const { planDepartureWindow } = await import('../services/departureWindow');
             // Window starts now (or at the user's picked date if it's later
@@ -618,6 +644,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 currentField,
                 exclusionField,
                 waveField,
+                blendedComfort,
                 baseDateIso,
             );
             setWindowScenarios(final);

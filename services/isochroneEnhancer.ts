@@ -322,7 +322,48 @@ export async function enhanceVoyagePlanWithIsochrone(
                 log.warn('current fetch failed — routing on STW only:', e);
             }
 
-            // ── 5. Run the isochrone engine ──
+            // ── 5. Comfort params: blend vessel hard limits with user prefs ──
+            // The vessel profile carries the boat's HARD MECHANICAL caps
+            // (maxWindSpeed/maxWaveHeight) — what the boat can survive.
+            // settings.comfortParams carries the user's CHOSEN comfort
+            // ceiling — what the user is willing to put up with on this
+            // particular trip. We pass both into the engine; whichever
+            // is tighter wins per metric (Math.min on the caps).
+            //
+            // preferredAngles comes only from settings.comfortParams —
+            // it's purely a user preference, not a hardware property.
+            let comfortParams: import('./isochrone/types').IsochroneConfig['comfortParams'] | undefined;
+            try {
+                const { useSettingsStore } = await import('../stores/settingsStore');
+                const userComfort = useSettingsStore.getState().settings.comfortParams ?? {};
+                const vMaxWind = vessel.maxWindSpeed;
+                const vMaxWave = vessel.maxWaveHeight;
+                const uMaxWind = userComfort.maxWindKts;
+                const uMaxWave = userComfort.maxWaveM;
+                const uMaxGust = userComfort.maxGustKts;
+                const tightestWind =
+                    vMaxWind != null && uMaxWind != null ? Math.min(vMaxWind, uMaxWind) : (vMaxWind ?? uMaxWind);
+                const tightestWave =
+                    vMaxWave != null && uMaxWave != null ? Math.min(vMaxWave, uMaxWave) : (vMaxWave ?? uMaxWave);
+                if (tightestWind != null || tightestWave != null || uMaxGust != null || userComfort.preferredAngles) {
+                    comfortParams = {
+                        maxWindKts: tightestWind,
+                        maxWaveM: tightestWave,
+                        maxGustKts: uMaxGust,
+                        preferredAngles: userComfort.preferredAngles,
+                    };
+                }
+            } catch (_) {
+                // Fall back to vessel-only caps if settings store unavailable
+                if (vessel.maxWindSpeed || vessel.maxWaveHeight) {
+                    comfortParams = {
+                        maxWindKts: vessel.maxWindSpeed,
+                        maxWaveM: vessel.maxWaveHeight,
+                    };
+                }
+            }
+
+            // ── 6. Run the isochrone engine ──
             isoResult = await computeIsochrones(
                 origin,
                 destination,
@@ -335,15 +376,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                     // No minDepthM for ocean passages — the engine still
                     // checks reef rejection and isLand from the bathy grid.
                     minDepthM: null,
-                    // Comfort cap from vessel profile — wavefronts
-                    // exceeding maxWindSpeed or maxWaveHeight are pruned.
-                    comfortParams:
-                        vessel.maxWindSpeed || vessel.maxWaveHeight
-                            ? {
-                                  maxWindKts: vessel.maxWindSpeed,
-                                  maxWaveM: vessel.maxWaveHeight,
-                              }
-                            : undefined,
+                    comfortParams,
                 },
                 bathyGrid,
                 currentField,

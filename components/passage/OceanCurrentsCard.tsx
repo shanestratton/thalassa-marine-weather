@@ -9,7 +9,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { OceanCurrentService, type CurrentBriefing } from '../../services/OceanCurrentService';
-import { VesselProfileService } from '../../services/VesselProfileService';
+import { useSettings } from '../../context/SettingsContext';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
 
@@ -85,10 +85,14 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         courseBearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
     }
 
-    // Route distance
+    // Route distance + vessel speed
+    // Reads from settings.vessel (canonical store from onboarding) —
+    // was reading from VesselProfileService.load() which lived in a
+    // separate localStorage key and could diverge from the user's
+    // actual vessel profile.
     const dist = distanceNM ?? 100;
-    const vessel = VesselProfileService.load();
-    const speed = vessel.cruisingSpeedKts || 6;
+    const { settings } = useSettings();
+    const speed = settings.vessel?.cruisingSpeed || 6;
 
     // Re-read acknowledgment when voyageId changes (e.g. orphan
     // auto-heal switches the active voyage out from under us).

@@ -9,9 +9,24 @@
  * Falls back to cached data for offline use.
  */
 
-import { ComfortProfileService, type ComfortProfile } from './ComfortProfileService';
+import { useSettingsStore } from '../stores/settingsStore';
+import type { ComfortParams, PreferredAngle } from '../types';
 import { getOpenMeteoKey } from './weather/keys';
 import { createLogger } from '../utils/createLogger';
+
+/**
+ * Internal scoring shape — what scoreWindow() actually consumes.
+ * Replaces the old per-voyage ComfortProfile (now removed). Sourced
+ * from settings.comfortParams (canonical) blended with vessel.maxWind*
+ * mechanical caps in the analyse() entry point. Defaults applied where
+ * fields are undefined so the scorer always has concrete numbers to
+ * compare against.
+ */
+interface ScoringComfort {
+    maxWindKts: number;
+    maxWaveM: number;
+    preferredAngles: PreferredAngle[];
+}
 
 const log = createLogger('WeatherWindow');
 
@@ -59,7 +74,7 @@ function scoreWindow(
     hourlyWind: number[],
     hourlyWave: number[],
     hourlyWindDir: number[],
-    comfort: ComfortProfile,
+    comfort: ScoringComfort,
     courseBearing?: number,
 ): { score: number; rating: 'go' | 'marginal' | 'wait' } {
     let score = 100;
@@ -87,15 +102,21 @@ function scoreWindow(
         score -= 15;
     }
 
-    // Wind angle scoring (if course bearing provided)
-    if (courseBearing !== undefined && comfort.preferredAngle !== 'any') {
+    // Wind angle scoring — multi-select bands.
+    // Each selected band contributes to the score: if the wind's
+    // relative angle is in NONE of the selected bands, penalty applied.
+    // If preferredAngles is empty / has all 5 → no filter (every relAngle
+    // hits at least one band).
+    if (courseBearing !== undefined && comfort.preferredAngles.length > 0 && comfort.preferredAngles.length < 5) {
         const avgWindDir = hourlyWindDir.reduce((a, b) => a + b, 0) / hourlyWindDir.length;
         const relAngle = Math.abs(((avgWindDir - courseBearing + 180) % 360) - 180);
-
-        if (comfort.preferredAngle === 'following' && relAngle > 45) score -= 15;
-        if (comfort.preferredAngle === 'quarter' && (relAngle < 45 || relAngle > 90)) score -= 10;
-        if (comfort.preferredAngle === 'broad_reach' && (relAngle < 90 || relAngle > 135)) score -= 10;
-        if (comfort.preferredAngle === 'no_beating' && relAngle > 135) score -= 25;
+        const inBand =
+            (comfort.preferredAngles.includes('beating') && relAngle < 50) ||
+            (comfort.preferredAngles.includes('close_reach') && relAngle >= 50 && relAngle < 80) ||
+            (comfort.preferredAngles.includes('beam_reach') && relAngle >= 80 && relAngle < 110) ||
+            (comfort.preferredAngles.includes('broad_reach') && relAngle >= 110 && relAngle < 150) ||
+            (comfort.preferredAngles.includes('running') && relAngle >= 150);
+        if (!inBand) score -= 20;
     }
 
     // Night departure penalty (if comfort says no night sailing)
@@ -104,6 +125,39 @@ function scoreWindow(
     const clamped = Math.max(0, Math.min(100, score));
     const rating = clamped >= 70 ? 'go' : clamped >= 40 ? 'marginal' : 'wait';
     return { score: clamped, rating };
+}
+
+/**
+ * Build the scoring comfort from the canonical sources:
+ *   - vessel.maxWindSpeed / maxWaveHeight (mechanical caps)
+ *   - settings.comfortParams.{maxWindKts,maxWaveM,preferredAngles} (user prefs)
+ * Whichever cap is tighter wins per metric. Defaults applied so the
+ * scorer always has concrete numbers (otherwise a missing maxWindKts
+ * would make the maxWind > comfort.maxWindKts comparison evaluate to
+ * `> undefined` = false, masking real wind penalties).
+ */
+function loadScoringComfort(): ScoringComfort {
+    try {
+        const settings = useSettingsStore.getState().settings;
+        const v = settings.vessel;
+        const c: ComfortParams = settings.comfortParams ?? {};
+        const tightWind =
+            v?.maxWindSpeed != null && c.maxWindKts != null
+                ? Math.min(v.maxWindSpeed, c.maxWindKts)
+                : (v?.maxWindSpeed ?? c.maxWindKts ?? 35);
+        const tightWave =
+            v?.maxWaveHeight != null && c.maxWaveM != null
+                ? Math.min(v.maxWaveHeight, c.maxWaveM)
+                : (v?.maxWaveHeight ?? c.maxWaveM ?? 4);
+        return {
+            maxWindKts: tightWind,
+            maxWaveM: tightWave,
+            preferredAngles: c.preferredAngles ?? [],
+        };
+    } catch {
+        // Settings store unavailable (e.g. SSR) — return permissive defaults
+        return { maxWindKts: 35, maxWaveM: 4, preferredAngles: [] };
+    }
 }
 
 /** Day + time label */
@@ -127,11 +181,14 @@ export const WeatherWindowService = {
      * Analyse departure windows for the next 7 days.
      * @param lat — Departure latitude
      * @param lon — Departure longitude
-     * @param voyageId — Active voyage ID (for comfort profile lookup)
+     * @param voyageId — Active voyage ID (kept on the signature for
+     *   back-compat with callers; comfort thresholds are now sourced
+     *   from the canonical settings.comfortParams + vessel profile,
+     *   so the voyageId is no longer used here).
      * @param courseBearing — Bearing to destination (degrees)
      */
-    async analyse(lat: number, lon: number, voyageId?: string, courseBearing?: number): Promise<WeatherWindowResult> {
-        const comfort = ComfortProfileService.load(voyageId);
+    async analyse(lat: number, lon: number, _voyageId?: string, courseBearing?: number): Promise<WeatherWindowResult> {
+        const comfort = loadScoringComfort();
 
         // Check cache
         try {
@@ -200,12 +257,16 @@ export const WeatherWindowService = {
 
                 const { score, rating } = scoreWindow(dayWind, dayWave, sliceDir, comfort, courseBearing);
 
-                // Night penalty
-                const hour = new Date(times[i]).getHours();
-                const isNight = hour < 6 || hour >= 20;
-                let adjustedScore = score;
-                if (isNight && !comfort.nightSailing) adjustedScore -= 15;
-                const adjustedRating = adjustedScore >= 70 ? 'go' : adjustedScore >= 40 ? 'marginal' : 'wait';
+                // Night-departure penalty removed 2026-05-05 along with
+                // the per-voyage ComfortProfile (which carried a
+                // nightSailing flag). Users now pick a specific
+                // departure date in the form; if they wanted a daylight
+                // window they'd pick one. Adding a global "no night"
+                // penalty would silently downgrade legitimate overnight
+                // passages — most cruisers prefer to depart in the
+                // afternoon for an arrival the next morning.
+                const adjustedScore = score;
+                const adjustedRating = rating;
 
                 const summary: DepartureWindow['summary'] = {
                     maxWindKts: Math.round(Math.max(...dayWind)),
