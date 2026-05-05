@@ -52,6 +52,24 @@ post_install do |installer|
 
       # FIX: SwiftSocket ships with SWIFT_VERSION=3 which is unsupported
       config.build_settings['SWIFT_VERSION'] = '5.0'
+
+      # FIX: silence Swift compiler warnings in 3rd-party Pods.
+      # `inhibit_all_warnings!` at the top of this Podfile sets
+      # `inhibit_warnings = true` per pod, which translates to GCC `-w`
+      # for Objective-C — but that flag doesn't reach Swift. Swift
+      # warnings (e.g. CLLocationManager.authorizationStatus()
+      # deprecation in TransistorsoftCapacitorBackgroundGeolocation,
+      # iOS-version availability nags in vendor pods) need
+      # OTHER_SWIFT_FLAGS = -suppress-warnings explicitly.
+      #
+      # Only applied to pod targets (we want our OWN Swift warnings in
+      # the App target — those are signal). $(inherited) preserves
+      # whatever else CocoaPods sets per-pod.
+      existing_swift_flags = config.build_settings['OTHER_SWIFT_FLAGS'] || '$(inherited)'
+      existing_swift_flags = existing_swift_flags.join(' ') if existing_swift_flags.is_a?(Array)
+      unless existing_swift_flags.include?('-suppress-warnings')
+        config.build_settings['OTHER_SWIFT_FLAGS'] = existing_swift_flags + ' -suppress-warnings'
+      end
     end
   end
 
