@@ -34,6 +34,7 @@ export type {
     WindField,
     CurrentField,
     ExclusionField,
+    WaveField,
     IsochroneConfig,
     IsochroneNode,
     Isochrone,
@@ -46,7 +47,14 @@ export { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 export { isochroneToGeoJSON, detectTurnWaypoints } from './isochrone/output';
 
 // ── Import internal dependencies from sub-modules ────────────────
-import type { WindField, CurrentField, ExclusionField, IsochroneNode, IsochroneConfig } from './isochrone/types';
+import type {
+    WindField,
+    CurrentField,
+    ExclusionField,
+    WaveField,
+    IsochroneNode,
+    IsochroneConfig,
+} from './isochrone/types';
 import { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 import { haversineNm, initialBearing, projectPosition, calcTWA, R_NM, toRad, toDeg } from './isochrone/geodesy';
 import { createPolarSpeedLookup } from './isochrone/polar';
@@ -105,6 +113,17 @@ export async function computeIsochrones(
      * Pass null/undefined to route without exclusion checks.
      */
     exclusionField?: ExclusionField | null,
+    /**
+     * Optional wave field. When provided, the polar's predicted boat
+     * speed is multiplied by a sea-state factor (1 - slowdown) before
+     * projection — head waves slow you down, beam waves slow you a
+     * little, following waves are roughly neutral. Short period waves
+     * (chop) are more punishing than long swells of the same height.
+     *
+     * Implements the "polar-with-waves" modelling that PredictWind /
+     * Expedition use to make routes accurate in heavy weather.
+     */
+    waveField?: WaveField | null,
 ): Promise<import('./isochrone/types').IsochroneResult | null> {
     const cfg = { ...DEFAULT_ISOCHRONE_CONFIG, ...config };
     const depTime = new Date(departureTime);
@@ -224,6 +243,11 @@ export async function computeIsochrones(
             }
             const hasCurrent = currU !== 0 || currV !== 0;
 
+            // Wave conditions at parent location, hoisted similarly.
+            // Direction is FROM (meteorological — same as wind).
+            // Period in seconds, height in metres.
+            const wave = waveField ? waveField.getWave(parent.lat, parent.lon, timeHours - cfg.timeStepHours) : null;
+
             const lat1Rad = toRad(parent.lat);
             const lon1Rad = toRad(parent.lon);
             const sinLat1 = Math.sin(lat1Rad);
@@ -260,8 +284,36 @@ export async function computeIsochrones(
                     }
                 }
 
+                // ── Sea-state slowdown (polar-with-waves) ──
+                // Significant wave height is the dominant factor — slowdown
+                // scales with H². Relative angle modulates: head waves
+                // (180° relative) hit hardest, beam (90°) half, following
+                // (0°) is roughly neutral. Short-period chop is worse than
+                // long swell at the same height; we use 8s as a reference
+                // period (typical wind-driven sea).
+                //
+                // Cap total slowdown at 50% so the engine doesn't predict
+                // the boat going to 0 speed in a 6m sea — even pounding
+                // upwind in 6m the boat still makes some progress, and
+                // capping prevents pathological infinite-time routes that
+                // never reach destination.
+                let effectiveBoatSpeed = boatSpeed;
+                if (wave && wave.heightM > 0.5) {
+                    let relAngle = absoluteBearing - wave.directionFromDeg;
+                    while (relAngle > 180) relAngle -= 360;
+                    while (relAngle < -180) relAngle += 360;
+                    // 0..1: 0 = following (rel ~ 0°), 1 = head (rel ~ 180°)
+                    const angleFactor = 0.5 - 0.5 * Math.cos((relAngle * Math.PI) / 180);
+                    // Height factor: H²/3² capped at 1 (3m+ is fully painful)
+                    const heightFactor = Math.min(1, (wave.heightM * wave.heightM) / 9);
+                    // Period factor: 8s reference, shorter = worse, longer = mild
+                    const periodFactor = Math.max(0.4, Math.min(1, 8 / Math.max(3, wave.periodS)));
+                    const slowdown = Math.min(0.5, 0.6 * angleFactor * heightFactor * periodFactor);
+                    effectiveBoatSpeed = boatSpeed * (1 - slowdown);
+                }
+
                 // ── Speed-over-ground & course-over-ground ──
-                // boatSpeed is speed-through-water (STW) from the polar.
+                // effectiveBoatSpeed is wave-adjusted speed-through-water.
                 // When current is present, the ground velocity is the
                 // STW vector + current vector. SOG = |ground vector|,
                 // COG = bearing of ground vector.
@@ -272,11 +324,11 @@ export async function computeIsochrones(
                 // position uses COG so the wavefront expands to where
                 // the boat actually ends up over ground.
                 let projBearing = absoluteBearing;
-                let projDistance = boatSpeed * cfg.timeStepHours;
+                let projDistance = effectiveBoatSpeed * cfg.timeStepHours;
                 if (hasCurrent) {
                     const headingRad = toRad(absoluteBearing);
-                    const stwU = boatSpeed * Math.sin(headingRad);
-                    const stwV = boatSpeed * Math.cos(headingRad);
+                    const stwU = effectiveBoatSpeed * Math.sin(headingRad);
+                    const stwV = effectiveBoatSpeed * Math.cos(headingRad);
                     const gU = stwU + currU;
                     const gV = stwV + currV;
                     const sog = Math.sqrt(gU * gU + gV * gV);

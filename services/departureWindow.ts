@@ -25,7 +25,14 @@
 
 import { createLogger } from '../utils/createLogger';
 import type { VesselProfile } from '../types';
-import type { WindField, CurrentField, ExclusionField, IsochroneNode, IsochroneResult } from './IsochroneRouter';
+import type {
+    WindField,
+    CurrentField,
+    ExclusionField,
+    WaveField,
+    IsochroneNode,
+    IsochroneResult,
+} from './IsochroneRouter';
 
 const log = createLogger('DeparturePlan');
 
@@ -174,6 +181,7 @@ export async function planDepartureWindow(
     bathyGrid: import('./BathymetryCache').BathymetryGrid | null,
     currentField: CurrentField | null,
     exclusionField: ExclusionField | null,
+    waveField: WaveField | null,
     windowStartIso: string,
     options: DepartureWindowOptions = {},
 ): Promise<DepartureScenario[]> {
@@ -223,6 +231,7 @@ export async function planDepartureWindow(
                 bathyGrid,
                 currentField,
                 exclusionField,
+                waveField,
             );
         } catch (e) {
             log.warn(`scenario ${i + 1}/${stepCount} (${depIso}) threw:`, e);
