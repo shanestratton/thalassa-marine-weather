@@ -492,26 +492,27 @@ export const parseLocation = async (
             }
         };
 
-        // ── Strategy: place-name-first, then abbreviation expansion ──
+        // ── Strategy: expanded-query-first, bare-name fallback ──
         //
-        // The user's intuition is right: if they type "Port Moselle, NC",
-        // Mapbox should look at "Port Moselle" first because that's a
-        // unique-enough name to find globally. Treating "NC" as a hard
-        // region filter (which is what passing the full string does)
-        // makes Mapbox return random-NC-USA matches even though no
-        // "Port Moselle" exists in North Carolina.
+        // Two failure modes we need to handle simultaneously:
         //
-        // New approach:
-        //   1. If query has a trailing region code, strip it and search
-        //      the bare place name first (with proximity bias).
-        //   2. Validate the match: does the matched feature's text
-        //      actually contain the user's typed place tokens? Mapbox's
-        //      relevance score helps too — anything <0.5 is the
-        //      geocoder grasping at straws.
-        //   3. If the bare-name search produced a strong match, use it.
-        //   4. Otherwise fall back to abbreviation expansion + full
-        //      query (legacy path — keeps Newport QLD working when
-        //      proximity is unavailable / weak).
+        //   A. "Port Moselle, NC" (Brisbane user) — Mapbox treats NC as
+        //      a hard region filter. No Port Moselle exists in NC USA,
+        //      so Mapbox returns garbage US matches.
+        //   B. "Newport, QLD" — common place name. If we strip QLD and
+        //      search bare "Newport", Mapbox returns Newport News VA
+        //      (most populous globally) and proximity bias isn't
+        //      strong enough to flip that to Newport, Queensland.
+        //
+        // Solution: try the abbreviation-expanded query FIRST (so QLD
+        // gets expanded to "Queensland, Australia" and the Mapbox
+        // index restricts to that region — Newport QLD wins). Validate
+        // the result. If validation fails (Port Moselle, NC scenario
+        // — no real match for the expanded query), strip the region
+        // code, search bare-name, and sort the candidates by distance
+        // from the user's GPS. The closest one passing token
+        // validation wins (Port Moselle Nouméa ~1100 NM beats Moselle
+        // France ~8000 NM).
         const stripRegionCode = (loc: string): string | null => {
             const m = loc.match(/^(.+?),\s*[A-Z]{2,4}\s*$/);
             return m ? m[1].trim() : null;
@@ -521,18 +522,8 @@ export const parseLocation = async (
             if (matched.relevance < 0.5) return false;
             // ALL typed tokens (≥4 chars) must appear in the matched
             // feature's name or place_name. Earlier version used `some`
-            // (any-match), which accepted "Moselle, France" for the
-            // typed query "Port Moselle" — French Moselle contains
-            // "moselle" so it passed even though "port" was missing.
-            // The user wanted Port Moselle in Nouméa, not the French
-            // river region. Strict `every` rejects fuzzy partial
-            // matches and lets the abbreviation-expansion fallback
-            // (which appends ", New Caledonia" for Brisbane users)
-            // produce the correct result.
-            //
-            // Single-token typed inputs (e.g. "Newport") still work —
-            // the every() trivially passes when there's only one
-            // token to check.
+            // (any-match) which accepted "Moselle, France" for typed
+            // "Port Moselle" — strict `every` rejects partial matches.
             const typedTokens = typed
                 .toLowerCase()
                 .split(/[\s,]+/)
@@ -540,6 +531,17 @@ export const parseLocation = async (
             if (typedTokens.length === 0) return matched.relevance >= 0.7;
             const haystack = `${matched.name} ${matched.placeName || ''}`.toLowerCase();
             return typedTokens.every((t) => haystack.includes(t));
+        };
+
+        /**
+         * Distance² in degree-space — only used for sorting candidates,
+         * exact metric distance not required. At small sort scales the
+         * lat/lon Euclidean is monotonically equivalent to haversine.
+         */
+        const distSq = (a: { latitude: number; longitude: number }, p: { lat: number; lon: number }) => {
+            const dLat = a.latitude - p.lat;
+            const dLon = a.longitude - p.lon;
+            return dLat * dLat + dLon * dLon;
         };
 
         let results: Array<{
@@ -554,50 +556,51 @@ export const parseLocation = async (
         }> = [];
 
         const placeOnly = stripRegionCode(location);
-        if (placeOnly) {
+
+        // ── Pass 1: abbreviation-expanded query ──
+        // For "Newport, QLD" → "Newport, Queensland, Australia". For
+        // "Port Moselle, NC" + Oceania user → "Port Moselle, New
+        // Caledonia". For codes outside the table (US states, gibberish)
+        // → unchanged. This is the happy path for most user inputs.
+        const expandedQuery = expandMaritimeAbbreviations(location, proximity);
+        if (expandedQuery !== location) {
+            log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
+        }
+        const expandedResults = await fetchMapboxGeo(expandedQuery);
+        // Validate against the place portion of the typed input.
+        // "Newport, QLD" → validate against "Newport". "Port Moselle, NC"
+        // → validate against "Port Moselle". The trailing region code
+        // is metadata, not part of the place name we're verifying.
+        const validateAgainst = placeOnly ?? location;
+        const expandedStrong = expandedResults.find((r) =>
+            isStrongMatch(validateAgainst, r as { name: string; placeName?: string; relevance: number }),
+        );
+        if (expandedStrong) {
+            log.info(`[geocoding] expanded → "${expandedStrong.placeName ?? expandedStrong.name}"`);
+            results = [expandedStrong];
+        }
+
+        // ── Pass 2: bare-name search (sorted by proximity) ──
+        // Runs when:
+        //   - Input had a trailing region code, AND
+        //   - Pass 1 didn't produce a strong match
+        // Sort candidates by distance from the user's GPS so the
+        // geographically-closest valid match wins (Port Moselle Nouméa
+        // beats Moselle France for a Brisbane user).
+        if (results.length === 0 && placeOnly) {
             const placeOnlyResults = await fetchMapboxGeo(placeOnly);
-            // Pick the first result that actually contains our typed
-            // tokens. If proximity bias is doing its job, this is also
-            // the geographically-closest interpretation.
-            const strong = placeOnlyResults.find((r) =>
+            const sorted = proximity
+                ? [...placeOnlyResults].sort((a, b) => distSq(a, proximity) - distSq(b, proximity))
+                : placeOnlyResults;
+            const strong = sorted.find((r) =>
                 isStrongMatch(placeOnly, r as { name: string; placeName?: string; relevance: number }),
             );
             if (strong) {
-                log.info(`[geocoding] place-only "${placeOnly}" → "${strong.placeName ?? strong.name}"`);
+                log.info(`[geocoding] bare-name "${placeOnly}" → "${strong.placeName ?? strong.name}"`);
                 results = [strong];
-            }
-        }
-
-        // Fallback: original query (with abbreviation expansion).
-        // Runs when:
-        //   - The input had no trailing region code
-        //   - OR the bare-name search returned no strong match
-        // The match here also gets the strong-match validation — if
-        // Mapbox returns "Moselle, France" for "Port Moselle, NC"
-        // expanded to "Port Moselle, New Caledonia", we'd still reject
-        // it (no "port" in the matched name) and fall through to
-        // Nominatim.
-        if (results.length === 0) {
-            const expandedQuery = expandMaritimeAbbreviations(location, proximity);
-            if (expandedQuery !== location) {
-                log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
-            }
-            const expandedResults = await fetchMapboxGeo(expandedQuery);
-            // Validate against the place portion (strip trailing code
-            // before running the token check) — if the user typed
-            // "Port Moselle, NC", we want every token in "Port Moselle"
-            // to appear in the match, not the whole "Port Moselle, NC"
-            // string (NC won't appear in "Port Moselle Marina, Nouméa").
-            const validateAgainst = placeOnly ?? location;
-            const strong = expandedResults.find((r) =>
-                isStrongMatch(validateAgainst, r as { name: string; placeName?: string; relevance: number }),
-            );
-            if (strong) {
-                results = [strong];
-            } else if (expandedResults.length > 0) {
-                // No strong match — log and continue to Nominatim.
+            } else if (placeOnlyResults.length > 0) {
                 log.warn(
-                    `[geocoding] expanded "${expandedQuery}" returned weak match "${expandedResults[0].placeName ?? expandedResults[0].name}" — falling through`,
+                    `[geocoding] bare-name "${placeOnly}" returned no strong match — falling through to Nominatim`,
                 );
             }
         }
