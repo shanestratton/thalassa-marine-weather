@@ -219,6 +219,34 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
         window.dispatchEvent(new CustomEvent('thalassa:navigate', { detail: { tab: 'music' } }));
     }, []);
 
+    /** Deep-link to iOS Settings → Apps → Music. The `App-Prefs:`
+     *  scheme has been intermittently restricted by Apple over the
+     *  years; we try the music-specific path first, fall back to the
+     *  app-specific page, then to the general Settings root. iOS will
+     *  silently no-op if a scheme isn't recognised, so worst case the
+     *  button does nothing — but on iOS 17+ the music path works. */
+    const handleOpenMusicSystemSettings = useCallback(() => {
+        const tryUrl = (url: string): boolean => {
+            try {
+                window.location.href = url;
+                return true;
+            } catch {
+                return false;
+            }
+        };
+        // Best-effort cascade. The first one that doesn't throw is
+        // assumed to launch Settings; iOS handles unknown schemes
+        // gracefully.
+        if (tryUrl('App-Prefs:Music')) return;
+        if (tryUrl('App-Prefs:com.apple.Music')) return;
+        if (tryUrl('App-Prefs:')) return;
+        try {
+            window.open('App-Prefs:', '_system');
+        } catch {
+            /* nothing more we can do — user opens Settings manually */
+        }
+    }, []);
+
     return (
         <div className="px-4 pb-8">
             <p className="text-sm text-gray-400 mb-6">
@@ -341,26 +369,50 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                         </div>
                     </Row>
                 ) : (
-                    <Row>
-                        <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Music lives on its own page</div>
-                            <div className="text-xs text-gray-400 mt-1">
-                                Calypso can search and play anything in the Apple Music catalog (~100 million tracks).
-                                Auth, your playlists, and transport controls live on the dedicated Music page — tap the
-                                pink music icon next to Calypso, or use the button below.
+                    <>
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Music lives on its own page</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Calypso can search and play anything in the Apple Music catalog (~100 million
+                                    tracks). Auth, your playlists, and transport controls live on the dedicated Music
+                                    page — tap the pink music icon next to Calypso, or use the button below.
+                                </div>
+                                <div className="text-xs text-gray-500 mt-2">
+                                    Voice commands work the moment you're authorised: "Calypso, play me some Pink
+                                    Floyd", "skip this track", "what's playing?" Music keeps playing while she talks.
+                                </div>
                             </div>
-                            <div className="text-xs text-gray-500 mt-2">
-                                Voice commands work the moment you're authorised: "Calypso, play me some Pink Floyd",
-                                "skip this track", "what's playing?" Music keeps playing while she talks.
+                            <button
+                                onClick={handleOpenMusicPage}
+                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                            >
+                                Open Music
+                            </button>
+                        </Row>
+                        <Row>
+                            <div className="flex-1">
+                                <div className="text-sm text-white font-bold">Smooth song transitions (crossfade)</div>
+                                <div className="text-xs text-gray-400 mt-1">
+                                    Apple's MusicKit doesn't let third-party apps toggle crossfade on or off — the
+                                    setting is system-wide and lives in iOS Settings. Once enabled, every track
+                                    transition in Thalassa (and every other music app on your phone) glides into the
+                                    next without the gap. Tap the button to open the Apple Music settings page; flip{' '}
+                                    <strong className="text-gray-300">Crossfade</strong> on and pick a duration.
+                                </div>
+                                <div className="text-xs text-gray-500 mt-2">
+                                    Path: <span className="text-gray-400">iOS Settings → Apps → Music → Audio</span>.
+                                    iOS 17 or newer required.
+                                </div>
                             </div>
-                        </div>
-                        <button
-                            onClick={handleOpenMusicPage}
-                            className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
-                        >
-                            Open Music
-                        </button>
-                    </Row>
+                            <button
+                                onClick={handleOpenMusicSystemSettings}
+                                className="text-sm font-bold text-pink-400 hover:text-pink-300 px-3 py-1.5 rounded border border-pink-400/40 hover:border-pink-300/60 transition-colors"
+                            >
+                                Open Settings
+                            </button>
+                        </Row>
+                    </>
                 )}
             </Section>
 
