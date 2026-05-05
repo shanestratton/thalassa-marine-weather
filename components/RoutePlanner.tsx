@@ -18,6 +18,7 @@ import { SlideToAction } from './ui/SlideToAction';
 import { MapHub } from './map/MapHub';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
+import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
@@ -225,6 +226,16 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         on input focus (the on-screen keyboard otherwise
                         covers the input the user just tapped into). */}
                     <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
+
+                    {/* Multi-leg passage helper — only renders when a
+                        voyage is active and has legs (Cast Off creates
+                        Leg 1 automatically). For a Brisbane → Fiji
+                        voyage sailed as Brisbane → Nouméa → Vanuatu →
+                        Fiji, this lets the skipper pick which leg
+                        they're planning so the Departure box auto-fills
+                        with the correct port — no re-typing "Nouméa"
+                        when they've already arrived there. */}
+                    <LegPickerDropdown onSelectDeparture={setOrigin} onSelectDestination={setDestination} />
 
                     {/* Origin */}
                     <div className="relative group">
