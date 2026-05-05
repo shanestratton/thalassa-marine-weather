@@ -16,6 +16,7 @@ import {
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
 import { MapHub } from './map/MapHub';
+import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
@@ -42,10 +43,19 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         minDate,
 
         handleCalculate,
+        handlePlanWindow,
+        acceptWindowScenario,
         clearVoyagePlan,
         handleOriginLocation,
         handleMapSelect,
         openMap,
+
+        // Departure-window planner
+        planningWindow,
+        windowScenarios,
+        showWindowSheet,
+        setShowWindowSheet,
+        windowProgress,
 
         voyagePlan,
         vessel,
@@ -344,6 +354,18 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                                         {voyagePlan.durationApprox}
                                     </span>
                                 )}
+                                {/* Plan Departure Window — opens the multi-departure
+                                    optimiser sheet. Disabled while a route is being
+                                    enhanced or while the planner itself is running. */}
+                                <button
+                                    onClick={() => handlePlanWindow()}
+                                    disabled={planningWindow}
+                                    className="px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-[11px] font-bold border border-violet-500/20 transition-colors disabled:opacity-50"
+                                    aria-label="Plan optimal departure window"
+                                    title="Find best departure time"
+                                >
+                                    {planningWindow ? '⏳ Window' : '🗓️ Window'}
+                                </button>
                                 {/* View on main map */}
                                 <button
                                     onClick={() => {
@@ -455,6 +477,23 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                     </div>
                 </div>
             }
+
+            {/* ─── Departure-Window Optimiser Sheet ─── */}
+            {/* Modal sheet that surfaces planDepartureWindow() — runs ~14
+                isochrone scenarios across the next 7 days and ranks them
+                by ETA + gale exposure. Tapping a scenario sets the
+                form's departureDate and closes the sheet, ready for the
+                user to slide-to-calculate at the new time. */}
+            <DepartureWindowSheet
+                open={showWindowSheet}
+                onClose={() => setShowWindowSheet(false)}
+                planning={planningWindow}
+                scenarios={windowScenarios}
+                progressLabel={windowProgress}
+                onAccept={acceptWindowScenario}
+                origin={voyagePlan?.origin || origin}
+                destination={voyagePlan?.destination || destination}
+            />
         </div>
     );
 };

@@ -51,6 +51,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [analyzingDeep, setAnalyzingDeep] = useState(false);
     const [deepReport, setDeepReport] = useState<DeepAnalysisReport | null>(null);
 
+    // Departure-Window Planner State
+    const [planningWindow, setPlanningWindow] = useState(false);
+    const [windowScenarios, setWindowScenarios] = useState<import('../services/departureWindow').DepartureScenario[]>(
+        [],
+    );
+    const [showWindowSheet, setShowWindowSheet] = useState(false);
+    const [windowProgress, setWindowProgress] = useState<string | undefined>(undefined);
+
     // Checklist State
     const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
     const [activeChecklistTab, setActiveChecklistTab] = useState('safety');
@@ -429,6 +437,190 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         }
     };
 
+    /**
+     * Open the departure-window sheet and run planDepartureWindow().
+     *
+     * Loads the same engine fields the main pipeline uses (wind grid,
+     * polar, bathymetry, OSCAR currents, cyclone exclusions), then
+     * iterates ~14 candidate departure times across the next 7 days
+     * and ranks them by ETA + gale exposure.
+     *
+     * Streams partial results via 'thalassa:departure-window-progress'
+     * so the sheet populates live as each scenario lands.
+     */
+    const handlePlanWindow = useCallback(async () => {
+        if (!isPro) {
+            onTriggerUpgrade();
+            return;
+        }
+        if (!origin || !destination || !vessel) {
+            setError('Origin, destination, and vessel profile required.');
+            return;
+        }
+
+        const fmtOrigin = formatLocationInput(origin);
+        const fmtDest = formatLocationInput(destination);
+
+        setShowWindowSheet(true);
+        setPlanningWindow(true);
+        setWindowScenarios([]);
+        setError(null);
+
+        // Live-update the sheet as scenarios complete
+        const progressHandler = ((e: CustomEvent) => {
+            const detail = e.detail as { completed: number; total: number; scenarios: unknown };
+            setWindowProgress(`Computing ${detail.completed} of ${detail.total}…`);
+            if (Array.isArray(detail.scenarios)) {
+                setWindowScenarios([
+                    ...(detail.scenarios as import('../services/departureWindow').DepartureScenario[]),
+                ]);
+            }
+        }) as EventListener;
+        window.addEventListener('thalassa:departure-window-progress', progressHandler);
+
+        try {
+            // 1. Resolve coordinates
+            const { parseLocation } = await import('../services/weather/api/geocoding');
+            const [originGeo, destGeo] = await Promise.all([parseLocation(fmtOrigin), parseLocation(fmtDest)]);
+            if (originGeo.lat === 0 || destGeo.lat === 0) {
+                throw new Error('Could not geocode origin or destination.');
+            }
+            const o = { lat: originGeo.lat, lon: originGeo.lon };
+            const d = { lat: destGeo.lat, lon: destGeo.lon };
+
+            // 2. Load engine fields (mirrors isochroneEnhancer)
+            const { WindStore } = await import('../stores/WindStore');
+            const { createWindFieldFromGrid } = await import('../services/weather/WindFieldAdapter');
+            const { SmartPolarStore } = await import('../services/SmartPolarStore');
+            const { DEFAULT_CRUISING_POLAR } = await import('../services/defaultPolar');
+            const { preloadBathymetry } = await import('../services/BathymetryCache');
+
+            // Wind: ensure grid is loaded for the route bbox
+            if (!WindStore.getState().grid) {
+                // Same fetch logic as isochroneEnhancer.ensureWindGridForRoute
+                const minLat = Math.min(o.lat, d.lat);
+                const maxLat = Math.max(o.lat, d.lat);
+                const minLon = Math.min(o.lon, d.lon);
+                const maxLon = Math.max(o.lon, d.lon);
+                const latPad = Math.max((maxLat - minLat) * 0.3, 2);
+                const lonPad = Math.max((maxLon - minLon) * 0.3, 2);
+                const bbox = {
+                    north: Math.min(maxLat + latPad, 85),
+                    south: Math.max(minLat - latPad, -85),
+                    west: minLon - lonPad,
+                    east: maxLon + lonPad,
+                };
+                const supabaseUrl =
+                    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
+                    'https://pcisdplnodrphauixcau.supabase.co';
+                const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
+                const { piCache } = await import('../services/PiCacheService');
+                const usePi = piCache.isAvailable();
+                const url = usePi
+                    ? `${piCache.baseUrl}/api/grib/wind-grid`
+                    : `${supabaseUrl}/functions/v1/fetch-wind-grid`;
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(usePi || !supabaseKey
+                            ? {}
+                            : { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }),
+                    },
+                    body: JSON.stringify(bbox),
+                    signal: AbortSignal.timeout(20_000),
+                });
+                if (res.ok) {
+                    const buf = await res.arrayBuffer();
+                    if (buf.byteLength > 200) {
+                        const { decodeGrib2WindMultiHour } = await import('../services/weather/decodeGrib2Wind');
+                        WindStore.setGrid(decodeGrib2WindMultiHour(buf));
+                    }
+                }
+            }
+            const windGrid = WindStore.getState().grid;
+            if (!windGrid) {
+                throw new Error('Wind data unavailable for this route.');
+            }
+            const windField = createWindFieldFromGrid(windGrid);
+            const polar = SmartPolarStore.exportToPolarData() ?? DEFAULT_CRUISING_POLAR;
+            const bathyGrid = await preloadBathymetry(o, d);
+
+            // Currents (non-blocking on failure)
+            let currentField = null;
+            try {
+                const { OceanCurrentService } = await import('../services/OceanCurrentService');
+                const { createCurrentFieldFromVectors } = await import('../services/weather/CurrentFieldAdapter');
+                const briefing = await OceanCurrentService.fetchCurrents(
+                    {
+                        north: Math.max(o.lat, d.lat) + 1,
+                        south: Math.min(o.lat, d.lat) - 1,
+                        east: Math.max(o.lon, d.lon) + 1,
+                        west: Math.min(o.lon, d.lon) - 1,
+                    },
+                    0,
+                    0,
+                    vessel.cruisingSpeed || 6,
+                );
+                currentField = createCurrentFieldFromVectors(briefing.vectors);
+            } catch (_) {
+                /* non-critical */
+            }
+
+            // Cyclone exclusions (non-blocking on failure)
+            let exclusionField = null;
+            try {
+                const { buildCycloneExclusionField } = await import('../services/cycloneAvoidance');
+                exclusionField = await buildCycloneExclusionField(new Date().toISOString(), {
+                    north: Math.max(o.lat, d.lat),
+                    south: Math.min(o.lat, d.lat),
+                    east: Math.max(o.lon, d.lon),
+                    west: Math.min(o.lon, d.lon),
+                });
+            } catch (_) {
+                /* non-critical */
+            }
+
+            // 3. Run the planner
+            const { planDepartureWindow } = await import('../services/departureWindow');
+            // Window starts now (or at the user's picked date if it's later
+            // than now). We anchor at midnight UTC of that day.
+            const baseDateIso = departureDate
+                ? new Date(`${departureDate}T00:00:00Z`).toISOString()
+                : new Date().toISOString();
+            const final = await planDepartureWindow(
+                o,
+                d,
+                vessel,
+                windField,
+                polar,
+                bathyGrid,
+                currentField,
+                exclusionField,
+                baseDateIso,
+            );
+            setWindowScenarios(final);
+        } catch (err) {
+            setError(getErrorMessage(err) || 'Departure window planning failed.');
+        } finally {
+            window.removeEventListener('thalassa:departure-window-progress', progressHandler);
+            setPlanningWindow(false);
+            setWindowProgress(undefined);
+        }
+    }, [isPro, origin, destination, vessel, departureDate, onTriggerUpgrade]);
+
+    /**
+     * Apply a chosen scenario from the departure-window sheet:
+     * update the form's departureDate to the scenario's date, close
+     * the sheet, and let the user re-run Calculate at the new time.
+     */
+    const acceptWindowScenario = useCallback((scenario: import('../services/departureWindow').DepartureScenario) => {
+        // Set departureDate to the YYYY-MM-DD of the scenario's UTC departure
+        const dateOnly = scenario.departureTime.split('T')[0];
+        setDepartureDate(dateOnly);
+        setShowWindowSheet(false);
+    }, []);
+
     const handleDeepAnalysis = async () => {
         if (!voyagePlan || !vessel) return;
         setAnalyzingDeep(true);
@@ -578,10 +770,19 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // Handlers
         handleCalculate,
         handleDeepAnalysis,
+        handlePlanWindow,
+        acceptWindowScenario,
         clearVoyagePlan,
         handleOriginLocation,
         handleMapSelect,
         openMap,
+
+        // Departure-window planner
+        planningWindow,
+        windowScenarios,
+        showWindowSheet,
+        setShowWindowSheet,
+        windowProgress,
 
         // Computed
         routeCoords,
