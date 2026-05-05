@@ -757,8 +757,17 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
     const showRemote = !!playlist.artworkUrl && !imageFailed;
 
     return (
-        <div className="fixed inset-0 z-50 flex flex-col">
-            {/* Backdrop */}
+        <div
+            className="fixed inset-0 z-50 flex flex-col"
+            // Pad the bottom by the global bottom-nav height + safe area
+            // so the sheet's bottom edge lands above the nav. Without
+            // this, mt-auto pins the sheet to the screen bottom and
+            // the nav (z-[900]) renders ON TOP of the sheet's action
+            // buttons — invisible action buttons for empty playlists.
+            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+        >
+            {/* Backdrop — absolute inset-0 so it still covers the
+             *  full viewport (including the padding zone behind the nav). */}
             <button
                 aria-label="Close playlist details"
                 onClick={onClose}
@@ -766,11 +775,18 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     mounted ? 'opacity-100' : 'opacity-0'
                 }`}
             />
-            {/* Sheet */}
+            {/* Sheet — min-h-[55vh] gives empty playlists visual
+             *  presence (Play + Add tracks land mid-screen instead of
+             *  squashed at the bottom). max-h respects the nav-clear
+             *  padding above. */}
             <div
-                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 max-h-[88vh] flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
+                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
                     mounted ? 'translate-y-0' : 'translate-y-full'
                 }`}
+                style={{
+                    minHeight: '55vh',
+                    maxHeight: 'calc(92vh - 4rem - env(safe-area-inset-bottom))',
+                }}
             >
                 {/* Drag handle */}
                 <div className="flex justify-center pt-3 pb-1">
@@ -987,7 +1003,10 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
     );
 
     return (
-        <div className="fixed inset-0 z-[55] flex flex-col">
+        <div
+            className="fixed inset-0 z-[55] flex flex-col"
+            style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom))' }}
+        >
             <button
                 aria-label="Close add tracks"
                 onClick={onClose}
@@ -1013,7 +1032,11 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                             : mounted
                               ? 'translateY(0)'
                               : 'translateY(100%)',
-                    maxHeight: keyboardHeight > 0 ? `calc(100vh - ${keyboardHeight}px - 2rem)` : '88vh',
+                    minHeight: '55vh',
+                    maxHeight:
+                        keyboardHeight > 0
+                            ? `calc(100vh - ${keyboardHeight}px - 2rem)`
+                            : 'calc(92vh - 4rem - env(safe-area-inset-bottom))',
                 }}
             >
                 {/* Drag handle */}
