@@ -11,7 +11,6 @@ import {
     CompassIcon,
     CrosshairIcon,
     CalendarIcon,
-    ClockIcon,
     SailBoatIcon,
     PowerBoatIcon,
 } from './Icons';
@@ -54,7 +53,8 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         mapboxToken,
     } = useVoyageForm(onTriggerUpgrade);
 
-    const [departureTime, setDepartureTime] = useState('06:00');
+    // departureTime state removed 2026-05-05 — see comment near the
+    // date input above. Time-of-day is set in Passage Planning.
 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
@@ -251,40 +251,27 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         </div>
                     </div>
 
-                    {/* Date & Time row */}
-                    <div className="grid grid-cols-2 gap-2.5">
-                        <div className="relative w-full min-w-0 group">
-                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
-                                <CalendarIcon className="w-4 h-4" />
-                            </div>
-                            <input
-                                type="date"
-                                min={minDate}
-                                value={departureDate}
-                                onChange={(e) => {
-                                    const d = e.target.value;
-                                    if (!minDate || d >= minDate) setDepartureDate(d);
-                                }}
-                                onFocus={scrollInputAboveKeyboard}
-                                aria-label="Departure date"
-                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
-                                style={{ WebkitAppearance: 'none' }}
-                            />
+                    {/* Departure date — time-of-day is set later in
+                        Passage Planning (the time card was removed
+                        2026-05-05 because it was never threaded into
+                        the saved plan and only confused the form). */}
+                    <div className="relative w-full min-w-0 group">
+                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-sky-400 transition-colors">
+                            <CalendarIcon className="w-4 h-4" />
                         </div>
-                        <div className="relative w-full min-w-0 group">
-                            <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-gray-400 group-focus-within:text-emerald-400 transition-colors">
-                                <ClockIcon className="w-4 h-4" />
-                            </div>
-                            <input
-                                type="time"
-                                value={departureTime}
-                                onChange={(e) => setDepartureTime(e.target.value)}
-                                onFocus={scrollInputAboveKeyboard}
-                                aria-label="Departure time"
-                                className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-emerald-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
-                                style={{ WebkitAppearance: 'none' }}
-                            />
-                        </div>
+                        <input
+                            type="date"
+                            min={minDate}
+                            value={departureDate}
+                            onChange={(e) => {
+                                const d = e.target.value;
+                                if (!minDate || d >= minDate) setDepartureDate(d);
+                            }}
+                            onFocus={scrollInputAboveKeyboard}
+                            aria-label="Departure date"
+                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-3 text-sm text-white font-medium outline-none transition-all shadow-inner hover:bg-slate-900/80 appearance-none min-w-0"
+                            style={{ WebkitAppearance: 'none' }}
+                        />
                     </div>
                 </div>
             </div>

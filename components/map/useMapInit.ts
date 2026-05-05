@@ -576,18 +576,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                 filter: ['!=', ['get', 'dashed'], true],
             });
 
-            // Wide invisible hit-area for touch — makes route nudge (long-press drag) easy to trigger
-            map.addLayer({
-                id: 'route-hit-area',
-                type: 'line',
-                source: 'route-line',
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': 'rgba(0,0,0,0)',
-                    'line-width': 24,
-                    'line-opacity': 0,
-                },
-            });
+            // route-hit-area layer removed 2026-05-05 — was a wide invisible
+            // touch padding for the route-nudge long-press-drag interaction,
+            // which has been removed (see useRouteNudge / MapHub note).
 
             // ── Harbour Seamarks (IALA Navigation Aids) ──
             map.addSource('harbour-seamarks', {
