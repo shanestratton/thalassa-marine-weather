@@ -1328,8 +1328,17 @@ public class AppleMusicPlugin: CAPPlugin {
             // a data: URL), and replace the unloadable URL with the
             // data URL the WebView can render directly. Cache by
             // persistent ID so we encode once per track, not every poll.
+            //
+            // CRITICAL: use applicationQueuePlayer NOT systemMusicPlayer.
+            // systemMusicPlayer reflects what the Apple Music app is
+            // playing — its nowPlayingItem is unrelated to OUR app's
+            // playback and is typically a stale leftover from
+            // whatever the user last played there. applicationQueuePlayer
+            // shares state with ApplicationMusicPlayer.shared (the
+            // MusicKit Swift player we use) — so its nowPlayingItem
+            // is the track we're actually playing right now.
             if artworkUrl.hasPrefix("musicKit://") || artworkUrl.isEmpty {
-                let item = MPMusicPlayerController.systemMusicPlayer.nowPlayingItem
+                let item = MPMusicPlayerController.applicationQueuePlayer.nowPlayingItem
                 if let mediaItem = item {
                     let cacheKey = String(mediaItem.persistentID)
                     if let cached = self.artworkDataUrlCache[cacheKey] {
