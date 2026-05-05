@@ -44,18 +44,37 @@ export const PassageRouteMap: React.FC<PassageRouteMapProps> = React.memo(
                 keyboard: false,
             });
 
-            // Fit bounds to the route + endpoints with padding.
-            // Including departLon/Lat and arriveLon/Lat explicitly here
-            // is important: when the route polyline doesn't perfectly
-            // pass through the marker positions (e.g. detour waypoints
-            // pulled offshore from the actual departure dock), the
-            // markers can otherwise sit just outside the camera's
-            // initial fit and look cropped at the edge.
+            // Validate a coord before extending bounds. Defensive: a
+            // single (0, 0) sneaking into routeCoordinates or a null
+            // departLat/Lon defaulting to 0 forces fitBounds to include
+            // the equator/Greenwich-meridian intersection — which then
+            // zooms the camera all the way out to globe view because
+            // the bounds now span half the world. Skip any coord that's
+            // exactly 0,0, NaN, or out-of-range.
+            const isValidCoord = (lon: number | null | undefined, lat: number | null | undefined): boolean => {
+                if (lon == null || lat == null) return false;
+                if (typeof lon !== 'number' || typeof lat !== 'number') return false;
+                if (isNaN(lon) || isNaN(lat)) return false;
+                if (Math.abs(lon) > 180 || Math.abs(lat) > 90) return false;
+                // Reject the (0,0) sentinel in the Atlantic — almost
+                // never a real route point, almost always a default-
+                // initialised null coordinate that slipped through.
+                if (Math.abs(lon) < 0.0001 && Math.abs(lat) < 0.0001) return false;
+                return true;
+            };
+
             const bounds = new mapboxgl.LngLatBounds();
-            bounds.extend([departLon, departLat]);
-            bounds.extend([arriveLon, arriveLat]);
+            if (isValidCoord(departLon, departLat)) bounds.extend([departLon, departLat]);
+            if (isValidCoord(arriveLon, arriveLat)) bounds.extend([arriveLon, arriveLat]);
             for (const coord of routeCoordinates) {
-                bounds.extend(coord);
+                if (isValidCoord(coord[0], coord[1])) bounds.extend(coord);
+            }
+            // If we ended up with no valid coordinates at all, don't
+            // call fitBounds — Mapbox would throw or keep its default
+            // globe view. Caller's conditional render should have
+            // prevented this, but belt-and-suspenders.
+            if (bounds.isEmpty()) {
+                return;
             }
             map.fitBounds(bounds, { padding: 40, animate: false });
 
