@@ -19,19 +19,25 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
     // ── Pi Cache shortcut: 7-day TTL, location names don't change ──
     if (piCache.isAvailable()) {
         try {
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&access_token=${getMapboxKey() || 'NONE'}`;
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,poi&access_token=${getMapboxKey() || 'NONE'}`;
             const piUrl = piCache.passthroughUrl(url, 7 * 24 * 60 * 60 * 1000, 'mapbox-geocode');
             if (piUrl) {
                 const res = await CapacitorHttp.get({ url: piUrl, connectTimeout: 5000, readTimeout: 10000 });
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 if (data?.features?.length) {
-                    // Same preferred-type sort as the direct Mapbox path
-                    // below — picks the most specific feature, falling
-                    // back through neighborhood → locality → district →
-                    // place → poi. Anything outside that list (region,
-                    // country, etc.) sinks to position 99 and triggers
-                    // the generalisation guard.
-                    const preferredTypes = ['neighborhood', 'locality', 'district', 'place', 'poi'];
+                    // Preferred-type sort. `district` was here in an
+                    // earlier pass and was the source of the second
+                    // generalisation leak ("le Grand Sud" — Mapbox tags
+                    // the southern administrative district of New
+                    // Caledonia as place_type=district, which outranked
+                    // the actual port `place` features in the same
+                    // response). For a marine app, districts are never
+                    // port names — drop it.
+                    //
+                    // poi outranks place so marine landmarks (marina,
+                    // harbour, named anchorage) win over generic city
+                    // matches when both exist.
+                    const preferredTypes = ['neighborhood', 'locality', 'poi', 'place'];
                     const place =
                         data.features.sort(
                             (
@@ -87,7 +93,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         if (mapboxKey) {
             // Enhanced types: place (Cities), locality (Suburbs), poi (Points of Interest for marine features)
             // Note: Mapbox doesn't support 'natural_feature' as a type in the Places API.
-            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,district,poi&access_token=${mapboxKey}`;
+            const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${lon},${lat}.json?types=place,locality,neighborhood,poi&access_token=${mapboxKey}`;
             const res = await CapacitorHttp.get({
                 url,
                 headers: {
@@ -110,12 +116,18 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             }
 
             if (data && data.features && data.features.length > 0) {
-                // Prefer specific localities (suburb/neighborhood) over
-                // city-level matches, then poi, never settle on a region-
-                // type feature even if Mapbox sneaks one in. Sort goes:
-                //   neighborhood > locality > district > place > poi
-                // Anything else (region, country, etc) sinks to position 99.
-                const preferredTypes = ['neighborhood', 'locality', 'district', 'place', 'poi'];
+                // Preferred-type sort. `district` was here in an earlier
+                // pass and was the source of the second generalisation
+                // leak — Mapbox tags the southern administrative district
+                // of New Caledonia as place_type=district ("le Grand
+                // Sud"), and it outranked the actual port `place` features
+                // in the same response. For a marine app, districts are
+                // never port names — drop it.
+                //
+                // poi outranks place so marine landmarks (marina, harbour,
+                // named anchorage) win over generic city matches when both
+                // exist.
+                const preferredTypes = ['neighborhood', 'locality', 'poi', 'place'];
                 const place =
                     data.features.sort(
                         (
@@ -226,6 +238,13 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         }
 
         const addr = data.address;
+        // `county` removed from the chain 2026-05-05 — Nominatim returns
+        // county/region-level names for offshore points and the result
+        // (e.g. "le Grand Sud" for waters off New Caledonia, "Queensland"
+        // for offshore Australia) is never a port name. If we don't have
+        // anything more specific (suburb / town / village / city /
+        // municipality / city_district / hamlet / island), fall through
+        // to the generalisation guard below and return null.
         const locality =
             addr.suburb ||
             addr.town ||
@@ -234,8 +253,7 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             addr.city ||
             addr.hamlet ||
             addr.island ||
-            addr.municipality ||
-            addr.county;
+            addr.municipality;
         const stateFull = addr.state || addr.province || addr.region || '';
         const state = abbreviate(stateFull) || stateFull;
         const country = addr.country_code ? addr.country_code.toUpperCase() : '';

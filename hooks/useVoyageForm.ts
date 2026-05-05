@@ -224,33 +224,39 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             // "hours" / "days" suffix in duration) so PassagePlanSave's
             // `parseFloat(plan.durationApprox)` keeps working.
             try {
-                const points: Array<{ lat: number; lon: number }> = [];
-                if (result.originCoordinates) {
-                    points.push({ lat: result.originCoordinates.lat, lon: result.originCoordinates.lon });
-                }
-                for (const wp of result.waypoints || []) {
-                    if (wp.coordinates) {
-                        points.push({ lat: wp.coordinates.lat, lon: wp.coordinates.lon });
-                    }
-                }
-                if (result.destinationCoordinates) {
-                    points.push({ lat: result.destinationCoordinates.lat, lon: result.destinationCoordinates.lon });
-                }
-
-                if (points.length >= 2) {
+                // Distance: great-circle origin → destination, NOT a sum
+                // across Gemini's intermediate waypoints. Why: Gemini
+                // sometimes drops 6+ waypoints in zigzag patterns to
+                // "look thorough", which inflates the summed leg distance
+                // by 70-100% over the actual sailable path. The user
+                // reported a Newport→Port Moselle (~870 NM great circle)
+                // showing 12 days at 6 kn — that's 1700 NM of route,
+                // double the real distance, because the waypoint zigzag
+                // got summed.
+                //
+                // Great-circle from end-to-end is the canonical "passage
+                // distance" most sailors think in terms of. The actual
+                // sailed route will be slightly longer (waypoints around
+                // hazards, weather routing detours) but rarely 2× — and
+                // the Spatiotemporal Map's enhancement pipeline replaces
+                // these strings with weather-routed values anyway, so
+                // this is the seed estimate, not the final answer.
+                if (result.originCoordinates && result.destinationCoordinates) {
                     const { calculateDistance } = await import('../utils/navigationCalculations');
-                    let distNM = 0;
-                    for (let i = 1; i < points.length; i++) {
-                        distNM += calculateDistance(points[i - 1].lat, points[i - 1].lon, points[i].lat, points[i].lon);
-                    }
+                    const distNM = calculateDistance(
+                        result.originCoordinates.lat,
+                        result.originCoordinates.lon,
+                        result.destinationCoordinates.lat,
+                        result.destinationCoordinates.lon,
+                    );
 
                     const speedKn = vessel?.cruisingSpeed && vessel.cruisingSpeed > 0 ? vessel.cruisingSpeed : 6;
                     const hours = distNM / speedKn;
 
                     result.distanceApprox = `${Math.round(distNM)} nautical miles`;
                     // Format as "Xh" / "Xd Yh" so it reads naturally on
-                    // the summary card without needing a separate "1.9
-                    // days" → hours conversion downstream.
+                    // the summary card without needing a separate
+                    // "1.9 days" → hours conversion downstream.
                     if (hours < 24) {
                         result.durationApprox = `${Math.round(hours)} hours`;
                     } else {
