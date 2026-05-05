@@ -450,15 +450,6 @@ export const parseLocation = async (
         }
     } else {
         // 4. Forward geocode via Mapbox (commercial, licensed)
-        // Pre-expand known maritime abbreviations:
-        //   - Unconditional: QLD/NSW/VIC/TAS/NZ (no US-state collision)
-        //   - Conditional: NC/WA/NT/SA expand to AU/NC only when the
-        //     user's GPS is in Oceania — otherwise the user is probably
-        //     in the USA and means the state, so leave for Mapbox.
-        const expandedQuery = expandMaritimeAbbreviations(location, proximity);
-        if (expandedQuery !== location) {
-            log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
-        }
 
         const fetchMapboxGeo = async (query: string) => {
             try {
@@ -467,31 +458,32 @@ export const parseLocation = async (
                 // Proximity bias: when the user has a current GPS fix,
                 // pass it as `proximity=lon,lat` so Mapbox returns the
                 // closest interpretation of ambiguous queries. e.g. for
-                // a user in Brisbane typing "Newport, QLD", proximity
-                // bias resolves to Newport, Queensland (just up the
-                // coast). Without this, Mapbox returns Newport, NC
-                // (USA) as its global "best match" — wrong continent.
+                // a user in Brisbane typing "Newport", proximity bias
+                // resolves to Newport, Queensland (just up the coast)
+                // rather than Newport News VA (Mapbox's global default).
                 const proxParam = proximity ? `&proximity=${proximity.lon},${proximity.lat}` : '';
                 const res = await CapacitorHttp.get({
-                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}${proxParam}`,
+                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=3&language=en&access_token=${mapboxKey}${proxParam}`,
                 });
                 if (!res || !res.data) return [];
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 if (data?.features?.length) {
-                    const f = data.features[0];
-                    const ctx = f.context || [];
-                    const regionCtx = ctx.find((c: { id: string }) => c.id.startsWith('region'));
-                    const countryCtx = ctx.find((c: { id: string }) => c.id.startsWith('country'));
-                    return [
-                        {
-                            latitude: f.center[1],
-                            longitude: f.center[0],
-                            name: f.text || f.place_name?.split(',')[0],
+                    return data.features.map((f: Record<string, unknown> & { context?: { id: string }[] }) => {
+                        const ctx = (f.context as { id: string; text?: string; short_code?: string }[]) || [];
+                        const regionCtx = ctx.find((c) => c.id.startsWith('region'));
+                        const countryCtx = ctx.find((c) => c.id.startsWith('country'));
+                        const center = f.center as [number, number];
+                        return {
+                            latitude: center[1],
+                            longitude: center[0],
+                            name: (f.text as string) || (f.place_name as string)?.split(',')[0],
+                            placeName: f.place_name as string, // full "Place, Region, Country"
+                            relevance: (f.relevance as number) ?? 0,
                             admin1: regionCtx?.text || '',
                             country_code: countryCtx ? (countryCtx.short_code || '').toUpperCase() : '',
                             timezone: undefined as string | undefined,
-                        },
-                    ];
+                        };
+                    });
                 }
                 return [];
             } catch (e) {
@@ -500,7 +492,86 @@ export const parseLocation = async (
             }
         };
 
-        let results = await fetchMapboxGeo(expandedQuery);
+        // ── Strategy: place-name-first, then abbreviation expansion ──
+        //
+        // The user's intuition is right: if they type "Port Moselle, NC",
+        // Mapbox should look at "Port Moselle" first because that's a
+        // unique-enough name to find globally. Treating "NC" as a hard
+        // region filter (which is what passing the full string does)
+        // makes Mapbox return random-NC-USA matches even though no
+        // "Port Moselle" exists in North Carolina.
+        //
+        // New approach:
+        //   1. If query has a trailing region code, strip it and search
+        //      the bare place name first (with proximity bias).
+        //   2. Validate the match: does the matched feature's text
+        //      actually contain the user's typed place tokens? Mapbox's
+        //      relevance score helps too — anything <0.5 is the
+        //      geocoder grasping at straws.
+        //   3. If the bare-name search produced a strong match, use it.
+        //   4. Otherwise fall back to abbreviation expansion + full
+        //      query (legacy path — keeps Newport QLD working when
+        //      proximity is unavailable / weak).
+        const stripRegionCode = (loc: string): string | null => {
+            const m = loc.match(/^(.+?),\s*[A-Z]{2,4}\s*$/);
+            return m ? m[1].trim() : null;
+        };
+
+        const isStrongMatch = (typed: string, matched: { name: string; placeName?: string; relevance: number }) => {
+            if (matched.relevance < 0.5) return false;
+            // Check if any typed token (≥4 chars) appears in the
+            // matched name or full place_name. "Port Moselle" tokens =
+            // ["port", "moselle"]. If the matched feature is "Port
+            // Moselle Marina" or "Nouméa, Port Moselle, ...", we
+            // accept. If it's "North Carolina" or "Newport, NC USA",
+            // we reject (no overlap with "moselle").
+            const typedTokens = typed
+                .toLowerCase()
+                .split(/[\s,]+/)
+                .filter((t) => t.length >= 4);
+            if (typedTokens.length === 0) return matched.relevance >= 0.7;
+            const haystack = `${matched.name} ${matched.placeName || ''}`.toLowerCase();
+            return typedTokens.some((t) => haystack.includes(t));
+        };
+
+        let results: Array<{
+            latitude: number;
+            longitude: number;
+            name: string;
+            admin1: string;
+            country_code: string;
+            timezone: string | undefined;
+            placeName?: string;
+            relevance?: number;
+        }> = [];
+
+        const placeOnly = stripRegionCode(location);
+        if (placeOnly) {
+            const placeOnlyResults = await fetchMapboxGeo(placeOnly);
+            // Pick the first result that actually contains our typed
+            // tokens. If proximity bias is doing its job, this is also
+            // the geographically-closest interpretation.
+            const strong = placeOnlyResults.find((r) =>
+                isStrongMatch(placeOnly, r as { name: string; placeName?: string; relevance: number }),
+            );
+            if (strong) {
+                log.info(`[geocoding] place-only "${placeOnly}" → "${strong.placeName ?? strong.name}"`);
+                results = [strong];
+            }
+        }
+
+        // Fallback: original query (with abbreviation expansion).
+        // Runs when:
+        //   - The input had no trailing region code
+        //   - OR the bare-name search returned no strong match
+        if (results.length === 0) {
+            const expandedQuery = expandMaritimeAbbreviations(location, proximity);
+            if (expandedQuery !== location) {
+                log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
+            }
+            const expandedResults = await fetchMapboxGeo(expandedQuery);
+            results = expandedResults.slice(0, 1);
+        }
 
         // FALLBACK: Nominatim (OSS, commercial use permitted with attribution)
         if (!results || results.length === 0) {
