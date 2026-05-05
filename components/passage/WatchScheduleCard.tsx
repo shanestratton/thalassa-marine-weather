@@ -24,6 +24,9 @@ interface WatchScheduleCardProps {
      *  pre-watch alarms can fire at the correct moment. Without this,
      *  the schedule is just a display table with no alarm support. */
     departureTimeIso?: string | null;
+    /** Voyage display name — used in the "Publish to Crew" push
+     *  notification body so crew know which trip the schedule is for. */
+    voyageName?: string | null;
     onReviewedChange?: (reviewed: boolean) => void;
 }
 
@@ -101,6 +104,7 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     crewCount,
     passageDurationHours,
     departureTimeIso,
+    voyageName,
     onReviewedChange,
 }) => {
     const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>(() => {
@@ -128,6 +132,21 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const [assignSheetIndex, setAssignSheetIndex] = useState<number | null>(null);
 
     // Load assignments + crew on mount / voyage change
+    const reloadAssignments = useCallback(async () => {
+        if (!voyageId) {
+            setAssignments(new Map());
+            return;
+        }
+        try {
+            const list = await WatchAssignmentService.list(voyageId);
+            const map = new Map<number, WatchAssignment>();
+            for (const a of list) map.set(a.watch_index, a);
+            setAssignments(map);
+        } catch {
+            /* non-critical */
+        }
+    }, [voyageId]);
+
     useEffect(() => {
         if (!voyageId) {
             setAssignments(new Map());
@@ -156,6 +175,47 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
             cancelled = true;
         };
     }, [voyageId]);
+
+    // ── Realtime subscription ──
+    // Crew members' clients subscribe to the voyage's watch-schedule
+    // channel so they see assignment updates the moment the skipper
+    // makes them — no polling, no stale data. The skipper subscribes
+    // too so multi-device users (iPad + iPhone) stay in sync.
+    useEffect(() => {
+        if (!voyageId) return;
+        const unsubscribe = WatchAssignmentService.subscribeToUpdates(voyageId, () => {
+            void reloadAssignments();
+        });
+        return unsubscribe;
+    }, [voyageId, reloadAssignments]);
+
+    // ── Publish-to-crew state ──
+    // Tracks the "publishing..." spinner + the toast confirmation
+    // ("Schedule published to N crew member(s)") that fades out.
+    const [publishing, setPublishing] = useState(false);
+    const [publishedCount, setPublishedCount] = useState<number | null>(null);
+
+    const handlePublish = useCallback(async () => {
+        if (!voyageId || publishing) return;
+        setPublishing(true);
+        setPublishedCount(null);
+        try {
+            const count = await WatchAssignmentService.publishToCrew(voyageId, voyageName ?? 'this passage');
+            setPublishedCount(count);
+            triggerHaptic('medium');
+            // Auto-clear toast after 4s
+            setTimeout(() => setPublishedCount(null), 4000);
+        } catch {
+            /* non-critical */
+        } finally {
+            setPublishing(false);
+        }
+    }, [voyageId, voyageName, publishing]);
+
+    // Count of slots currently assigned (excluding null assignments).
+    // Drives the Publish button's enabled state — no point publishing
+    // an empty schedule.
+    const assignedCount = Array.from(assignments.values()).filter((a) => a.assigned_crew_email).length;
 
     // ── Pre-watch alarm scheduling ──
     // Each crew member's device runs WatchAlarmService independently —
@@ -415,6 +475,58 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                         );
                     })}
                 </div>
+
+                {/* Publish to Crew — fans out the schedule to each
+                    assigned crew member as a push notification + a
+                    realtime broadcast on the voyage channel. Only
+                    available when there's at least one assignment to
+                    publish. The skipper's own assignments are
+                    included in the count but the skipper doesn't
+                    self-notify (vessel_crew lookup excludes them). */}
+                {voyageId && (
+                    <div className="mt-3">
+                        <button
+                            type="button"
+                            onClick={handlePublish}
+                            disabled={publishing || assignedCount === 0}
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all active:scale-[0.98] ${
+                                assignedCount === 0
+                                    ? 'bg-white/[0.03] border border-white/10 text-gray-500 cursor-not-allowed'
+                                    : publishing
+                                      ? 'bg-violet-500/20 border border-violet-500/30 text-violet-300'
+                                      : 'bg-violet-500/15 hover:bg-violet-500/25 border border-violet-500/30 text-violet-200'
+                            }`}
+                            aria-label="Publish watch schedule to crew"
+                        >
+                            {publishing ? (
+                                <>
+                                    <span className="inline-block w-3 h-3 border-2 border-violet-300/30 border-t-violet-300 rounded-full animate-spin" />
+                                    Publishing…
+                                </>
+                            ) : (
+                                <>
+                                    📣 Publish to Crew
+                                    {assignedCount > 0 && (
+                                        <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-violet-500/30 text-violet-100">
+                                            {assignedCount}
+                                        </span>
+                                    )}
+                                </>
+                            )}
+                        </button>
+
+                        {publishedCount !== null && (
+                            <div className="mt-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-2 animate-in fade-in slide-in-from-bottom-1 duration-300">
+                                <span className="text-base">✅</span>
+                                <p className="text-[11px] text-emerald-300 font-bold">
+                                    {publishedCount === 0
+                                        ? 'No registered crew to notify yet'
+                                        : `Schedule published to ${publishedCount} crew member${publishedCount === 1 ? '' : 's'}`}
+                                </p>
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* ── Briefing Checklist ── */}

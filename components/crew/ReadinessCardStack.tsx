@@ -454,6 +454,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                        current user is assigned to. */
                     departureTimeIso={activeVoyage?.departure_time || null}
                     passageDurationHours={activeVoyage?.durationHours}
+                    voyageName={activeVoyage?.voyage_name || null}
                     onReviewedChange={onWatchChange}
                 />
             </CardAccordion>

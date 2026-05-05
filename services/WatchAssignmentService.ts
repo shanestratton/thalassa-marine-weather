@@ -156,6 +156,130 @@ export const WatchAssignmentService = {
     },
 
     /**
+     * Publish the current watch schedule to crew. Enqueues a push
+     * notification for each crew member who has at least one
+     * assigned watch + dispatches a Supabase Realtime broadcast on
+     * the voyage's channel so crew clients refresh their UI without
+     * polling.
+     *
+     * Returns the number of distinct crew members notified (so the
+     * UI can show "Schedule published to N crew member(s)").
+     */
+    async publishToCrew(voyageId: string, voyageName: string): Promise<number> {
+        if (!supabase || !voyageId) return 0;
+        try {
+            // 1. Load all assignments
+            const all = await this.list(voyageId);
+            const assigned = all.filter((a) => a.assigned_crew_email && a.assigned_crew_name);
+            if (assigned.length === 0) return 0;
+
+            // 2. Look up each crew member's user_id from vessel_crew
+            //    so we can target push_notification_queue inserts.
+            //    We deduplicate by email — one crew may have multiple
+            //    assigned watches but they only need one push.
+            const uniqueEmails = Array.from(new Set(assigned.map((a) => a.assigned_crew_email!)));
+            const { data: crewRows } = await supabase
+                .from('vessel_crew')
+                .select('crew_email,crew_user_id')
+                .eq('voyage_id', voyageId)
+                .in('crew_email', uniqueEmails);
+            const emailToUserId = new Map<string, string>();
+            for (const r of (crewRows as { crew_email: string; crew_user_id: string }[] | null) || []) {
+                if (r.crew_user_id) emailToUserId.set(r.crew_email, r.crew_user_id);
+            }
+
+            // 3. Enqueue one push per crew member, listing their first
+            //    watch + total count. The send-push edge function
+            //    polls push_notification_queue and fires APNs.
+            const inserts: Array<Record<string, unknown>> = [];
+            for (const email of uniqueEmails) {
+                const userId = emailToUserId.get(email);
+                if (!userId) continue; // crew not registered / not yet accepted
+                const mine = assigned.filter((a) => a.assigned_crew_email === email);
+                const first = mine[0];
+                inserts.push({
+                    recipient_user_id: userId,
+                    notification_type: 'watch_schedule_published',
+                    title: `⚓ Watch schedule for ${voyageName}`,
+                    body:
+                        mine.length === 1
+                            ? `You have ${first.watch_label} (${first.watch_time_label} UTC)`
+                            : `You have ${mine.length} watches — first: ${first.watch_label} (${first.watch_time_label})`,
+                    data: {
+                        voyageId,
+                        watchIndex: first.watch_index,
+                        deepLink: '/crew',
+                    },
+                });
+            }
+
+            if (inserts.length > 0) {
+                const { error } = await supabase.from('push_notification_queue').insert(inserts);
+                if (error) log.warn('push enqueue failed:', error.message);
+            }
+
+            // 4. Realtime broadcast — crew clients with an open
+            //    voyage channel get the update instantly without
+            //    waiting for the push round-trip.
+            try {
+                const channel = supabase.channel(`watch-schedule-${voyageId}`);
+                await channel.send({
+                    type: 'broadcast',
+                    event: 'schedule_published',
+                    payload: { voyageId, count: assigned.length, at: new Date().toISOString() },
+                });
+                supabase.removeChannel(channel);
+            } catch (e) {
+                log.warn('realtime broadcast failed:', e);
+            }
+
+            log.info(`published watch schedule to ${inserts.length} crew member(s)`);
+            return inserts.length;
+        } catch (e) {
+            log.warn('publishToCrew failed:', e);
+            return 0;
+        }
+    },
+
+    /**
+     * Subscribe to schedule updates broadcast by the skipper. Each
+     * crew member's WatchScheduleCard calls this to refresh its
+     * assignment view when the skipper publishes — no polling, no
+     * stale data.
+     *
+     * Returns an unsubscribe function. Caller's useEffect cleanup
+     * should call it.
+     */
+    subscribeToUpdates(voyageId: string, onUpdate: () => void): () => void {
+        if (!supabase || !voyageId) return () => {};
+        const channel = supabase
+            .channel(`watch-schedule-${voyageId}`)
+            .on('broadcast', { event: 'schedule_published' }, () => {
+                onUpdate();
+            })
+            // Also listen for direct table inserts/updates — covers
+            // the case where assignments change one-at-a-time before
+            // the skipper hits Publish (so crew watching the screen
+            // see live updates).
+            .on(
+                'postgres_changes',
+                {
+                    event: '*',
+                    schema: 'public',
+                    table: 'watch_assignments',
+                    filter: `voyage_id=eq.${voyageId}`,
+                },
+                () => {
+                    onUpdate();
+                },
+            )
+            .subscribe();
+        return () => {
+            supabase.removeChannel(channel);
+        };
+    },
+
+    /**
      * Clear an assignment entirely (deletes the row). Use when the
      * skipper wants to reset a slot to unassigned. Use assign() with
      * null email/name if you want to keep an empty placeholder
