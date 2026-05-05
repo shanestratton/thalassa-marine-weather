@@ -369,6 +369,57 @@ export async function endVoyage(voyageId: string, status: 'completed' | 'aborted
     return !error;
 }
 
+/**
+ * Cascade-end the cached active voyage if its name matches the given
+ * normalised label. Called by EntryCrud.deleteVoyage when a saved
+ * planned route is deleted from the logbook so Active Voyage Mode
+ * doesn't get stuck when the underlying suggested track is gone.
+ *
+ * Match strategy: case-insensitive trimmed equality on voyage_name.
+ * This is the same scheme PassagePlanSave uses to wire saved routes
+ * to voyage records, so the inverse side correctly identifies the
+ * voyage to end.
+ *
+ * Returns true if a matching active voyage was found AND ended.
+ * Always clears the cached active-voyage state and dispatches the
+ * `thalassa:active-voyage-changed` event so any UI listening
+ * (SystemStatusButton, MapHub Active Voyage Mode auto-display, the
+ * Cast Off pill on VesselHub) drops out of active-voyage state in
+ * the same tick.
+ */
+export async function endActiveVoyageIfNameMatches(label: string): Promise<boolean> {
+    const norm = label.trim().toLowerCase();
+    if (!norm) return false;
+
+    const cached = getCachedActiveVoyage();
+    if (!cached) return false;
+    if (cached.voyage_name.trim().toLowerCase() !== norm) return false;
+
+    // Online path — flip the DB status to 'aborted' so any other
+    // client (web tab, second device) sees the voyage end too. Use
+    // 'aborted' rather than 'completed' since the user deleted the
+    // underlying route — they're not signalling a successful arrival.
+    if (supabase) {
+        try {
+            const ok = await endVoyage(cached.id, 'aborted');
+            if (ok) return true;
+            // endVoyage returned false — fall through to local-only
+            // teardown so the user still escapes Active Voyage Mode
+            // even if the DB write failed.
+        } catch {
+            /* fall through */
+        }
+    }
+
+    // Offline / DB-write-failed path — the user pressed delete and
+    // expects the active mode to clear immediately. Mirror what
+    // endVoyage does locally: drop the cache + delete the legs so
+    // the picker / hero card / system status button all reset.
+    deleteLegsForVoyage(cached.id);
+    cacheVoyage(null);
+    return true;
+}
+
 /** Get the currently active voyage */
 export async function getActiveVoyage(): Promise<Voyage | null> {
     if (!supabase) return getCachedActiveVoyage();

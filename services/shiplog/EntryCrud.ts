@@ -289,6 +289,26 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
         } catch (e) {
             log.warn('deleteVoyage: cascade-delete from voyages table failed', e);
         }
+
+        // Cascade #2: end any ACTIVE voyage whose name matches the deleted
+        // route. Without this, the user can delete the suggested track
+        // out from under an active voyage and end up stuck in Active
+        // Voyage Mode with no underlying route — the SystemStatusButton
+        // + MapHub auto-display + Cast Off pill all keep showing
+        // "Underway" because they key off voyages.status='active'.
+        // deleteDraftVoyagesByNameAndDay only matches status='planning'
+        // rows, so it can't do this — we need a separate call.
+        try {
+            const { endActiveVoyageIfNameMatches } = await import('../VoyageService');
+            const ended = await endActiveVoyageIfNameMatches(plannedRouteName);
+            if (ended) {
+                log.info(
+                    `deleteVoyage: cascade-ended active voyage "${plannedRouteName}" — Active Voyage Mode cleared`,
+                );
+            }
+        } catch (e) {
+            log.warn('deleteVoyage: cascade-end active voyage failed', e);
+        }
     }
 
     // Drop the routes/tracks cache so the chart picker reflects this
