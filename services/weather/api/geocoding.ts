@@ -361,10 +361,6 @@ const MARINE_GEO_CORRECTIONS: GeoCorrection[] = [
  *   "Newport, QLD"      → "Newport, Queensland, Australia"
  *   "Manly, WA"         → "Manly, Western Australia"
  *   "Lautoka, FJ"       → "Lautoka, Fiji"
- *
- * Pure transformation — no API calls, no state. Designed by Shane's
- * colleague after the place-name-first / token-validation /
- * proximity-sort approach proved too clever for its own good.
  */
 export const sanitizeLocationQuery = (userInput: string): string => {
     let safeQuery = userInput.trim();
@@ -373,6 +369,99 @@ export const sanitizeLocationQuery = (userInput: string): string => {
     });
     return safeQuery;
 };
+
+/**
+ * Detect the ISO 3166-1 alpha-2 country code from a sanitised query.
+ * Used to add a `country=` filter to the Mapbox geocode call so results
+ * are restricted to the right country — without this, Mapbox can return
+ * the centroid of "New Caledonia" the country instead of the actual
+ * Port Moselle marina inside it.
+ */
+function detectCountryISO(query: string): string | undefined {
+    if (/\bAustralia\b/i.test(query)) return 'au';
+    if (/\bNew Caledonia\b/i.test(query)) return 'nc';
+    if (/\bFrench Polynesia\b/i.test(query)) return 'pf';
+    if (/\bFiji\b/i.test(query)) return 'fj';
+    if (/\bNew Zealand\b/i.test(query)) return 'nz';
+    return undefined;
+}
+
+/**
+ * Curated list of well-known marinas/ports — first-pass exact-match
+ * shortcut before hitting Mapbox. Solves the "Mapbox returns the
+ * country centroid because it doesn't have the marina indexed as a
+ * POI" problem. Same pattern as MAJOR_BUOYS.
+ *
+ * Match is case-insensitive and uses substring fuzz so "port moselle"
+ * matches "Port Moselle Marina, Nouméa". Add aliases for common short
+ * forms ("port moselle nc"). Lat/lon are the real navigable
+ * approach/anchorage point — never inland.
+ */
+interface MarinePort {
+    canonicalName: string;
+    lat: number;
+    lon: number;
+    /** Lowercase aliases — first one is the typical canonical user input */
+    aliases: string[];
+}
+
+const MARINE_PORTS: MarinePort[] = [
+    // ── Pacific ──
+    {
+        canonicalName: 'Port Moselle Marina, Nouméa, NC',
+        lat: -22.2756,
+        lon: 166.4421,
+        aliases: [
+            'port moselle',
+            'port moselle marina',
+            'port moselle nouméa',
+            'port moselle noumea',
+            'port moselle, new caledonia',
+        ],
+    },
+    {
+        canonicalName: 'Vuda Marina, Lautoka, FJ',
+        lat: -17.6839,
+        lon: 177.3833,
+        aliases: ['vuda marina', 'vuda point marina'],
+    },
+    {
+        canonicalName: 'Port Vila, Vanuatu',
+        lat: -17.7415,
+        lon: 168.3151,
+        aliases: ['port vila', 'port vila vanuatu'],
+    },
+    // ── Australia (East coast cruising hotspots) ──
+    {
+        canonicalName: 'Newport Marina, QLD',
+        lat: -27.21,
+        lon: 153.09,
+        aliases: ['newport marina', 'newport qld marina'],
+    },
+    {
+        canonicalName: 'Manly Boat Harbour, QLD',
+        lat: -27.452,
+        lon: 153.193,
+        aliases: ['manly boat harbour', 'manly harbour qld'],
+    },
+    {
+        canonicalName: 'Scarborough Marina, QLD',
+        lat: -27.19,
+        lon: 153.106,
+        aliases: ['scarborough marina', 'scarborough marina qld'],
+    },
+];
+
+/**
+ * Look up a curated marine port by name. Returns the port record if
+ * the user's query (sanitised) matches one of the aliases, otherwise
+ * undefined. Handles "Port Moselle, NC" → finds "port moselle"
+ * substring after sanitization → returns Nouméa marina coords.
+ */
+function findCuratedPort(query: string): MarinePort | undefined {
+    const lc = query.toLowerCase().trim();
+    return MARINE_PORTS.find((p) => p.aliases.some((a) => lc.includes(a)));
+}
 
 export const parseLocation = async (
     location: string,
@@ -433,20 +522,39 @@ export const parseLocation = async (
         }
     } else {
         // ── Forward geocode via Mapbox (commercial, licensed) ──
-        // Architecture per Shane's colleague (2026-05-05):
+        // Architecture (2026-05-05, refined per colleague's review):
         //
-        //   1. Pre-process the user's typed string with sanitizeLocationQuery
-        //      to expand marine abbreviations into unambiguous geo strings
+        //   1. Pre-process the user's typed string with
+        //      sanitizeLocationQuery to expand marine abbreviations
         //      ("NC" → "New Caledonia", "QLD" → "Queensland, Australia").
-        //   2. Pass the cleaned query to Mapbox with proximity bias from
-        //      the user's current GPS as a soft secondary signal.
-        //
-        // No place-name-stripping, no token validation, no proximity-sort
-        // fallback. The pre-processor does the disambiguation work
-        // upfront so Mapbox never has a chance to make a US-centric guess.
+        //   2. First-pass: check the curated MARINE_PORTS list — well-
+        //      known marinas (Port Moselle Marina, Vuda Marina, etc.)
+        //      have hardcoded coords because Mapbox returns the country
+        //      centroid for "Port Moselle, New Caledonia" instead of
+        //      the actual marina at Nouméa.
+        //   3. Mapbox forward geocode with three filters stacked:
+        //        - country=<iso> (restrict to detected country)
+        //        - types=poi,place,locality,neighborhood (prefer POIs
+        //          like marinas over admin regions like whole islands)
+        //        - proximity=<userGps> (soft bias toward user)
         const cleanedQuery = sanitizeLocationQuery(location);
         if (cleanedQuery !== location) {
             log.info(`[geocoding] sanitised "${location}" → "${cleanedQuery}"`);
+        }
+
+        // ── First-pass: curated marine ports lookup ──
+        const curated = findCuratedPort(cleanedQuery);
+        if (curated) {
+            log.info(`[geocoding] curated marine port: "${curated.canonicalName}"`);
+            return { lat: curated.lat, lon: curated.lon, name: curated.canonicalName };
+        }
+
+        // Detect ISO country from the cleaned query (drives `country=`
+        // filter in the Mapbox URL — without it, Mapbox can return the
+        // country centroid when no specific feature matches the query).
+        const countryISO = detectCountryISO(cleanedQuery);
+        if (countryISO) {
+            log.info(`[geocoding] country filter: ${countryISO.toUpperCase()}`);
         }
 
         const fetchMapboxGeo = async (query: string) => {
@@ -457,8 +565,18 @@ export const parseLocation = async (
                 // a soft hint to Mapbox to favour the user's hemisphere
                 // when results are otherwise ambiguous.
                 const proxParam = proximity ? `&proximity=${proximity.lon},${proximity.lat}` : '';
+                // Country filter: restricts results to the detected
+                // country's borders. Without this, Mapbox can return
+                // the centroid of "New Caledonia" for Port Moselle
+                // queries.
+                const countryParam = countryISO ? `&country=${countryISO}` : '';
+                // Type filter: prefer POIs (marinas, harbours,
+                // anchorages) over admin regions (countries, districts,
+                // whole islands). For marine routing, POI > place
+                // > locality > neighborhood.
+                const typesParam = '&types=poi,place,locality,neighborhood';
                 const res = await CapacitorHttp.get({
-                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}${proxParam}`,
+                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}${proxParam}${countryParam}${typesParam}`,
                 });
                 if (!res || !res.data) return [];
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
