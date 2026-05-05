@@ -42,6 +42,16 @@ function cacheVoyage(v: Voyage | null): void {
     } catch {
         /* full */
     }
+    // Notify any listening UI (SystemStatusButton, hero card, etc)
+    // that the active voyage has changed. They subscribe synchronously
+    // via getCachedActiveVoyage() — no network round-trip.
+    try {
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('thalassa:active-voyage-changed', { detail: { voyage: v } }));
+        }
+    } catch {
+        /* SSR / older browser — non-critical */
+    }
 }
 
 /** Get cached active voyage (offline-safe) */
