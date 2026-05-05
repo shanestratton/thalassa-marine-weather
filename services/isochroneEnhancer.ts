@@ -257,6 +257,19 @@ export async function enhanceVoyagePlanWithIsochrone(
                     ) *
                         180) /
                     Math.PI;
+                // Read user's NRT preference from settingsStore (loaded
+                // separately from the React settings context here because
+                // we're outside React). NRT = OSCAR's near-real-time
+                // 5-day-old data (actual eddies / meanders); when off
+                // we use monthly climatology (steady-state averages,
+                // always-available, good enough for most routes).
+                let useNrt = false;
+                try {
+                    const { useSettingsStore } = await import('../stores/settingsStore');
+                    useNrt = useSettingsStore.getState().settings.currentNrtEnabled === true;
+                } catch (_) {
+                    /* fall back to climatology */
+                }
                 const briefing = await OceanCurrentService.fetchCurrents(
                     {
                         north: Math.max(origin.lat, destination.lat) + 1,
@@ -267,6 +280,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                     ((courseBearing % 360) + 360) % 360,
                     straightNM,
                     vessel.cruisingSpeed || 6,
+                    useNrt,
                 );
                 currentField = createCurrentFieldFromVectors(briefing.vectors);
                 if (currentField) {

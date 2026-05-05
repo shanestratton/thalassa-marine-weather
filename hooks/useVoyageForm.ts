@@ -561,6 +561,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     0,
                     0,
                     vessel.cruisingSpeed || 6,
+                    settings.currentNrtEnabled === true,
                 );
                 currentField = createCurrentFieldFromVectors(briefing.vectors);
             } catch (_) {
