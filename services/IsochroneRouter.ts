@@ -33,6 +33,7 @@ import { type BathymetryGrid, isLand, isNearShore, getDepthFromCache } from './B
 export type {
     WindField,
     CurrentField,
+    ExclusionField,
     IsochroneConfig,
     IsochroneNode,
     Isochrone,
@@ -45,7 +46,7 @@ export { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 export { isochroneToGeoJSON, detectTurnWaypoints } from './isochrone/output';
 
 // ── Import internal dependencies from sub-modules ────────────────
-import type { WindField, CurrentField, IsochroneNode, IsochroneConfig } from './isochrone/types';
+import type { WindField, CurrentField, ExclusionField, IsochroneNode, IsochroneConfig } from './isochrone/types';
 import { DEFAULT_ISOCHRONE_CONFIG } from './isochrone/types';
 import { haversineNm, initialBearing, projectPosition, calcTWA, R_NM, toRad, toDeg } from './isochrone/geodesy';
 import { createPolarSpeedLookup } from './isochrone/polar';
@@ -95,6 +96,15 @@ export async function computeIsochrones(
      * engine treats absent current data as "0 kts everywhere").
      */
     currentField?: CurrentField | null,
+    /**
+     * Optional spatiotemporal exclusion field. When provided, candidate
+     * positions falling inside an active no-go zone (typically tropical
+     * cyclones with intensity-scaled safety radii) are dropped from the
+     * wavefront. The route is forced to detour around the storm.
+     *
+     * Pass null/undefined to route without exclusion checks.
+     */
+    exclusionField?: ExclusionField | null,
 ): Promise<import('./isochrone/types').IsochroneResult | null> {
     const cfg = { ...DEFAULT_ISOCHRONE_CONFIG, ...config };
     const depTime = new Date(departureTime);
@@ -300,6 +310,15 @@ export async function computeIsochrones(
                     parentIndex: nodeIdx,
                     distance: parent.distance + projDistance,
                 };
+
+                // ── Exclusion check (cyclones, no-go zones) ──
+                // Candidates inside an active exclusion zone at THIS node's
+                // arrival time are dropped before they enter the wavefront.
+                // This forces the optimal route to detour around tropical
+                // cyclones along their NHC-forecast tracks.
+                if (exclusionField && exclusionField.isExcluded(node.lat, node.lon, timeHours)) {
+                    continue;
+                }
 
                 const distToDest = haversineNm(node.lat, node.lon, destination.lat, destination.lon);
                 candidates.push({ node: { ...node, distToDest }, distToDest });

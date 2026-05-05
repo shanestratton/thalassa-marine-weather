@@ -207,6 +207,34 @@ export async function enhanceVoyagePlanWithIsochrone(
                 return null;
             }
 
+            // ── 4a. Tropical cyclone exclusion zones ──
+            // Active hurricanes/typhoons/cyclones become hard no-go areas
+            // along their NHC-forecast tracks, with safety radii scaled
+            // to Saffir-Simpson intensity (50 NM for TD up to 250 NM for
+            // Cat 5). The isochrone engine drops candidates inside these
+            // zones, forcing the route to detour around the storm.
+            //
+            // Non-blocking on failure — if ATCF/NHC is down we route
+            // without exclusion zones (the user is presumably checking
+            // weather separately and wouldn't depart blind into a
+            // hurricane anyway). Better to have a route that doesn't
+            // know about a storm than to refuse to give a route.
+            let exclusionField = null;
+            try {
+                const { buildCycloneExclusionField } = await import('./cycloneAvoidance');
+                exclusionField = await buildCycloneExclusionField(departureTime, {
+                    north: Math.max(origin.lat, destination.lat),
+                    south: Math.min(origin.lat, destination.lat),
+                    east: Math.max(origin.lon, destination.lon),
+                    west: Math.min(origin.lon, destination.lon),
+                });
+                if (exclusionField) {
+                    log.info('cyclone exclusion zones loaded — wavefront will avoid storms');
+                }
+            } catch (e) {
+                log.warn('cyclone exclusion build failed — routing without storm avoidance:', e);
+            }
+
             // ── 4b. Ocean currents via OSCAR ──
             // For ocean passages currents shift ETA by ±20% on routes
             // aligned with major systems (Gulf Stream, Agulhas, Kuroshio,
@@ -275,6 +303,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 },
                 bathyGrid,
                 currentField,
+                exclusionField,
             );
         }
 
