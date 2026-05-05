@@ -25,16 +25,42 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 const res = await CapacitorHttp.get({ url: piUrl, connectTimeout: 5000, readTimeout: 10000 });
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 if (data?.features?.length) {
-                    const place = data.features[0];
+                    // Same preferred-type sort as the direct Mapbox path
+                    // below — picks the most specific feature, falling
+                    // back through neighborhood → locality → district →
+                    // place → poi. Anything outside that list (region,
+                    // country, etc.) sinks to position 99 and triggers
+                    // the generalisation guard.
+                    const preferredTypes = ['neighborhood', 'locality', 'district', 'place', 'poi'];
+                    const place =
+                        data.features.sort(
+                            (
+                                a: Record<string, unknown> & { place_type?: string[] },
+                                b: Record<string, unknown> & { place_type?: string[] },
+                            ) => {
+                                const ai = preferredTypes.indexOf(a.place_type?.[0] ?? '');
+                                const bi = preferredTypes.indexOf(b.place_type?.[0] ?? '');
+                                return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+                            },
+                        )[0] || data.features[0];
                     const context = place.context || [];
                     const countryCtx = context.find((c: { id: string }) => c.id.startsWith('country'));
-                    const regionCtx = context.find((c: { id: string }) => c.id.startsWith('region'));
+                    const regionCtx = context.find((c: { id: string; text?: string }) => c.id.startsWith('region'));
                     const city = place.text;
                     const isGenericWater =
                         /^(North|South|East|West|Central)?\s*(Pacific|Atlantic|Indian|Arctic|Southern)?\s*(Ocean|Sea)$/i.test(
                             city,
                         );
-                    if (!isGenericWater) {
+                    // Generalisation guard — bail through to the direct
+                    // Mapbox path (which has its own retry + fallbacks)
+                    // rather than caching a state-level name.
+                    const matchedType: string = place.place_type?.[0] ?? '';
+                    const isTooGeneric =
+                        !preferredTypes.includes(matchedType) ||
+                        (regionCtx?.text &&
+                            typeof regionCtx.text === 'string' &&
+                            regionCtx.text.toLowerCase() === city?.toLowerCase());
+                    if (!isGenericWater && !isTooGeneric) {
                         const countryShort = countryCtx ? (countryCtx.short_code || countryCtx.text).toUpperCase() : '';
                         let state = '';
                         if (regionCtx) {
@@ -84,9 +110,12 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
             }
 
             if (data && data.features && data.features.length > 0) {
-                // Prefer more specific types (suburb/neighborhood) over city-level (place)
-                // Mapbox returns features ordered by relevance, but we want the most granular match
-                const preferredTypes = ['neighborhood', 'locality', 'district', 'place'];
+                // Prefer specific localities (suburb/neighborhood) over
+                // city-level matches, then poi, never settle on a region-
+                // type feature even if Mapbox sneaks one in. Sort goes:
+                //   neighborhood > locality > district > place > poi
+                // Anything else (region, country, etc) sinks to position 99.
+                const preferredTypes = ['neighborhood', 'locality', 'district', 'place', 'poi'];
                 const place =
                     data.features.sort(
                         (
@@ -108,6 +137,36 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
                 );
 
                 const city = place.text;
+
+                // GENERALISATION GUARD: reject if the matched feature is
+                // really just a region/state masquerading as a place. The
+                // symptom this fixes: Newport, QLD getting saved as
+                // "Queensland → South Province" because Mapbox at offshore
+                // coords sometimes returns a feature whose `text` matches
+                // the parent region context word-for-word, with the
+                // place_type stripped or labelled as something benign.
+                //
+                // We treat any of these as "not specific enough":
+                //   - the matched place type is `region`, `country`, or
+                //     anything else outside our preferred list
+                //   - the matched feature's text equals the region
+                //     context's text (i.e. "Queensland" feature with
+                //     "Queensland" region context)
+                const matchedType: string = place.place_type?.[0] ?? '';
+                const isTooGeneric =
+                    !preferredTypes.includes(matchedType) ||
+                    (regionCtx?.text &&
+                        typeof regionCtx.text === 'string' &&
+                        regionCtx.text.toLowerCase() === city?.toLowerCase());
+
+                if (isTooGeneric) {
+                    // Don't return a state-level name — let the caller
+                    // fall back to the Nominatim path or coordinates.
+                    log.warn(
+                        `Mapbox match too generic: place_type="${matchedType}", text="${city}", region="${regionCtx?.text}" — bailing out`,
+                    );
+                    return null;
+                }
 
                 // FILTER: Ignore GENERIC "Ocean" or "Sea" results (e.g. "Pacific Ocean")
                 // BUT Allow specific places like "Ocean City", "Seaside", "Ocean Grove"
@@ -181,13 +240,35 @@ export const reverseGeocodeContext = async (lat: number, lon: number): Promise<G
         const state = abbreviate(stateFull) || stateFull;
         const country = addr.country_code ? addr.country_code.toUpperCase() : '';
 
-        let finalName = locality;
-
-        if (!finalName && data.display_name) {
-            const parts = data.display_name.split(',').map((p: string) => p.trim());
-            finalName = parts[0];
+        // GENERALISATION GUARD (Nominatim path).
+        //
+        // If we have NO locality (no suburb/town/village/island/etc.),
+        // do NOT fall through to display_name's first segment — that
+        // segment is often the state itself ("Queensland", "New South
+        // Wales") for offshore points or coarse address records, which
+        // is exactly the bug the user reported ("Queensland → South
+        // Province" instead of "Newport → Port Moselle").
+        //
+        // Returning null here lets the caller treat the location as
+        // un-named and either keep the user's typed value or fall
+        // back to coordinates — both better than overwriting with a
+        // state name.
+        if (!locality) {
+            log.warn(
+                `Nominatim returned no locality (suburb/town/village/etc) at ${lat},${lon} — refusing to use display_name's "${data.display_name?.split(',')[0]}" which is likely a state. Returning null so caller falls back.`,
+            );
+            return null;
         }
 
+        // Reject if the locality somehow IS the state (some Nominatim
+        // records have addr.county === addr.state for sparsely-populated
+        // areas). Same end result: don't return a generalised name.
+        if (locality.toLowerCase() === stateFull.toLowerCase()) {
+            log.warn(`Nominatim locality "${locality}" matches state "${stateFull}" — refusing as too generic`);
+            return null;
+        }
+
+        const finalName = locality;
         const name = [finalName, state, country].filter((p) => p && p.trim().length > 0).join(', ');
 
         const isGenericWater =
