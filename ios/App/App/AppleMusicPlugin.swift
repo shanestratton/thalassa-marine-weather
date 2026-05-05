@@ -1274,6 +1274,7 @@ public class AppleMusicPlugin: CAPPlugin {
         var artist = ""
         var album = ""
         var artworkUrl = ""
+        var artworkSource = "none"
         if let entry = entry {
             title = entry.title
             // Pull artwork off the queue Entry directly — it's more
@@ -1282,6 +1283,9 @@ public class AppleMusicPlugin: CAPPlugin {
             // where the item may wrap differently.
             if let url = entry.artwork?.url(width: 400, height: 400) {
                 artworkUrl = url.absoluteString
+                artworkSource = "entry"
+            } else if entry.artwork != nil {
+                artworkSource = "entry-no-url"
             }
             // Entry subtitle is typically "Artist" or "Artist — Album"
             // — use as a default artist line in case the inner item
@@ -1293,14 +1297,18 @@ public class AppleMusicPlugin: CAPPlugin {
                     artist = song.artistName
                 }
                 album = song.albumTitle ?? ""
-                // Fall back to the song's own artwork only if the
-                // entry didn't have one.
                 if artworkUrl.isEmpty, let url = song.artwork?.url(width: 400, height: 400) {
                     artworkUrl = url.absoluteString
+                    artworkSource = "song"
+                } else if artworkUrl.isEmpty && song.artwork != nil {
+                    artworkSource = "song-no-url"
                 }
             default:
                 break
             }
+            NSLog(
+                "[AppleMusic] nowPlaying: title='\(title)' artist='\(artist)' artworkSource=\(artworkSource) url=\(artworkUrl.isEmpty ? "<empty>" : artworkUrl)"
+            )
         }
 
         let stateString: String
