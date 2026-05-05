@@ -20,6 +20,14 @@
 --   - assigned_crew_name is denormalised so the UI doesn't need to
 --     join vessel_crew on every render
 
+-- Ensure vessel_crew has the voyage_id column the per-voyage RLS
+-- policies below reference. The original crew_sharing.sql migration
+-- predates per-voyage scoping; CrewService.ts already declares the
+-- column in its TypeScript type but the remote schema can drift if
+-- the column was never explicitly added. Idempotent ALTER.
+ALTER TABLE vessel_crew ADD COLUMN IF NOT EXISTS voyage_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_vessel_crew_voyage_id ON vessel_crew(voyage_id);
+
 CREATE TABLE IF NOT EXISTS watch_assignments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     voyage_id TEXT NOT NULL,

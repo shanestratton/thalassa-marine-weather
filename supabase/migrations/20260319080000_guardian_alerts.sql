@@ -140,6 +140,10 @@ END;
 $$;
 
 -- ── RPC: Get recent alerts near a location ──
+-- DROP FUNCTION first because postgres can't change a function's
+-- return type via CREATE OR REPLACE — earlier deployments may have
+-- created this function with a different RETURNS TABLE shape.
+DROP FUNCTION IF EXISTS public.guardian_alerts_nearby(DOUBLE PRECISION, DOUBLE PRECISION, DOUBLE PRECISION, INTEGER);
 CREATE OR REPLACE FUNCTION public.guardian_alerts_nearby(
     query_lat DOUBLE PRECISION,
     query_lon DOUBLE PRECISION,
