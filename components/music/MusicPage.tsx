@@ -788,9 +788,16 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     maxHeight: 'calc(92vh - 4rem - env(safe-area-inset-bottom))',
                 }}
             >
-                {/* Drag handle */}
-                <div className="flex justify-center pt-3 pb-1">
+                {/* Drag handle + close button */}
+                <div className="relative flex justify-center pt-3 pb-1">
                     <div className="w-12 h-1.5 rounded-full bg-white/25" />
+                    <button
+                        onClick={onClose}
+                        className="absolute right-3 top-2 w-9 h-9 rounded-full flex items-center justify-center text-white/70 hover:text-white active:bg-white/10 transition-colors"
+                        aria-label="Close playlist"
+                    >
+                        <CloseIcon className="w-5 h-5" />
+                    </button>
                 </div>
 
                 {/* Hero */}
@@ -1032,7 +1039,15 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                             : mounted
                               ? 'translateY(0)'
                               : 'translateY(100%)',
-                    minHeight: '55vh',
+                    // No min-height when the keyboard is up: the
+                    // available space is already small (viewport minus
+                    // keyboard minus nav minus safe-area), and a 55vh
+                    // floor would force the sheet's top edge above the
+                    // viewport, hiding the search input the skipper
+                    // is trying to type into. Only apply the floor
+                    // when the keyboard is hidden so the sheet still
+                    // has presence on the empty-search initial state.
+                    minHeight: keyboardHeight > 0 ? undefined : '55vh',
                     maxHeight:
                         keyboardHeight > 0
                             ? `calc(100vh - ${keyboardHeight}px - 2rem)`
@@ -1699,5 +1714,19 @@ const ChevronLeftIcon: React.FC<{ className?: string }> = ({ className }) => (
         strokeLinejoin="round"
     >
         <path d="M15 18l-6-6 6-6" />
+    </svg>
+);
+
+const CloseIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M18 6L6 18M6 6l12 12" />
     </svg>
 );
