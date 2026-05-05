@@ -280,32 +280,51 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
      *  show per-row feedback (added / failed). */
     /**
      * Add a song to the open detail-sheet playlist. Returns one of:
-     *   "added"     — direct in-app add succeeded (forward-compatible
-     *                 if Apple ever allows third-party playlist edits)
-     *   "redirect"  — Apple's API doesn't allow it; we opened the
-     *                 song's page in the Apple Music app so the user
+     *   "added"     — REST or native add succeeded; track is in the
+     *                 user's cloud library playlist
+     *   "redirect"  — both REST and native rejected; we opened the
+     *                 song's page in Apple Music app so the skipper
      *                 can long-press → Add to Playlist there
      *   "failed"    — anything else (network, search miss, etc.)
+     *
+     * On success, the song is OPTIMISTICALLY appended to detailTracks
+     * so the skipper sees it immediately. Apple's library-sync
+     * round-trip can take a few seconds to reflect changes via
+     * MusicLibraryRequest, so a re-fetch right after an add often
+     * returns the pre-add state.
      */
     const handleAddSongToPlaylist = useCallback(
-        async (songId: string): Promise<'added' | 'redirect' | 'failed'> => {
+        async (song: CatalogSongResult): Promise<'added' | 'redirect' | 'failed'> => {
             if (!detailPlaylist) return 'failed';
-            const r = await addSongToPlaylist(songId, detailPlaylist.id);
+            const r = await addSongToPlaylist(song.id, detailPlaylist.id);
             if (r.success) {
                 triggerHaptic('light');
+                // Optimistic: append the song to the visible track
+                // list straight away so the skipper sees what they
+                // just added. Don't wait for the next getPlaylistTracks
+                // round-trip — Apple's library sync is laggy.
+                setDetailTracks((prev) => [
+                    ...prev,
+                    {
+                        id: song.id,
+                        title: song.title,
+                        artist: song.artist,
+                        durationMs: song.durationMs,
+                        artworkUrl: song.artworkUrl,
+                    },
+                ]);
                 return 'added';
             }
             if (r.notSupported) {
-                // Apple doesn't allow third-party apps to mutate
-                // library playlist tracks. Open Apple Music to the
-                // song so the user can long-press → Add to Playlist
-                // there. The system handles the deep link.
+                // Both REST and native paths failed. Open Apple Music
+                // to the song so the skipper can long-press → Add to
+                // Playlist there.
                 triggerHaptic('medium');
                 try {
-                    window.location.href = `music://music.apple.com/song/${encodeURIComponent(songId)}`;
+                    window.location.href = `music://music.apple.com/song/${encodeURIComponent(song.id)}`;
                 } catch {
                     try {
-                        window.open(`music://music.apple.com/song/${encodeURIComponent(songId)}`, '_system');
+                        window.open(`music://music.apple.com/song/${encodeURIComponent(song.id)}`, '_system');
                     } catch {
                         /* best-effort */
                     }
@@ -860,8 +879,11 @@ interface AddTracksSheetProps {
      *    "added"    — direct add succeeded
      *    "redirect" — Apple doesn't allow it; the parent already
      *                 opened the song in Apple Music app for manual add
-     *    "failed"   — generic failure */
-    onAddSong: (songId: string) => Promise<'added' | 'redirect' | 'failed'>;
+     *    "failed"   — generic failure
+     *
+     * Full song object is passed (not just id) so the parent can do
+     * an optimistic UI append without re-fetching the catalog. */
+    onAddSong: (song: CatalogSongResult) => Promise<'added' | 'redirect' | 'failed'>;
 }
 
 const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, onAddSong }) => {
@@ -939,15 +961,15 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
     }, [query]);
 
     const handleAdd = useCallback(
-        async (songId: string) => {
-            if (addingId || addedIds.has(songId) || redirectedIds.has(songId)) return;
-            setAddingId(songId);
-            const outcome = await onAddSong(songId);
+        async (song: CatalogSongResult) => {
+            if (addingId || addedIds.has(song.id) || redirectedIds.has(song.id)) return;
+            setAddingId(song.id);
+            const outcome = await onAddSong(song);
             setAddingId(null);
             if (outcome === 'added') {
-                setAddedIds((prev) => new Set([...prev, songId]));
+                setAddedIds((prev) => new Set([...prev, song.id]));
             } else if (outcome === 'redirect') {
-                setRedirectedIds((prev) => new Set([...prev, songId]));
+                setRedirectedIds((prev) => new Set([...prev, song.id]));
                 setShowRedirectExplain(true);
             } else {
                 setSearchError("Couldn't add that track");
@@ -1057,7 +1079,7 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                             adding={addingId === song.id}
                             added={addedIds.has(song.id)}
                             redirected={redirectedIds.has(song.id)}
-                            onAdd={() => void handleAdd(song.id)}
+                            onAdd={() => void handleAdd(song)}
                         />
                     ))}
                 </div>

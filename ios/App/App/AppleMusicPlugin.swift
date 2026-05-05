@@ -1004,21 +1004,27 @@ public class AppleMusicPlugin: CAPPlugin {
                     }
                     return
                 }
-                // Two-tier add. The native MusicLibrary.shared.add API
-                // works for *some* playlists in *some* iOS versions but
-                // is consistently rejected by MPErrorDomain Code 5 for
-                // playlists the app didn't create. The Apple Music REST
-                // API at api.music.apple.com is more permissive — it
-                // operates on the user's cloud library directly and
-                // accepts adds to any of the user's playlists. So we
-                // try native first (cheap, succeeds when allowed,
-                // forward-compatible if Apple ever opens this up),
-                // and on the specific MPError-5 rejection we fall
-                // through to a signed REST call.
-                var nativeMpError: NSError? = nil
+                // REST API first. The native
+                // MusicLibrary.shared.add(song, to: playlist) call
+                // returns success on iOS but the actual track add
+                // doesn't always persist to Apple's cloud library —
+                // confirmed by skipper testing where the call returned
+                // "succeeded" but the song never appeared in Apple
+                // Music's view of the playlist. The REST endpoint
+                // /v1/me/library/playlists/{id}/tracks is the source
+                // of truth: it operates directly on the user's cloud
+                // library and the change is reflected everywhere
+                // (Apple Music app, other devices, etc.) within
+                // seconds.
+                //
+                // We keep native as a fallback only — if REST somehow
+                // fails (network, token issue, server-side rejection),
+                // we'll try the native call; if THAT also fails we
+                // surface not_supported and the UI redirects to Apple
+                // Music for manual add.
                 do {
-                    try await MusicLibrary.shared.add(song, to: playlist)
-                    NSLog("[AppleMusic] native add '\(song.title)' → '\(playlist.name)' succeeded")
+                    try await self.restAddSongToPlaylist(songId: songId, playlistId: playlistId)
+                    NSLog("[AppleMusic] REST add '\(song.title)' → '\(playlist.name)' succeeded")
                     self.hydratedTrackCache.removeValue(forKey: playlistId)
                     self.hydratedNameCache.removeValue(forKey: playlistId)
                     await MainActor.run {
@@ -1027,57 +1033,39 @@ public class AppleMusicPlugin: CAPPlugin {
                             "playlist_name": playlist.name,
                             "song_title": song.title,
                             "song_artist": song.artistName,
-                            "via": "native",
+                            "via": "rest",
+                        ])
+                    }
+                    return
+                } catch let restError {
+                    NSLog("[AppleMusic] REST add failed: \(restError) — trying native fallback")
+                }
+
+                // Native fallback. Last-resort attempt before redirect.
+                do {
+                    try await MusicLibrary.shared.add(song, to: playlist)
+                    NSLog("[AppleMusic] native add fallback succeeded for '\(song.title)' → '\(playlist.name)'")
+                    self.hydratedTrackCache.removeValue(forKey: playlistId)
+                    self.hydratedNameCache.removeValue(forKey: playlistId)
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "ok",
+                            "playlist_name": playlist.name,
+                            "song_title": song.title,
+                            "song_artist": song.artistName,
+                            "via": "native_fallback",
                         ])
                     }
                     return
                 } catch let nsError as NSError {
-                    nativeMpError = nsError
-                    NSLog("[AppleMusic] native add failed: \(nsError) — trying REST fallback")
-                }
-
-                // REST fallback. Get a developer + user token via the
-                // shared MusicKit provider (same chain that authorises
-                // catalog search). Then POST the track id to
-                // /v1/me/library/playlists/{id}/tracks.
-                if let nsError = nativeMpError,
-                   nsError.domain == "MPErrorDomain" && nsError.code == 5 {
-                    do {
-                        try await self.restAddSongToPlaylist(songId: songId, playlistId: playlistId)
-                        NSLog("[AppleMusic] REST add '\(song.title)' → '\(playlist.name)' succeeded")
-                        self.hydratedTrackCache.removeValue(forKey: playlistId)
-                        self.hydratedNameCache.removeValue(forKey: playlistId)
-                        await MainActor.run {
-                            call.resolve([
-                                "status": "ok",
-                                "playlist_name": playlist.name,
-                                "song_title": song.title,
-                                "song_artist": song.artistName,
-                                "via": "rest",
-                            ])
-                        }
-                        return
-                    } catch {
-                        NSLog("[AppleMusic] REST add failed: \(error)")
-                        await MainActor.run {
-                            call.resolve([
-                                "status": "not_supported",
-                                "error": String(describing: error),
-                                "song_id": songId,
-                            ])
-                        }
-                        return
+                    NSLog("[AppleMusic] native fallback also failed: \(nsError)")
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "not_supported",
+                            "error": nsError.localizedDescription,
+                            "song_id": songId,
+                        ])
                     }
-                }
-
-                // Other native errors (network, search miss, etc.)
-                let err = nativeMpError ?? NSError(domain: "AppleMusic", code: -1)
-                await MainActor.run {
-                    call.resolve([
-                        "status": "error",
-                        "error": err.localizedDescription,
-                        "song_id": songId,
-                    ])
                 }
             }
         }
