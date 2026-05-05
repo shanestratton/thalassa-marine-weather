@@ -700,8 +700,39 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
 
     const canSubmit = name.trim().length > 0 && !busy;
 
+    // Track the iOS keyboard height so we can shift the modal upward
+    // when the keyboard rises and would otherwise cover the inputs.
+    // @capacitor/keyboard fires keyboardWillShow / keyboardWillHide
+    // with the keyboard's height and animation duration; we pull
+    // both into local state and translate the modal accordingly.
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    useEffect(() => {
+        let showHandle: { remove: () => Promise<void> } | undefined;
+        let hideHandle: { remove: () => Promise<void> } | undefined;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const { Keyboard } = await import('@capacitor/keyboard');
+                if (cancelled) return;
+                showHandle = await Keyboard.addListener('keyboardWillShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight);
+                });
+                hideHandle = await Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+            } catch {
+                /* keyboard plugin not available — modal remains static */
+            }
+        })();
+        return () => {
+            cancelled = true;
+            void showHandle?.remove().catch(() => undefined);
+            void hideHandle?.remove().catch(() => undefined);
+        };
+    }, []);
+
     return (
-        <div className="fixed inset-0 z-[60] flex flex-col">
+        <div className="fixed inset-0 z-[60]">
             <button
                 aria-label="Close create playlist"
                 onClick={onClose}
@@ -709,82 +740,90 @@ const CreatePlaylistSheet: React.FC<CreatePlaylistSheetProps> = ({ busy, error, 
                     mounted ? 'opacity-100' : 'opacity-0'
                 }`}
             />
+            {/* Centered card. When the keyboard rises we shift the
+             *  whole card up by half the keyboard height (the card
+             *  itself is centred, so half the keyboard's height is
+             *  exactly enough to keep the inputs in view without
+             *  overshooting). */}
             <div
-                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 shadow-2xl transition-transform duration-300 ease-out ${
-                    mounted ? 'translate-y-0' : 'translate-y-full'
-                }`}
+                className="absolute inset-0 flex items-center justify-center px-4 transition-transform duration-200 ease-out pointer-events-none"
+                style={{
+                    transform:
+                        keyboardHeight > 0 ? `translateY(-${Math.round(keyboardHeight / 2)}px)` : 'translateY(0)',
+                }}
             >
-                {/* Drag handle */}
-                <div className="flex justify-center pt-3 pb-1">
-                    <div className="w-12 h-1.5 rounded-full bg-white/25" />
-                </div>
-
-                <div className="px-5 pt-4 pb-8" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
-                    <div className="text-white font-bold text-lg">New playlist</div>
-                    <div className="text-white/50 text-xs mt-1">
-                        Give it a name. You can ask Calypso to "save this to my [name]" while a track is playing to add
-                        songs.
-                    </div>
-
-                    <label className="block mt-5">
-                        <div className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Name</div>
-                        <input
-                            ref={inputRef}
-                            type="text"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            placeholder="Sundowner mix"
-                            disabled={busy}
-                            maxLength={80}
-                            className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter' && canSubmit) {
-                                    onSubmit(name, description);
-                                }
-                            }}
-                        />
-                    </label>
-
-                    <label className="block mt-4">
-                        <div className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5">
-                            Description (optional)
+                <div
+                    className={`relative w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl border border-white/10 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+                        mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                    }`}
+                >
+                    <div className="px-5 pt-5 pb-5">
+                        <div className="text-white font-bold text-lg">New playlist</div>
+                        <div className="text-white/50 text-xs mt-1">
+                            Give it a name. You can ask Calypso to "save this to my [name]" while a track is playing to
+                            add songs.
                         </div>
-                        <input
-                            type="text"
-                            value={description}
-                            onChange={(e) => setDescription(e.target.value)}
-                            placeholder="What's this playlist for?"
-                            disabled={busy}
-                            maxLength={140}
-                            className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
-                        />
-                    </label>
 
-                    {error && (
-                        <div className="mt-4 px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs">
-                            {error}
+                        <label className="block mt-5">
+                            <div className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5">Name</div>
+                            <input
+                                ref={inputRef}
+                                type="text"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                placeholder="Sundowner mix"
+                                disabled={busy}
+                                maxLength={80}
+                                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && canSubmit) {
+                                        onSubmit(name, description);
+                                    }
+                                }}
+                            />
+                        </label>
+
+                        <label className="block mt-4">
+                            <div className="text-[10px] uppercase tracking-widest text-white/40 mb-1.5">
+                                Description (optional)
+                            </div>
+                            <input
+                                type="text"
+                                value={description}
+                                onChange={(e) => setDescription(e.target.value)}
+                                placeholder="What's this playlist for?"
+                                disabled={busy}
+                                maxLength={140}
+                                className="w-full bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
+                            />
+                        </label>
+
+                        {error && (
+                            <div className="mt-4 px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs">
+                                {error}
+                            </div>
+                        )}
+
+                        <div className="flex gap-2 mt-6">
+                            <button
+                                onClick={onClose}
+                                disabled={busy}
+                                className="flex-1 py-3 rounded-2xl border border-white/15 text-white/70 font-bold active:scale-[0.97] transition-transform disabled:opacity-40"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={() => onSubmit(name, description)}
+                                disabled={!canSubmit}
+                                className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                            >
+                                {busy ? (
+                                    <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                                ) : (
+                                    <span>Create</span>
+                                )}
+                            </button>
                         </div>
-                    )}
-
-                    <div className="flex gap-2 mt-6">
-                        <button
-                            onClick={onClose}
-                            disabled={busy}
-                            className="flex-1 py-3 rounded-2xl border border-white/15 text-white/70 font-bold active:scale-[0.97] transition-transform disabled:opacity-40"
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            onClick={() => onSubmit(name, description)}
-                            disabled={!canSubmit}
-                            className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
-                        >
-                            {busy ? (
-                                <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
-                            ) : (
-                                <span>Create</span>
-                            )}
-                        </button>
                     </div>
                 </div>
             </div>
