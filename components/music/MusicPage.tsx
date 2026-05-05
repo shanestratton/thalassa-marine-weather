@@ -492,7 +492,13 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                                 key={p.id}
                                 playlist={p}
                                 active={activePlaylistId === p.id}
-                                onTap={() => void handlePlayPlaylist(p.id)}
+                                // Tap and long-press both open the detail
+                                // sheet now — that's where Play, Add
+                                // tracks, and Delete all live as obvious
+                                // buttons. Matches Apple Music / Spotify
+                                // conventions where tapping a playlist
+                                // shows you the contents before playing.
+                                onTap={() => void openDetail(p)}
                                 onLongPress={() => void openDetail(p)}
                             />
                         ))}
