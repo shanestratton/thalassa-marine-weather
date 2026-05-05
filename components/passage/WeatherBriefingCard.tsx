@@ -11,10 +11,32 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import type { MultiModelResult } from '../../services/weather/MultiModelWeatherService';
-import type { ForecastDay } from '../../types/weather';
+import type { ForecastDay, WeatherModel } from '../../types/weather';
 import { ModelComparisonCard } from './ModelComparisonCard';
 import { triggerHaptic } from '../../utils/system';
 import { useReadinessSync } from '../../hooks/useReadinessSync';
+
+/**
+ * Forecast model options for the briefing dropdown. Maps the user-
+ * facing label to the WeatherModel value fetchFastWeather accepts.
+ *
+ *   best_match     → Open-Meteo's blended pick (default; usually GFS-
+ *                    seamless globally, ICON in Europe)
+ *   gfs_seamless   → NOAA GFS — 0.25° global workhorse
+ *   ecmwf_ifs04    → ECMWF IFS — 0.1°, generally best overall
+ *   icon_seamless  → DWD ICON — 0.125°, strong on Atlantic/Med
+ *   bom_access_global → Australian BOM — best in Coral Sea, Tasman
+ *
+ * Cycling through these lets the skipper see how forecasts converge
+ * (high confidence) or diverge (uncertainty — be cautious).
+ */
+const FORECAST_MODELS: { value: WeatherModel; label: string; provider: string }[] = [
+    { value: 'best_match', label: 'Best match', provider: 'Open-Meteo blended' },
+    { value: 'gfs_seamless', label: 'GFS', provider: 'NOAA · 0.25° global' },
+    { value: 'ecmwf_ifs04', label: 'ECMWF IFS', provider: 'ECMWF · 0.1° global' },
+    { value: 'icon_seamless', label: 'ICON', provider: 'DWD · 0.125° global' },
+    { value: 'bom_access_global', label: 'ACCESS-G', provider: 'BOM · 0.15° AU/Pacific' },
+];
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -66,6 +88,22 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
     // re-fetched whenever the departure coords / dates change.
     const [passageForecast, setPassageForecast] = useState<ForecastDay[] | null>(null);
     const [forecastLoading, setForecastLoading] = useState(false);
+    // Active forecast model — drives which numerical weather prediction
+    // model the forecast is pulled from. Cycling through models lets
+    // the user spot convergence (high confidence) or divergence
+    // (forecasts disagree — proceed with caution). Stored to
+    // localStorage so the user's preference sticks across reloads.
+    const [forecastModel, setForecastModel] = useState<WeatherModel>(() => {
+        try {
+            const stored = localStorage.getItem('thalassa_briefing_model');
+            if (stored && FORECAST_MODELS.some((m) => m.value === stored)) {
+                return stored as WeatherModel;
+            }
+        } catch {
+            /* ignore */
+        }
+        return 'best_match';
+    });
 
     const { syncCheck } = useReadinessSync(voyageId, 'weather_briefing', checkedItems, setCheckedItems, STORAGE_KEY);
 
@@ -83,7 +121,11 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
             setForecastLoading(true);
             try {
                 const { fetchFastWeather } = await import('../../services/weather');
-                const report = await fetchFastWeather(departPort || 'Departure', departureCoords);
+                // Pass the currently-selected model so the forecast
+                // refreshes when the user switches models in the
+                // dropdown. Default 'best_match' = Open-Meteo's
+                // recommended-per-region pick (usually GFS-seamless).
+                const report = await fetchFastWeather(departPort || 'Departure', departureCoords, forecastModel);
                 if (cancelled) return;
                 const depMs = Date.parse(departureTime);
                 const arrMs = eta ? Date.parse(eta) : depMs + 7 * 24 * 3_600_000;
@@ -113,7 +155,7 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
         return () => {
             cancelled = true;
         };
-    }, [departureCoords, departureTime, eta, departPort]);
+    }, [departureCoords, departureTime, eta, departPort, forecastModel]);
 
     const totalItems = BRIEFING_ITEMS.length;
     const checkedCount = BRIEFING_ITEMS.filter((item) => checkedItems[item.key]).length;
@@ -169,6 +211,45 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
                             </span>
                         )}
                     </h4>
+
+                    {/* Forecast model dropdown — lets the skipper cycle
+                        through GFS / ECMWF / ICON / ACCESS-G to see
+                        how forecasts converge or diverge. Convergence
+                        = high confidence, divergence = uncertainty
+                        and a flag to be more cautious about timing.
+
+                        Persists the selection in localStorage so the
+                        user's preference sticks across reloads. */}
+                    <div className="mb-3 flex items-center gap-2">
+                        <label
+                            htmlFor="briefing-model-select"
+                            className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0"
+                        >
+                            Model
+                        </label>
+                        <select
+                            id="briefing-model-select"
+                            value={forecastModel}
+                            onChange={(e) => {
+                                const next = e.target.value as WeatherModel;
+                                setForecastModel(next);
+                                try {
+                                    localStorage.setItem('thalassa_briefing_model', next);
+                                } catch {
+                                    /* ignore */
+                                }
+                                triggerHaptic('light');
+                            }}
+                            className="flex-1 min-w-0 bg-slate-900/60 border border-white/10 rounded-lg px-3 py-1.5 text-[11px] text-white font-semibold outline-none focus:border-sky-500 transition-colors"
+                            aria-label="Select forecast model"
+                        >
+                            {FORECAST_MODELS.map((m) => (
+                                <option key={m.value} value={m.value}>
+                                    {m.label} — {m.provider}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     {forecastLoading && (
                         <div className="text-center py-6">
                             <div className="inline-block w-6 h-6 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin"></div>
