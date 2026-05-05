@@ -87,32 +87,50 @@ const bearingToCardinal = (deg: number): string => {
     return cardinals[Math.round((((deg % 360) + 360) % 360) / 22.5) % 16];
 };
 
+// Difficulty styling — refreshed 2026-05-05 for higher legibility.
+//
+//   color       → wind-stat accent text (kept subtle so it doesn't
+//                 fight the rest of the leg row)
+//   bg / border → card surface (bumped to /20 + /35 from /10 + /20
+//                 so the colour reads at a glance instead of looking
+//                 like a near-empty outline)
+//   pillBg / pillText → SOLID badge in the top-right of each leg row,
+//                 so the difficulty rating reads as a proper traffic-
+//                 light pill, not just colored text.
 const DIFFICULTY_CONFIG = {
     easy: {
-        color: 'text-emerald-400',
-        bg: 'bg-emerald-500/10',
-        border: 'border-emerald-500/20',
+        color: 'text-emerald-300',
+        bg: 'bg-emerald-500/20',
+        border: 'border-emerald-500/35',
+        pillBg: 'bg-emerald-500',
+        pillText: 'text-emerald-50',
         label: 'Easy',
         icon: '🟢',
     },
     moderate: {
-        color: 'text-sky-400',
-        bg: 'bg-sky-500/10',
-        border: 'border-sky-500/20',
+        color: 'text-sky-300',
+        bg: 'bg-sky-500/20',
+        border: 'border-sky-500/35',
+        pillBg: 'bg-sky-500',
+        pillText: 'text-sky-50',
         label: 'Moderate',
         icon: '🔵',
     },
     tough: {
-        color: 'text-amber-400',
-        bg: 'bg-amber-500/10',
-        border: 'border-amber-500/20',
+        color: 'text-amber-300',
+        bg: 'bg-amber-500/20',
+        border: 'border-amber-500/35',
+        pillBg: 'bg-amber-500',
+        pillText: 'text-amber-950',
         label: 'Tough',
         icon: '🟡',
     },
     challenging: {
-        color: 'text-red-400',
-        bg: 'bg-red-500/10',
-        border: 'border-red-500/20',
+        color: 'text-red-300',
+        bg: 'bg-red-500/20',
+        border: 'border-red-500/35',
+        pillBg: 'bg-red-500',
+        pillText: 'text-red-50',
         label: 'Challenging',
         icon: '🔴',
     },
@@ -131,8 +149,10 @@ const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) =>
                         {leg.from} → {leg.to}
                     </span>
                 </div>
-                <span className={`text-[10px] font-bold uppercase tracking-wider ${diff.color}`}>
-                    {diff.icon} {diff.label}
+                <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm ${diff.pillBg} ${diff.pillText}`}
+                >
+                    {diff.label}
                 </span>
             </div>
             <div className="grid grid-cols-4 gap-1 text-[11px] font-mono">
