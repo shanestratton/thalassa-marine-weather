@@ -1089,30 +1089,47 @@ public class AppleMusicPlugin: CAPPlugin {
             // doesn't kill it permanently. We'll resume in the
             // delegate's onFinish closure.
             let musicPlayer = ApplicationMusicPlayer.shared
-            let musicWasPlaying = musicPlayer.state.playbackStatus == .playing
+            let musicStateBefore = musicPlayer.state.playbackStatus
+            let musicWasPlaying = musicStateBefore == .playing
+            NSLog("[AppleMusic] playTtsAudio: musicState before TTS = \(musicStateBefore), willPauseAndResume=\(musicWasPlaying)")
             if musicWasPlaying {
-                NSLog("[AppleMusic] playTtsAudio: pausing MusicKit before TTS")
                 musicPlayer.pause()
+                NSLog("[AppleMusic] playTtsAudio: paused — state now = \(musicPlayer.state.playbackStatus)")
             }
 
             do {
                 let player = try AVAudioPlayer(data: data)
                 player.volume = 1.0
                 let delegate = TtsPlayerDelegate { [weak self] in
-                    NSLog("[AppleMusic] playTtsAudio: playback finished")
+                    let stateAtFinish = ApplicationMusicPlayer.shared.state.playbackStatus
+                    NSLog("[AppleMusic] TTS finished — musicState=\(stateAtFinish), willResume=\(musicWasPlaying)")
                     DispatchQueue.main.async {
                         self?.ttsPlayer = nil
                         self?.ttsPlayerDelegate = nil
-                        // Resume MusicKit if we paused it. play() is
-                        // async throws on iOS 15+; fire-and-forget
-                        // through a Task, swallow errors.
                         if musicWasPlaying {
-                            NSLog("[AppleMusic] playTtsAudio: resuming MusicKit")
-                            Task { @MainActor in
-                                do {
-                                    try await ApplicationMusicPlayer.shared.play()
-                                } catch {
-                                    NSLog("[AppleMusic] resume after TTS failed: \(error)")
+                            // The audio session was just used by
+                            // AVAudioPlayer; give iOS a beat to settle
+                            // routing and re-establish our category in
+                            // case AVAudioPlayer mutated it implicitly,
+                            // then call play() to resume.
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                                let session = AVAudioSession.sharedInstance()
+                                try? session.setCategory(
+                                    .playback,
+                                    mode: .default,
+                                    options: [.mixWithOthers]
+                                )
+                                try? session.setActive(true, options: [])
+                                Task { @MainActor in
+                                    let preState = ApplicationMusicPlayer.shared.state.playbackStatus
+                                    NSLog("[AppleMusic] resume(): preState=\(preState)")
+                                    do {
+                                        try await ApplicationMusicPlayer.shared.play()
+                                        let postState = ApplicationMusicPlayer.shared.state.playbackStatus
+                                        NSLog("[AppleMusic] resume(): postState=\(postState) — success")
+                                    } catch {
+                                        NSLog("[AppleMusic] resume FAILED: \(error)")
+                                    }
                                 }
                             }
                         }
@@ -1126,8 +1143,6 @@ public class AppleMusicPlugin: CAPPlugin {
                     call.reject("AVAudioPlayer.play() returned false")
                     self.ttsPlayer = nil
                     self.ttsPlayerDelegate = nil
-                    // We paused MusicKit but never played TTS — resume so
-                    // the music doesn't stay stuck.
                     if musicWasPlaying {
                         Task { @MainActor in
                             try? await ApplicationMusicPlayer.shared.play()
@@ -1138,7 +1153,6 @@ public class AppleMusicPlugin: CAPPlugin {
                 NSLog("[AppleMusic] playTtsAudio: started (\(data.count)B, \(String(format: "%.1f", player.duration))s)")
             } catch {
                 NSLog("[AppleMusic] playTtsAudio: AVAudioPlayer init failed: \(error)")
-                // Resume MusicKit since TTS won't play
                 if musicWasPlaying {
                     Task { @MainActor in
                         try? await ApplicationMusicPlayer.shared.play()
