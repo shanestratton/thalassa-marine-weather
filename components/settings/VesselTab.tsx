@@ -634,6 +634,48 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                 </div>
             </div>
 
+            {/* Routing Data Fidelity */}
+            <div className="mx-4 mb-4">
+                <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-4 rounded-full bg-cyan-500" />
+                    <span className="text-[11px] font-bold text-cyan-400 uppercase tracking-widest">Routing Data</span>
+                </div>
+                <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+                    {/* NRT Currents Toggle —
+                        OSCAR near-real-time vs monthly climatology in the
+                        isochrone router's set/drift advection. NRT is
+                        5-day-old but reflects actual eddies/meanders.
+                        Climatology is steady-state monthly averages —
+                        good enough for most routes. */}
+                    <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                            <div className="text-sm font-bold text-white">High-fidelity ocean currents</div>
+                            <p className="text-[11px] text-gray-400 mt-0.5">
+                                Use OSCAR near-real-time data (5-day-old, actual eddies) instead of monthly climatology.
+                                Helps on Gulf Stream / Agulhas timing-critical passages.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            role="switch"
+                            aria-checked={settings.currentNrtEnabled === true}
+                            aria-label="Toggle high-fidelity ocean currents"
+                            onClick={() => onSave({ currentNrtEnabled: !settings.currentNrtEnabled })}
+                            className={`shrink-0 relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${
+                                settings.currentNrtEnabled ? 'bg-cyan-500' : 'bg-slate-700'
+                            }`}
+                        >
+                            <span
+                                aria-hidden="true"
+                                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition-transform ${
+                                    settings.currentNrtEnabled ? 'translate-x-5' : 'translate-x-0'
+                                }`}
+                            />
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             {/* Capacity */}
             <div className="mx-4 mb-4">
                 <div className="flex items-center gap-2 mb-3">

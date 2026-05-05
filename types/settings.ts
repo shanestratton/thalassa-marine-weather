@@ -85,6 +85,19 @@ export interface UserSettings {
     nmeaPort?: number;
     smartPolarsEnabled?: boolean;
     comfortParams?: ComfortParams;
+    /**
+     * Use OSCAR near-real-time (NRT) ocean currents instead of monthly
+     * climatology in the isochrone routing engine. NRT data is 5 days
+     * behind real time but reflects actual current conditions (eddies,
+     * meanders, anomalies); climatology is always-available but is a
+     * monthly average.
+     *
+     * Default OFF — climatology is good enough for most routes and
+     * is faster + more reliable. Turn ON for tight passages where
+     * day-to-day current variability matters (e.g. crossing the Gulf
+     * Stream timing-critical, exiting an Atlantic trade wind zone).
+     */
+    currentNrtEnabled?: boolean;
     gribMode?: 'direct' | 'iridium';
     satelliteMode?: boolean;
     cloudSyncSettings?: boolean;
