@@ -44,12 +44,27 @@ export const PassageRouteMap: React.FC<PassageRouteMapProps> = React.memo(
                 keyboard: false,
             });
 
-            // Fit bounds to the route with padding
+            // Fit bounds to the route + endpoints with padding.
+            // Including departLon/Lat and arriveLon/Lat explicitly here
+            // is important: when the route polyline doesn't perfectly
+            // pass through the marker positions (e.g. detour waypoints
+            // pulled offshore from the actual departure dock), the
+            // markers can otherwise sit just outside the camera's
+            // initial fit and look cropped at the edge.
             const bounds = new mapboxgl.LngLatBounds();
+            bounds.extend([departLon, departLat]);
+            bounds.extend([arriveLon, arriveLat]);
             for (const coord of routeCoordinates) {
                 bounds.extend(coord);
             }
             map.fitBounds(bounds, { padding: 40, animate: false });
+
+            // Mapbox needs the container to have non-zero dimensions to
+            // render correctly; cards that mount mid-animation can give
+            // it a zero-height container at construction time. resize()
+            // after the next frame ensures the map paints to the
+            // correct size once the card layout settles.
+            requestAnimationFrame(() => map.resize());
 
             map.on('load', () => {
                 // -- Route GeoJSON source --

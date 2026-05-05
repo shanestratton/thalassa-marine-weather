@@ -46,9 +46,28 @@ function normaliseName(s: string): string {
  * (assume it's country); otherwise keep verbatim.
  */
 function trimCountrySuffix(name: string): string {
-    const parts = name.split(',').map((s) => s.trim());
-    if (parts.length <= 2) return parts.filter(Boolean).join(', ');
-    return parts.slice(0, -1).filter(Boolean).join(', ');
+    const parts = name
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (parts.length === 0) return name;
+    if (parts.length === 1) return parts[0];
+    // If the trailing segment looks like a country/region ISO code
+    // (2-4 uppercase letters: NC, QLD, NSW, AU, USA, etc.) drop it.
+    // This handles both "Newport, QLD" → "Newport" and "Nouméa, NC" →
+    // "Nouméa" so the Log Book and Passage Planning dropdown both
+    // display the city name only — no more inconsistent "Newport →
+    // Nouméa" vs "Newport → Port Moselle" mismatch between views.
+    const last = parts[parts.length - 1];
+    if (/^[A-Z]{2,4}$/.test(last)) {
+        const trimmed = parts.slice(0, -1);
+        return trimmed.join(', ');
+    }
+    // 3+ parts but trailing segment isn't a code — drop the last anyway
+    // (assume it's a country name like "Australia"). 2 parts where
+    // trailing isn't a code (e.g. "Brisbane, Queensland") — keep both.
+    if (parts.length >= 3) return parts.slice(0, -1).join(', ');
+    return parts.join(', ');
 }
 
 /** Produce a YYYY-MM-DD day key from an ISO timestamp or Date. */

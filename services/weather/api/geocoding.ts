@@ -392,10 +392,20 @@ function detectCountryISO(query: string): string | undefined {
  * country centroid because it doesn't have the marina indexed as a
  * POI" problem. Same pattern as MAJOR_BUOYS.
  *
- * Match is case-insensitive and uses substring fuzz so "port moselle"
- * matches "Port Moselle Marina, Nouméa". Add aliases for common short
- * forms ("port moselle nc"). Lat/lon are the real navigable
- * approach/anchorage point — never inland.
+ * canonicalName is the user-facing label that flows through the
+ * entire system — voyage records, log book entries, dropdown
+ * displays. Format is `City, IsoCode` (e.g., "Nouméa, NC") rather
+ * than the marina-specific "Port Moselle Marina, Nouméa, NC" so
+ * downstream label rendering produces the city display the user
+ * actually wants ("Newport → Nouméa").
+ *
+ * Lat/lon ARE the marina/anchorage approach point (never inland) so
+ * the route still ends at the right physical location — only the
+ * label changes.
+ *
+ * Aliases are case-insensitive substrings (so "port moselle" matches
+ * a typed "Port Moselle, NC" via sanitization → "Port Moselle, New
+ * Caledonia").
  */
 interface MarinePort {
     canonicalName: string;
@@ -408,7 +418,7 @@ interface MarinePort {
 const MARINE_PORTS: MarinePort[] = [
     // ── Pacific ──
     {
-        canonicalName: 'Port Moselle Marina, Nouméa, NC',
+        canonicalName: 'Nouméa, NC',
         lat: -22.2756,
         lon: 166.4421,
         aliases: [
@@ -417,13 +427,15 @@ const MARINE_PORTS: MarinePort[] = [
             'port moselle nouméa',
             'port moselle noumea',
             'port moselle, new caledonia',
+            'noumea',
+            'nouméa',
         ],
     },
     {
-        canonicalName: 'Vuda Marina, Lautoka, FJ',
+        canonicalName: 'Lautoka, FJ',
         lat: -17.6839,
         lon: 177.3833,
-        aliases: ['vuda marina', 'vuda point marina'],
+        aliases: ['vuda marina', 'vuda point marina', 'lautoka'],
     },
     {
         canonicalName: 'Port Vila, Vanuatu',
@@ -433,19 +445,19 @@ const MARINE_PORTS: MarinePort[] = [
     },
     // ── Australia (East coast cruising hotspots) ──
     {
-        canonicalName: 'Newport Marina, QLD',
+        canonicalName: 'Newport, QLD',
         lat: -27.21,
         lon: 153.09,
-        aliases: ['newport marina', 'newport qld marina'],
+        aliases: ['newport marina', 'newport qld marina', 'newport, qld'],
     },
     {
-        canonicalName: 'Manly Boat Harbour, QLD',
+        canonicalName: 'Manly, QLD',
         lat: -27.452,
         lon: 153.193,
         aliases: ['manly boat harbour', 'manly harbour qld'],
     },
     {
-        canonicalName: 'Scarborough Marina, QLD',
+        canonicalName: 'Scarborough, QLD',
         lat: -27.19,
         lon: 153.106,
         aliases: ['scarborough marina', 'scarborough marina qld'],

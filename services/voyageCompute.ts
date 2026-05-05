@@ -130,27 +130,35 @@ export const computeVoyagePlan = async (
     );
 
     // ── 4. Build the seed plan ──
+    // origin/destination here use parseLocation's CANONICAL name (e.g.
+    // "Nouméa, NC" from the curated MARINE_PORTS lookup) rather than
+    // the user's typed input ("Port Moselle, NC"). Reasons:
+    //   - Single source of truth — voyage records, log book entries,
+    //     and dropdown labels all see the same string. No more
+    //     "Newport → Nouméa" in the Log Book vs "Newport → Port
+    //     Moselle" in the Passage Planning dropdown.
+    //   - The canonical name is what the user actually wants to see
+    //     ("Nouméa") — they typed the marina shortcode "Port Moselle,
+    //     NC" but mean the city it's in.
+    //   - Downstream label rendering (PassagePlanSave's
+    //     trimCountrySuffix) consistently produces "City" from
+    //     "City, IsoCode".
+    //
     // waypoints is intentionally empty — the bathymetric router will
     // populate routeGeoJSON with depth-safe sea-following geometry
     // (hundreds of points), and the bend-detection step in useVoyageForm
-    // surfaces named turn-points from that polyline. The weather router
-    // then converts those into the final corridor-optimised waypoints
-    // with wind/wave/depth conditions baked in.
-    //
-    // overview is a neutral placeholder — Gemini's "professional Master
-    // Mariner summary" was prose that often contradicted the safety
-    // suitability assessment downstream. If the user wants prose, the
-    // optional enrichment hook can fetch it separately without blocking
-    // the route from rendering.
+    // surfaces named turn-points from that polyline.
+    const canonicalOrigin = originGeo.name || origin;
+    const canonicalDestination = destGeo.name || destination;
     const plan: VoyagePlan = {
-        origin,
-        destination,
+        origin: canonicalOrigin,
+        destination: canonicalDestination,
         departureDate,
         originCoordinates: { lat: originGeo.lat, lon: originGeo.lon },
         destinationCoordinates: { lat: destGeo.lat, lon: destGeo.lon },
         distanceApprox: `${Math.round(distNM)} nautical miles`,
         durationApprox: formatDuration(hours),
-        overview: `Direct passage from ${origin} to ${destination}, approximately ${Math.round(distNM)} NM at ${speedKn} kn cruising speed.`,
+        overview: `Direct passage from ${canonicalOrigin} to ${canonicalDestination}, approximately ${Math.round(distNM)} NM at ${speedKn} kn cruising speed.`,
         waypoints: [],
         // Suitability defaults to a neutral placeholder — the weather
         // router and bathymetric router populate maxWindEncountered /
