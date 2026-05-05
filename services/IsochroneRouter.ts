@@ -281,6 +281,29 @@ export async function computeIsochrones(
                         const cp = cfg.comfortParams;
                         if (cp.maxWindKts !== undefined && tws > cp.maxWindKts) continue;
                         if (cp.maxGustKts !== undefined && tws * 1.4 > cp.maxGustKts) continue;
+
+                        // ── Wind-angle preference filter ──
+                        // User picks which sailing angle bands they're
+                        // willing to accept. Candidates whose TWA falls
+                        // outside the selected bands are dropped.
+                        // Empty / undefined = no filter (all angles OK).
+                        // TWA ranges per band (matches PreferredAngle type
+                        // in types/settings.ts):
+                        //   beating      0–50°
+                        //   close_reach  50–80°
+                        //   beam_reach   80–110°
+                        //   broad_reach  110–150°
+                        //   running      150–180°
+                        if (cp.preferredAngles && cp.preferredAngles.length > 0 && cp.preferredAngles.length < 5) {
+                            const absTwa = Math.abs(twa); // calcTWA may return negative
+                            const inBand =
+                                (cp.preferredAngles.includes('beating') && absTwa < 50) ||
+                                (cp.preferredAngles.includes('close_reach') && absTwa >= 50 && absTwa < 80) ||
+                                (cp.preferredAngles.includes('beam_reach') && absTwa >= 80 && absTwa < 110) ||
+                                (cp.preferredAngles.includes('broad_reach') && absTwa >= 110 && absTwa < 150) ||
+                                (cp.preferredAngles.includes('running') && absTwa >= 150);
+                            if (!inBand) continue;
+                        }
                     }
                 }
 

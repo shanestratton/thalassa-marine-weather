@@ -7,6 +7,24 @@ import type { NotificationPreferences, WeatherModel, OffshoreModel } from './wea
 import type { VesselProfile, VesselDimensionUnits } from './vessel';
 import type { PolarData } from './navigation';
 
+/**
+ * Preferred wind angle bands — used as a multi-select set so users can
+ * pick which sailing angles they're willing to accept on a passage.
+ *
+ * TWA = True Wind Angle (0° = head to wind, 180° = directly downwind):
+ *   - beating      → TWA  0°– 50°  (close-hauled, upwind)
+ *   - close_reach  → TWA 50°– 80°  (sailing toward wind, faster than beating)
+ *   - beam_reach   → TWA 80°–110°  (wind on the beam — fastest point of sail)
+ *   - broad_reach  → TWA 110°–150° (wind on the back quarter)
+ *   - running      → TWA 150°–180° (downwind, dead astern)
+ *
+ * Empty array OR all five selected = no preference (route on raw polar).
+ * Otherwise the isochrone engine drops candidate bearings whose TWA
+ * falls outside the selected bands. Cruisers who hate beating typically
+ * select only [close_reach, beam_reach, broad_reach, running].
+ */
+export type PreferredAngle = 'beating' | 'close_reach' | 'beam_reach' | 'broad_reach' | 'running';
+
 /** User-defined safety thresholds for passage planning.
  *  The isochrone router treats zones exceeding these as obstacles.
  *  Undefined fields = no limit (disabled). */
@@ -14,6 +32,12 @@ export interface ComfortParams {
     maxWindKts?: number; // Max sustained wind (default: off)
     maxWaveM?: number; // Max significant wave height (default: off)
     maxGustKts?: number; // Max gust (default: off)
+    /**
+     * Acceptable wind angle bands. Undefined / empty / all-five = no
+     * angle preference. Otherwise candidates whose true wind angle
+     * falls outside the selected bands are dropped from the wavefront.
+     */
+    preferredAngles?: PreferredAngle[];
 }
 
 /**

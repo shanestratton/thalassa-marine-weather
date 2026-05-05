@@ -182,6 +182,21 @@ export async function planDepartureWindow(
     currentField: CurrentField | null,
     exclusionField: ExclusionField | null,
     waveField: WaveField | null,
+    /**
+     * Comfort caps + preferredAngles passed straight through to each
+     * scenario's computeIsochrones config. Same shape as
+     * IsochroneConfig['comfortParams']. Pass null/undefined to route
+     * without comfort filtering.
+     */
+    comfortParams:
+        | {
+              maxWindKts?: number;
+              maxWaveM?: number;
+              maxGustKts?: number;
+              preferredAngles?: import('../types').PreferredAngle[];
+          }
+        | null
+        | undefined,
     windowStartIso: string,
     options: DepartureWindowOptions = {},
 ): Promise<DepartureScenario[]> {
@@ -220,13 +235,18 @@ export async function planDepartureWindow(
                     // one we re-run at full resolution via the main pipeline.
                     timeStepHours: 12,
                     bearingCount: 24,
+                    // Caller-provided comfort params (already blended
+                    // vessel mechanical caps with user comfort prefs +
+                    // preferredAngles). Falls back to vessel-only caps
+                    // if caller passed null/undefined.
                     comfortParams:
-                        vessel.maxWindSpeed || vessel.maxWaveHeight
+                        comfortParams ??
+                        (vessel.maxWindSpeed || vessel.maxWaveHeight
                             ? {
                                   maxWindKts: vessel.maxWindSpeed,
                                   maxWaveM: vessel.maxWaveHeight,
                               }
-                            : undefined,
+                            : undefined),
                 },
                 bathyGrid,
                 currentField,
