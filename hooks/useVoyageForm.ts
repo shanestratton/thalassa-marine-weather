@@ -78,6 +78,22 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         }
     }, [voyagePlan, origin, destination]);
 
+    // Sync the date input from voyagePlan.departureDate when it loads.
+    // The useState initializer above only fires once on mount — if
+    // voyagePlan is still loading from WeatherContext at that point,
+    // departureDate defaults to today and stays there even after
+    // voyagePlan loads with the user's actual saved date. The user
+    // then re-hits Calculate, today's date flows back into the new
+    // voyage record, and the Passage Summary card displays today
+    // instead of the date the user picked. This effect keeps the form
+    // in sync with the loaded plan.
+    useEffect(() => {
+        if (voyagePlan?.departureDate && voyagePlan.departureDate !== departureDate) {
+            setDepartureDate(voyagePlan.departureDate);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [voyagePlan?.departureDate]);
+
     // Loading Animation Loop
     useEffect(() => {
         let interval: ReturnType<typeof setInterval> | undefined;
