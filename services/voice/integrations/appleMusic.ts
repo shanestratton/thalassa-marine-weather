@@ -130,8 +130,9 @@ interface AppleMusicPluginInterface {
         error?: string;
     }>;
     deletePlaylist(opts: { id: string }): Promise<{
-        status: 'ok' | 'not_found' | 'error';
+        status: 'ok' | 'not_supported' | 'not_found' | 'error';
         playlist_name?: string;
+        note?: string;
         error?: string;
     }>;
 
@@ -666,14 +667,22 @@ export async function addSongToPlaylist(
     }
 }
 
-export async function deletePlaylistById(
-    id: string,
-): Promise<{ success: boolean; playlistName?: string; error?: string }> {
+export async function deletePlaylistById(id: string): Promise<{
+    success: boolean;
+    /** True when Apple doesn't expose deletion via MusicKit. UI
+     *  should show a "delete from Apple Music app" prompt instead. */
+    notSupported?: boolean;
+    playlistName?: string;
+    error?: string;
+}> {
     if (!nativeAvailable()) return { success: false, error: 'unsupported' };
     try {
         const r = await AppleMusicNative.deletePlaylist({ id });
         if (r.status === 'ok') {
             return { success: true, playlistName: r.playlist_name };
+        }
+        if (r.status === 'not_supported') {
+            return { success: false, notSupported: true, playlistName: r.playlist_name };
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {

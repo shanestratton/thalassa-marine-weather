@@ -322,17 +322,43 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         setConfirmDelete(detailPlaylist);
     }, [detailPlaylist]);
 
-    /** User confirmed delete — call native, refresh the grid, close
-     *  both the confirm prompt and the detail sheet. */
+    /** Open Apple Music app via the music:// URL scheme so the
+     *  skipper can delete the playlist there. Apple's MusicKit API
+     *  does not expose library-playlist deletion to third-party
+     *  apps, so this is the only path available. We still call
+     *  deletePlaylistById first — if Apple ever adds the API, our
+     *  code uses it automatically. Today, deletePlaylistById always
+     *  reports notSupported and we fall through to the open-app
+     *  branch.
+     */
     const handleConfirmDelete = useCallback(async () => {
         if (!confirmDelete) return;
         setDeleteBusy(true);
         const r = await deletePlaylistById(confirmDelete.id);
         setDeleteBusy(false);
         if (r.success) {
+            // The day Apple adds the API — already wired up.
             setConfirmDelete(null);
             closeDetail();
             void loadPlaylists();
+            return;
+        }
+        if (r.notSupported) {
+            // Open Apple Music via the music:// URL scheme. iOS's
+            // WebKit delegates unknown schemes to the system, which
+            // launches the matching app. Belt-and-braces with
+            // window.open as a fallback in case WebKit blocks the
+            // direct location-href change.
+            try {
+                window.location.href = 'music://';
+            } catch {
+                try {
+                    window.open('music://', '_system');
+                } catch {
+                    /* best-effort */
+                }
+            }
+            setConfirmDelete(null);
         } else {
             setDetailError(`Couldn't delete: ${r.error}`);
             setConfirmDelete(null);
@@ -1059,9 +1085,10 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                     }`}
                 >
                     <div className="px-5 pt-5 pb-5">
-                        <div className="text-white font-bold text-lg">Delete playlist?</div>
-                        <div className="text-white/60 text-sm mt-2">
-                            "{playlistName}" will be removed from your library. This can't be undone.
+                        <div className="text-white font-bold text-lg">Delete in Apple Music</div>
+                        <div className="text-white/60 text-sm mt-2 leading-relaxed">
+                            Apple doesn't let third-party apps delete library playlists — only their own Music app can.
+                            Tap below and we'll open it for you so you can remove "{playlistName}".
                         </div>
                         <div className="flex gap-2 mt-6">
                             <button
@@ -1074,12 +1101,12 @@ const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, b
                             <button
                                 onClick={onConfirm}
                                 disabled={busy}
-                                className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                                className="flex-1 py-3 rounded-2xl bg-pink-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
                             >
                                 {busy ? (
                                     <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
                                 ) : (
-                                    <span>Delete</span>
+                                    <span>Open Apple Music</span>
                                 )}
                             </button>
                         </div>

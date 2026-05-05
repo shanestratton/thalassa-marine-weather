@@ -1031,11 +1031,16 @@ public class AppleMusicPlugin: CAPPlugin {
     }
 
     /**
-     * Delete a library playlist. Uses MusicLibrary.shared.delete on
-     * iOS 16+. The Playlist object itself must be resolved first
-     * (Apple's API takes the live object, not a raw id).
+     * Stub: Apple's MusicKit Swift framework does NOT publicly expose
+     * a delete method for library playlists. Library content
+     * deletion is restricted to the Apple Music app (likely a
+     * deliberate Apple policy decision so third-party apps can't
+     * accidentally wipe a user's library). We resolve the playlist
+     * by id so the JS side can show a "open Apple Music to delete
+     * X" prompt with the correct name, but the actual deletion has
+     * to happen in Apple's app.
      */
-    @available(iOS 16.0, *)
+    @available(iOS 15.0, *)
     @objc func deletePlaylist(_ call: CAPPluginCall) {
         guard let id = call.getString("id"), !id.isEmpty else {
             call.reject("id is required")
@@ -1045,25 +1050,16 @@ public class AppleMusicPlugin: CAPPlugin {
             do {
                 let req = MusicLibraryRequest<Playlist>()
                 let resp = try await req.response()
-                guard let playlist = resp.items.first(where: { $0.id.rawValue == id }) else {
-                    await MainActor.run {
-                        call.resolve(["status": "not_found", "id": id])
-                    }
-                    return
-                }
-                let name = playlist.name
-                try await MusicLibrary.shared.delete(playlist)
-                NSLog("[AppleMusic] deleted playlist '\(name)'")
-                self.hydratedTrackCache.removeValue(forKey: id)
-                self.hydratedNameCache.removeValue(forKey: id)
+                let name = resp.items.first(where: { $0.id.rawValue == id })?.name ?? ""
+                NSLog("[AppleMusic] deletePlaylist requested for '\(name)' — Apple does not expose this API.")
                 await MainActor.run {
                     call.resolve([
-                        "status": "ok",
+                        "status": "not_supported",
                         "playlist_name": name,
+                        "note": "Apple does not expose playlist deletion to third-party apps. Open the Apple Music app to delete this playlist.",
                     ])
                 }
             } catch {
-                NSLog("[AppleMusic] deletePlaylist failed: \(error)")
                 await MainActor.run {
                     call.resolve([
                         "status": "error",
