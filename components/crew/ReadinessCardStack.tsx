@@ -346,13 +346,18 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 </CardAccordion>
             </div>
 
-            {/* 2. WEATHER BRIEFING */}
+            {/* 2. PRE-DEPARTURE WEATHER */}
+            {/* Renamed from "Weather Briefing" 2026-05-05 — the card is
+                explicitly a pre-departure review (forecast at the
+                departure port for the selected leave-time, model-by-
+                model), not en-route or arrival weather. The new title
+                makes that scope unambiguous. */}
             <CardAccordion
                 isReady={weatherReviewed}
                 emoji="🌤️"
-                title="Weather Briefing"
-                subtitle="Review models & forecast before departure"
-                readySubtitle="✅ Briefing reviewed — conditions accepted"
+                title="Pre-Departure Weather"
+                subtitle="Review models & forecast for departure"
+                readySubtitle="✅ Departure forecast reviewed"
                 cardKey="weather_briefing"
                 {...delegationProps}
             >

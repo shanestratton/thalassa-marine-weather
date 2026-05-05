@@ -8,7 +8,7 @@
  * the passage planner computes a route on the Charts page).
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { usePassageStore, type PassageLeg } from '../../stores/PassageStore';
 import { PassageRouteMap } from './PassageRouteMap';
@@ -186,6 +186,20 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             return '';
         }
     });
+
+    // Listen for cross-component departure-time updates — fired by
+    // WeatherWindowCard when the user accepts a recommended departure
+    // window. Without this, the time we show stays stale until the
+    // user reloads the page or unmounts/remounts the card. Keeps the
+    // localStorage write + state both fresh.
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail as { hhmm?: string } | undefined;
+            if (detail?.hhmm) setLocalTime(detail.hhmm);
+        };
+        window.addEventListener('thalassa:departure-time-updated', handler);
+        return () => window.removeEventListener('thalassa:departure-time-updated', handler);
+    }, []);
 
     const [showLegs, setShowLegs] = useState(false);
 

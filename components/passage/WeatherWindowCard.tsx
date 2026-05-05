@@ -127,8 +127,87 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             } catch {
                 /* ignore */
             }
+
+            // ── Sync the accepted window's departure time into the
+            // canonical departure_time slot. Until 2026-05-05 this card
+            // wrote to a different localStorage key (thalassa_accepted_window)
+            // than the PassageSummaryCard read from
+            // (thalassa_passage_departure_time), so accepting a window
+            // visibly green-checked the readiness card but the Passage
+            // Summary still showed whatever time the user had typed in.
+            //
+            // Fix: when accepting a window, also write to the summary's
+            // localStorage key (HH:MM only, matching the time-input
+            // shape) AND update the live voyage row's departure_time
+            // (full ISO) so the cross-screen ETA / departure cards
+            // refresh on next render. Dispatch a window event so any
+            // already-mounted PassageSummaryCard re-reads instantly
+            // without waiting for a remount.
+            const win = result?.windows?.[index];
+            if (win?.time) {
+                const winDate = new Date(win.time);
+                if (!isNaN(winDate.getTime())) {
+                    // HH:MM in the device's local timezone — matches the
+                    // shape the <input type="time"> in PassageSummaryCard
+                    // produces, so the form's controlled value still
+                    // works after this write.
+                    const hh = String(winDate.getHours()).padStart(2, '0');
+                    const mm = String(winDate.getMinutes()).padStart(2, '0');
+                    const hhmm = `${hh}:${mm}`;
+                    try {
+                        localStorage.setItem('thalassa_passage_departure_time', hhmm);
+                    } catch {
+                        /* ignore */
+                    }
+
+                    // Update the active voyage's departure_time +
+                    // recompute ETA. Non-blocking — if the update fails
+                    // (offline, RLS issue), the localStorage write above
+                    // still gives the user something visible.
+                    if (voyageId) {
+                        import('../../services/VoyageService')
+                            .then(({ updateVoyage }) => {
+                                const newDepartureIso = winDate.toISOString();
+                                // Recompute ETA preserving the original
+                                // duration if we can derive it from the
+                                // active voyage's existing ETA window.
+                                const patch: { departure_time: string; eta?: string } = {
+                                    departure_time: newDepartureIso,
+                                };
+                                if (_activeVoyage?.departure_time && _activeVoyage?.eta) {
+                                    const oldDep = new Date(_activeVoyage.departure_time).getTime();
+                                    const oldEta = new Date(_activeVoyage.eta).getTime();
+                                    if (!isNaN(oldDep) && !isNaN(oldEta) && oldEta > oldDep) {
+                                        const durationMs = oldEta - oldDep;
+                                        patch.eta = new Date(winDate.getTime() + durationMs).toISOString();
+                                    }
+                                }
+                                return updateVoyage(voyageId, patch);
+                            })
+                            .catch((e) => {
+                                // Non-critical — UI still shows the
+                                // accepted window even if persistence
+                                // fails. Crew Management will reconcile
+                                // on next reload.
+                                console.warn('[WeatherWindowCard] voyage update failed:', e);
+                            });
+                    }
+
+                    // Notify any open PassageSummaryCard / banner / etc.
+                    // to re-read the new departure time.
+                    try {
+                        window.dispatchEvent(
+                            new CustomEvent('thalassa:departure-time-updated', {
+                                detail: { voyageId, hhmm, iso: winDate.toISOString() },
+                            }),
+                        );
+                    } catch {
+                        /* SSR safety */
+                    }
+                }
+            }
         },
-        [voyageId],
+        [voyageId, result, _activeVoyage],
     );
 
     // Determine windows to show
