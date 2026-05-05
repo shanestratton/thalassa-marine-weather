@@ -519,19 +519,27 @@ export const parseLocation = async (
 
         const isStrongMatch = (typed: string, matched: { name: string; placeName?: string; relevance: number }) => {
             if (matched.relevance < 0.5) return false;
-            // Check if any typed token (≥4 chars) appears in the
-            // matched name or full place_name. "Port Moselle" tokens =
-            // ["port", "moselle"]. If the matched feature is "Port
-            // Moselle Marina" or "Nouméa, Port Moselle, ...", we
-            // accept. If it's "North Carolina" or "Newport, NC USA",
-            // we reject (no overlap with "moselle").
+            // ALL typed tokens (≥4 chars) must appear in the matched
+            // feature's name or place_name. Earlier version used `some`
+            // (any-match), which accepted "Moselle, France" for the
+            // typed query "Port Moselle" — French Moselle contains
+            // "moselle" so it passed even though "port" was missing.
+            // The user wanted Port Moselle in Nouméa, not the French
+            // river region. Strict `every` rejects fuzzy partial
+            // matches and lets the abbreviation-expansion fallback
+            // (which appends ", New Caledonia" for Brisbane users)
+            // produce the correct result.
+            //
+            // Single-token typed inputs (e.g. "Newport") still work —
+            // the every() trivially passes when there's only one
+            // token to check.
             const typedTokens = typed
                 .toLowerCase()
                 .split(/[\s,]+/)
                 .filter((t) => t.length >= 4);
             if (typedTokens.length === 0) return matched.relevance >= 0.7;
             const haystack = `${matched.name} ${matched.placeName || ''}`.toLowerCase();
-            return typedTokens.some((t) => haystack.includes(t));
+            return typedTokens.every((t) => haystack.includes(t));
         };
 
         let results: Array<{
@@ -564,13 +572,34 @@ export const parseLocation = async (
         // Runs when:
         //   - The input had no trailing region code
         //   - OR the bare-name search returned no strong match
+        // The match here also gets the strong-match validation — if
+        // Mapbox returns "Moselle, France" for "Port Moselle, NC"
+        // expanded to "Port Moselle, New Caledonia", we'd still reject
+        // it (no "port" in the matched name) and fall through to
+        // Nominatim.
         if (results.length === 0) {
             const expandedQuery = expandMaritimeAbbreviations(location, proximity);
             if (expandedQuery !== location) {
                 log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
             }
             const expandedResults = await fetchMapboxGeo(expandedQuery);
-            results = expandedResults.slice(0, 1);
+            // Validate against the place portion (strip trailing code
+            // before running the token check) — if the user typed
+            // "Port Moselle, NC", we want every token in "Port Moselle"
+            // to appear in the match, not the whole "Port Moselle, NC"
+            // string (NC won't appear in "Port Moselle Marina, Nouméa").
+            const validateAgainst = placeOnly ?? location;
+            const strong = expandedResults.find((r) =>
+                isStrongMatch(validateAgainst, r as { name: string; placeName?: string; relevance: number }),
+            );
+            if (strong) {
+                results = [strong];
+            } else if (expandedResults.length > 0) {
+                // No strong match — log and continue to Nominatim.
+                log.warn(
+                    `[geocoding] expanded "${expandedQuery}" returned weak match "${expandedResults[0].placeName ?? expandedResults[0].name}" — falling through`,
+                );
+            }
         }
 
         // FALLBACK: Nominatim (OSS, commercial use permitted with attribution)
