@@ -9,6 +9,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { WatchAssignmentService, type WatchAssignment } from '../../services/WatchAssignmentService';
+import { getMyCrew, type CrewMember } from '../../services/CrewService';
+import { WatchAssignSheet } from './WatchAssignSheet';
+import { supabase } from '../../services/supabase';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -100,6 +104,83 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
     const { syncCheck } = useReadinessSync(voyageId, 'watch_schedule', checkedItems, setCheckedItems, STORAGE_KEY);
 
     const schedule = useMemo(() => generateWatchSchedule(crewCount), [crewCount]);
+
+    // ── Watch assignments ──
+    // Each watch slot can be assigned to a specific crew member.
+    // Assignments persist per voyage in Supabase (table:
+    // watch_assignments) with localStorage mirror for offline use.
+    // The skipper taps a watch row to open the assignment sheet,
+    // picks a crew member, and the slot updates immediately.
+    const [assignments, setAssignments] = useState<Map<number, WatchAssignment>>(new Map());
+    const [crew, setCrew] = useState<CrewMember[]>([]);
+    const [skipperEmail, setSkipperEmail] = useState<string | undefined>(undefined);
+    const [assignSheetIndex, setAssignSheetIndex] = useState<number | null>(null);
+
+    // Load assignments + crew on mount / voyage change
+    useEffect(() => {
+        if (!voyageId) {
+            setAssignments(new Map());
+            setCrew([]);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const [list, myCrew, userResp] = await Promise.all([
+                    WatchAssignmentService.list(voyageId),
+                    getMyCrew(voyageId),
+                    supabase ? supabase.auth.getUser() : Promise.resolve({ data: { user: null } }),
+                ]);
+                if (cancelled) return;
+                const map = new Map<number, WatchAssignment>();
+                for (const a of list) map.set(a.watch_index, a);
+                setAssignments(map);
+                setCrew(myCrew);
+                setSkipperEmail(userResp.data.user?.email ?? undefined);
+            } catch {
+                /* non-critical — UI shows generic placeholders */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [voyageId]);
+
+    const handleAssign = useCallback(
+        async (email: string | null, name: string | null) => {
+            if (!voyageId || assignSheetIndex == null) return;
+            const slot = schedule.watches[assignSheetIndex];
+            if (!slot) return;
+
+            if (email == null) {
+                // Clear assignment
+                await WatchAssignmentService.clear(voyageId, assignSheetIndex);
+                setAssignments((prev) => {
+                    const next = new Map(prev);
+                    next.delete(assignSheetIndex);
+                    return next;
+                });
+            } else {
+                const updated = await WatchAssignmentService.assign(
+                    voyageId,
+                    assignSheetIndex,
+                    slot.label,
+                    slot.time,
+                    email,
+                    name,
+                );
+                if (updated) {
+                    setAssignments((prev) => {
+                        const next = new Map(prev);
+                        next.set(assignSheetIndex, updated);
+                        return next;
+                    });
+                }
+            }
+            triggerHaptic('medium');
+        },
+        [voyageId, assignSheetIndex, schedule.watches],
+    );
     const allChecked = CHECKLIST_ITEMS.every((item) => checkedItems[item.key]);
     const checkedCount = CHECKLIST_ITEMS.filter((item) => checkedItems[item.key]).length;
 
@@ -154,19 +235,45 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     )}
                 </div>
 
-                {/* Watch rotation table */}
+                {/* Watch rotation table — each row tappable to open
+                    the crew assignment sheet. Assigned slots show the
+                    crew member's display name; unassigned slots fall
+                    back to the auto-generated placeholder ("Watch A"
+                    etc) with a subtle "Tap to assign" hint. */}
                 <div className="space-y-1">
-                    {schedule.watches.map((w, i) => (
-                        <div
-                            key={i}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-white/[0.03] border border-white/[0.04]"
-                        >
-                            <div className={`w-2 h-2 rounded-full ${i % 2 === 0 ? 'bg-sky-400' : 'bg-purple-400'}`} />
-                            <span className="text-xs font-bold text-white flex-1">{w.label}</span>
-                            <span className="text-xs text-gray-400 font-mono">{w.time}</span>
-                            <span className="text-[11px] text-indigo-300 font-semibold">{w.crew}</span>
-                        </div>
-                    ))}
+                    {schedule.watches.map((w, i) => {
+                        const assignment = assignments.get(i);
+                        const isAssigned = !!assignment?.assigned_crew_email;
+                        return (
+                            <button
+                                key={i}
+                                type="button"
+                                onClick={() => setAssignSheetIndex(i)}
+                                disabled={!voyageId}
+                                aria-label={`Assign ${w.label} (${w.time})`}
+                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg border text-left transition-all ${
+                                    isAssigned
+                                        ? 'bg-indigo-500/15 border-indigo-500/30 hover:bg-indigo-500/20 active:scale-[0.98]'
+                                        : 'bg-white/[0.03] border-white/[0.04] hover:bg-white/[0.05] active:scale-[0.98]'
+                                } ${!voyageId ? 'opacity-50 cursor-default' : ''}`}
+                            >
+                                <div
+                                    className={`w-2 h-2 rounded-full ${i % 2 === 0 ? 'bg-sky-400' : 'bg-purple-400'}`}
+                                />
+                                <span className="text-xs font-bold text-white flex-1 truncate">{w.label}</span>
+                                <span className="text-xs text-gray-400 font-mono">{w.time}</span>
+                                {isAssigned ? (
+                                    <span className="text-[11px] text-indigo-200 font-bold truncate max-w-[100px]">
+                                        👤 {assignment!.assigned_crew_name ?? assignment!.assigned_crew_email}
+                                    </span>
+                                ) : (
+                                    <span className="text-[11px] text-gray-500 italic">
+                                        {voyageId ? 'Tap to assign' : w.crew}
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
 
@@ -233,6 +340,23 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                     })}
                 </div>
             </div>
+
+            {/* ── Watch Assignment Sheet ──
+                Triggered by tapping a watch row above. Lists the
+                voyage's accepted crew + skipper; selection upserts
+                an assignment and refreshes the row in-place. */}
+            {assignSheetIndex != null && schedule.watches[assignSheetIndex] && (
+                <WatchAssignSheet
+                    open={assignSheetIndex != null}
+                    onClose={() => setAssignSheetIndex(null)}
+                    watchLabel={schedule.watches[assignSheetIndex].label}
+                    watchTimeLabel={schedule.watches[assignSheetIndex].time}
+                    currentEmail={assignments.get(assignSheetIndex)?.assigned_crew_email ?? null}
+                    crew={crew}
+                    skipperEmail={skipperEmail}
+                    onAssign={handleAssign}
+                />
+            )}
         </div>
     );
 };
