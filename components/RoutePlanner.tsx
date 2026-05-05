@@ -35,6 +35,7 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         setDestination,
         departureDate,
         setDepartureDate,
+        handleDateChange,
         isMapOpen,
         setIsMapOpen,
         mapSelectionTarget,
@@ -302,7 +303,16 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                             value={departureDate}
                             onChange={(e) => {
                                 const d = e.target.value;
-                                if (!minDate || d >= minDate) setDepartureDate(d);
+                                if (!minDate || d >= minDate) {
+                                    // handleDateChange updates form state
+                                    // AND syncs the new date through to
+                                    // the active voyage record (if any)
+                                    // so the Passage Summary, Crew
+                                    // Management dropdown, etc. all
+                                    // reflect the change immediately
+                                    // without requiring a re-Calculate.
+                                    handleDateChange(d);
+                                }
                             }}
                             onFocus={handleInputFocus}
                             aria-label="Departure date"
