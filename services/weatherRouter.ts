@@ -198,12 +198,19 @@ export async function enhanceVoyagePlanWithWeather(
     vessel: VesselProfile,
     departureTime: string,
 ): Promise<VoyagePlan> {
-    if (!voyagePlan.waypoints || voyagePlan.waypoints.length < 1) {
-        return voyagePlan;
-    }
-
-    // Build centerline — prefer detailed routeGeoJSON from bathymetric enhancement
-    // over sparse AI waypoints, so routes follow actual waterway geometry
+    // ── Centerline construction ──
+    // Priority order:
+    //   1. routeGeoJSON (best — bathymetric router has populated it with
+    //      hundreds of depth-safe points hugging real waterways)
+    //   2. Named waypoints (AI/user supplied named turn-points)
+    //   3. Plain origin → destination great-circle endpoints
+    //
+    // Previously this function bailed early when waypoints was empty,
+    // which prevented weather routing on plans built by the deterministic
+    // computeVoyagePlan (which seeds an empty waypoints array). The
+    // weather edge function only needs ≥2 centerline points to build a
+    // corridor — origin + destination is enough for it to start, and the
+    // bathymetric step usually runs first to fill in routeGeoJSON anyway.
     const centerline: { lat: number; lon: number; depth_m?: number; name?: string }[] = [];
 
     const routeGeoJSON = voyagePlan.routeGeoJSON;
@@ -221,7 +228,9 @@ export async function enhanceVoyagePlanWithWeather(
             centerline[centerline.length - 1].name = voyagePlan.destination;
         }
     } else {
-        // Fallback: use sparse AI waypoints
+        // Fallback: build from origin + named waypoints + destination.
+        // Works whether waypoints is empty (origin → destination direct)
+        // or populated (origin → wp1 → wp2 → destination).
         if (voyagePlan.originCoordinates) {
             centerline.push({
                 lat: voyagePlan.originCoordinates.lat,
@@ -230,7 +239,7 @@ export async function enhanceVoyagePlanWithWeather(
             });
         }
 
-        for (const wp of voyagePlan.waypoints) {
+        for (const wp of voyagePlan.waypoints || []) {
             if (wp.coordinates) {
                 centerline.push({
                     lat: wp.coordinates.lat,
