@@ -70,6 +70,43 @@ function trimCountrySuffix(name: string): string {
     return parts.join(', ');
 }
 
+/**
+ * Parse a human-readable duration string back to hours.
+ *
+ * Handles all the formats the formatter produces:
+ *   "5 hours"  → 5
+ *   "23 hours" → 23
+ *   "5 days"   → 120
+ *   "5d 9h"    → 129
+ *   "144h"     → 144
+ *
+ * The old `parseFloat(durationApprox)` collapsed "5 days" to 5 (treated
+ * as hours), making the saved voyage's eta come out at depDate + 5
+ * hours instead of 5 days. Then weather-window accept flows that
+ * preserved (newEta - newDep) = (oldEta - oldDep) compounded the bad
+ * delta until the displayed duration was nonsense like "74d 11h".
+ *
+ * Returns null if no number parsed (caller falls back to a default).
+ */
+function parseDurationToHours(s: string | undefined | null): number | null {
+    if (!s || typeof s !== 'string') return null;
+    const trimmed = s.trim().toLowerCase();
+    // "Xd Yh" — captures both day and hour components
+    const dh = trimmed.match(/^(\d+(?:\.\d+)?)\s*d(?:ays?)?(?:\s+(\d+(?:\.\d+)?)\s*h(?:ours?)?)?\s*$/);
+    if (dh) {
+        const days = parseFloat(dh[1]);
+        const hours = dh[2] ? parseFloat(dh[2]) : 0;
+        return days * 24 + hours;
+    }
+    // "X hours" / "X h"
+    const h = trimmed.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?)?\s*$/);
+    if (h) return parseFloat(h[1]);
+    // Bare number — assume hours (back-compat)
+    const bare = trimmed.match(/^(\d+(?:\.\d+)?)\s*$/);
+    if (bare) return parseFloat(bare[1]);
+    return null;
+}
+
 /** Produce a YYYY-MM-DD day key from an ISO timestamp or Date. */
 function dayKey(iso: string | number | Date): string {
     const d = new Date(iso);
@@ -195,8 +232,15 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
             // Timestamps: spread entries over the estimated duration
             const depDate = plan.departureDate ? new Date(plan.departureDate) : new Date();
             const fraction = allPoints.length > 1 ? i / (allPoints.length - 1) : 0;
-            // Rough duration estimate: parse from plan or default 12h
-            const durationHrs = parseFloat(plan.durationApprox) || 12;
+            // Rough duration estimate: parse from plan or default 12h.
+            // plan.durationApprox is one of "X hours" / "Xd Yh" /
+            // "X days". The old code did `parseFloat(plan.durationApprox)`
+            // which extracts the leading number — meaning "5 days"
+            // resolved to 5 HOURS (not 120 hours), and "5d 9h" to 5
+            // hours. That's why a 6-day passage showed as 6h in the
+            // saved voyage's eta and "74d 11h" once a weather-window
+            // accept compounded the error through old/new diff math.
+            const durationHrs = parseDurationToHours(plan.durationApprox) ?? 12;
             const entryTime = new Date(depDate.getTime() + fraction * durationHrs * 3600000);
 
             // Store the full bathymetric route geometry on the first
