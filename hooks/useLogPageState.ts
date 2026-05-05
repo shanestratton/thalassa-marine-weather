@@ -221,8 +221,6 @@ export function useLogPageState() {
 
     // ── Initialization ──────────────────────────────────────────────────────
 
-    const ARCHIVE_AGE_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
     const loadData = useCallback(async () => {
         const status = ShipLogService.getTrackingStatus();
         const voyageId = ShipLogService.getCurrentVoyageId();
@@ -263,31 +261,25 @@ export function useLogPageState() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // ── One-time auto-archive of old voyages (>30 days) ──
-    // Runs ONCE after initial load, never during polling.
-    const hasAutoArchived = useRef(false);
-
-    useEffect(() => {
-        if (hasAutoArchived.current) return;
-        if (state.loading || state.entries.length === 0) return;
-
-        hasAutoArchived.current = true;
-        const now = Date.now();
-        const voyages = groupEntriesByVoyage(state.entries);
-
-        for (const v of voyages) {
-            // Find the MOST RECENT entry in the voyage
-            const newestTimestamp = Math.max(...v.entries.map((e) => new Date(e.timestamp).getTime()));
-            if (newestTimestamp > 0 && now - newestTimestamp > ARCHIVE_AGE_MS) {
-                ShipLogService.archiveVoyage(v.voyageId)
-                    .then(() => loadData())
-                    .catch((e) => {
-                        console.warn(`[useLogPageState]`, e);
-                    });
-            }
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [state.loading, state.entries.length]);
+    // Auto-archive REMOVED 2026-05-05.
+    //
+    // Previously: a one-shot sweep on every LogPage mount that
+    // archived any voyage whose newest entry was > 30 days old. The
+    // policy was wrong for the user's actual workflow — bluewater
+    // cruisers can easily go a month between passages, sail
+    // seasonally, or save a planned route weeks before departing.
+    // Tracks were "randomly" disappearing because the sweep fired
+    // every time the user opened the Ship's Log.
+    //
+    // Manual archive (handleArchiveVoyage / the row's archive button
+    // in LogPage) still works. Archiving is now a deliberate action,
+    // not an opaque background process.
+    //
+    // If we ever want auto-archive back, it should:
+    //   - require voyage.status === 'completed' (not just stale entries)
+    //   - run on a much longer threshold (1+ year)
+    //   - be opt-in via a setting
+    //   - announce itself with a toast / undo affordance
 
     // Reusable career + archive data refresh
     const reloadCareerData = useCallback(() => {
