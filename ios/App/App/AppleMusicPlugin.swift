@@ -2,6 +2,8 @@ import Foundation
 import Capacitor
 import MusicKit
 import AVFoundation
+import MediaPlayer
+import UIKit
 
 /**
  * AppleMusicPlugin — MusicKit-based Apple Music control for Calypso.
@@ -71,6 +73,18 @@ public class AppleMusicPlugin: CAPPlugin {
     // object without re-running MusicCatalogSearchRequest. Same `Any`
     // erasure as above for @available compatibility.
     private var catalogSongCache: [String: Any] = [:]
+
+    // ── Now-playing artwork data-URL cache ──────────────────────────
+    // For library tracks, MusicKit's Artwork.url() returns a private
+    // musicKit:// scheme that WKWebView can't load via <img>. We
+    // resolve those to a JPEG data: URL via MPMediaItemArtwork, then
+    // cache so the 2-second now-playing poll doesn't re-encode the
+    // same image hundreds of times. Keyed by track persistentID
+    // (string-cast). Capped at MAX_ARTWORK_CACHE entries to avoid
+    // unbounded growth.
+    private var artworkDataUrlCache: [String: String] = [:]
+    private var artworkCacheOrder: [String] = []
+    private let maxArtworkCache = 20
 
     @available(iOS 15.0, *)
     private func cachePlaylist(id: String, name: String, tracks: [Track]) {
@@ -1306,8 +1320,44 @@ public class AppleMusicPlugin: CAPPlugin {
             default:
                 break
             }
+
+            // For library tracks, MusicKit's Artwork.url() returns a
+            // `musicKit://` scheme URL that WKWebView's <img> can't
+            // load. Detect that, resolve through MPMusicPlayerController
+            // (which gives us a UIImage we can JPEG-encode and pass as
+            // a data: URL), and replace the unloadable URL with the
+            // data URL the WebView can render directly. Cache by
+            // persistent ID so we encode once per track, not every poll.
+            if artworkUrl.hasPrefix("musicKit://") || artworkUrl.isEmpty {
+                let item = MPMusicPlayerController.systemMusicPlayer.nowPlayingItem
+                if let mediaItem = item {
+                    let cacheKey = String(mediaItem.persistentID)
+                    if let cached = self.artworkDataUrlCache[cacheKey] {
+                        artworkUrl = cached
+                        artworkSource = "mpmedia-cached"
+                    } else if let mpArtwork = mediaItem.artwork,
+                              let image = mpArtwork.image(at: CGSize(width: 240, height: 240)),
+                              let data = image.jpegData(compressionQuality: 0.85) {
+                        let dataUrl = "data:image/jpeg;base64,\(data.base64EncodedString())"
+                        self.artworkDataUrlCache[cacheKey] = dataUrl
+                        self.artworkCacheOrder.append(cacheKey)
+                        // Trim cache to max size — drop oldest entries.
+                        while self.artworkCacheOrder.count > self.maxArtworkCache {
+                            let oldest = self.artworkCacheOrder.removeFirst()
+                            self.artworkDataUrlCache.removeValue(forKey: oldest)
+                        }
+                        artworkUrl = dataUrl
+                        artworkSource = "mpmedia-fresh"
+                    } else if mediaItem.artwork == nil {
+                        artworkSource = "mpmedia-no-artwork"
+                    } else {
+                        artworkSource = "mpmedia-decode-failed"
+                    }
+                }
+            }
+
             NSLog(
-                "[AppleMusic] nowPlaying: title='\(title)' artist='\(artist)' artworkSource=\(artworkSource) url=\(artworkUrl.isEmpty ? "<empty>" : artworkUrl)"
+                "[AppleMusic] nowPlaying: title='\(title)' artist='\(artist)' artworkSource=\(artworkSource) urlBytes=\(artworkUrl.count)"
             )
         }
 
