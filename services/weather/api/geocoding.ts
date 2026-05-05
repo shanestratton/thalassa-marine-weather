@@ -311,85 +311,68 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
 };
 
 /**
- * Maritime abbreviation expansion — non-collision codes.
- * These don't conflict with US state codes so they expand unconditionally.
- */
-const MARITIME_ABBREV_UNCONDITIONAL: Record<string, string> = {
-    QLD: 'Queensland, Australia',
-    NSW: 'New South Wales, Australia',
-    VIC: 'Victoria, Australia',
-    TAS: 'Tasmania, Australia',
-    NZ: 'New Zealand',
-};
-
-/**
- * Collision codes — these match BOTH a maritime region AND a US state.
- * They expand to the maritime interpretation only when the user's
- * proximity is in the relevant region (Oceania for AU/NC codes).
+ * Marine query interceptor — expands ambiguous abbreviations into
+ * unambiguous geographic strings before they hit the geocoder.
  *
- *   NC = North Carolina (USA)  vs  Nouvelle-Calédonie (New Caledonia)
- *   WA = Washington (USA)       vs  Western Australia
- *   NT = nothing common in USA  vs  Northern Territory, Australia
- *   SA = nothing common in USA  vs  South Australia
+ * Geocoding APIs are notoriously US-centric: free-text geocoding fails
+ * on marine edge cases because "NC" rigidly maps to North Carolina,
+ * "WA" to Washington, etc. For a marine routing app, the maritime
+ * interpretation is what the user almost always means.
  *
- * Without this, proximity bias alone isn't enough — Mapbox's "NC =
- * North Carolina" signal is so strong that even with proximity hint
- * pointing at Brisbane, it still returns the US match for
- * "Port Moselle, NC". Pre-expanding to "New Caledonia" forces the
- * right country before Mapbox starts guessing.
+ * Word-boundary regex (`\bnc\b`) catches the abbreviation anywhere in
+ * the string, not just at the trailing position — handles "NC, Port
+ * Moselle" or "Port Moselle NC" or just "NC" alone equally well. The
+ * /i flag handles case variations (NC, nc, Nc).
+ *
+ * Note on US-state collisions: these expansions are unconditional, so
+ * a US east coast user typing "Newport, NC" would get "Newport, New
+ * Caledonia" instead of Newport NC USA. For a marine routing app
+ * that's the right default — if a US user really wants Newport NC,
+ * they can spell it as "Newport, North Carolina" or "Newport NC USA"
+ * to bypass the expansion. Marine context wins by default.
  */
-const MARITIME_ABBREV_OCEANIA_COLLISIONS: Record<string, string> = {
-    NC: 'New Caledonia',
-    WA: 'Western Australia',
-    NT: 'Northern Territory, Australia',
-    SA: 'South Australia',
-};
-
-/**
- * Bounding boxes for "is the user in maritime region X?" tests.
- * Oceania: roughly Australia + NZ + New Caledonia + Vanuatu + Fiji.
- * Generous boundaries on purpose — any user planning a passage from
- * within this box should treat the collision codes as maritime.
- */
-const OCEANIA_BBOX = { latMin: -50, latMax: 0, lonMin: 110, lonMax: 180 };
-
-function isInOceania(p: { lat: number; lon: number }): boolean {
-    return (
-        p.lat >= OCEANIA_BBOX.latMin &&
-        p.lat <= OCEANIA_BBOX.latMax &&
-        p.lon >= OCEANIA_BBOX.lonMin &&
-        p.lon <= OCEANIA_BBOX.lonMax
-    );
+interface GeoCorrection {
+    pattern: RegExp;
+    replacement: string;
 }
 
+const MARINE_GEO_CORRECTIONS: GeoCorrection[] = [
+    // Australian states — force the API out of US/UK defaults
+    { pattern: /\b(qld|queensland)\b/i, replacement: 'Queensland, Australia' },
+    { pattern: /\b(nsw)\b/i, replacement: 'New South Wales, Australia' },
+    { pattern: /\b(vic)\b/i, replacement: 'Victoria, Australia' },
+    { pattern: /\b(tas)\b/i, replacement: 'Tasmania, Australia' },
+    { pattern: /\b(wa)\b/i, replacement: 'Western Australia' },
+    { pattern: /\b(nt)\b/i, replacement: 'Northern Territory, Australia' },
+    { pattern: /\b(sa)\b/i, replacement: 'South Australia' },
+    // Pacific Islands often confused with US states / European regions
+    { pattern: /\b(nc)\b/i, replacement: 'New Caledonia' },
+    { pattern: /\b(fp)\b/i, replacement: 'French Polynesia' },
+    { pattern: /\b(fj)\b/i, replacement: 'Fiji' },
+    { pattern: /\b(nz)\b/i, replacement: 'New Zealand' },
+];
+
 /**
- * If the input looks like "Place, ABBR" where ABBR is a known maritime
- * region code, expand it. e.g. "Newport, QLD" → "Newport, Queensland,
- * Australia". Returns the original string if no abbreviation matched.
+ * Sanitise a user-typed location string by expanding known marine
+ * abbreviations into unambiguous geographic strings.
  *
- * For codes that collide with US state codes (NC/WA/NT/SA), expand
- * only when the user's proximity is in Oceania — otherwise let
- * Mapbox handle the disambiguation (the user is probably in the USA
- * and means the state).
+ * Examples:
+ *   "Port Moselle, NC"  → "Port Moselle, New Caledonia"
+ *   "Newport, QLD"      → "Newport, Queensland, Australia"
+ *   "Manly, WA"         → "Manly, Western Australia"
+ *   "Lautoka, FJ"       → "Lautoka, Fiji"
+ *
+ * Pure transformation — no API calls, no state. Designed by Shane's
+ * colleague after the place-name-first / token-validation /
+ * proximity-sort approach proved too clever for its own good.
  */
-function expandMaritimeAbbreviations(location: string, proximity?: { lat: number; lon: number }): string {
-    const m = location.match(/^(.+?),\s*([A-Z]{2,4})\s*$/);
-    if (!m) return location;
-    const place = m[1].trim();
-    const abbr = m[2].toUpperCase();
-
-    // Tier 1: unconditional expansions (no US-state collision)
-    if (MARITIME_ABBREV_UNCONDITIONAL[abbr]) {
-        return `${place}, ${MARITIME_ABBREV_UNCONDITIONAL[abbr]}`;
-    }
-
-    // Tier 2: collision codes — expand only when proximity is in Oceania
-    if (proximity && isInOceania(proximity) && MARITIME_ABBREV_OCEANIA_COLLISIONS[abbr]) {
-        return `${place}, ${MARITIME_ABBREV_OCEANIA_COLLISIONS[abbr]}`;
-    }
-
-    return location;
-}
+export const sanitizeLocationQuery = (userInput: string): string => {
+    let safeQuery = userInput.trim();
+    MARINE_GEO_CORRECTIONS.forEach(({ pattern, replacement }) => {
+        safeQuery = safeQuery.replace(pattern, replacement);
+    });
+    return safeQuery;
+};
 
 export const parseLocation = async (
     location: string,
@@ -449,41 +432,51 @@ export const parseLocation = async (
             name = location;
         }
     } else {
-        // 4. Forward geocode via Mapbox (commercial, licensed)
+        // ── Forward geocode via Mapbox (commercial, licensed) ──
+        // Architecture per Shane's colleague (2026-05-05):
+        //
+        //   1. Pre-process the user's typed string with sanitizeLocationQuery
+        //      to expand marine abbreviations into unambiguous geo strings
+        //      ("NC" → "New Caledonia", "QLD" → "Queensland, Australia").
+        //   2. Pass the cleaned query to Mapbox with proximity bias from
+        //      the user's current GPS as a soft secondary signal.
+        //
+        // No place-name-stripping, no token validation, no proximity-sort
+        // fallback. The pre-processor does the disambiguation work
+        // upfront so Mapbox never has a chance to make a US-centric guess.
+        const cleanedQuery = sanitizeLocationQuery(location);
+        if (cleanedQuery !== location) {
+            log.info(`[geocoding] sanitised "${location}" → "${cleanedQuery}"`);
+        }
 
         const fetchMapboxGeo = async (query: string) => {
             try {
                 const mapboxKey = getMapboxKey();
                 if (!mapboxKey) return [];
-                // Proximity bias: when the user has a current GPS fix,
-                // pass it as `proximity=lon,lat` so Mapbox returns the
-                // closest interpretation of ambiguous queries. e.g. for
-                // a user in Brisbane typing "Newport", proximity bias
-                // resolves to Newport, Queensland (just up the coast)
-                // rather than Newport News VA (Mapbox's global default).
+                // Proximity bias: GPS coords as `proximity=lon,lat` —
+                // a soft hint to Mapbox to favour the user's hemisphere
+                // when results are otherwise ambiguous.
                 const proxParam = proximity ? `&proximity=${proximity.lon},${proximity.lat}` : '';
                 const res = await CapacitorHttp.get({
-                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=3&language=en&access_token=${mapboxKey}${proxParam}`,
+                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}${proxParam}`,
                 });
                 if (!res || !res.data) return [];
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
                 if (data?.features?.length) {
-                    return data.features.map((f: Record<string, unknown> & { context?: { id: string }[] }) => {
-                        const ctx = (f.context as { id: string; text?: string; short_code?: string }[]) || [];
-                        const regionCtx = ctx.find((c) => c.id.startsWith('region'));
-                        const countryCtx = ctx.find((c) => c.id.startsWith('country'));
-                        const center = f.center as [number, number];
-                        return {
-                            latitude: center[1],
-                            longitude: center[0],
-                            name: (f.text as string) || (f.place_name as string)?.split(',')[0],
-                            placeName: f.place_name as string, // full "Place, Region, Country"
-                            relevance: (f.relevance as number) ?? 0,
+                    const f = data.features[0];
+                    const ctx = f.context || [];
+                    const regionCtx = ctx.find((c: { id: string }) => c.id.startsWith('region'));
+                    const countryCtx = ctx.find((c: { id: string }) => c.id.startsWith('country'));
+                    return [
+                        {
+                            latitude: f.center[1],
+                            longitude: f.center[0],
+                            name: f.text || f.place_name?.split(',')[0],
                             admin1: regionCtx?.text || '',
                             country_code: countryCtx ? (countryCtx.short_code || '').toUpperCase() : '',
                             timezone: undefined as string | undefined,
-                        };
-                    });
+                        },
+                    ];
                 }
                 return [];
             } catch (e) {
@@ -492,124 +485,16 @@ export const parseLocation = async (
             }
         };
 
-        // ── Strategy: expanded-query-first, bare-name fallback ──
-        //
-        // Two failure modes we need to handle simultaneously:
-        //
-        //   A. "Port Moselle, NC" (Brisbane user) — Mapbox treats NC as
-        //      a hard region filter. No Port Moselle exists in NC USA,
-        //      so Mapbox returns garbage US matches.
-        //   B. "Newport, QLD" — common place name. If we strip QLD and
-        //      search bare "Newport", Mapbox returns Newport News VA
-        //      (most populous globally) and proximity bias isn't
-        //      strong enough to flip that to Newport, Queensland.
-        //
-        // Solution: try the abbreviation-expanded query FIRST (so QLD
-        // gets expanded to "Queensland, Australia" and the Mapbox
-        // index restricts to that region — Newport QLD wins). Validate
-        // the result. If validation fails (Port Moselle, NC scenario
-        // — no real match for the expanded query), strip the region
-        // code, search bare-name, and sort the candidates by distance
-        // from the user's GPS. The closest one passing token
-        // validation wins (Port Moselle Nouméa ~1100 NM beats Moselle
-        // France ~8000 NM).
-        const stripRegionCode = (loc: string): string | null => {
-            const m = loc.match(/^(.+?),\s*[A-Z]{2,4}\s*$/);
-            return m ? m[1].trim() : null;
-        };
+        let results = await fetchMapboxGeo(cleanedQuery);
 
-        const isStrongMatch = (typed: string, matched: { name: string; placeName?: string; relevance: number }) => {
-            if (matched.relevance < 0.5) return false;
-            // ALL typed tokens (≥4 chars) must appear in the matched
-            // feature's name or place_name. Earlier version used `some`
-            // (any-match) which accepted "Moselle, France" for typed
-            // "Port Moselle" — strict `every` rejects partial matches.
-            const typedTokens = typed
-                .toLowerCase()
-                .split(/[\s,]+/)
-                .filter((t) => t.length >= 4);
-            if (typedTokens.length === 0) return matched.relevance >= 0.7;
-            const haystack = `${matched.name} ${matched.placeName || ''}`.toLowerCase();
-            return typedTokens.every((t) => haystack.includes(t));
-        };
-
-        /**
-         * Distance² in degree-space — only used for sorting candidates,
-         * exact metric distance not required. At small sort scales the
-         * lat/lon Euclidean is monotonically equivalent to haversine.
-         */
-        const distSq = (a: { latitude: number; longitude: number }, p: { lat: number; lon: number }) => {
-            const dLat = a.latitude - p.lat;
-            const dLon = a.longitude - p.lon;
-            return dLat * dLat + dLon * dLon;
-        };
-
-        let results: Array<{
-            latitude: number;
-            longitude: number;
-            name: string;
-            admin1: string;
-            country_code: string;
-            timezone: string | undefined;
-            placeName?: string;
-            relevance?: number;
-        }> = [];
-
-        const placeOnly = stripRegionCode(location);
-
-        // ── Pass 1: abbreviation-expanded query ──
-        // For "Newport, QLD" → "Newport, Queensland, Australia". For
-        // "Port Moselle, NC" + Oceania user → "Port Moselle, New
-        // Caledonia". For codes outside the table (US states, gibberish)
-        // → unchanged. This is the happy path for most user inputs.
-        const expandedQuery = expandMaritimeAbbreviations(location, proximity);
-        if (expandedQuery !== location) {
-            log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
-        }
-        const expandedResults = await fetchMapboxGeo(expandedQuery);
-        // Validate against the place portion of the typed input.
-        // "Newport, QLD" → validate against "Newport". "Port Moselle, NC"
-        // → validate against "Port Moselle". The trailing region code
-        // is metadata, not part of the place name we're verifying.
-        const validateAgainst = placeOnly ?? location;
-        const expandedStrong = expandedResults.find((r) =>
-            isStrongMatch(validateAgainst, r as { name: string; placeName?: string; relevance: number }),
-        );
-        if (expandedStrong) {
-            log.info(`[geocoding] expanded → "${expandedStrong.placeName ?? expandedStrong.name}"`);
-            results = [expandedStrong];
-        }
-
-        // ── Pass 2: bare-name search (sorted by proximity) ──
-        // Runs when:
-        //   - Input had a trailing region code, AND
-        //   - Pass 1 didn't produce a strong match
-        // Sort candidates by distance from the user's GPS so the
-        // geographically-closest valid match wins (Port Moselle Nouméa
-        // beats Moselle France for a Brisbane user).
-        if (results.length === 0 && placeOnly) {
-            const placeOnlyResults = await fetchMapboxGeo(placeOnly);
-            const sorted = proximity
-                ? [...placeOnlyResults].sort((a, b) => distSq(a, proximity) - distSq(b, proximity))
-                : placeOnlyResults;
-            const strong = sorted.find((r) =>
-                isStrongMatch(placeOnly, r as { name: string; placeName?: string; relevance: number }),
-            );
-            if (strong) {
-                log.info(`[geocoding] bare-name "${placeOnly}" → "${strong.placeName ?? strong.name}"`);
-                results = [strong];
-            } else if (placeOnlyResults.length > 0) {
-                log.warn(
-                    `[geocoding] bare-name "${placeOnly}" returned no strong match — falling through to Nominatim`,
-                );
-            }
-        }
-
-        // FALLBACK: Nominatim (OSS, commercial use permitted with attribution)
+        // FALLBACK: Nominatim (OSS, commercial use permitted with attribution).
+        // Also receives the sanitised query — Nominatim has the same
+        // US-centric defaults Mapbox does, so the marine-abbreviation
+        // pre-processor benefits both.
         if (!results || results.length === 0) {
             try {
                 const res = await CapacitorHttp.get({
-                    url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(location)}&format=json&limit=1`,
+                    url: `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanedQuery)}&format=json&limit=1`,
                     headers: { 'User-Agent': 'ThalassaMarine/1.0' },
                 });
 
