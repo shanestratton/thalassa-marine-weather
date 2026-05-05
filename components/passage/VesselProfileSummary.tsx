@@ -46,10 +46,26 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ onRe
         );
     }
 
+    // Round for display — the underlying values often come from unit
+    // conversions in VesselTab (ft↔m, kts↔kmh, etc) which produce
+    // unrounded floats like 28.29387293879872 or 7.86743434349... The
+    // raw stored value is preserved for routing math; this is only
+    // for the summary string.
+    //
+    //   length        → integer (boats are typically whole feet/m)
+    //   cruisingSpeed → 1 dp
+    //   draft         → 1 dp (matches VesselTab's input granularity)
+    const fmtInt = (n: number) => Math.round(n).toString();
+    const fmt1 = (n: number) => {
+        const r = Math.round(n * 10) / 10;
+        // Drop trailing .0 — "6 kt" reads cleaner than "6.0 kt"
+        return Number.isInteger(r) ? r.toString() : r.toFixed(1);
+    };
+
     const typeLabel = vessel.type === 'sail' ? 'Sail' : vessel.type === 'power' ? 'Power' : 'Observer';
-    const lengthDisplay = vessel.length ? `${vessel.length}ft` : '';
-    const speedDisplay = vessel.cruisingSpeed ? `${vessel.cruisingSpeed}kt cruise` : '';
-    const draftDisplay = vessel.draft ? `${vessel.draft}m draft` : '';
+    const lengthDisplay = vessel.length ? `${fmtInt(vessel.length)} ft` : '';
+    const speedDisplay = vessel.cruisingSpeed ? `${fmt1(vessel.cruisingSpeed)} kt cruise` : '';
+    const draftDisplay = vessel.draft ? `${fmt1(vessel.draft)} m draft` : '';
     const summaryParts = [typeLabel, lengthDisplay, speedDisplay, draftDisplay].filter(Boolean);
 
     return (
