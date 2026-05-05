@@ -1018,12 +1018,21 @@ public class AppleMusicPlugin: CAPPlugin {
                         "song_artist": song.artistName,
                     ])
                 }
-            } catch {
-                NSLog("[AppleMusic] addSongToPlaylist failed: \(error)")
+            } catch let nsError as NSError {
+                NSLog("[AppleMusic] addSongToPlaylist failed: \(nsError)")
+                // MPErrorDomain Code 5 ("The requested action is not
+                // supported") is what MusicKit returns when third-party
+                // apps try to mutate a library playlist's tracks.
+                // Apple deliberately restricts playlist editing to their
+                // own Music app. Surface this distinctly so the UI can
+                // pivot to "open in Apple Music" instead of just showing
+                // a generic failure.
+                let isNotSupported = nsError.domain == "MPErrorDomain" && nsError.code == 5
                 await MainActor.run {
                     call.resolve([
-                        "status": "error",
-                        "error": String(describing: error),
+                        "status": isNotSupported ? "not_supported" : "error",
+                        "error": nsError.localizedDescription,
+                        "song_id": songId,
                     ])
                 }
             }

@@ -278,22 +278,41 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     /** Add a single song from catalog search to the currently-open
      *  playlist. Returns success/failure so the AddTracksSheet can
      *  show per-row feedback (added / failed). */
+    /**
+     * Add a song to the open detail-sheet playlist. Returns one of:
+     *   "added"     — direct in-app add succeeded (forward-compatible
+     *                 if Apple ever allows third-party playlist edits)
+     *   "redirect"  — Apple's API doesn't allow it; we opened the
+     *                 song's page in the Apple Music app so the user
+     *                 can long-press → Add to Playlist there
+     *   "failed"    — anything else (network, search miss, etc.)
+     */
     const handleAddSongToPlaylist = useCallback(
-        async (songId: string): Promise<boolean> => {
-            if (!detailPlaylist) return false;
+        async (songId: string): Promise<'added' | 'redirect' | 'failed'> => {
+            if (!detailPlaylist) return 'failed';
             const r = await addSongToPlaylist(songId, detailPlaylist.id);
             if (r.success) {
                 triggerHaptic('light');
-                // Refresh the cached track list so a re-open of the
-                // detail sheet shows the freshly-added track. The
-                // current sheet is hidden behind the AddTracksSheet
-                // anyway — when the skipper closes the add sheet,
-                // detail is still showing the OLD list. We update it
-                // here by appending the fresh track so they see it
-                // straight away.
-                return true;
+                return 'added';
             }
-            return false;
+            if (r.notSupported) {
+                // Apple doesn't allow third-party apps to mutate
+                // library playlist tracks. Open Apple Music to the
+                // song so the user can long-press → Add to Playlist
+                // there. The system handles the deep link.
+                triggerHaptic('medium');
+                try {
+                    window.location.href = `music://music.apple.com/song/${encodeURIComponent(songId)}`;
+                } catch {
+                    try {
+                        window.open(`music://music.apple.com/song/${encodeURIComponent(songId)}`, '_system');
+                    } catch {
+                        /* best-effort */
+                    }
+                }
+                return 'redirect';
+            }
+            return 'failed';
         },
         [detailPlaylist],
     );
@@ -837,9 +856,12 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
 interface AddTracksSheetProps {
     playlistName: string;
     onClose: () => void;
-    /** Add a single song to the parent playlist. Returns true on
-     *  success so the row can render an "added" checkmark. */
-    onAddSong: (songId: string) => Promise<boolean>;
+    /** Try to add a song. Returns one of:
+     *    "added"    — direct add succeeded
+     *    "redirect" — Apple doesn't allow it; the parent already
+     *                 opened the song in Apple Music app for manual add
+     *    "failed"   — generic failure */
+    onAddSong: (songId: string) => Promise<'added' | 'redirect' | 'failed'>;
 }
 
 const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, onAddSong }) => {
@@ -847,10 +869,15 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
     const [results, setResults] = useState<CatalogSongResult[]>([]);
     const [searching, setSearching] = useState(false);
     const [searchError, setSearchError] = useState<string | null>(null);
-    /** Tracks per-row state: which song is currently being added, and
-     *  which songs have completed successfully (so we show a check). */
+    /** Per-row state: which song is currently in flight, which were
+     *  added successfully (green check), and which redirected to
+     *  Apple Music (amber arrow). */
     const [addingId, setAddingId] = useState<string | null>(null);
     const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+    const [redirectedIds, setRedirectedIds] = useState<Set<string>>(new Set());
+    /** One-time banner explaining Apple's limitation, shown after the
+     *  first redirect of this session. */
+    const [showRedirectExplain, setShowRedirectExplain] = useState(false);
     const [mounted, setMounted] = useState(false);
     const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -913,17 +940,20 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
 
     const handleAdd = useCallback(
         async (songId: string) => {
-            if (addingId || addedIds.has(songId)) return;
+            if (addingId || addedIds.has(songId) || redirectedIds.has(songId)) return;
             setAddingId(songId);
-            const ok = await onAddSong(songId);
+            const outcome = await onAddSong(songId);
             setAddingId(null);
-            if (ok) {
+            if (outcome === 'added') {
                 setAddedIds((prev) => new Set([...prev, songId]));
+            } else if (outcome === 'redirect') {
+                setRedirectedIds((prev) => new Set([...prev, songId]));
+                setShowRedirectExplain(true);
             } else {
                 setSearchError("Couldn't add that track");
             }
         },
-        [addingId, addedIds, onAddSong],
+        [addingId, addedIds, redirectedIds, onAddSong],
     );
 
     return (
@@ -995,12 +1025,21 @@ const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, 
                             <span className="text-white/60">"{playlistName}"</span>.
                         </div>
                     )}
+                    {showRedirectExplain && (
+                        <div className="mx-2 mb-3 px-3 py-2.5 rounded-lg bg-amber-500/10 border border-amber-400/30 text-amber-200 text-xs leading-relaxed">
+                            Apple doesn't allow apps to add songs straight into your playlists — only their Music app
+                            can. Tapping a song opens it in Apple Music, where you can long-press and pick{' '}
+                            <strong className="text-amber-100">Add to a Playlist → "{playlistName}"</strong>. We'll
+                            refresh this view when you come back.
+                        </div>
+                    )}
                     {results.map((song) => (
                         <SongResultRow
                             key={song.id}
                             song={song}
                             adding={addingId === song.id}
                             added={addedIds.has(song.id)}
+                            redirected={redirectedIds.has(song.id)}
                             onAdd={() => void handleAdd(song.id)}
                         />
                     ))}
@@ -1014,10 +1053,11 @@ interface SongResultRowProps {
     song: CatalogSongResult;
     adding: boolean;
     added: boolean;
+    redirected: boolean;
     onAdd: () => void;
 }
 
-const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, onAdd }) => {
+const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, redirected, onAdd }) => {
     const [imageFailed, setImageFailed] = useState(false);
     const showRemote = !!song.artworkUrl && !imageFailed;
     return (
@@ -1025,7 +1065,7 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, onAd
             onClick={onAdd}
             disabled={adding || added}
             className={`w-full flex items-center gap-3 px-2 py-2 rounded-xl transition-colors text-left ${
-                added ? 'bg-emerald-500/10' : 'active:bg-white/10'
+                added ? 'bg-emerald-500/10' : redirected ? 'bg-amber-500/10' : 'active:bg-white/10'
             }`}
         >
             <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5">
@@ -1052,6 +1092,8 @@ const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, onAd
                     <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin" />
                 ) : added ? (
                     <CheckIcon className="w-5 h-5 text-emerald-400" />
+                ) : redirected ? (
+                    <ExternalLinkIcon className="w-5 h-5 text-amber-300" />
                 ) : (
                     <PlusIcon className="w-5 h-5 text-pink-300" />
                 )}
@@ -1559,5 +1601,19 @@ const CheckIcon: React.FC<{ className?: string }> = ({ className }) => (
         strokeLinejoin="round"
     >
         <path d="M20 6L9 17l-5-5" />
+    </svg>
+);
+
+const ExternalLinkIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M7 17L17 7M9 7h8v8" />
     </svg>
 );
