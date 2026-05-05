@@ -110,6 +110,30 @@ interface AppleMusicPluginInterface {
         query?: string;
         error?: string;
     }>;
+    searchCatalogSongs(opts: { query: string; limit?: number }): Promise<{
+        status: 'ok' | 'error';
+        songs?: Array<{
+            id: string;
+            title: string;
+            artist: string;
+            album?: string;
+            duration_ms: number;
+            artwork_url: string;
+        }>;
+        error?: string;
+    }>;
+    addSongToPlaylist(opts: { song_id: string; playlist_id: string }): Promise<{
+        status: 'ok' | 'song_not_in_cache' | 'playlist_not_found' | 'error';
+        playlist_name?: string;
+        song_title?: string;
+        song_artist?: string;
+        error?: string;
+    }>;
+    deletePlaylist(opts: { id: string }): Promise<{
+        status: 'ok' | 'not_found' | 'error';
+        playlist_name?: string;
+        error?: string;
+    }>;
 
     // Playback control
     pause(): Promise<{ status: string }>;
@@ -579,6 +603,81 @@ export async function saveCurrentTrackToPlaylist(
             content: `ERROR: addCurrentTrackToPlaylist failed — ${(err as Error).message}`,
             isError: true,
         };
+    }
+}
+
+// ── Catalog song search (for the Add-to-playlist sheet) ───────────
+
+export interface CatalogSongResult {
+    id: string;
+    title: string;
+    artist: string;
+    album?: string;
+    durationMs: number;
+    artworkUrl: string;
+}
+
+export async function searchCatalogSongs(
+    query: string,
+    limit?: number,
+): Promise<{ available: boolean; songs: CatalogSongResult[]; error?: string }> {
+    const trimmed = (query || '').trim();
+    if (!trimmed) return { available: false, songs: [], error: 'empty query' };
+    if (!nativeAvailable()) return { available: false, songs: [], error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.searchCatalogSongs({ query: trimmed, limit });
+        if (r.status !== 'ok' || !r.songs) {
+            return { available: false, songs: [], error: r.error ?? r.status };
+        }
+        return {
+            available: true,
+            songs: r.songs.map((s) => ({
+                id: s.id,
+                title: s.title,
+                artist: s.artist,
+                album: s.album,
+                durationMs: s.duration_ms,
+                artworkUrl: s.artwork_url,
+            })),
+        };
+    } catch (err) {
+        return { available: false, songs: [], error: (err as Error).message };
+    }
+}
+
+export async function addSongToPlaylist(
+    songId: string,
+    playlistId: string,
+): Promise<{ success: boolean; playlistName?: string; songTitle?: string; songArtist?: string; error?: string }> {
+    if (!nativeAvailable()) return { success: false, error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.addSongToPlaylist({ song_id: songId, playlist_id: playlistId });
+        if (r.status === 'ok') {
+            return {
+                success: true,
+                playlistName: r.playlist_name,
+                songTitle: r.song_title,
+                songArtist: r.song_artist,
+            };
+        }
+        return { success: false, error: r.error ?? r.status };
+    } catch (err) {
+        return { success: false, error: (err as Error).message };
+    }
+}
+
+export async function deletePlaylistById(
+    id: string,
+): Promise<{ success: boolean; playlistName?: string; error?: string }> {
+    if (!nativeAvailable()) return { success: false, error: 'unsupported' };
+    try {
+        const r = await AppleMusicNative.deletePlaylist({ id });
+        if (r.status === 'ok') {
+            return { success: true, playlistName: r.playlist_name };
+        }
+        return { success: false, error: r.error ?? r.status };
+    } catch (err) {
+        return { success: false, error: (err as Error).message };
     }
 }
 

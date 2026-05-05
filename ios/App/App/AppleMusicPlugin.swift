@@ -65,6 +65,13 @@ public class AppleMusicPlugin: CAPPlugin {
     private var hydratedTrackCache: [String: Any] = [:]
     private var hydratedNameCache: [String: String] = [:]
 
+    // ── Catalog song-search cache ───────────────────────────────────
+    // searchCatalogSongs caches the resulting [Song] keyed by song ID
+    // so addSongToPlaylist can later reach back to the actual Song
+    // object without re-running MusicCatalogSearchRequest. Same `Any`
+    // erasure as above for @available compatibility.
+    private var catalogSongCache: [String: Any] = [:]
+
     @available(iOS 15.0, *)
     private func cachePlaylist(id: String, name: String, tracks: [Track]) {
         hydratedTrackCache[id] = tracks
@@ -890,6 +897,173 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
             } catch {
                 NSLog("[AppleMusic] addCurrentTrackToPlaylist failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
+     * Search the Apple Music catalog for SONGS only — used by the
+     * "add tracks to playlist" sheet. Returns metadata for each hit
+     * AND caches the actual `Song` objects keyed by id, so a later
+     * addSongToPlaylist call can reach the real object without
+     * re-running the catalog request.
+     */
+    @available(iOS 15.0, *)
+    @objc func searchCatalogSongs(_ call: CAPPluginCall) {
+        guard let query = call.getString("query"), !query.isEmpty else {
+            call.reject("query is required")
+            return
+        }
+        let limit = call.getInt("limit") ?? 20
+        Task {
+            do {
+                var req = MusicCatalogSearchRequest(term: query, types: [Song.self])
+                req.limit = max(1, min(limit, 50))
+                let resp = try await req.response()
+                let songs = Array(resp.songs)
+                // Cache each Song under its id for later add operations.
+                for song in songs {
+                    self.catalogSongCache[song.id.rawValue] = song
+                }
+                let payload: [[String: Any]] = songs.map { song in
+                    var item: [String: Any] = [
+                        "id": song.id.rawValue,
+                        "title": song.title,
+                        "artist": song.artistName,
+                        "duration_ms": Int((song.duration ?? 0) * 1000),
+                    ]
+                    if let url = song.artwork?.url(width: 200, height: 200) {
+                        item["artwork_url"] = url.absoluteString
+                    } else {
+                        item["artwork_url"] = ""
+                    }
+                    if let albumTitle = song.albumTitle {
+                        item["album"] = albumTitle
+                    }
+                    return item
+                }
+                NSLog("[AppleMusic] searchCatalogSongs '\(query)' → \(payload.count) songs")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "ok",
+                        "songs": payload,
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] searchCatalogSongs failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
+     * Add a catalog song (looked up from the cache populated by
+     * searchCatalogSongs) to a library playlist. The playlist is
+     * resolved by id with the same fuzzy fallback as the rest of
+     * the playlist mutators — exact id match wins, refetch via
+     * MusicLibraryRequest if not cached.
+     */
+    @available(iOS 16.0, *)
+    @objc func addSongToPlaylist(_ call: CAPPluginCall) {
+        guard let songId = call.getString("song_id"), !songId.isEmpty else {
+            call.reject("song_id is required")
+            return
+        }
+        guard let playlistId = call.getString("playlist_id"), !playlistId.isEmpty else {
+            call.reject("playlist_id is required")
+            return
+        }
+        Task {
+            do {
+                guard let song = self.catalogSongCache[songId] as? Song else {
+                    await MainActor.run {
+                        call.resolve([
+                            "status": "song_not_in_cache",
+                            "note": "Song must come from a recent searchCatalogSongs call.",
+                        ])
+                    }
+                    return
+                }
+                // Find the target playlist
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                guard let playlist = resp.items.first(where: { $0.id.rawValue == playlistId }) else {
+                    await MainActor.run {
+                        call.resolve(["status": "playlist_not_found", "id": playlistId])
+                    }
+                    return
+                }
+                try await MusicLibrary.shared.add(song, to: playlist)
+                NSLog("[AppleMusic] added '\(song.title)' to '\(playlist.name)'")
+                // Invalidate cached tracks for this playlist so a
+                // subsequent detail-sheet open re-fetches.
+                self.hydratedTrackCache.removeValue(forKey: playlistId)
+                self.hydratedNameCache.removeValue(forKey: playlistId)
+                await MainActor.run {
+                    call.resolve([
+                        "status": "ok",
+                        "playlist_name": playlist.name,
+                        "song_title": song.title,
+                        "song_artist": song.artistName,
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] addSongToPlaylist failed: \(error)")
+                await MainActor.run {
+                    call.resolve([
+                        "status": "error",
+                        "error": String(describing: error),
+                    ])
+                }
+            }
+        }
+    }
+
+    /**
+     * Delete a library playlist. Uses MusicLibrary.shared.delete on
+     * iOS 16+. The Playlist object itself must be resolved first
+     * (Apple's API takes the live object, not a raw id).
+     */
+    @available(iOS 16.0, *)
+    @objc func deletePlaylist(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("id is required")
+            return
+        }
+        Task {
+            do {
+                let req = MusicLibraryRequest<Playlist>()
+                let resp = try await req.response()
+                guard let playlist = resp.items.first(where: { $0.id.rawValue == id }) else {
+                    await MainActor.run {
+                        call.resolve(["status": "not_found", "id": id])
+                    }
+                    return
+                }
+                let name = playlist.name
+                try await MusicLibrary.shared.delete(playlist)
+                NSLog("[AppleMusic] deleted playlist '\(name)'")
+                self.hydratedTrackCache.removeValue(forKey: id)
+                self.hydratedNameCache.removeValue(forKey: id)
+                await MainActor.run {
+                    call.resolve([
+                        "status": "ok",
+                        "playlist_name": name,
+                    ])
+                }
+            } catch {
+                NSLog("[AppleMusic] deletePlaylist failed: \(error)")
                 await MainActor.run {
                     call.resolve([
                         "status": "error",

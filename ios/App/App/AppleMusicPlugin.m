@@ -21,6 +21,9 @@ CAP_PLUGIN(AppleMusicPlugin, "AppleMusic",
     // Library mutations
     CAP_PLUGIN_METHOD(createPlaylist, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(addCurrentTrackToPlaylist, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(searchCatalogSongs, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(addSongToPlaylist, CAPPluginReturnPromise);
+    CAP_PLUGIN_METHOD(deletePlaylist, CAPPluginReturnPromise);
     // Playback control
     CAP_PLUGIN_METHOD(pause, CAPPluginReturnPromise);
     CAP_PLUGIN_METHOD(resume, CAPPluginReturnPromise);
