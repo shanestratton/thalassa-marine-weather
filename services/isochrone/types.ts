@@ -47,6 +47,27 @@ export interface CurrentField {
     } | null;
 }
 
+// ── Exclusion Field Interface ────────────────────────────────────
+
+/**
+ * Spatiotemporal no-go zones — used by the isochrone engine to reject
+ * candidates inside dangerous areas (active tropical cyclones, NOTAMs,
+ * military exercise zones, etc).
+ *
+ * Implementations check whether `(lat, lon)` is inside an exclusion
+ * polygon valid at `timeOffsetHours` from departure. Cyclones are the
+ * primary use case — their position interpolated along the NHC forecast
+ * track, with a safety radius scaled to intensity (50 NM for TD,
+ * 250 NM for Cat 5).
+ */
+export interface ExclusionField {
+    /**
+     * @returns true if the point lies inside any active exclusion zone
+     *          at the queried time.
+     */
+    isExcluded(lat: number, lon: number, timeOffsetHours: number): boolean;
+}
+
 // ── Configuration ────────────────────────────────────────────────
 
 export interface IsochroneConfig {
