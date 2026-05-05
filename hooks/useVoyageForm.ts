@@ -128,43 +128,50 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         setError(null);
         setDeepReport(null);
         try {
-            // ENHANCED INTELLIGENCE: Try to get weather context for the origin
-            let weatherContext: Record<string, unknown> | undefined = undefined;
-            try {
-                // Check if origin contains coordinates (e.g. "WP 32.5, -117.2" or just raw coords)
-                const coordMatch = fmtOrigin.match(/([+-]?\d+\.?\d*)[,\s]+([+-]?\d+\.?\d*)/);
-                if (coordMatch) {
-                    const lat = parseFloat(coordMatch[1]);
-                    const lon = parseFloat(coordMatch[2]);
-                    // Lazy import to avoid circular dependency issues if any
-                    const { fetchFastWeather } = await import('../services/weatherService');
-                    // Use Fast Weather to get context quickly without burning premium API credits just for context
-                    const wx = await fetchFastWeather('Origin-Context', { lat, lon });
-                    if (wx) {
-                        weatherContext = {
-                            current: wx.current,
-                            tides: wx.tides?.slice(0, 4), // Next 4 tide events
-                            forecastSample: wx.hourly?.slice(0, 24).map((h) => ({
-                                // First 24h
-                                time: h.time,
-                                wind: h.windSpeed,
-                                gust: h.windGust,
-                                wave: h.waveHeight,
-                                dir: h.windDirection,
-                            })),
-                        };
-                    }
-                }
-            } catch (err) {
-                // Silently ignored — non-critical failure
-            }
-
-            const { fetchVoyagePlan } = await import('../services/geminiService');
-            // Pass user's current GPS position for proximity-based disambiguation
+            // ── DETERMINISTIC route compute (replaces Gemini) ──
+            //
+            // Gemini was hallucinating every safety-relevant field:
+            //   - origin/destination: rewrote "Newport QLD" → "QLD",
+            //     "Port Moselle NC" → "South Province" (the
+            //     administrative region of Nouméa)
+            //   - distanceApprox: claimed "1.9 days" for an 870 NM
+            //     passage at 6 kn (actually ~7 days)
+            //   - durationApprox: was a free-text LLM string, not math
+            //   - waypoints: zigzag patterns that inflated summed leg
+            //     distances 2× over the real sailable path
+            //   - departureDate: sometimes echoed today instead of the
+            //     user's pick
+            //
+            // We were already overriding all of those after the call —
+            // paying real Gemini latency + tokens + hallucination risk
+            // for fields we threw away. The deterministic compute below
+            // does exactly what we kept, with no LLM in the loop.
+            //
+            // The enhancement pipeline that runs after this (bathymetric
+            // router → weather router → depth analysis → multi-model
+            // comparison) is what produces the safety-critical outputs:
+            // depth-safe sea-following geometry, corridor-optimised ETA,
+            // wind/wave conditions per waypoint. Those services use
+            // GEBCO bathymetry + ECMWF/GFS forecasts + cost-optimal
+            // graph search — not an LLM.
+            //
+            // The origin-only fetchFastWeather "weatherContext" peek that
+            // used to feed Gemini's prompt is gone — the bathymetric and
+            // weather routers fetch their own forecast coverage across
+            // the full route via the route-weather edge function. No
+            // consumer left for an origin-only context blob.
+            //
+            // userLocation is captured but currently unused by
+            // computeVoyagePlan — disambiguation is handled by
+            // parseLocation's Mapbox forward geocode, which already
+            // accepts coordinate-suffixed inputs ("Port Moselle
+            // (-22.2765, 166.4377)") for precise matching. Kept on the
+            // signature for any future enrichment hook.
+            const { computeVoyagePlan } = await import('../services/voyageCompute');
             const userLoc = LocationStore.getState();
             const userLocation =
                 userLoc.lat !== 0 || userLoc.lon !== 0 ? { lat: userLoc.lat, lon: userLoc.lon } : undefined;
-            const result = await fetchVoyagePlan(
+            const result = await computeVoyagePlan(
                 fmtOrigin,
                 fmtDest,
                 vessel,
@@ -172,104 +179,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 vesselUnits,
                 generalUnits,
                 fmtVia,
-                weatherContext,
+                undefined,
                 userLocation,
             );
-
-            // ── Preserve the user's typed origin/destination names ──
-            // Gemini sometimes rewrites these — e.g. "Newport QLD" becomes
-            // "QLD" (truncated) or "Port Moselle NC" becomes "South
-            // Province" (the administrative region of Nouméa). The
-            // downstream "Country Qualifier" then appends ", Australia"
-            // or ", New Caledonia" to those, so the user sees their
-            // saved logbook entry as "QLD → South Province" instead of
-            // "Newport QLD → Port Moselle NC". The geocoded coordinates
-            // are still correct (Gemini understands geography even when
-            // it renames places), but the *display name* must come from
-            // the user's input verbatim. fmtOrigin / fmtDest are already
-            // proper-cased by formatLocationInput.
-            result.origin = fmtOrigin;
-            result.destination = fmtDest;
-
-            // ── Preserve the user's typed departure date too ──
-            // Same family of bug as origin/destination: Gemini's schema
-            // asks for "YYYY-MM-DD" and it's free to return whatever
-            // date it wants. In practice it sometimes returns today's
-            // date, sometimes a date a few days off, sometimes echoes
-            // correctly. User picked May 8 → saved passage shows May 2,
-            // because Gemini hallucinated the date and we didn't
-            // override. The user's typed value is the only authoritative
-            // source — pin it. PassagePlanSave reads `plan.departureDate`
-            // to timestamp entries[0]; that flows through to
-            // voyage.departure_time on save and the Passage Planning
-            // dropdown displays it on load.
-            if (departureDate) {
-                result.departureDate = departureDate;
-            }
-
-            // ── Recompute distance + duration from real coords + vessel speed ──
-            // Gemini's `distanceApprox` and `durationApprox` strings are
-            // pure hallucination — for a 1000 NM Newport→Port Moselle
-            // passage it claimed "1.9 days" when at 6 knots that's
-            // actually ~7 days. The user has a real vessel with a real
-            // cruising speed in settings; use it.
-            //
-            // Distance: haversine sum across origin → waypoints → dest.
-            // Speed: vessel.cruisingSpeed (kn). Falls back to 6 — same
-            // floor used elsewhere in the app for unset profiles.
-            // Duration: distance NM ÷ speed kn = hours.
-            //
-            // Both strings retain the same shape downstream consumers
-            // expect ("nautical miles" suffix in distance,
-            // "hours" / "days" suffix in duration) so PassagePlanSave's
-            // `parseFloat(plan.durationApprox)` keeps working.
-            try {
-                // Distance: great-circle origin → destination, NOT a sum
-                // across Gemini's intermediate waypoints. Why: Gemini
-                // sometimes drops 6+ waypoints in zigzag patterns to
-                // "look thorough", which inflates the summed leg distance
-                // by 70-100% over the actual sailable path. The user
-                // reported a Newport→Port Moselle (~870 NM great circle)
-                // showing 12 days at 6 kn — that's 1700 NM of route,
-                // double the real distance, because the waypoint zigzag
-                // got summed.
-                //
-                // Great-circle from end-to-end is the canonical "passage
-                // distance" most sailors think in terms of. The actual
-                // sailed route will be slightly longer (waypoints around
-                // hazards, weather routing detours) but rarely 2× — and
-                // the Spatiotemporal Map's enhancement pipeline replaces
-                // these strings with weather-routed values anyway, so
-                // this is the seed estimate, not the final answer.
-                if (result.originCoordinates && result.destinationCoordinates) {
-                    const { calculateDistance } = await import('../utils/navigationCalculations');
-                    const distNM = calculateDistance(
-                        result.originCoordinates.lat,
-                        result.originCoordinates.lon,
-                        result.destinationCoordinates.lat,
-                        result.destinationCoordinates.lon,
-                    );
-
-                    const speedKn = vessel?.cruisingSpeed && vessel.cruisingSpeed > 0 ? vessel.cruisingSpeed : 6;
-                    const hours = distNM / speedKn;
-
-                    result.distanceApprox = `${Math.round(distNM)} nautical miles`;
-                    // Format as "Xh" / "Xd Yh" so it reads naturally on
-                    // the summary card without needing a separate
-                    // "1.9 days" → hours conversion downstream.
-                    if (hours < 24) {
-                        result.durationApprox = `${Math.round(hours)} hours`;
-                    } else {
-                        const days = Math.floor(hours / 24);
-                        const remHrs = Math.round(hours % 24);
-                        result.durationApprox = remHrs > 0 ? `${days}d ${remHrs}h` : `${days} days`;
-                    }
-                }
-            } catch (e) {
-                // Non-critical — fall back to Gemini's strings if our
-                // computation fails (e.g. missing coords).
-                console.warn('[useVoyageForm] duration recompute failed, using Gemini values:', e);
-            }
 
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveIfActive(result);
