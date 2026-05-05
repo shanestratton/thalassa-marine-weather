@@ -123,10 +123,11 @@ interface AppleMusicPluginInterface {
         error?: string;
     }>;
     addSongToPlaylist(opts: { song_id: string; playlist_id: string }): Promise<{
-        status: 'ok' | 'song_not_in_cache' | 'playlist_not_found' | 'error';
+        status: 'ok' | 'song_not_in_cache' | 'playlist_not_found' | 'not_supported' | 'error';
         playlist_name?: string;
         song_title?: string;
         song_artist?: string;
+        song_id?: string;
         error?: string;
     }>;
     deletePlaylist(opts: { id: string }): Promise<{
@@ -649,7 +650,17 @@ export async function searchCatalogSongs(
 export async function addSongToPlaylist(
     songId: string,
     playlistId: string,
-): Promise<{ success: boolean; playlistName?: string; songTitle?: string; songArtist?: string; error?: string }> {
+): Promise<{
+    success: boolean;
+    /** True when Apple's API doesn't allow third-party playlist edits.
+     *  UI should pivot to opening Apple Music with the song so the
+     *  user can add manually. */
+    notSupported?: boolean;
+    playlistName?: string;
+    songTitle?: string;
+    songArtist?: string;
+    error?: string;
+}> {
     if (!nativeAvailable()) return { success: false, error: 'unsupported' };
     try {
         const r = await AppleMusicNative.addSongToPlaylist({ song_id: songId, playlist_id: playlistId });
@@ -660,6 +671,9 @@ export async function addSongToPlaylist(
                 songTitle: r.song_title,
                 songArtist: r.song_artist,
             };
+        }
+        if (r.status === 'not_supported') {
+            return { success: false, notSupported: true };
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
