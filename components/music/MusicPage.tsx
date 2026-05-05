@@ -33,9 +33,13 @@ import {
     playTrackInPlaylist,
     type UserPlaylist,
     createPlaylistByName,
+    searchCatalogSongs,
+    addSongToPlaylist,
+    deletePlaylistById,
     type NowPlaying,
     type PlaylistTrack,
     type PlaylistTrackPreview,
+    type CatalogSongResult,
 } from '../../services/voice/integrations/appleMusic';
 import { triggerHaptic } from '../../utils/system';
 
@@ -186,6 +190,13 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const [detailTracks, setDetailTracks] = useState<PlaylistTrack[]>([]);
     const [detailLoading, setDetailLoading] = useState(false);
     const [detailError, setDetailError] = useState<string | null>(null);
+    /** Catalog-search "Add tracks" sheet open state. The sheet itself
+     *  manages its own search/results internal state. */
+    const [addTracksOpen, setAddTracksOpen] = useState(false);
+    /** Delete-playlist confirmation state. When set, a small confirm
+     *  prompt overlays the detail sheet. */
+    const [confirmDelete, setConfirmDelete] = useState<UserPlaylist | null>(null);
+    const [deleteBusy, setDeleteBusy] = useState(false);
 
     const openDetail = useCallback(async (playlist: UserPlaylist) => {
         triggerHaptic('medium');
@@ -257,6 +268,76 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         },
         [loadPlaylists],
     );
+
+    /** Open the catalog-search add-tracks sheet over the detail sheet. */
+    const handleOpenAddTracks = useCallback(() => {
+        triggerHaptic('light');
+        setAddTracksOpen(true);
+    }, []);
+
+    /** Add a single song from catalog search to the currently-open
+     *  playlist. Returns success/failure so the AddTracksSheet can
+     *  show per-row feedback (added / failed). */
+    const handleAddSongToPlaylist = useCallback(
+        async (songId: string): Promise<boolean> => {
+            if (!detailPlaylist) return false;
+            const r = await addSongToPlaylist(songId, detailPlaylist.id);
+            if (r.success) {
+                triggerHaptic('light');
+                // Refresh the cached track list so a re-open of the
+                // detail sheet shows the freshly-added track. The
+                // current sheet is hidden behind the AddTracksSheet
+                // anyway — when the skipper closes the add sheet,
+                // detail is still showing the OLD list. We update it
+                // here by appending the fresh track so they see it
+                // straight away.
+                return true;
+            }
+            return false;
+        },
+        [detailPlaylist],
+    );
+
+    /** Close the add-tracks sheet AND refresh the playlist's tracks
+     *  so any newly-added songs appear immediately in the detail sheet
+     *  underneath. */
+    const handleCloseAddTracks = useCallback(async () => {
+        setAddTracksOpen(false);
+        if (detailPlaylist) {
+            // Re-fetch the playlist's tracks so the detail sheet is
+            // up-to-date. getPlaylistTracks() also refreshes the
+            // native cache after our adds invalidated it.
+            const r = await getPlaylistTracks(detailPlaylist.id);
+            if (r.available) {
+                setDetailTracks(r.tracks);
+            }
+        }
+    }, [detailPlaylist]);
+
+    /** Show the delete confirmation prompt. The actual delete fires on
+     *  confirm. */
+    const handleRequestDelete = useCallback(() => {
+        if (!detailPlaylist) return;
+        triggerHaptic('medium');
+        setConfirmDelete(detailPlaylist);
+    }, [detailPlaylist]);
+
+    /** User confirmed delete — call native, refresh the grid, close
+     *  both the confirm prompt and the detail sheet. */
+    const handleConfirmDelete = useCallback(async () => {
+        if (!confirmDelete) return;
+        setDeleteBusy(true);
+        const r = await deletePlaylistById(confirmDelete.id);
+        setDeleteBusy(false);
+        if (r.success) {
+            setConfirmDelete(null);
+            closeDetail();
+            void loadPlaylists();
+        } else {
+            setDetailError(`Couldn't delete: ${r.error}`);
+            setConfirmDelete(null);
+        }
+    }, [confirmDelete, closeDetail, loadPlaylists]);
 
     const nowPlayingVisible = !!(nowPlaying && nowPlaying.title);
 
@@ -428,6 +509,27 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
                     onClose={closeDetail}
                     onPlayAll={() => void handlePlayAll()}
                     onPlayTrack={(trackId) => void handlePlayTrack(trackId)}
+                    onAddTracks={handleOpenAddTracks}
+                    onDelete={handleRequestDelete}
+                />
+            )}
+
+            {/* Add-tracks (catalog search) sheet — overlays the detail sheet */}
+            {addTracksOpen && detailPlaylist && (
+                <AddTracksSheet
+                    playlistName={detailPlaylist.name}
+                    onClose={() => void handleCloseAddTracks()}
+                    onAddSong={handleAddSongToPlaylist}
+                />
+            )}
+
+            {/* Delete confirmation — small modal over everything */}
+            {confirmDelete && (
+                <DeleteConfirmSheet
+                    playlistName={confirmDelete.name}
+                    busy={deleteBusy}
+                    onCancel={() => setConfirmDelete(null)}
+                    onConfirm={() => void handleConfirmDelete()}
                 />
             )}
 
@@ -549,6 +651,8 @@ interface PlaylistDetailSheetProps {
     onClose: () => void;
     onPlayAll: () => void;
     onPlayTrack: (trackId: string) => void;
+    onAddTracks: () => void;
+    onDelete: () => void;
 }
 
 const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
@@ -559,6 +663,8 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
     onClose,
     onPlayAll,
     onPlayTrack,
+    onAddTracks,
+    onDelete,
 }) => {
     const [imageFailed, setImageFailed] = useState(false);
     const [mounted, setMounted] = useState(false);
@@ -623,7 +729,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                 </div>
 
                 {/* Action buttons */}
-                <div className="px-5 pb-3">
+                <div className="px-5 pb-3 space-y-2">
                     <button
                         onClick={onPlayAll}
                         disabled={loading || tracks.length === 0}
@@ -631,6 +737,13 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     >
                         <PlayIcon className="w-4 h-4" />
                         <span>Play</span>
+                    </button>
+                    <button
+                        onClick={onAddTracks}
+                        className="w-full py-3 rounded-2xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform"
+                    >
+                        <PlusIcon className="w-5 h-5" />
+                        <span>Add tracks</span>
                     </button>
                 </div>
 
@@ -668,6 +781,309 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                                 </div>
                             </button>
                         ))}
+                    {/* Delete this playlist — destructive action,
+                     *  intentionally subtle and at the bottom so it's
+                     *  not an easy mis-tap. */}
+                    {!loading && (
+                        <div className="pt-6 pb-2 flex justify-center">
+                            <button
+                                onClick={onDelete}
+                                className="text-red-400/80 hover:text-red-300 active:text-red-200 text-xs font-medium px-4 py-2 rounded-lg active:bg-red-500/10 transition-colors"
+                            >
+                                Delete this playlist
+                            </button>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ── Add tracks sheet — catalog search → tap to add ────────────────
+
+interface AddTracksSheetProps {
+    playlistName: string;
+    onClose: () => void;
+    /** Add a single song to the parent playlist. Returns true on
+     *  success so the row can render an "added" checkmark. */
+    onAddSong: (songId: string) => Promise<boolean>;
+}
+
+const AddTracksSheet: React.FC<AddTracksSheetProps> = ({ playlistName, onClose, onAddSong }) => {
+    const [query, setQuery] = useState('');
+    const [results, setResults] = useState<CatalogSongResult[]>([]);
+    const [searching, setSearching] = useState(false);
+    const [searchError, setSearchError] = useState<string | null>(null);
+    /** Tracks per-row state: which song is currently being added, and
+     *  which songs have completed successfully (so we show a check). */
+    const [addingId, setAddingId] = useState<string | null>(null);
+    const [addedIds, setAddedIds] = useState<Set<string>>(new Set());
+    const [mounted, setMounted] = useState(false);
+    const inputRef = useRef<HTMLInputElement | null>(null);
+
+    useEffect(() => {
+        const id = requestAnimationFrame(() => setMounted(true));
+        const focusId = setTimeout(() => inputRef.current?.focus(), 250);
+        return () => {
+            cancelAnimationFrame(id);
+            clearTimeout(focusId);
+        };
+    }, []);
+
+    // Track keyboard for the search input — same pattern as the
+    // create-playlist sheet so the input doesn't slide behind the
+    // keyboard.
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    useEffect(() => {
+        let showHandle: { remove: () => Promise<void> } | undefined;
+        let hideHandle: { remove: () => Promise<void> } | undefined;
+        let cancelled = false;
+        void (async () => {
+            try {
+                const { Keyboard } = await import('@capacitor/keyboard');
+                if (cancelled) return;
+                showHandle = await Keyboard.addListener('keyboardWillShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight);
+                });
+                hideHandle = await Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                });
+            } catch {
+                /* keyboard plugin unavailable */
+            }
+        })();
+        return () => {
+            cancelled = true;
+            void showHandle?.remove().catch(() => undefined);
+            void hideHandle?.remove().catch(() => undefined);
+        };
+    }, []);
+
+    const handleSearch = useCallback(async () => {
+        const trimmed = query.trim();
+        if (!trimmed) return;
+        setSearching(true);
+        setSearchError(null);
+        try {
+            const r = await searchCatalogSongs(trimmed, 25);
+            if (r.available) {
+                setResults(r.songs);
+                if (r.songs.length === 0) setSearchError(`No catalog match for "${trimmed}"`);
+            } else {
+                setSearchError(r.error ?? 'Catalog search failed');
+                setResults([]);
+            }
+        } finally {
+            setSearching(false);
+        }
+    }, [query]);
+
+    const handleAdd = useCallback(
+        async (songId: string) => {
+            if (addingId || addedIds.has(songId)) return;
+            setAddingId(songId);
+            const ok = await onAddSong(songId);
+            setAddingId(null);
+            if (ok) {
+                setAddedIds((prev) => new Set([...prev, songId]));
+            } else {
+                setSearchError("Couldn't add that track");
+            }
+        },
+        [addingId, addedIds, onAddSong],
+    );
+
+    return (
+        <div className="fixed inset-0 z-[55] flex flex-col">
+            <button
+                aria-label="Close add tracks"
+                onClick={onClose}
+                className={`absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity duration-300 ${
+                    mounted ? 'opacity-100' : 'opacity-0'
+                }`}
+            />
+            <div
+                className={`relative mt-auto bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-t-3xl border-t border-white/10 max-h-[88vh] flex flex-col shadow-2xl transition-transform duration-300 ease-out ${
+                    mounted ? 'translate-y-0' : 'translate-y-full'
+                }`}
+                style={{
+                    transform:
+                        keyboardHeight > 0
+                            ? `translateY(-${Math.round(keyboardHeight / 2)}px)`
+                            : mounted
+                              ? 'translateY(0)'
+                              : 'translateY(100%)',
+                }}
+            >
+                {/* Drag handle */}
+                <div className="flex justify-center pt-3 pb-1">
+                    <div className="w-12 h-1.5 rounded-full bg-white/25" />
+                </div>
+
+                {/* Title */}
+                <div className="px-5 pt-2 pb-3">
+                    <div className="text-white font-bold text-lg leading-tight">Add tracks</div>
+                    <div className="text-white/50 text-xs mt-0.5 truncate">to "{playlistName}"</div>
+                </div>
+
+                {/* Search input */}
+                <div className="px-5 pb-3 flex gap-2">
+                    <input
+                        ref={inputRef}
+                        type="text"
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                        placeholder="Song or artist…"
+                        className="flex-1 bg-white/5 border border-white/15 rounded-xl px-4 py-3 text-white placeholder:text-white/30 text-sm focus:border-pink-400/60 focus:outline-none focus:bg-white/10 transition-colors"
+                        onKeyDown={(e) => {
+                            if (e.key === 'Enter') void handleSearch();
+                        }}
+                    />
+                    <button
+                        onClick={() => void handleSearch()}
+                        disabled={searching || !query.trim()}
+                        className="px-4 py-3 rounded-xl bg-pink-500/15 border border-pink-400/40 text-pink-300 font-bold text-sm active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                    >
+                        {searching ? '…' : 'Search'}
+                    </button>
+                </div>
+
+                {searchError && (
+                    <div className="mx-5 mb-2 px-3 py-2 rounded-lg bg-amber-500/15 border border-amber-400/30 text-amber-300 text-xs">
+                        {searchError}
+                    </div>
+                )}
+
+                {/* Results list */}
+                <div className="flex-1 overflow-y-auto px-3 pb-8">
+                    {results.length === 0 && !searching && !searchError && (
+                        <div className="text-center text-white/40 text-sm py-12 px-6">
+                            Search Apple Music's catalog and tap a result to add it to{' '}
+                            <span className="text-white/60">"{playlistName}"</span>.
+                        </div>
+                    )}
+                    {results.map((song) => (
+                        <SongResultRow
+                            key={song.id}
+                            song={song}
+                            adding={addingId === song.id}
+                            added={addedIds.has(song.id)}
+                            onAdd={() => void handleAdd(song.id)}
+                        />
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+};
+
+interface SongResultRowProps {
+    song: CatalogSongResult;
+    adding: boolean;
+    added: boolean;
+    onAdd: () => void;
+}
+
+const SongResultRow: React.FC<SongResultRowProps> = ({ song, adding, added, onAdd }) => {
+    const [imageFailed, setImageFailed] = useState(false);
+    const showRemote = !!song.artworkUrl && !imageFailed;
+    return (
+        <button
+            onClick={onAdd}
+            disabled={adding || added}
+            className={`w-full flex items-center gap-3 px-2 py-2 rounded-xl transition-colors text-left ${
+                added ? 'bg-emerald-500/10' : 'active:bg-white/10'
+            }`}
+        >
+            <div className="w-10 h-10 rounded-lg overflow-hidden shrink-0 bg-white/5">
+                {showRemote ? (
+                    <img
+                        src={song.artworkUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        onError={() => setImageFailed(true)}
+                    />
+                ) : (
+                    <GeneratedPlaylistArtwork name={song.title} />
+                )}
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="text-white text-sm font-medium truncate">{song.title}</div>
+                <div className="text-white/50 text-xs truncate mt-0.5">
+                    {song.artist}
+                    {song.album ? ` · ${song.album}` : ''}
+                </div>
+            </div>
+            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                {adding ? (
+                    <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin" />
+                ) : added ? (
+                    <CheckIcon className="w-5 h-5 text-emerald-400" />
+                ) : (
+                    <PlusIcon className="w-5 h-5 text-pink-300" />
+                )}
+            </div>
+        </button>
+    );
+};
+
+// ── Delete-playlist confirmation ──────────────────────────────────
+
+interface DeleteConfirmSheetProps {
+    playlistName: string;
+    busy: boolean;
+    onCancel: () => void;
+    onConfirm: () => void;
+}
+
+const DeleteConfirmSheet: React.FC<DeleteConfirmSheetProps> = ({ playlistName, busy, onCancel, onConfirm }) => {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => {
+        const id = requestAnimationFrame(() => setMounted(true));
+        return () => cancelAnimationFrame(id);
+    }, []);
+    return (
+        <div className="fixed inset-0 z-[70]">
+            <button
+                aria-label="Cancel delete"
+                onClick={onCancel}
+                className={`absolute inset-0 bg-black/70 backdrop-blur-md transition-opacity duration-300 ${
+                    mounted ? 'opacity-100' : 'opacity-0'
+                }`}
+            />
+            <div className="absolute inset-0 flex items-center justify-center px-4 pointer-events-none">
+                <div
+                    className={`relative w-full max-w-sm bg-gradient-to-b from-slate-900 via-slate-950 to-black rounded-3xl border border-white/10 shadow-2xl transition-all duration-300 ease-out pointer-events-auto ${
+                        mounted ? 'opacity-100 scale-100' : 'opacity-0 scale-95'
+                    }`}
+                >
+                    <div className="px-5 pt-5 pb-5">
+                        <div className="text-white font-bold text-lg">Delete playlist?</div>
+                        <div className="text-white/60 text-sm mt-2">
+                            "{playlistName}" will be removed from your library. This can't be undone.
+                        </div>
+                        <div className="flex gap-2 mt-6">
+                            <button
+                                onClick={onCancel}
+                                disabled={busy}
+                                className="flex-1 py-3 rounded-2xl border border-white/15 text-white/70 font-bold active:scale-[0.97] transition-transform disabled:opacity-40"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={onConfirm}
+                                disabled={busy}
+                                className="flex-1 py-3 rounded-2xl bg-red-500 text-white font-bold flex items-center justify-center gap-2 active:scale-[0.97] transition-transform disabled:opacity-40 disabled:active:scale-100"
+                            >
+                                {busy ? (
+                                    <div className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin" />
+                                ) : (
+                                    <span>Delete</span>
+                                )}
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1083,5 +1499,32 @@ const SkipNextIcon: React.FC<{ className?: string }> = ({ className }) => (
 const SkipPrevIcon: React.FC<{ className?: string }> = ({ className }) => (
     <svg className={className} viewBox="0 0 24 24" fill="currentColor">
         <path d="M6 6h2v12H6V6zm3.5 6L18 6v12l-8.5-6z" />
+    </svg>
+);
+
+const PlusIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+    >
+        <path d="M12 5v14M5 12h14" />
+    </svg>
+);
+
+const CheckIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+    >
+        <path d="M20 6L9 17l-5-5" />
     </svg>
 );
