@@ -582,6 +582,25 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 /* non-critical */
             }
 
+            // Wave field (non-blocking on failure)
+            let waveField = null;
+            try {
+                const { fetchWaveField } = await import('../services/weather/waveField');
+                const { createWaveFieldFromSamples } = await import('../services/weather/WaveFieldAdapter');
+                const data = await fetchWaveField(
+                    {
+                        north: Math.max(o.lat, d.lat) + 1,
+                        south: Math.min(o.lat, d.lat) - 1,
+                        east: Math.max(o.lon, d.lon) + 1,
+                        west: Math.min(o.lon, d.lon) - 1,
+                    },
+                    new Date().toISOString(),
+                );
+                waveField = createWaveFieldFromSamples(data);
+            } catch (_) {
+                /* non-critical */
+            }
+
             // 3. Run the planner
             const { planDepartureWindow } = await import('../services/departureWindow');
             // Window starts now (or at the user's picked date if it's later
@@ -598,6 +617,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 bathyGrid,
                 currentField,
                 exclusionField,
+                waveField,
                 baseDateIso,
             );
             setWindowScenarios(final);

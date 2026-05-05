@@ -235,6 +235,36 @@ export async function enhanceVoyagePlanWithIsochrone(
                 log.warn('cyclone exclusion build failed — routing without storm avoidance:', e);
             }
 
+            // ── 4c. Wave field via Open-Meteo Marine ──
+            // Sparse 5×5 grid of wave height + direction + period over
+            // the route bbox. The IsochroneRouter applies a polar-with-
+            // waves slowdown factor at each candidate based on the
+            // wave height/period and relative angle to the boat heading.
+            //
+            // Non-blocking on failure — engine routes without wave
+            // penalty if Open-Meteo Marine is down (raw polar speed,
+            // matches behaviour before this upgrade).
+            let waveField = null;
+            try {
+                const { fetchWaveField } = await import('./weather/waveField');
+                const { createWaveFieldFromSamples } = await import('./weather/WaveFieldAdapter');
+                const data = await fetchWaveField(
+                    {
+                        north: Math.max(origin.lat, destination.lat) + 1,
+                        south: Math.min(origin.lat, destination.lat) - 1,
+                        east: Math.max(origin.lon, destination.lon) + 1,
+                        west: Math.min(origin.lon, destination.lon) - 1,
+                    },
+                    departureTime,
+                );
+                waveField = createWaveFieldFromSamples(data);
+                if (waveField) {
+                    log.info('wave field loaded — polar-with-waves slowdown active');
+                }
+            } catch (e) {
+                log.warn('wave field fetch failed — routing on raw polar:', e);
+            }
+
             // ── 4b. Ocean currents via OSCAR ──
             // For ocean passages currents shift ETA by ±20% on routes
             // aligned with major systems (Gulf Stream, Agulhas, Kuroshio,
@@ -318,6 +348,7 @@ export async function enhanceVoyagePlanWithIsochrone(
                 bathyGrid,
                 currentField,
                 exclusionField,
+                waveField,
             );
         }
 

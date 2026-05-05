@@ -47,6 +47,38 @@ export interface CurrentField {
     } | null;
 }
 
+// ── Wave Field Interface ─────────────────────────────────────────
+
+/**
+ * Wave/swell forecast data provider. Used by the isochrone engine to
+ * apply a sea-state slowdown penalty to the polar's predicted boat
+ * speed. PredictWind's polar-with-waves modelling does this — same
+ * polar curve, but scaled down by a factor that accounts for:
+ *
+ *   - Wave height (significant wave height in metres)
+ *   - Period (short period waves are more punishing — chop)
+ *   - Relative angle to boat heading (head waves stop you, following
+ *     waves give a small surf bonus)
+ *
+ * Direction is "FROM" (meteorological convention, matching wind).
+ */
+export interface WaveField {
+    /**
+     * Get wave conditions at a position and time offset.
+     * @returns heightM (significant), directionFromDeg, periodS, or
+     *          null if outside the field's coverage / age.
+     */
+    getWave(
+        lat: number,
+        lon: number,
+        timeOffsetHours: number,
+    ): {
+        heightM: number;
+        directionFromDeg: number;
+        periodS: number;
+    } | null;
+}
+
 // ── Exclusion Field Interface ────────────────────────────────────
 
 /**
