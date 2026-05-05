@@ -21,18 +21,13 @@ interface TheGlassPageProps {
     onBack: () => void;
 }
 
-// ── Dummy data fallbacks (used when no live NMEA data is connected) ──
-const DUMMY = {
-    sog: 14.2,
-    aws: 22.0,
-    tws: 38.1,
-    twsMax: 42.5,
-    depth: 12.8,
-    cog: 2,
-    heel: 8, // STBD positive
-    voltage: 13.2,
-    trip: 4.5,
-};
+// ── Format helper — shows em-dash for null / non-finite values ──
+// Used everywhere a numeric reading would otherwise render. Keeps
+// the panel honest: if we don't have the data, we show "—" instead
+// of fabricating a plausible-looking number.
+function fmt(val: number | null | undefined, decimals: number = 1): string {
+    return val !== null && val !== undefined && Number.isFinite(val) ? val.toFixed(decimals) : '—';
+}
 
 // ── Sparkline component — rolling SVG polyline ──
 const HISTORY_SIZE = 90;
@@ -108,15 +103,9 @@ const Sparkline: React.FC<SparklineProps> = ({
     );
 };
 
-// ── Synthesise a sparkline history for dummy data ──
-function syntheticHistory(base: number, amplitude: number): number[] {
-    return Array.from({ length: HISTORY_SIZE }, (_, i) => {
-        const wave1 = Math.sin(i * 0.15) * amplitude * 0.5;
-        const wave2 = Math.cos(i * 0.07) * amplitude * 0.3;
-        const wave3 = Math.sin(i * 0.31) * amplitude * 0.2;
-        return Math.max(0, base + wave1 + wave2 + wave3);
-    });
-}
+// (Synthetic-history dummy generator removed — sparklines now stay
+//  empty when no real data has arrived. Sparkline component handles
+//  the empty-history case by rendering a low-opacity placeholder.)
 
 // ── HeroCompass — compact 360° compass card sized to its parent ──
 const HeroCompass: React.FC<{ value: number; isLive: boolean; accentColor?: string }> = ({
@@ -538,10 +527,13 @@ function useMetricHistory(metric: TimestampedMetric): { history: number[]; max: 
     return { history, max: maxRef.current, min: minRef.current };
 }
 
-// ── Resolve a metric value with dummy fallback ──
-function resolveMetric(metric: TimestampedMetric, dummy: number): { value: number; freshness: DataFreshness } {
-    if (metric.value !== null) return { value: metric.value, freshness: metric.freshness };
-    return { value: dummy, freshness: 'live' };
+// ── Pass-through accessor — kept as a thin wrapper for symmetry
+//    with the multi-source aggregation we used to do. Returns the
+//    metric's actual value (which may be null if no data has arrived
+//    yet) and its freshness. Callers render via fmt() for the "—"
+//    fallback. ──
+function resolveMetric(metric: TimestampedMetric): { value: number | null; freshness: DataFreshness } {
+    return { value: metric.value, freshness: metric.freshness };
 }
 
 // ══════════════════════════════════════════════
@@ -573,45 +565,48 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
     const sensorIconSize = pickByDevice(deviceClass, 'text-lg', 'text-2xl');
     const voltageValueClass = pickByDevice(deviceClass, 'text-xl', 'text-3xl');
 
-    // Resolve all metrics with dummy fallbacks
-    const sog = resolveMetric(state.sog, DUMMY.sog);
-    const tws = resolveMetric(state.tws, DUMMY.tws);
-    const depth = resolveMetric(state.depth, DUMMY.depth);
-    const cog = resolveMetric(state.cog, DUMMY.cog);
-    const voltage = resolveMetric(state.voltage, DUMMY.voltage);
+    // Resolve all metrics — values may be null when no NMEA data has
+    // arrived yet. Render sites use fmt() to show "—" in that case.
+    const sog = resolveMetric(state.sog);
+    const tws = resolveMetric(state.tws);
+    const depth = resolveMetric(state.depth);
+    const cog = resolveMetric(state.cog);
+    const voltage = resolveMetric(state.voltage);
 
-    // AWS — no field in NmeaStore yet, always dummy until wired up
-    const aws = useMemo<{ value: number; freshness: DataFreshness }>(
-        () => ({ value: DUMMY.aws, freshness: 'live' }),
+    // AWS — no field in NmeaStore yet. Always reads as "no data"
+    // until the apparent-wind topic is wired up.
+    const aws = useMemo<{ value: number | null; freshness: DataFreshness }>(
+        () => ({ value: null, freshness: 'dead' }),
         [],
     );
 
-    // Real-data sparkline histories
+    // Real-data sparkline histories.
     const sogReal = useMetricHistory(state.sog);
     const twsReal = useMetricHistory(state.tws);
     const depthReal = useMetricHistory(state.depth);
 
-    // Chart configs — fall back to synthetic dummy histories
+    // Chart configs — empty history when nothing's arrived yet, so
+    // Sparkline renders its grey placeholder. No fabricated waveforms.
     const sogChart = useMemo(
         () =>
             sogReal.history.length > 5
                 ? { history: sogReal.history, min: Math.max(0, sogReal.min - 2), max: sogReal.max + 2 }
-                : { history: syntheticHistory(DUMMY.sog, 3), min: 9, max: 18 },
+                : { history: [] as number[], min: 0, max: 1 },
         [sogReal.history, sogReal.min, sogReal.max],
     );
-    const awsChart = useMemo(() => ({ history: syntheticHistory(DUMMY.aws, 4), min: 14, max: 28 }), []);
+    const awsChart = useMemo(() => ({ history: [] as number[], min: 0, max: 1 }), []);
     const twsChart = useMemo(
         () =>
             twsReal.history.length > 5
                 ? { history: twsReal.history, min: Math.max(0, twsReal.min - 5), max: twsReal.max + 5 }
-                : { history: syntheticHistory(DUMMY.tws, 6), min: 28, max: 46 },
+                : { history: [] as number[], min: 0, max: 1 },
         [twsReal.history, twsReal.min, twsReal.max],
     );
     const depthChart = useMemo(
         () =>
             depthReal.history.length > 5
                 ? { history: depthReal.history, min: 0, max: Math.max(20, depthReal.max + 5) }
-                : { history: syntheticHistory(DUMMY.depth, 2.5), min: 0, max: 20 },
+                : { history: [] as number[], min: 0, max: 1 },
         [depthReal.history, depthReal.max],
     );
 
@@ -622,7 +617,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
             setTwsMax(state.tws.value);
         }
     }, [state.tws.value, twsMax]);
-    const twsMaxDisplay = twsMax > 0 ? twsMax : DUMMY.twsMax;
+    const twsMaxDisplay: number | null = twsMax > 0 ? twsMax : null;
 
     // Trip distance accumulator (SOG × dt)
     const [tripDist, setTripDist] = useState<number>(0);
@@ -637,7 +632,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
             lastSogTime.current = now;
         }
     }, [state.sog.value, state.sog.freshness]);
-    const tripDisplay = tripDist > 0 ? tripDist : DUMMY.trip;
+    const tripDisplay: number | null = tripDist > 0 ? tripDist : null;
 
     const handleBack = useCallback(() => {
         triggerHaptic('light');
@@ -683,7 +678,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     <span
                                         className={`${sogAwsValueClass} font-black tabular-nums font-mono text-white`}
                                     >
-                                        {sog.value.toFixed(1)}
+                                        {fmt(sog.value)}
                                     </span>
                                     <span className="text-xs font-bold text-gray-500">kts</span>
                                 </div>
@@ -691,7 +686,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                     <div
                                         className="h-full rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-pink-500 transition-all duration-500"
-                                        style={{ width: `${Math.min(100, (sog.value / 20) * 100)}%` }}
+                                        style={{ width: `${Math.min(100, ((sog.value ?? 0) / 20) * 100)}%` }}
                                     />
                                 </div>
                                 {/* Sparkline */}
@@ -721,7 +716,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     <span
                                         className={`${sogAwsValueClass} font-black tabular-nums font-mono text-white`}
                                     >
-                                        {aws.value.toFixed(1)}
+                                        {fmt(aws.value)}
                                     </span>
                                     <span className="text-xs font-bold text-gray-500">kts</span>
                                 </div>
@@ -729,7 +724,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 <div className="mt-1.5 h-1.5 rounded-full bg-white/[0.06] overflow-hidden">
                                     <div
                                         className="h-full rounded-full bg-gradient-to-r from-sky-500 via-cyan-400 to-blue-500 transition-all duration-500"
-                                        style={{ width: `${Math.min(100, (aws.value / 30) * 100)}%` }}
+                                        style={{ width: `${Math.min(100, ((aws.value ?? 0) / 30) * 100)}%` }}
                                     />
                                 </div>
                                 {/* Apparent winds sparkline */}
@@ -810,7 +805,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                     MAX{' '}
                                 </span>
                                 <span className="text-xs font-black text-amber-400 tabular-nums font-mono">
-                                    {twsMaxDisplay.toFixed(1)}
+                                    {fmt(twsMaxDisplay)}
                                 </span>
                                 <span className="text-[9px] font-bold text-gray-500"> kts</span>
                             </div>
@@ -826,7 +821,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             </p>
                             <div className="flex items-baseline gap-0.5">
                                 <span className={`${depthValueClass} font-black tabular-nums font-mono text-white`}>
-                                    {depth.value.toFixed(1)}
+                                    {fmt(depth.value)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">m</span>
                             </div>
@@ -857,7 +852,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 COG Compass
                             </p>
                             <div style={{ width: '100%', maxWidth: `${compassMaxWidth}px`, aspectRatio: '1' }}>
-                                <HeroCompass value={cog.value} isLive={cog.freshness !== 'dead'} />
+                                <HeroCompass
+                                    value={cog.value ?? 0}
+                                    isLive={cog.value !== null && cog.freshness !== 'dead'}
+                                />
                             </div>
                         </div>
 
@@ -868,7 +866,10 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <p className="text-[9px] font-black uppercase tracking-[0.15em] text-gray-400 mb-2">
                                 Heel Angle
                             </p>
-                            <HeelCapsule degrees={DUMMY.heel} isLive />
+                            {/* Heel: NmeaStore doesn't track heel yet, so always
+                             *  the no-data fallback. When the field is added,
+                             *  swap in the real metric and isLive flips on its own. */}
+                            <HeelCapsule degrees={0} isLive={false} />
                         </div>
                     </div>
 
@@ -887,7 +888,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <div className="flex items-center gap-2 mt-1">
                                 <span className={sensorIconSize}>🔋</span>
                                 <span className={`${voltageValueClass} font-black tabular-nums font-mono text-white`}>
-                                    {voltage.value.toFixed(1)}
+                                    {fmt(voltage.value)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">V</span>
                             </div>
@@ -901,7 +902,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                             <p className="text-[10px] font-bold text-gray-500 mb-0.5">Trip Dist:</p>
                             <div className="flex items-baseline gap-1">
                                 <span className={`${tripValueClass} font-black tabular-nums font-mono text-white`}>
-                                    {tripDisplay.toFixed(1)}
+                                    {fmt(tripDisplay)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">NM</span>
                             </div>
@@ -910,7 +911,7 @@ export const TheGlassPage: React.FC<TheGlassPageProps> = ({ onBack }) => {
                                 <span
                                     className={`${voltageValueClass} font-black tabular-nums font-mono text-cyan-400`}
                                 >
-                                    {sog.value.toFixed(1)}
+                                    {fmt(sog.value)}
                                 </span>
                                 <span className="text-xs font-bold text-gray-500">kts</span>
                             </div>
