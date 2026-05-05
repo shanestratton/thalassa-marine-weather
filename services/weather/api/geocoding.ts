@@ -310,8 +310,53 @@ export const reverseGeocode = async (lat: number, lon: number): Promise<string |
     return ctx ? ctx.name : null;
 };
 
+/**
+ * Maritime abbreviation expansion table. Mapbox doesn't reliably
+ * recognise these short codes — "Newport, QLD" might match Newport,
+ * North Carolina because Mapbox doesn't know "QLD" means Queensland.
+ * Pre-expanding the abbreviation helps the geocoder pick the right
+ * region before proximity bias kicks in.
+ *
+ * Codes that COLLIDE with US states (NC, WA, NT, SA) are intentionally
+ * NOT expanded here — those rely on the proximity bias instead, since
+ * "Newport, NC" is ambiguous (could be North Carolina USA or New
+ * Caledonia depending on where the user is).
+ */
+const MARITIME_ABBREV_EXPAND: Record<string, string> = {
+    QLD: 'Queensland, Australia',
+    NSW: 'New South Wales, Australia',
+    VIC: 'Victoria, Australia',
+    TAS: 'Tasmania, Australia',
+    NZ: 'New Zealand',
+};
+
+/**
+ * If the input looks like "Place, ABBR" where ABBR is a known maritime
+ * region code, expand it. e.g. "Newport, QLD" → "Newport, Queensland,
+ * Australia". Returns the original string if no abbreviation matched.
+ */
+function expandMaritimeAbbreviations(location: string): string {
+    const m = location.match(/^(.+?),\s*([A-Z]{2,4})\s*$/);
+    if (!m) return location;
+    const place = m[1].trim();
+    const abbr = m[2].toUpperCase();
+    const expansion = MARITIME_ABBREV_EXPAND[abbr];
+    return expansion ? `${place}, ${expansion}` : location;
+}
+
 export const parseLocation = async (
     location: string,
+    /**
+     * Optional GPS proximity hint — biases the Mapbox geocoder toward
+     * results near this point. Critical for ambiguous place names like
+     * "Newport, NC" which could match Newport NC USA or Port Moselle
+     * NC New Caledonia depending on where the user is.
+     *
+     * Without this, Mapbox just returns its global "best match" which
+     * is usually the most-populous interpretation — typically wrong
+     * for offshore cruisers planning passages out of obscure ports.
+     */
+    proximity?: { lat: number; lon: number },
 ): Promise<{ lat: number; lon: number; name: string; timezone?: string }> => {
     if (!location || typeof location !== 'string') return { lat: 0, lon: 0, name: 'Invalid Location' };
 
@@ -358,12 +403,29 @@ export const parseLocation = async (
         }
     } else {
         // 4. Forward geocode via Mapbox (commercial, licensed)
+        // Pre-expand known maritime abbreviations ("QLD" → "Queensland,
+        // Australia") that don't collide with US states. Ambiguous
+        // codes like NC/WA/NT/SA are handled by the proximity bias
+        // (see fetchMapboxGeo proximity param below).
+        const expandedQuery = expandMaritimeAbbreviations(location);
+        if (expandedQuery !== location) {
+            log.info(`[geocoding] expanded "${location}" → "${expandedQuery}"`);
+        }
+
         const fetchMapboxGeo = async (query: string) => {
             try {
                 const mapboxKey = getMapboxKey();
                 if (!mapboxKey) return [];
+                // Proximity bias: when the user has a current GPS fix,
+                // pass it as `proximity=lon,lat` so Mapbox returns the
+                // closest interpretation of ambiguous queries. e.g. for
+                // a user in Brisbane typing "Newport, QLD", proximity
+                // bias resolves to Newport, Queensland (just up the
+                // coast). Without this, Mapbox returns Newport, NC
+                // (USA) as its global "best match" — wrong continent.
+                const proxParam = proximity ? `&proximity=${proximity.lon},${proximity.lat}` : '';
                 const res = await CapacitorHttp.get({
-                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}`,
+                    url: `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?limit=1&language=en&access_token=${mapboxKey}${proxParam}`,
                 });
                 if (!res || !res.data) return [];
                 const data = typeof res.data === 'string' ? JSON.parse(res.data) : res.data;
@@ -390,7 +452,7 @@ export const parseLocation = async (
             }
         };
 
-        let results = await fetchMapboxGeo(location);
+        let results = await fetchMapboxGeo(expandedQuery);
 
         // FALLBACK: Nominatim (OSS, commercial use permitted with attribution)
         if (!results || results.length === 0) {

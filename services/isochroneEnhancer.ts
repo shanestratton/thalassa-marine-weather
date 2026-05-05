@@ -411,7 +411,13 @@ export async function enhanceVoyagePlanWithIsochrone(
 
         // ── 7. Turn waypoints from isochrone path ──
         const { detectTurnWaypoints } = await import('./IsochroneRouter');
-        const turns = detectTurnWaypoints(isoResult.route, departureTime);
+        // 25° threshold (default is 15°) — at 15° even a routine wind
+        // shift on a long bluewater leg generates a "turn waypoint",
+        // producing 14-20 named WPs that clutter the chart and don't
+        // represent actionable course changes. 25° catches genuine
+        // strategic turns (rounding a headland, hooking around a
+        // weather feature) while ignoring sub-strategic wiggles.
+        const turns = detectTurnWaypoints(isoResult.route, departureTime, 25);
         merged.waypoints = turns.map((t) => ({
             name: t.id,
             coordinates: { lat: t.lat, lon: t.lon },
