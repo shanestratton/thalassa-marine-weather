@@ -5,7 +5,7 @@
  *   Hero band:           vessel name · voyage state · position fix · time-since-fix
  *   Quick Actions:       6-tile 2-up grid — log entry, route, anchor, guardian, MOB, radio
  *   Passage Planning:    voyage prep + GPX import + Notices
- *   Diary:               Daily journal (voyage entries live in Quick Actions)
+ *   Diary:               Daily journal (the log book lives in Quick Actions)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
  *   Connect:             NMEA Gateway · Boat Network
@@ -68,7 +68,12 @@ const CONTOUR_BG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000
 type Destination = { label: string; page: string; section: string; keywords: string };
 const DESTINATIONS: Destination[] = [
     // Quick Actions
-    { label: 'Voyage Entries', page: 'details', section: 'Quick Actions', keywords: 'log entry record fix waypoint' },
+    {
+        label: 'Log Book',
+        page: 'details',
+        section: 'Quick Actions',
+        keywords: 'voyage entry record fix waypoint log book',
+    },
     { label: 'Route Planner', page: 'route', section: 'Quick Actions', keywords: 'plan passage navigation waypoints' },
     {
         label: 'Anchor Watch',
@@ -103,7 +108,7 @@ const DESTINATIONS: Destination[] = [
         section: 'Passage Planning',
         keywords: 'notices navarea hydro warnings urgmar',
     },
-    // Diary (voyage entries are in Quick Actions; this is the personal journal)
+    // Diary (the log book lives in Quick Actions; this is the personal journal)
     { label: 'Diary', page: 'diary', section: 'Diary', keywords: 'diary daily notes journal log' },
     // Inventory & Maintenance
     {
@@ -436,7 +441,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     // ── Live tile state — entries today, suggested/actual track counts, guardian, maintenance overdue ──
     const [entriesToday, setEntriesToday] = useState<number | null>(null);
-    // Suggested/Actual track counts for the Voyage Entries tile —
+    // Suggested/Actual track counts for the Log Book tile —
     // sourced from RoutesAndTracks (planned_* voyageIds vs everything
     // else). Refetches whenever a route is saved or a voyage deleted
     // (window event from invalidateRoutesAndTracks).
@@ -487,7 +492,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     }, []);
 
     useEffect(() => {
-        // Suggested + Actual track counts for the Voyage Entries
+        // Suggested + Actual track counts for the Log Book
         // tile. Source of truth is RoutesAndTracks:
         //   routes  → planned_* voyageIds  (suggested / not yet sailed)
         //   tracks  → every other voyageId (actual / sailed passages)
@@ -848,10 +853,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onToggle={toggleSection}
                             />
                             <CollapsibleContent open={expanded.has('quick')}>
-                                {/* Row 1 — Voyage Entries + Route Planner */}
+                                {/* Row 1 — Log Book + Route Planner */}
                                 <div className="grid grid-cols-2 gap-3 mb-3">
                                     <button
-                                        aria-label="Open voyage entries log book"
+                                        aria-label="Open log book"
                                         onClick={() => {
                                             triggerHaptic('light');
                                             onNavigate('details');
@@ -866,7 +871,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                             >
                                                 <BookIcon color="#0ea5e9" />
                                             </div>
-                                            {/* Voyage Entries shows both counts on one line:
+                                            {/* Log Book shows both counts on one line:
                                                   N PLAN  = saved suggested routes (not yet sailed)
                                                   N SAIL  = actually-logged tracks
                                                 Tracking is `wide` (not `widest`) so 2-digit
@@ -877,7 +882,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                                 length out further. */}
                                             <div className="min-w-0 flex-1">
                                                 <h4 className="text-[13px] font-black text-white tracking-wide truncate">
-                                                    Voyage Entries
+                                                    Log Book
                                                 </h4>
                                                 <p className="text-[11px] font-bold uppercase tracking-wide text-sky-400 mt-0.5 tabular-nums truncate">
                                                     {(() => {
@@ -917,7 +922,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                                 <CompassIcon />
                                             </div>
                                             {/* Route Planner is a CTA, not a status surface.
-                                                Draft count moved to Voyage Entries (where
+                                                Draft count moved to Log Book (where
                                                 "suggested tracks" belongs alongside actual
                                                 ones). This tile just invites the action. */}
                                             <div className="min-w-0 flex-1">
