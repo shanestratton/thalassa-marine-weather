@@ -220,17 +220,84 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         [onDepartureTimeChange],
     );
 
-    // Merge: prefer PassageStore data over voyage props
-    const effectiveDistance = passage.hasRoute ? passage.totalDistanceNM : distanceNm;
-    const effectiveMaxWind = passage.hasRoute ? (passage.maxWindKt ?? maxWindKt) : maxWindKt;
-    const effectiveMaxWave = passage.hasRoute ? (passage.maxWaveM ?? maxWaveM) : maxWaveM;
-    const effectiveDepartLat = passage.hasRoute ? (passage.departLat ?? departLat) : departLat;
-    const effectiveDepartLon = passage.hasRoute ? (passage.departLon ?? departLon) : departLon;
-    const effectiveArriveLat = passage.hasRoute ? (passage.arriveLat ?? arriveLat) : arriveLat;
-    const effectiveArriveLon = passage.hasRoute ? (passage.arriveLon ?? arriveLon) : arriveLon;
-    const effectiveEta = passage.hasRoute ? (passage.arrivalTime ?? eta) : eta;
+    // ── Merge strategy (2026-05-05): props (voyage) win over PassageStore ──
+    //
+    // PassageStore is a global localStorage-backed singleton populated
+    // by the inline-map passage planner. When the user calculates a
+    // route via the form-based RoutePlanner, PassageStore is NOT
+    // refreshed — but its previous-session data persists in
+    // localStorage. So a fresh voyage with valid coords gets shown on
+    // top of stale PassageStore data with bogus distance / coords / eta
+    // (the source of "74d 11h" durations and globe-view maps with
+    // (0,0) markers).
+    //
+    // Fix: prefer the voyage props (which are always derived from the
+    // CURRENT active voyage's actual logbook entries) over PassageStore
+    // data. Only fall back to PassageStore when the prop is missing.
+    // Also reject PassageStore values that look like (0,0) or
+    // unreasonably-large distances.
+    const isValidLatLon = (lat: number | null | undefined, lon: number | null | undefined): boolean => {
+        if (lat == null || lon == null) return false;
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) return false;
+        if (Math.abs(lat) < 0.0001 && Math.abs(lon) < 0.0001) return false;
+        return true;
+    };
+    const effectiveDepartLat =
+        departLat ?? (isValidLatLon(passage.departLat, passage.departLon) ? passage.departLat : null);
+    const effectiveDepartLon =
+        departLon ?? (isValidLatLon(passage.departLat, passage.departLon) ? passage.departLon : null);
+    const effectiveArriveLat =
+        arriveLat ?? (isValidLatLon(passage.arriveLat, passage.arriveLon) ? passage.arriveLat : null);
+    const effectiveArriveLon =
+        arriveLon ?? (isValidLatLon(passage.arriveLat, passage.arriveLon) ? passage.arriveLon : null);
 
-    const duration = departureTime && effectiveEta ? formatDuration(departureTime, effectiveEta) : null;
+    // Distance: prefer prop (from voyage), fall back to PassageStore,
+    // OR compute great-circle from coords if both stale. The
+    // great-circle is a reasonable estimate when nothing else
+    // available.
+    let effectiveDistance = distanceNm ?? (passage.hasRoute ? passage.totalDistanceNM : undefined);
+    if (
+        (effectiveDistance == null || effectiveDistance <= 0 || effectiveDistance > 12000) &&
+        effectiveDepartLat != null &&
+        effectiveDepartLon != null &&
+        effectiveArriveLat != null &&
+        effectiveArriveLon != null
+    ) {
+        // Great-circle from coords when stored value is missing or
+        // wildly unreasonable (>12000 NM is roughly half the earth —
+        // bigger than any practical sailing passage).
+        const R = 3440.065;
+        const φ1 = (effectiveDepartLat * Math.PI) / 180;
+        const φ2 = (effectiveArriveLat * Math.PI) / 180;
+        const dφ = ((effectiveArriveLat - effectiveDepartLat) * Math.PI) / 180;
+        const dλ = ((effectiveArriveLon - effectiveDepartLon) * Math.PI) / 180;
+        const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+        effectiveDistance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    }
+
+    const effectiveMaxWind = maxWindKt ?? (passage.hasRoute ? passage.maxWindKt : undefined);
+    const effectiveMaxWave = maxWaveM ?? (passage.hasRoute ? passage.maxWaveM : undefined);
+    const effectiveEta = eta ?? (passage.hasRoute ? passage.arrivalTime : undefined);
+
+    // Duration: compute from departureTime + eta, but reject the
+    // result if it's obviously stale-data nonsense (>30 days ≈ longest
+    // realistic passage). Falls back to the great-circle estimate at
+    // 6 kn cruising speed when eta is bad/missing.
+    let duration: string | null = null;
+    if (departureTime && effectiveEta) {
+        const candidate = formatDuration(departureTime, effectiveEta);
+        const dept = new Date(departureTime).getTime();
+        const arr = new Date(effectiveEta).getTime();
+        const diffH = (arr - dept) / 3600000;
+        if (diffH > 0 && diffH < 30 * 24) {
+            duration = candidate;
+        }
+    }
+    if (!duration && effectiveDistance != null && effectiveDistance > 0) {
+        const hrs = effectiveDistance / 6;
+        if (hrs < 24) duration = `${Math.round(hrs)}h`;
+        else duration = `${Math.floor(hrs / 24)}d ${Math.round(hrs % 24)}h`;
+    }
 
     // Build brief data for sharing
     const briefData: PassageBriefData | null =
@@ -293,22 +360,52 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             </div>
 
             {/* ── Route Map ── */}
-            {passage.hasRoute &&
-                passage.routeCoordinates.length >= 2 &&
-                effectiveDepartLat != null &&
+            {/* Map renders whenever we have valid depart/arrive coords
+                (either from the voyage props or PassageStore — see
+                effectiveDepartLat etc above for the merge). The
+                routeCoordinates polyline comes from PassageStore if
+                it has fresh data for THIS route; otherwise we fall
+                back to a straight depart→arrive great-circle line so
+                the user still sees a proper A-to-B map.
+
+                Stale-data check: PassageStore.routeCoordinates is only
+                trusted when its endpoints sit close to the voyage's
+                actual depart/arrive coords (within ~1°). Without this,
+                a fresh "Newport → Nouméa" voyage would render with
+                stale "Brisbane → Sydney" route geometry from a
+                previous session. */}
+            {effectiveDepartLat != null &&
                 effectiveDepartLon != null &&
                 effectiveArriveLat != null &&
-                effectiveArriveLon != null && (
-                    <PassageRouteMap
-                        routeCoordinates={passage.routeCoordinates}
-                        departLat={effectiveDepartLat}
-                        departLon={effectiveDepartLon}
-                        arriveLat={effectiveArriveLat}
-                        arriveLon={effectiveArriveLon}
-                        turnWaypoints={passage.turnWaypoints}
-                        height={220}
-                    />
-                )}
+                effectiveArriveLon != null &&
+                (() => {
+                    const storeCoordsMatch =
+                        passage.hasRoute &&
+                        passage.routeCoordinates.length >= 2 &&
+                        passage.departLat != null &&
+                        passage.arriveLat != null &&
+                        Math.abs(passage.departLat - effectiveDepartLat) < 1 &&
+                        Math.abs((passage.departLon ?? 0) - effectiveDepartLon) < 1 &&
+                        Math.abs(passage.arriveLat - effectiveArriveLat) < 1 &&
+                        Math.abs((passage.arriveLon ?? 0) - effectiveArriveLon) < 1;
+                    const routeCoords: [number, number][] = storeCoordsMatch
+                        ? passage.routeCoordinates
+                        : [
+                              [effectiveDepartLon, effectiveDepartLat],
+                              [effectiveArriveLon, effectiveArriveLat],
+                          ];
+                    return (
+                        <PassageRouteMap
+                            routeCoordinates={routeCoords}
+                            departLat={effectiveDepartLat}
+                            departLon={effectiveDepartLon}
+                            arriveLat={effectiveArriveLat}
+                            arriveLon={effectiveArriveLon}
+                            turnWaypoints={storeCoordsMatch ? passage.turnWaypoints : []}
+                            height={220}
+                        />
+                    );
+                })()}
 
             {/* ── Key Stats Grid ── */}
             <div className="grid grid-cols-2 gap-2">
