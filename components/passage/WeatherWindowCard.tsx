@@ -21,6 +21,14 @@ interface WeatherWindowCardProps {
     departure?: { lat: number; lon: number };
     destination?: { lat: number; lon: number };
     activeVoyage?: Voyage | null;
+    /** ISO timestamp the skipper picked for departure. When provided,
+     *  the card auto-scopes the visible windows to ±3 days around this
+     *  date and re-renders whenever it changes — so picking a new
+     *  departure date in the form (or accepting a window in this very
+     *  card) instantly updates which days are highlighted.
+     *
+     *  Falls back to activeVoyage.departure_time if undefined. */
+    departureTime?: string | null;
     onReviewedChange?: (ready: boolean) => void;
 }
 
@@ -55,8 +63,31 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     departure,
     destination,
     activeVoyage: _activeVoyage,
+    departureTime,
     onReviewedChange,
 }) => {
+    // Resolve the chosen departure date — priority order:
+    //   1. The latest ISO captured from a `thalassa:departure-time-updated`
+    //      event (live, fires the moment the form's date input changes
+    //      or another card accepts a window). Snapshot in local state
+    //      so the filter below re-runs without waiting for a parent
+    //      prop to round-trip through React Context.
+    //   2. The explicit `departureTime` prop (when the parent already
+    //      pipes the chosen date through).
+    //   3. The active voyage's departure_time (last-resort fallback).
+    const [eventDepartureIso, setEventDepartureIso] = useState<string | null>(null);
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (e as CustomEvent).detail as { iso?: string } | undefined;
+            if (typeof detail?.iso === 'string') setEventDepartureIso(detail.iso);
+        };
+        window.addEventListener('thalassa:departure-time-updated', handler);
+        return () => window.removeEventListener('thalassa:departure-time-updated', handler);
+    }, []);
+
+    const chosenDepartureIso = eventDepartureIso ?? departureTime ?? _activeVoyage?.departure_time ?? null;
+    const chosenDepartureMs = chosenDepartureIso ? Date.parse(chosenDepartureIso) : NaN;
+    const hasChosenDate = Number.isFinite(chosenDepartureMs);
     const [result, setResult] = useState<WeatherWindowResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -210,12 +241,57 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         [voyageId, result, _activeVoyage],
     );
 
-    // Determine windows to show
-    const displayWindows = result?.windows ?? [];
+    // Determine windows to show.
+    //
+    // When the skipper has picked a departure date we scope the visible
+    // windows to ±3 days around it — the typical "do I leave a day
+    // earlier or a day later" decision space. Without this scoping the
+    // user sees 16 days of windows and has to scroll to find their
+    // chosen date. With it, the card centres on the date the user
+    // cares about and updates immediately when they change it.
+    //
+    // When no date is picked yet, fall back to the previous behaviour
+    // (top-rated windows from the full forecast).
+    //
+    // Indices below stay in `allWindows` coordinates because
+    // `acceptedIndex` / `acceptWindow` persist through localStorage and
+    // pull from `result.windows[idx]`. Filtering only changes what's
+    // visible — never the canonical index space.
+    const allWindows = result?.windows ?? [];
+    const FOCUS_HALF_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+    const displayWindows = hasChosenDate
+        ? allWindows.filter((w) => {
+              const wMs = Date.parse(w.time);
+              if (!Number.isFinite(wMs)) return false;
+              return Math.abs(wMs - chosenDepartureMs) <= FOCUS_HALF_WINDOW_MS;
+          })
+        : allWindows;
+
+    // Best window within the visible scope (not result.bestWindowIndex,
+    // which is the global best — could fall outside the focus window).
+    let scopedBestIdx = -1;
+    for (const w of displayWindows) {
+        const i = allWindows.indexOf(w);
+        if (i < 0) continue;
+        if (scopedBestIdx < 0 || w.score > allWindows[scopedBestIdx].score) scopedBestIdx = i;
+    }
+
     const topWindows = showAll
         ? displayWindows
-        : displayWindows.filter((w) => w.rating === 'go' || w.rating === 'marginal').slice(0, 6);
+        : hasChosenDate
+          ? displayWindows
+          : displayWindows.filter((w) => w.rating === 'go' || w.rating === 'marginal').slice(0, 6);
     const goCount = displayWindows.filter((w) => w.rating === 'go').length;
+
+    // Pre-format the chosen date for the summary line so the user sees
+    // exactly which day the picker is focused on.
+    const chosenDateLabel = hasChosenDate
+        ? new Date(chosenDepartureMs).toLocaleDateString(undefined, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+          })
+        : null;
 
     return (
         <div className="space-y-4">
@@ -235,7 +311,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
             {loading && (
                 <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-6 text-center">
                     <div className="w-8 h-8 border-2 border-cyan-400/20 border-t-cyan-400 rounded-full animate-spin mx-auto mb-3" />
-                    <p className="text-xs text-gray-400">Analysing 7-day forecast...</p>
+                    <p className="text-xs text-gray-400">Analysing 16-day forecast...</p>
                 </div>
             )}
 
@@ -255,9 +331,18 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                         <span className="text-lg">{goCount > 0 ? '🌤️' : '⛈️'}</span>
                         <div className="flex-1">
                             <p className="text-xs font-bold text-white">
-                                {goCount > 0
-                                    ? `${goCount} departure window${goCount !== 1 ? 's' : ''} open`
-                                    : 'No ideal windows — proceed with caution'}
+                                {chosenDateLabel ? (
+                                    <>
+                                        {goCount > 0
+                                            ? `${goCount} departure window${goCount !== 1 ? 's' : ''}`
+                                            : 'No ideal windows'}{' '}
+                                        <span className="text-amber-300">around {chosenDateLabel}</span>
+                                    </>
+                                ) : goCount > 0 ? (
+                                    `${goCount} departure window${goCount !== 1 ? 's' : ''} open`
+                                ) : (
+                                    'No ideal windows — proceed with caution'
+                                )}
                             </p>
                             <p className="text-[11px] text-gray-500 mt-0.5">
                                 {result.source === 'live' ? 'Live forecast' : 'Cached data'} ·{' '}
@@ -265,6 +350,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                                     hour: '2-digit',
                                     minute: '2-digit',
                                 })}
+                                {chosenDateLabel ? ' · scope ±3 days' : ''}
                             </p>
                         </div>
                         <button
@@ -275,26 +361,39 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                         </button>
                     </div>
 
-                    {/* Best window highlight */}
-                    {result.bestWindowIndex >= 0 && displayWindows[result.bestWindowIndex] && (
+                    {/* No windows in the chosen-date scope (e.g. user
+                        picked a date beyond the 16-day forecast horizon) */}
+                    {displayWindows.length === 0 && hasChosenDate && (
+                        <div className="bg-amber-500/[0.05] border border-amber-500/15 rounded-xl p-3 text-center">
+                            <p className="text-xs text-amber-300">
+                                No forecast data within ±3 days of {chosenDateLabel}.
+                            </p>
+                            <p className="text-[11px] text-gray-400 mt-1">
+                                The 16-day forecast horizon doesn&apos;t reach this date — pick something closer.
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Best window highlight (best within the visible
+                        scope — not the global best, which could be
+                        outside the chosen-date filter). */}
+                    {scopedBestIdx >= 0 && allWindows[scopedBestIdx] && (
                         <WindowCard
-                            window={displayWindows[result.bestWindowIndex]}
-                            index={result.bestWindowIndex}
+                            window={allWindows[scopedBestIdx]}
+                            index={scopedBestIdx}
                             isBest
-                            isAccepted={acceptedIndex === result.bestWindowIndex}
+                            isAccepted={acceptedIndex === scopedBestIdx}
                             onAccept={acceptWindow}
                         />
                     )}
 
-                    {/* Other windows */}
+                    {/* Other windows. Indices map back to allWindows
+                        (canonical) so acceptedIndex / persistence
+                        survive any filtering changes. */}
                     {topWindows
-                        .filter((_, i) => {
-                            // Find the original index in displayWindows
-                            const origIdx = displayWindows.indexOf(topWindows[i]);
-                            return origIdx !== result.bestWindowIndex;
-                        })
+                        .filter((w) => allWindows.indexOf(w) !== scopedBestIdx)
                         .map((w) => {
-                            const origIdx = displayWindows.indexOf(w);
+                            const origIdx = allWindows.indexOf(w);
                             return (
                                 <WindowCard
                                     key={w.time}
