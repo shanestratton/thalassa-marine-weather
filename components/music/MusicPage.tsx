@@ -865,7 +865,7 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                  *  instead of scrolling the list. overscroll-contain
                  *  stops the scroll from chaining up to the backdrop. */}
                 <div
-                    className="flex-1 min-h-0 overflow-y-auto px-3 pb-8"
+                    className="flex-1 min-h-0 overflow-y-auto px-3"
                     style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}
                 >
                     {loading && (
@@ -893,20 +893,24 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                                 </div>
                             </button>
                         ))}
-                    {/* Delete this playlist — destructive action,
-                     *  intentionally subtle and at the bottom so it's
-                     *  not an easy mis-tap. */}
-                    {!loading && (
-                        <div className="pt-6 pb-2 flex justify-center">
-                            <button
-                                onClick={onDelete}
-                                className="text-red-400/80 hover:text-red-300 active:text-red-200 text-xs font-medium px-4 py-2 rounded-lg active:bg-red-500/10 transition-colors"
-                            >
-                                Delete this playlist
-                            </button>
-                        </div>
-                    )}
                 </div>
+
+                {/* Delete this playlist — sticky footer so it's always
+                 *  visible regardless of scroll state. Lives outside the
+                 *  scroll container because long track lists made the
+                 *  delete button unreachable on iOS (the inner scroll
+                 *  rubber-banded back before reaching the bottom).
+                 *  shrink-0 keeps it pinned at the sheet's bottom edge. */}
+                {!loading && (
+                    <div className="shrink-0 border-t border-white/10 py-3 flex justify-center bg-black/40 backdrop-blur-sm">
+                        <button
+                            onClick={onDelete}
+                            className="text-red-400/80 hover:text-red-300 active:text-red-200 text-xs font-medium px-4 py-2 rounded-lg active:bg-red-500/10 transition-colors"
+                        >
+                            Delete this playlist
+                        </button>
+                    </div>
+                )}
             </div>
         </div>
     );
