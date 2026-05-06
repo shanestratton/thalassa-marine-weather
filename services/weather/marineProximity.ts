@@ -48,9 +48,18 @@ export const checkMarineProximity = async (lat: number, lon: number): Promise<Ma
     const params = new URLSearchParams({
         latitude: lats,
         longitude: lons,
+        // hourly = waves for the live hero card + per-hour passage
+        // forecast; daily = max-wave summaries for the multi-day
+        // pre-departure briefing. Without hourly here, the hourly
+        // forecast in openmeteo.ts always falls back to 0. Without
+        // a 16-day daily window, the pre-departure briefing's wave
+        // column showed "0.0 m" for any day past the third (the
+        // index-overrun bug — undefined values then coerced to 0
+        // downstream).
+        hourly: 'wave_height,wave_period,wave_direction',
         daily: 'wave_height_max',
         timezone: 'auto',
-        forecast_days: '3',
+        forecast_days: '16',
     });
 
     if (isCommercial) params.append('apikey', apiKey!);

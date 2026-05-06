@@ -323,8 +323,11 @@ export const DailyWidget = ({
                     const dayWind = convertSpeed(day.windSpeed, units.speed);
                     const dayWave = convertLength(day.waveHeight, units.length);
 
-                    // Use Vessel Specific Scoring
-                    const score = calculateDailyScore(day.windSpeed, day.waveHeight, vessel);
+                    // Use Vessel Specific Scoring — fall back to 0
+                    // when marine wave coverage is missing for this
+                    // day so the score still computes a useful
+                    // wind-only result instead of NaN-ing out.
+                    const score = calculateDailyScore(day.windSpeed, day.waveHeight ?? 0, vessel);
                     const scoreClass = getSailingScoreColor(score);
                     const condText = getSailingConditionText(score);
 
@@ -423,7 +426,7 @@ export const DailyWidget = ({
                                     <div className="h-1.5 w-full bg-black/30 rounded-full overflow-hidden mb-2">
                                         <div
                                             className={`h-full rounded-full transition-all bg-sky-500`}
-                                            style={{ width: `${Math.min(day.waveHeight * 10, 100)}%` }}
+                                            style={{ width: `${Math.min((day.waveHeight ?? 0) * 10, 100)}%` }}
                                         ></div>
                                     </div>
                                     <div className="pt-2 border-t border-white/10 flex justify-between items-center">

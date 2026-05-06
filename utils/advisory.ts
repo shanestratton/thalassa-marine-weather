@@ -166,9 +166,16 @@ export const checkForecastThresholds = (
             alerts.push(`THRESHOLD ALERT: Gusts reaching ${maxGust.toFixed(1)}kts in next 24h`);
     }
     if (prefs.waves && prefs.waves.enabled) {
-        const maxWave = Math.max(...next24.map((h) => h.waveHeight));
-        if (maxWave >= prefs.waves.threshold)
-            alerts.push(`THRESHOLD ALERT: Seas building to ${maxWave.toFixed(1)}ft in next 24h`);
+        // Filter out null hours (no marine coverage) so the threshold
+        // check ignores them rather than treating them as 0 — Math.max
+        // over nulls coerces them to 0 and would then be the maximum
+        // for inland-blocked stretches, masking real wave alerts.
+        const waveValues = next24.map((h) => h.waveHeight).filter((w): w is number => typeof w === 'number');
+        if (waveValues.length > 0) {
+            const maxWave = Math.max(...waveValues);
+            if (maxWave >= prefs.waves.threshold)
+                alerts.push(`THRESHOLD ALERT: Seas building to ${maxWave.toFixed(1)}ft in next 24h`);
+        }
     }
     if (prefs.swellPeriod && prefs.swellPeriod.enabled) {
         const maxPeriod = Math.max(...next24.map((h) => h.swellPeriod || 0));

@@ -20,6 +20,7 @@ import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
 import { triggerHaptic } from '../utils/system';
+import { convertLength } from '../utils/units';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { lazyRetry } from '../utils/lazyRetry';
@@ -191,7 +192,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const current = weatherData?.current;
     const windSpeed = current?.windSpeed ?? null;
     const windDir = current?.windDirection || null;
-    const waveHeight = current?.waveHeight ?? null;
+    // weatherData.current.waveHeight is always stored in FEET — every
+    // upstream transformer (openmeteo / transformers / weatherRouter)
+    // converts metres → feet before assigning. Convert here using the
+    // user's preferred unit so the hero chip shows the right number
+    // alongside the right label. Without this, a 1 m wave was showing
+    // as "3.3 m" — the feet value labelled meters.
+    const waveUnit = ((ctx as { units?: { waveHeight?: 'ft' | 'm' } })?.units?.waveHeight ?? 'm') as 'ft' | 'm';
+    const rawWaveFt = current?.waveHeight ?? null;
+    const waveHeight = rawWaveFt !== null ? convertLength(rawWaveFt, waveUnit) : null;
     const airTemp = current?.airTemperature ?? null;
     const seaTemp = current?.waterTemperature ?? null;
     const visibility = current?.visibility ?? null;
@@ -742,6 +751,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     windSpeed={windSpeed}
                     windDir={windDir}
                     waveHeight={waveHeight}
+                    waveUnit={waveUnit}
                     airTemp={airTemp}
                     seaTemp={seaTemp}
                     visibility={visibility}
@@ -1653,6 +1663,10 @@ const NavStationHero: React.FC<{
     windSpeed: number | null;
     windDir: string | null;
     waveHeight: number | null;
+    /** Unit symbol matching `waveHeight` ('m' or 'ft') — already
+     *  converted by the parent via convertLength. Defaults to 'm' if
+     *  the parent forgot to thread it through. */
+    waveUnit?: 'ft' | 'm';
     airTemp: number | null;
     seaTemp: number | null;
     visibility: number | null;
@@ -1675,6 +1689,7 @@ const NavStationHero: React.FC<{
     windSpeed,
     windDir,
     waveHeight,
+    waveUnit = 'm',
     airTemp,
     seaTemp,
     visibility,
@@ -1929,7 +1944,7 @@ const NavStationHero: React.FC<{
                               }
                             : null,
                         waveHeight !== null
-                            ? { key: 'wave', icon: '🌊', value: waveHeight.toFixed(1), unit: 'm' }
+                            ? { key: 'wave', icon: '🌊', value: waveHeight.toFixed(1), unit: waveUnit }
                             : null,
                         airTemp !== null
                             ? { key: 'air', icon: '🌡', value: `${Math.round(airTemp)}`, unit: '°' }
