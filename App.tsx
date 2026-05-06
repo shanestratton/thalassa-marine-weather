@@ -136,6 +136,28 @@ const App: React.FC = () => {
         return () => window.removeEventListener('thalassa:openUpgrade', handler);
     }, [setIsUpgradeOpen]);
 
+    // One-shot personal-port directory sync. Pulls the user's saved
+    // ports from Supabase and merges them into the local cache so a
+    // route the user planned on the iPad resolves instantly on the
+    // iPhone (and vice versa). No-ops gracefully when the user is
+    // signed out or offline. Fire-and-forget — the page renders
+    // immediately and the merge populates as it lands.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const { syncPortsFromCloud } = await import('./services/PersonalPortDirectory');
+                if (cancelled) return;
+                await syncPortsFromCloud();
+            } catch {
+                /* non-critical — local cache still works */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     // Calypso "speak up" alerts — singleton AlertMonitorService runs as
     // long as the toggle is on AND the user has Skipper-tier access.
     // The service subscribes to NmeaStore and dispatches AlertEvents
