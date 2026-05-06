@@ -16,6 +16,7 @@
  */
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { STORE_ONE_PRODUCTS, type StoreOneProduct } from '../data/storeOne.products';
 import { useSettings } from '../context/SettingsContext';
 import { triggerHaptic } from '../utils/system';
@@ -221,108 +222,115 @@ interface ProductDetailProps {
     onClose: () => void;
 }
 
-const ProductDetail: React.FC<ProductDetailProps> = ({ product, compatibility, showImage, onImageError, onClose }) => (
-    <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
-        {/* Header */}
-        <div
-            className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
-            style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
-        >
-            <button
-                onClick={onClose}
-                aria-label="Close product detail"
-                className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
-            >
-                <span className="text-sky-400 text-lg">‹</span>
-            </button>
-            <div className="flex-1 min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">The Chandlery</p>
-            </div>
-        </div>
-
-        {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto">
-            {/* Hero image — real photo when available, gradient fallback otherwise */}
+const ProductDetail: React.FC<ProductDetailProps> = ({ product, compatibility, showImage, onImageError, onClose }) =>
+    // Portal to document.body — ChatPage's parent uses `chat-slide-forward`,
+    // a CSS animation with `transform: translate3d(...)` that creates a
+    // containing block, trapping `position: fixed` descendants inside the
+    // chat content area instead of letting them escape to the viewport.
+    // ChildCard solves the same problem with the same pattern.
+    createPortal(
+        <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
+            {/* Header */}
             <div
-                className="w-full aspect-[4/3] relative bg-slate-900"
-                style={!showImage ? { background: getProductGradient(product.id) } : undefined}
+                className="flex items-center gap-3 px-4 py-3 border-b border-white/[0.06] flex-shrink-0"
+                style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}
             >
-                {showImage && product.imageUrl && (
-                    <img
-                        src={product.imageUrl}
-                        alt={product.name}
-                        onError={onImageError}
-                        className="absolute inset-0 w-full h-full object-contain bg-white/[0.02]"
-                    />
-                )}
-            </div>
-
-            {/* Body */}
-            <div className="px-6 pt-10 pb-16 max-w-2xl">
-                <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40 mb-3">
-                    {product.requires_12v ? 'Hardware · 12V' : 'Hardware · Wireless'}
-                </p>
-                <h1 className="text-2xl font-semibold text-white leading-tight tracking-tight">{product.name}</h1>
-                <div className="flex items-baseline gap-2 mt-3">
-                    <span className="text-xl text-white/80 tabular-nums">${product.price}</span>
-                    <span className="text-xs text-white/30">USD</span>
-                </div>
-
-                <p className="text-sm text-white/70 mt-8 leading-relaxed">{product.description}</p>
-
-                {/* Vessel-fit panel */}
-                <div
-                    className={`mt-8 p-4 rounded-xl border ${
-                        compatibility.ok
-                            ? 'bg-emerald-500/[0.04] border-emerald-500/15'
-                            : 'bg-amber-500/[0.04] border-amber-500/15'
-                    }`}
+                <button
+                    onClick={onClose}
+                    aria-label="Close product detail"
+                    className="w-11 h-11 rounded-full bg-white/[0.06] hover:bg-white/[0.12] flex items-center justify-center transition-all active:scale-90"
                 >
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-1.5">Vessel Fit</p>
-                    <p className={`text-sm ${compatibility.ok ? 'text-emerald-300/90' : 'text-amber-300/90'}`}>
-                        {compatibility.label}
-                    </p>
+                    <span className="text-sky-400 text-lg">‹</span>
+                </button>
+                <div className="flex-1 min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">The Chandlery</p>
+                </div>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto">
+                {/* Hero image — real photo when available, gradient fallback otherwise */}
+                <div
+                    className="w-full aspect-[4/3] relative bg-slate-900"
+                    style={!showImage ? { background: getProductGradient(product.id) } : undefined}
+                >
+                    {showImage && product.imageUrl && (
+                        <img
+                            src={product.imageUrl}
+                            alt={product.name}
+                            onError={onImageError}
+                            className="absolute inset-0 w-full h-full object-contain bg-white/[0.02]"
+                        />
+                    )}
                 </div>
 
-                {/* Specs */}
-                <section className="mt-10">
-                    <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40 mb-4">
-                        Specifications
+                {/* Body */}
+                <div className="px-6 pt-10 pb-16 max-w-2xl">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40 mb-3">
+                        {product.requires_12v ? 'Hardware · 12V' : 'Hardware · Wireless'}
                     </p>
-                    <ul className="space-y-2.5">
-                        {product.specs.map((s, i) => (
-                            <li key={i} className="text-sm text-white/70 leading-relaxed pl-5 relative">
-                                <span className="absolute left-0 top-[0.55rem] w-1 h-1 rounded-full bg-white/40" />
-                                {s}
-                            </li>
-                        ))}
-                    </ul>
-                </section>
+                    <h1 className="text-2xl font-semibold text-white leading-tight tracking-tight">{product.name}</h1>
+                    <div className="flex items-baseline gap-2 mt-3">
+                        <span className="text-xl text-white/80 tabular-nums">${product.price}</span>
+                        <span className="text-xs text-white/30">USD</span>
+                    </div>
 
-                {/* Lifecycle hint */}
-                <section className="mt-10 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-                    <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2">Lifecycle ownership</p>
-                    <p className="text-sm text-white/60 leading-relaxed">
-                        On purchase, this product joins your Ship's Manifest. Service intervals, recall notices, and
-                        manufacturer manuals stay with the gear for as long as it's on board.
-                    </p>
-                </section>
+                    <p className="text-sm text-white/70 mt-8 leading-relaxed">{product.description}</p>
 
-                {/* CTA — placeholder until Stripe wires in Q3 */}
-                <section className="mt-10">
-                    <button
-                        disabled
-                        className="w-full py-4 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white/60 font-medium cursor-not-allowed min-h-[52px]"
+                    {/* Vessel-fit panel */}
+                    <div
+                        className={`mt-8 p-4 rounded-xl border ${
+                            compatibility.ok
+                                ? 'bg-emerald-500/[0.04] border-emerald-500/15'
+                                : 'bg-amber-500/[0.04] border-amber-500/15'
+                        }`}
                     >
-                        Available Q3 2026
-                    </button>
-                    <p className="text-[11px] text-white/30 text-center mt-3 leading-relaxed">
-                        Checkout opens with the Q3 sprint. Sign in for early access notifications.
-                    </p>
-                </section>
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-1.5">Vessel Fit</p>
+                        <p className={`text-sm ${compatibility.ok ? 'text-emerald-300/90' : 'text-amber-300/90'}`}>
+                            {compatibility.label}
+                        </p>
+                    </div>
+
+                    {/* Specs */}
+                    <section className="mt-10">
+                        <p className="text-[10px] font-medium uppercase tracking-[0.25em] text-white/40 mb-4">
+                            Specifications
+                        </p>
+                        <ul className="space-y-2.5">
+                            {product.specs.map((s, i) => (
+                                <li key={i} className="text-sm text-white/70 leading-relaxed pl-5 relative">
+                                    <span className="absolute left-0 top-[0.55rem] w-1 h-1 rounded-full bg-white/40" />
+                                    {s}
+                                </li>
+                            ))}
+                        </ul>
+                    </section>
+
+                    {/* Lifecycle hint */}
+                    <section className="mt-10 p-4 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-2">Lifecycle ownership</p>
+                        <p className="text-sm text-white/60 leading-relaxed">
+                            On purchase, this product joins your Ship's Manifest. Service intervals, recall notices, and
+                            manufacturer manuals stay with the gear for as long as it's on board.
+                        </p>
+                    </section>
+
+                    {/* CTA — placeholder until Stripe wires in Q3 */}
+                    <section className="mt-10">
+                        <button
+                            disabled
+                            className="w-full py-4 rounded-xl bg-white/[0.04] border border-white/[0.08] text-sm text-white/60 font-medium cursor-not-allowed min-h-[52px]"
+                        >
+                            Available Q3 2026
+                        </button>
+                        <p className="text-[11px] text-white/30 text-center mt-3 leading-relaxed">
+                            Checkout opens with the Q3 sprint. Sign in for early access notifications.
+                        </p>
+                    </section>
+                </div>
             </div>
-        </div>
-    </div>
-);
+        </div>,
+        document.body,
+    );
 
 export default ChandleryPage;
