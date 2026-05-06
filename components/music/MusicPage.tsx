@@ -857,8 +857,17 @@ const PlaylistDetailSheet: React.FC<PlaylistDetailSheetProps> = ({
                     </div>
                 )}
 
-                {/* Track list */}
-                <div className="flex-1 overflow-y-auto px-3 pb-8">
+                {/* Track list — min-h-0 is REQUIRED on flex children
+                 *  that need overflow-scroll. Without it, flex's default
+                 *  `min-height: auto` lets the child grow to fit its
+                 *  content, so the scroll container never actually
+                 *  overflows and iOS rubber-bands the whole sheet
+                 *  instead of scrolling the list. overscroll-contain
+                 *  stops the scroll from chaining up to the backdrop. */}
+                <div
+                    className="flex-1 min-h-0 overflow-y-auto px-3 pb-8"
+                    style={{ overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}
+                >
                     {loading && (
                         <div className="flex flex-col items-center justify-center py-12 text-white/40 text-sm gap-2">
                             <div className="w-6 h-6 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin" />

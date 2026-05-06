@@ -1279,120 +1279,170 @@ public class AppleMusicPlugin: CAPPlugin {
 
     @available(iOS 15.0, *)
     @objc func nowPlaying(_ call: CAPPluginCall) {
-        let player = ApplicationMusicPlayer.shared
-        let state = player.state
-        let isPlaying = state.playbackStatus == .playing
-        let entry = player.queue.currentEntry
-
-        var title = ""
-        var artist = ""
-        var album = ""
-        var artworkUrl = ""
-        var artworkSource = "none"
-        if let entry = entry {
-            title = entry.title
-            // Pull artwork off the queue Entry directly — it's more
-            // reliably populated than the inner item's artwork,
-            // especially for tracks queued from a library playlist
-            // where the item may wrap differently.
-            if let url = entry.artwork?.url(width: 400, height: 400) {
-                artworkUrl = url.absoluteString
-                artworkSource = "entry"
-            } else if entry.artwork != nil {
-                artworkSource = "entry-no-url"
+        // The whole resolver is async because we may need to do a
+        // MusicCatalogSearchRequest to convert library-track artwork
+        // into a public mzstatic.com URL the WebView can render.
+        Task { [weak self] in
+            guard let self = self else {
+                await MainActor.run { call.resolve(["is_playing": false, "state": "stopped"]) }
+                return
             }
-            // Entry subtitle is typically "Artist" or "Artist — Album"
-            // — use as a default artist line in case the inner item
-            // doesn't surface artistName cleanly.
-            artist = entry.subtitle ?? ""
-            switch entry.item {
-            case .song(let song):
-                if !song.artistName.isEmpty {
-                    artist = song.artistName
-                }
-                album = song.albumTitle ?? ""
-                if artworkUrl.isEmpty, let url = song.artwork?.url(width: 400, height: 400) {
+
+            let player = ApplicationMusicPlayer.shared
+            let state = player.state
+            let isPlaying = state.playbackStatus == .playing
+            let entry = player.queue.currentEntry
+
+            var title = ""
+            var artist = ""
+            var album = ""
+            var artworkUrl = ""
+            var artworkSource = "none"
+
+            if let entry = entry {
+                title = entry.title
+                // Pull artwork off the queue Entry directly — it's more
+                // reliably populated than the inner item's artwork.
+                if let url = entry.artwork?.url(width: 400, height: 400) {
                     artworkUrl = url.absoluteString
-                    artworkSource = "song"
-                } else if artworkUrl.isEmpty && song.artwork != nil {
-                    artworkSource = "song-no-url"
+                    artworkSource = "entry"
+                } else if entry.artwork != nil {
+                    artworkSource = "entry-no-url"
                 }
-            default:
-                break
-            }
-
-            // For library tracks, MusicKit's Artwork.url() returns a
-            // `musicKit://` scheme URL that WKWebView's <img> can't
-            // load. Resolve that through MPNowPlayingInfoCenter, which
-            // is the system-wide now-playing dictionary that gets
-            // updated by ANY app's playback (including MusicKit's
-            // ApplicationMusicPlayer.shared). We encode the artwork
-            // as a JPEG data URL so the WebView can render it
-            // natively.
-            //
-            // We previously tried MPMusicPlayerController.systemMusicPlayer
-            // (returned the wrong app's nowPlayingItem) and
-            // applicationQueuePlayer (returned nil because that
-            // MediaPlayer-framework player doesn't share state with
-            // MusicKit's Swift player). MPNowPlayingInfoCenter is the
-            // right surface — it's where the OS centralises now-playing
-            // info for the lock screen, Control Center, and any
-            // process subscribing to it.
-            //
-            // Cached by the original musicKit:// URL string so each
-            // track's encoded artwork is reused across the 2s poll.
-            if artworkUrl.hasPrefix("musicKit://") || artworkUrl.isEmpty {
-                let cacheKey = artworkUrl.isEmpty ? "<empty>:\(title)" : artworkUrl
-                if let cached = self.artworkDataUrlCache[cacheKey] {
-                    artworkUrl = cached
-                    artworkSource = "info-cached"
-                } else if let info = MPNowPlayingInfoCenter.default().nowPlayingInfo,
-                          let mpArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork,
-                          let image = mpArtwork.image(at: CGSize(width: 240, height: 240)),
-                          let data = image.jpegData(compressionQuality: 0.85) {
-                    let dataUrl = "data:image/jpeg;base64,\(data.base64EncodedString())"
-                    self.artworkDataUrlCache[cacheKey] = dataUrl
-                    self.artworkCacheOrder.append(cacheKey)
-                    while self.artworkCacheOrder.count > self.maxArtworkCache {
-                        let oldest = self.artworkCacheOrder.removeFirst()
-                        self.artworkDataUrlCache.removeValue(forKey: oldest)
+                // Entry subtitle is typically "Artist" or "Artist — Album".
+                artist = entry.subtitle ?? ""
+                switch entry.item {
+                case .song(let song):
+                    if !song.artistName.isEmpty {
+                        artist = song.artistName
                     }
-                    artworkUrl = dataUrl
-                    artworkSource = "info-fresh"
-                } else {
-                    // No artwork available via MPNowPlayingInfoCenter
-                    // either. Return empty URL so the JS layer falls
-                    // back cleanly to the generated monogram instead
-                    // of trying to render the unloadable musicKit://
-                    // string.
-                    artworkUrl = ""
-                    artworkSource = "info-unavailable"
+                    album = song.albumTitle ?? ""
+                    if artworkUrl.isEmpty, let url = song.artwork?.url(width: 400, height: 400) {
+                        artworkUrl = url.absoluteString
+                        artworkSource = "song"
+                    } else if artworkUrl.isEmpty && song.artwork != nil {
+                        artworkSource = "song-no-url"
+                    }
+                default:
+                    break
                 }
+
+                // ── Library-track artwork resolution ──────────────────
+                // MusicKit's Artwork.url() returns a private `musicKit://`
+                // scheme URL for tracks playing from the user's library.
+                // WKWebView's <img> can't load that scheme, so we have to
+                // convert it to something the WebView can render.
+                //
+                // Strategy (in order of preference):
+                //   1) Catalog search by title+artist → public mzstatic
+                //      URL. This is the best path because it gives a
+                //      direct https:// URL the WebView loads natively.
+                //      Apple's catalog covers most library tracks (any
+                //      track added from Apple Music is in the catalog).
+                //   2) MPNowPlayingInfoCenter → JPEG data: URL.
+                //      Heavier (base64-encoded image bytes) and only
+                //      works when MusicKit publishes now-playing info.
+                //   3) Empty string → JS falls back to monogram tile.
+                //
+                // Cached by `title|artist` so the 2s poll doesn't refire
+                // the catalog search hundreds of times for the same
+                // track. Cache is bounded (maxArtworkCache).
+                let isLibraryArtwork = artworkUrl.hasPrefix("musicKit://") || artworkUrl.isEmpty
+                if isLibraryArtwork {
+                    let cacheKey = "\(title)|\(artist)"
+                    if !title.isEmpty, let cached = self.artworkDataUrlCache[cacheKey] {
+                        artworkUrl = cached
+                        artworkSource = "cached"
+                    } else if !title.isEmpty {
+                        // 1) Catalog search → public mzstatic URL
+                        var resolved = ""
+                        do {
+                            let term = artist.isEmpty ? title : "\(title) \(artist)"
+                            var searchRequest = MusicCatalogSearchRequest(term: term, types: [Song.self])
+                            searchRequest.limit = 5
+                            let response = try await searchRequest.response()
+                            // Best match: same title (case-insensitive)
+                            // and matching artist if we have one. Fall
+                            // back to first result if no exact match.
+                            let normTitle = title.lowercased()
+                            let normArtist = artist.lowercased()
+                            let matched = response.songs.first { song in
+                                let songTitle = song.title.lowercased()
+                                let songArtist = song.artistName.lowercased()
+                                if normArtist.isEmpty {
+                                    return songTitle == normTitle
+                                }
+                                return songTitle == normTitle && songArtist.contains(normArtist)
+                            } ?? response.songs.first
+
+                            if let match = matched,
+                               let url = match.artwork?.url(width: 400, height: 400),
+                               !url.absoluteString.hasPrefix("musicKit://") {
+                                resolved = url.absoluteString
+                                artworkSource = "catalog-search"
+                            }
+                        } catch {
+                            NSLog("[AppleMusic] catalog search failed for '\(title)': \(error.localizedDescription)")
+                        }
+
+                        // 2) Fallback: MPNowPlayingInfoCenter → JPEG data: URL
+                        if resolved.isEmpty {
+                            if let info = MPNowPlayingInfoCenter.default().nowPlayingInfo,
+                               let mpArtwork = info[MPMediaItemPropertyArtwork] as? MPMediaItemArtwork,
+                               let image = mpArtwork.image(at: CGSize(width: 240, height: 240)),
+                               let data = image.jpegData(compressionQuality: 0.85) {
+                                resolved = "data:image/jpeg;base64,\(data.base64EncodedString())"
+                                artworkSource = "info-fresh"
+                            }
+                        }
+
+                        if !resolved.isEmpty {
+                            self.artworkDataUrlCache[cacheKey] = resolved
+                            self.artworkCacheOrder.append(cacheKey)
+                            while self.artworkCacheOrder.count > self.maxArtworkCache {
+                                let oldest = self.artworkCacheOrder.removeFirst()
+                                self.artworkDataUrlCache.removeValue(forKey: oldest)
+                            }
+                            artworkUrl = resolved
+                        } else {
+                            // Nothing resolved. Empty string lets the JS
+                            // layer fall back to the monogram tile.
+                            artworkUrl = ""
+                            artworkSource = "unavailable"
+                        }
+                    } else {
+                        // No title to search with. Fall back to monogram.
+                        artworkUrl = ""
+                        artworkSource = "no-title"
+                    }
+                }
+
+                NSLog(
+                    "[AppleMusic] nowPlaying: title='\(title)' artist='\(artist)' artworkSource=\(artworkSource) urlBytes=\(artworkUrl.count)"
+                )
             }
 
-            NSLog(
-                "[AppleMusic] nowPlaying: title='\(title)' artist='\(artist)' artworkSource=\(artworkSource) urlBytes=\(artworkUrl.count)"
-            )
-        }
+            let stateString: String
+            switch state.playbackStatus {
+            case .playing:      stateString = "playing"
+            case .paused:       stateString = "paused"
+            case .stopped:      stateString = "stopped"
+            case .interrupted:  stateString = "interrupted"
+            case .seekingForward, .seekingBackward: stateString = "seeking"
+            @unknown default:   stateString = "unknown"
+            }
 
-        let stateString: String
-        switch state.playbackStatus {
-        case .playing:      stateString = "playing"
-        case .paused:       stateString = "paused"
-        case .stopped:      stateString = "stopped"
-        case .interrupted:  stateString = "interrupted"
-        case .seekingForward, .seekingBackward: stateString = "seeking"
-        @unknown default:   stateString = "unknown"
+            await MainActor.run {
+                call.resolve([
+                    "is_playing": isPlaying,
+                    "state": stateString,
+                    "title": title,
+                    "artist": artist,
+                    "album": album,
+                    "artwork_url": artworkUrl,
+                ])
+            }
         }
-
-        call.resolve([
-            "is_playing": isPlaying,
-            "state": stateString,
-            "title": title,
-            "artist": artist,
-            "album": album,
-            "artwork_url": artworkUrl,
-        ])
     }
 
     // MARK: - TTS playback (AVAudioPlayer)
