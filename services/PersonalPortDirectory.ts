@@ -15,16 +15,27 @@
  * the user from Mapbox quietly returning a different "best match"
  * a month later as its index updates.
  *
- * Storage: localStorage, ~1 KB per port. 1000-port soft cap so the
- * cache never balloons; oldest-by-lastUsedAt evicted first.
+ * Storage:
+ *   - localStorage (always) — 1000-port soft cap, LRU evicted.
+ *     Works offline, instant lookups.
+ *   - Supabase `personal_ports` table (when authenticated) —
+ *     fire-and-forget upsert on record, opportunistic pull on
+ *     startup. Lets the user's directory follow them between
+ *     devices: plan a route on the iPad → the same port resolves
+ *     instantly on the iPhone.
  *
- * Privacy: stays on-device. Future enhancement could add an opt-in
- * sync to Supabase so a user's personal ports follow them between
- * iPad and phone, but that requires a moderation tier we don't
- * have yet. For now: local-only.
+ * Conflict resolution: PostgreSQL UNIQUE(user_id, typed_name)
+ * with `ON CONFLICT DO UPDATE` — last-write-wins on coords/canonical;
+ * times_used is summed across rows when merging the local cache
+ * with the cloud snapshot on startup.
+ *
+ * Phase 2 (deferred): the migration's `public_status` column lays
+ * the groundwork for promoting a personal port to a community-vetted
+ * shared list. Not wired yet — needs a moderation queue.
  */
 
 import { createLogger } from '../utils/createLogger';
+import { supabase } from './supabase';
 
 const log = createLogger('PortDirectory');
 
@@ -145,6 +156,12 @@ export function findPersonalPort(typedName: string): PersonalPort | null {
  * existing entry just bumps timesUsed + lastUsedAt. Reject (0,0)
  * and out-of-range coords so a failed Mapbox response can't pollute
  * the directory.
+ *
+ * Local write is synchronous (writes to in-memory cache + localStorage).
+ * Cloud upsert is fire-and-forget so the geocode caller never blocks
+ * on a network round-trip; if Supabase is down, the local cache still
+ * works perfectly and the cloud catches up on the next successful
+ * recordPersonalPort call.
  */
 export function recordPersonalPort(typedName: string, canonicalName: string, lat: number, lon: number): void {
     if (!typedName || !canonicalName) return;
@@ -157,6 +174,7 @@ export function recordPersonalPort(typedName: string, canonicalName: string, lat
     const now = new Date().toISOString();
     const existing = list.find((p) => norm(p.typedName) === q);
 
+    let nextRow: PersonalPort;
     if (existing) {
         existing.timesUsed += 1;
         existing.lastUsedAt = now;
@@ -165,8 +183,9 @@ export function recordPersonalPort(typedName: string, canonicalName: string, lat
         existing.canonicalName = canonicalName;
         existing.lat = lat;
         existing.lon = lon;
+        nextRow = existing;
     } else {
-        list.push({
+        nextRow = {
             typedName,
             canonicalName,
             lat,
@@ -174,7 +193,8 @@ export function recordPersonalPort(typedName: string, canonicalName: string, lat
             timesUsed: 1,
             firstUsedAt: now,
             lastUsedAt: now,
-        });
+        };
+        list.push(nextRow);
 
         // Cap the cache — drop least-recently-used when we exceed.
         if (list.length > MAX_ENTRIES) {
@@ -185,6 +205,11 @@ export function recordPersonalPort(typedName: string, canonicalName: string, lat
 
     persist();
     log.info(`recorded "${typedName}" → "${canonicalName}" (${lat.toFixed(4)}, ${lon.toFixed(4)})`);
+
+    // Fire-and-forget cloud sync. Skipped silently when there's no
+    // Supabase client or the user isn't signed in — local cache is
+    // still authoritative for the unauthenticated case.
+    void cloudUpsertPort(nextRow);
 }
 
 /** Return all personal ports, sorted most-recently-used first. */
@@ -200,17 +225,199 @@ export function removePersonalPort(typedName: string): boolean {
     const q = norm(typedName);
     const idx = list.findIndex((p) => norm(p.typedName) === q);
     if (idx < 0) return false;
-    list.splice(idx, 1);
+    const removed = list.splice(idx, 1)[0];
     persist();
+    // Fire-and-forget cloud delete. If offline / unauthenticated the
+    // local removal still stands; the cloud row will stay until a
+    // future syncFromCloud reconciliation drops it (next phase).
+    void cloudDeletePort(removed.typedName);
     return true;
 }
 
-/** Wipe the entire personal port cache. */
+/** Wipe the entire personal port cache (local + cloud). */
 export function clearPersonalPorts(): void {
     _cache = [];
     try {
         localStorage.removeItem(STORAGE_KEY);
     } catch {
         /* ignore */
+    }
+    void cloudClearAllPorts();
+}
+
+// ── Supabase sync ──────────────────────────────────────────────────
+//
+// All cloud operations are best-effort. They never block the caller,
+// they swallow their own errors, and they log a warning rather than
+// surface a failure to the user. The local cache is the source of
+// truth at runtime; the cloud is a cross-device convenience layer.
+
+interface PortRow {
+    typed_name: string;
+    canonical_name: string;
+    lat: number;
+    lon: number;
+    times_used: number;
+    first_used_at: string;
+    last_used_at: string;
+}
+
+function rowToPort(r: PortRow): PersonalPort {
+    return {
+        typedName: r.typed_name,
+        canonicalName: r.canonical_name,
+        lat: r.lat,
+        lon: r.lon,
+        timesUsed: r.times_used,
+        firstUsedAt: r.first_used_at,
+        lastUsedAt: r.last_used_at,
+    };
+}
+
+async function cloudUpsertPort(p: PersonalPort): Promise<void> {
+    if (!supabase) return;
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return; // unauthenticated — local-only is fine.
+        const { error } = await supabase.from('personal_ports').upsert(
+            {
+                user_id: user.id,
+                typed_name: p.typedName,
+                canonical_name: p.canonicalName,
+                lat: p.lat,
+                lon: p.lon,
+                times_used: p.timesUsed,
+                first_used_at: p.firstUsedAt,
+                last_used_at: p.lastUsedAt,
+            },
+            { onConflict: 'user_id,typed_name' },
+        );
+        if (error) log.warn('cloud upsert failed:', error.message);
+    } catch (e) {
+        log.warn('cloud upsert threw:', e);
+    }
+}
+
+async function cloudDeletePort(typedName: string): Promise<void> {
+    if (!supabase) return;
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const { error } = await supabase
+            .from('personal_ports')
+            .delete()
+            .eq('user_id', user.id)
+            .eq('typed_name', typedName);
+        if (error) log.warn('cloud delete failed:', error.message);
+    } catch (e) {
+        log.warn('cloud delete threw:', e);
+    }
+}
+
+async function cloudClearAllPorts(): Promise<void> {
+    if (!supabase) return;
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return;
+        const { error } = await supabase.from('personal_ports').delete().eq('user_id', user.id);
+        if (error) log.warn('cloud clear failed:', error.message);
+    } catch (e) {
+        log.warn('cloud clear threw:', e);
+    }
+}
+
+/**
+ * One-shot pull of the user's port directory from Supabase, merged
+ * into the local cache. Called on app startup (and re-callable on
+ * sign-in). Merge semantics:
+ *   - Cloud rows the local cache doesn't know about → added locally
+ *   - Local rows the cloud doesn't know about → pushed to cloud
+ *   - Rows in both → keep the more-recently-used row's coords +
+ *     canonical name; sum timesUsed (so the global usage counter
+ *     reflects use across all devices).
+ *
+ * Idempotent: calling it again with no changes is a cheap no-op.
+ * Returns the number of cloud rows merged (informational).
+ */
+export async function syncPortsFromCloud(): Promise<number> {
+    if (!supabase) return 0;
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return 0;
+        const { data, error } = await supabase
+            .from('personal_ports')
+            .select('typed_name, canonical_name, lat, lon, times_used, first_used_at, last_used_at')
+            .eq('user_id', user.id);
+        if (error) {
+            log.warn('cloud pull failed:', error.message);
+            return 0;
+        }
+        const cloudPorts = (data ?? []).map((r) => rowToPort(r as PortRow));
+        const local = load();
+
+        // Build a normalised-typedName index of the local cache so we
+        // can merge in O(N+M) rather than O(N×M).
+        const localByKey = new Map<string, PersonalPort>();
+        for (const p of local) localByKey.set(norm(p.typedName), p);
+
+        // Track local-only rows so we can push them up after the merge
+        // — keeps a freshly-signed-in user's existing localStorage
+        // history flowing into the cloud without losing anything.
+        const cloudByKey = new Map<string, PersonalPort>();
+        for (const p of cloudPorts) cloudByKey.set(norm(p.typedName), p);
+
+        let merged = 0;
+        for (const cloud of cloudPorts) {
+            const key = norm(cloud.typedName);
+            const localMatch = localByKey.get(key);
+            if (!localMatch) {
+                local.push(cloud);
+                merged++;
+            } else {
+                // Last-seen wins on coords + canonical; usage counter
+                // sums across devices.
+                const cloudFresher = Date.parse(cloud.lastUsedAt) > Date.parse(localMatch.lastUsedAt);
+                if (cloudFresher) {
+                    localMatch.canonicalName = cloud.canonicalName;
+                    localMatch.lat = cloud.lat;
+                    localMatch.lon = cloud.lon;
+                    localMatch.lastUsedAt = cloud.lastUsedAt;
+                }
+                localMatch.timesUsed = Math.max(localMatch.timesUsed, cloud.timesUsed);
+                merged++;
+            }
+        }
+
+        // Cap the merged cache so a long history of cross-device use
+        // can't push past MAX_ENTRIES.
+        if (local.length > MAX_ENTRIES) {
+            local.sort((a, b) => Date.parse(b.lastUsedAt) - Date.parse(a.lastUsedAt));
+            local.splice(MAX_ENTRIES);
+        }
+
+        persist();
+
+        // Push any local-only rows up — fire-and-forget per row so a
+        // single failure doesn't abort the lot.
+        for (const local_p of local) {
+            const key = norm(local_p.typedName);
+            if (!cloudByKey.has(key)) {
+                void cloudUpsertPort(local_p);
+            }
+        }
+
+        log.info(`cloud sync: merged ${merged} rows (cache size now ${local.length})`);
+        return merged;
+    } catch (e) {
+        log.warn('cloud sync threw:', e);
+        return 0;
     }
 }
