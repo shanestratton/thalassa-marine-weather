@@ -18,6 +18,13 @@ export interface StoreOneProduct {
      * Drives the "Will this fit your boat?" vessel-aware filter.
      */
     requires_12v: boolean;
+    /**
+     * Path to the bundled product photo, served from `public/images/storeOne/`.
+     * Manufacturer-supplied imagery — confirm licensing before retail launch.
+     * If absent or fails to load, ChandleryPage falls back to the per-product
+     * gradient placeholder.
+     */
+    imageUrl?: string;
 }
 
 export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
@@ -35,6 +42,7 @@ export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
             'SocketCAN driver — Linux-native, no proprietary blob',
         ],
         requires_12v: true,
+        imageUrl: '/images/storeOne/pican-m.png',
     },
     {
         id: 'xenarc-703wp',
@@ -50,6 +58,7 @@ export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
             'Bracket + flush-mount kit included',
         ],
         requires_12v: true,
+        imageUrl: '/images/storeOne/xenarc-703wp.jpg',
     },
     {
         id: 'calypso-ultrasonic-portable-mini',
@@ -65,5 +74,6 @@ export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
             'Mast-clip mount, removable for portable use',
         ],
         requires_12v: false,
+        imageUrl: '/images/storeOne/calypso-mini.jpg',
     },
 ];
