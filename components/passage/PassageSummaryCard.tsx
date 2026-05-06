@@ -15,10 +15,21 @@ import { PassageRouteMap } from './PassageRouteMap';
 import SharePassageButton from './SharePassageButton';
 import type { PassageBriefData } from '../../services/PassageBriefService';
 import { useSettings } from '../../context/SettingsContext';
+import type { ShipLogEntry } from '../../types';
+import { TrackMapViewer } from '../TrackMapViewer';
 
 /* ────────────────────────────────────────────────────────────── */
 
 interface PassageSummaryCardProps {
+    /** Voyage UUID — needed to fetch the sailed track or matching
+     *  planned route entries when the user taps the inline map for a
+     *  fullscreen playback view. */
+    voyageId?: string;
+    /** Voyage name — fallback match key when no sailed track exists
+     *  yet. PassagePlanSave saves planned-route entries with a label
+     *  derived from departure → arrival names; we match against that
+     *  to find the right planned route in the logbook. */
+    voyageName?: string;
     departPort?: string;
     destPort?: string;
     departureTime?: string | null;
@@ -191,6 +202,8 @@ const LegRow: React.FC<{ leg: PassageLeg; index: number }> = ({ leg, index }) =>
 /* ── Main Component ───────────────────────────────────────────── */
 
 export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
+    voyageId,
+    voyageName,
     departPort,
     destPort,
     departureTime,
@@ -235,6 +248,62 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     }, []);
 
     const [showLegs, setShowLegs] = useState(false);
+
+    // Fullscreen track-playback viewer state — same modal the Log book
+    // uses when the user taps a voyage's map icon. Tapping the inline
+    // map below opens it with the active voyage's entries (sailed
+    // track if cast off, planned route otherwise). Lazy-loaded: we
+    // only fetch the entries on first open, not on mount, so the
+    // readiness card doesn't pay the cost when the user never opens
+    // the fullscreen view.
+    const [trackEntries, setTrackEntries] = useState<ShipLogEntry[] | null>(null);
+    const [showTrackViewer, setShowTrackViewer] = useState(false);
+    const [loadingTrack, setLoadingTrack] = useState(false);
+
+    const handleOpenTrackViewer = useCallback(async () => {
+        triggerHaptic('light');
+        setShowTrackViewer(true);
+        // Fetch is one-shot — once we have entries, reuse them on
+        // subsequent re-opens within the same mount. If the user wants
+        // fresh data they can close + reopen the readiness panel.
+        if (trackEntries !== null) return;
+        setLoadingTrack(true);
+        try {
+            const { getLogEntries } = await import('../../services/shiplog/EntryCrud');
+            const all = await getLogEntries(10_000);
+
+            // Try the sailed track first — these are entries written
+            // by the GPS pipeline once the voyage casts off, keyed on
+            // the voyage's UUID. They'll have real telemetry.
+            const sailed = voyageId ? all.filter((e) => e.voyageId === voyageId) : [];
+            if (sailed.length >= 2) {
+                setTrackEntries(sailed);
+                return;
+            }
+
+            // Fall back to the planned route. PassagePlanSave creates
+            // a separate batch of entries (voyageId starts with
+            // `planned_`) keyed on a generated id, with first/last
+            // waypointName set to the trimmed dep/arr names. Match by
+            // voyage_name → route label using the same scheme
+            // CrewManagement uses.
+            const expectedLabel = (voyageName || `${departPort ?? ''} → ${destPort ?? ''}`).trim().toLowerCase();
+            if (expectedLabel) {
+                const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
+                const { routes } = await fetchRoutesAndTracks();
+                const matched = routes.find((r) => r.label.trim().toLowerCase() === expectedLabel);
+                if (matched) {
+                    setTrackEntries(all.filter((e) => e.voyageId === matched.id));
+                    return;
+                }
+            }
+            setTrackEntries([]);
+        } catch {
+            setTrackEntries([]);
+        } finally {
+            setLoadingTrack(false);
+        }
+    }, [trackEntries, voyageId, voyageName, departPort, destPort]);
 
     const effectiveTime = localTime || (departureTime ? departureTime.split('T')[1]?.slice(0, 5) : '');
 
@@ -531,20 +600,38 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                 {briefData && <SharePassageButton briefData={briefData} className="shrink-0" />}
             </div>
 
-            {/* ── Route Map ── */}
+            {/* ── Route Map ──
+                Tap to open the same fullscreen TrackMapViewer the
+                Log book uses — playback scrubber, telemetry HUD, and
+                a clearer view of the route geometry. The wrapper is
+                a button so the inline map stays non-interactive
+                (PassageRouteMap doesn't pan/zoom) while the click
+                surface still reads as tappable to the user. */}
             {effectiveDepartLat != null &&
                 effectiveDepartLon != null &&
                 effectiveArriveLat != null &&
                 effectiveArriveLon != null && (
-                    <PassageRouteMap
-                        routeCoordinates={mapRouteCoords}
-                        departLat={effectiveDepartLat}
-                        departLon={effectiveDepartLon}
-                        arriveLat={effectiveArriveLat}
-                        arriveLon={effectiveArriveLon}
-                        turnWaypoints={mapTurnWaypoints}
-                        height={220}
-                    />
+                    <button
+                        type="button"
+                        onClick={handleOpenTrackViewer}
+                        aria-label="Open fullscreen track view"
+                        className="relative block w-full rounded-2xl overflow-hidden focus:outline-none focus:ring-2 focus:ring-sky-400/40 transition-shadow"
+                    >
+                        <PassageRouteMap
+                            routeCoordinates={mapRouteCoords}
+                            departLat={effectiveDepartLat}
+                            departLon={effectiveDepartLon}
+                            arriveLat={effectiveArriveLat}
+                            arriveLon={effectiveArriveLon}
+                            turnWaypoints={mapTurnWaypoints}
+                            height={220}
+                        />
+                        {/* Hint chip — bottom-right so it doesn't fight
+                            the route line for attention */}
+                        <span className="absolute bottom-2 right-2 px-2 py-1 rounded-full bg-slate-900/80 border border-white/10 text-[10px] font-bold uppercase tracking-widest text-sky-300 backdrop-blur-sm pointer-events-none">
+                            Tap to expand
+                        </span>
+                    </button>
                 )}
 
             {/* ── Key Stats Grid ── */}
@@ -769,6 +856,26 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
                     <p className="text-xs text-gray-500">
                         Plan a route on the Charts page to see the full passage breakdown here.
                     </p>
+                </div>
+            )}
+
+            {/* Fullscreen track playback viewer — same modal the Log
+                book opens. While the entries are loading we still
+                render the modal so the user gets the dark backdrop
+                immediately, then the map populates the moment the
+                fetch resolves. If no entries are available (planned
+                route not yet saved, no sailed track), TrackMapViewer
+                will gracefully show its empty-state. */}
+            <TrackMapViewer
+                isOpen={showTrackViewer}
+                onClose={() => setShowTrackViewer(false)}
+                entries={trackEntries ?? []}
+            />
+            {showTrackViewer && loadingTrack && (
+                <div className="fixed inset-0 z-[10000] flex items-center justify-center pointer-events-none">
+                    <div className="px-3 py-1.5 rounded-full bg-slate-900/90 border border-white/10 text-[11px] text-sky-300 font-bold pointer-events-auto">
+                        Loading track…
+                    </div>
                 </div>
             )}
         </div>

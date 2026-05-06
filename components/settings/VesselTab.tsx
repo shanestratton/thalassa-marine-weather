@@ -49,10 +49,31 @@ function MetricInput({
     const displayVal = toDisplay ? toDisplay(valInStandard) : valInStandard;
 
     const [localVal, setLocalVal] = useState(displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '');
+    // Track whether the user is mid-edit so we never overwrite their
+    // half-typed value with a re-derived display number from props.
+    const isFocusedRef = useRef(false);
+
+    // Sync localVal whenever displayVal changes from outside (unit
+    // toggle, external save, yacht-database auto-fill). Without this,
+    // switching the unit dropdown left localVal stuck at the previous
+    // unit's number — the input visibly said "55" while the dropdown
+    // said "m", and any subsequent blur converted "55 m" → 180 ft into
+    // storage, silently corrupting the vessel record. The
+    // user-reported "555 ft" Tayana 55 was downstream of this exact
+    // round-trip after several unit toggles.
+    //
+    // Only sync when not focused — typing into the field shouldn't
+    // get clobbered by a parent re-render.
+    useEffect(() => {
+        if (isFocusedRef.current) return;
+        const next = displayVal > 0 ? String(Math.round(displayVal * 100) / 100) : '';
+        setLocalVal((prev) => (prev === next ? prev : next));
+    }, [displayVal]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => setLocalVal(e.target.value);
 
     const handleBlur = () => {
+        isFocusedRef.current = false;
         const numericVal = parseFloat(localVal);
         if (isNaN(numericVal)) return;
         // Convert from display unit → standard (stored) unit
@@ -74,6 +95,9 @@ function MetricInput({
                 <input
                     type="number"
                     value={localVal}
+                    onFocus={() => {
+                        isFocusedRef.current = true;
+                    }}
                     onChange={handleChange}
                     onBlur={handleBlur}
                     placeholder={placeholder}
