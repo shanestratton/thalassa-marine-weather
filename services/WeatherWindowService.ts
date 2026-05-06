@@ -160,11 +160,20 @@ function loadScoringComfort(): ScoringComfort {
     }
 }
 
-/** Day + time label */
+/** Day + date + time label.
+ *  Example: "Thu, 8 May · 06:00".
+ *  Day-of-week alone was ambiguous when the 7-day window straddles a
+ *  month boundary or the user had multiple draft voyages on different
+ *  Thursdays — the user couldn't tell which Thursday the card meant. */
 function timeLabel(iso: string): string {
     const d = new Date(iso);
     const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-    return `${days[d.getDay()]} ${d.getHours().toString().padStart(2, '0')}:00`;
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dow = days[d.getDay()];
+    const dayNum = d.getDate();
+    const month = months[d.getMonth()];
+    const time = `${d.getHours().toString().padStart(2, '0')}:00`;
+    return `${dow}, ${dayNum} ${month} · ${time}`;
 }
 
 /** Build description string */
@@ -190,9 +199,16 @@ export const WeatherWindowService = {
     async analyse(lat: number, lon: number, _voyageId?: string, courseBearing?: number): Promise<WeatherWindowResult> {
         const comfort = loadScoringComfort();
 
+        // Cache key includes lat/lon (rounded to 0.1°, ~6 NM resolution)
+        // so two voyages from different ports don't share the same
+        // cache entry. The old single-key cache leaked between voyages
+        // — opening the WW card on voyage A then voyage B would briefly
+        // show A's data until B's fetch landed.
+        const cacheKey = `${CACHE_KEY}:${lat.toFixed(1)},${lon.toFixed(1)}`;
+
         // Check cache
         try {
-            const cached = localStorage.getItem(CACHE_KEY);
+            const cached = localStorage.getItem(cacheKey);
             if (cached) {
                 const data = JSON.parse(cached);
                 if (Date.now() - new Date(data.analysisTime).getTime() < CACHE_TTL) {
@@ -215,17 +231,21 @@ export const WeatherWindowService = {
                 ? 'https://customer-api.open-meteo.com/v1/forecast'
                 : 'https://api.open-meteo.com/v1/forecast';
 
+            // 16 days = Open-Meteo's max forecast horizon. We fetch the
+            // whole window so the card can scope/filter to any
+            // departure date the user picks (vs the old 7-day fixed
+            // window from "now" that ignored the user's choice).
             const url =
                 `${marineBase}?` +
                 `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
                 `&hourly=wave_height,wave_direction,wave_period,wind_wave_height` +
-                `&forecast_days=7&timezone=auto${keyParam}`;
+                `&forecast_days=16&timezone=auto${keyParam}`;
 
             const windUrl =
                 `${forecastBase}?` +
                 `latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}` +
                 `&hourly=wind_speed_10m,wind_direction_10m,precipitation_probability` +
-                `&forecast_days=7&timezone=auto&wind_speed_unit=kn${keyParam}`;
+                `&forecast_days=16&timezone=auto&wind_speed_unit=kn${keyParam}`;
 
             const [marineRes, windRes] = await Promise.all([fetch(url), fetch(windUrl)]);
 
@@ -244,7 +264,10 @@ export const WeatherWindowService = {
             const windows: DepartureWindow[] = [];
             const step = 6;
 
-            for (let i = 0; i + step <= times.length && windows.length < 28; i += step) {
+            // 16 days × 4 windows/day = 64 max. Up from 28 (7 × 4) so
+            // the card can show windows around any chosen departure
+            // date within the forecast horizon.
+            for (let i = 0; i + step <= times.length && windows.length < 64; i += step) {
                 const sliceWind = windSpeed.slice(i, i + step);
                 const sliceWave = waveHeight.slice(i, i + step);
                 const sliceDir = windDir.slice(i, i + step);
@@ -299,7 +322,7 @@ export const WeatherWindowService = {
 
             // Cache
             try {
-                localStorage.setItem(CACHE_KEY, JSON.stringify(result));
+                localStorage.setItem(cacheKey, JSON.stringify(result));
             } catch {
                 /* ignore */
             }
@@ -310,7 +333,7 @@ export const WeatherWindowService = {
 
             // Return cached if available
             try {
-                const cached = localStorage.getItem(CACHE_KEY);
+                const cached = localStorage.getItem(cacheKey);
                 if (cached) return { ...JSON.parse(cached), source: 'cached' };
             } catch {
                 /* ignore */

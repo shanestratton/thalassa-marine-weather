@@ -333,6 +333,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         activeVoyage={activeVoyage}
                         departure={activeVoyage?.departureCoords}
                         destination={activeVoyage?.arrivalCoords}
+                        departureTime={activeVoyage?.departure_time}
                         onReviewedChange={onWeatherWindowChange}
                     />
                 </CardAccordion>
