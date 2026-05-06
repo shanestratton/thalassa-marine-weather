@@ -777,25 +777,102 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // round-trip. cruisingSpeed defaulted to 6 kn
                     // matches the rest of the app's fallback.
                     const cruisingKt = (typeof speed === 'number' && speed > 0 ? speed : 6) as number;
-                    const totalDurationHours = straightLineNM / cruisingKt;
+
+                    // ── Land + depth avoidance for short routes ──
+                    // The water-aware preview is just a great-circle;
+                    // for routes through reef-strewn coastal waters
+                    // (Nouméa → Île des Pins is the canonical example)
+                    // it cuts straight across Île Ouen and the Récif
+                    // de Sainte-Marie. validateRouteSegments samples
+                    // every segment, queries GEBCO depths, and inserts
+                    // detour waypoints around any sample shallower
+                    // than the vessel-draft buffer. Same routine the
+                    // long-route isochrone path runs, just on the
+                    // straight-line input instead of an isochrone-
+                    // optimised one. Race against a 12s ceiling so a
+                    // slow GEBCO endpoint doesn't keep the user
+                    // staring at the great-circle preview indefinitely.
+                    let validatedRoute: { lat: number; lon: number }[] = waterAwareCoords.map(([lon, lat]) => ({
+                        lat,
+                        lon,
+                    }));
+                    try {
+                        const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
+                        const seedNodes = validatedRoute.map((p) => ({
+                            lat: p.lat,
+                            lon: p.lon,
+                            timeHours: 0,
+                            bearing: 0,
+                            speed: cruisingKt,
+                            tws: 0,
+                            twa: 0,
+                            parentIndex: null,
+                            distance: 0,
+                        })) as unknown as IsochroneNode[];
+                        const validated = await Promise.race([
+                            validateRouteSegments(seedNodes),
+                            new Promise<null>((r) => setTimeout(() => r(null), 12_000)),
+                        ]);
+                        if (validated && validated.length >= 2) {
+                            validatedRoute = validated.map((n) => ({ lat: n.lat, lon: n.lon }));
+                            if (validated.length !== seedNodes.length) {
+                                log.info(
+                                    `[Passage] Short route validated: ${seedNodes.length} → ${validated.length} points (land/reef detours added)`,
+                                );
+                            }
+                        } else {
+                            log.info('[Passage] Short route: GEBCO validation timed out or empty — using great-circle');
+                        }
+                    } catch (e) {
+                        log.warn('[Passage] Short route: GEBCO validation failed — using great-circle:', e);
+                    }
+
+                    // Recompute distance from the validated polyline so
+                    // the user's reported total reflects the actual
+                    // sea-distance (with detours), not the dot-to-dot
+                    // great-circle.
+                    const validatedDistanceNm = (() => {
+                        const R = 3440.065;
+                        let total = 0;
+                        for (let i = 1; i < validatedRoute.length; i++) {
+                            const a = validatedRoute[i - 1];
+                            const b = validatedRoute[i];
+                            const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+                            const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+                            const φa = (a.lat * Math.PI) / 180;
+                            const φb = (b.lat * Math.PI) / 180;
+                            const aa = Math.sin(dLat / 2) ** 2 + Math.cos(φa) * Math.cos(φb) * Math.sin(dLon / 2) ** 2;
+                            total += R * 2 * Math.atan2(Math.sqrt(aa), Math.sqrt(1 - aa));
+                        }
+                        return total;
+                    })();
+                    const totalDurationHours = validatedDistanceNm / cruisingKt;
                     const depTimeStr = departureTime || new Date().toISOString();
                     const arrIso = new Date(
                         new Date(depTimeStr).getTime() + totalDurationHours * 3_600_000,
                     ).toISOString();
+
+                    const validatedCoords: [number, number][] = validatedRoute.map((p) => [p.lon, p.lat]);
+
+                    // Re-render the route line with the validated
+                    // detour-aware geometry.
+                    const srcShort = map.getSource('route-line') as mapboxgl.GeoJSONSource;
+                    if (srcShort) {
+                        srcShort.setData({ type: 'FeatureCollection', features: buildFeatures(validatedCoords) });
+                    }
+
                     const minimalIsoResult: IsochroneResult = {
-                        // route + routeCoordinates derived from the
-                        // already-rendered water-aware preview
-                        route: waterAwareCoords.map(([lon, lat]) => ({
-                            lat,
-                            lon,
+                        route: validatedRoute.map((p) => ({
+                            lat: p.lat,
+                            lon: p.lon,
                             timeHours: 0,
                             tws: 0,
                             twa: 0,
                             sog: cruisingKt,
                         })) as unknown as IsochroneResult['route'],
-                        routeCoordinates: waterAwareCoords as [number, number][],
+                        routeCoordinates: validatedCoords,
                         shallowFlags: [],
-                        totalDistanceNM: Math.round(straightLineNM * 10) / 10,
+                        totalDistanceNM: Math.round(validatedDistanceNm * 10) / 10,
                         totalDurationHours: Math.round(totalDurationHours * 10) / 10,
                         arrivalTime: arrIso,
                         isochrones: [],
@@ -818,7 +895,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             lat: arrival.lat,
                             lon: arrival.lon,
                             bearing: ((_fwdBearing % 360) + 360) % 360,
-                            distanceNM: Math.round(straightLineNM * 10) / 10,
+                            distanceNM: Math.round(validatedDistanceNm * 10) / 10,
                             timeHours: Math.round(totalDurationHours * 10) / 10,
                             eta: arrIso,
                             tws: 0,
