@@ -169,7 +169,11 @@ const CrewProfileFormInner: React.FC<CrewProfileFormProps> = ({
                 ref={myProfileScrollRef as any}
                 className="flex-1 overflow-y-auto overscroll-contain px-5 py-6 space-y-5"
                 style={{
-                    paddingBottom: kbHeight > 0 ? `${kbHeight}px` : '1rem',
+                    // Keyboard up → keyboard height (input clears keyboard).
+                    // Keyboard down → 5rem + safe area inset, so Save My Listing
+                    // CTA clears the fixed bottom nav bar (h-16 + safe area, ~98px)
+                    // plus a touch of breathing room.
+                    paddingBottom: kbHeight > 0 ? `${kbHeight}px` : 'calc(5rem + env(safe-area-inset-bottom))',
                     // eslint-disable-next-line @typescript-eslint/no-explicit-any
                     WebkitOverflowScrolling: 'touch' as any,
                 }}
