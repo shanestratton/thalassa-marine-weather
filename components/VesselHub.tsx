@@ -1542,15 +1542,22 @@ const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix
     </span>
 );
 
-/** A flex-wrap strip of MetricChips. Renders nothing when empty so we
- *  don't draw a hairline border for no payload. The optional top
- *  border slots in only when the row above isn't already drawing
- *  one (i.e. when SOG/COG isn't present). */
+/** A flex-wrap strip of MetricChips, distributed evenly across the
+ *  row. Renders nothing when empty so we don't draw a hairline border
+ *  for no payload. The optional top border slots in only when the
+ *  row above isn't already drawing one (i.e. when SOG/COG isn't
+ *  present).
+ *
+ *  Layout: `justify-between` on the parent spreads chips edge-to-edge
+ *  across the available width — wind on the far left, tide on the
+ *  far right — instead of clumping to the left as a left-justified
+ *  row. When too many chips fit and they wrap, the second row
+ *  distributes the same way. */
 const MetricChipStrip: React.FC<{ chips: MetricChipData[]; showTopBorder?: boolean }> = ({ chips, showTopBorder }) => {
     if (chips.length === 0) return null;
     return (
         <div
-            className={`flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 pt-1.5 pb-3 ${
+            className={`flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 px-4 pt-1.5 pb-3 ${
                 showTopBorder ? 'border-t border-white/[0.06]' : ''
             }`}
         >
@@ -1883,12 +1890,17 @@ const NavStationHero: React.FC<{
                 </div>
             )}
 
-            {/* Position row (tap → map) */}
+            {/* Position row (tap → map). Coord text bumped to 13px
+                (from 11px) for legibility — at-a-glance reading from
+                arm's-length on a phone clamped to a binnacle was
+                squinty at 11px. The "time since fix" label and the
+                fix-status dot stay small so the lat/lon dominates the
+                row. */}
             <button
                 type="button"
                 onClick={handlePositionTap}
                 aria-label="Open chart at current position"
-                className="w-full flex items-center gap-2 px-4 pt-1.5 pb-2 text-[11px] active:opacity-70 transition-opacity text-left"
+                className="w-full flex items-center gap-2 px-4 pt-1.5 pb-2 active:opacity-70 transition-opacity text-left"
             >
                 <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -1900,7 +1912,7 @@ const NavStationHero: React.FC<{
                     }}
                     aria-label={!position ? 'No GPS fix' : isOnline ? 'GPS fix, online' : 'GPS fix, offline'}
                 />
-                <span className="font-mono text-white/70 tabular-nums truncate flex-1">
+                <span className="font-mono text-white/85 tabular-nums truncate flex-1 text-[13px] font-semibold">
                     {position ? formatCoord(position.latitude, position.longitude) : 'Awaiting GPS fix…'}
                 </span>
                 <span className="text-white/40 text-[10px] uppercase tracking-wider shrink-0">
@@ -1956,9 +1968,19 @@ const NavStationHero: React.FC<{
                             ? {
                                   key: 'vis',
                                   icon: '👁',
-                                  // Open-Meteo returns metres; convert to NM (1852m).
-                                  // Cap display at ">10" since modern sensors max out.
-                                  value: visibility / 1852 >= 10 ? '>10' : (visibility / 1852).toFixed(1),
+                                  // weatherData.current.visibility is already
+                                  // in KILOMETRES — openmeteo.ts converts
+                                  // metres → km at fetch time. To display
+                                  // NM we divide by 1.852 (km per NM), NOT
+                                  // 1852 (m per NM). The previous code
+                                  // assumed metres and divided by 1852, so
+                                  // a real 10 km visibility came out as
+                                  // 0.0054 → "0.0 NM" — the bug the user
+                                  // saw on the hero card. Cap at ">10" so
+                                  // a clear 50 km horizon doesn't read
+                                  // bigger than any handheld sensor can
+                                  // actually measure.
+                                  value: visibility / 1.852 >= 10 ? '>10' : (visibility / 1.852).toFixed(1),
                                   unit: 'NM',
                               }
                             : null,
