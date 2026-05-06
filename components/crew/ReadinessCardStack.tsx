@@ -251,6 +251,8 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                         </summary>
                         <div className="mt-2 animate-in slide-in-from-top-2 duration-200">
                             <PassageSummaryCard
+                                voyageId={activeVoyage.id}
+                                voyageName={activeVoyage.voyage_name || undefined}
                                 departPort={activeVoyage.departure_port || undefined}
                                 destPort={activeVoyage.destination_port || undefined}
                                 departureTime={activeVoyage.departure_time}

@@ -627,116 +627,125 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                 </div>
                             </div>
 
-                            {/* Metrics grid */}
-                            <div className="grid grid-cols-5 gap-1">
-                                {/* Speed */}
-                                <HUDCell
-                                    label="SOG"
-                                    value={currentEntry.speedKts != null ? currentEntry.speedKts.toFixed(1) : '--'}
-                                    unit="kts"
-                                    color="text-sky-400"
-                                />
-                                {/* Distance */}
-                                <HUDCell
-                                    label="DIST"
-                                    value={
-                                        currentEntry.cumulativeDistanceNM != null
-                                            ? currentEntry.cumulativeDistanceNM.toFixed(1)
-                                            : '--'
-                                    }
-                                    unit="NM"
-                                    color="text-sky-400"
-                                />
-                                {/* Course */}
-                                <HUDCell
-                                    label="COG"
-                                    value={
-                                        currentEntry.courseDeg != null ? `${Math.round(currentEntry.courseDeg)}°` : '--'
-                                    }
-                                    color="text-sky-400"
-                                />
-                                {/* Air Temp */}
-                                <HUDCell
-                                    label="TEMP"
-                                    value={currentEntry.airTemp != null ? `${Math.round(currentEntry.airTemp)}°` : '--'}
-                                    color="text-emerald-400"
-                                />
-                                {/* Wind */}
-                                <HUDCell
-                                    label="WIND"
-                                    value={
-                                        currentEntry.windSpeed != null
-                                            ? Math.round(currentEntry.windSpeed).toString()
-                                            : '--'
-                                    }
-                                    unit={currentEntry.windDirection || ''}
-                                    color="text-emerald-400"
-                                />
-                            </div>
+                            {/* Metrics grid — cells with no captured value
+                                fold into invisible spacers (see HUDCell)
+                                instead of showing "--". Planned routes
+                                (saved before sailing) only have DIST; live-
+                                tracked sails populate SOG/COG too; everything
+                                else needs a weather snapshot at capture time
+                                to be filled in. */}
+                            {(() => {
+                                const hasSog = currentEntry.speedKts != null;
+                                const hasDist = currentEntry.cumulativeDistanceNM != null;
+                                const hasCog = currentEntry.courseDeg != null;
+                                const hasTemp = currentEntry.airTemp != null;
+                                const hasWind = currentEntry.windSpeed != null;
+                                const anyTelemetry = hasSog || hasDist || hasCog || hasTemp || hasWind;
+                                if (!anyTelemetry) {
+                                    // Pure planned-route waypoint — no fix
+                                    // recorded. Tell the user instead of
+                                    // showing a row of dashes that look
+                                    // like real but missing data.
+                                    return (
+                                        <div className="text-[11px] text-slate-500 italic text-center py-1">
+                                            Planned route — no live telemetry recorded
+                                        </div>
+                                    );
+                                }
+                                return (
+                                    <div className="grid grid-cols-5 gap-1">
+                                        <HUDCell
+                                            label="SOG"
+                                            value={hasSog ? currentEntry.speedKts!.toFixed(1) : ''}
+                                            unit="kts"
+                                            color="text-sky-400"
+                                            hasValue={hasSog}
+                                        />
+                                        <HUDCell
+                                            label="DIST"
+                                            value={hasDist ? currentEntry.cumulativeDistanceNM!.toFixed(1) : ''}
+                                            unit="NM"
+                                            color="text-sky-400"
+                                            hasValue={hasDist}
+                                        />
+                                        <HUDCell
+                                            label="COG"
+                                            value={hasCog ? `${Math.round(currentEntry.courseDeg!)}°` : ''}
+                                            color="text-sky-400"
+                                            hasValue={hasCog}
+                                        />
+                                        <HUDCell
+                                            label="TEMP"
+                                            value={hasTemp ? `${Math.round(currentEntry.airTemp!)}°` : ''}
+                                            color="text-emerald-400"
+                                            hasValue={hasTemp}
+                                        />
+                                        <HUDCell
+                                            label="WIND"
+                                            value={hasWind ? Math.round(currentEntry.windSpeed!).toString() : ''}
+                                            unit={currentEntry.windDirection || ''}
+                                            color="text-emerald-400"
+                                            hasValue={hasWind}
+                                        />
+                                    </div>
+                                );
+                            })()}
 
-                            {/* Second row — only if data exists */}
-                            {(currentEntry.waveHeight != null ||
-                                currentEntry.pressure != null ||
-                                currentEntry.waterTemp != null ||
-                                currentEntry.visibility != null ||
-                                currentEntry.seaState != null) && (
-                                <div className="grid grid-cols-6 gap-1 mt-1 pt-1 border-t border-white/5">
-                                    {/* Wave */}
-                                    <HUDCell
-                                        label="WAVE"
-                                        value={
-                                            currentEntry.waveHeight != null
-                                                ? (currentEntry.waveHeight / 3.28084).toFixed(1)
-                                                : '--'
-                                        }
-                                        unit="m"
-                                        color="text-purple-400"
-                                    />
-                                    {/* Pressure */}
-                                    <HUDCell
-                                        label="HPA"
-                                        value={
-                                            currentEntry.pressure != null
-                                                ? Math.round(currentEntry.pressure).toString()
-                                                : '--'
-                                        }
-                                        color="text-purple-400"
-                                    />
-                                    {/* Water Temp */}
-                                    <HUDCell
-                                        label="WATER"
-                                        value={
-                                            currentEntry.waterTemp != null
-                                                ? `${Math.round(currentEntry.waterTemp)}°`
-                                                : '--'
-                                        }
-                                        color="text-purple-400"
-                                    />
-                                    {/* Visibility */}
-                                    <HUDCell
-                                        label="VIS"
-                                        value={
-                                            currentEntry.visibility != null ? currentEntry.visibility.toFixed(0) : '--'
-                                        }
-                                        unit="NM"
-                                        color="text-purple-400"
-                                    />
-                                    {/* Sea State */}
-                                    <HUDCell
-                                        label="SEA"
-                                        value={currentEntry.seaState != null ? currentEntry.seaState.toString() : '--'}
-                                        color="text-purple-400"
-                                    />
-                                    {/* Beaufort */}
-                                    <HUDCell
-                                        label="BFT"
-                                        value={
-                                            currentEntry.beaufortScale != null ? `F${currentEntry.beaufortScale}` : '--'
-                                        }
-                                        color="text-purple-400"
-                                    />
-                                </div>
-                            )}
+                            {/* Second row — only render the row at all if at
+                                least one cell has a value. Cells with no
+                                captured value collapse to invisible spacers
+                                (matches the first-row treatment). */}
+                            {(() => {
+                                const hasWave = currentEntry.waveHeight != null;
+                                const hasPressure = currentEntry.pressure != null;
+                                const hasWater = currentEntry.waterTemp != null;
+                                const hasVis = currentEntry.visibility != null;
+                                const hasSea = currentEntry.seaState != null;
+                                const hasBft = currentEntry.beaufortScale != null;
+                                if (!(hasWave || hasPressure || hasWater || hasVis || hasSea || hasBft)) return null;
+                                return (
+                                    <div className="grid grid-cols-6 gap-1 mt-1 pt-1 border-t border-white/5">
+                                        <HUDCell
+                                            label="WAVE"
+                                            value={hasWave ? (currentEntry.waveHeight! / 3.28084).toFixed(1) : ''}
+                                            unit="m"
+                                            color="text-purple-400"
+                                            hasValue={hasWave}
+                                        />
+                                        <HUDCell
+                                            label="HPA"
+                                            value={hasPressure ? Math.round(currentEntry.pressure!).toString() : ''}
+                                            color="text-purple-400"
+                                            hasValue={hasPressure}
+                                        />
+                                        <HUDCell
+                                            label="WATER"
+                                            value={hasWater ? `${Math.round(currentEntry.waterTemp!)}°` : ''}
+                                            color="text-purple-400"
+                                            hasValue={hasWater}
+                                        />
+                                        <HUDCell
+                                            label="VIS"
+                                            value={hasVis ? currentEntry.visibility!.toFixed(0) : ''}
+                                            unit="NM"
+                                            color="text-purple-400"
+                                            hasValue={hasVis}
+                                        />
+                                        <HUDCell
+                                            label="SEA"
+                                            value={hasSea ? currentEntry.seaState!.toString() : ''}
+                                            color="text-purple-400"
+                                            hasValue={hasSea}
+                                        />
+                                        <HUDCell
+                                            label="BFT"
+                                            value={hasBft ? `F${currentEntry.beaufortScale}` : ''}
+                                            color="text-purple-400"
+                                            hasValue={hasBft}
+                                        />
+                                    </div>
+                                );
+                            })()}
 
                             {/* Notes */}
                             {currentEntry.notes && (
@@ -911,17 +920,31 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 });
 
 // ── HUD Metric Cell ──
+//
+// `hasValue` controls visibility — true means the underlying entry
+// field was populated; false collapses the cell to an empty
+// placeholder so the grid keeps its layout but doesn't show a
+// useless "--" for fields that were never captured (planned routes
+// have no live telemetry; offline-tracked sails may miss weather).
 const HUDCell: React.FC<{
     label: string;
     value: string;
     unit?: string;
     color?: string;
-}> = ({ label, value, unit, color = 'text-white' }) => (
-    <div className="flex flex-col items-center">
-        <span className={`text-[11px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
-        <div className="flex items-baseline gap-0.5">
-            <span className="text-xs font-mono font-bold text-white">{value}</span>
-            {unit && <span className="text-[11px] text-slate-400">{unit}</span>}
+    hasValue?: boolean;
+}> = ({ label, value, unit, color = 'text-white', hasValue = true }) => {
+    if (!hasValue) {
+        // Render an invisible spacer so sibling cells don't reflow.
+        // Same width as a real cell — keeps the grid columns aligned.
+        return <div className="flex flex-col items-center opacity-0 select-none" aria-hidden="true" />;
+    }
+    return (
+        <div className="flex flex-col items-center">
+            <span className={`text-[11px] font-bold tracking-widest uppercase ${color} opacity-70`}>{label}</span>
+            <div className="flex items-baseline gap-0.5">
+                <span className="text-xs font-mono font-bold text-white">{value}</span>
+                {unit && <span className="text-[11px] text-slate-400">{unit}</span>}
+            </div>
         </div>
-    </div>
-);
+    );
+};
