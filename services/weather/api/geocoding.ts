@@ -432,6 +432,26 @@ const MARINE_PORTS: MarinePort[] = [
         ],
     },
     {
+        // Kuto Bay — the standard cruising anchorage on Île des Pins.
+        // Without this entry, "Isle of Pines" was geocoding to the
+        // island's centroid (inland, on the road network) which then
+        // sent the routing engine into a 800+ NM detour trying to
+        // approach an unreachable point.
+        canonicalName: 'Île des Pins, NC',
+        lat: -22.665,
+        lon: 167.45,
+        aliases: [
+            'isle of pines',
+            'île des pins',
+            'ile des pins',
+            'isle of pines, nc',
+            'île des pins, nc',
+            'kuto bay',
+            'kuto',
+            'vao',
+        ],
+    },
+    {
         canonicalName: 'Lautoka, FJ',
         lat: -17.6839,
         lon: 177.3833,
