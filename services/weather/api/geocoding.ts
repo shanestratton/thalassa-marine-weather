@@ -581,6 +581,32 @@ export const parseLocation = async (
             return { lat: curated.lat, lon: curated.lon, name: curated.canonicalName };
         }
 
+        // ── Second-pass: personal port directory ──
+        // Auto-curated cache of every successful Mapbox lookup the
+        // user has done before. Matches against the user's typed
+        // string (substring + case-insensitive) so re-typing a
+        // previously-resolved port skips the Mapbox round-trip and
+        // protects against Mapbox quietly returning a different
+        // "best match" weeks later. The hand-vetted MARINE_PORTS
+        // list above covers maybe a dozen popular destinations; the
+        // personal directory grows to cover wherever the skipper
+        // actually cruises — small anchorages, reef passes, etc.
+        try {
+            const { findPersonalPort } = await import('../../PersonalPortDirectory');
+            const personal = findPersonalPort(cleanedQuery);
+            if (personal) {
+                log.info(`[geocoding] personal port hit: "${personal.canonicalName}"`);
+                return {
+                    lat: personal.lat,
+                    lon: personal.lon,
+                    name: personal.canonicalName,
+                };
+            }
+        } catch (e) {
+            // Non-critical — fall through to Mapbox.
+            log.warn('[geocoding] personal port lookup failed:', e);
+        }
+
         // Detect ISO country from the cleaned query (drives `country=`
         // filter in the Mapbox URL — without it, Mapbox can return the
         // country centroid when no specific feature matches the query).
@@ -693,6 +719,25 @@ export const parseLocation = async (
         // Formulate Name: "City, Admin1, Country"
         const parts = [r.name, r.admin1, r.country_code?.toUpperCase()].filter((x) => x);
         name = parts.join(', ');
+
+        // ── Auto-record into personal port directory ──
+        // Every successful lookup grows the user's personal cache so
+        // subsequent typings of the same name (or close variants)
+        // resolve instantly without another Mapbox round-trip. Keyed
+        // on the original user-typed string (`location`) so the
+        // user's typing pattern is preserved — they can re-type
+        // exactly what they typed before. Skip when geocoding
+        // fell back to Gemini autocorrect (the typed string didn't
+        // resolve, the corrected one did) — we record the corrected
+        // form so the user benefits from the correction next time.
+        try {
+            const { recordPersonalPort } = await import('../../PersonalPortDirectory');
+            const keyToRecord = location.trim() === name.trim() ? location : location;
+            recordPersonalPort(keyToRecord, name, lat, lon);
+        } catch (e) {
+            // Non-critical — the geocode succeeded, just couldn't cache it.
+            log.warn('[geocoding] personal port record failed:', e);
+        }
 
         return { lat, lon, name, timezone: r.timezone };
     }
