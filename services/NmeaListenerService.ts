@@ -13,6 +13,7 @@ import { Capacitor } from '@capacitor/core';
 import { processAisSentence } from './AisDecoder';
 import { AisStore } from './AisStore';
 import { AisHubService } from './AisHubService';
+import { NmeaRateTracker } from './NmeaRateTracker';
 const log = createLogger('NMEA');
 
 // ── Configuration ──
@@ -346,6 +347,13 @@ class NmeaListenerServiceClass {
         const raw = sentence.split('*')[0];
         const parts = raw.split(',');
         const type = parts[0]?.slice(3); // Remove $XX prefix
+
+        // Record per-sentence arrival for the diagnostic rate tracker.
+        // This is independent of the 5-second NmeaSample aggregation
+        // pipeline below — it lets the System Status panel show actual
+        // per-sentence cadence (1 Hz steady vs bursty, etc.) rather than
+        // the smoothed/averaged view.
+        if (type) NmeaRateTracker.record(type);
 
         switch (type) {
             case 'MWV':
