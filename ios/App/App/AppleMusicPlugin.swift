@@ -1535,23 +1535,23 @@ public class AppleMusicPlugin: CAPPlugin {
                 // ── Look-ahead pre-warm ──────────────────────────────
                 // Pre-fetch artwork for the next 3 queue entries so
                 // auto-advance is instant. Fire-and-forget; in-flight
-                // tracking prevents duplicate searches.
+                // tracking prevents duplicate searches. We're already
+                // inside `if let entry = entry`, so `entry` is non-Optional
+                // here.
                 let queueEntries = player.queue.entries
-                if let currentEntry = entry {
-                    var foundCurrent = false
-                    var nextBatch: [(title: String, artist: String)] = []
-                    for queueEntry in queueEntries {
-                        if foundCurrent {
-                            nextBatch.append(self.extractTitleAndArtist(from: queueEntry))
-                            if nextBatch.count >= 3 { break }
-                        }
-                        if queueEntry.id == currentEntry.id {
-                            foundCurrent = true
-                        }
+                var foundCurrent = false
+                var nextBatch: [(title: String, artist: String)] = []
+                for queueEntry in queueEntries {
+                    if foundCurrent {
+                        nextBatch.append(self.extractTitleAndArtist(from: queueEntry))
+                        if nextBatch.count >= 3 { break }
                     }
-                    if !nextBatch.isEmpty {
-                        self.prewarmArtwork(titlesAndArtists: nextBatch)
+                    if queueEntry.id == entry.id {
+                        foundCurrent = true
                     }
+                }
+                if !nextBatch.isEmpty {
+                    self.prewarmArtwork(titlesAndArtists: nextBatch)
                 }
 
                 NSLog(
