@@ -15,6 +15,8 @@ import type { ForecastDay, WeatherModel } from '../../types/weather';
 import { ModelComparisonCard } from './ModelComparisonCard';
 import { triggerHaptic } from '../../utils/system';
 import { useReadinessSync } from '../../hooks/useReadinessSync';
+import { useSettings } from '../../context/SettingsContext';
+import { convertLength } from '../../utils/units';
 
 /**
  * Forecast model options for the briefing dropdown. Maps the user-
@@ -88,6 +90,17 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
     // re-fetched whenever the departure coords / dates change.
     const [passageForecast, setPassageForecast] = useState<ForecastDay[] | null>(null);
     const [forecastLoading, setForecastLoading] = useState(false);
+    // Wave-height unit follows the user's settings (m or ft). Forecast
+    // values flow in as feet (every upstream transformer normalises to
+    // feet); we convert once at render time so the displayed number
+    // and label always match. Without this, a 1 m wave was rendering
+    // as "3.3 m" — the feet value labelled meters.
+    const { settings } = useSettings();
+    const waveUnit = (settings.units?.waveHeight ?? 'm') as 'ft' | 'm';
+    // Heavy-conditions threshold (raw feet, since day.waveHeight is
+    // feet). 2.5 m ≈ 8.2 ft. Compare in feet so the gate works the
+    // same regardless of which unit the user prefers for display.
+    const HEAVY_WAVE_FT = 2.5 * 3.28084;
     // Active forecast model — drives which numerical weather prediction
     // model the forecast is pulled from. Cycling through models lets
     // the user spot convergence (high confidence) or divergence
@@ -261,8 +274,21 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
                             {passageForecast.map((day, i) => {
                                 const wind = Math.round(day.windSpeed);
                                 const gust = day.windGust ? Math.round(day.windGust) : Math.round(day.windSpeed * 1.3);
-                                const wave = day.waveHeight.toFixed(1);
-                                const isHeavy = day.windSpeed > 20 || day.waveHeight > 2.5;
+                                // day.waveHeight is FEET (or null when the
+                                // marine API has no coverage for this day).
+                                // Convert to user's preferred unit; render
+                                // "—" rather than "0.0 m" for null so calm
+                                // seas don't get confused with missing data.
+                                const waveConverted =
+                                    day.waveHeight !== null && day.waveHeight !== undefined
+                                        ? convertLength(day.waveHeight, waveUnit)
+                                        : null;
+                                const wave = waveConverted !== null ? waveConverted.toFixed(1) : '—';
+                                const isHeavy =
+                                    day.windSpeed > 20 ||
+                                    (day.waveHeight !== null &&
+                                        day.waveHeight !== undefined &&
+                                        day.waveHeight > HEAVY_WAVE_FT);
                                 return (
                                     <div
                                         key={`${day.isoDate || day.date}-${i}`}
@@ -286,7 +312,8 @@ export const WeatherBriefingCard: React.FC<WeatherBriefingCardProps> = ({
                                                     <span className="text-amber-300/80">/{gust}</span> kn
                                                 </span>
                                                 <span className="text-[11px] text-gray-400">
-                                                    🌊 <span className="text-white font-mono font-bold">{wave}</span> m
+                                                    🌊 <span className="text-white font-mono font-bold">{wave}</span>{' '}
+                                                    {waveConverted !== null ? waveUnit : ''}
                                                 </span>
                                                 {day.swellPeriod && (
                                                     <span className="text-[11px] text-gray-400">

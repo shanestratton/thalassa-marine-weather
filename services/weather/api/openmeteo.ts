@@ -399,9 +399,20 @@ const doFetchOpenMeteo = async (
             lowTemp: dailyArr.temperature_2m_min[i],
             windSpeed: parseFloat((dailyArr.wind_speed_10m_max[i] * kFactor).toFixed(1)),
             windGust: parseFloat((dailyArr.wind_gusts_10m_max[i] * kFactor).toFixed(1)),
-            waveHeight: waveData?.daily?.wave_height_max
-                ? parseFloat((waveData.daily.wave_height_max[i] * 3.28084).toFixed(1))
-                : 0,
+            // Marine API can return null for individual days even when
+            // the array exists (poor coverage, inland index, etc.). And
+            // when the marine fetch returns fewer days than the weather
+            // forecast, the index overflows into undefined. JS happily
+            // coerces both null and undefined to 0 in arithmetic, which
+            // surfaces as "0.0 m" in the pre-departure briefing — which
+            // looks like real data but isn't. Skip the multiply when
+            // the raw value isn't a finite number so the type stays
+            // null and downstream UI can render "—" instead.
+            waveHeight: ((): number | null => {
+                const raw = waveData?.daily?.wave_height_max?.[i];
+                if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+                return parseFloat((raw * 3.28084).toFixed(1));
+            })(),
             condition: getWmo(dailyArr.weather_code[i]),
             precipitation: dailyArr.precipitation_sum[i],
             uvIndex: dailyArr.uv_index_max[i],
@@ -450,8 +461,16 @@ const doFetchOpenMeteo = async (
         windGust: hourlyArr.wind_gusts_10m[i] * kFactor,
         windDirection: degreesToCardinal(hourlyArr.wind_direction_10m?.[i] ?? 0),
         windDegree: hourlyArr.wind_direction_10m?.[i] ?? 0,
-        waveHeight: waveData?.hourly?.wave_height ? waveData.hourly.wave_height[i] * 3.28084 : 0,
-        swellPeriod: waveData?.hourly?.wave_period ? waveData.hourly.wave_period[i] : 0,
+        waveHeight: ((): number | null => {
+            const raw = waveData?.hourly?.wave_height?.[i];
+            if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+            return raw * 3.28084;
+        })(),
+        swellPeriod: ((): number | null => {
+            const raw = waveData?.hourly?.wave_period?.[i];
+            if (typeof raw !== 'number' || !Number.isFinite(raw)) return null;
+            return raw;
+        })(),
         temperature: hourlyArr.temperature_2m[i],
         pressure: hourlyArr.pressure_msl[i],
         precipitation: hourlyArr.precipitation[i],

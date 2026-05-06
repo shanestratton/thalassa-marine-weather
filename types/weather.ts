@@ -150,7 +150,11 @@ export interface ForecastDay {
     lowTemp: number;
     windSpeed: number;
     windGust?: number;
-    waveHeight: number;
+    /** Significant wave height. `null` when the marine API has no
+     *  coverage for this day (inland points, beyond marine forecast
+     *  horizon, etc.) — distinct from 0 which means "calm seas".
+     *  UIs should render "—" for null, never coerce to 0. */
+    waveHeight: number | null;
     condition: string;
     precipitation?: number;
     precipChance?: number;
@@ -177,7 +181,9 @@ export interface HourlyForecast {
     windGust?: number | null;
     windDirection?: string;
     windDegree?: number;
-    waveHeight: number;
+    /** Significant wave height. `null` = no marine coverage for this
+     *  hour (see ForecastDay.waveHeight comment). */
+    waveHeight: number | null;
     swellPeriod?: number | null;
     temperature: number;
     condition: string;
