@@ -19,6 +19,7 @@ import { NmeaListenerService } from '../services/NmeaListenerService';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { NmeaStore } from '../services/NmeaStore';
 import { GpsPrecision } from '../services/shiplog/GpsPrecisionTracker';
+import { NmeaRateSparkline } from './NmeaRateSparkline';
 import { useFollowRoute } from '../context/FollowRouteContext';
 import { GpsService } from '../services/GpsService';
 import { piCache, type PiCacheStatus } from '../services/PiCacheService';
@@ -303,6 +304,22 @@ const SystemStatusModal: React.FC<{
                         }
                         pulse={state.extGps.active}
                     />
+
+                    {/* ── NMEA feed-rate diagnostic sparklines ──
+                        Only render when NMEA is connected — they have nothing
+                        useful to show otherwise. The two stacked sparklines let
+                        the skipper distinguish "GPS is slow" (top bar shows
+                        gappy/red) from "the whole feed is dropping" (both bars
+                        gappy/red). Catches Wi-Fi packet loss, YachtSense client-
+                        management cycles, and slow GPS broadcast rates that
+                        otherwise just present as the External GPS row flickering
+                        on/off above. */}
+                    {state.nmea.active && (
+                        <div className="space-y-1.5 px-1 pt-1">
+                            <NmeaRateSparkline category="gps" label="GPS sentences / sec" expectedRate={1.0} />
+                            <NmeaRateSparkline category="all" label="All NMEA / sec" expectedRate={5.0} />
+                        </div>
+                    )}
 
                     {/* ── Follow Route (Passage Planning) ── */}
                     <SystemRow
