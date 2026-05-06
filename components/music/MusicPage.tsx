@@ -126,8 +126,11 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         };
     }, [loadPlaylists]);
 
-    /** Poll now-playing every 2s while page is mounted. iOS doesn't
-     *  give us a push notification for state changes, so we poll. */
+    /** Poll now-playing every 1s while page is mounted. iOS doesn't
+     *  give us a push notification for state changes, so we poll.
+     *  1s feels close to "instant" for track-change UI without thrashing
+     *  the bridge — each call is a cache hit on the Swift side after
+     *  the catalog search resolves. */
     useEffect(() => {
         let cancelled = false;
         let interval: ReturnType<typeof setInterval> | undefined;
@@ -136,11 +139,31 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
             if (!cancelled) setNowPlaying(np);
         };
         void poll();
-        interval = setInterval(() => void poll(), 2000);
+        interval = setInterval(() => void poll(), 1000);
         return () => {
             cancelled = true;
             if (interval) clearInterval(interval);
         };
+    }, []);
+
+    /** Refresh nowPlaying immediately, then again ~400 ms later to
+     *  catch the artwork after the Swift-side catalog search finishes.
+     *  Used right after play/skip actions where the user expects an
+     *  instant UI update — waiting for the next 1s tick adds visible
+     *  lag. */
+    const refreshNowPlayingFast = useCallback(() => {
+        void (async () => {
+            const np1 = await getNowPlaying();
+            setNowPlaying(np1);
+            // Second poll catches the resolved artwork URL once the
+            // catalog search completes (~200-500 ms).
+            setTimeout(() => {
+                void (async () => {
+                    const np2 = await getNowPlaying();
+                    setNowPlaying(np2);
+                })();
+            }, 400);
+        })();
     }, []);
 
     const handleGrantAccess = useCallback(async () => {
@@ -150,38 +173,37 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         if (r.granted) await loadPlaylists();
     }, [loadPlaylists]);
 
-    const handlePlayPlaylist = useCallback(async (id: string) => {
-        setActivePlaylistId(id);
-        const r = await playPlaylist(id);
-        if (!r.success) {
-            setLoadError(`Couldn't play: ${r.error}`);
-        }
-        // Now-playing will update via the poll loop.
-    }, []);
+    const handlePlayPlaylist = useCallback(
+        async (id: string) => {
+            setActivePlaylistId(id);
+            const r = await playPlaylist(id);
+            if (!r.success) {
+                setLoadError(`Couldn't play: ${r.error}`);
+            }
+            refreshNowPlayingFast();
+        },
+        [refreshNowPlayingFast],
+    );
 
     const handlePause = useCallback(async () => {
         await pauseMusic();
-        const np = await getNowPlaying();
-        setNowPlaying(np);
-    }, []);
+        refreshNowPlayingFast();
+    }, [refreshNowPlayingFast]);
 
     const handleResume = useCallback(async () => {
         await resumeMusic();
-        const np = await getNowPlaying();
-        setNowPlaying(np);
-    }, []);
+        refreshNowPlayingFast();
+    }, [refreshNowPlayingFast]);
 
     const handleNext = useCallback(async () => {
         await skipNext();
-        const np = await getNowPlaying();
-        setNowPlaying(np);
-    }, []);
+        refreshNowPlayingFast();
+    }, [refreshNowPlayingFast]);
 
     const handlePrevious = useCallback(async () => {
         await skipPrevious();
-        const np = await getNowPlaying();
-        setNowPlaying(np);
-    }, []);
+        refreshNowPlayingFast();
+    }, [refreshNowPlayingFast]);
 
     // ── Long-press → playlist detail sheet ────────────────────────
     /** Currently-open detail sheet, plus its track list (loaded

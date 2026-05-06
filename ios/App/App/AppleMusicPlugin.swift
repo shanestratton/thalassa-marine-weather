@@ -84,12 +84,93 @@ public class AppleMusicPlugin: CAPPlugin {
     // unbounded growth.
     private var artworkDataUrlCache: [String: String] = [:]
     private var artworkCacheOrder: [String] = []
-    private let maxArtworkCache = 20
+    private let maxArtworkCache = 50
+
+    // Tracks which (title|artist) keys currently have an in-flight
+    // catalog search. Prevents the live nowPlaying path and pre-warm
+    // path (or two pre-warm waves) from racing the same query.
+    private var artworkInFlight: Set<String> = []
 
     @available(iOS 15.0, *)
     private func cachePlaylist(id: String, name: String, tracks: [Track]) {
         hydratedTrackCache[id] = tracks
         hydratedNameCache[id] = name
+    }
+
+    // ── Pre-warm artwork for upcoming tracks ────────────────────────
+    // Library tracks return musicKit:// URLs that the WebView can't
+    // render. The live nowPlaying path resolves these via a catalog
+    // search, but that's a 200-500ms round-trip per track and creates
+    // a visible "no artwork → artwork" flash on each change.
+    //
+    // This helper fires the same catalog searches in the background
+    // for a batch of tracks, populating `artworkDataUrlCache` BEFORE
+    // nowPlaying needs them. Called from each play* method right
+    // after the queue is set, plus from nowPlaying itself to look
+    // ahead in the queue for the next few tracks.
+    //
+    // Sequential rather than concurrent: Apple's catalog endpoint
+    // rate-limits aggressively, and 8 sequential ~200ms requests
+    // beats 8 parallel that all 429.
+    @available(iOS 15.0, *)
+    private func prewarmArtwork(titlesAndArtists: [(title: String, artist: String)]) {
+        let candidates = titlesAndArtists.filter { !$0.title.isEmpty }
+        guard !candidates.isEmpty else { return }
+        Task { [weak self] in
+            guard let self = self else { return }
+            for entry in candidates {
+                let cacheKey = "\(entry.title)|\(entry.artist)"
+                if self.artworkDataUrlCache[cacheKey] != nil { continue }
+                if self.artworkInFlight.contains(cacheKey) { continue }
+                self.artworkInFlight.insert(cacheKey)
+                defer { self.artworkInFlight.remove(cacheKey) }
+                do {
+                    let term = entry.artist.isEmpty ? entry.title : "\(entry.title) \(entry.artist)"
+                    var req = MusicCatalogSearchRequest(term: term, types: [Song.self])
+                    req.limit = 5
+                    let resp = try await req.response()
+                    let normTitle = entry.title.lowercased()
+                    let normArtist = entry.artist.lowercased()
+                    let matched = resp.songs.first { song in
+                        let songTitle = song.title.lowercased()
+                        let songArtist = song.artistName.lowercased()
+                        if normArtist.isEmpty {
+                            return songTitle == normTitle
+                        }
+                        return songTitle == normTitle && songArtist.contains(normArtist)
+                    } ?? resp.songs.first
+                    if let match = matched,
+                       let url = match.artwork?.url(width: 400, height: 400),
+                       !url.absoluteString.hasPrefix("musicKit://") {
+                        self.artworkDataUrlCache[cacheKey] = url.absoluteString
+                        self.artworkCacheOrder.append(cacheKey)
+                        while self.artworkCacheOrder.count > self.maxArtworkCache {
+                            let oldest = self.artworkCacheOrder.removeFirst()
+                            self.artworkDataUrlCache.removeValue(forKey: oldest)
+                        }
+                    }
+                } catch {
+                    // Pre-warm errors fail silently — live nowPlaying retries.
+                }
+            }
+        }
+    }
+
+    // Helper to pull (title, artist) off a queue Entry. Falls back to
+    // entry.subtitle when the inner item isn't a Song (rare, e.g.
+    // music videos).
+    @available(iOS 15.0, *)
+    private func extractTitleAndArtist(from entry: ApplicationMusicPlayer.Queue.Entry) -> (title: String, artist: String) {
+        let title = entry.title
+        if let item = entry.item {
+            switch item {
+            case .song(let song):
+                return (title: title, artist: song.artistName)
+            default:
+                break
+            }
+        }
+        return (title: title, artist: entry.subtitle ?? "")
     }
 
     @available(iOS 15.0, *)
@@ -378,6 +459,9 @@ public class AppleMusicPlugin: CAPPlugin {
             switch result.queueSource {
             case .songs(let songs):
                 player.queue = ApplicationMusicPlayer.Queue(for: songs)
+                self.prewarmArtwork(
+                    titlesAndArtists: songs.prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
             case .album(let album):
                 let detailed = try await album.with([.tracks])
                 guard let tracks = detailed.tracks, !tracks.isEmpty else {
@@ -385,6 +469,9 @@ public class AppleMusicPlugin: CAPPlugin {
                     return false
                 }
                 player.queue = ApplicationMusicPlayer.Queue(for: tracks)
+                self.prewarmArtwork(
+                    titlesAndArtists: tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
             case .playlist(let playlist):
                 let detailed = try await playlist.with([.tracks])
                 guard let tracks = detailed.tracks, !tracks.isEmpty else {
@@ -392,6 +479,9 @@ public class AppleMusicPlugin: CAPPlugin {
                     return false
                 }
                 player.queue = ApplicationMusicPlayer.Queue(for: tracks)
+                self.prewarmArtwork(
+                    titlesAndArtists: tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
             }
             try await player.prepareToPlay()
             try await player.play()
@@ -520,6 +610,9 @@ public class AppleMusicPlugin: CAPPlugin {
                     return
                 }
                 player.queue = ApplicationMusicPlayer.Queue(for: tracks)
+                self.prewarmArtwork(
+                    titlesAndArtists: Array(tracks).prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
                 try await player.prepareToPlay()
                 try await player.play()
                 let trackCount = tracks.count
@@ -705,6 +798,9 @@ public class AppleMusicPlugin: CAPPlugin {
 
                 let player = ApplicationMusicPlayer.shared
                 player.queue = ApplicationMusicPlayer.Queue(for: trackArray)
+                self.prewarmArtwork(
+                    titlesAndArtists: trackArray.prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
                 try await player.prepareToPlay()
                 try await player.play()
                 let firstTrack = trackArray.first
@@ -759,6 +855,9 @@ public class AppleMusicPlugin: CAPPlugin {
                 }
                 let player = ApplicationMusicPlayer.shared
                 player.queue = ApplicationMusicPlayer.Queue(for: resolved.tracks)
+                self.prewarmArtwork(
+                    titlesAndArtists: resolved.tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
                 try await player.prepareToPlay()
                 try await player.play()
                 await MainActor.run {
@@ -1217,6 +1316,9 @@ public class AppleMusicPlugin: CAPPlugin {
                 let fromHere = Array(resolved.tracks[idx...])
                 let player = ApplicationMusicPlayer.shared
                 player.queue = ApplicationMusicPlayer.Queue(for: fromHere)
+                self.prewarmArtwork(
+                    titlesAndArtists: fromHere.prefix(8).map { (title: $0.title, artist: $0.artistName) }
+                )
                 try await player.prepareToPlay()
                 try await player.play()
                 let firstTrack = fromHere.first
@@ -1353,7 +1455,15 @@ public class AppleMusicPlugin: CAPPlugin {
                     if !title.isEmpty, let cached = self.artworkDataUrlCache[cacheKey] {
                         artworkUrl = cached
                         artworkSource = "cached"
+                    } else if !title.isEmpty && self.artworkInFlight.contains(cacheKey) {
+                        // A pre-warm search is already in flight for this
+                        // track — short-poll back later instead of firing
+                        // a duplicate request. JS will pick up the cached
+                        // URL on its next 1s poll.
+                        artworkUrl = ""
+                        artworkSource = "in-flight"
                     } else if !title.isEmpty {
+                        self.artworkInFlight.insert(cacheKey)
                         // 1) Catalog search → public mzstatic URL
                         var resolved = ""
                         do {
@@ -1410,10 +1520,37 @@ public class AppleMusicPlugin: CAPPlugin {
                             artworkUrl = ""
                             artworkSource = "unavailable"
                         }
+                        // Live search finished — release the in-flight
+                        // slot so the next poll (or next track sharing
+                        // this title|artist) doesn't false-positive on
+                        // the in-flight check.
+                        self.artworkInFlight.remove(cacheKey)
                     } else {
                         // No title to search with. Fall back to monogram.
                         artworkUrl = ""
                         artworkSource = "no-title"
+                    }
+                }
+
+                // ── Look-ahead pre-warm ──────────────────────────────
+                // Pre-fetch artwork for the next 3 queue entries so
+                // auto-advance is instant. Fire-and-forget; in-flight
+                // tracking prevents duplicate searches.
+                let queueEntries = player.queue.entries
+                if let currentEntry = entry {
+                    var foundCurrent = false
+                    var nextBatch: [(title: String, artist: String)] = []
+                    for queueEntry in queueEntries {
+                        if foundCurrent {
+                            nextBatch.append(self.extractTitleAndArtist(from: queueEntry))
+                            if nextBatch.count >= 3 { break }
+                        }
+                        if queueEntry.id == currentEntry.id {
+                            foundCurrent = true
+                        }
+                    }
+                    if !nextBatch.isEmpty {
+                        self.prewarmArtwork(titlesAndArtists: nextBatch)
                     }
                 }
 
