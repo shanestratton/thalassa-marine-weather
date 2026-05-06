@@ -227,30 +227,21 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
                         covers the input the user just tapped into). */}
                     <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
 
-                    {/* Multi-leg passage helper — always visible. Every
-                        passage starts as Leg 1 by default; the skipper
-                        opens the leg dropdown to add Leg 2, 3, … with
-                        the Departure box prefilled from the previous
-                        leg's arrival. When the picked leg has both
-                        endpoints known (re-planning a completed leg),
-                        the routing engine auto-fires via
-                        onAutoCalculate so the user doesn't need to
-                        manually slide-to-calculate. For "future" legs
-                        (destination unknown until the user types it),
-                        auto-fire is suppressed — the user types the
-                        next hop's destination, then hits the slider. */}
-                    <LegPickerDropdown
-                        onSelectDeparture={setOrigin}
-                        onSelectDestination={setDestination}
-                        onAutoCalculate={(dep, dst) => {
-                            // Pass the values directly — the form
-                            // state setters above haven't flushed by
-                            // the time this fires. handleCalculate's
-                            // override path bypasses the closure and
-                            // uses these literals instead.
-                            handleCalculate(undefined, { origin: dep, destination: dst });
-                        }}
-                    />
+                    {/* Multi-leg passage helper — always visible.
+                        Picking a trip selects which voyage we're
+                        adding a leg to (drafts + active voyage).
+                        Picking a leg fills the From box (and To if
+                        the leg has a known arrival). For Leg N+1
+                        (no arrival yet) From auto-fills with the
+                        previous leg's arrival, To clears, and the
+                        user types the next hop's destination.
+                        The picker NEVER auto-fires the routing
+                        engine — the user reviews + slides the
+                        Calculate gesture themselves. An earlier
+                        eager-auto-calc kicked the user to the map
+                        the moment they touched the trip dropdown,
+                        which broke the multi-leg planning flow. */}
+                    <LegPickerDropdown onSelectDeparture={setOrigin} onSelectDestination={setDestination} />
 
                     {/* Origin */}
                     <div className="relative group">

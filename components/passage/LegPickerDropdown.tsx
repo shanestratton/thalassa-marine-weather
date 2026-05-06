@@ -46,13 +46,6 @@ interface LegPickerDropdownProps {
      *  When the user picks a leg with a known arrival we fill it; for new legs we clear so they
      *  type the next hop fresh. */
     onSelectDestination?: (port: string) => void;
-    /** Optional auto-calculate callback — fired with (departure, destination)
-     *  when the user picks a leg whose BOTH endpoints are known. Lets the
-     *  route planner immediately re-run the routing engine without making
-     *  the user hit the Calculate slider. For "future" legs (destination
-     *  unknown) we don't fire this — the user has to type the next hop's
-     *  destination first. */
-    onAutoCalculate?: (departure: string, destination: string) => void;
 }
 
 /** Internal model — a "leg" of a trip as the picker sees it. */
@@ -172,11 +165,7 @@ const LEG_STATUS_LABEL: Record<UiLeg['status'], string> = {
     future: 'New leg',
 };
 
-export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
-    onSelectDeparture,
-    onSelectDestination,
-    onAutoCalculate,
-}) => {
+export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDeparture, onSelectDestination }) => {
     const [trips, setTrips] = useState<UiTrip[]>([NEW_TRIP]);
     const [tripId, setTripId] = useState<string>(NEW_TRIP_ID);
     const [legNumber, setLegNumber] = useState<number>(1);
@@ -238,58 +227,44 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
         [selectedTrip, legNumber],
     );
 
-    /** Apply a (trip, leg) selection to the form inputs. */
+    /** Apply a (trip, leg) selection to the form inputs.
+     *
+     *  Pure form-filler — NEVER auto-fires the routing engine. The
+     *  user explicitly slides the "Calculate Route" gesture when
+     *  they're ready. An earlier version auto-calculated whenever a
+     *  picked leg had both endpoints known, which was helpful for
+     *  re-planning a saved leg with fresh weather but made the
+     *  multi-leg planning flow unusable: tapping the trip dropdown
+     *  immediately yanked the user to the map mid-decision before
+     *  they could see / pick which leg they actually wanted.
+     *
+     *  Now: pick a trip → form fills with Leg 1's defaults so the
+     *  user can see what they're working with. Open the leg dropdown
+     *  → pick Leg 2/3/… → From flips to the previous leg's arrival,
+     *  To clears (or fills with the leg's known arrival for
+     *  re-planning). User reviews, edits, then calculates manually.
+     */
     const apply = useCallback(
-        (trip: UiTrip, leg: UiLeg) => {
+        (_trip: UiTrip, leg: UiLeg) => {
             triggerHaptic('light');
             // Always fill From with the leg's departure (empty for "New
             // trip / Leg 1" — that just clears the departure, which is
             // what the user expects when starting fresh).
             onSelectDeparture(leg.departurePort);
 
-            // For Leg 1 of an existing trip, leave Destination alone if
-            // we don't know it (saved drafts always have one; active
-            // voyage's Leg 1 might if the user hasn't completed it yet).
             // For Leg N+1 (future), clear Destination so the user types
-            // the next hop. For completed legs we fill with the known
-            // arrival so the form mirrors the saved route.
-            let nextDestination: string | null = null;
+            // the next hop. For completed/draft legs we fill with the
+            // known arrival so the form mirrors the saved route — the
+            // user can edit either field before calculating.
             if (onSelectDestination) {
                 if (leg.status === 'future') {
                     onSelectDestination('');
-                    nextDestination = '';
                 } else if (leg.arrivalPort) {
                     onSelectDestination(leg.arrivalPort);
-                    nextDestination = leg.arrivalPort;
-                }
-            }
-
-            // Auto-fire the routing engine when the picked leg has both
-            // endpoints known. Re-planning a saved/completed leg with
-            // fresh weather is what the skipper almost always wants
-            // when they tap an existing leg — saves them an extra
-            // "Slide to Calculate" gesture. For "future" legs (only
-            // departure known), the destination is empty so we skip
-            // auto-fire and wait for the user to type the next hop.
-            if (
-                onAutoCalculate &&
-                leg.departurePort &&
-                leg.status !== 'future' &&
-                (leg.arrivalPort || (nextDestination && nextDestination.length > 0))
-            ) {
-                const dest = leg.arrivalPort ?? nextDestination ?? '';
-                if (dest) {
-                    // Defer to the next microtask so the React state
-                    // setters above (setOrigin / setDestination) have
-                    // a chance to flush — even though we pass values
-                    // directly, calculate also touches voyagePlan via
-                    // the saveVoyagePlan side-channel and benefits
-                    // from a clean settle window.
-                    Promise.resolve().then(() => onAutoCalculate(leg.departurePort, dest));
                 }
             }
         },
-        [onSelectDeparture, onSelectDestination, onAutoCalculate],
+        [onSelectDeparture, onSelectDestination],
     );
 
     const pickTrip = useCallback(
@@ -300,6 +275,19 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
             setTripOpen(false);
             const firstLeg = trip.legs[0];
             if (firstLeg) apply(trip, firstLeg);
+
+            // Auto-open the leg dropdown so the user can see the
+            // available legs the moment they pick a trip — saves an
+            // extra tap and makes the workflow obvious: "I picked
+            // Brisbane → Nouméa, now which leg am I planning?"
+            // Skip the auto-open for "New trip" (only Leg 1 exists,
+            // there's nothing to choose).
+            if (trip.id !== NEW_TRIP_ID && trip.legs.length > 1) {
+                // Defer one tick so the trip dropdown's close
+                // animation finishes before the leg dropdown opens —
+                // simultaneous open/close was visually jarring.
+                setTimeout(() => setLegOpen(true), 80);
+            }
         },
         [apply],
     );
