@@ -56,6 +56,15 @@ export const ChandleryPage: React.FC<ChandleryPageProps> = ({ onBack: _onBack, o
     const { settings } = useSettings();
     const [mode, setMode] = useState<'curated' | 'community'>('curated');
     const [selected, setSelected] = useState<StoreOneProduct | null>(null);
+    // Graceful fallback: if a product image 404s or stalls, swap to the
+    // per-product gradient placeholder for that one card only.
+    const [brokenImageIds, setBrokenImageIds] = useState<Set<string>>(new Set());
+    const markBroken = (id: string) =>
+        setBrokenImageIds((prev) => {
+            const next = new Set(prev);
+            next.add(id);
+            return next;
+        });
 
     const vessel = settings.vessel;
     const isObserver = vessel?.type === 'observer';
@@ -95,11 +104,14 @@ export const ChandleryPage: React.FC<ChandleryPageProps> = ({ onBack: _onBack, o
             <main className="px-4 space-y-3 pb-4">
                 {STORE_ONE_PRODUCTS.map((p) => {
                     const compat = checkCompatibility(p);
+                    const showImage = !!p.imageUrl && !brokenImageIds.has(p.id);
                     return (
                         <ProductCard
                             key={p.id}
                             product={p}
                             compatibility={compat}
+                            showImage={showImage}
+                            onImageError={() => markBroken(p.id)}
                             onTap={() => {
                                 triggerHaptic('light');
                                 setSelected(p);
@@ -136,6 +148,8 @@ export const ChandleryPage: React.FC<ChandleryPageProps> = ({ onBack: _onBack, o
                 <ProductDetail
                     product={selected}
                     compatibility={checkCompatibility(selected)}
+                    showImage={!!selected.imageUrl && !brokenImageIds.has(selected.id)}
+                    onImageError={() => markBroken(selected.id)}
                     onClose={() => setSelected(null)}
                 />
             )}
@@ -148,22 +162,34 @@ export const ChandleryPage: React.FC<ChandleryPageProps> = ({ onBack: _onBack, o
 interface ProductCardProps {
     product: StoreOneProduct;
     compatibility: Compatibility;
+    showImage: boolean;
+    onImageError: () => void;
     onTap: () => void;
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, compatibility, onTap }) => (
+const ProductCard: React.FC<ProductCardProps> = ({ product, compatibility, showImage, onImageError, onTap }) => (
     <button
         onClick={onTap}
         aria-label={`${product.name} — $${product.price} USD`}
         className="w-full text-left bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden active:scale-[0.99] transition-all hover:bg-white/[0.04] hover:border-white/[0.1]"
     >
-        {/* Image placeholder — gradient block, image-forward 4:3 */}
+        {/* Image-forward 4:3 hero — real photo when available, gradient fallback otherwise */}
         <div
-            className="w-full aspect-[4/3] flex items-end p-6 relative"
-            style={{ background: getProductGradient(product.id) }}
+            className="w-full aspect-[4/3] flex items-end p-6 relative bg-slate-900"
+            style={!showImage ? { background: getProductGradient(product.id) } : undefined}
         >
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
-            <p className="relative text-[10px] font-medium uppercase tracking-[0.25em] text-white/50">
+            {showImage && product.imageUrl && (
+                <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    onError={onImageError}
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-contain bg-white/[0.02]"
+                />
+            )}
+            {/* Bottom shadow only on gradient placeholder; photos read clearer without it */}
+            {!showImage && <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />}
+            <p className="relative text-[10px] font-medium uppercase tracking-[0.25em] text-white/50 z-10">
                 {product.requires_12v ? 'Hardware · 12V' : 'Hardware · Wireless'}
             </p>
         </div>
@@ -190,10 +216,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, compatibility, onTap
 interface ProductDetailProps {
     product: StoreOneProduct;
     compatibility: Compatibility;
+    showImage: boolean;
+    onImageError: () => void;
     onClose: () => void;
 }
 
-const ProductDetail: React.FC<ProductDetailProps> = ({ product, compatibility, onClose }) => (
+const ProductDetail: React.FC<ProductDetailProps> = ({ product, compatibility, showImage, onImageError, onClose }) => (
     <div className="fixed inset-0 z-[955] bg-slate-950 flex flex-col">
         {/* Header */}
         <div
@@ -214,8 +242,20 @@ const ProductDetail: React.FC<ProductDetailProps> = ({ product, compatibility, o
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
-            {/* Hero image — full width, restrained */}
-            <div className="w-full aspect-[4/3]" style={{ background: getProductGradient(product.id) }} />
+            {/* Hero image — real photo when available, gradient fallback otherwise */}
+            <div
+                className="w-full aspect-[4/3] relative bg-slate-900"
+                style={!showImage ? { background: getProductGradient(product.id) } : undefined}
+            >
+                {showImage && product.imageUrl && (
+                    <img
+                        src={product.imageUrl}
+                        alt={product.name}
+                        onError={onImageError}
+                        className="absolute inset-0 w-full h-full object-contain bg-white/[0.02]"
+                    />
+                )}
+            </div>
 
             {/* Body */}
             <div className="px-6 pt-10 pb-16 max-w-2xl">
