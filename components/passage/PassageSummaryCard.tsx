@@ -14,6 +14,7 @@ import { usePassageStore, type PassageLeg } from '../../stores/PassageStore';
 import { PassageRouteMap } from './PassageRouteMap';
 import SharePassageButton from './SharePassageButton';
 import type { PassageBriefData } from '../../services/PassageBriefService';
+import { useSettings } from '../../context/SettingsContext';
 
 /* ────────────────────────────────────────────────────────────── */
 
@@ -204,6 +205,11 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     onDepartureTimeChange,
 }) => {
     const passage = usePassageStore();
+    // settings.vessel.cruisingSpeed feeds the duration estimate when
+    // there's no ETA on file. SettingsContext is reactive — change the
+    // boat's cruising speed in Settings → Vessel Profile and this card
+    // re-derives the displayed duration on the next render.
+    const { settings } = useSettings();
 
     const [localTime, setLocalTime] = useState<string>(() => {
         try {
@@ -302,7 +308,36 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     }, [effectiveDepartLat, effectiveDepartLon, effectiveArriveLat, effectiveArriveLon]);
 
-    let effectiveDistance = distanceNm ?? (passage.hasRoute ? passage.totalDistanceNM : undefined);
+    // PassageStore can carry stale data from a *different* voyage's
+    // planning session — same localStorage key, different
+    // departure/arrival pair. If its coords don't roughly match the
+    // current voyage's coords, treat all of its derived fields
+    // (distanceNM, totalDuration, etc.) as junk: they refer to
+    // somewhere else.
+    //
+    // Tolerance: 0.5° (~30 NM) — generous enough to absorb harbour
+    // anchorage drift but tight enough to reject "Newport→Brisbane"
+    // when the active voyage is "Newport→Nouméa". Prior versions just
+    // accepted PassageStore data unconditionally, which is how a
+    // 98 NM Newport-to-Brisbane planning session leaked into the
+    // 870 NM Newport-to-Nouméa active voyage's summary card.
+    const COORD_MATCH_TOLERANCE_DEG = 0.5;
+    const passageMatchesVoyage =
+        passage.hasRoute &&
+        effectiveDepartLat != null &&
+        effectiveDepartLon != null &&
+        effectiveArriveLat != null &&
+        effectiveArriveLon != null &&
+        passage.departLat != null &&
+        passage.departLon != null &&
+        passage.arriveLat != null &&
+        passage.arriveLon != null &&
+        Math.abs(passage.departLat - effectiveDepartLat) < COORD_MATCH_TOLERANCE_DEG &&
+        Math.abs(passage.departLon - effectiveDepartLon) < COORD_MATCH_TOLERANCE_DEG &&
+        Math.abs(passage.arriveLat - effectiveArriveLat) < COORD_MATCH_TOLERANCE_DEG &&
+        Math.abs(passage.arriveLon - effectiveArriveLon) < COORD_MATCH_TOLERANCE_DEG;
+
+    let effectiveDistance = distanceNm ?? (passageMatchesVoyage ? passage.totalDistanceNM : undefined);
     if (
         greatCircleNM != null &&
         (effectiveDistance == null ||
@@ -310,7 +345,17 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             // Stored value > 2× great-circle = stale junk. Real
             // routes are usually 1.0-1.3× great-circle (small
             // detours for waypoints + weather routing).
-            effectiveDistance > greatCircleNM * 2)
+            effectiveDistance > greatCircleNM * 2 ||
+            // Stored value < 0.7× great-circle is also suspicious.
+            // No real route is shorter than the straight line — if
+            // the stored value is well below it, we're reading data
+            // from a different (shorter) voyage's session that the
+            // coord-match check above should have caught but didn't
+            // (e.g. landed in a near-miss tolerance zone, or coords
+            // arrived after the distance was cached). Fall back to
+            // the great-circle so the card never reports a distance
+            // smaller than physically possible for the route.
+            effectiveDistance < greatCircleNM * 0.7)
     ) {
         effectiveDistance = greatCircleNM;
     }
@@ -410,7 +455,18 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
         }
     }
     if (!duration && effectiveDistance != null && effectiveDistance > 0) {
-        const hrs = effectiveDistance / 6;
+        // Use the vessel's configured cruising speed when computing a
+        // fallback duration. Hard-coded 6 kt was a sensible-default
+        // placeholder for monohulls but undersells fast power boats
+        // and overshoots small multihulls. Falls back to 6 kt only
+        // when no vessel is configured. Bounded to a sane range so
+        // fat-fingered settings (0.1 kt or 50 kt cruise) don't
+        // produce nonsense durations.
+        const cruisingKt =
+            settings.vessel?.cruisingSpeed && settings.vessel.cruisingSpeed > 0.5 && settings.vessel.cruisingSpeed < 30
+                ? settings.vessel.cruisingSpeed
+                : 6;
+        const hrs = effectiveDistance / cruisingKt;
         if (hrs < 24) duration = `${Math.round(hrs)}h`;
         else duration = `${Math.floor(hrs / 24)}d ${Math.round(hrs % 24)}h`;
     }

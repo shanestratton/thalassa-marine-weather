@@ -11,15 +11,46 @@
  * This card just confirms which vessel the route will be calculated
  * for. Tapping the edit link opens the SettingsModal with the Vessel
  * tab focused, so the user can edit the canonical record in one place.
+ *
+ * Reactivity:
+ *   `useSettings()` is a Context-backed hook — every change to vessel
+ *   profile / vesselUnits / units fires a re-render here automatically.
+ *   No additional listeners or polling required; the displayed values
+ *   always match the canonical settings record on the next paint.
  */
 
 import React, { useEffect } from 'react';
 import { useSettings } from '../../context/SettingsContext';
+import { ftToM, ktsToKmh, ktsToMph, ktsToMps } from '../../utils/units';
 
 interface VesselProfileSummaryProps {
     /** Crew/Passage Intelligence calls this with `true` once vessel exists. */
     onReviewedChange?: (ready: boolean) => void;
 }
+
+/** Convert canonical feet → user's preferred length unit. */
+function lengthInUnit(ft: number, unit: 'ft' | 'm' | undefined): { value: number; unit: 'ft' | 'm' } {
+    if (unit === 'm') return { value: ftToM(ft), unit: 'm' };
+    return { value: ft, unit: 'ft' };
+}
+
+/** Convert canonical knots → user's preferred speed unit. */
+function speedInUnit(
+    kts: number,
+    unit: 'kts' | 'mph' | 'kmh' | 'mps' | undefined,
+): { value: number; unit: 'kt' | 'mph' | 'km/h' | 'm/s' } {
+    if (unit === 'mph') return { value: ktsToMph(kts), unit: 'mph' };
+    if (unit === 'kmh') return { value: ktsToKmh(kts), unit: 'km/h' };
+    if (unit === 'mps') return { value: ktsToMps(kts), unit: 'm/s' };
+    return { value: kts, unit: 'kt' };
+}
+
+const fmtInt = (n: number) => Math.round(n).toString();
+const fmt1 = (n: number) => {
+    const r = Math.round(n * 10) / 10;
+    // Drop trailing .0 — "6 kt" reads cleaner than "6.0 kt"
+    return Number.isInteger(r) ? r.toString() : r.toFixed(1);
+};
 
 export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ onReviewedChange }) => {
     const { settings } = useSettings();
@@ -46,26 +77,42 @@ export const VesselProfileSummary: React.FC<VesselProfileSummaryProps> = ({ onRe
         );
     }
 
-    // Round for display — the underlying values often come from unit
-    // conversions in VesselTab (ft↔m, kts↔kmh, etc) which produce
-    // unrounded floats like 28.29387293879872 or 7.86743434349... The
-    // raw stored value is preserved for routing math; this is only
-    // for the summary string.
+    // Stored values are CANONICAL — every numeric field on settings.vessel
+    // is in standard units (feet for lengths, knots for speed, lbs for
+    // weight). VesselTab's MetricInput strips the user's unit choice and
+    // writes back the standard-unit value, so the routing engine and
+    // every read site sees the same number regardless of which unit the
+    // input was typed in. Display here just converts back to whatever
+    // unit the user picked in settings.
     //
-    //   length        → integer (boats are typically whole feet/m)
-    //   cruisingSpeed → 1 dp
-    //   draft         → 1 dp (matches VesselTab's input granularity)
-    const fmtInt = (n: number) => Math.round(n).toString();
-    const fmt1 = (n: number) => {
-        const r = Math.round(n * 10) / 10;
-        // Drop trailing .0 — "6 kt" reads cleaner than "6.0 kt"
-        return Number.isInteger(r) ? r.toString() : r.toFixed(1);
-    };
-
+    // Until 2026-05-08 this card hard-coded "ft" for length and "m" for
+    // draft (treating the canonical-feet draft value as if it were
+    // already in meters), so a Tayana 55 with a 7.9 ft draft showed as
+    // "7.9 m draft" — three times the actual depth. Fixed below by
+    // routing every dimension through the conversion + unit helpers.
     const typeLabel = vessel.type === 'sail' ? 'Sail' : vessel.type === 'power' ? 'Power' : 'Observer';
-    const lengthDisplay = vessel.length ? `${fmtInt(vessel.length)} ft` : '';
-    const speedDisplay = vessel.cruisingSpeed ? `${fmt1(vessel.cruisingSpeed)} kt cruise` : '';
-    const draftDisplay = vessel.draft ? `${fmt1(vessel.draft)} m draft` : '';
+
+    const lengthDisplay = vessel.length
+        ? (() => {
+              const { value, unit } = lengthInUnit(vessel.length, settings.vesselUnits?.length);
+              return `${fmtInt(value)} ${unit}`;
+          })()
+        : '';
+
+    const draftDisplay = vessel.draft
+        ? (() => {
+              const { value, unit } = lengthInUnit(vessel.draft, settings.vesselUnits?.draft);
+              return `${fmt1(value)} ${unit} draft`;
+          })()
+        : '';
+
+    const speedDisplay = vessel.cruisingSpeed
+        ? (() => {
+              const { value, unit } = speedInUnit(vessel.cruisingSpeed, settings.units?.speed);
+              return `${fmt1(value)} ${unit} cruise`;
+          })()
+        : '';
+
     const summaryParts = [typeLabel, lengthDisplay, speedDisplay, draftDisplay].filter(Boolean);
 
     return (
