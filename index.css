@@ -1020,6 +1020,20 @@ body,
     }
 }
 
+/* PassageBanner "cooking" indeterminate progress stripe — slides
+   a 1/3-width gradient back and forth so the user knows the
+   route engine is still working even when there's no monotonic
+   percentage to report (wavefront expansion isn't a clean %). */
+@keyframes passageBannerCook {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(300%);
+    }
+}
+
 /* ── Page Transition Animation ── */
 @keyframes pageEnter {
     from {
