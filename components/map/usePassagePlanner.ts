@@ -751,6 +751,107 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // Background: isochrone weather routing upgrade
         setTimeout(async () => {
             log.info('[Isochrone BG] ── Background isochrone task started ──');
+
+            // ── Short-route bypass ──
+            // For coastal hops < 100 NM (e.g. Nouméa → Île des Pins,
+            // 60 NM) the isochrone wavefront propagation produces
+            // wildly off-route geometry: it's allowed up to 25 hours
+            // of expansion (motoringSpeed × 2.5 cap) and treats every
+            // reef/island as a hard obstacle, so for routes through
+            // reef-strewn coastal waters it ends up routing far
+            // offshore into deep water (see WP1 at -25°S in the
+            // user's report — 200+ NM south of Nouméa to "escape" the
+            // New Caledonia lagoon, then back northeast). The result
+            // was an 861 NM route for a 60 NM passage.
+            //
+            // Short coastal routes don't need weather routing — the
+            // forecast is reliable across a 12-hour passage and the
+            // skipper relies on local pilotage anyway. Keep the
+            // great-circle (water-aware bypass) preview as the final
+            // route, push it to the PassageStore, and bail out.
+            if (isShortRoute) {
+                log.info('[Passage] Short route — keeping great-circle, skipping isochrone propagation');
+                try {
+                    // Build a minimal IsochroneResult-shaped payload
+                    // from the great-circle so pushToPassageStore can
+                    // round-trip. cruisingSpeed defaulted to 6 kn
+                    // matches the rest of the app's fallback.
+                    const cruisingKt = (typeof speed === 'number' && speed > 0 ? speed : 6) as number;
+                    const totalDurationHours = straightLineNM / cruisingKt;
+                    const depTimeStr = departureTime || new Date().toISOString();
+                    const arrIso = new Date(
+                        new Date(depTimeStr).getTime() + totalDurationHours * 3_600_000,
+                    ).toISOString();
+                    const minimalIsoResult: IsochroneResult = {
+                        // route + routeCoordinates derived from the
+                        // already-rendered water-aware preview
+                        route: waterAwareCoords.map(([lon, lat]) => ({
+                            lat,
+                            lon,
+                            timeHours: 0,
+                            tws: 0,
+                            twa: 0,
+                            sog: cruisingKt,
+                        })) as unknown as IsochroneResult['route'],
+                        routeCoordinates: waterAwareCoords as [number, number][],
+                        shallowFlags: [],
+                        totalDistanceNM: Math.round(straightLineNM * 10) / 10,
+                        totalDurationHours: Math.round(totalDurationHours * 10) / 10,
+                        arrivalTime: arrIso,
+                        isochrones: [],
+                        engineFlags: { stallRecovery: false, finalApproach: false },
+                    } as unknown as IsochroneResult;
+                    const minimalWps: TurnWaypoint[] = [
+                        {
+                            id: 'DEP',
+                            lat: departure.lat,
+                            lon: departure.lon,
+                            bearing: 0,
+                            distanceNM: 0,
+                            timeHours: 0,
+                            eta: depTimeStr,
+                            tws: 0,
+                            twa: 0,
+                        } as unknown as TurnWaypoint,
+                        {
+                            id: 'ARR',
+                            lat: arrival.lat,
+                            lon: arrival.lon,
+                            bearing: ((_fwdBearing % 360) + 360) % 360,
+                            distanceNM: Math.round(straightLineNM * 10) / 10,
+                            timeHours: Math.round(totalDurationHours * 10) / 10,
+                            eta: arrIso,
+                            tws: 0,
+                            twa: 0,
+                        } as unknown as TurnWaypoint,
+                    ];
+                    turnWaypointsRef.current = minimalWps;
+                    isoResultRef.current = minimalIsoResult;
+
+                    const updatedResultShort = { ...result };
+                    updatedResultShort.totalDistance = minimalIsoResult.totalDistanceNM;
+                    updatedResultShort.estimatedDuration = minimalIsoResult.totalDurationHours;
+                    setRouteAnalysis(updatedResultShort);
+
+                    pushToPassageStore(
+                        minimalIsoResult,
+                        minimalWps,
+                        departure,
+                        arrival,
+                        updatedResultShort,
+                        depTimeStr,
+                        cruisingKt,
+                    );
+
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:isochrone-complete', { detail: { success: true, short: true } }),
+                    );
+                } catch (e) {
+                    log.warn('[Passage] Short-route bypass push failed:', e);
+                }
+                return;
+            }
+
             try {
                 // ── Check precompute cache first (fired from CTA press) ──
                 try {
