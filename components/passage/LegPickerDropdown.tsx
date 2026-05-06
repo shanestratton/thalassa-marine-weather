@@ -273,21 +273,16 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
             // Reset leg number to 1 (the always-present first leg of any trip).
             setLegNumber(1);
             setTripOpen(false);
+            // Make sure the leg dropdown is CLOSED after a trip pick.
+            // The leg label below ("Leg 1 — Brisbane → Nouméa") shows
+            // the current selection clearly; the user can drop it
+            // down themselves to switch to Leg 2/3/+. An earlier
+            // version auto-opened the leg dropdown to "save a tap"
+            // but it cluttered the page during planning and the
+            // user explicitly asked for it to close.
+            setLegOpen(false);
             const firstLeg = trip.legs[0];
             if (firstLeg) apply(trip, firstLeg);
-
-            // Auto-open the leg dropdown so the user can see the
-            // available legs the moment they pick a trip — saves an
-            // extra tap and makes the workflow obvious: "I picked
-            // Brisbane → Nouméa, now which leg am I planning?"
-            // Skip the auto-open for "New trip" (only Leg 1 exists,
-            // there's nothing to choose).
-            if (trip.id !== NEW_TRIP_ID && trip.legs.length > 1) {
-                // Defer one tick so the trip dropdown's close
-                // animation finishes before the leg dropdown opens —
-                // simultaneous open/close was visually jarring.
-                setTimeout(() => setLegOpen(true), 80);
-            }
         },
         [apply],
     );
