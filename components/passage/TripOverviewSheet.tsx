@@ -22,11 +22,11 @@ import { triggerHaptic } from '../../utils/system';
 import {
     buildTripOverview,
     enrichTripWithLiveData,
-    getCountrySnippets,
     type EnrichedTripOverview,
     type LegForecast,
     type TripOverview,
 } from '../../services/TripOverviewService';
+import { resolveCountrySnippets, type ResolvedCountrySnippet } from '../../services/CountrySnippetService';
 import { useSettings } from '../../context/SettingsContext';
 
 interface TripOverviewSheetProps {
@@ -70,6 +70,13 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
      *  view; once it lands, real numbers appear in the leg cards. */
     const [enriched, setEnriched] = useState<EnrichedTripOverview | null>(null);
     const [enriching, setEnriching] = useState(false);
+    /** Country snippets resolved through the CURATED → CACHE → AI →
+     *  STUB pipeline. Tracked separately from the live-forecast
+     *  enrichment because countries don't change while the sheet is
+     *  open and a Gemini miss can take 1–2 s — surfacing it as its
+     *  own state lets the UI show "Researching countries…" without
+     *  blocking the rest of the sheet. */
+    const [countrySnippets, setCountrySnippets] = useState<ResolvedCountrySnippet[]>([]);
 
     const baseOverview: TripOverview | null = useMemo(() => {
         if (legs.length === 0) return null;
@@ -88,11 +95,20 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
         if (!isOpen || !baseOverview) {
             setEnriched(null);
             setEnriching(false);
+            setCountrySnippets([]);
             return;
         }
         let cancelled = false;
         setEnriched(null);
         setEnriching(true);
+        // Country snippets — fire in parallel with live-data
+        // enrichment. Curated/cached countries resolve instantly;
+        // AI fallback for unknowns runs in the background.
+        (async () => {
+            const resolved = await resolveCountrySnippets(baseOverview.countries);
+            if (cancelled) return;
+            setCountrySnippets(resolved);
+        })();
         (async () => {
             try {
                 const result = await enrichTripWithLiveData(baseOverview);
@@ -117,7 +133,6 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
 
     /** Render-time overview — prefer the enriched copy when we have one. */
     const overview: EnrichedTripOverview = enriched ?? baseOverview;
-    const countrySnippets = getCountrySnippets(overview.countries);
     const legsForRender = overview.legsWithForecast ?? overview.legs;
 
     const handleExportPdf = async () => {
@@ -138,8 +153,22 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                     /* fall through to template-only */
                 }
             }
+            // Force a fresh resolve of country snippets too — same
+            // race as the live forecast: if the user fired Export
+            // before the snippets resolved, we don't want the PDF
+            // missing the Customs/Visa section. resolveCountrySnippets
+            // is cache-aware so this is fast on second-and-subsequent
+            // calls.
+            let snippetsForPdf = countrySnippets;
+            if (snippetsForPdf.length !== toRender.countries.length) {
+                snippetsForPdf = await resolveCountrySnippets(toRender.countries);
+                setCountrySnippets(snippetsForPdf);
+            }
             const { generateTripPdf } = await import('../../services/TripPdfService');
-            const blob = generateTripPdf(toRender, { vesselName: settings.vessel?.name });
+            const blob = generateTripPdf(toRender, {
+                vesselName: settings.vessel?.name,
+                countrySnippets: snippetsForPdf,
+            });
             const filename = `Trip · ${toRender.name.replace(/\s*→\s*/g, ' to ')}.pdf`;
 
             // On native iOS: write to cache, then share via system sheet.
@@ -366,7 +395,10 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                                         key={s.country}
                                         className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-1.5"
                                     >
-                                        <p className="text-sm font-bold text-sky-300">{s.country}</p>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <p className="text-sm font-bold text-sky-300 truncate">{s.country}</p>
+                                            <SourceBadge source={s.source} />
+                                        </div>
                                         <p className="text-[11px] text-gray-300">
                                             <span className="text-gray-500">Visa: </span>
                                             {s.visa}
@@ -477,3 +509,27 @@ const Hint: React.FC<{ glyph: string; label: string; detail: string }> = ({ glyp
         </span>
     </li>
 );
+
+/** Small pill telling the reader where the country snippet came from.
+ *  Curated/cache hits are silent (the user doesn't need a "trust me"
+ *  badge for hand-vetted content). AI gets a clear "✦ AI · verify"
+ *  label so the user treats it as a starting point, not gospel.
+ *  Stub flags as "Generic" so the user knows to research. */
+const SourceBadge: React.FC<{ source: ResolvedCountrySnippet['source'] }> = ({ source }) => {
+    if (source === 'curated' || source === 'cache') return null;
+    if (source === 'ai') {
+        return (
+            <span
+                className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest bg-purple-500/15 text-purple-300 border border-purple-500/25"
+                title="AI-generated — verify with the consulate before departure"
+            >
+                ✦ AI · verify
+            </span>
+        );
+    }
+    return (
+        <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-widest bg-amber-500/10 text-amber-300/80 border border-amber-500/20">
+            Generic
+        </span>
+    );
+};

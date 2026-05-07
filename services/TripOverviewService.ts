@@ -97,13 +97,30 @@ const COUNTRY_HINTS: { match: string[]; country: string }[] = [
 ];
 
 /** Best-effort country match from a port string. Returns the country
- *  name when a hint matches (case-insensitive substring), otherwise
- *  undefined — the caller decides what to do with unknowns. */
+ *  name when a hint matches (case-insensitive substring), or the
+ *  trailing comma-separated token when the string looks like
+ *  "City, Country" — covers the long tail (Caribbean / Med / Asia)
+ *  not in the hint table. Returns undefined only when nothing's
+ *  parseable. */
 export function detectCountry(portName: string | null | undefined): string | undefined {
     if (!portName) return undefined;
     const lc = portName.toLowerCase();
     for (const hint of COUNTRY_HINTS) {
         if (hint.match.some((m) => lc.includes(m))) return hint.country;
+    }
+    // Last-chance: parse the trailing comma-separated token as a
+    // country guess. "Marigot, Saint Martin" → "Saint Martin".
+    // "Falmouth, Antigua" → "Antigua". Filters out obvious non-country
+    // junk (lat/lon fragments, route IDs, single digits).
+    const parts = portName
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    if (parts.length >= 2) {
+        const last = parts[parts.length - 1];
+        if (/^[A-Za-z][A-Za-z\s']+$/.test(last) && last.length >= 2 && last.length <= 30) {
+            return last;
+        }
     }
     return undefined;
 }
