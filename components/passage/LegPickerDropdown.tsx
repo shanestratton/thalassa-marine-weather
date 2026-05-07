@@ -38,6 +38,7 @@ import { triggerHaptic } from '../../utils/system';
 import { getCachedActiveVoyage, getDraftVoyages, type Voyage } from '../../services/VoyageService';
 import { getLegsForVoyage } from '../../services/VoyageLegService';
 import type { PassageLeg } from '../../types/navigation';
+import { VoyageCleanupSheet } from './VoyageCleanupSheet';
 
 interface LegPickerDropdownProps {
     /** Setter for the Departure ("From") input — wired into useVoyageForm.setOrigin */
@@ -264,6 +265,12 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
     const [legNumber, setLegNumber] = useState<number>(1);
     const [tripOpen, setTripOpen] = useState(false);
     const [legOpen, setLegOpen] = useState(false);
+    /** "Manage saved trips" sheet — admin-style list of every voyage
+     *  row + every saved planned route, each with a delete button.
+     *  Necessary because the normal drafts dropdown filters to
+     *  status='planning' so a test/orphan trip in another status
+     *  becomes invisible without this surface. */
+    const [cleanupOpen, setCleanupOpen] = useState(false);
 
     /** Load trips: active voyage + drafts (chained) + always-present "New trip".
      *
@@ -599,6 +606,27 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
                     </div>
                 )}
             </div>
+
+            {/* "Manage saved trips" entry point — small enough to stay
+                out of the way during normal planning, but
+                discoverable for users hunting orphan/test passages
+                that don't show up in the trip dropdown above (rows
+                with status=completed/aborted, or planned routes
+                without a matching voyage row, etc.). */}
+            <div className="-mt-1">
+                <button
+                    type="button"
+                    onClick={() => {
+                        setCleanupOpen(true);
+                        triggerHaptic('light');
+                    }}
+                    className="text-[11px] text-gray-500 hover:text-amber-300 transition-colors px-1 py-1"
+                >
+                    ⚙ Manage saved trips
+                </button>
+            </div>
+
+            <VoyageCleanupSheet isOpen={cleanupOpen} onClose={() => setCleanupOpen(false)} onChanged={refresh} />
         </div>
     );
 };
