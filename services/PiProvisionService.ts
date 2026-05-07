@@ -83,7 +83,14 @@ const INSTALL_SCRIPT_URL =
 const PI_CACHE_PORT = 3001;
 
 /** Default SSH hosts to try if user doesn't specify */
-const DEFAULT_HOSTS = ['openplotter.local', 'raspberrypi.local', 'thalassa.local', 'pi.local'];
+const DEFAULT_HOSTS = [
+    'calypso.local', // Shane's renamed Pi (boat-named after the yacht)
+    'openplotter.local',
+    'raspberrypi.local',
+    'thalassa.local',
+    'pi.local',
+    'bosun.local', // older Shane setup, kept for backwards compat
+];
 
 /** Default SSH username for Raspberry Pi / OpenPlotter */
 const DEFAULT_USERNAME = 'pi';
