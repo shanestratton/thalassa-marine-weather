@@ -58,10 +58,11 @@ export interface PiFetchStats {
 // ── Discovery candidates ──
 // Ordered by likelihood — skip the rest as soon as one works.
 const DISCOVERY_HOSTS = [
+    'calypso.local', // Shane's renamed Pi (boat-named after the yacht)
     'openplotter.local', // OpenPlotter default hostname
     'raspberrypi.local', // Default Pi mDNS hostname
     'thalassa.local', // If they renamed it
-    'bosun.local', // Bosun-branded Pi (Shane's setup)
+    'bosun.local', // Bosun-branded Pi (older Shane setup)
     'pi.local', // Common shortname
     'thalassa-cache.local', // If they used our suggested hostname
 ];
