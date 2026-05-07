@@ -18,6 +18,7 @@ import { jsPDF } from 'jspdf';
 import { createLogger } from '../utils/createLogger';
 import type { EnrichedTripOverview, LegForecast, TripOverview } from './TripOverviewService';
 import { getCountrySnippets } from './TripOverviewService';
+import type { ResolvedCountrySnippet } from './CountrySnippetService';
 
 const log = createLogger('TripPDF');
 
@@ -272,7 +273,18 @@ class PdfBuilder {
 
 // ── Main entry ──
 
-export function generateTripPdf(trip: TripOverview | EnrichedTripOverview, opts?: { vesselName?: string }): Blob {
+export function generateTripPdf(
+    trip: TripOverview | EnrichedTripOverview,
+    opts?: {
+        vesselName?: string;
+        /** Pre-resolved country snippets — pass through from the
+         *  trip overview sheet which already fetched them via the
+         *  CountrySnippetService (curated → cache → AI → stub).
+         *  When omitted, the PDF falls back to the curated-only
+         *  list so a stand-alone caller still gets sensible output. */
+        countrySnippets?: ResolvedCountrySnippet[];
+    },
+): Blob {
     const b = new PdfBuilder();
     const vesselLabel = opts?.vesselName || 'Your Vessel';
     // Narrow the input — Enriched has extra optional fields. We
@@ -441,18 +453,51 @@ export function generateTripPdf(trip: TripOverview | EnrichedTripOverview, opts?
     }
 
     // ─────────────────────────────────────────────────────────
-    // Per-country snippets (visa + biosecurity + ports of entry)
+    // Per-country snippets (visa + biosecurity + ports of entry).
+    //
+    // Pre-resolved snippets passed in via opts.countrySnippets win —
+    // those went through the curated → cache → AI → stub pipeline so
+    // every detected country has SOMETHING to show, including the
+    // long-tail Caribbean/Med/Asia destinations the curated table
+    // doesn't cover. When omitted (e.g. a stand-alone PDF caller),
+    // fall back to the synchronous curated-only list.
     // ─────────────────────────────────────────────────────────
-    const snippets = getCountrySnippets(trip.countries);
-    if (snippets.length > 0) {
+    const resolvedSnippets: (
+        | ResolvedCountrySnippet
+        | (ReturnType<typeof getCountrySnippets>[number] & { source?: undefined; notes?: string })
+    )[] =
+        opts?.countrySnippets && opts.countrySnippets.length > 0
+            ? opts.countrySnippets
+            : getCountrySnippets(trip.countries);
+    if (resolvedSnippets.length > 0) {
         b.sectionTitle('Customs, Visas & Biosecurity');
-        for (const s of snippets) {
-            b.ensureRoom(34);
+        const anyAi = resolvedSnippets.some((s) => 'source' in s && s.source === 'ai');
+        if (anyAi) {
+            b.paragraph(
+                'Entries marked ✦ AI are AI-generated as a starting point. Always verify visa, biosecurity, and Port of Entry rules with the consulate or local maritime authority before departure.',
+                COLORS.amber,
+                8,
+            );
+        }
+        for (const s of resolvedSnippets) {
+            b.ensureRoom(38);
             b.doc.setFillColor(...COLORS.cardBg);
-            b.doc.roundedRect(b.margin, b.y, b.contentW, 30, 2, 2, 'F');
+            b.doc.roundedRect(b.margin, b.y, b.contentW, 34, 2, 2, 'F');
+
+            // Country header + source badge (only for AI / stub —
+            // curated/cache hits stay silent).
             b.doc.setFontSize(11);
             b.doc.setTextColor(...COLORS.primary);
             b.doc.text(s.country, b.margin + 4, b.y + 6);
+            const source = ('source' in s ? s.source : undefined) as 'curated' | 'cache' | 'ai' | 'stub' | undefined;
+            if (source === 'ai' || source === 'stub') {
+                const badgeText = source === 'ai' ? '✦ AI · verify' : 'Generic · research';
+                b.doc.setFontSize(7);
+                b.doc.setTextColor(...(source === 'ai' ? ([192, 132, 252] as [number, number, number]) : COLORS.amber));
+                const tw = b.doc.getTextWidth(badgeText);
+                b.doc.text(badgeText, b.margin + b.contentW - 4 - tw, b.y + 6);
+            }
+
             b.doc.setFontSize(8);
             b.doc.setTextColor(...COLORS.muted);
             const visaLines = wrap(b.doc, `Visa: ${s.visa}`, b.contentW - 8);
@@ -473,9 +518,16 @@ export function generateTripPdf(trip: TripOverview | EnrichedTripOverview, opts?
                 b.doc.text(line, b.margin + 4, lineY);
                 lineY += 3.4;
             }
-            // Card grew? bump y to fit content + 4
+            if (s.notes) {
+                b.doc.setTextColor(...COLORS.dim);
+                const notesLines = wrap(b.doc, `Note: ${s.notes}`, b.contentW - 8);
+                for (const line of notesLines) {
+                    b.doc.text(line, b.margin + 4, lineY);
+                    lineY += 3.4;
+                }
+            }
             const consumed = lineY - b.y + 2;
-            b.y += Math.max(consumed, 32);
+            b.y += Math.max(consumed, 36);
         }
     }
 
