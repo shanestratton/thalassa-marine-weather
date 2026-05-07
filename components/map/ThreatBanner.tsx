@@ -261,7 +261,12 @@ export const ThreatBanner: React.FC<ThreatBannerProps> = ({
                 triggerHaptic('light');
                 flyTo(threat.target.lat, threat.target.lon, threat.target.zoom);
             }}
-            className="fixed left-1/2 chart-chip-centered z-[170] flex items-center gap-3 text-left transition-all chart-chip-in"
+            // z-[805] — sits in the top-center stack just below the
+            // ChartModes chip (z-[800]) and LayerSettings sheet (z-[810]),
+            // above the right-rail FABs (z-[700]). Whole top-center
+            // cluster is now in the 800-tier so map layers + right-rail
+            // expanded menus can never obscure these primary surfaces.
+            className="fixed left-1/2 chart-chip-centered z-[805] flex items-center gap-3 text-left transition-all chart-chip-in"
             style={{
                 top: 'max(58px, calc(env(safe-area-inset-top) + 56px))', // sits below the modes chip
                 background: 'rgba(15, 23, 42, 0.92)',

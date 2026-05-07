@@ -275,20 +275,27 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
     return (
         <div
             ref={wrapRef}
-            // Top-center, fixed so it sits above all map overlays. z high
-            // enough to clear the radial menu's own popovers.
-            className="fixed left-1/2 chart-chip-centered z-[180] pointer-events-auto chart-chip-in"
+            // Top-center, fixed so it sits above all map overlays. z-[800]
+            // clears the right-rail FABs (z-[700]) and any expanded menus
+            // they spawn — the chip is a primary navigation surface, it
+            // should never be obscured by a layer toggle. Below modal
+            // dialogs (which live in the 900-1000 range).
+            className="fixed left-1/2 chart-chip-centered z-[800] pointer-events-auto chart-chip-in"
             style={{ top: 'max(10px, env(safe-area-inset-top))' }}
         >
             <div
                 className="flex items-center"
                 style={{
-                    background: 'rgba(15, 23, 42, 0.85)',
+                    // 0.95 alpha (was 0.85) — bumped because intense map
+                    // layers (squall, lightning, satellite) bled through
+                    // at 0.85 + 20px blur, making the chip text hard to
+                    // read against bright cells.
+                    background: 'rgba(15, 23, 42, 0.95)',
                     backdropFilter: 'blur(20px)',
                     WebkitBackdropFilter: 'blur(20px)',
-                    border: '1px solid rgba(255,255,255,0.1)',
+                    border: '1px solid rgba(255,255,255,0.12)',
                     borderRadius: 18,
-                    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+                    boxShadow: '0 6px 18px rgba(0,0,0,0.5)',
                 }}
             >
                 <button
@@ -356,7 +363,10 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                     className="absolute left-1/2 -translate-x-1/2 mt-2 flex flex-col gap-1"
                     style={{
                         minWidth: dropdownMinWidth,
-                        background: 'rgba(15, 23, 42, 0.94)',
+                        // 0.97 alpha (was 0.94) — same readability fix as
+                        // the chip itself; the dropdown sits over even
+                        // more map content so needs to be more opaque.
+                        background: 'rgba(15, 23, 42, 0.97)',
                         backdropFilter: 'blur(24px)',
                         WebkitBackdropFilter: 'blur(24px)',
                         border: '1px solid rgba(255,255,255,0.1)',
