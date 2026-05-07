@@ -145,10 +145,11 @@ const SERVICES: ServiceProbe[] = [
 // ── mDNS candidates (ordered by likelihood for OpenPlotter) ──
 
 const MDNS_HOSTS = [
+    'calypso.local', // Shane's renamed Pi (boat-named after the yacht)
     'openplotter.local',
     'raspberrypi.local',
     'thalassa.local',
-    'bosun.local',
+    'bosun.local', // older Shane setup, kept for backwards compat
     'pi.local',
     'thalassa-cache.local',
     'signalk.local',

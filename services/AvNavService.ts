@@ -1380,7 +1380,14 @@ class AvNavServiceClass {
         const TIMEOUT = 3000; // 3s per probe — enough for slow LAN/Wi-Fi hops
 
         // ── Phase 1: Quick mDNS-style hostname probes (parallel) ──
-        const mdnsHosts = ['avnav.local', 'signalk.local', 'raspberrypi.local', 'openplotter.local'];
+        const mdnsHosts = [
+            'calypso.local', // Shane's renamed Pi (boat-named after the yacht)
+            'avnav.local',
+            'signalk.local',
+            'raspberrypi.local',
+            'openplotter.local',
+            'bosun.local', // older Shane setup, kept for backwards compat
+        ];
         nativeLog(`[scan] Phase 1: probing ${mdnsHosts.length} mDNS hostnames in parallel...`);
 
         const mdnsFactories: Array<() => Promise<void>> = [];

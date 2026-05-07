@@ -56,7 +56,7 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
 
     // ── SSH Provisioning state ──
     const [showInstall, setShowInstall] = useState(false);
-    const [sshHost, setSshHost] = useState('openplotter.local');
+    const [sshHost, setSshHost] = useState('calypso.local');
     const [sshUser, setSshUser] = useState(DEFAULT_USERNAME);
     const [sshPass, setSshPass] = useState('');
     const [provisioning, setProvisioning] = useState(false);
