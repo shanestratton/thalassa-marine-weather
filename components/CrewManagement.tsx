@@ -44,7 +44,7 @@ import { lazyRetry } from '../utils/lazyRetry';
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
-import { RoutePlanner } from './RoutePlanner';
+import { useUI } from '../context/UIContext';
 import { PageHeader } from './ui/PageHeader';
 
 const CastOffPanel = lazyRetry(
@@ -68,13 +68,9 @@ export type VoyageRow = Voyage & {
 
 interface CrewManagementProps {
     onBack: () => void;
-    /** Routed in from app-level when the upgrade modal needs to open
-     *  (e.g. paywall hit while saving a planned route). Pass-through
-     *  to the embedded RoutePlanner. */
-    onTriggerUpgrade?: () => void;
 }
 
-export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack, onTriggerUpgrade }) => {
+export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
     const [isAuthed, setIsAuthed] = useState(false);
 
     // Captain state
@@ -90,12 +86,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const [pendingInvites, setPendingInvites] = useState<CrewMember[]>([]);
     const [memberships, setMemberships] = useState<CrewMember[]>([]);
 
-    // Route planner accordion. Default-expanded when no passage is
-    // selected yet (the user came here to plan); collapsed when one
-    // is already chosen so the existing readiness cards take focus.
-    // The user can always toggle it back open to edit / re-plan /
-    // add a new leg.
-    const [routePlannerOpen, setRoutePlannerOpen] = useState<boolean>(() => !getActivePassageId());
+    // Navigation hook — used by the "Plan a route" button at the
+    // top of the page to take the skipper to the standalone Route
+    // Planner. We tried embedding the form inline; it was visually
+    // overwhelming. A button is the right move — single tap into a
+    // focused planning surface, save → bounces back here ready to
+    // plan crew/provisioning.
+    const { setPage } = useUI();
 
     // Edit permissions modal
     const [editTarget, setEditTarget] = useState<CrewMember | null>(null);
@@ -612,50 +609,42 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>
-                {/* ── ROUTE PLANNER (embedded) ──
-                    The full passage-planning funnel starts here:
-                    plan a route, then scroll down to the readiness
-                    cards for that voyage. Collapsed by default when
-                    a passage is already selected so the existing
-                    flow doesn't get visually overwhelmed; expanded
-                    by default when there's nothing chosen yet so
-                    the user lands ready to plan. */}
-                <div className="mb-4">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setRoutePlannerOpen((v) => !v);
-                            triggerHaptic('light');
-                        }}
-                        className="w-full flex items-center justify-between gap-2 px-3 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] transition-colors"
-                        aria-expanded={routePlannerOpen}
-                    >
-                        <span className="flex items-center gap-2 min-w-0">
-                            <span className="text-base">🧭</span>
-                            <span className="text-[13px] font-bold text-white tracking-wide">Plan a route</span>
-                            <span className="text-[11px] text-gray-500">— origin, destination, departure</span>
+                {/* ── PLAN A ROUTE — primary CTA into the standalone
+                    Route Planner page. Used to be an inline accordion
+                    embedding the full form, which was visually
+                    overwhelming on the same page as the readiness
+                    cards. A button is the right primitive — single
+                    tap, focused planning surface, the back button
+                    brings the user back here ready to plan crew /
+                    provisioning. */}
+                <button
+                    type="button"
+                    onClick={() => {
+                        setPage('route');
+                        triggerHaptic('light');
+                    }}
+                    className="w-full mb-4 flex items-center justify-between gap-2 px-4 py-3.5 rounded-xl bg-gradient-to-r from-sky-500/15 to-cyan-500/10 border border-sky-500/25 hover:from-sky-500/25 hover:to-cyan-500/20 active:scale-[0.98] transition-all"
+                >
+                    <span className="flex items-center gap-3 min-w-0">
+                        <span className="text-base">🧭</span>
+                        <span className="flex flex-col items-start min-w-0">
+                            <span className="text-sm font-bold text-sky-200 tracking-wide">Plan a route</span>
+                            <span className="text-[11px] text-sky-300/70">Origin · destination · departure</span>
                         </span>
-                        <svg
-                            className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${
-                                routePlannerOpen ? 'rotate-180' : ''
-                            }`}
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                        >
-                            <path d="M6 9l6 6 6-6" />
-                        </svg>
-                    </button>
-                    {routePlannerOpen && (
-                        <div className="mt-3 -mx-1">
-                            <RoutePlanner embedded onTriggerUpgrade={onTriggerUpgrade ?? (() => {})} />
-                        </div>
-                    )}
-                </div>
+                    </span>
+                    <svg
+                        className="w-4 h-4 text-sky-300/70 shrink-0"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                    >
+                        <path d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
 
                 {/* ── ACTIVE PASSAGE SELECTOR ── */}
                 <div className="mb-4">
