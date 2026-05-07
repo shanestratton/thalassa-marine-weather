@@ -259,7 +259,11 @@ export const LayerSettings: React.FC<LayerSettingsProps> = ({
     return (
         <div
             ref={wrapRef}
-            className="fixed left-1/2 chart-chip-centered z-[185] pointer-events-auto chart-chip-in"
+            // z-[810] — sits in the top-center stack above ChartModes
+            // chip (z-[800]) and above the right-rail FABs (z-[700]).
+            // Settings sheet should always stack on top of the chip
+            // that opened it.
+            className="fixed left-1/2 chart-chip-centered z-[810] pointer-events-auto chart-chip-in"
             style={{ top: 'max(56px, calc(env(safe-area-inset-top) + 56px))' }}
             role="dialog"
             aria-label="Layer settings"
