@@ -3,9 +3,9 @@
  *
  * Layout (top → bottom):
  *   Hero band:           vessel name · voyage state · position fix · time-since-fix
- *   Quick Actions:       6-tile 2-up grid — log entry, route, anchor, guardian, MOB, radio
+ *   Quick Actions:       6-tile 2-up grid — log book, diary, anchor, guardian, MOB, radio
  *   Passage Planning:    voyage prep + GPX import + Notices
- *   Diary:               Daily journal (the log book lives in Quick Actions)
+ *   (Diary now lives inside Quick Actions — see the 6-tile grid above.)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
  *   Connect:             NMEA Gateway · Boat Network
@@ -75,7 +75,6 @@ const DESTINATIONS: Destination[] = [
         section: 'Quick Actions',
         keywords: 'voyage entry record fix waypoint log book',
     },
-    { label: 'Route Planner', page: 'route', section: 'Quick Actions', keywords: 'plan passage navigation waypoints' },
     {
         label: 'Anchor Watch',
         page: 'compass',
@@ -90,12 +89,19 @@ const DESTINATIONS: Destination[] = [
     },
     { label: 'MOB', page: 'mob', section: 'Quick Actions', keywords: 'mob person overboard emergency rescue' },
     { label: 'Radio Report', page: 'radio', section: 'Quick Actions', keywords: 'dsc vhf radio position broadcast' },
-    // Passage Planning
+    // Diary lives alongside the other quick actions so we don't draw a
+    // section header for a single item. The log book is for navigation
+    // events; the diary is the skipper's personal journal.
+    { label: 'Diary', page: 'diary', section: 'Quick Actions', keywords: 'diary daily notes journal log' },
+    // Passage Planning — the route planner now lives at the TOP of the
+    // Passage Planning page itself, so we drop the "Route Planner" tile
+    // from Quick Actions. Tapping Passage Planning takes the skipper to
+    // the route planner + readiness cards in a single funnel.
     {
         label: 'Passage Planning',
         page: 'crew',
         section: 'Passage Planning',
-        keywords: 'passage crew voyage briefing readiness customs',
+        keywords: 'passage crew voyage briefing readiness customs route planner waypoints',
     },
     {
         label: 'Import GPX',
@@ -109,8 +115,6 @@ const DESTINATIONS: Destination[] = [
         section: 'Passage Planning',
         keywords: 'notices navarea hydro warnings urgmar',
     },
-    // Diary (the log book lives in Quick Actions; this is the personal journal)
-    { label: 'Diary', page: 'diary', section: 'Diary', keywords: 'diary daily notes journal log' },
     // Inventory & Maintenance
     {
         label: "Ship's Stores",
@@ -911,39 +915,35 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         </div>
                                     </button>
 
+                                    {/* Route Planner moved into the Passage Planning
+                                        page (top of the readiness panel) so the
+                                        skipper plans a route + crew + provisioning in
+                                        one funnel. The slot here is now Diary —
+                                        promoted out of its own single-item section
+                                        into Quick Actions where it sits alongside
+                                        the Log Book as the "open it daily" pair. */}
                                     <button
-                                        aria-label="Route Planner"
+                                        aria-label="Diary"
                                         onClick={() => {
-                                            if (isObserver) return;
                                             triggerHaptic('light');
-                                            onNavigate('route');
+                                            onNavigate('diary');
                                         }}
                                         style={GLASS.card}
-                                        className={`p-4 text-left transition-all active:scale-[0.98] card-lift ${
-                                            isObserver ? 'opacity-40 cursor-not-allowed' : 'hover:bg-white/[0.03]'
-                                        }`}
+                                        className="p-4 text-left transition-all active:scale-[0.98] card-lift hover:bg-white/[0.03]"
                                     >
                                         <div className="flex items-center gap-3">
                                             <div
                                                 className="p-2.5 rounded-lg"
-                                                style={{ background: 'rgba(34, 211, 238, 0.12)' }}
+                                                style={{ background: 'rgba(14, 165, 233, 0.12)' }}
                                             >
-                                                <CompassIcon />
+                                                <PenIcon color="#0ea5e9" />
                                             </div>
-                                            {/* Route Planner is a CTA, not a status surface.
-                                                Draft count moved to Log Book (where
-                                                "suggested tracks" belongs alongside actual
-                                                ones). This tile just invites the action. */}
                                             <div className="min-w-0 flex-1">
                                                 <h4 className="text-[13px] font-black text-white tracking-wide truncate">
-                                                    Route Planner
+                                                    Diary
                                                 </h4>
-                                                <p
-                                                    className={`text-[11px] font-bold uppercase tracking-widest mt-0.5 ${
-                                                        isObserver ? 'text-gray-500' : 'text-cyan-400'
-                                                    }`}
-                                                >
-                                                    {isObserver ? 'Vessel Required' : 'Plan Passage'}
+                                                <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-sky-400">
+                                                    Daily Notes
                                                 </p>
                                             </div>
                                         </div>
@@ -1148,30 +1148,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                         {/* ═══════════════════════════════════════════ */}
                         {/* DIARY — personal journal                    */}
                         {/* (voyage log entries live in Quick Actions)  */}
-                        {/* ═══════════════════════════════════════════ */}
-                        <div className="mb-4">
-                            <SectionHeader
-                                color="#0ea5e9"
-                                label="Diary"
-                                id="diary"
-                                expanded={expanded.has('diary')}
-                                onToggle={toggleSection}
-                            />
-                            <CollapsibleContent open={expanded.has('diary')}>
-                                <div style={GLASS.listContainer}>
-                                    <OfficeRow
-                                        icon={<PenIcon color="#0ea5e9" />}
-                                        label="Diary"
-                                        status="Daily Notes"
-                                        statusColor="#0ea5e9"
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            onNavigate('diary');
-                                        }}
-                                    />
-                                </div>
-                            </CollapsibleContent>
-                        </div>
+                        {/* Diary section removed — Diary moved into the Quick
+                            Actions grid alongside the Log Book. Single-row
+                            sections were costing a section header for very
+                            little, and Diary's natural pair is the Log Book
+                            (one is for navigation, one is for journal — both
+                            "open daily"). */}
 
                         {/* ═══════════════════════════════════════════ */}
                         {/* INVENTORY & MAINTENANCE                     */}

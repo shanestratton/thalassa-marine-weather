@@ -44,6 +44,7 @@ import { lazyRetry } from '../utils/lazyRetry';
 import { InviteCrewModal } from './crew/InviteCrewModal';
 import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
+import { RoutePlanner } from './RoutePlanner';
 import { PageHeader } from './ui/PageHeader';
 
 const CastOffPanel = lazyRetry(
@@ -67,9 +68,13 @@ export type VoyageRow = Voyage & {
 
 interface CrewManagementProps {
     onBack: () => void;
+    /** Routed in from app-level when the upgrade modal needs to open
+     *  (e.g. paywall hit while saving a planned route). Pass-through
+     *  to the embedded RoutePlanner. */
+    onTriggerUpgrade?: () => void;
 }
 
-export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
+export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack, onTriggerUpgrade }) => {
     const [isAuthed, setIsAuthed] = useState(false);
 
     // Captain state
@@ -84,6 +89,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Crew state
     const [pendingInvites, setPendingInvites] = useState<CrewMember[]>([]);
     const [memberships, setMemberships] = useState<CrewMember[]>([]);
+
+    // Route planner accordion. Default-expanded when no passage is
+    // selected yet (the user came here to plan); collapsed when one
+    // is already chosen so the existing readiness cards take focus.
+    // The user can always toggle it back open to edit / re-plan /
+    // add a new leg.
+    const [routePlannerOpen, setRoutePlannerOpen] = useState<boolean>(() => !getActivePassageId());
 
     // Edit permissions modal
     const [editTarget, setEditTarget] = useState<CrewMember | null>(null);
@@ -600,6 +612,51 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {/* ── ROUTE PLANNER (embedded) ──
+                    The full passage-planning funnel starts here:
+                    plan a route, then scroll down to the readiness
+                    cards for that voyage. Collapsed by default when
+                    a passage is already selected so the existing
+                    flow doesn't get visually overwhelmed; expanded
+                    by default when there's nothing chosen yet so
+                    the user lands ready to plan. */}
+                <div className="mb-4">
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setRoutePlannerOpen((v) => !v);
+                            triggerHaptic('light');
+                        }}
+                        className="w-full flex items-center justify-between gap-2 px-3 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.05] transition-colors"
+                        aria-expanded={routePlannerOpen}
+                    >
+                        <span className="flex items-center gap-2 min-w-0">
+                            <span className="text-base">🧭</span>
+                            <span className="text-[13px] font-bold text-white tracking-wide">Plan a route</span>
+                            <span className="text-[11px] text-gray-500">— origin, destination, departure</span>
+                        </span>
+                        <svg
+                            className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${
+                                routePlannerOpen ? 'rotate-180' : ''
+                            }`}
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                        >
+                            <path d="M6 9l6 6 6-6" />
+                        </svg>
+                    </button>
+                    {routePlannerOpen && (
+                        <div className="mt-3 -mx-1">
+                            <RoutePlanner embedded onTriggerUpgrade={onTriggerUpgrade ?? (() => {})} />
+                        </div>
+                    )}
+                </div>
+
                 {/* ── ACTIVE PASSAGE SELECTOR ── */}
                 <div className="mb-4">
                     <label className="text-[11px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">

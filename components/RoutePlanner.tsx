@@ -25,10 +25,17 @@ import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
 
-export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () => void }> = ({
-    onTriggerUpgrade,
-    onBack,
-}) => {
+export const RoutePlanner: React.FC<{
+    onTriggerUpgrade: () => void;
+    onBack?: () => void;
+    /** When true, render the planner as an embedded section inside
+     *  another page (e.g. Passage Planning). Drops the PageHeader
+     *  + the page-level flex layout so the form fits cleanly inside
+     *  a parent's content stream. The full-screen map modal still
+     *  works (it's portaled to body) — the only thing that changes
+     *  is the chrome around the form. */
+    embedded?: boolean;
+}> = ({ onTriggerUpgrade, onBack, embedded = false }) => {
     const {
         origin,
         setOrigin,
@@ -143,8 +150,12 @@ export const RoutePlanner: React.FC<{ onTriggerUpgrade: () => void; onBack?: () 
         prevVoyagePlanRef.current = voyagePlan;
     }, [voyagePlan, origin, destination, setPage]);
     return (
-        <div className="relative flex-1 bg-slate-950 overflow-hidden flex flex-col">
-            <PageHeader title="Route Planner" onBack={onBack} />
+        <div
+            className={
+                embedded ? 'relative flex flex-col' : 'relative flex-1 bg-slate-950 overflow-hidden flex flex-col'
+            }
+        >
+            {!embedded && <PageHeader title="Route Planner" onBack={onBack} />}
             {/* Stays visible across the auto-nav from RoutePlanner → MapHub */}
             {/* because the chip listens to window events (no React tree dep). */}
             <RouteEnhancementChip />

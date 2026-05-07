@@ -322,7 +322,13 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         component: CrewPage,
         boundaryName: 'Crew',
         group: 'vessel',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+        getProps: (ctx) => ({
+            onBack: () => ctx.setPage('vessel'),
+            // The route planner is embedded at the top of this page
+            // now; share the same upgrade-modal trigger so a paywall
+            // hit while saving a route opens the standard upsell.
+            onTriggerUpgrade: () => ctx.setIsUpgradeOpen(true),
+        }),
     },
     checklists: {
         component: ChecklistsPage,
