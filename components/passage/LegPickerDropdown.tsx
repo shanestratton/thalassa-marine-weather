@@ -626,32 +626,34 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
                 )}
             </div>
 
-            {/* Footer links — Trip overview (left, primary) + Manage
-                (right, secondary). Trip overview only shows when the
-                selected trip has any legs to view (i.e. not "New
-                trip"); Manage stays visible always. */}
-            <div className="-mt-1 flex items-center justify-between">
-                {tripId !== NEW_TRIP_ID && (chainsByTripId.get(tripId)?.length ?? 0) > 0 ? (
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setOverviewOpen(true);
-                            triggerHaptic('light');
-                        }}
-                        className="text-[11px] font-bold text-sky-300 hover:text-sky-200 transition-colors px-1 py-1"
-                    >
-                        📋 View whole trip + export PDF
-                    </button>
-                ) : (
-                    <span />
-                )}
+            {/* Footer — Trip overview is the primary user-facing
+                action when a real trip is picked (full-width sky CTA
+                with proper hit area). Manage saved trips stays as a
+                small admin-style text link below — same data surface
+                the user reaches when something's gone wrong, doesn't
+                need the same visual weight. */}
+            {tripId !== NEW_TRIP_ID && (chainsByTripId.get(tripId)?.length ?? 0) > 0 && (
+                <button
+                    type="button"
+                    onClick={() => {
+                        setOverviewOpen(true);
+                        triggerHaptic('light');
+                    }}
+                    className="w-full py-3 rounded-xl bg-sky-500/15 border border-sky-500/30 hover:bg-sky-500/25 active:scale-[0.98] transition-all text-sky-200 text-sm font-bold tracking-wide flex items-center justify-center gap-2"
+                >
+                    <span className="text-base">📋</span>
+                    <span>View whole trip + export PDF</span>
+                </button>
+            )}
+
+            <div className="text-center">
                 <button
                     type="button"
                     onClick={() => {
                         setCleanupOpen(true);
                         triggerHaptic('light');
                     }}
-                    className="text-[11px] text-gray-500 hover:text-amber-300 transition-colors px-1 py-1"
+                    className="text-[11px] text-gray-500 hover:text-amber-300 transition-colors px-2 py-1"
                 >
                     ⚙ Manage saved trips
                 </button>
