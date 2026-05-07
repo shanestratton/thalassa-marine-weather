@@ -39,6 +39,7 @@ import { getCachedActiveVoyage, getDraftVoyages, type Voyage } from '../../servi
 import { getLegsForVoyage } from '../../services/VoyageLegService';
 import type { PassageLeg } from '../../types/navigation';
 import { VoyageCleanupSheet } from './VoyageCleanupSheet';
+import { TripOverviewSheet } from './TripOverviewSheet';
 
 interface LegPickerDropdownProps {
     /** Setter for the Departure ("From") input — wired into useVoyageForm.setOrigin */
@@ -271,6 +272,14 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
      *  status='planning' so a test/orphan trip in another status
      *  becomes invisible without this surface. */
     const [cleanupOpen, setCleanupOpen] = useState(false);
+    /** "Trip overview" sheet — whole-trip view + PDF export. */
+    const [overviewOpen, setOverviewOpen] = useState(false);
+    /** Chains keyed by their UiTrip id (= first draft's UUID, OR
+     *  the active voyage's id) so the overview sheet can pull the
+     *  ORDERED Voyage[] back out when the user opens it. The picker's
+     *  UiTrip model holds the display shape; the cached chains hold
+     *  the underlying voyage rows. Refreshed on every refresh(). */
+    const [chainsByTripId, setChainsByTripId] = useState<Map<string, Voyage[]>>(new Map());
 
     /** Load trips: active voyage + drafts (chained) + always-present "New trip".
      *
@@ -285,10 +294,16 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
         const built: UiTrip[] = [NEW_TRIP];
         const active = getCachedActiveVoyage();
         const seenIds = new Set<string>();
+        const chainMap = new Map<string, Voyage[]>();
 
         if (active) {
             const legs = getLegsForVoyage(active.id);
             built.push(buildTripFromActiveVoyage(active, legs));
+            // Active voyage is its own chain — single voyage entry.
+            // The trip overview will resolve legs from VoyageLegService
+            // separately when the active trip is selected; for now
+            // record the voyage row so the overview has something.
+            chainMap.set(active.id, [active]);
             seenIds.add(active.id);
         }
 
@@ -298,6 +313,9 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
             const chains = chainDrafts(remainingDrafts);
             for (const chain of chains) {
                 built.push(buildTripFromDraftChain(chain));
+                // The chain's id (per buildTripFromDraftChain) is the
+                // first draft's UUID — same key the trip dropdown uses.
+                chainMap.set(chain[0].id, chain);
                 for (const v of chain) seenIds.add(v.id);
             }
         } catch {
@@ -305,6 +323,7 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
         }
 
         setTrips(built);
+        setChainsByTripId(chainMap);
     }, []);
 
     useEffect(() => {
@@ -607,13 +626,25 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
                 )}
             </div>
 
-            {/* "Manage saved trips" entry point — small enough to stay
-                out of the way during normal planning, but
-                discoverable for users hunting orphan/test passages
-                that don't show up in the trip dropdown above (rows
-                with status=completed/aborted, or planned routes
-                without a matching voyage row, etc.). */}
-            <div className="-mt-1">
+            {/* Footer links — Trip overview (left, primary) + Manage
+                (right, secondary). Trip overview only shows when the
+                selected trip has any legs to view (i.e. not "New
+                trip"); Manage stays visible always. */}
+            <div className="-mt-1 flex items-center justify-between">
+                {tripId !== NEW_TRIP_ID && (chainsByTripId.get(tripId)?.length ?? 0) > 0 ? (
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOverviewOpen(true);
+                            triggerHaptic('light');
+                        }}
+                        className="text-[11px] font-bold text-sky-300 hover:text-sky-200 transition-colors px-1 py-1"
+                    >
+                        📋 View whole trip + export PDF
+                    </button>
+                ) : (
+                    <span />
+                )}
                 <button
                     type="button"
                     onClick={() => {
@@ -627,6 +658,13 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
             </div>
 
             <VoyageCleanupSheet isOpen={cleanupOpen} onClose={() => setCleanupOpen(false)} onChanged={refresh} />
+
+            <TripOverviewSheet
+                isOpen={overviewOpen}
+                onClose={() => setOverviewOpen(false)}
+                legs={chainsByTripId.get(tripId) ?? []}
+                tripName={selectedTrip.name}
+            />
         </div>
     );
 };
