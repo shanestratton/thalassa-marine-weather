@@ -637,12 +637,18 @@ export const ChatPage: React.FC = React.memo(() => {
                 onChange={handleFileSelect}
             />
 
-            {/* ═══════════ STATUS BANNERS ═══════════ */}
-            {!navigator.onLine && (
-                <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/10 text-amber-400/80 text-[11px] text-center fade-slide-down">
-                    📡 Offline — messages will be sent when you reconnect
-                </div>
-            )}
+            {/* ═══════════ STATUS BANNERS ═══════════
+                Offline banner removed 2026-04-28 (consistent with the
+                Glass page change on the same day). The banner pushed
+                the chat content down when offline and disappeared when
+                back online, creating a visible layout jump on a phone
+                that was constantly bouncing between cellular dead-spots
+                at sea. Messages are queued by the chat service either
+                way — the banner was advisory, not functional. Connection
+                diagnostics live in the System Status modal.
+                The "muted" banner stays — it's user-initiated state, not
+                connection state, and shows for fixed durations the user
+                set. */}
             {isMuted && mutedUntil && (
                 <div className="mx-4 mt-2 px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/10 text-red-400/80 text-[11px] text-center fade-slide-down">
                     🔇 Muted until {mutedUntil.toLocaleTimeString()} — you can still read messages
