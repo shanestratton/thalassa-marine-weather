@@ -1569,14 +1569,24 @@ public class AppleMusicPlugin: CAPPlugin {
             @unknown default:   stateString = "unknown"
             }
 
+            // Snapshot the mutable vars into immutable lets before
+            // hopping to MainActor. Swift 6 strict concurrency forbids
+            // capturing `var` across an actor boundary because the
+            // closure could observe a stale or partially-mutated value
+            // — String is Sendable, so a let copy crosses safely.
+            let finalTitle = title
+            let finalArtist = artist
+            let finalAlbum = album
+            let finalArtworkUrl = artworkUrl
+
             await MainActor.run {
                 call.resolve([
                     "is_playing": isPlaying,
                     "state": stateString,
-                    "title": title,
-                    "artist": artist,
-                    "album": album,
-                    "artwork_url": artworkUrl,
+                    "title": finalTitle,
+                    "artist": finalArtist,
+                    "album": finalAlbum,
+                    "artwork_url": finalArtworkUrl,
                 ])
             }
         }
