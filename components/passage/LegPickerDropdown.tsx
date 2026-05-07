@@ -139,6 +139,99 @@ function buildTripFromDraftVoyage(voyage: Voyage): UiTrip {
     };
 }
 
+/** Lower-case + trim a port name for chain matching. */
+function normPort(s: string | null | undefined): string {
+    return (s ?? '').trim().toLowerCase();
+}
+
+/**
+ * Group draft voyages into chains where each voyage's destination
+ * matches the next voyage's departure (case-insensitive trim).
+ *
+ * For Brisbane → Nouméa → Vanuatu → Fiji saved as 3 drafts:
+ *   - Brisbane → Nouméa
+ *   - Nouméa → Vanuatu
+ *   - Vanuatu → Fiji
+ *
+ * Returns a single chain `[draft1, draft2, draft3]` instead of three
+ * standalone trips. Each chain renders as one multi-leg trip in the
+ * picker so the user sees "Brisbane → Fiji (3 legs)" rather than
+ * three disconnected drafts.
+ *
+ * Greedy linkage by name only — doesn't try to be smart about
+ * timestamps or coordinates. If a draft's destination ambiguously
+ * matches two later drafts' departures, the first match wins.
+ */
+function chainDrafts(drafts: Voyage[]): Voyage[][] {
+    if (drafts.length === 0) return [];
+
+    // Sort by created_at so chain endpoints are stable across loads.
+    const remaining = [...drafts].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    const chains: Voyage[][] = [];
+    while (remaining.length > 0) {
+        const head = remaining.shift()!;
+        const chain: Voyage[] = [head];
+
+        // Walk forward: keep finding the draft whose departure_port
+        // matches the previous draft's destination_port.
+        let extended = true;
+        while (extended) {
+            extended = false;
+            const last = chain[chain.length - 1];
+            const lastDest = normPort(last.destination_port);
+            if (!lastDest) break;
+            const idx = remaining.findIndex((d) => normPort(d.departure_port) === lastDest);
+            if (idx >= 0) {
+                chain.push(remaining.splice(idx, 1)[0]);
+                extended = true;
+            }
+        }
+
+        chains.push(chain);
+    }
+    return chains;
+}
+
+/**
+ * Build a multi-leg UiTrip from a chain of draft voyages.
+ * Single-draft chains fall through to the existing single-leg shape.
+ */
+function buildTripFromDraftChain(chain: Voyage[]): UiTrip {
+    if (chain.length === 1) return buildTripFromDraftVoyage(chain[0]);
+
+    const first = chain[0];
+    const last = chain[chain.length - 1];
+    const tripName = `${first.departure_port ?? '?'} → ${last.destination_port ?? '?'}`;
+
+    const legs: UiLeg[] = chain.map((v, i) => ({
+        legNumber: i + 1,
+        departurePort: v.departure_port ?? '',
+        arrivalPort: v.destination_port,
+        status: 'draft' as const,
+    }));
+
+    // Offer the next leg in the chain ("Plan Leg N+1 from <last
+    // arrival>") only when the chain's tail has a known destination.
+    if (last.destination_port) {
+        legs.push({
+            legNumber: chain.length + 1,
+            departurePort: last.destination_port,
+            arrivalPort: null,
+            status: 'future',
+        });
+    }
+
+    return {
+        // Use the first draft's id as the trip id — stable across
+        // reloads, the persisted selection survives chain growth.
+        id: first.id,
+        name: tripName,
+        badge: 'draft',
+        legs,
+    };
+}
+
 const BADGE_STYLE: Record<UiTrip['badge'], string> = {
     active: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/25',
     draft: 'bg-sky-500/10 text-sky-300 border-sky-500/20',
@@ -172,7 +265,15 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
     const [tripOpen, setTripOpen] = useState(false);
     const [legOpen, setLegOpen] = useState(false);
 
-    /** Load trips: active voyage + drafts + the always-present "New trip". */
+    /** Load trips: active voyage + drafts (chained) + always-present "New trip".
+     *
+     *  Drafts are chained: Brisbane → Nouméa, Nouméa → Vanuatu, Vanuatu →
+     *  Fiji collapses into ONE multi-leg trip "Brisbane → Fiji" with three
+     *  legs, instead of three disconnected drafts. The user just plans
+     *  legs sequentially — the picker discovers the trip structure on
+     *  next load by matching destinations to next-leg departures. No
+     *  schema migration required.
+     */
     const refresh = useCallback(async () => {
         const built: UiTrip[] = [NEW_TRIP];
         const active = getCachedActiveVoyage();
@@ -186,10 +287,11 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
 
         try {
             const drafts = await getDraftVoyages();
-            for (const d of drafts) {
-                if (seenIds.has(d.id)) continue;
-                built.push(buildTripFromDraftVoyage(d));
-                seenIds.add(d.id);
+            const remainingDrafts = drafts.filter((d) => !seenIds.has(d.id));
+            const chains = chainDrafts(remainingDrafts);
+            for (const chain of chains) {
+                built.push(buildTripFromDraftChain(chain));
+                for (const v of chain) seenIds.add(v.id);
             }
         } catch {
             /* offline — show what we have */
@@ -267,22 +369,48 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
         [onSelectDeparture, onSelectDestination],
     );
 
+    /**
+     *  Pick the "default leg" to surface when a trip is selected.
+     *
+     *  Mental model: the user picks a trip because they want to plan
+     *  *something* on it. The most useful default is the leg they
+     *  haven't planned yet (the "future" leg) — that way the form is
+     *  pre-filled with the correct From port and they can immediately
+     *  type the next destination. Falls back through:
+     *
+     *    1. New Trip → Leg 1 (always)
+     *    2. Active voyage → the leg currently underway, OR the next
+     *       future leg if all existing legs are completed
+     *    3. Draft chain → the future leg "+ Plan Leg N+1 from <last
+     *       arrival>" — what the user came here to plan
+     *    4. No future leg available → Leg 1 (re-plan from scratch)
+     */
+    const defaultLegFor = (trip: UiTrip): UiLeg => {
+        if (trip.id === NEW_TRIP_ID) return trip.legs[0];
+
+        // Prefer an active leg (in-progress sail) over a future stub.
+        const activeLeg = trip.legs.find((l) => l.status === 'active');
+        if (activeLeg) return activeLeg;
+
+        // Then prefer the future leg (next to plan).
+        const futureLeg = trip.legs.find((l) => l.status === 'future');
+        if (futureLeg) return futureLeg;
+
+        // Otherwise the last existing leg (re-plan).
+        return trip.legs[trip.legs.length - 1] ?? trip.legs[0];
+    };
+
     const pickTrip = useCallback(
         (trip: UiTrip) => {
+            const defaultLeg = defaultLegFor(trip);
             setTripId(trip.id);
-            // Reset leg number to 1 (the always-present first leg of any trip).
-            setLegNumber(1);
+            setLegNumber(defaultLeg.legNumber);
             setTripOpen(false);
-            // Make sure the leg dropdown is CLOSED after a trip pick.
-            // The leg label below ("Leg 1 — Brisbane → Nouméa") shows
-            // the current selection clearly; the user can drop it
-            // down themselves to switch to Leg 2/3/+. An earlier
-            // version auto-opened the leg dropdown to "save a tap"
-            // but it cluttered the page during planning and the
-            // user explicitly asked for it to close.
+            // Leg dropdown stays closed — the leg label shows the
+            // current selection. User opens it themselves only to
+            // switch to a different leg.
             setLegOpen(false);
-            const firstLeg = trip.legs[0];
-            if (firstLeg) apply(trip, firstLeg);
+            apply(trip, defaultLeg);
         },
         [apply],
     );
