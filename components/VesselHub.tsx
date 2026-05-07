@@ -757,7 +757,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     visibility={visibility}
                     pressureTrend={pressureTrend}
                     tideTrend={tideTrend}
-                    isOnline={isOnline}
                     destCoords={destCoords}
                     routeNm={routeNm}
                     onNavigate={onNavigate}
@@ -1679,7 +1678,10 @@ const NavStationHero: React.FC<{
     visibility: number | null;
     pressureTrend: 'rising' | 'falling' | 'steady' | null;
     tideTrend: 'rising' | 'falling' | 'steady' | null;
-    isOnline: boolean;
+    // isOnline removed 2026-04-28 — used to flip the GPS pill colour and
+    // label, which conflated network state with GPS-fix state and made
+    // the Nav Station look different online vs offline. The pill now
+    // reflects GPS fix only.
     destCoords: { lat: number; lon: number } | null;
     routeNm: number | null;
     onNavigate: (page: string) => void;
@@ -1702,7 +1704,6 @@ const NavStationHero: React.FC<{
     visibility,
     pressureTrend,
     tideTrend,
-    isOnline,
     destCoords,
     routeNm,
     onNavigate,
@@ -1902,21 +1903,35 @@ const NavStationHero: React.FC<{
                 aria-label="Open chart at current position"
                 className="w-full flex items-center gap-2 px-4 pt-1.5 pb-2 active:opacity-70 transition-opacity text-left"
             >
+                {/* GPS pill — dot + lat/lon + time-since-fix.
+                    2026-04-28: decoupled from network online/offline state.
+                    Was previously flipping the dot from cyan to amber and
+                    replacing the time-since-fix label with "OFFLINE" when
+                    `navigator.onLine === false`. That conflated TWO
+                    independent things: the GPS receiver (works fine without
+                    network — it's just listening to satellites) and the
+                    internet connection (irrelevant to whether you have a
+                    position fix on this boat right now). It also made the
+                    Nav Station look different between online/offline states,
+                    which user feedback identified as visually disruptive on
+                    boats bouncing between cellular dead-spots.
+                    Dot now: gray = no fix, cyan = fix, regardless of network.
+                    Right-side label: always time-since-fix, regardless of
+                    network. Connection diagnostics live in the System Status
+                    modal where they belong. */}
                 <span
                     className="w-1.5 h-1.5 rounded-full shrink-0"
                     style={{
-                        backgroundColor: !position ? '#6b7280' : isOnline ? '#22d3ee' : '#f59e0b',
-                        boxShadow: position
-                            ? `0 0 6px ${isOnline ? 'rgba(34,211,238,0.6)' : 'rgba(245,158,11,0.6)'}`
-                            : 'none',
+                        backgroundColor: position ? '#22d3ee' : '#6b7280',
+                        boxShadow: position ? '0 0 6px rgba(34,211,238,0.6)' : 'none',
                     }}
-                    aria-label={!position ? 'No GPS fix' : isOnline ? 'GPS fix, online' : 'GPS fix, offline'}
+                    aria-label={position ? 'GPS fix' : 'No GPS fix'}
                 />
                 <span className="font-mono text-white/85 tabular-nums truncate flex-1 text-[13px] font-semibold">
                     {position ? formatCoord(position.latitude, position.longitude) : 'Awaiting GPS fix…'}
                 </span>
                 <span className="text-white/40 text-[10px] uppercase tracking-wider shrink-0">
-                    {!isOnline ? 'OFFLINE' : formatTimeSince(position?.timestamp ?? null)}
+                    {formatTimeSince(position?.timestamp ?? null)}
                 </span>
             </button>
 
