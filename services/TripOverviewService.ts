@@ -316,3 +316,161 @@ const COUNTRY_SNIPPETS: Record<string, CountrySnippet> = {
 export function getCountrySnippets(countries: string[]): CountrySnippet[] {
     return countries.map((c) => COUNTRY_SNIPPETS[c]).filter((s): s is CountrySnippet => Boolean(s));
 }
+
+// ── Live-data enrichment ─────────────────────────────────────────────
+//
+// Pulls the actual forecast for each leg's departure point on its
+// planned date, plus a trip-level "best departure window" analysis.
+// Results stitch onto the TripOverview as optional fields so the
+// on-screen sheet AND the PDF render dynamic content when available,
+// falling back to template-static content when network/data isn't.
+
+export interface LegForecast {
+    windSpeedKt: number;
+    windGustKt?: number | null;
+    windDirection: string;
+    waveHeightM: number | null;
+    condition: string;
+    isoDate: string;
+}
+
+export interface TripDepartureWindow {
+    iso: string;
+    label: string;
+    rating: 'go' | 'marginal' | 'wait';
+    score: number;
+    /** Mirrors WeatherWindowService.DepartureWindow.summary verbatim
+     *  so callers can pass it straight through. */
+    summary: {
+        avgWindKts: number;
+        maxWindKts: number;
+        avgWaveM: number;
+        maxWaveM: number;
+        dominantWindDir: string;
+        rainProbability: number;
+    };
+    description: string;
+}
+
+export interface EnrichedTripOverview extends TripOverview {
+    /** ISO timestamp of the live-data fetch; PDF renders it so the
+     *  reader knows how stale the data is. */
+    enrichedAt?: string;
+    legsWithForecast?: (TripOverviewLeg & { forecast?: LegForecast; realDistanceNm?: number })[];
+    bestDepartureWindow?: TripDepartureWindow;
+}
+
+function normLabel(s: string): string {
+    return (s ?? '').trim().toLowerCase();
+}
+
+/**
+ * Enrich a TripOverview with live weather data. Returns a new object —
+ * never mutates the input. All network failures caught silently;
+ * corresponding fields stay absent and renderers fall back to template
+ * content.
+ *
+ * Cost: 1 WeatherWindow call (16-day forecast for the first leg) +
+ * 1 fetchFastWeather per leg. ~4-6s for a typical 3-leg trip.
+ */
+export async function enrichTripWithLiveData(trip: TripOverview): Promise<EnrichedTripOverview> {
+    try {
+        const [{ fetchRoutesAndTracks }, { fetchFastWeather }, { WeatherWindowService }] = await Promise.all([
+            import('./shiplog/RoutesAndTracks'),
+            import('./weather'),
+            import('./WeatherWindowService'),
+        ]);
+
+        const ra = await fetchRoutesAndTracks();
+
+        const legsWithForecast = await Promise.all(
+            trip.legs.map(async (leg) => {
+                const wantLabel = normLabel(`${leg.departurePort} → ${leg.arrivalPort}`);
+                const matchedRoute = ra.routes.find((r) => normLabel(r.label) === wantLabel);
+                const depPoint = matchedRoute?.points?.[0];
+                const realDistanceNm = matchedRoute?.distanceNm;
+
+                if (!depPoint) {
+                    return { ...leg, realDistanceNm };
+                }
+
+                try {
+                    const report = await fetchFastWeather(leg.departurePort, {
+                        lat: depPoint.lat,
+                        lon: depPoint.lon,
+                    });
+                    const planIso = leg.departureDateIso
+                        ? new Date(leg.departureDateIso).toISOString().slice(0, 10)
+                        : null;
+                    const forecastDay =
+                        (planIso ? report.forecast?.find((d) => d.isoDate === planIso) : null) || report.forecast?.[0];
+                    if (!forecastDay) return { ...leg, realDistanceNm };
+
+                    // ForecastDay's TS interface doesn't declare
+                    // windDirection (cardinal string), but every
+                    // upstream transformer sets it — see
+                    // openmeteo.ts daily mapping. Read via index
+                    // access to avoid pulling the type into noise.
+                    const dayAny = forecastDay as unknown as Record<string, unknown>;
+                    const windDir =
+                        typeof dayAny.windDirection === 'string' && dayAny.windDirection ? dayAny.windDirection : '—';
+                    const forecast: LegForecast = {
+                        windSpeedKt: Math.round(forecastDay.windSpeed),
+                        windGustKt: forecastDay.windGust ? Math.round(forecastDay.windGust) : null,
+                        windDirection: windDir,
+                        waveHeightM:
+                            forecastDay.waveHeight !== null && forecastDay.waveHeight !== undefined
+                                ? // ForecastDay.waveHeight is FEET (every
+                                  // openmeteo transformer normalises to feet
+                                  // at fetch time); convert to metres here
+                                  // at the consumer edge so the PDF can
+                                  // render real metres.
+                                  Math.round((forecastDay.waveHeight / 3.28084) * 10) / 10
+                                : null,
+                        condition: forecastDay.condition || '—',
+                        isoDate: forecastDay.isoDate || planIso || new Date().toISOString().slice(0, 10),
+                    };
+                    return { ...leg, forecast, realDistanceNm };
+                } catch {
+                    return { ...leg, realDistanceNm };
+                }
+            }),
+        );
+
+        let bestDepartureWindow: TripDepartureWindow | undefined;
+        const firstLeg = trip.legs[0];
+        if (firstLeg) {
+            const firstRoute = ra.routes.find(
+                (r) => normLabel(r.label) === normLabel(`${firstLeg.departurePort} → ${firstLeg.arrivalPort}`),
+            );
+            const firstDepPoint = firstRoute?.points?.[0];
+            if (firstDepPoint) {
+                try {
+                    const result = await WeatherWindowService.analyse(firstDepPoint.lat, firstDepPoint.lon);
+                    if (result?.bestWindowIndex >= 0 && result.windows[result.bestWindowIndex]) {
+                        const w = result.windows[result.bestWindowIndex];
+                        bestDepartureWindow = {
+                            iso: w.time,
+                            label: w.label,
+                            rating: w.rating,
+                            score: w.score,
+                            summary: w.summary,
+                            description: w.description,
+                        };
+                    }
+                } catch {
+                    /* fall through */
+                }
+            }
+        }
+
+        return {
+            ...trip,
+            enrichedAt: new Date().toISOString(),
+            legsWithForecast,
+            bestDepartureWindow,
+        };
+    } catch {
+        return trip;
+    }
+}
