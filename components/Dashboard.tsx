@@ -10,7 +10,9 @@ import { triggerHaptic } from '../utils/system';
 import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
-import { StalenessBanner } from './dashboard/StalenessBanner';
+// StalenessBanner removed from Glass page 2026-04-28 — see render-site
+// comment for rationale. File retained for potential reuse in System
+// Status modal.
 import { GlassTutorial } from './dashboard/GlassTutorial';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
@@ -24,7 +26,8 @@ import { RainForecastCard } from './dashboard/RainForecastCard';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 
 import { useSettings } from '../context/SettingsContext';
-import { useWeather } from '../context/WeatherContext';
+// useWeather removed with the StalenessBanner — re-add if a new Glass-page
+// element needs error / loading / refreshData hooks.
 import { useLiveLocationName } from '../hooks/useLiveLocationName';
 
 import { DashboardWidgetContext, DashboardWidgetContextType } from './WidgetRenderer';
@@ -32,7 +35,9 @@ import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
 import { useSettingsStore } from '../stores/settingsStore';
-import { useUIStore } from '../stores/uiStore';
+// uiStore.isOffline reader removed with StalenessBanner — no other Dashboard
+// surface needs the offline flag. Re-add the import if a new offline-aware
+// element is introduced.
 import {
     DndContext,
     PointerSensor,
@@ -118,8 +123,9 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // Settings
     const { settings: userSettings, updateSettings } = useSettings();
 
-    // Freshness signals for the StalenessBanner
-    const { error: weatherError, backgroundUpdating, loading: weatherLoading, refreshData } = useWeather();
+    // Freshness/error signals previously fed the StalenessBanner — removed
+    // along with the banner. The data is still in WeatherContext if any
+    // future inline indicator (eg. tinting the model badge) needs it.
 
     // Live reverse-geocode of the user's GPS — polls every 10s, only
     // calls the geocoder if the punter has actually moved > 50m since
@@ -127,11 +133,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // pinned-map or searched locations aren't overwritten.
     const liveLocationName = useLiveLocationName();
 
-    // Device-level offline signal (navigator.onLine). Flows into the
-    // StalenessBanner so the user sees a subtle "No connection" strip
-    // even when the cached data is still fresh — previously the banner
-    // only surfaced after a fetch attempt actually failed.
-    const isOffline = useUIStore((s) => s.isOffline);
+    // (Previously: const isOffline = useUIStore(...). Removed with the
+    // StalenessBanner — Glass page now renders identically online/offline.)
     const isInland = data?.locationType === 'inland' || isLandlocked;
     const offshore = useOffshoreStatus(data?.locationType);
     const isOffshore = offshore.isOffshore;
@@ -984,34 +987,22 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     </div>
                                 )}
 
-                                {/* STALENESS BANNER — sits below the location pill,
-                                just above the CompactHeaderRow (warnings / sun).
-                                Position history:
-                                  +108 → overlapped warnings row (too low)
-                                  +68  → too high (dead gap under pill)
-                                  +76  → user asked for a bit more breathing
-                                         room under the pill
-                                  +79  → +3px nudge per user fine-tune
-                                  +80  → +1px per user
-                                  +81  → current — another +1px per user
-                                z-[130] keeps it above the black blocker /
-                                CompactHeaderRow at z-[120] so it's always
-                                readable. */}
-                                <div
-                                    className="fixed left-0 right-0 z-[130] px-4"
-                                    style={{ top: 'calc(max(8px, env(safe-area-inset-top)) + 81px)' }}
-                                >
-                                    <StalenessBanner
-                                        generatedAt={data.generatedAt}
-                                        stale={data._stale}
-                                        staleAgeMinutes={data._staleAgeMinutes}
-                                        error={weatherError}
-                                        locationType={data.locationType}
-                                        isOffline={isOffline}
-                                        onRefresh={() => refreshData()}
-                                        isSyncing={weatherLoading || backgroundUpdating}
-                                    />
-                                </div>
+                                {/* STALENESS BANNER — REMOVED 2026-04-28
+                                    User feedback: "the layout stays exactly the
+                                    same during no connection times as well as when
+                                    connections. can we also remove the No Connection
+                                    box. primarily can we ensure that the app looks
+                                    the same in both states." The fixed-position
+                                    banner sat between the location pill and the
+                                    CompactHeaderRow. When offline / stale / errored,
+                                    it appeared and visually broke the Glass page's
+                                    consistent rhythm. The banner is now retired
+                                    from this surface — connection / freshness
+                                    diagnostics live in the System Status modal
+                                    (the "i" button) where they belong, alongside
+                                    the new NMEA rate sparklines. The Glass page
+                                    presents the same calm view regardless of
+                                    connection state. */}
 
                                 {/* STATIC BADGES - Fixed at bottom, outside hero scroll */}
                                 {/* Height is ~42px. Bottom is 74px. Top of badges is 74+42 = 116px.

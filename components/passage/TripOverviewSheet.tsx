@@ -19,7 +19,14 @@ import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
 import type { Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
-import { buildTripOverview, getCountrySnippets, type TripOverview } from '../../services/TripOverviewService';
+import {
+    buildTripOverview,
+    enrichTripWithLiveData,
+    getCountrySnippets,
+    type EnrichedTripOverview,
+    type LegForecast,
+    type TripOverview,
+} from '../../services/TripOverviewService';
 import { useSettings } from '../../context/SettingsContext';
 
 interface TripOverviewSheetProps {
@@ -57,8 +64,14 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
     const { settings } = useSettings();
     const [exporting, setExporting] = useState(false);
     const [toast, setToast] = useState<string | null>(null);
+    /** Enriched overview — populated asynchronously after the sheet
+     *  opens. Holds per-leg forecasts + the trip-level departure
+     *  window. While null, the sheet renders the synchronous template
+     *  view; once it lands, real numbers appear in the leg cards. */
+    const [enriched, setEnriched] = useState<EnrichedTripOverview | null>(null);
+    const [enriching, setEnriching] = useState(false);
 
-    const overview: TripOverview | null = useMemo(() => {
+    const baseOverview: TripOverview | null = useMemo(() => {
         if (legs.length === 0) return null;
         return buildTripOverview(legs, {
             tripName,
@@ -66,23 +79,68 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
         });
     }, [legs, tripName, settings.vessel?.crewCount]);
 
+    // Fetch live data when the sheet opens (and re-fetch when the
+    // underlying trip changes). Fire-and-forget — the template view
+    // renders immediately, the enrichment swaps in when it lands.
+    // Cancellation flag protects against the user closing + re-opening
+    // mid-fetch, which would otherwise leak a stale enrichment in.
+    useEffect(() => {
+        if (!isOpen || !baseOverview) {
+            setEnriched(null);
+            setEnriching(false);
+            return;
+        }
+        let cancelled = false;
+        setEnriched(null);
+        setEnriching(true);
+        (async () => {
+            try {
+                const result = await enrichTripWithLiveData(baseOverview);
+                if (cancelled) return;
+                if (result.enrichedAt) setEnriched(result);
+            } finally {
+                if (!cancelled) setEnriching(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, baseOverview]);
+
     useEffect(() => {
         if (!toast) return;
         const t = setTimeout(() => setToast(null), 3000);
         return () => clearTimeout(t);
     }, [toast]);
 
-    if (!isOpen || !overview) return null;
+    if (!isOpen || !baseOverview) return null;
 
+    /** Render-time overview — prefer the enriched copy when we have one. */
+    const overview: EnrichedTripOverview = enriched ?? baseOverview;
     const countrySnippets = getCountrySnippets(overview.countries);
+    const legsForRender = overview.legsWithForecast ?? overview.legs;
 
     const handleExportPdf = async () => {
         triggerHaptic('medium');
         setExporting(true);
         try {
+            // If the user fires the export before the in-flight
+            // enrichment has resolved, force a fresh fetch + await it
+            // so the PDF carries the live forecast. The on-screen sheet
+            // already shows what it has; this just guarantees the PDF
+            // never goes out template-only when network was reachable.
+            let toRender: EnrichedTripOverview = enriched ?? baseOverview!;
+            if (!enriched?.enrichedAt) {
+                try {
+                    toRender = await enrichTripWithLiveData(baseOverview!);
+                    if (toRender.enrichedAt) setEnriched(toRender);
+                } catch {
+                    /* fall through to template-only */
+                }
+            }
             const { generateTripPdf } = await import('../../services/TripPdfService');
-            const blob = generateTripPdf(overview, { vesselName: settings.vessel?.name });
-            const filename = `Trip · ${overview.name.replace(/\s*→\s*/g, ' to ')}.pdf`;
+            const blob = generateTripPdf(toRender, { vesselName: settings.vessel?.name });
+            const filename = `Trip · ${toRender.name.replace(/\s*→\s*/g, ' to ')}.pdf`;
 
             // On native iOS: write to cache, then share via system sheet.
             // On web: trigger a regular download.
@@ -163,36 +221,136 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
 
                 {/* Body */}
                 <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                    {/* Live data status badge — visible while we fetch
+                        the per-leg forecasts + best departure window
+                        from WeatherWindowService + fetchFastWeather, OR
+                        once the fetch lands so the user knows they're
+                        looking at real numbers. */}
+                    {enriching && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-sky-500/[0.06] border border-sky-500/15">
+                            <div className="w-3 h-3 border-2 border-sky-400/60 border-t-transparent rounded-full animate-spin" />
+                            <span className="text-[11px] text-sky-200">Fetching live forecasts…</span>
+                        </div>
+                    )}
+                    {!enriching && enriched?.enrichedAt && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/[0.06] border border-emerald-500/15">
+                            <span className="text-base leading-none">✓</span>
+                            <span className="text-[11px] text-emerald-200">
+                                Live forecast loaded ·{' '}
+                                {new Date(enriched.enrichedAt).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                })}
+                            </span>
+                        </div>
+                    )}
+
+                    {/* Best departure window — only when WeatherWindowService
+                        produced a usable result for the trip's first
+                        leg. Shows the top-rated 6h window across the
+                        next 16 days, scored Go/Marginal/Wait. */}
+                    {enriched?.bestDepartureWindow && (
+                        <Section
+                            title="Best Departure Window"
+                            subtitle="Top-rated 6 h window across the next 16 days for the first leg's departure point."
+                        >
+                            <div
+                                className={`rounded-xl p-3 border ${
+                                    enriched.bestDepartureWindow.rating === 'go'
+                                        ? 'bg-emerald-500/10 border-emerald-500/25'
+                                        : enriched.bestDepartureWindow.rating === 'marginal'
+                                          ? 'bg-amber-500/10 border-amber-500/25'
+                                          : 'bg-red-500/10 border-red-500/25'
+                                }`}
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">
+                                        {enriched.bestDepartureWindow.rating === 'go'
+                                            ? '✅'
+                                            : enriched.bestDepartureWindow.rating === 'marginal'
+                                              ? '⚠️'
+                                              : '❌'}
+                                    </span>
+                                    <span className="text-sm font-black text-white">
+                                        {enriched.bestDepartureWindow.label}
+                                    </span>
+                                    <span className="ml-auto text-[11px] font-bold text-white/70 tabular-nums">
+                                        {enriched.bestDepartureWindow.score}/100
+                                    </span>
+                                </div>
+                                <p className="text-[11px] text-white/70 mt-1.5 leading-snug">
+                                    {enriched.bestDepartureWindow.description}
+                                </p>
+                            </div>
+                        </Section>
+                    )}
+
                     {/* Itinerary */}
                     <Section title="Itinerary" subtitle="Each leg — plan one at a time from the leg picker.">
                         <div className="space-y-2">
-                            {overview.legs.map((leg) => (
-                                <div
-                                    key={leg.legNumber}
-                                    className="flex items-center gap-3 rounded-xl bg-white/[0.03] border border-white/[0.06] p-3"
-                                >
-                                    <div className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/25 flex items-center justify-center shrink-0">
-                                        <span className="text-[11px] font-black text-sky-300">L{leg.legNumber}</span>
+                            {legsForRender.map((leg) => {
+                                const enrichedLeg = leg as typeof leg & {
+                                    forecast?: LegForecast;
+                                    realDistanceNm?: number;
+                                };
+                                const forecast = enrichedLeg.forecast;
+                                const realNm = enrichedLeg.realDistanceNm;
+                                const displayNm = typeof realNm === 'number' && realNm > 0 ? realNm : leg.distanceNm;
+                                return (
+                                    <div
+                                        key={leg.legNumber}
+                                        className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 space-y-2"
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-9 h-9 rounded-full bg-sky-500/15 border border-sky-500/25 flex items-center justify-center shrink-0">
+                                                <span className="text-[11px] font-black text-sky-300">
+                                                    L{leg.legNumber}
+                                                </span>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-white truncate">
+                                                    {leg.departurePort} → {leg.arrivalPort}
+                                                </p>
+                                                <p className="text-[11px] text-gray-400 mt-0.5">
+                                                    {[
+                                                        displayNm > 0 ? `${displayNm.toFixed(0)} NM` : null,
+                                                        leg.durationHours > 0
+                                                            ? formatDuration(leg.durationHours)
+                                                            : null,
+                                                        leg.departureDateIso
+                                                            ? `Depart ${formatDate(leg.departureDateIso)}`
+                                                            : null,
+                                                        leg.arrivalCountry,
+                                                    ]
+                                                        .filter(Boolean)
+                                                        .join(' · ')}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {forecast && (
+                                            <div className="flex flex-wrap gap-2 pt-2 border-t border-white/[0.05] text-[11px] text-gray-300">
+                                                <span>
+                                                    💨{' '}
+                                                    <span className="font-mono font-bold text-white">
+                                                        {forecast.windDirection} {forecast.windSpeedKt}
+                                                    </span>
+                                                    {forecast.windGustKt ? `/${forecast.windGustKt}` : ''} kt
+                                                </span>
+                                                {forecast.waveHeightM !== null && (
+                                                    <span>
+                                                        🌊{' '}
+                                                        <span className="font-mono font-bold text-white">
+                                                            {forecast.waveHeightM.toFixed(1)}
+                                                        </span>{' '}
+                                                        m
+                                                    </span>
+                                                )}
+                                                <span className="capitalize">{forecast.condition}</span>
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-bold text-white truncate">
-                                            {leg.departurePort} → {leg.arrivalPort}
-                                        </p>
-                                        <p className="text-[11px] text-gray-400 mt-0.5">
-                                            {[
-                                                leg.distanceNm > 0 ? `${leg.distanceNm.toFixed(0)} NM` : null,
-                                                leg.durationHours > 0 ? formatDuration(leg.durationHours) : null,
-                                                leg.departureDateIso
-                                                    ? `Depart ${formatDate(leg.departureDateIso)}`
-                                                    : null,
-                                                leg.arrivalCountry,
-                                            ]
-                                                .filter(Boolean)
-                                                .join(' · ')}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </Section>
 

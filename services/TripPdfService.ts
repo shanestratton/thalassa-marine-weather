@@ -16,7 +16,7 @@
 
 import { jsPDF } from 'jspdf';
 import { createLogger } from '../utils/createLogger';
-import type { TripOverview } from './TripOverviewService';
+import type { EnrichedTripOverview, LegForecast, TripOverview } from './TripOverviewService';
 import { getCountrySnippets } from './TripOverviewService';
 
 const log = createLogger('TripPDF');
@@ -272,9 +272,16 @@ class PdfBuilder {
 
 // ── Main entry ──
 
-export function generateTripPdf(trip: TripOverview, opts?: { vesselName?: string }): Blob {
+export function generateTripPdf(trip: TripOverview | EnrichedTripOverview, opts?: { vesselName?: string }): Blob {
     const b = new PdfBuilder();
     const vesselLabel = opts?.vesselName || 'Your Vessel';
+    // Narrow the input — Enriched has extra optional fields. We
+    // type-guard via property presence so a plain TripOverview still
+    // passes through and just skips the live-data sections.
+    const enriched = trip as EnrichedTripOverview;
+    const liveLegs = enriched.legsWithForecast;
+    const bestWindow = enriched.bestDepartureWindow;
+    const enrichedAtIso = enriched.enrichedAt;
 
     // ─────────────────────────────────────────────────────────
     // Page 1 — Cover
@@ -332,14 +339,36 @@ export function generateTripPdf(trip: TripOverview, opts?: { vesselName?: string
     }
 
     // ─────────────────────────────────────────────────────────
-    // Itinerary table
+    // Live forecast banner — only when enrichment succeeded.
+    // Tells the reader the per-leg numbers below are live, not the
+    // template-static "your skipper estimated" placeholder.
+    // ─────────────────────────────────────────────────────────
+    if (enrichedAtIso) {
+        b.ensureRoom(12);
+        b.doc.setFillColor(...COLORS.accent);
+        b.doc.roundedRect(b.margin, b.y, b.contentW, 9, 2, 2, 'F');
+        b.doc.setFontSize(8);
+        b.doc.setTextColor(...COLORS.bg);
+        b.doc.text(`LIVE FORECAST · pulled ${formatDate(enrichedAtIso)}`, b.margin + 4, b.y + 6);
+        b.y += 13;
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Itinerary table — taller cards when the leg has a live
+    // forecast attached so the wind/wave/condition strip fits.
     // ─────────────────────────────────────────────────────────
     b.sectionTitle('Itinerary');
-    for (const leg of trip.legs) {
-        b.ensureRoom(20);
+    for (let i = 0; i < trip.legs.length; i++) {
+        const leg = trip.legs[i];
+        const liveLeg = liveLegs?.[i];
+        const forecast: LegForecast | undefined = liveLeg?.forecast;
+        const realNm = liveLeg?.realDistanceNm;
+        const displayNm = realNm !== undefined && realNm > 0 ? realNm : leg.distanceNm;
+        const cardH = forecast ? 26 : 18;
+        b.ensureRoom(cardH + 2);
         // Card
         b.doc.setFillColor(...COLORS.cardBg);
-        b.doc.roundedRect(b.margin, b.y, b.contentW, 18, 2, 2, 'F');
+        b.doc.roundedRect(b.margin, b.y, b.contentW, cardH, 2, 2, 'F');
         // Leg number badge
         b.doc.setFillColor(...COLORS.primary);
         b.doc.roundedRect(b.margin + 3, b.y + 3, 14, 12, 1.5, 1.5, 'F');
@@ -353,17 +382,56 @@ export function generateTripPdf(trip: TripOverview, opts?: { vesselName?: string
         b.doc.setFontSize(7);
         b.doc.setTextColor(...COLORS.dim);
         const subParts = [
-            leg.distanceNm > 0 ? `${leg.distanceNm.toFixed(0)} NM` : null,
+            displayNm > 0 ? `${displayNm.toFixed(0)} NM` : null,
             leg.durationHours > 0 ? formatDuration(leg.durationHours) : null,
             leg.departureDateIso ? `Depart ${formatDate(leg.departureDateIso)}` : null,
             leg.arrivalCountry || null,
         ].filter(Boolean);
         b.doc.text(subParts.join('  ·  '), b.margin + 22, b.y + 14);
-        b.y += 22;
+        // Forecast strip
+        if (forecast) {
+            b.doc.setDrawColor(...COLORS.divider);
+            b.doc.setLineWidth(0.2);
+            b.doc.line(b.margin + 22, b.y + 17, b.margin + b.contentW - 4, b.y + 17);
+            b.doc.setFontSize(7);
+            b.doc.setTextColor(...COLORS.accent);
+            const wind = `${forecast.windDirection} ${forecast.windSpeedKt}${
+                forecast.windGustKt ? `/${forecast.windGustKt}` : ''
+            } kt`;
+            const wave = forecast.waveHeightM !== null ? `${forecast.waveHeightM.toFixed(1)} m` : '—';
+            b.doc.text(`💨 ${wind}   🌊 ${wave}   ${forecast.condition}`, b.margin + 22, b.y + 22);
+        }
+        b.y += cardH + 4;
     }
 
     // ─────────────────────────────────────────────────────────
-    // Best time to sail (region-aware blurb)
+    // Best Departure Window (live) — top of the next 16 days
+    // for the trip's first leg, scored Go / Marginal / Wait.
+    // ─────────────────────────────────────────────────────────
+    if (bestWindow) {
+        b.sectionTitle('Best Departure Window (live)');
+        const ratingColor: [number, number, number] =
+            bestWindow.rating === 'go' ? COLORS.green : bestWindow.rating === 'marginal' ? COLORS.amber : COLORS.red;
+        const ratingLabel =
+            bestWindow.rating === 'go' ? '✅ GO' : bestWindow.rating === 'marginal' ? '⚠ MARGINAL' : '✕ WAIT';
+        b.ensureRoom(22);
+        b.doc.setFillColor(...COLORS.cardBg);
+        b.doc.roundedRect(b.margin, b.y, b.contentW, 18, 2, 2, 'F');
+        b.doc.setFontSize(9);
+        b.doc.setTextColor(...ratingColor);
+        b.doc.text(ratingLabel, b.margin + 4, b.y + 6);
+        b.doc.setFontSize(11);
+        b.doc.setTextColor(...COLORS.white);
+        b.doc.text(bestWindow.label, b.margin + 4, b.y + 12);
+        b.doc.setFontSize(8);
+        b.doc.setTextColor(...COLORS.dim);
+        b.doc.text(`${bestWindow.score}/100`, b.margin + b.contentW - 4, b.y + 12, { align: 'right' });
+        b.y += 22;
+        b.paragraph(bestWindow.description, COLORS.muted, 8.5);
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // Best time to sail (region-aware blurb — seasonal context)
     // ─────────────────────────────────────────────────────────
     if (trip.countries.some((c) => ['New Caledonia', 'Vanuatu', 'Fiji', 'Tonga', 'French Polynesia'].includes(c))) {
         b.sectionTitle('Best Time to Sail');
