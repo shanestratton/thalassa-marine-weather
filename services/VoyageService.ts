@@ -370,6 +370,77 @@ export async function endVoyage(voyageId: string, status: 'completed' | 'aborted
 }
 
 /**
+ * Hard-delete a voyage row by ID, regardless of status. Used by the
+ * "Manage saved trips" cleanup sheet so the user can purge orphan or
+ * test voyages that don't show up in the normal drafts/active flows.
+ *
+ * Also clears the cached active voyage if it matches the deleted ID
+ * so the hero band / SystemStatusButton drop out of Active Voyage Mode
+ * in the same tick.
+ *
+ * Does NOT cascade to shiplog entries — call ShipLogService.deleteVoyage
+ * separately if you also need to remove a planned route's entries.
+ * Returns true if a row was removed (or nothing to remove was found
+ * locally either).
+ */
+export async function deleteVoyageById(voyageId: string): Promise<boolean> {
+    if (!supabase) return false;
+
+    // Clean up local state synchronously so the UI reflects the
+    // delete even if the network round-trip lags.
+    deleteLegsForVoyage(voyageId);
+    const cached = getCachedActiveVoyage();
+    if (cached?.id === voyageId) cacheVoyage(null);
+
+    try {
+        const { error } = await supabase.from('voyages').delete().eq('id', voyageId);
+        if (error) {
+            console.warn('[VoyageService] deleteVoyageById failed:', error.message);
+            return false;
+        }
+    } catch (e) {
+        console.warn('[VoyageService] deleteVoyageById threw:', e);
+        return false;
+    }
+
+    // Drop the local drafts cache so getDraftVoyages() doesn't keep
+    // resurrecting the deleted row from localStorage.
+    try {
+        const raw = localStorage.getItem('thalassa_draft_voyages');
+        if (raw) {
+            const drafts = JSON.parse(raw) as Voyage[];
+            const remaining = drafts.filter((v) => v.id !== voyageId);
+            localStorage.setItem('thalassa_draft_voyages', JSON.stringify(remaining));
+        }
+    } catch {
+        /* ignore */
+    }
+
+    return true;
+}
+
+/** List ALL voyages for the current user — any status. Used by the
+ *  cleanup sheet to show even completed/aborted/orphan rows that the
+ *  draft-only `getDraftVoyages()` filter would hide. */
+export async function getAllVoyagesForUser(): Promise<Voyage[]> {
+    if (!supabase) return [];
+    const {
+        data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return [];
+    const { data, error } = await supabase
+        .from('voyages')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+    if (error) {
+        console.warn('[VoyageService] getAllVoyagesForUser failed:', error.message);
+        return [];
+    }
+    return (data || []) as Voyage[];
+}
+
+/**
  * Cascade-end the cached active voyage if its name matches the given
  * normalised label. Called by EntryCrud.deleteVoyage when a saved
  * planned route is deleted from the logbook so Active Voyage Mode
