@@ -117,6 +117,7 @@ sudo -u "$REAL_USER" npm prune --production --prefix "$INSTALL_DIR" >/dev/null 2
 # ── Create cache directory ──
 
 mkdir -p "$INSTALL_DIR/cache"
+mkdir -p "$INSTALL_DIR/enc-charts/cells"
 chown -R "${REAL_USER}:${REAL_USER}" "$INSTALL_DIR"
 
 # ── Create minimal .env (no secrets — the app pushes config later) ──
