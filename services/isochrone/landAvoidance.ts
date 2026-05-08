@@ -375,11 +375,17 @@ const FINE_SAMPLE_SPACING_NM = 0.5;
 /** Maximum batch size for a single GEBCO edge function call */
 const GEBCO_BATCH_SIZE = 400;
 
-/** Maximum recursion depth when fixing an island-crossing segment */
-const MAX_FIX_DEPTH = 4;
+/** Maximum recursion depth when fixing an island-crossing segment.
+ *  Bumped from 4 to 6 — coastal routes through archipelagos (Nouméa
+ *  → Île des Pins style: Île Ouen + Récif de Sainte-Marie + reef
+ *  belts around the destination) need more subdivision than a single
+ *  island in open water. */
+const MAX_FIX_DEPTH = 6;
 
-/** Maximum passes over the full route to fix all island crossings */
-const MAX_VALIDATION_PASSES = 3;
+/** Maximum passes over the full route to fix all island crossings.
+ *  Bumped from 3 to 5 for the same reason — each pass clears one
+ *  layer of crossings; complex multi-island geometry needs more. */
+const MAX_VALIDATION_PASSES = 5;
 
 /**
  * Hazard depth threshold for GEBCO validation.
@@ -533,7 +539,14 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
     const leftBearing = (segBearing - 90 + 360) % 360;
     const rightBearing = (segBearing + 90) % 360;
 
-    const PUSH_DISTANCES = [5, 10, 15, 20, 30];
+    // Push distances bumped from [5, 10, 15, 20, 30] to include
+    // longer reaches. For coastal routes through archipelagos (e.g.
+    // Nouméa → Île des Pins via Île Ouen) a 30 NM perpendicular
+    // push from the segment midpoint can land on another island or
+    // reef belt; 50-70 NM gets you to deep water reliably. Smaller
+    // pushes are still tried first so the algorithm keeps the
+    // detour minimal when one is achievable.
+    const PUSH_DISTANCES = [5, 10, 15, 20, 30, 45, 65];
     const BEARINGS = [leftBearing, rightBearing];
 
     // ── 1. Generate all candidate detour points ──

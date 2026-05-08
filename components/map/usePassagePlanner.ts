@@ -798,7 +798,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }));
                     try {
                         const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
-                        const seedNodes = validatedRoute.map((p) => ({
+                        // Feed the validator just the [origin, destination]
+                        // pair — NOT the 80-point great-circle interpolation.
+                        // sampleSegment uses 0.5 NM resolution; an 80-point
+                        // GC for a 60 NM route means ~0.76 NM segments and
+                        // only ~1 GEBCO query per segment. With endpoints
+                        // alone the validator densely samples ~120 points
+                        // along the whole arc, catches every land crossing,
+                        // and findDetourAroundIsland gets the full segment
+                        // midpoint to push from — much more likely to clear
+                        // a complex obstacle (Île Ouen + reef belts) than
+                        // pushing perpendicular off a 0.76 NM stub.
+                        const firstPt = validatedRoute[0];
+                        const lastPt = validatedRoute[validatedRoute.length - 1];
+                        const seedNodes = [firstPt, lastPt].map((p) => ({
                             lat: p.lat,
                             lon: p.lon,
                             timeHours: 0,
@@ -811,7 +824,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         })) as unknown as IsochroneNode[];
                         const validated = await Promise.race([
                             validateRouteSegments(seedNodes),
-                            new Promise<null>((r) => setTimeout(() => r(null), 12_000)),
+                            // 30s ceiling (was 12s). Multi-pass detour
+                            // search across reef-strewn coastal waters
+                            // can take ~15-20s — 12s was killing the
+                            // validator mid-fix and leaving a polyline
+                            // that still crossed land.
+                            new Promise<null>((r) => setTimeout(() => r(null), 30_000)),
                         ]);
                         if (validated && validated.length >= 2) {
                             validatedRoute = validated.map((n) => ({ lat: n.lat, lon: n.lon }));
