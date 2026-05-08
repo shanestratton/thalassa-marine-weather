@@ -29,6 +29,9 @@ import {
     isLikelyEncFile,
     checkPiHasGdal,
     importEncCell,
+    installEncFromUrl,
+    syncEncFromPi,
+    listPiInstalledCharts,
     type EncImportProgress,
 } from '../../services/EncImportService';
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
@@ -308,6 +311,114 @@ export const EncCellManager: React.FC = () => {
         [ui],
     );
 
+    /**
+     * "Install from URL" — Pi downloads the chart from a URL the
+     * user pastes (typically a free NOAA ZIP), converts on the Pi,
+     * and persists to its chart store. The phone then auto-syncs
+     * the converted blob into the local cache.
+     *
+     * This is the "best of the best" flow — Pi has stable internet,
+     * no iOS file-picker, and the resulting cells are available to
+     * any device on the boat without re-uploading.
+     */
+    const handleInstallFromUrl = useCallback(async () => {
+        setError(null);
+        setProgress(null);
+
+        const piErr = await checkPiHasGdal();
+        if (piErr) {
+            setError(piErr);
+            return;
+        }
+
+        const url = window.prompt(
+            'Paste the URL of an ENC ZIP or .000 file.\n\n' +
+                'Free NOAA charts: https://charts.noaa.gov/ENCs/ENCs.shtml — pick a cell, copy the ZIP link.\n\n' +
+                'AHO requires a commercial license; their public site has metadata but not direct downloads.',
+            '',
+        );
+        if (!url) return;
+
+        let parsed: URL;
+        try {
+            parsed = new URL(url);
+        } catch {
+            setError('That doesn’t look like a valid URL.');
+            return;
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            setError('Only http/https URLs are supported.');
+            return;
+        }
+
+        setImporting(true);
+        setLastSkipped([]);
+        try {
+            const summary = await installEncFromUrl(url, undefined, (p) => setProgress(p));
+            refreshCells();
+            if (summary.skipped.length > 0) setLastSkipped(summary.skipped);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setImporting(false);
+            setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+        }
+    }, [refreshCells]);
+
+    /**
+     * "Sync from Pi" — pulls every chart the Pi has installed but
+     * the phone doesn't, into the local cache. Uses edition equality
+     * so re-runs are no-ops once everything is in sync.
+     *
+     * Run automatically on first expand of the panel — the user
+     * shouldn't have to remember to tap a button to see what their
+     * own boat already has.
+     */
+    const handleSyncFromPi = useCallback(async () => {
+        setError(null);
+        setProgress(null);
+
+        const piErr = await checkPiHasGdal();
+        if (piErr) {
+            setError(piErr);
+            return;
+        }
+
+        setImporting(true);
+        setLastSkipped([]);
+        try {
+            const summary = await syncEncFromPi((p) => setProgress(p));
+            refreshCells();
+            if (summary.skipped.length > 0) setLastSkipped(summary.skipped);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setImporting(false);
+            setTimeout(() => setProgress((p) => (p?.phase === 'done' ? null : p)), 2500);
+        }
+    }, [refreshCells]);
+
+    // Pi-side installed-cell count, refreshed when the panel
+    // opens. Used to surface "Pi has N charts not yet synced"
+    // affordance without forcing the user to tap to find out.
+    const [piInstalledCount, setPiInstalledCount] = useState<number | null>(null);
+    useEffect(() => {
+        if (!expanded) return;
+        let cancelled = false;
+        listPiInstalledCharts()
+            .then((cells) => {
+                if (!cancelled) setPiInstalledCount(cells.length);
+            })
+            .catch(() => {
+                if (!cancelled) setPiInstalledCount(null);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [expanded, cells.length]);
+
+    const piHasMoreThanLocal = piInstalledCount !== null && piInstalledCount > cells.length;
+
     return (
         <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
             <button
@@ -359,26 +470,69 @@ export const EncCellManager: React.FC = () => {
                             </div>
                         )}
 
+                        {/* Primary action: Pi-direct URL install — the
+                            "best of the best" path. Pi downloads, Pi
+                            converts, all devices on the boat share. */}
                         <button
-                            onClick={handleImport}
+                            onClick={handleInstallFromUrl}
                             disabled={importing}
                             className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-widest transition-all active:scale-95 ${
                                 importing
                                     ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400 cursor-not-allowed'
-                                    : 'bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25'
+                                    : 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25'
                             }`}
                         >
-                            {importing ? (
+                            {importing && progress?.phase !== 'storing' && progress?.phase !== 'fetching' ? (
                                 <span className="flex items-center justify-center gap-2">
                                     <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
                                     {progress?.cellCount && progress.cellCount > 1
-                                        ? `Importing ${progress.cellsDone ?? 0}/${progress.cellCount}...`
-                                        : 'Importing...'}
+                                        ? `Pi: ${progress.cellsDone ?? 0}/${progress.cellCount}...`
+                                        : 'Pi installing...'}
                                 </span>
                             ) : (
-                                'Pick S-57 Cell (.000) or ENC .zip'
+                                <span className="flex items-center justify-center gap-2">
+                                    <span>{'\u{1F4E5}'}</span>
+                                    <span>Install on Pi from URL</span>
+                                </span>
                             )}
                         </button>
+
+                        {/* Secondary: phone-side upload, kept for cells
+                            that aren't online (e.g. you have the .000
+                            on your phone already from email/AirDrop). */}
+                        <button
+                            onClick={handleImport}
+                            disabled={importing}
+                            className={`w-full py-2.5 rounded-xl text-[11px] font-bold uppercase tracking-wider transition-all active:scale-95 ${
+                                importing
+                                    ? 'bg-white/[0.04] border border-white/[0.06] text-gray-500 cursor-not-allowed'
+                                    : 'bg-sky-500/10 border border-sky-500/20 text-sky-400 hover:bg-sky-500/20'
+                            }`}
+                        >
+                            <span className="flex items-center justify-center gap-2">
+                                <span>{'\u{1F4F1}'}</span>
+                                <span>Upload from this device</span>
+                            </span>
+                        </button>
+
+                        {/* Sync — surfaced when Pi has more charts than
+                            the phone knows about (e.g. you installed on
+                            another device first). */}
+                        {piHasMoreThanLocal && (
+                            <button
+                                onClick={handleSyncFromPi}
+                                disabled={importing}
+                                className="w-full py-2 rounded-xl text-[11px] font-bold uppercase tracking-wider bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 active:scale-95 transition-all"
+                            >
+                                <span className="flex items-center justify-center gap-2">
+                                    <span>{'\u{1F504}'}</span>
+                                    <span>
+                                        Sync {piInstalledCount! - cells.length} chart
+                                        {piInstalledCount! - cells.length === 1 ? '' : 's'} from Pi
+                                    </span>
+                                </span>
+                            </button>
+                        )}
 
                         {error && (
                             <div className="px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/20">

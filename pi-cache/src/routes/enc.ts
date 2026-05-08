@@ -87,6 +87,18 @@ interface EncJob {
     cellsDone?: number;
     /** Cells that errored during batch conversion (filename + reason). */
     skippedCells?: { filename: string; error: string }[];
+    /**
+     * How the source bytes got onto the Pi. Phone-upload jobs go
+     * through POST /convert with a body; URL-install jobs go
+     * through POST /install-from-url with the Pi doing the
+     * download. Tagged on each persisted cell so the UI can show
+     * provenance.
+     */
+    installSource?: 'phone-upload' | 'url';
+    /** When installSource is 'url', the original URL the Pi fetched. */
+    installUrl?: string;
+    /** Cell IDs that were persisted to the chart store this run. */
+    persistedCellIds?: string[];
 }
 
 const jobs = new Map<string, EncJob>();
@@ -136,6 +148,134 @@ const ENC_LAYERS = [
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // 300 MB — covers regional AHO/NOAA ZIP packs
 const OGR2OGR_TIMEOUT_MS = 60 * 1000; // 1 minute per layer is generous
+
+/**
+ * Persistent ENC chart store. The Pi keeps converted ENCs here so
+ * they survive restarts and can be served to any device on the
+ * boat (Phase 11). One file per cell + a small index for fast
+ * listing. Backed by env so the boat operator can move it onto
+ * a bigger disk if needed.
+ */
+const CHART_STORE_DIR = process.env.ENC_CHART_DIR || '/var/lib/thalassa-enc-charts';
+const CHART_INDEX_PATH = path.join(CHART_STORE_DIR, 'index.json');
+const CHART_CELL_DIR = path.join(CHART_STORE_DIR, 'cells');
+const URL_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 min for big regional ZIPs
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+// ── Persistent chart store ────────────────────────────────────────
+
+/**
+ * One entry per converted cell. Kept lean — fields the phone
+ * needs to render the chart-locker list without fetching the
+ * big GeoJSON blob. The blob lives at `${CHART_CELL_DIR}/<id>.json`.
+ */
+interface InstalledCellMeta {
+    cellId: string;
+    sourceHO: string;
+    edition: number;
+    issued: string;
+    bbox: [number, number, number, number];
+    /** Total feature count across hazard layers. */
+    featureCount: number;
+    /** Size of the on-disk JSON in bytes — UI shows this. */
+    sizeBytes: number;
+    /** When the Pi finished converting it. */
+    installedAt: string;
+    /** Where the cell came from — useful for "re-install" flows. */
+    source: 'phone-upload' | 'url';
+    /** Original source URL when installed via URL. */
+    sourceUrl?: string;
+}
+
+interface InstalledIndex {
+    version: 1;
+    cells: InstalledCellMeta[];
+}
+
+async function loadInstalledIndex(): Promise<InstalledIndex> {
+    try {
+        const raw = await fs.readFile(CHART_INDEX_PATH, 'utf8');
+        const parsed = JSON.parse(raw) as InstalledIndex;
+        if (parsed.version === 1 && Array.isArray(parsed.cells)) return parsed;
+    } catch {
+        /* fresh install / corrupted — fall through */
+    }
+    return { version: 1, cells: [] };
+}
+
+async function saveInstalledIndex(index: InstalledIndex): Promise<void> {
+    await fs.mkdir(CHART_STORE_DIR, { recursive: true });
+    await fs.writeFile(CHART_INDEX_PATH, JSON.stringify(index, null, 2), 'utf8');
+}
+
+function cellStorePath(cellId: string): string {
+    // Cell IDs are alphanumeric per S-57 (e.g. AU530150) but sanitise
+    // anyway so a malformed metadata can't escape the store dir.
+    const safe = cellId.replace(/[^A-Za-z0-9_-]/g, '_');
+    return path.join(CHART_CELL_DIR, `${safe}.json`);
+}
+
+/**
+ * Write one converted cell to the persistent store and update the
+ * index. The blob format is `{cells: [single]}` so it matches the
+ * EncConversionBatch wire format the phone already understands.
+ *
+ * Idempotent — re-installing replaces in place.
+ */
+async function persistCell(
+    cell: {
+        cellId: string;
+        sourceHO: string;
+        edition: number;
+        issued: string;
+        bbox: [number, number, number, number];
+        layers: Record<string, unknown>;
+    },
+    featureCount: number,
+    source: 'phone-upload' | 'url',
+    sourceUrl?: string,
+): Promise<InstalledCellMeta> {
+    await fs.mkdir(CHART_CELL_DIR, { recursive: true });
+    const blob = { cells: [cell] };
+    const data = JSON.stringify(blob);
+    const filePath = cellStorePath(cell.cellId);
+    await fs.writeFile(filePath, data, 'utf8');
+
+    const meta: InstalledCellMeta = {
+        cellId: cell.cellId,
+        sourceHO: cell.sourceHO,
+        edition: cell.edition,
+        issued: cell.issued,
+        bbox: cell.bbox,
+        featureCount,
+        sizeBytes: Buffer.byteLength(data, 'utf8'),
+        installedAt: new Date().toISOString(),
+        source,
+        sourceUrl,
+    };
+
+    const index = await loadInstalledIndex();
+    const existingIdx = index.cells.findIndex((c) => c.cellId === cell.cellId);
+    if (existingIdx >= 0) index.cells[existingIdx] = meta;
+    else index.cells.push(meta);
+    await saveInstalledIndex(index);
+    return meta;
+}
+
+async function removeInstalledCell(cellId: string): Promise<boolean> {
+    const index = await loadInstalledIndex();
+    const before = index.cells.length;
+    index.cells = index.cells.filter((c) => c.cellId !== cellId);
+    if (index.cells.length === before) return false;
+    await saveInstalledIndex(index);
+    try {
+        await fs.unlink(cellStorePath(cellId));
+    } catch {
+        /* file may already be gone */
+    }
+    return true;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -424,6 +564,17 @@ async function runConversion(job: EncJob): Promise<void> {
                 await fs.mkdir(cellOutDir, { recursive: true });
                 const conv = await convertOneCell(cellPath, cellOutDir);
                 cells.push(conv.result);
+                // Persist to the Pi-side chart store immediately
+                // so subsequent boats / devices can pull it from
+                // `/api/enc/installed/:cellId/data` without re-
+                // running the conversion.
+                await persistCell(
+                    conv.result as Parameters<typeof persistCell>[0],
+                    conv.featureCount,
+                    job.installSource ?? 'phone-upload',
+                    job.installUrl,
+                );
+                job.persistedCellIds = [...(job.persistedCellIds ?? []), conv.cellId];
                 if (job.cellId == null) {
                     job.cellId = conv.cellId;
                     job.bbox = conv.bbox;
@@ -446,6 +597,13 @@ async function runConversion(job: EncJob): Promise<void> {
         job.progress = 0.1;
         const conv = await convertOneCell(inputPath, outputBaseDir);
         cells.push(conv.result);
+        await persistCell(
+            conv.result as Parameters<typeof persistCell>[0],
+            conv.featureCount,
+            job.installSource ?? 'phone-upload',
+            job.installUrl,
+        );
+        job.persistedCellIds = [conv.cellId];
         job.cellId = conv.cellId;
         job.bbox = conv.bbox;
         job.featureCount = conv.featureCount;
@@ -617,6 +775,175 @@ export function createEncRoutes(): Router {
         }
         jobs.delete(id);
         return res.json({ ok: true });
+    });
+
+    /**
+     * POST /api/enc/install-from-url
+     * Body: { url: string, filename?: string }
+     *
+     * Pi downloads the file from the supplied URL (typically a free
+     * NOAA ENC ZIP), runs the same conversion pipeline as a phone
+     * upload, and persists every successfully-converted cell to the
+     * chart store. The Pi has stable internet, no iOS file-picker
+     * friction, and only needs to do the heavy work once per chart
+     * — every device on the boat then pulls from the persistent
+     * store via /api/enc/installed.
+     *
+     * Returns the same {jobId, status} envelope as /convert so the
+     * client can poll progress with the existing /jobs/:id flow.
+     */
+    router.post('/install-from-url', async (req: Request, res: Response) => {
+        const { url, filename } = (req.body ?? {}) as { url?: string; filename?: string };
+        if (!url || typeof url !== 'string') {
+            return res.status(400).json({ error: 'Body must include {url}' });
+        }
+        let parsed: URL;
+        try {
+            parsed = new URL(url);
+        } catch {
+            return res.status(400).json({ error: 'Invalid URL' });
+        }
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            return res.status(400).json({ error: 'Only http/https URLs are allowed' });
+        }
+
+        const safeName = sanitiseFilename(filename ?? path.basename(parsed.pathname) ?? 'cell.zip');
+
+        const jobId = randomUUID();
+        const workDir = path.join(TEMP_ROOT, jobId);
+        try {
+            await fs.mkdir(workDir, { recursive: true });
+        } catch (err) {
+            return res.status(500).json({ error: `Failed to stage workdir: ${(err as Error).message}` });
+        }
+
+        const job: EncJob = {
+            id: jobId,
+            filename: safeName,
+            status: 'pending',
+            progress: 0,
+            startedAt: Date.now(),
+            workDir,
+            installSource: 'url',
+            installUrl: url,
+        };
+        jobs.set(jobId, job);
+
+        // Background task: download + convert + persist.
+        void (async () => {
+            try {
+                job.status = 'extracting';
+                job.step = 'downloading from upstream';
+                const ctrl = new AbortController();
+                const timer = setTimeout(() => ctrl.abort(), URL_DOWNLOAD_TIMEOUT_MS);
+                let response;
+                try {
+                    response = await fetch(url, { signal: ctrl.signal, redirect: 'follow' });
+                } finally {
+                    clearTimeout(timer);
+                }
+                if (!response.ok) {
+                    throw new Error(`Upstream HTTP ${response.status}`);
+                }
+                const total = Number(response.headers.get('content-length') ?? 0);
+                if (total > MAX_UPLOAD_BYTES) {
+                    throw new Error(`Upstream file is ${(total / 1024 / 1024).toFixed(0)} MB — exceeds 300 MB cap`);
+                }
+                if (!response.body) throw new Error('Upstream returned no body');
+
+                const downloadPath = path.join(workDir, safeName);
+                const out = createWriteStream(downloadPath);
+                let downloaded = 0;
+                const reader = response.body.getReader();
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (value) {
+                        downloaded += value.byteLength;
+                        if (downloaded > MAX_UPLOAD_BYTES) {
+                            throw new Error('Upstream exceeded 300 MB during stream');
+                        }
+                        out.write(Buffer.from(value));
+                        if (total > 0) {
+                            // Reserve 0..0.05 of the progress bar
+                            // for the download portion; conversion
+                            // moves the rest.
+                            job.progress = Math.min(0.05, (downloaded / total) * 0.05);
+                        }
+                    }
+                }
+                out.end();
+                await new Promise<void>((resolve, reject) => {
+                    out.on('finish', () => resolve());
+                    out.on('error', reject);
+                });
+
+                // Hand off to the existing pipeline. runConversion
+                // checks magic bytes, unzips if needed, persists each
+                // cell to the chart store via persistCell.
+                await runConversion(job);
+            } catch (err) {
+                job.status = 'error';
+                job.error = err instanceof Error ? err.message : String(err);
+                job.completedAt = Date.now();
+                job.progress = 0;
+            }
+        })();
+
+        return res.json({ jobId, status: 'pending' });
+    });
+
+    /**
+     * GET /api/enc/installed
+     * Returns the metadata index of every cell the Pi has ever
+     * converted and stored. Phones use this to show the chart
+     * locker without having to know which boat has which charts.
+     */
+    router.get('/installed', async (_req: Request, res: Response) => {
+        try {
+            const index = await loadInstalledIndex();
+            return res.json({ cells: index.cells, totalSizeBytes: index.cells.reduce((s, c) => s + c.sizeBytes, 0) });
+        } catch (err) {
+            return res.status(500).json({ error: `Failed to read chart store: ${(err as Error).message}` });
+        }
+    });
+
+    /**
+     * GET /api/enc/installed/:cellId/data
+     * Returns the converted GeoJSON blob for a specific cell.
+     * Same wire format the device-side import flow already
+     * understands ({cells: [...], skipped?: [...]}).
+     */
+    router.get('/installed/:cellId/data', async (req: Request, res: Response) => {
+        const cellId = req.params.cellId;
+        if (typeof cellId !== 'string' || !cellId) {
+            return res.status(400).json({ error: 'Invalid cellId' });
+        }
+        const filePath = cellStorePath(cellId);
+        try {
+            const text = await fs.readFile(filePath, 'utf8');
+            res.setHeader('Content-Type', 'application/json');
+            return res.send(text);
+        } catch (err) {
+            const msg =
+                (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'Cell not installed' : (err as Error).message;
+            return res.status(404).json({ error: msg });
+        }
+    });
+
+    /**
+     * DELETE /api/enc/installed/:cellId
+     * Removes a cell from the chart store. Idempotent; returns
+     * 404 only if the cell was never installed.
+     */
+    router.delete('/installed/:cellId', async (req: Request, res: Response) => {
+        const cellId = req.params.cellId;
+        if (typeof cellId !== 'string' || !cellId) {
+            return res.status(400).json({ error: 'Invalid cellId' });
+        }
+        const removed = await removeInstalledCell(cellId);
+        if (!removed) return res.status(404).json({ error: 'Cell not installed' });
+        return res.json({ ok: true, cellId });
     });
 
     /** GET /api/enc/health — quick sanity check for whether GDAL is installed. */
