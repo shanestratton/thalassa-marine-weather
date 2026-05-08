@@ -1359,9 +1359,28 @@ class AvNavServiceClass {
             }
         };
 
+        // Probe order, first hit wins. We try the cheap endpoints first
+        // and only fall back to the (slightly heavier) chart-list call
+        // if everything else 404s.
+        //
+        //   /signalk        — present on Pi setups that run SignalK
+        //   /api/status     — older AvNav builds; rarely there now
+        //   /viewer/        — static viewer index (always served by
+        //                     vanilla AvNav). Tiny HTML response.
+        //   /viewer/avnav_navi.php?request=list&type=chart — last resort.
+        //                     We know this works because chart refresh
+        //                     already uses it; if it fails the box is
+        //                     genuinely down.
+        //
+        // The vanilla-AvNav box on Shane's Pi (calypso) doesn't expose
+        // /signalk or /api/status, so the health check used to flap
+        // every cycle even though the chart server was perfectly happy.
         if (await ok(`${baseUrl}/signalk`)) return;
-        // Fallback probe for AvNav-only boxes that don't run SignalK.
-        if (this.serverType === 'avnav' && (await ok(`${baseUrl}/api/status`))) return;
+        if (this.serverType === 'avnav') {
+            if (await ok(`${baseUrl}/api/status`)) return;
+            if (await ok(`${baseUrl}/viewer/`)) return;
+            if (await ok(`${baseUrl}/viewer/avnav_navi.php?request=list&type=chart`)) return;
+        }
 
         log.warn('Health check failed — reconnecting');
         this.setStatus('disconnected');
