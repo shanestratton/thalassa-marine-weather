@@ -12,6 +12,7 @@
 import { createLogger } from '../utils/createLogger';
 import { Preferences } from '@capacitor/preferences';
 import { CapacitorHttp } from '@capacitor/core';
+import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 
 const log = createLogger('AvNav');
 
@@ -70,6 +71,38 @@ let _ochartsBootstrapped = false;
 // embeds ITS OWN ID in encrypted URLs. We must rewrite one to match.
 let _drmServerSessionId: string | null = null;
 let _drmClientSessionId: string | null = null;
+
+/**
+ * One-time hostname→IPv4 cache for the DRM intercept. The o-charts
+ * provider script keeps the chart host as a hostname (e.g.
+ * `calypso.local`) baked into every token URL it generates; without
+ * rewriting, every key fetch triggers a fresh Happy Eyeballs IPv6→IPv4
+ * race and floods Xcode console with `tcp_input flags=[R.]` lines.
+ *
+ * Populated lazily on the first intercept. Map keyed by hostname so a
+ * future Pi rename or multi-host setup wouldn't poison the cache.
+ */
+const _drmHostIpCache = new Map<string, string>();
+async function rewriteUrlHostToIpv4(url: string): Promise<string> {
+    try {
+        const u = new URL(url);
+        let ip = _drmHostIpCache.get(u.hostname);
+        if (!ip) {
+            const resolved = await resolveHostnameIpv4(u.hostname);
+            if (resolved) {
+                _drmHostIpCache.set(u.hostname, resolved);
+                ip = resolved;
+            }
+        }
+        if (ip && ip !== u.hostname) {
+            u.hostname = ip;
+            return u.toString();
+        }
+    } catch {
+        /* malformed URL — pass through */
+    }
+    return url;
+}
 let _heartbeatLoggedOnce = false;
 
 /**
@@ -175,10 +208,18 @@ function bootstrapOchartsDrm(tokenUrl: string): void {
                                 const m = url.match(/sessionId=([^&]+)/);
                                 if (m) _drmClientSessionId = m[1];
                             }
-                            // Rewrite sessionId and make request via CapacitorHttp
-                            const fixedUrl = url.includes('sessionId=')
+                            // Rewrite sessionId
+                            const sidFixed = url.includes('sessionId=')
                                 ? url.replace(/sessionId=[^&]+/, `sessionId=${_drmServerSessionId}`)
                                 : url + `&sessionId=${_drmServerSessionId}`;
+                            // Rewrite hostname → IPv4. The o-charts script
+                            // keeps the chart host as `calypso.local`
+                            // baked into every key URL — without this
+                            // rewrite, each fetch dual-stack-races and
+                            // logs a TCP RST. Resolved IP is cached after
+                            // the first lookup, so this is free for the
+                            // 2nd-onward intercept (which is most of them).
+                            const fixedUrl = await rewriteUrlHostToIpv4(sidFixed);
                             try {
                                 const capRes = await CapacitorHttp.get({
                                     url: fixedUrl,
