@@ -108,7 +108,19 @@ sudo -u "$REAL_USER" npm install --prefix "$INSTALL_DIR" >/dev/null 2>&1
 echo -e "  ${GREEN}✓${NC} Dependencies installed"
 
 echo -e "  Building..."
-sudo -u "$REAL_USER" npm run build --prefix "$INSTALL_DIR" >/dev/null 2>&1
+# Capture build output so a failure is visible. Without this, set -e
+# kills the script silently on any tsc error and the user just sees
+# "Building..." then prompt — happened in the Phase 13 deploy when
+# @types/geojson wasn't pinned. Spend the screen real estate; surface
+# the failure.
+BUILD_LOG="$INSTALL_DIR/.last-build.log"
+if ! sudo -u "$REAL_USER" npm run build --prefix "$INSTALL_DIR" >"$BUILD_LOG" 2>&1; then
+    echo -e "  ${RED}✗${NC} Build failed. Output:"
+    sed 's/^/    /' "$BUILD_LOG" | head -40
+    echo ""
+    echo -e "  ${RED}Aborting install.${NC} Full log: $BUILD_LOG"
+    exit 1
+fi
 echo -e "  ${GREEN}✓${NC} Built"
 
 # Remove devDependencies (typescript etc.) to save ~50MB on the Pi
