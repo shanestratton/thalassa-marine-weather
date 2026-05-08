@@ -14,6 +14,18 @@ import { createLogger } from '../utils/createLogger';
 import { CapacitorHttp } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { piCache } from './PiCacheService';
+// Lazy import to avoid a circular dependency; resolved at runtime when
+// a download finishes. AvNavService imports nothing from this file, so
+// the cycle is purely structural — runtime require keeps the module
+// graph clean.
+async function refreshAvNavCharts(): Promise<void> {
+    try {
+        const mod = await import('./AvNavService');
+        await mod.AvNavService.refreshCharts();
+    } catch (err) {
+        log.warn('Failed to refresh AvNav chart catalog after download:', err);
+    }
+}
 
 const log = createLogger('ChartLocker');
 
@@ -870,37 +882,79 @@ class ChartLockerServiceImpl {
     async resolveMediaFireUrl(pageUrl: string): Promise<string> {
         log.info(`[MediaFire] Resolving: ${pageUrl}`);
 
+        // Use a more browser-y User-Agent to avoid bot-detection paths
+        // MediaFire occasionally serves to scripts (which hide the
+        // download button entirely behind a JS challenge).
         const response = await CapacitorHttp.get({
             url: pageUrl,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)',
-                Accept: 'text/html',
+                'User-Agent':
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 ' +
+                    '(KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+                Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Cache-Control': 'no-cache',
             },
         });
 
         if (response.status !== 200) {
-            throw new Error(`MediaFire page returned HTTP ${response.status}`);
+            throw new Error(
+                `MediaFire returned HTTP ${response.status} for ${pageUrl}. ` +
+                    `The link may be region-locked or the host may be blocking iOS clients.`,
+            );
         }
 
         const html = typeof response.data === 'string' ? response.data : JSON.stringify(response.data);
 
-        // MediaFire puts the direct download URL in an <a> with id="downloadButton"
-        // Pattern: href="https://download....mediafire.com/..."
-        const patterns = [
-            /id="downloadButton"[^>]*href="([^"]+)"/,
-            /href="(https:\/\/download[^"]*mediafire\.com[^"]+)"/,
-            /aria-label="Download file"[^>]*href="([^"]+)"/,
+        // MediaFire's HTML shape changes regularly. We try every pattern
+        // we've seen, in rough recency order. If they all fail we surface
+        // the page size + a snippet so we can tell whether the page came
+        // through OK and just doesn't match — versus an empty / blocked
+        // response. That distinction matters when triaging "Chart Locker
+        // broken" reports.
+        const patterns: Array<[string, RegExp]> = [
+            ['id=downloadButton', /id="downloadButton"[^>]*href="([^"]+)"/],
+            ['data-scrambled-url', /data-scrambled-url="([^"]+)"/],
+            ['scrambledUrl JSON', /"scrambledUrl"\s*:\s*"([^"]+)"/],
+            ['aria-label Download', /aria-label="Download file"[^>]*href="([^"]+)"/],
+            ['href download.mediafire', /href="(https:\/\/download[^"]*mediafire\.com[^"]+)"/],
+            ['href download[0-9].mediafire', /href="(https:\/\/download\d+\.mediafire\.com[^"]+)"/],
         ];
 
-        for (const pattern of patterns) {
+        for (const [name, pattern] of patterns) {
             const match = html.match(pattern);
             if (match?.[1]) {
-                log.info(`[MediaFire] Resolved: ${match[1].substring(0, 80)}...`);
-                return match[1];
+                let resolved = match[1];
+                // Some patterns yield base64-scrambled URLs that need
+                // decoding (a recent MediaFire anti-scrape measure).
+                if (name.includes('scrambled')) {
+                    try {
+                        resolved = atob(resolved);
+                    } catch {
+                        /* not base64 — use as-is */
+                    }
+                }
+                log.info(`[MediaFire] Resolved via ${name}: ${resolved.substring(0, 80)}...`);
+                return resolved;
             }
         }
 
-        throw new Error('Could not find download link on MediaFire page. The file may have been moved or removed.');
+        // None of the patterns matched. Was the response real HTML or a
+        // bot-detection page? Capture a fingerprint to help diagnosis.
+        const looksLikeChallenge =
+            html.includes('captcha') ||
+            html.includes('challenge') ||
+            html.includes('Just a moment') ||
+            html.length < 2000;
+        const snippet = html.substring(0, 200).replace(/\s+/g, ' ');
+        log.warn(`[MediaFire] No pattern matched. html.length=${html.length}, snippet="${snippet}"`);
+
+        throw new Error(
+            looksLikeChallenge
+                ? 'MediaFire is showing a bot-challenge page. Open the link in a browser, then try again — or use a different chart source.'
+                : 'MediaFire HTML structure has changed. The download link could not be auto-resolved. Please open the link in a browser as a one-time workaround.',
+        );
     }
 
     /**
@@ -1060,6 +1114,10 @@ class ChartLockerServiceImpl {
                 bytesTotal: actualSize,
             });
 
+            // Force-refresh Thalassa's chart catalog (matching the
+            // pi-direct path) so the new chart shows up in the Charts
+            // page immediately rather than after the next 5-min poll.
+            void refreshAvNavCharts();
             return { success: true };
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
@@ -1431,6 +1489,12 @@ class ChartLockerServiceImpl {
                         bytesTotal: total,
                     });
                     log.info(`[PiDirect] Job ${jobId} complete: ${transferred} bytes`);
+                    // Force-refresh Thalassa's chart catalog so the new
+                    // chart appears in the Charts page within seconds
+                    // instead of the 5-minute polling interval. This is
+                    // the difference between "downloaded but invisible"
+                    // and "tap once and the chart is there".
+                    void refreshAvNavCharts();
                     return { success: true };
                 }
 
