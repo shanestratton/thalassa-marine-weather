@@ -1164,8 +1164,13 @@ class AvNavServiceClass {
             // They're slow over cellular and Thalassa already has its own base maps.
             if (chartKey.startsWith('system-mapproxy@')) continue;
 
-            // Skip other system/internal charts that aren't user-uploaded or o-charts
-            if (chartKey.startsWith('int@')) continue;
+            // NOTE: AvNav uses the `int@` prefix for ALL charts in its
+            // internal chart directory (/var/lib/avnav/charts/), which is
+            // where Chart Locker downloads land. We previously blanket-
+            // skipped `int@` thinking it meant "system internal" — that
+            // was wrong, and it hid every user-uploaded mbtiles/gemf/kap
+            // from the layer FAB. Online descriptors (osm-online.xml etc)
+            // are already filtered above by `name.includes('online')`.
 
             let tilesUrl = '';
 
