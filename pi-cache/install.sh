@@ -175,6 +175,16 @@ if ! command -v avahi-daemon &>/dev/null; then
 fi
 systemctl enable --now avahi-daemon >/dev/null 2>&1
 
+# ── Install GDAL for ENC (S-57) chart conversion ──
+# pi-cache exposes /api/enc/convert which shells out to ogr2ogr to
+# transform user-imported S-57 cells into GeoJSON for routing-grade
+# hazard checks. GDAL is a one-line apt install on Raspberry Pi OS.
+
+if ! command -v ogr2ogr &>/dev/null; then
+    echo -e "  Installing GDAL (for ENC chart conversion)..."
+    apt-get install -y gdal-bin >/dev/null 2>&1
+fi
+
 AVAHI_SERVICE_FILE="/etc/avahi/services/thalassa-cache.service"
 tee "$AVAHI_SERVICE_FILE" > /dev/null <<'AVAHIEOF'
 <?xml version="1.0" standalone='no'?>

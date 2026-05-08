@@ -9,7 +9,8 @@ import type { BathymetryGrid } from '../BathymetryCache';
 import { isLand, isNearShore, getDepthFromCache } from '../BathymetryCache';
 import type { IsochroneNode } from './types';
 import { haversineNm, initialBearing, projectPosition } from './geodesy';
-import { GebcoDepthService } from '../GebcoDepthService';
+import * as HazardQueryService from '../HazardQueryService';
+import type { HazardResult } from '../HazardQueryService';
 import { createLogger } from '../../utils/createLogger';
 
 const landLog = createLogger('LandAvoidance');
@@ -395,15 +396,12 @@ const MAX_FIX_DEPTH = 6;
 const MAX_VALIDATION_PASSES = 5;
 
 /**
- * Hazard depth threshold for GEBCO validation.
- * Any depth shallower than this is treated as a hazard (land, reef, shoal).
- * GEBCO uses negative values for ocean depth, so -10 means "shallower than 10m".
- */
-const GEBCO_HAZARD_DEPTH_M = -15;
-
-/**
  * Generate sample points along a great-circle segment at FINE_SAMPLE_SPACING_NM intervals.
  * Returns array of {lat, lon, frac} where frac is 0..1 along the segment.
+ *
+ * Hazard threshold logic (was the local GEBCO_HAZARD_DEPTH_M = -15 constant)
+ * now lives in HazardQueryService, which is the single source of truth for
+ * "is this a hazard?" judgements across both ENC and GEBCO data.
  */
 function sampleSegment(
     lat1: number,
@@ -434,14 +432,19 @@ function sampleSegment(
 }
 
 /**
- * Check if a segment crosses land OR shallow hazards using GEBCO depth data.
- * Flags any point shallower than GEBCO_HAZARD_DEPTH_M (land, reefs, shoals).
- * Returns the index of the first hazardous sample, or -1 if clear.
+ * Check if a segment crosses land or shallow hazards using the
+ * unified HazardQueryService results (ENC where available, GEBCO
+ * otherwise). Returns the index of the first hazardous sample, or
+ * -1 if clear.
+ *
+ * Each result carries the canonical `isHazard` flag — ENC's
+ * spatial-index judgement when an ENC cell covers the point, the
+ * GEBCO depth threshold elsewhere — so we no longer have to apply
+ * the threshold ourselves.
  */
-function findHazardInResults(depths: { depth_m: number | null }[], startIdx: number, count: number): number {
+function findHazardInResults(results: HazardResult[], startIdx: number, count: number): number {
     for (let i = 0; i < count; i++) {
-        const d = depths[startIdx + i]?.depth_m;
-        if (d !== null && d !== undefined && d > GEBCO_HAZARD_DEPTH_M) return i;
+        if (results[startIdx + i]?.isHazard) return i;
     }
     return -1;
 }
@@ -458,6 +461,30 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
     if (route.length < 2) return route;
 
     let result = [...route];
+
+    // Pre-warm any ENC spatial indexes covering the route bbox so the
+    // first hot-path query doesn't pay the index-build cost.
+    let bboxMinLon = Infinity;
+    let bboxMinLat = Infinity;
+    let bboxMaxLon = -Infinity;
+    let bboxMaxLat = -Infinity;
+    for (const node of route) {
+        if (node.lon < bboxMinLon) bboxMinLon = node.lon;
+        if (node.lat < bboxMinLat) bboxMinLat = node.lat;
+        if (node.lon > bboxMaxLon) bboxMaxLon = node.lon;
+        if (node.lat > bboxMaxLat) bboxMaxLat = node.lat;
+    }
+    if (
+        Number.isFinite(bboxMinLon) &&
+        HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])
+    ) {
+        try {
+            await HazardQueryService.preloadEncForBBox([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat]);
+            landLog.info('[ValidateRoute] ENC coverage detected — preloaded spatial indexes');
+        } catch (err) {
+            landLog.warn('[ValidateRoute] ENC preload failed (continuing with GEBCO only)', err);
+        }
+    }
 
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
         // ── 1. Sample all segments ──
@@ -477,17 +504,19 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
 
         if (allSamples.length === 0) break;
 
-        // ── 2. Batch-query GEBCO depths ──
-        const allDepths: { depth_m: number | null }[] = [];
+        // ── 2. Batch-query unified hazards (ENC where covered, GEBCO elsewhere) ──
+        const allResults: HazardResult[] = [];
         try {
-            // Split into batches to respect edge function limits
+            // Batch size still applies to the GEBCO portion of any
+            // query; HazardQueryService internally short-circuits
+            // ENC-covered points so we don't waste edge-fn calls.
             for (let batchStart = 0; batchStart < allSamples.length; batchStart += GEBCO_BATCH_SIZE) {
                 const batch = allSamples.slice(batchStart, batchStart + GEBCO_BATCH_SIZE);
-                const results = await GebcoDepthService.queryDepths(batch);
-                allDepths.push(...results);
+                const batchResults = await HazardQueryService.queryHazards(batch);
+                allResults.push(...batchResults);
             }
         } catch (err) {
-            landLog.warn('[ValidateRoute] GEBCO query failed, skipping island validation:', err);
+            landLog.warn('[ValidateRoute] hazard query failed, skipping island validation:', err);
             return result;
         }
 
@@ -496,14 +525,18 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
         for (let i = 0; i < segmentMeta.length; i++) {
             const { startSampleIdx, sampleCount } = segmentMeta[i];
             if (sampleCount === 0) continue;
-            const hazardIdx = findHazardInResults(allDepths, startSampleIdx, sampleCount);
+            const hazardIdx = findHazardInResults(allResults, startSampleIdx, sampleCount);
             if (hazardIdx >= 0) {
                 landSegments.push(i);
             }
         }
 
         if (landSegments.length === 0) {
-            landLog.info(`[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples)`);
+            const encHits = allResults.filter((r) => r.source === 'enc').length;
+            const gebcoHits = allResults.filter((r) => r.source === 'gebco').length;
+            landLog.info(
+                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})`,
+            );
             break;
         }
 
@@ -565,15 +598,14 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
         }
     }
 
-    // ── 2. Batch-query all candidate points in ONE call ──
-    const candidateDepths = await GebcoDepthService.queryDepths(
+    // ── 2. Batch-query all candidate points in ONE call (ENC + GEBCO unified) ──
+    const candidateResults = await HazardQueryService.queryHazards(
         candidates.map((c) => ({ lat: c.pt.lat, lon: c.pt.lon })),
     );
 
     // ── 3. Find the first water-based candidate (smallest push first) ──
     for (let i = 0; i < candidates.length; i++) {
-        const d = candidateDepths[i]?.depth_m;
-        if (d !== null && d !== undefined && d > GEBCO_HAZARD_DEPTH_M) continue; // Land/reef/shoal — skip
+        if (candidateResults[i]?.isHazard) continue; // Land/reef/shoal/wreck/rock — skip
 
         const { pt, pushNM, bearing } = candidates[i];
 
@@ -583,12 +615,10 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
         const allSubSamples = [...samplesA, ...samplesB];
 
         if (allSubSamples.length > 0) {
-            const subDepths = await GebcoDepthService.queryDepths(
+            const subResults = await HazardQueryService.queryHazards(
                 allSubSamples.map((s) => ({ lat: s.lat, lon: s.lon })),
             );
-            const hasHazard = subDepths.some(
-                (sd) => sd.depth_m !== null && sd.depth_m !== undefined && sd.depth_m > GEBCO_HAZARD_DEPTH_M,
-            );
+            const hasHazard = subResults.some((r) => r.isHazard);
             if (hasHazard) continue; // Sub-segments cross land/reef — try next candidate
         }
 
@@ -605,8 +635,9 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
             distance: a.distance + haversineNm(a.lat, a.lon, pt.lat, pt.lon),
         };
 
+        const dataSource = candidateResults[i]?.source ?? 'gebco';
         landLog.info(
-            `[ValidateRoute] Detour: pushed ${pushNM} NM ${bearing === leftBearing ? 'port' : 'starboard'} at depth ${depth}`,
+            `[ValidateRoute] Detour: pushed ${pushNM} NM ${bearing === leftBearing ? 'port' : 'starboard'} (source=${dataSource}, depth=${depth})`,
         );
         return [detourNode];
     }
@@ -614,8 +645,7 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
     // ── 4. Simple push failed — try recursive subdivision ──
     // Find a water-based midpoint from the candidates we already queried
     for (let i = 0; i < candidates.length; i++) {
-        const d = candidateDepths[i]?.depth_m;
-        if (d !== null && d !== undefined && d > GEBCO_HAZARD_DEPTH_M) continue; // Land/reef/shoal
+        if (candidateResults[i]?.isHazard) continue; // Land/reef/shoal
 
         const { pt } = candidates[i];
         const waterMid: IsochroneNode = {
