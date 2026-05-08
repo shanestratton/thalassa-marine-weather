@@ -21,7 +21,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
 import { getCoverage as getEncCoverage, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
-import type { EncCell } from '../../services/enc/types';
+import type { EncCatzoc, EncCell } from '../../services/enc/types';
+import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 
 // ── Bbox helpers ──────────────────────────────────────────────────
 
@@ -41,6 +42,37 @@ function getViewportBounds(map: mapboxgl.Map): { west: number; south: number; ea
         south: b.getSouth(),
         east: b.getEast(),
         north: b.getNorth(),
+    };
+}
+
+/**
+ * Compute the worst CATZOC across cells in view. Returns null if
+ * no cells ship M_QUAL data — `null` here means "we don't know,"
+ * not "everything's fine."
+ */
+function worstCatzocInView(cells: EncCell[]): EncCatzoc | null {
+    let worst: EncCatzoc | null = null;
+    for (const c of cells) {
+        if (!c.catzocRange) continue;
+        const cellWorst = c.catzocRange[1];
+        if (worst === null || cellWorst > worst) worst = cellWorst;
+    }
+    return worst;
+}
+
+/**
+ * Pick a UI tone for a CATZOC bucket. We map to coloured pills in
+ * the chip — emerald for high confidence (A1/A2), sky for B,
+ * amber for C/D/U, gray when M_QUAL missing entirely.
+ */
+function catzocTone(c: EncCatzoc | null): { dot: string; text: string; label: string } {
+    if (c === null) return { dot: 'bg-gray-500', text: 'text-gray-300/70', label: 'no CATZOC' };
+    if (c <= 2) return { dot: 'bg-emerald-400', text: 'text-emerald-300', label: `CATZOC ${CATZOC_LABELS[c]}` };
+    if (c === 3) return { dot: 'bg-sky-400', text: 'text-sky-300', label: `CATZOC ${CATZOC_LABELS[c]}` };
+    return {
+        dot: 'bg-amber-400',
+        text: 'text-amber-300',
+        label: `CATZOC ${CATZOC_LABELS[c]} — verify visually`,
     };
 }
 
@@ -116,6 +148,8 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
         sources.length === 1
             ? `${sources[0].ho} ed.${cellsInView[0].edition} (${cellsInView[0].issued.slice(0, 4)})`
             : sources.map((s) => s.ho).join(', ');
+    const worstCatzoc = worstCatzocInView(cellsInView);
+    const tone = catzocTone(worstCatzoc);
 
     return (
         <div
@@ -125,9 +159,11 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
         >
             <button
                 onClick={() => setExpanded((x) => !x)}
-                className="rounded-lg border border-emerald-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right"
+                className="rounded-lg border border-emerald-400/30 bg-black/60 backdrop-blur-sm px-2 py-1 text-[10px] leading-tight text-emerald-100/85 hover:bg-black/75 transition-colors text-right flex items-center gap-1.5"
             >
-                <span className="font-bold text-emerald-300">{'⚓'} Charts:</span> <span>{compactLabel}</span>
+                <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${tone.dot}`} aria-hidden="true" />
+                <span className="font-bold text-emerald-300">{'⚓'} Charts:</span>
+                <span>{compactLabel}</span>
                 {cellsInView.length > 1 && (
                     <span className="text-emerald-300/70 ml-1">· {cellsInView.length} cells</span>
                 )}
@@ -143,9 +179,22 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                                 {' '}
                                 · {cell.sourceHO} ed.{cell.edition} · {cell.issued.slice(0, 7)}
                             </span>
+                            {cell.catzocRange && (
+                                <span
+                                    className={`ml-1 ${isLowConfidenceCatzoc(cell.catzocRange[1]) ? 'text-amber-300' : 'text-emerald-300/70'}`}
+                                >
+                                    · CATZOC {CATZOC_LABELS[cell.catzocRange[0]]}
+                                    {cell.catzocRange[0] !== cell.catzocRange[1] &&
+                                        `..${CATZOC_LABELS[cell.catzocRange[1]]}`}
+                                </span>
+                            )}
                         </div>
                     ))}
-                    <p className="mt-2 text-[9px] text-emerald-300/50 italic">
+                    <p className={`mt-2 text-[10px] ${tone.text}`}>
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle ${tone.dot}`} />
+                        Worst confidence in view: {tone.label}
+                    </p>
+                    <p className="mt-1 text-[9px] text-emerald-300/50 italic">
                         Source: hydrographic offices. Verify visually before navigation.
                     </p>
                 </div>

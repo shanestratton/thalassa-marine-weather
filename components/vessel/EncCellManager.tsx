@@ -34,6 +34,8 @@ import {
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
 import type { EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
+import { requestMapFit } from '../../stores/MapFitTargetStore';
+import { useUI } from '../../context/UIContext';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -117,20 +119,40 @@ const ImportProgressBar: React.FC<{ progress: EncImportProgress }> = ({ progress
 const CellRow: React.FC<{
     cell: EncCell;
     onDelete: (cellId: string) => void;
+    onShowOnMap: (cell: EncCell) => void;
     busy: boolean;
-}> = ({ cell, onDelete, busy }) => {
+}> = ({ cell, onDelete, onShowOnMap, busy }) => {
     const [confirming, setConfirming] = useState(false);
     return (
         <div className="flex items-start gap-2 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-            <span className="text-base shrink-0 mt-0.5">{'\u{1F5FA}'}</span>
+            <button
+                onClick={() => {
+                    triggerHaptic('light');
+                    onShowOnMap(cell);
+                }}
+                disabled={busy}
+                className="text-base shrink-0 mt-0.5 hover:scale-110 active:scale-95 transition-transform"
+                title="Show coverage on map"
+                aria-label={`Show ${cell.id} coverage on map`}
+            >
+                {'\u{1F5FA}'}
+            </button>
             <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-white truncate">
                     {cell.id}
                     <span className="ml-2 text-[10px] text-sky-300 font-mono">{cell.sourceHO}</span>
                 </p>
-                <p className="text-[11px] text-gray-500 truncate" title={formatBBox(cell.bbox)}>
+                <button
+                    onClick={() => {
+                        triggerHaptic('light');
+                        onShowOnMap(cell);
+                    }}
+                    disabled={busy}
+                    className="text-[11px] text-gray-500 truncate hover:text-sky-300 active:scale-[0.99] transition-colors text-left w-full"
+                    title="Show coverage on map"
+                >
                     {formatBBox(cell.bbox)}
-                </p>
+                </button>
                 <p className="text-[11px] text-gray-600">
                     Edition {cell.edition} · Issued {cell.issued} · Imported {formatRelative(cell.importedAt)} ·{' '}
                     {cell.hazardCount.toLocaleString()} features
@@ -265,6 +287,27 @@ export const EncCellManager: React.FC = () => {
         [refreshCells],
     );
 
+    const ui = useUI();
+
+    /**
+     * "Show on map" — stages a fit request for MapHub then
+     * navigates to the map view. MapHub picks up the request when
+     * its tab becomes active and frames the cell's bbox so the
+     * user immediately sees their coverage area.
+     */
+    const handleShowOnMap = useCallback(
+        (cell: EncCell) => {
+            requestMapFit({
+                bbox: cell.bbox,
+                paddingPx: 80,
+                maxZoom: 11,
+                label: `cell ${cell.id}`,
+            });
+            ui.setPage('map');
+        },
+        [ui],
+    );
+
     return (
         <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
             <button
@@ -375,7 +418,13 @@ export const EncCellManager: React.FC = () => {
                         ) : (
                             <div className="space-y-2">
                                 {cells.map((cell) => (
-                                    <CellRow key={cell.id} cell={cell} onDelete={handleDelete} busy={importing} />
+                                    <CellRow
+                                        key={cell.id}
+                                        cell={cell}
+                                        onDelete={handleDelete}
+                                        onShowOnMap={handleShowOnMap}
+                                        busy={importing}
+                                    />
                                 ))}
                             </div>
                         )}

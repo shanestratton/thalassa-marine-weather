@@ -165,9 +165,15 @@ export const TripOverviewSheet: React.FC<TripOverviewSheetProps> = ({ isOpen, on
                 setCountrySnippets(snippetsForPdf);
             }
             const { generateTripPdf } = await import('../../services/TripPdfService');
+            // Pull the most recent ENC hazard report, if any.
+            // Singleton-stashed by validateRouteSegments; will be
+            // null when no ENC coverage on the most recent route
+            // (the PDF section just doesn't render in that case).
+            const { getLastReport } = await import('../../services/enc/EncHazardReportService');
             const blob = generateTripPdf(toRender, {
                 vesselName: settings.vessel?.name,
                 countrySnippets: snippetsForPdf,
+                hazardReport: getLastReport(),
             });
             const filename = `Trip · ${toRender.name.replace(/\s*→\s*/g, ' to ')}.pdf`;
 

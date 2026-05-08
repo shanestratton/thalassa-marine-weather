@@ -78,9 +78,16 @@ interface HazardReportPanelProps {
     /** Hide the panel even if a report exists — used when passage
      *  mode is off (no route on screen). */
     visible: boolean;
+    /**
+     * Optional click handler. When supplied, each hazard row in
+     * the expanded list becomes tappable and dispatches the
+     * representative point — typically wired by the map host to
+     * fly-to that lat/lon. When omitted, rows are non-interactive.
+     */
+    onHazardClick?: (entry: RouteHazardReportEntry) => void;
 }
 
-export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible }) => {
+export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, onHazardClick }) => {
     const report = useLastHazardReport();
     const [expanded, setExpanded] = useState(false);
 
@@ -131,11 +138,23 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible })
                 >
                     {report.entries.map((entry, i) => {
                         const lowConf = isLowConfidenceCatzoc(entry.catzoc);
+                        const interactive = !!onHazardClick;
+                        const Wrapper: React.ElementType = interactive ? 'button' : 'div';
                         return (
-                            <div
+                            <Wrapper
                                 key={`${entry.cellId}-${entry.representativePoint.lat}-${entry.representativePoint.lon}-${i}`}
-                                className="py-1.5 border-b border-amber-500/10 last:border-b-0"
+                                className={`w-full text-left py-1.5 border-b border-amber-500/10 last:border-b-0 ${
+                                    interactive
+                                        ? 'cursor-pointer hover:bg-amber-500/[0.04] active:bg-amber-500/[0.08] active:scale-[0.99] transition-colors -mx-1 px-1 rounded'
+                                        : ''
+                                }`}
                                 role="listitem"
+                                onClick={interactive ? () => onHazardClick?.(entry) : undefined}
+                                aria-label={
+                                    interactive
+                                        ? `Show ${entry.description ?? hazardLabel(entry.hazardType)} on map`
+                                        : undefined
+                                }
                             >
                                 <div className="flex items-start gap-2">
                                     <span className="text-sm shrink-0 mt-0.5">{hazardIcon(entry.hazardType)}</span>
@@ -163,7 +182,7 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible })
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                            </Wrapper>
                         );
                     })}
                     <p className="mt-2 text-[10px] text-amber-300/50 italic">
