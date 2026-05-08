@@ -20,7 +20,6 @@ import { SystemStatusButton } from './components/SystemStatusButton';
 import { canAccess } from './services/SubscriptionService';
 import { AlertMonitorService } from './services/AlertMonitorService';
 import { ToastPortal, toast } from './components/Toast';
-import { ConnectivityBanner } from './components/ui/ConnectivityBanner';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { checkDisclaimerAccepted } from './modules/LegalGuard';
@@ -294,10 +293,28 @@ const App: React.FC = () => {
                     Skip to content
                 </a>
 
-                {/* CONNECTIVITY BANNER — offline/reconnect awareness.
-                    Skipped on the map page — the map renders a floating pill
-                    version next to the ℹ button instead (see below). */}
-                {currentView !== 'map' && <ConnectivityBanner />}
+                {/* The full-width strip ConnectivityBanner used to live here.
+                    Removed 2026-05-08 — three concrete problems it was causing:
+                      (a) On Dashboard, the strip took ~70px of flex flow,
+                          which pushed `<main>`'s PageTransition wrapper down.
+                          PageTransition uses `transform`, which creates a
+                          containing block for `position: fixed` children, so
+                          every fixed-position widget inside the Glass page
+                          (CompactHeaderRow, HeroHeader, conditions card,
+                          hero container) shifted down by the banner height —
+                          surfacing as a huge black gap between the location
+                          pill and the warnings row.
+                      (b) On Scuttlebutt + NavStation it was just visually
+                          loud — a full-width "● NO SIGNAL" amber bar at the
+                          top of an otherwise-tidy page.
+                      (c) The Glass page already shows a tasteful wifi-slash
+                          chip inside the location pill; the strip was
+                          redundant on top of that.
+                    Replaced with a small wifi-slash icon next to the "The
+                    Sailor's Assistant" subtitle (see header below) and a
+                    matching tiny chip on the map page. The map's floating
+                    `<ConnectivityBanner variant="floating" />` is also
+                    removed (see map block lower in this file). */}
 
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
@@ -362,8 +379,37 @@ const App: React.FC = () => {
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-[11px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md">
+                                    <p className="text-[11px] text-sky-200 uppercase tracking-widest shadow-black drop-shadow-md flex items-center gap-1.5">
                                         The Sailor's Assistant
+                                        {/* Subtle offline indicator — tiny amber wifi-slash next
+                                            to the tagline, matching the chip already inside the
+                                            Glass page's location pill. Replaces the loud
+                                            full-width "NO SIGNAL" strip. */}
+                                        {isOffline && (
+                                            <span
+                                                className="inline-flex items-center gap-1 text-amber-400/80"
+                                                title="Offline — using cached data"
+                                                aria-label="Offline"
+                                            >
+                                                <svg
+                                                    className="w-3 h-3"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2}
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                >
+                                                    <path d="M1 1l22 22" />
+                                                    <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+                                                    <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+                                                    <path d="M10.71 5.05A16 16 0 0122.58 9" />
+                                                    <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+                                                    <path d="M8.53 16.11a6 6 0 016.95 0" />
+                                                    <line x1="12" y1="20" x2="12.01" y2="20" />
+                                                </svg>
+                                            </span>
+                                        )}
                                     </p>
                                 </div>
                             </div>
@@ -628,19 +674,40 @@ const App: React.FC = () => {
                                 />
                             </Suspense>
                         </ErrorBoundary>
-                        {/* Offline pill — sits inline with the mic + ℹ pair, fills the
-                            horizontal space from the left edge up to the buttons. Pair
-                            occupies: 44px mic + 8px gap + 48px ℹ + 16px right inset = 116. */}
-                        <div
-                            className="absolute z-[601] pointer-events-auto"
-                            style={{
-                                top: '56px',
-                                left: '16px',
-                                right: '124px',
-                            }}
-                        >
-                            <ConnectivityBanner variant="floating" />
-                        </div>
+                        {/* Offline chip — matches the wifi-slash chip in the App header
+                            and the Glass page's location-pill chip. Sits at top-left, only
+                            visible when offline. Replaces the previous full-width amber
+                            "NO SIGNAL" floating pill which clashed with the subtle treatment
+                            on every other page. */}
+                        {isOffline && (
+                            <div
+                                className="absolute z-[601] pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
+                                style={{
+                                    top: '56px',
+                                    left: '16px',
+                                }}
+                                title="Offline — using cached charts"
+                                aria-label="Offline"
+                            >
+                                <svg
+                                    className="w-4 h-4"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                >
+                                    <path d="M1 1l22 22" />
+                                    <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+                                    <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+                                    <path d="M10.71 5.05A16 16 0 0122.58 9" />
+                                    <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+                                    <path d="M8.53 16.11a6 6 0 016.95 0" />
+                                    <line x1="12" y1="20" x2="12.01" y2="20" />
+                                </svg>
+                            </div>
+                        )}
                         {/* Bosun mic (Skipper-tier) + System status ℹ — paired top-right on map view */}
                         <div
                             className="absolute z-[601] pointer-events-auto flex items-center gap-2"
