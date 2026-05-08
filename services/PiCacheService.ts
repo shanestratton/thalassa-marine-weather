@@ -73,8 +73,10 @@ class PiCacheServiceImpl {
     private config: PiCacheConfig = { enabled: false, host: '', port: 3001 };
     private status: PiCacheStatus = { reachable: false, lastCheck: 0, latencyMs: 0 };
     private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+    private retryBurstTimer: ReturnType<typeof setTimeout> | null = null;
     private discoveryListeners: Array<(status: PiCacheStatus) => void> = [];
     private locationUnsub: (() => void) | null = null;
+    private foregroundListenersInstalled = false;
 
     // ── Fetch Stats ──
     private _fetchStats: PiFetchStats = {
@@ -216,6 +218,39 @@ class PiCacheServiceImpl {
 
         if (enabled) {
             this.configure({ enabled: true, host, port });
+        }
+
+        // App-foreground / network-online listeners are installed once at boot
+        // and live for the app's lifetime. They trigger a fresh ping any time
+        // the app comes back into focus or the network reconnects — covers the
+        // common case where the user backgrounds the app, returns later, and
+        // expects the pi-cache pill to be live immediately rather than waiting
+        // up to 30s for the next health-check tick.
+        this.installForegroundListeners();
+    }
+
+    private installForegroundListeners(): void {
+        if (this.foregroundListenersInstalled) return;
+        this.foregroundListenersInstalled = true;
+
+        if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden) return;
+                if (!this.config.enabled) return;
+                // App back in focus — ping immediately so the pill reflects
+                // current reality, don't wait for the next 30s interval.
+                this.ping().catch(() => {
+                    /* ping failures already drive the listener path */
+                });
+            });
+        }
+
+        if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+            window.addEventListener('online', () => {
+                if (!this.config.enabled) return;
+                // Network came back — Pi might be reachable again. Ping now.
+                this.ping().catch(() => {});
+            });
         }
     }
 
@@ -462,16 +497,36 @@ class PiCacheServiceImpl {
     }
 
     private startHealthChecks(): void {
-        // If no host configured, run discovery first
+        // ── Initial check + retry-burst on cold-start failure ────────────
+        //
+        // The naive "check once, then 30s interval" pattern means a Pi that
+        // wasn't reachable at the very first attempt (cold WiFi waking up,
+        // mDNS still resolving calypso.local, brief packet loss) stays red
+        // for up to 30s before the next health-check tick. The pill on the
+        // dashboard sits there looking dead while the user knows the Pi is
+        // fine.
+        //
+        // Fix: on initial failure, run a retry burst at 2s / 5s / 10s
+        // before settling into the steady-state 30s cadence. Cheap, covers
+        // the common "Pi reaches reachability ~5s after app boot" case.
         if (!this.config.host) {
-            this.discover().then(() => {
-                if (this.status.reachable) {
-                    this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
+            // No saved host — full discovery is the only option.
+            this.discover().then((status) => {
+                if (status.reachable) {
+                    this.scheduleSteadyState();
+                } else {
+                    this.scheduleRetryBurst();
                 }
             });
         } else {
-            this.checkHealth();
-            this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
+            // Saved host — try fast checkHealth first.
+            this.checkHealth().then((reachable) => {
+                if (reachable) {
+                    this.scheduleSteadyState();
+                } else {
+                    this.scheduleRetryBurst();
+                }
+            });
         }
 
         // Subscribe to location changes — push to Pi as the boat moves
@@ -482,10 +537,64 @@ class PiCacheServiceImpl {
         }
     }
 
+    /** Steady-state: 30s health-check interval. Clears any in-flight retry burst. */
+    private scheduleSteadyState(): void {
+        if (this.retryBurstTimer) {
+            clearTimeout(this.retryBurstTimer);
+            this.retryBurstTimer = null;
+        }
+        if (this.healthCheckInterval) clearInterval(this.healthCheckInterval);
+        this.healthCheckInterval = setInterval(() => this.checkHealth(), 30_000);
+    }
+
+    /**
+     * Cold-start retry burst: 2s, 5s, 10s. Alternates between checkHealth
+     * (fast, uses saved host) and discover (covers IP-changed / hostname-stale
+     * cases). As soon as ANY attempt succeeds, switches to steady-state. If
+     * all retries fail, also switches to steady-state — at that point the Pi
+     * is genuinely offline and the 30s cadence is appropriate.
+     */
+    private scheduleRetryBurst(): void {
+        if (this.retryBurstTimer) clearTimeout(this.retryBurstTimer);
+        const delays = [2000, 5000, 10000];
+        let attempt = 0;
+        const tryAgain = async () => {
+            this.retryBurstTimer = null;
+            if (!this.config.enabled) return; // user disabled mid-burst — bail
+            if (this.status.reachable) {
+                this.scheduleSteadyState();
+                return;
+            }
+            // Alternate strategy: 1st retry uses checkHealth (cheap, saved host).
+            // 2nd+ retries use discover (covers IP-changed / mDNS-stale cases).
+            if (attempt === 0 && this.config.host) {
+                await this.checkHealth();
+            } else {
+                await this.discover();
+            }
+            if (this.status.reachable) {
+                this.scheduleSteadyState();
+                return;
+            }
+            attempt++;
+            if (attempt < delays.length) {
+                this.retryBurstTimer = setTimeout(tryAgain, delays[attempt]);
+            } else {
+                // All bursts exhausted — Pi is genuinely offline. Steady state.
+                this.scheduleSteadyState();
+            }
+        };
+        this.retryBurstTimer = setTimeout(tryAgain, delays[0]);
+    }
+
     private stopHealthChecks(): void {
         if (this.healthCheckInterval) {
             clearInterval(this.healthCheckInterval);
             this.healthCheckInterval = null;
+        }
+        if (this.retryBurstTimer) {
+            clearTimeout(this.retryBurstTimer);
+            this.retryBurstTimer = null;
         }
         if (this.locationUnsub) {
             this.locationUnsub();
@@ -642,12 +751,23 @@ class PiCacheServiceImpl {
         }
     }
 
-    /** Force a health check right now. */
+    /**
+     * Force a health check right now.
+     *
+     * If a host is already saved: tries checkHealth first (fast, ~100ms LAN).
+     * If that fails, falls through to full discovery — covers the case where
+     * the Pi got a new DHCP IP, the saved hostname stopped resolving, or the
+     * user moved between networks (home WiFi → marina WiFi).
+     */
     async ping(): Promise<PiCacheStatus> {
         if (!this.config.host) {
             return this.discover();
         }
-        await this.checkHealth();
+        const ok = await this.checkHealth();
+        if (!ok) {
+            // Saved host unreachable — try fresh discovery as fallback.
+            await this.discover();
+        }
         return this.getStatus();
     }
 
