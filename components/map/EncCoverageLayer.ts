@@ -144,6 +144,11 @@ export function mountEncCoverageLayer(map: mapboxgl.Map, opts: EncCoverageMountO
                 id: ENC_COVERAGE_FILL_ID,
                 type: 'fill',
                 source: ENC_COVERAGE_SOURCE_ID,
+                // Hide once the user is zoomed in enough that the
+                // vector chart layer takes over (zoom 7+). The
+                // dashed bbox is just an "overview" cue at low
+                // zoom; at high zoom the actual chart is present.
+                maxzoom: 7,
                 paint: {
                     'fill-color': [
                         'match',
@@ -169,6 +174,7 @@ export function mountEncCoverageLayer(map: mapboxgl.Map, opts: EncCoverageMountO
                 id: ENC_COVERAGE_OUTLINE_ID,
                 type: 'line',
                 source: ENC_COVERAGE_SOURCE_ID,
+                maxzoom: 7,
                 paint: {
                     'line-color': [
                         'match',

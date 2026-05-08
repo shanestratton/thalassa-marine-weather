@@ -70,6 +70,7 @@ import { useSeaIceRasterLayer, isCmemsSeaIceEnabled } from './useSeaIceRasterLay
 import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
+import { useEncVectorLayer } from './useEncVectorLayer';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -1150,12 +1151,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Gated by VITE_MPA_ENABLED.
     useMpaLayer(mapRef, mapReady, weather.mpaVisible);
 
-    // ── ENC Chart Coverage (vector routing data) ──
+    // ── ENC Chart Coverage (dashed bbox overview) ──
     // Auto-mounts whenever the user has imported S-57 ENC cells.
-    // Subtle dashed-outline overlay showing where surveyed vector
-    // chart data is in play vs where routing falls back to GEBCO
-    // bathymetry. Colour-coded by CATZOC confidence.
+    // Dashed-outline overlay showing which areas are ENC-covered;
+    // most useful at low zooms (zoom <8) where the vector layer
+    // is hidden. Colour-coded by CATZOC confidence.
     useEncCoverageLayer(mapRef, mapReady);
+
+    // ── ENC Vector Chart Display ──
+    // The real chart — surveyed depth contours (DEPARE),
+    // coastlines (COALNE), tan land (LNDARE), and magenta
+    // obstruction/wreck/rock symbols. Depth-graduated blues so
+    // the user can read shoals at a glance. Mounts at zoom 7+
+    // (lower zooms get the dashed coverage overlay above).
+    useEncVectorLayer(mapRef, mapReady);
 
     // ── Pending fit-to-bbox request ──
     // Used by EncCellManager (and any future "show me on the map"
