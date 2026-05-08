@@ -389,16 +389,37 @@ async function parseS57Metadata(inputPath: string): Promise<{
         });
     });
 
-    // Cell ID — DSID:DSNM line in S-57 driver output.
-    const dsnmMatch = stdout.match(/DSNM:\s*(\S+)/) || stdout.match(/DSID_DSNM:\s*(\S+)/);
-    const cellId = dsnmMatch ? dsnmMatch[1].replace(/\.000$/i, '') : path.basename(inputPath, '.000');
+    // ── Cell metadata ──
+    // Modern GDAL (3.5+) emits the actual S-57 dataset descriptor
+    // values in a `Metadata:` block with `KEY=VALUE` lines:
+    //
+    //   Metadata:
+    //     DSID_DSNM=US5GA22M
+    //     DSID_EDTN=21
+    //     DSID_UADT=20240619
+    //
+    // Older GDAL also lists "Field DSNM: String (10.0)" entries
+    // describing the schema — `DSNM:\s*(\S+)` against THOSE captures
+    // the literal word "String" (the field type), which is the bug
+    // we just hit. Use `=` as the separator (with optional whitespace
+    // around it) and require non-whitespace content.
 
-    // Edition number — DSID:EDTN.
-    const edtnMatch = stdout.match(/EDTN:\s*(\d+)/) || stdout.match(/DSID_EDTN:\s*(\d+)/);
+    // Cell ID — DSID_DSNM in the metadata block.
+    const dsnmMatch = stdout.match(/^\s*DSID_DSNM\s*=\s*(\S+)/m) || stdout.match(/^\s*DSNM\s*=\s*(\S+)/m);
+    const rawCellId = dsnmMatch ? dsnmMatch[1].replace(/\.000$/i, '') : '';
+    // S-57 cell names are 8 characters: 2-letter HO code + 6 alphanum
+    // (e.g. AU530150, US5GA22M). When the regex misses or returns
+    // something nonsensical (a GDAL field type, "Unknown", whatever)
+    // we fall back to the source filename.
+    const cellNameOk = /^[A-Z]{2}[A-Z0-9]{4,7}$/i.test(rawCellId);
+    const cellId = cellNameOk ? rawCellId.toUpperCase() : path.basename(inputPath, '.000').toUpperCase();
+
+    // Edition number — DSID_EDTN in the metadata block.
+    const edtnMatch = stdout.match(/^\s*DSID_EDTN\s*=\s*(\d+)/m) || stdout.match(/^\s*EDTN\s*=\s*(\d+)/m);
     const edition = edtnMatch ? parseInt(edtnMatch[1], 10) : 0;
 
-    // Issue date — DSID:UADT (YYYYMMDD).
-    const uadtMatch = stdout.match(/UADT:\s*(\d{8})/) || stdout.match(/DSID_UADT:\s*(\d{8})/);
+    // Issue date — DSID_UADT in the metadata block (YYYYMMDD).
+    const uadtMatch = stdout.match(/^\s*DSID_UADT\s*=\s*(\d{8})/m) || stdout.match(/^\s*UADT\s*=\s*(\d{8})/m);
     const issued = uadtMatch
         ? `${uadtMatch[1].slice(0, 4)}-${uadtMatch[1].slice(4, 6)}-${uadtMatch[1].slice(6, 8)}`
         : new Date().toISOString().slice(0, 10);
