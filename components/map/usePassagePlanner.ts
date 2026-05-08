@@ -19,7 +19,12 @@ import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
-import { computeRoute, type RouteWaypoint, type RouteAnalysis } from '../../services/WeatherRoutingService';
+import {
+    computeRoute,
+    type RouteWaypoint,
+    type RouteAnalysis,
+    type RouteSegment,
+} from '../../services/WeatherRoutingService';
 import {
     computeIsochrones,
     isochroneToGeoJSON,
@@ -308,6 +313,63 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     `[Passage] inshore route ${inshoreRes.distanceNM.toFixed(2)} NM via ENC ` +
                         `(cells: ${inshoreRes.cellsUsed.join(',')}, ${inshoreRes.elapsedMs} ms)`,
                 );
+
+                // Build a RouteAnalysis from the polyline so the rest of
+                // the UI (save/export/banner buttons) lights up. Save
+                // and Export are gated on routeAnalysis !== null — without
+                // this they stay hidden after an inshore-only route.
+                const inshoreSpeed = speed > 0 ? speed : 6;
+                const departureDate = departureTime ? new Date(departureTime) : new Date();
+                const inshoreSegments: RouteSegment[] = [];
+                let cumDist = 0;
+                for (let i = 1; i < inshoreRes.polyline.length; i++) {
+                    const [aLon, aLat] = inshoreRes.polyline[i - 1];
+                    const [bLon, bLat] = inshoreRes.polyline[i];
+                    // Haversine in NM
+                    const R_NM_LOC = 3440.065;
+                    const dLatR = ((bLat - aLat) * Math.PI) / 180;
+                    const dLonR = ((bLon - aLon) * Math.PI) / 180;
+                    const lat1R = (aLat * Math.PI) / 180;
+                    const lat2R = (bLat * Math.PI) / 180;
+                    const hh = Math.sin(dLatR / 2) ** 2 + Math.cos(lat1R) * Math.cos(lat2R) * Math.sin(dLonR / 2) ** 2;
+                    const segNM = R_NM_LOC * 2 * Math.atan2(Math.sqrt(hh), Math.sqrt(1 - hh));
+                    cumDist += segNM;
+                    // Bearing
+                    const y = Math.sin(dLonR) * Math.cos(lat2R);
+                    const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLonR);
+                    const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+                    inshoreSegments.push({
+                        startLat: aLat,
+                        startLon: aLon,
+                        endLat: bLat,
+                        endLon: bLon,
+                        bearing,
+                        distance: segNM,
+                        cumulativeDistance: cumDist,
+                    });
+                }
+                const inshoreDuration = inshoreRes.distanceNM / inshoreSpeed; // hours
+                const arrivalDate = new Date(departureDate.getTime() + inshoreDuration * 3600_000);
+                setRouteAnalysis({
+                    waypoints: [
+                        { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
+                        { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
+                    ],
+                    segments: inshoreSegments,
+                    totalDistance: inshoreRes.distanceNM,
+                    estimatedDuration: inshoreDuration,
+                    departureTime: departureDate.toISOString(),
+                    arrivalTime: arrivalDate.toISOString(),
+                    averageSpeed: inshoreSpeed,
+                    fuelEstimate: null,
+                    maxWindSpeed: null,
+                    maxWaveHeight: null,
+                    headwindPercentage: 0,
+                    favorablePercentage: 0,
+                    minDepth: null,
+                    shallowSegments: 0,
+                    routeCoordinates: inshoreRes.polyline,
+                });
 
                 // Render the polyline as a single safe-water route line.
                 // No sea buoy gates, no harbour legs, no isochrone — the
