@@ -390,43 +390,83 @@ async function parseS57Metadata(inputPath: string): Promise<{
     });
 
     // ── Cell metadata ──
-    // Modern GDAL (3.5+) emits the actual S-57 dataset descriptor
-    // values in a `Metadata:` block with `KEY=VALUE` lines:
+    // Earlier attempts parsed `ogrinfo -al -so` text output. That
+    // turned out to be fragile across GDAL versions — the `-so`
+    // flag emits a *schema description* ("DSNM: String (10.0)"),
+    // not actual feature values, so the cellId regex was capturing
+    // "String" (the GDAL field type). Even after switching to the
+    // metadata block format, real-world output varied enough to
+    // keep failing.
     //
-    //   Metadata:
-    //     DSID_DSNM=US5GA22M
-    //     DSID_EDTN=21
-    //     DSID_UADT=20240619
-    //
-    // Older GDAL also lists "Field DSNM: String (10.0)" entries
-    // describing the schema — `DSNM:\s*(\S+)` against THOSE captures
-    // the literal word "String" (the field type), which is the bug
-    // we just hit. Use `=` as the separator (with optional whitespace
-    // around it) and require non-whitespace content.
+    // The robust answer: use the filename for the cell ID
+    // (NOAA / AHO / UKHO all distribute cells named after their
+    // S-57 dataset name — that's the reliable convention) and
+    // parse the actual feature values from the DSID layer via
+    // `ogr2ogr -f CSV /vsistdout/`. CSV output is structured,
+    // version-stable, and trivial to parse.
 
-    // Cell ID — DSID_DSNM in the metadata block.
-    const dsnmMatch = stdout.match(/^\s*DSID_DSNM\s*=\s*(\S+)/m) || stdout.match(/^\s*DSNM\s*=\s*(\S+)/m);
-    const rawCellId = dsnmMatch ? dsnmMatch[1].replace(/\.000$/i, '') : '';
-    // S-57 cell names are 8 characters: 2-letter HO code + 6 alphanum
-    // (e.g. AU530150, US5GA22M). When the regex misses or returns
-    // something nonsensical (a GDAL field type, "Unknown", whatever)
-    // we fall back to the source filename.
-    const cellNameOk = /^[A-Z]{2}[A-Z0-9]{4,7}$/i.test(rawCellId);
-    const cellId = cellNameOk ? rawCellId.toUpperCase() : path.basename(inputPath, '.000').toUpperCase();
-
-    // Edition number — DSID_EDTN in the metadata block.
-    const edtnMatch = stdout.match(/^\s*DSID_EDTN\s*=\s*(\d+)/m) || stdout.match(/^\s*EDTN\s*=\s*(\d+)/m);
-    const edition = edtnMatch ? parseInt(edtnMatch[1], 10) : 0;
-
-    // Issue date — DSID_UADT in the metadata block (YYYYMMDD).
-    const uadtMatch = stdout.match(/^\s*DSID_UADT\s*=\s*(\d{8})/m) || stdout.match(/^\s*UADT\s*=\s*(\d{8})/m);
-    const issued = uadtMatch
-        ? `${uadtMatch[1].slice(0, 4)}-${uadtMatch[1].slice(4, 6)}-${uadtMatch[1].slice(6, 8)}`
-        : new Date().toISOString().slice(0, 10);
+    // Cell ID — filename basename, validated against the S-57
+    // naming convention (2-letter HO code + 4-7 alphanum).
+    const cellIdFromFile = path.basename(inputPath, '.000').toUpperCase();
+    const cellNameOk = /^[A-Z]{2}[A-Z0-9]{4,7}$/.test(cellIdFromFile);
+    const cellId = cellNameOk ? cellIdFromFile : cellIdFromFile.replace(/[^A-Z0-9]/gi, '_');
 
     // Source HO — first 2 letters of cell ID by S-57 convention
     // (AU = Australia / AHO, US = NOAA, NZ = LINZ, etc.).
     const sourceHO = cellId.slice(0, 2).toUpperCase();
+
+    // ── Edition + issue date via ogr2ogr CSV ──
+    // The DSID layer always has exactly one feature carrying the
+    // dataset descriptor fields. Convert to CSV → header + one row,
+    // parse cleanly. Failure here is non-fatal — we degrade to
+    // edition=0 / issued=today, which the UI handles.
+    let edition = 0;
+    let issued = new Date().toISOString().slice(0, 10);
+    try {
+        const csv = await new Promise<string>((resolve, reject) => {
+            const proc = spawn('ogr2ogr', ['-f', 'CSV', '/vsistdout/', inputPath, 'DSID'], {
+                timeout: OGR2OGR_TIMEOUT_MS,
+            });
+            let buf = '';
+            let stderr = '';
+            proc.stdout.on('data', (chunk: Buffer) => {
+                buf += chunk.toString('utf8');
+            });
+            proc.stderr.on('data', (chunk: Buffer) => {
+                stderr += chunk.toString('utf8');
+            });
+            proc.on('error', reject);
+            proc.on('close', (code) => {
+                if (code !== 0) reject(new Error(`ogr2ogr DSID exit ${code}: ${stderr.slice(0, 200)}`));
+                else resolve(buf);
+            });
+        });
+        const lines = csv.trim().split(/\r?\n/);
+        if (lines.length >= 2) {
+            const headers = lines[0].split(',').map((h) => h.replace(/^"|"$/g, ''));
+            const values = lines[1].split(',').map((v) => v.replace(/^"|"$/g, ''));
+            const colIdx: Record<string, number> = {};
+            headers.forEach((h, i) => {
+                colIdx[h.toUpperCase()] = i;
+            });
+
+            const edtnIdx = colIdx['EDTN'] ?? colIdx['DSID_EDTN'] ?? -1;
+            if (edtnIdx >= 0) {
+                const v = parseInt(values[edtnIdx] ?? '', 10);
+                if (Number.isFinite(v)) edition = v;
+            }
+            const uadtIdx = colIdx['UADT'] ?? colIdx['DSID_UADT'] ?? -1;
+            if (uadtIdx >= 0 && /^\d{8}$/.test(values[uadtIdx] ?? '')) {
+                const u = values[uadtIdx];
+                issued = `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}`;
+            }
+        }
+    } catch (err) {
+        // Non-fatal — keep edition=0 / issued=today. Logged so a
+        // sysop can spot the parse failure if they care.
+        // eslint-disable-next-line no-console
+        console.warn(`[enc] DSID parse via ogr2ogr CSV failed for ${cellId}:`, (err as Error).message);
+    }
 
     // Bbox — Extent: lines have "(minLon, minLat) - (maxLon, maxLat)".
     const extentMatches = [
