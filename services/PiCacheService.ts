@@ -32,6 +32,13 @@ export interface PiCacheStatus {
     latencyMs: number;
     piIp?: string;
     discoveredVia?: string;
+    /**
+     * Whether the Pi has Supabase credentials loaded right now. Comes from
+     * `/status` → `config.supabaseConfigured`. When `false`, weather/wind-grid
+     * proxies on the Pi will 502, so the app should re-push config — see
+     * autoReconcileConfigIfNeeded().
+     */
+    supabaseConfigured?: boolean;
     cacheStats?: {
         kvEntries: number;
         tileEntries: number;
@@ -470,7 +477,11 @@ class PiCacheServiceImpl {
 
         const start = Date.now();
         try {
-            let data: { status: string; cache?: PiCacheStatus['cacheStats'] };
+            let data: {
+                status: string;
+                cache?: PiCacheStatus['cacheStats'];
+                config?: { supabaseConfigured?: boolean };
+            };
             try {
                 const res = await CapacitorHttp.get({
                     url: `${this.baseUrl}/status`,
@@ -492,12 +503,22 @@ class PiCacheServiceImpl {
                 lastCheck: Date.now(),
                 latencyMs: Date.now() - start,
                 cacheStats: data?.cache as PiCacheStatus['cacheStats'],
+                supabaseConfigured: data?.config?.supabaseConfigured,
             };
 
             // Notify if status changed
             if (wasReachable !== this.status.reachable) {
                 this.notifyListeners();
             }
+
+            // Self-heal: if the Pi answered but reports no Supabase creds
+            // (e.g. fresh install, .env wiped, restart that lost in-memory
+            // state and never persisted), re-push our bundled creds so the
+            // wind-grid / tide proxies work without a manual curl.
+            this.autoReconcileConfigIfNeeded().catch(() => {
+                /* fire-and-forget — failures already logged inside */
+            });
+
             this.resolveReady();
             return this.status.reachable;
         } catch {
@@ -790,6 +811,73 @@ class PiCacheServiceImpl {
     }
 
     // ── App → Pi Configuration Push ──
+
+    // Last successful auto-reconcile timestamp. We use this to avoid
+    // hammering /api/configure if the push silently no-ops (e.g. when the
+    // iOS bundle was built without VITE_SUPABASE_URL baked in — empty
+    // strings get sent, the server keeps existing values, and the next
+    // /status STILL says supabaseConfigured: false. Without a debounce
+    // we'd push every 30s forever.)
+    private _lastReconcileAttemptAt = 0;
+    private static readonly RECONCILE_MIN_INTERVAL_MS = 5 * 60 * 1000;
+
+    /**
+     * If the Pi answered `/status` with `supabaseConfigured: false`, re-push
+     * the credentials bundled into this iOS build. Idempotent — the Pi only
+     * accepts non-empty values (see pi-cache server.ts) so calling this on
+     * a Pi that's already configured is a harmless no-op.
+     *
+     * This exists because the .env file on the Pi can drift out of sync
+     * with the in-memory state (e.g. .env write fails silently, Pi reboots
+     * before the disk write flushes, install.sh overwrites it). The app is
+     * the source of truth — every successful health check verifies the Pi
+     * still has working creds and re-asserts them if not.
+     */
+    private async autoReconcileConfigIfNeeded(): Promise<void> {
+        if (!this.status.reachable) return;
+        // Only act when the Pi explicitly tells us it's missing creds.
+        // `undefined` (older Pi without this field) → don't push, let it be.
+        if (this.status.supabaseConfigured !== false) return;
+
+        const now = Date.now();
+        if (now - this._lastReconcileAttemptAt < PiCacheServiceImpl.RECONCILE_MIN_INTERVAL_MS) {
+            return;
+        }
+        this._lastReconcileAttemptAt = now;
+
+        // Pull credentials from the Vite env that was baked into this build.
+        // Same source as PiCacheTab's manual "Discover" flow.
+        const envSrc = (typeof import.meta !== 'undefined' ? import.meta.env : null) as Record<
+            string,
+            string | undefined
+        > | null;
+        const supabaseUrl = envSrc?.VITE_SUPABASE_URL || '';
+        const supabaseAnonKey = envSrc?.VITE_SUPABASE_KEY || '';
+        const openMeteoApiKey = envSrc?.VITE_OPEN_METEO_API_KEY || '';
+
+        if (!supabaseUrl || !supabaseAnonKey) {
+            log.warn(
+                'Pi reports supabaseConfigured: false but this app build has no VITE_SUPABASE_URL/KEY — cannot self-heal. Rebuild the iOS app with env vars present, or POST /api/configure on the Pi manually.',
+            );
+            return;
+        }
+
+        log.info('Pi reports supabaseConfigured: false — re-pushing config to self-heal');
+        const loc = LocationStore.getState();
+        const ok = await this.pushConfig({
+            supabaseUrl,
+            supabaseAnonKey,
+            openMeteoApiKey: openMeteoApiKey || undefined,
+            prefetchLat: loc.lat,
+            prefetchLon: loc.lon,
+            prefetchRadius: 5,
+        });
+        if (ok) {
+            log.info('Auto-reconcile pushConfig succeeded — Pi should now have working Supabase creds');
+        } else {
+            log.warn('Auto-reconcile pushConfig failed — will retry after RECONCILE_MIN_INTERVAL');
+        }
+    }
 
     /**
      * Push Supabase credentials and pre-fetch location to the Pi.
