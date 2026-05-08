@@ -38,6 +38,7 @@ import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
 import { MapOfflineService } from '../../services/MapOfflineService';
+import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 import { toast } from '../Toast';
 
 import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
@@ -867,16 +868,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     ]);
 
     // ── Auto-cache tiles around the user when a Pi is in play ──
-    // When the boat has a Pi on the network, silently download a 1000 NM
-    // box of raster tiles at cruising zooms (z6-z10) so the map keeps
-    // working the moment the phone drops offline. Only runs when:
-    //   - Pi is available
+    // When the boat has a Pi on the network AND the user has a strong
+    // internet connection, silently download a 1000 NM tiered shell of
+    // raster tiles around the user so the map keeps working the moment
+    // they drop offline. Tier breakdown lives in MapOfflineService:
+    //   1000 NM @ z4-7   (ocean-wide)
+    //   500 NM  @ z8-9   (regional)
+    //   150 NM  @ z10-11 (coastal approach)
+    //   40 NM   @ z12-13 (harbour detail)
+    //
+    // Conditions for firing:
+    //   - Pi is reachable (piCache.isAvailable())
+    //   - Connection quality is 'high' (WiFi / good 4G — NOT cellular
+    //     2G/3G, NOT satellite, NOT save-data mode). User explicitly
+    //     asked for "only if they have a strong connection".
     //   - User has a valid weatherCoords
-    //   - User has moved > 100 NM since the last auto-cache (tracked in LS)
+    //   - User has moved > 100 NM since the last auto-cache (tracked
+    //     in localStorage by MapOfflineService)
     //   - Pi's SQLite cache isn't already gigantic (>10 GB)
-    // The one-time-per-mount guard prevents firing while a download's in
-    // flight; subsequent weatherCoords changes that still fall within the
-    // move-threshold are deduped inside MapOfflineService.
+    //
+    // Re-evaluates on three triggers — Pi appearing, connection
+    // improving to 'high', or location changing — so a phone that
+    // started on weak cellular and later joined a marina WiFi will
+    // pick up the cache automatically without the user having to do
+    // anything. No prompts, no confirmations.
     const autoCacheRanRef = useRef(false);
     useEffect(() => {
         if (embedded || pickerMode || isPinView) return;
@@ -887,6 +902,17 @@ export const MapHub: React.FC<MapHubProps> = ({
         const ctrl = new AbortController();
         const tryRun = async () => {
             if (!piCache.isAvailable()) return; // wait for Pi
+            // Connection-quality gate — only auto-cache when the user
+            // actually has the bandwidth to spare. Strong = WiFi or
+            // 4G+ with > 0.5 Mbps downlink + saveData off. Weak = 2G,
+            // 3G with low downlink, satellite, or saveData enabled.
+            const conn = getConnectionState();
+            if (conn.quality !== 'high') {
+                log.info(
+                    `Auto-cache: skipping — connection quality '${conn.quality}' (type=${conn.type}, downlink=${conn.effectiveDownlink}). Will retry when it improves.`,
+                );
+                return;
+            }
             autoCacheRanRef.current = true;
             const outcome = await MapOfflineService.autoDownloadAroundUser({
                 centerLat: weatherCoords.lat,
@@ -914,16 +940,26 @@ export const MapHub: React.FC<MapHubProps> = ({
             }
         };
 
-        // Run once now, then subscribe so we fire the moment the Pi is found.
+        // Run once now, then subscribe so we fire the moment EITHER
+        //   (a) the Pi is found, or
+        //   (b) the connection upgrades to high quality
+        // — whichever was the missing condition the first time.
         tryRun();
-        const unsub = piCache.onStatusChange(() => {
+        const unsubPi = piCache.onStatusChange(() => {
             if (!autoCacheRanRef.current && piCache.isAvailable()) tryRun();
+        });
+        const unsubConn = onConnectionChange((state) => {
+            if (!autoCacheRanRef.current && state.quality === 'high' && piCache.isAvailable()) {
+                log.info(`Auto-cache: connection upgraded to high (${state.type}) — kicking off`);
+                tryRun();
+            }
         });
 
         return () => {
             cancelled = true;
             ctrl.abort();
-            unsub();
+            unsubPi();
+            unsubConn();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [weatherCoords?.lat, weatherCoords?.lon, embedded, pickerMode, isPinView]);
