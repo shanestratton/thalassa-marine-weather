@@ -1223,15 +1223,35 @@ class AvNavServiceClass {
                 }
             }
 
-            // Append tile coordinate template if not present
+            // Append tile coordinate template if not present.
+            //
+            // AvNav serves tiles through a sub-path that matches the
+            // chart's source format, NOT directly off the chart resource
+            // URL. From the avnav.xml descriptor for an mbtiles import:
+            //
+            //   <TileMap href="mbtiles" profile="zxy-mercator" ...>
+            //
+            // → resource URL:  /chart/Foo.mbtiles
+            // → tile URL:      /chart/Foo.mbtiles/mbtiles/{z}/{x}/{y}.png
+            //                                     ^^^^^^^ — the href segment
+            //
+            // We pick the segment off the file extension. For DRM/ocharts
+            // this code path doesn't run (handled above with absolute URL).
             if (!tilesUrl.includes('{z}')) {
-                tilesUrl = `${tilesUrl}/{z}/{x}/{y}.png`;
+                const lower = tilesUrl.toLowerCase();
+                let formatSegment = '';
+                if (lower.endsWith('.mbtiles')) formatSegment = '/mbtiles';
+                else if (lower.endsWith('.gemf')) formatSegment = '/gemf';
+                // .kap / .bsb / .xml don't currently come down this branch
+                tilesUrl = `${tilesUrl}${formatSegment}/{z}/{x}/{y}.png`;
             }
 
-            // AvNav's response uses `scheme: 'tms'` for mbtiles
-            // imports; default to XYZ if absent.
-            const rawScheme = typeof item.scheme === 'string' ? item.scheme.toLowerCase() : '';
-            const scheme: 'xyz' | 'tms' | undefined = rawScheme === 'tms' ? 'tms' : undefined;
+            // NOTE: the `scheme` field on the chart-list response refers
+            // to the mbtiles file's internal row indexing (TMS = Y at
+            // bottom). AvNav's HTTP tile API ALREADY does the flip and
+            // serves zxy-mercator (XYZ). So we leave the Mapbox source's
+            // scheme as the default (XYZ) — adding scheme:'tms' here was
+            // wrong and produced a double-flip.
 
             charts.push({
                 id: `avnav-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`,
@@ -1243,7 +1263,6 @@ class AvNavServiceClass {
                 maxZoom: Number(item.maxzoom ?? 18),
                 bounds: item.bounds ? item.bounds : undefined,
                 type: 'raster',
-                scheme,
                 isDrm: hasToken || undefined,
             });
         }

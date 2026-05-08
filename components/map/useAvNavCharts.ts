@@ -83,9 +83,11 @@ export function useAvNavCharts(
                         minzoom: chart.minZoom,
                         maxzoom: chart.maxZoom,
                         ...(chart.bounds ? { bounds: chart.bounds } : {}),
-                        // mbtiles store tiles in TMS (Y=0 at bottom).
-                        // Without this, Mapbox requests the wrong row
-                        // and the chart appears blank or mirrored.
+                        // AvNav's HTTP tile API already serves
+                        // zxy-mercator (XYZ) regardless of the source
+                        // mbtiles' internal row order, so we let Mapbox
+                        // default to XYZ. Setting scheme:'tms' here used
+                        // to produce a double-flip and blank tiles.
                         ...(chart.scheme === 'tms' ? { scheme: 'tms' as const } : {}),
                     });
                     chartLog(
