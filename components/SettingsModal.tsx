@@ -15,6 +15,7 @@ import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
 import { CalypsoIntegrationsTab } from './settings/CalypsoIntegrationsTab';
+import { PiCacheTab } from './settings/PiCacheTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
 interface SettingsViewProps {
@@ -193,7 +194,16 @@ const MetricInput = ({
     );
 };
 
-type SettingsTab = 'general' | 'account' | 'vessel' | 'alerts' | 'scenery' | 'locations' | 'layout' | 'calypso';
+type SettingsTab =
+    | 'general'
+    | 'account'
+    | 'vessel'
+    | 'alerts'
+    | 'scenery'
+    | 'locations'
+    | 'layout'
+    | 'calypso'
+    | 'boatNetwork';
 
 const MENU_ITEMS: {
     id: SettingsTab;
@@ -265,6 +275,30 @@ const MENU_ITEMS: {
         ),
         iconBg: 'bg-cyan-500/15 text-cyan-400 shadow-cyan-500/10',
         iconHoverBg: 'group-hover:bg-cyan-500/25',
+    },
+    {
+        // Boat Network — Pi cache + auto-discovery of on-boat services.
+        // Hosts the PiCacheTab which runs BoatNetworkService.scan() to find
+        // and auto-configure pi-cache, Signal K, and AvNav charts in one go.
+        // Shown to all users; PiCacheTab itself surfaces a Skipper-tier
+        // upsell screen for free users.
+        id: 'boatNetwork',
+        label: 'Boat Network',
+        description: 'Pi cache, Signal K & AvNav charts',
+        // Antenna / WiFi icon (inline SVG) — represents the on-boat LAN
+        // discovery workflow. Distinct from System & Cloud (server icon)
+        // which is about Thalassa's cloud sync, not the boat's local Pi.
+        icon: (c) => (
+            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
+                />
+            </svg>
+        ),
+        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
+        iconHoverBg: 'group-hover:bg-emerald-500/25',
     },
 ];
 
@@ -367,6 +401,26 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 </svg>
                             }
                             label="CALYPSO"
+                        />
+                        <NavButton
+                            active={activeTab === 'boatNetwork'}
+                            onClick={() => setActiveTab('boatNetwork')}
+                            icon={
+                                <svg
+                                    className="w-5 h-5"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth={1.8}
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
+                                    />
+                                </svg>
+                            }
+                            label="BOAT NETWORK"
                         />
                         <NavButton
                             active={activeTab === 'scenery'}
@@ -504,6 +558,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'scenery' && <AestheticsTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'calypso' && <CalypsoIntegrationsTab settings={settings} onSave={onSave} />}
+
+                        {activeTab === 'boatNetwork' && <PiCacheTab settings={settings} onSave={onSave} />}
                     </div>
                 </div>
 
