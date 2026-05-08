@@ -571,19 +571,23 @@ class MinHeap {
  * line, only more expensive in less-preferred water.
  *
  *   depth >= 10m → 1.00 (baseline — preferred channel)
- *   depth >= 5m  → 1.05 (moderate — fine for most cruisers)
- *   depth >= 0   → 1.20 (shallow but navigable for shallow draft)
- *   depth == 0   → 1.50 (UNKNOWN_OPEN — could be unsurveyed reef)
+ *   depth >= 5m  → 1.10 (moderate — fine for most cruisers)
+ *   depth >= 0   → 1.30 (shallow but navigable for shallow draft)
+ *   depth == 0   → 5.00 (UNKNOWN_OPEN — strong penalty against marsh
+ *                        and unsurveyed water)
  *
- * The 0-depth case is for cells outside DEPARE coverage. ENCs don't
- * always have full DEPARE coverage; treating those as more expensive
- * than known-deep cells nudges the route toward marked channels.
+ * The 5× UNKNOWN_OPEN penalty (was 1.5×) tightens the route to the
+ * marked channel: the Savannah test produced a polyline that drifted
+ * into marsh areas where DEPARE didn't cover. With 5× cost, A* will
+ * accept up to a 5km marked-channel detour to avoid 1km of marsh.
+ * Routes through DEPARE-only water look noticeably tighter to the
+ * channel after this change.
  */
 function cellCostMultiplier(depth: number): number {
     if (depth >= 10) return 1.0;
-    if (depth >= 5) return 1.05;
-    if (depth > 0) return 1.2;
-    return 1.5; // UNKNOWN_OPEN
+    if (depth >= 5) return 1.1;
+    if (depth > 0) return 1.3;
+    return 5.0; // UNKNOWN_OPEN — strong penalty against unsurveyed water
 }
 
 /**
@@ -915,7 +919,12 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
     polylineRaw[0] = [req.fromLon, req.fromLat];
     polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
-    const tolDeg = Math.min(grid.dLat, grid.dLon) * 0.5;
+    // DP tolerance ≈ 1/4 cell. Tighter than the original 1/2 cell —
+    // keeps more turn detail in winding channels (Savannah River
+    // bends look noticeably closer to the actual channel after this).
+    // The bandwidth cost is small (typically 20-40 polyline points
+    // for a harbor route).
+    const tolDeg = Math.min(grid.dLat, grid.dLon) * 0.25;
     const polyline = douglasPeucker(polylineRaw, tolDeg);
 
     // Compute total length in NM along the simplified polyline.
