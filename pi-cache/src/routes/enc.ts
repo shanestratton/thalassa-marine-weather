@@ -56,6 +56,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import AdmZip from 'adm-zip';
+import { routeInshore, type InshoreLayers, type RouteRequest } from '../services/inshoreRouter.js';
 
 // ── Job state ─────────────────────────────────────────────────────
 
@@ -1024,6 +1025,155 @@ export function createEncRoutes(): Router {
         const removed = await removeInstalledCell(cellId);
         if (!removed) return res.status(404).json({ error: 'Cell not installed' });
         return res.json({ ok: true, cellId });
+    });
+
+    /**
+     * POST /api/enc/route
+     *
+     * Inshore A* routing through the installed ENC cells. Accepts
+     * origin/destination + draft, returns a polyline that follows
+     * channels and dodges land/shallow water/obstructions. See
+     * services/inshoreRouter.ts for the algorithm.
+     *
+     * Body: {
+     *   fromLat, fromLon, toLat, toLon: number,
+     *   draftM: number,
+     *   cellIds?: string[],         // explicit; default = all cells whose bbox intersects the route
+     *   resolutionM?: number,       // default 50 m
+     *   safetyM?: number,           // additional draft margin, default 1 m
+     *   obstructionBufferM?: number // default 30 m
+     * }
+     *
+     * 200 → { polyline: [[lon,lat],...], distanceNM, cellsUsed: string[], gridSize, ... }
+     * 422 → { error, code? } when grid build succeeded but no path exists
+     * 4xx → input validation
+     * 5xx → unexpected
+     */
+    router.post('/route', async (req: Request, res: Response) => {
+        const body = (req.body ?? {}) as Partial<{
+            fromLat: number;
+            fromLon: number;
+            toLat: number;
+            toLon: number;
+            draftM: number;
+            cellIds: string[];
+            resolutionM: number;
+            safetyM: number;
+            obstructionBufferM: number;
+        }>;
+
+        // ── Input validation ──
+        const numericFields: (keyof typeof body)[] = ['fromLat', 'fromLon', 'toLat', 'toLon', 'draftM'];
+        for (const k of numericFields) {
+            if (typeof body[k] !== 'number' || !Number.isFinite(body[k])) {
+                return res.status(400).json({ error: `Missing or invalid number: ${k}` });
+            }
+        }
+        const fromLat = body.fromLat as number;
+        const fromLon = body.fromLon as number;
+        const toLat = body.toLat as number;
+        const toLon = body.toLon as number;
+        const draftM = body.draftM as number;
+
+        if (Math.abs(fromLat) > 90 || Math.abs(toLat) > 90 || Math.abs(fromLon) > 180 || Math.abs(toLon) > 180) {
+            return res.status(400).json({ error: 'Coordinates out of WGS84 range' });
+        }
+        if (draftM < 0 || draftM > 30) {
+            return res.status(400).json({ error: 'draftM out of plausible range (0–30 m)' });
+        }
+
+        // ── Cell selection ──
+        // Either explicit cellIds, or auto-pick cells whose bbox
+        // intersects the route's lat/lon envelope.
+        let candidates: string[] | undefined = body.cellIds;
+        const index = await loadInstalledIndex();
+        if (!candidates || candidates.length === 0) {
+            const minLat = Math.min(fromLat, toLat);
+            const maxLat = Math.max(fromLat, toLat);
+            const minLon = Math.min(fromLon, toLon);
+            const maxLon = Math.max(fromLon, toLon);
+            candidates = index.cells
+                .filter((c) => {
+                    const [bMinLon, bMinLat, bMaxLon, bMaxLat] = c.bbox;
+                    return !(bMaxLon < minLon || bMinLon > maxLon || bMaxLat < minLat || bMinLat > maxLat);
+                })
+                .map((c) => c.cellId);
+        }
+
+        if (candidates.length === 0) {
+            return res.status(404).json({
+                error: 'No installed ENC cells cover this route. Import a chart for this area first.',
+                code: 'no-coverage',
+            });
+        }
+
+        // ── Layer loading ──
+        // Load each cell's persisted blob; concat features per layer
+        // into one merged InshoreLayers struct. The router doesn't
+        // care which cell a feature came from.
+        const merged: InshoreLayers = {
+            LNDARE: { type: 'FeatureCollection', features: [] },
+            DEPARE: { type: 'FeatureCollection', features: [] },
+            OBSTRN: { type: 'FeatureCollection', features: [] },
+            WRECKS: { type: 'FeatureCollection', features: [] },
+            UWTROC: { type: 'FeatureCollection', features: [] },
+        };
+        const cellsUsed: string[] = [];
+        for (const cellId of candidates) {
+            try {
+                const text = await fs.readFile(cellStorePath(cellId), 'utf8');
+                const blob = JSON.parse(text) as {
+                    cells: { layers: Record<string, { features?: unknown[] }> }[];
+                };
+                const cell = blob.cells?.[0];
+                if (!cell) continue;
+                for (const layer of ['LNDARE', 'DEPARE', 'OBSTRN', 'WRECKS', 'UWTROC'] as const) {
+                    const fc = cell.layers?.[layer];
+                    if (fc?.features && Array.isArray(fc.features)) {
+                        // Features came from GDAL→GeoJSON so they conform to the
+                        // GeoJSON Feature shape; the persistence layer is just
+                        // typed `unknown[]` to avoid forcing a deep import.
+                        const target = merged[layer];
+                        if (target) {
+                            (target.features as unknown[]).push(...fc.features);
+                        }
+                    }
+                }
+                cellsUsed.push(cellId);
+            } catch {
+                // Cell file missing/corrupt — skip and continue with the others.
+            }
+        }
+
+        if (cellsUsed.length === 0) {
+            return res.status(500).json({ error: 'Failed to load any cell GeoJSON' });
+        }
+
+        // ── Route ──
+        try {
+            const t0 = Date.now();
+            const reqRoute: RouteRequest = {
+                fromLat,
+                fromLon,
+                toLat,
+                toLon,
+                draftM,
+                resolutionM: body.resolutionM,
+                safetyM: body.safetyM,
+                obstructionBufferM: body.obstructionBufferM,
+            };
+            const result = routeInshore(merged, reqRoute);
+            const elapsedMs = Date.now() - t0;
+
+            if ('error' in result) {
+                return res.status(422).json({ ...result, cellsUsed, elapsedMs });
+            }
+            return res.json({ ...result, cellsUsed, elapsedMs });
+        } catch (err) {
+            return res
+                .status(500)
+                .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
+        }
     });
 
     /** GET /api/enc/health — quick sanity check for whether GDAL is installed. */

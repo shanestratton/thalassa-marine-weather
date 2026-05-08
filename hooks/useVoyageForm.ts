@@ -371,13 +371,66 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             setTimeout(async () => {
                 let enhancedPlan = result;
 
-                // Step 1: Bathymetric routing — depth-safe waypoints
+                // Step 0: Inshore routing via ENC — runs first so the rest
+                // of the pipeline doesn't waste time on an ocean-router-shaped
+                // problem when the user is doing a river/harbor passage.
+                //
+                // Triggers when (a) a Pi is reachable, (b) both endpoints
+                // fall inside an installed ENC cell's bbox, and (c) the
+                // straight-line distance is < 50 NM. The Pi rasterizes the
+                // ENC layers (LNDARE/DEPARE/OBSTRN/WRECKS/UWTROC) into a
+                // navigability grid and runs A* through the channel.
+                //
+                // If it succeeds, we stash the polyline as routeGeoJSON
+                // and skip the bathymetric/isochrone/corridor steps —
+                // they're designed for ocean passages and would either
+                // produce nothing or overwrite our channel-following route
+                // with a meaningless straight line through land.
+                let inshoreSucceeded = false;
                 try {
-                    const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
-                    enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
-                    saveIfActive(enhancedPlan);
+                    if (result.originCoordinates && result.destinationCoordinates) {
+                        const { tryInshoreRoute, inshoreRouteToGeoJSON } = await import('../services/InshoreRouter');
+                        const inshoreRes = await tryInshoreRoute(
+                            result.originCoordinates,
+                            result.destinationCoordinates,
+                            vessel.draft || 2.5,
+                        );
+                        if (inshoreRes && 'polyline' in inshoreRes) {
+                            enhancedPlan = {
+                                ...enhancedPlan,
+                                routeGeoJSON: inshoreRouteToGeoJSON(
+                                    inshoreRes,
+                                    result.originCoordinates,
+                                    result.destinationCoordinates,
+                                ),
+                                __inshoreRouted: true,
+                            } as typeof enhancedPlan & { __inshoreRouted: boolean };
+                            inshoreSucceeded = true;
+                            saveIfActive(enhancedPlan);
+                        } else if (inshoreRes && 'error' in inshoreRes) {
+                            // Pi answered but couldn't route. Surface to console
+                            // for diagnosis; UI fallback is the existing pipeline.
+                            console.warn(
+                                `[useVoyageForm] inshore router failed: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
+                            );
+                        }
+                    }
                 } catch (_) {
-                    console.warn(`[useVoyageForm]`, _);
+                    console.warn(`[useVoyageForm] inshore routing threw`, _);
+                }
+
+                // Step 1: Bathymetric routing — depth-safe waypoints.
+                // Skipped when inshore router already produced a polyline:
+                // GEBCO is too coarse to refine a 50m-resolution channel route
+                // and would overwrite our routeGeoJSON.
+                if (!inshoreSucceeded) {
+                    try {
+                        const { enhanceVoyagePlanWithBathymetry } = await import('../services/bathymetricRouter');
+                        enhancedPlan = await enhanceVoyagePlanWithBathymetry(result, vessel);
+                        saveIfActive(enhancedPlan);
+                    } catch (_) {
+                        console.warn(`[useVoyageForm]`, _);
+                    }
                 }
 
                 // Step 1b: Detect direction-change bends in the curved
@@ -437,16 +490,18 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 //   - engine fails or times out
                 // In those cases the corridor router below picks up the slack.
                 let isochroneSucceeded = false;
-                try {
-                    const { enhanceVoyagePlanWithIsochrone } = await import('../services/isochroneEnhancer');
-                    const isoResult = await enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, departureDate);
-                    if (isoResult) {
-                        enhancedPlan = isoResult;
-                        isochroneSucceeded = true;
-                        saveIfActive(enhancedPlan);
+                if (!inshoreSucceeded) {
+                    try {
+                        const { enhanceVoyagePlanWithIsochrone } = await import('../services/isochroneEnhancer');
+                        const isoResult = await enhanceVoyagePlanWithIsochrone(enhancedPlan, vessel, departureDate);
+                        if (isoResult) {
+                            enhancedPlan = isoResult;
+                            isochroneSucceeded = true;
+                            saveIfActive(enhancedPlan);
+                        }
+                    } catch (_) {
+                        console.warn(`[useVoyageForm] isochrone enhancement failed`, _);
                     }
-                } catch (_) {
-                    console.warn(`[useVoyageForm] isochrone enhancement failed`, _);
                 }
 
                 // Step 2b: Weather routing — corridor optimisation (FALLBACK).
@@ -455,7 +510,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // and runs A* through it. Less optimal than isochrone for
                 // bluewater but still benefits coastal short hops where the
                 // bathymetric routeGeoJSON is the real workhorse.
-                if (!isochroneSucceeded) {
+                //
+                // Also skipped on inshore-routed plans: the corridor router
+                // builds a 30 NM-wide A* graph that for a river passage is
+                // mostly land and would happily overwrite our channel route
+                // with a straight line.
+                if (!isochroneSucceeded && !inshoreSucceeded) {
                     try {
                         const { enhanceVoyagePlanWithWeather } = await import('../services/weatherRouter');
                         enhancedPlan = await enhanceVoyagePlanWithWeather(enhancedPlan, vessel, departureDate);
