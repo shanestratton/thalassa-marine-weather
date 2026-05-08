@@ -200,6 +200,49 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 
 const isNative = Capacitor.isNativePlatform();
 
+// ── Hostname → IPv4 resolution ─────────────────────────────────
+//
+// When a Pi is discovered via mDNS hostname (e.g. `calypso.local`),
+// every subsequent TCP connection on iOS triggers a Happy Eyeballs
+// IPv6→IPv4 race because the address set has both, and the Pi's
+// services are bound IPv4-only. The IPv6 attempt always RSTs, then
+// IPv4 succeeds. Cheap per connection (~50ms) but the kernel logs
+// `tcp_input flags=[R.]` for every one, flooding Xcode console.
+//
+// Fix: resolve the hostname to an IPv4 address ONCE at discovery
+// time and have all consumers connect to the IP directly. No race,
+// no RSTs, much quieter logs and slightly faster connections.
+//
+// Calls the native MdnsBrowser plugin's `resolveHostname` method
+// (added 2026-05-08), which uses getaddrinfo with AF_INET. Returns
+// null on web platforms or when resolution fails — caller should
+// fall back to the original hostname in that case.
+const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+async function resolveToIpv4(host: string): Promise<string | null> {
+    // Fast path: already an IP (e.g. user configured a static address
+    // via Boat Network settings, or a previous resolution was cached).
+    if (IPV4_REGEX.test(host)) return host;
+
+    // Web platform doesn't have access to the resolver — leave the
+    // hostname alone and let the browser handle it.
+    if (!isNative) return null;
+
+    try {
+        // Dynamic import to avoid hard-failing on platforms where the
+        // plugin isn't registered (web build, Android until ported).
+        const { registerPlugin } = await import('@capacitor/core');
+        interface MdnsBrowserPlugin {
+            resolveHostname(opts: { hostname: string }): Promise<{ ipv4: string }>;
+        }
+        const MdnsBrowser = registerPlugin<MdnsBrowserPlugin>('MdnsBrowser');
+        const res = await withTimeout(MdnsBrowser.resolveHostname({ hostname: host }), 2000, null);
+        return res?.ipv4 ?? null;
+    } catch {
+        return null;
+    }
+}
+
 async function probeService(host: string, service: ServiceProbe): Promise<{ found: boolean; latencyMs: number }> {
     // TCP-only services (no HTTP path) — try a quick HTTP probe on the port
     const path = service.path || '/';
@@ -351,15 +394,27 @@ class BoatNetworkServiceClass {
             );
 
             if (found) {
-                log.info(`Found Pi at ${found.host}: ${found.services.map((s) => `${s.name}(:${s.port})`).join(', ')}`);
-                saveToStorage(found.host, found.services);
+                // Resolve the hostname to a raw IPv4 address so subsequent
+                // connections skip the per-socket Happy Eyeballs race.
+                // Falls back to the original hostname on resolution
+                // failure or non-native platforms — no loss of function,
+                // we just don't get the noise reduction.
+                const ipv4 = await resolveToIpv4(found.host);
+                const effectiveHost = ipv4 ?? found.host;
+                if (ipv4 && ipv4 !== found.host) {
+                    log.info(`Resolved ${found.host} → ${ipv4} — using IP for connections`);
+                }
+                log.info(
+                    `Found Pi at ${effectiveHost}: ${found.services.map((s) => `${s.name}(:${s.port})`).join(', ')}`,
+                );
+                saveToStorage(effectiveHost, found.services);
                 this.setState({
-                    piHost: found.host,
+                    piHost: effectiveHost,
                     services: found.services,
                     scanning: false,
                     lastScan: Date.now(),
                 });
-                return found.host;
+                return effectiveHost;
             }
 
             // Not found
@@ -393,15 +448,24 @@ class BoatNetworkServiceClass {
         this.setState({ scanning: true, error: null });
         const services = await probeHost(saved);
         if (services.length > 0) {
-            saveToStorage(saved, services);
+            // If the saved host is still a hostname (e.g. carried over
+            // from a pre-2026-05-08 install), resolve to IP now so we
+            // get the same per-socket noise reduction the full scan
+            // path enjoys. Already-IP hosts pass through unchanged.
+            const ipv4 = await resolveToIpv4(saved);
+            const effectiveHost = ipv4 ?? saved;
+            if (ipv4 && ipv4 !== saved) {
+                log.info(`Quick probe resolved ${saved} → ${ipv4}`);
+            }
+            saveToStorage(effectiveHost, services);
             this.setState({
-                piHost: saved,
+                piHost: effectiveHost,
                 services,
                 scanning: false,
                 lastScan: Date.now(),
                 error: null,
             });
-            return saved;
+            return effectiveHost;
         }
 
         // Saved host unreachable — try full scan
