@@ -11,6 +11,8 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@types/adm-zip": "^0.5.8",
+        "adm-zip": "^0.5.17",
         "better-sqlite3": "^11.7.0",
         "cors": "^2.8.5",
         "dotenv": "^17.4.2",

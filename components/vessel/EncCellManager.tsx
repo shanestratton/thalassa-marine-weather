@@ -57,6 +57,25 @@ function formatRelative(iso: string): string {
     return `${Math.floor(days / 365)} yr ago`;
 }
 
+/**
+ * Days since the hydrographic office issued this edition.
+ * Hydrographic offices typically release weekly or monthly
+ * updates, so anything older than ~90 days probably has newer
+ * data the user could re-download.
+ */
+function daysSinceIssued(iso: string): number {
+    const then = new Date(iso).getTime();
+    if (!Number.isFinite(then)) return Number.POSITIVE_INFINITY;
+    return Math.floor((Date.now() - then) / (24 * 60 * 60 * 1000));
+}
+
+function stalenessLabel(daysOld: number): { label: string; tone: 'fresh' | 'aging' | 'stale' } | null {
+    if (daysOld <= 30) return { label: 'fresh', tone: 'fresh' };
+    if (daysOld <= 90) return { label: `${Math.floor(daysOld / 30)} mo old`, tone: 'aging' };
+    if (daysOld < 365) return { label: `${Math.floor(daysOld / 30)} mo old — check for updates`, tone: 'stale' };
+    return { label: `${Math.floor(daysOld / 365)} yr old — check for updates`, tone: 'stale' };
+}
+
 // ── Subcomponents ─────────────────────────────────────────────────
 
 const ImportProgressBar: React.FC<{ progress: EncImportProgress }> = ({ progress }) => {
@@ -127,6 +146,17 @@ const CellRow: React.FC<{
                         {isLowConfidenceCatzoc(cell.catzocRange[1]) && ' — verify visually'}
                     </p>
                 )}
+                {(() => {
+                    const days = daysSinceIssued(cell.issued);
+                    const s = stalenessLabel(days);
+                    if (!s || s.tone === 'fresh') return null;
+                    const colour = s.tone === 'stale' ? 'text-amber-400' : 'text-gray-400';
+                    return (
+                        <p className={`text-[11px] mt-0.5 ${colour}`}>
+                            {s.tone === 'stale' ? '⏱' : '·'} {s.label}
+                        </p>
+                    );
+                })()}
             </div>
             {confirming ? (
                 <div className="flex flex-col gap-1 shrink-0">
@@ -176,6 +206,7 @@ export const EncCellManager: React.FC = () => {
     const [progress, setProgress] = useState<EncImportProgress | null>(null);
     const [importing, setImporting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [lastSkipped, setLastSkipped] = useState<{ filename: string; error: string }[]>([]);
 
     const refreshCells = useCallback(() => {
         setCells(getEncCoverage());
@@ -208,9 +239,11 @@ export const EncCellManager: React.FC = () => {
         }
 
         setImporting(true);
+        setLastSkipped([]);
         try {
-            await importEncCell(file, (p) => setProgress(p));
+            const summary = await importEncCell(file, (p) => setProgress(p));
             refreshCells();
+            if (summary.skipped.length > 0) setLastSkipped(summary.skipped);
         } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
         } finally {
@@ -269,10 +302,12 @@ export const EncCellManager: React.FC = () => {
                     <div className="space-y-2">
                         <p className="text-[11px] font-bold uppercase tracking-widest text-white/40">Import Cells</p>
                         <p className="text-[11px] text-gray-500 leading-relaxed">
-                            Pick a raw S-57 cell from your device. The file is sent to your boat&apos;s Pi for
-                            conversion (GDAL does the heavy lifting), then the converted vector data is stored on your
-                            phone and used by the routing validator instead of GEBCO bathymetry — surveyed depths,
-                            coastlines, obstructions and wrecks rather than 460&nbsp;m interpolated tiles.
+                            Pick a raw S-57 cell (<span className="font-mono text-sky-300">.000</span>) or a full ENC{' '}
+                            <span className="font-mono text-sky-300">.zip</span> archive from your device. The file is
+                            sent to your boat&apos;s Pi for conversion (GDAL does the heavy lifting), then the converted
+                            vector data is stored on your phone and used by the routing validator instead of GEBCO
+                            bathymetry — surveyed depths, coastlines, obstructions and wrecks rather than 460&nbsp;m
+                            interpolated tiles.
                         </p>
 
                         {progress && (
@@ -293,16 +328,39 @@ export const EncCellManager: React.FC = () => {
                             {importing ? (
                                 <span className="flex items-center justify-center gap-2">
                                     <span className="w-3 h-3 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
-                                    Importing...
+                                    {progress?.cellCount && progress.cellCount > 1
+                                        ? `Importing ${progress.cellsDone ?? 0}/${progress.cellCount}...`
+                                        : 'Importing...'}
                                 </span>
                             ) : (
-                                'Pick S-57 Cell (.000)'
+                                'Pick S-57 Cell (.000) or ENC .zip'
                             )}
                         </button>
 
                         {error && (
                             <div className="px-3 py-2 rounded-xl bg-red-500/[0.06] border border-red-500/20">
                                 <p className="text-[11px] text-red-400 leading-relaxed">{error}</p>
+                            </div>
+                        )}
+
+                        {lastSkipped.length > 0 && (
+                            <div className="px-3 py-2 rounded-xl bg-amber-500/[0.06] border border-amber-500/20">
+                                <p className="text-[11px] font-bold text-amber-300 mb-1">
+                                    {lastSkipped.length} cell{lastSkipped.length === 1 ? '' : 's'} skipped during last
+                                    import
+                                </p>
+                                <ul className="space-y-0.5">
+                                    {lastSkipped.slice(0, 5).map((s) => (
+                                        <li key={s.filename} className="text-[10px] text-amber-300/80">
+                                            <span className="font-mono">{s.filename}</span>: {s.error}
+                                        </li>
+                                    ))}
+                                    {lastSkipped.length > 5 && (
+                                        <li className="text-[10px] text-amber-300/60 italic">
+                                            …and {lastSkipped.length - 5} more
+                                        </li>
+                                    )}
+                                </ul>
                             </div>
                         )}
                     </div>
