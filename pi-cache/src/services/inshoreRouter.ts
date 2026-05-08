@@ -78,11 +78,33 @@ export interface RouteRequest {
     obstructionBufferM?: number;
 }
 
+/**
+ * Diagnostics emitted alongside both success and failure responses.
+ * Lets a caller see grid health (how navigable the route bbox is)
+ * without parsing the full polyline. Specifically useful when a
+ * route fails: tells the user "we built a 30k-cell grid, only 1200
+ * were navigable, your origin snapped to (x,y) but couldn't reach
+ * destination's component" — much better than a bare 'no-path'.
+ */
+export interface RouteDebug {
+    gridSize: { width: number; height: number };
+    cellsTotal: number;
+    cellsNavigable: number;
+    cellsBlocked: number;
+    /** Cells reachable via 8-neighbor flood-fill from the origin's snapped cell. */
+    cellsReachableFromOrigin?: number;
+    /** Origin snap result in cell coordinates + surrounding lat/lon. */
+    originSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
+    /** Destination snap result. */
+    destinationSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
+}
+
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+    debug?: RouteDebug;
 }
 
 export interface RouteFailure {
@@ -91,10 +113,12 @@ export interface RouteFailure {
     code?:
         | 'origin-on-land'
         | 'destination-on-land'
+        | 'destination-disconnected'
         | 'no-path'
         | 'origin-out-of-bounds'
         | 'destination-out-of-bounds'
         | 'empty-grid';
+    debug?: RouteDebug;
 }
 
 // ── Geometry helpers ────────────────────────────────────────────────
@@ -369,27 +393,30 @@ function buildNavGrid(
 }
 
 /**
- * BFS outward from (lat, lon) to find the nearest navigable cell.
- * Returns null if nothing within `maxRadiusCells` is open.
+ * BFS outward from (lat, lon) to find the nearest cell that satisfies
+ * `accept`. Returns null if nothing within `maxRadiusCells` matches.
  *
- * Used to snap origin/destination — they often geocode to a city
- * center on land, but the user actually departs from a nearby dock.
+ * Two-flavor wrapper to support both:
+ *   - "find nearest navigable cell" (used to snap origin)
+ *   - "find nearest cell in the origin's connected component"
+ *     (used to snap destination, prevents "wrong pond" failures)
  */
-function snapToNavigable(
+function snapWithPredicate(
     grid: NavGrid,
     lat: number,
     lon: number,
     maxRadiusCells: number,
+    accept: (cellIdx: number) => boolean,
 ): { x: number; y: number } | null {
     const start = latLonToGrid(grid, lat, lon);
     if (start.x < 0 || start.y < 0 || start.x >= grid.width || start.y >= grid.height) {
         return null;
     }
-    if (isNavigable(grid, start.x, start.y)) return start;
+    if (accept(start.y * grid.width + start.x)) return start;
 
     const visited = new Uint8Array(grid.width * grid.height);
     visited[start.y * grid.width + start.x] = 1;
-    let frontier: { x: number; y: number; r: number }[] = [{ ...start, r: 0 }];
+    let frontier: { x: number; y: number; r: number }[] = [{ x: start.x, y: start.y, r: 0 }];
 
     while (frontier.length) {
         const next: typeof frontier = [];
@@ -404,7 +431,7 @@ function snapToNavigable(
                     const idx = ny * grid.width + nx;
                     if (visited[idx]) continue;
                     visited[idx] = 1;
-                    if (isNavigable(grid, nx, ny)) return { x: nx, y: ny };
+                    if (accept(idx)) return { x: nx, y: ny };
                     next.push({ x: nx, y: ny, r: r + 1 });
                 }
             }
@@ -412,6 +439,62 @@ function snapToNavigable(
         frontier = next;
     }
     return null;
+}
+
+function snapToNavigable(
+    grid: NavGrid,
+    lat: number,
+    lon: number,
+    maxRadiusCells: number,
+): { x: number; y: number } | null {
+    return snapWithPredicate(grid, lat, lon, maxRadiusCells, (idx) => !Number.isNaN(grid.cells[idx]));
+}
+
+/**
+ * Flood-fill 8-neighbor from `start`, marking every reachable
+ * navigable cell. Output is a Uint8Array sized to the grid
+ * (1 = reachable, 0 = blocked or never visited).
+ *
+ * Used to compute the connected component containing the origin
+ * BEFORE snapping the destination. If we naively snap destination
+ * to its nearest navigable cell, that cell can be in a totally
+ * unrelated body of water (the geocoded "Port Wentworth" might
+ * sit closer to a flooded marsh than to the actual Savannah River
+ * channel that connects to origin). Snapping into the origin's
+ * connected component guarantees A* finds a path.
+ */
+function reachableCellsFrom(grid: NavGrid, start: { x: number; y: number }): Uint8Array {
+    const total = grid.width * grid.height;
+    const reachable = new Uint8Array(total);
+    const startIdx = start.y * grid.width + start.x;
+    reachable[startIdx] = 1;
+    // Using a flat queue with head index instead of shift() — shift()
+    // is O(n) per pop in V8, which would make this loop quadratic on
+    // a large grid.
+    const queue = new Int32Array(total);
+    queue[0] = startIdx;
+    let qHead = 0;
+    let qTail = 1;
+    while (qHead < qTail) {
+        const idx = queue[qHead++];
+        const x = idx % grid.width;
+        const y = Math.floor(idx / grid.width);
+        for (let dy = -1; dy <= 1; dy++) {
+            const ny = y + dy;
+            if (ny < 0 || ny >= grid.height) continue;
+            for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nx = x + dx;
+                if (nx < 0 || nx >= grid.width) continue;
+                const nIdx = ny * grid.width + nx;
+                if (reachable[nIdx]) continue;
+                if (Number.isNaN(grid.cells[nIdx])) continue;
+                reachable[nIdx] = 1;
+                queue[qTail++] = nIdx;
+            }
+        }
+    }
+    return reachable;
 }
 
 // ── Min-heap for A* open set ────────────────────────────────────────
@@ -719,14 +802,19 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
-    // Build a route bbox = origin/destination envelope expanded by 10%
-    // so A* has wiggle room to swing around obstacles.
+    // Build a route bbox = origin/destination envelope expanded
+    // generously. Was 10%/0.005° (≈550 m) min — too tight for routes
+    // where the river meanders well outside the GC line between
+    // origin and destination (real-world Savannah River loops south
+    // before tracking NW to Port Wentworth). Bump to 25%/0.02°
+    // (≈2.2 km) — costs more compute but keeps the actual channel
+    // inside the grid.
     const minLat = Math.min(req.fromLat, req.toLat);
     const maxLat = Math.max(req.fromLat, req.toLat);
     const minLon = Math.min(req.fromLon, req.toLon);
     const maxLon = Math.max(req.fromLon, req.toLon);
-    const padLat = Math.max((maxLat - minLat) * 0.1, 0.005); // ≥0.005° (~550 m)
-    const padLon = Math.max((maxLon - minLon) * 0.1, 0.005);
+    const padLat = Math.max((maxLat - minLat) * 0.25, 0.02);
+    const padLon = Math.max((maxLon - minLon) * 0.25, 0.02);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     const grid = buildNavGrid(layers, bbox, resolutionM, req.draftM, safetyM, obstructionBufferM);
@@ -734,42 +822,99 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         return { error: 'Empty grid', code: 'empty-grid' };
     }
 
-    // Snap origin/destination. Allow up to 5km of search radius —
-    // that's enough to reach the river from a city-center geocode.
+    // Tally grid health for diagnostics — useful when the user
+    // reports "no-path" and we need to know whether the grid was
+    // mostly land (bad chart for this route) or mostly navigable
+    // with a topology issue.
+    let blocked = 0;
+    for (let i = 0; i < grid.cells.length; i++) {
+        if (Number.isNaN(grid.cells[i])) blocked++;
+    }
+    const debug: RouteDebug = {
+        gridSize: { width: grid.width, height: grid.height },
+        cellsTotal: grid.cells.length,
+        cellsNavigable: grid.cells.length - blocked,
+        cellsBlocked: blocked,
+    };
+
+    // ── Snap origin ──
     const maxSnapCells = Math.ceil(5_000 / resolutionM);
     const startCell = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
     if (!startCell) {
         return {
             error: 'Origin point and surrounding area are not navigable for this draft',
             code: 'origin-on-land',
+            debug,
         };
     }
-    const endCell = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
-    if (!endCell) {
-        return {
-            error: 'Destination point and surrounding area are not navigable for this draft',
-            code: 'destination-on-land',
+    {
+        const [snapLon, snapLat] = gridToLatLon(grid, startCell.x, startCell.y);
+        debug.originSnap = {
+            x: startCell.x,
+            y: startCell.y,
+            snappedLat: snapLat,
+            snappedLon: snapLon,
+            snapDistanceM: haversineM(req.fromLat, req.fromLon, snapLat, snapLon),
         };
     }
 
+    // ── Connected component from origin ──
+    // Flood-fills every navigable cell reachable by 8-neighbor moves
+    // from the origin. Pre-computed before snapping the destination
+    // so we can guarantee the destination snap lands in a cell that
+    // A* can actually reach. Without this step, "no-path" failures
+    // happen when origin and destination both snap to nearby water
+    // that turns out to be different lakes/marshes/ponds.
+    const reachable = reachableCellsFrom(grid, startCell);
+    let reachableCount = 0;
+    for (let i = 0; i < reachable.length; i++) reachableCount += reachable[i];
+    debug.cellsReachableFromOrigin = reachableCount;
+
+    // ── Snap destination INTO the origin's connected component ──
+    const endCell = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => reachable[idx] === 1);
+    if (!endCell) {
+        // Destination might be on land OR in a disconnected water body.
+        // Distinguish for a more useful error:
+        const navOnly = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
+        if (!navOnly) {
+            return {
+                error: 'Destination point and surrounding area are not navigable for this draft',
+                code: 'destination-on-land',
+                debug,
+            };
+        }
+        return {
+            error: 'Destination is in a disconnected body of water — no navigable channel reaches it from the origin within the route bbox',
+            code: 'destination-disconnected',
+            debug,
+        };
+    }
+    {
+        const [snapLon, snapLat] = gridToLatLon(grid, endCell.x, endCell.y);
+        debug.destinationSnap = {
+            x: endCell.x,
+            y: endCell.y,
+            snappedLat: snapLat,
+            snappedLon: snapLon,
+            snapDistanceM: haversineM(req.toLat, req.toLon, snapLat, snapLon),
+        };
+    }
+
+    // A* must succeed because the destination cell is in the origin's
+    // reachable component. Defensive: still handle null in case the
+    // grid has a path-cost edge case I haven't anticipated.
     const cells = aStar(grid, startCell, endCell);
     if (!cells) {
-        return { error: 'No navigable path found between origin and destination', code: 'no-path' };
+        return { error: 'A* failed despite reachability flood-fill — should be impossible', code: 'no-path', debug };
     }
 
     // String-pull the A* output to remove stair-step artifacts.
-    // Without this the polyline alternates diagonal/cardinal even
-    // through wide open water, which sums to a much longer route
-    // than the geometrically straight line through navigable cells.
     const smoothedCells = smoothPath(grid, cells);
 
     // Convert grid path → polyline (cell centers) → simplified polyline.
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
-    // Replace first/last with the actual requested points so the line
-    // ends at the user's pin, not the snapped grid cell.
     polylineRaw[0] = [req.fromLon, req.fromLat];
     polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
-    // Tolerance ~1/2 cell — keeps channel detail without zigzag noise.
     const tolDeg = Math.min(grid.dLat, grid.dLon) * 0.5;
     const polyline = douglasPeucker(polylineRaw, tolDeg);
 
@@ -784,5 +929,6 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
+        debug,
     };
 }
