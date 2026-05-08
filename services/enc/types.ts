@@ -26,14 +26,10 @@ import type { Geometry } from 'geojson';
  * - OBSTRN: general obstructions
  * - WRECKS: wrecks
  * - UWTROC: underwater rocks
- * - M_QUAL: zones of confidence (CATZOC). Not a hazard layer —
- *          stored alongside as confidence metadata so routing
- *          can warn when a route passes through poorly-surveyed
- *          areas.
- *
- * Phase 4 will add COALNE (coastline lines, used as proximity buffer).
+ * - COALNE: coastline lines, used for proximity warnings
+ * - M_QUAL: zones of confidence (CATZOC). Info layer.
  */
-export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC';
+export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'COALNE';
 
 /**
  * Layers we ship in the conversion result but treat as info-only.
@@ -44,9 +40,11 @@ export type EncInfoLayer = 'M_QUAL';
 
 /**
  * Hazard type after layer normalisation. Used for UI labels and
- * downstream rendering.
+ * downstream rendering. `coast` is a soft hazard surfaced only by
+ * the proximity report — routes are never rerouted around it,
+ * just flagged when they pass close.
  */
-export type EncHazardType = 'land' | 'shallow' | 'obstruction' | 'wreck' | 'rock';
+export type EncHazardType = 'land' | 'shallow' | 'obstruction' | 'wreck' | 'rock' | 'coast';
 
 /**
  * S-57 CATZOC (Categories of Zone of Confidence) values for
@@ -219,6 +217,8 @@ export interface EncConversionResult {
         OBSTRN?: GeoJSON.FeatureCollection;
         WRECKS?: GeoJSON.FeatureCollection;
         UWTROC?: GeoJSON.FeatureCollection;
+        /** Coastline LineStrings — used for proximity warnings only. */
+        COALNE?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */
         M_QUAL?: GeoJSON.FeatureCollection;
     };

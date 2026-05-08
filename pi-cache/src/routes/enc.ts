@@ -110,11 +110,13 @@ setInterval(() => {
 /**
  * S-57 layers we extract for routing. See docs/ENC_INTEGRATION.md.
  *
- * The first five are hazards. M_QUAL ships CATZOC zones — info-
- * only metadata that the device uses to surface "verify visually"
- * warnings when a route passes through low-confidence survey areas.
+ * - DEPARE/LNDARE/OBSTRN/WRECKS/UWTROC are hazards (validator drives
+ *   the route around them).
+ * - COALNE is the coastline — info-only, used by the hazard report
+ *   to flag "route passes within X NM of coast" without rerouting.
+ * - M_QUAL ships CATZOC zones for survey-confidence warnings.
  */
-const ENC_LAYERS = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'M_QUAL'] as const;
+const ENC_LAYERS = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'COALNE', 'M_QUAL'] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // 300 MB — covers regional AHO/NOAA ZIP packs

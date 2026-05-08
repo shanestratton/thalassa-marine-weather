@@ -50,6 +50,29 @@ export interface EncCatzocZone {
     catzoc: EncCatzoc;
 }
 
+// ── Coastline (COALNE) ────────────────────────────────────────────
+
+/**
+ * RBush entry for a coastline feature. Geometry is typically a
+ * LineString or MultiLineString. Stored separately from hazards
+ * because the route validator never reroutes around COALNE — it's
+ * only used for proximity warnings in the hazard report.
+ */
+interface CoastlineEntry {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    geometry: Geometry;
+}
+
+/**
+ * Public shape passed to the spatial index for COALNE features.
+ */
+export interface EncCoastline {
+    geometry: Geometry;
+}
+
 // ── BBox computation ───────────────────────────────────────────────
 
 /**
@@ -121,6 +144,11 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
             return 'wreck';
         case 'UWTROC':
             return 'rock';
+        case 'COALNE':
+            // Coastlines are stored in their own tree and never
+            // returned as point-in-polygon hazards. Defensive: if
+            // one ends up here, it's a soft 'coast' hazard.
+            return 'coast';
     }
 }
 
@@ -137,15 +165,23 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
 export class EncSpatialIndex {
     private readonly hazardTree: RBush<BBoxEntry>;
     private readonly catzocTree: RBush<CatzocEntry>;
+    private readonly coastlineTree: RBush<CoastlineEntry>;
     private readonly cellId: string;
     private readonly bbox: [number, number, number, number];
     private readonly hazardCount: number;
     private readonly catzocRange: [EncCatzoc, EncCatzoc] | null;
+    private readonly coastlineCount: number;
 
-    constructor(cellId: string, hazards: EncHazard[], catzocZones: EncCatzocZone[] = []) {
+    constructor(
+        cellId: string,
+        hazards: EncHazard[],
+        catzocZones: EncCatzocZone[] = [],
+        coastlines: EncCoastline[] = [],
+    ) {
         this.cellId = cellId;
         this.hazardTree = new RBush<BBoxEntry>();
         this.catzocTree = new RBush<CatzocEntry>();
+        this.coastlineTree = new RBush<CoastlineEntry>();
 
         const hazardEntries: BBoxEntry[] = [];
         let minLon = Infinity;
@@ -197,6 +233,25 @@ export class EncSpatialIndex {
         this.catzocTree.load(catzocEntries);
         this.catzocRange = bestCatzoc !== null && worstCatzoc !== null ? [bestCatzoc, worstCatzoc] : null;
 
+        // Build coastline tree.
+        const coastlineEntries: CoastlineEntry[] = [];
+        for (const c of coastlines) {
+            const [cMinLon, cMinLat, cMaxLon, cMaxLat] = geometryBBox(c.geometry);
+            coastlineEntries.push({
+                minX: cMinLon,
+                minY: cMinLat,
+                maxX: cMaxLon,
+                maxY: cMaxLat,
+                geometry: c.geometry,
+            });
+            if (cMinLon < minLon) minLon = cMinLon;
+            if (cMinLat < minLat) minLat = cMinLat;
+            if (cMaxLon > maxLon) maxLon = cMaxLon;
+            if (cMaxLat > maxLat) maxLat = cMaxLat;
+        }
+        this.coastlineTree.load(coastlineEntries);
+        this.coastlineCount = coastlineEntries.length;
+
         this.bbox = Number.isFinite(minLon) ? [minLon, minLat, maxLon, maxLat] : [0, 0, 0, 0];
     }
 
@@ -230,6 +285,28 @@ export class EncSpatialIndex {
      */
     getCatzocRange(): [EncCatzoc, EncCatzoc] | null {
         return this.catzocRange;
+    }
+
+    /**
+     * Total coastline (COALNE) features in this cell.
+     */
+    getCoastlineCount(): number {
+        return this.coastlineCount;
+    }
+
+    /**
+     * Search COALNE features whose bbox intersects `bbox`. Used by
+     * the hazard-report service to compute closest-approach
+     * distances from the route to charted coastline.
+     */
+    searchCoastlinesInBBox(bbox: [number, number, number, number]): { geometry: Geometry }[] {
+        const [minLon, minLat, maxLon, maxLat] = bbox;
+        return this.coastlineTree.search({
+            minX: minLon,
+            minY: minLat,
+            maxX: maxLon,
+            maxY: maxLat,
+        });
     }
 
     /**
@@ -336,6 +413,7 @@ export class EncSpatialIndex {
             wreck: 3,
             obstruction: 2,
             shallow: 1,
+            coast: 0, // never selected here — coastlines have their own tree
         };
 
         for (const entry of candidates) {

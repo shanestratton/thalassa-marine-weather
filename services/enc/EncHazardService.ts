@@ -33,7 +33,7 @@ import type { Feature, FeatureCollection } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
-import { EncSpatialIndex, type EncCatzocZone } from './EncSpatialIndex';
+import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 
 const log = createLogger('EncHazardService');
@@ -121,6 +121,22 @@ function buildHazardsForCell(blob: EncConversionResult): EncHazard[] {
 }
 
 /**
+ * Pull the COALNE LineStrings out of a converted cell. Filters
+ * down to Polygon/Point-shaped junk that GDAL sometimes emits.
+ */
+function buildCoastlines(blob: EncConversionResult): EncCoastline[] {
+    const fc = blob.layers.COALNE;
+    if (!fc || !Array.isArray(fc.features)) return [];
+    const out: EncCoastline[] = [];
+    for (const feat of fc.features) {
+        if (!feat || !feat.geometry) continue;
+        if (feat.geometry.type !== 'LineString' && feat.geometry.type !== 'MultiLineString') continue;
+        out.push({ geometry: feat.geometry });
+    }
+    return out;
+}
+
+/**
  * Build the CATZOC zone list from a cell's M_QUAL FeatureCollection.
  * Skips features without a usable CATZOC attribute (1..6).
  */
@@ -168,9 +184,13 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
 
     const hazards = buildHazardsForCell(blob);
     const catzocZones = buildCatzocZones(blob);
-    const index = new EncSpatialIndex(cellId, hazards, catzocZones);
+    const coastlines = buildCoastlines(blob);
+    const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines);
     indexes.set(cellId, index);
-    log.info(`built spatial index for cell ${cellId}: ${hazards.length} hazards, ${catzocZones.length} CATZOC zones`);
+    log.info(
+        `built spatial index for cell ${cellId}: ${hazards.length} hazards, ` +
+            `${catzocZones.length} CATZOC zones, ${coastlines.length} coastlines`,
+    );
     return index;
 }
 

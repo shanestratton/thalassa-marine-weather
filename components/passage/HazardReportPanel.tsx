@@ -34,6 +34,8 @@ function hazardIcon(type: RouteHazardReportEntry['hazardType']): string {
             return '⛈'; // mountain (closest emoji for "rock")
         case 'obstruction':
             return '⚠'; // warning
+        case 'coast':
+            return '\u{1F3D6}'; // beach
         default:
             return '⚠';
     }
@@ -47,6 +49,8 @@ function hazardLabel(type: RouteHazardReportEntry['hazardType']): string {
             return 'Underwater rock';
         case 'obstruction':
             return 'Obstruction';
+        case 'coast':
+            return 'Charted coastline';
         default:
             return 'Hazard';
     }
