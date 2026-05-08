@@ -128,6 +128,8 @@ const ENC_LAYERS = [
     'LIGHTS',
     'BOYLAT',
     'BOYCAR',
+    'BCNLAT',
+    'BCNCAR',
     'M_QUAL',
 ] as const;
 

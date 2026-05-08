@@ -61,6 +61,8 @@ export const ENC_VEC_LAYERS = {
     UWTROC: 'enc-vec-uwtroc-circle',
     BOYLAT: 'enc-vec-boylat-circle',
     BOYCAR: 'enc-vec-boycar-circle',
+    BCNLAT: 'enc-vec-bcnlat-circle',
+    BCNCAR: 'enc-vec-bcncar-circle',
     LIGHTS: 'enc-vec-lights-symbol',
 } as const;
 
@@ -70,7 +72,9 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.COALNE,
     ENC_VEC_LAYERS.BOYLAT,
+    ENC_VEC_LAYERS.BCNLAT,
     ENC_VEC_LAYERS.BOYCAR,
+    ENC_VEC_LAYERS.BCNCAR,
     ENC_VEC_LAYERS.OBSTRN,
     ENC_VEC_LAYERS.WRECKS,
     ENC_VEC_LAYERS.UWTROC,
@@ -143,6 +147,14 @@ function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
         ...data.BOYCAR.features.map((f) => ({
             ...f,
             properties: { ...(f.properties ?? {}), _kind: 'BOYCAR' },
+        })),
+        ...data.BCNLAT.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BCNLAT' },
+        })),
+        ...data.BCNCAR.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BCNCAR' },
         })),
     ];
     return { type: 'FeatureCollection', features };
@@ -335,17 +347,16 @@ export function mountEncVectorLayer(
         );
     }
 
-    // ── BOYLAT (lateral buoys) ────────────────────────────────────
-    // S-57 CATLAM:
-    //   1 = port-hand        (IALA-A: red, IALA-B: green)
-    //   2 = starboard-hand   (IALA-A: green, IALA-B: red)
-    //   3 = preferred-channel-port    (renders like port)
-    //   4 = preferred-channel-starboard (renders like starboard)
+    // ── BOYLAT / BCNLAT (lateral marks) ───────────────────────────
+    // Color is pre-computed at merge time (lateralMarkColour() in
+    // services/enc/types.ts) so we don't need region detection in
+    // a paint expression — just read `_displayColor`. Region-A vs
+    // region-B logic lives once in TypeScript, not duplicated as a
+    // chunky `case` here.
     //
-    // We assume IALA-A here (most of the world incl. Australia,
-    // Europe, Asia, South Pacific). IALA-B (Americas, Japan, S Korea,
-    // Philippines) gets the colors inverted — Phase 10 can detect
-    // region from cell metadata or vessel home port.
+    // BOYLAT = floating buoy (thinner stroke).
+    // BCNLAT = rigid beacon — same colour family but bolder stroke
+    //          to suggest "structure, not float".
     if (!map.getLayer(ENC_VEC_LAYERS.BOYLAT)) {
         map.addLayer(
             {
@@ -355,19 +366,7 @@ export function mountEncVectorLayer(
                 minzoom: minZoom,
                 filter: ['==', ['get', '_kind'], 'BOYLAT'],
                 paint: {
-                    'circle-color': [
-                        'match',
-                        ['to-number', ['coalesce', ['get', 'CATLAM'], ['get', 'catlam'], 0]],
-                        1,
-                        '#dc2626', // red — port-hand
-                        3,
-                        '#dc2626', // red — preferred-channel-port
-                        2,
-                        '#16a34a', // green — starboard-hand
-                        4,
-                        '#16a34a', // green — preferred-channel-stbd
-                        /* default */ '#facc15', // yellow — unspecified lateral
-                    ],
+                    'circle-color': ['coalesce', ['get', '_displayColor'], '#facc15'],
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
                     'circle-stroke-color': '#000000',
                     'circle-stroke-width': 1,
@@ -379,12 +378,33 @@ export function mountEncVectorLayer(
         );
     }
 
-    // ── BOYCAR (cardinal buoys) ───────────────────────────────────
-    // Yellow + black with bands indicating quadrant. Simplified
-    // here as a single yellow circle with a black ring; the proper
-    // cardinal-marker styling (top marks, double-cone shapes) is
-    // beyond what circle layers can do — Phase 10 can introduce
-    // SVG icons for that.
+    if (!map.getLayer(ENC_VEC_LAYERS.BCNLAT)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.BCNLAT,
+                type: 'circle',
+                source: ENC_VEC_SRC.NAVAIDS,
+                minzoom: minZoom,
+                filter: ['==', ['get', '_kind'], 'BCNLAT'],
+                paint: {
+                    'circle-color': ['coalesce', ['get', '_displayColor'], '#facc15'],
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
+                    'circle-stroke-color': '#000000',
+                    // Thicker stroke distinguishes a rigid beacon
+                    // from a floating buoy at-a-glance.
+                    'circle-stroke-width': 2.2,
+                    'circle-opacity': opacity,
+                    'circle-stroke-opacity': opacity,
+                },
+            },
+            before,
+        );
+    }
+
+    // ── BOYCAR / BCNCAR (cardinal marks) ──────────────────────────
+    // Yellow with black ring. Same buoy-vs-beacon stroke distinction
+    // as the lateral marks. Top-mark cones (proper IHO INT1) need
+    // SVG icons — out of scope for v1.
     if (!map.getLayer(ENC_VEC_LAYERS.BOYCAR)) {
         map.addLayer(
             {
@@ -394,10 +414,31 @@ export function mountEncVectorLayer(
                 minzoom: minZoom,
                 filter: ['==', ['get', '_kind'], 'BOYCAR'],
                 paint: {
-                    'circle-color': '#facc15', // yellow base
+                    'circle-color': '#facc15',
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
-                    'circle-stroke-color': '#000000', // black ring
+                    'circle-stroke-color': '#000000',
                     'circle-stroke-width': 1.6,
+                    'circle-opacity': opacity,
+                    'circle-stroke-opacity': opacity,
+                },
+            },
+            before,
+        );
+    }
+
+    if (!map.getLayer(ENC_VEC_LAYERS.BCNCAR)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.BCNCAR,
+                type: 'circle',
+                source: ENC_VEC_SRC.NAVAIDS,
+                minzoom: minZoom,
+                filter: ['==', ['get', '_kind'], 'BCNCAR'],
+                paint: {
+                    'circle-color': '#facc15',
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
+                    'circle-stroke-color': '#000000',
+                    'circle-stroke-width': 2.4,
                     'circle-opacity': opacity,
                     'circle-stroke-opacity': opacity,
                 },
@@ -452,10 +493,14 @@ export function mountEncVectorLayer(
 
     log.info(
         `mounted vector layers: ${data.cellCount} cells, ` +
-            `${data.DEPARE.features.length} depare, ${data.LNDARE.features.length} lndare, ` +
+            `${data.LIGHTS.features.length} lights, ` +
+            `lat marks=${data.BOYLAT.features.length + data.BCNLAT.features.length} ` +
+            `(${data.BOYLAT.features.length} buoys, ${data.BCNLAT.features.length} beacons), ` +
+            `card marks=${data.BOYCAR.features.length + data.BCNCAR.features.length} ` +
+            `(${data.BOYCAR.features.length} buoys, ${data.BCNCAR.features.length} beacons), ` +
+            `polygons: ${data.DEPARE.features.length} depare, ${data.LNDARE.features.length} lndare, ` +
             `${data.COALNE.features.length} coalne, ` +
-            `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} hazard pts, ` +
-            `${data.LIGHTS.features.length} lights, ${data.BOYLAT.features.length} lat-buoys, ${data.BOYCAR.features.length} card-buoys`,
+            `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} hazard pts`,
     );
 }
 
@@ -669,8 +714,9 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>):
         if (height) body += `<div class="enc-popup-row"><span>Height</span><b>${esc(fmtDepth(height))}</b></div>`;
         if (valnmr) body += `<div class="enc-popup-row"><span>Range</span><b>${esc(valnmr)} NM</b></div>`;
         if (colour) body += `<div class="enc-popup-row"><span>Colour code</span><b>${esc(String(colour))}</b></div>`;
-    } else if (layerId === ENC_VEC_LAYERS.BOYLAT) {
-        title = 'Lateral buoy';
+    } else if (layerId === ENC_VEC_LAYERS.BOYLAT || layerId === ENC_VEC_LAYERS.BCNLAT) {
+        const isBeacon = layerId === ENC_VEC_LAYERS.BCNLAT;
+        title = isBeacon ? 'Lateral beacon' : 'Lateral buoy';
         accent = '#facc15';
         const CATLAM_LABELS: Record<string, string> = {
             '1': 'Port-hand mark',
@@ -686,11 +732,16 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>):
         if (cat && CATLAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Mark</span><b>${esc(CATLAM_LABELS[cat])}</b></div>`;
         }
+        const region = props._ialaRegion;
+        if (region === 'A' || region === 'B') {
+            body += `<div class="enc-popup-row"><span>Region</span><b>IALA-${esc(region)}</b></div>`;
+        }
         const name = props.OBJNAM ?? props.objnam;
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
-    } else if (layerId === ENC_VEC_LAYERS.BOYCAR) {
-        title = 'Cardinal buoy';
+    } else if (layerId === ENC_VEC_LAYERS.BOYCAR || layerId === ENC_VEC_LAYERS.BCNCAR) {
+        const isBeacon = layerId === ENC_VEC_LAYERS.BCNCAR;
+        title = isBeacon ? 'Cardinal beacon' : 'Cardinal buoy';
         accent = '#facc15';
         const CATCAM_LABELS: Record<string, string> = {
             '1': 'North',
@@ -817,6 +868,8 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             ENC_VEC_LAYERS.LIGHTS,
             ENC_VEC_LAYERS.BOYLAT,
             ENC_VEC_LAYERS.BOYCAR,
+            ENC_VEC_LAYERS.BCNLAT,
+            ENC_VEC_LAYERS.BCNCAR,
         ]);
         const point = features.find((f) => POINT_LAYER_IDS.has(f.layer?.id ?? ''));
         const feat = point ?? features[0];

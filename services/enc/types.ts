@@ -42,8 +42,98 @@ export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'C
  * never appear in the hazard report. Carried separately from
  * EncLayer because the hazard pipeline iterates EncLayer and we
  * don't want navaids walked into hazard processing.
+ *
+ * BOYLAT/BOYCAR are floating buoys; BCNLAT/BCNCAR are the
+ * equivalent rigid beacons (poles, towers). Same colour logic per
+ * IALA region; different physical structure on the chart.
  */
-export type EncNavaidLayer = 'LIGHTS' | 'BOYLAT' | 'BOYCAR';
+export type EncNavaidLayer = 'LIGHTS' | 'BOYLAT' | 'BOYCAR' | 'BCNLAT' | 'BCNCAR';
+
+/**
+ * IALA buoyage region. Lateral mark colour conventions are
+ * mirrored between the two regions: in IALA-A port-hand is red
+ * and starboard-hand is green; in IALA-B the colours are
+ * reversed (port-hand green, starboard-hand red). Cell IDs from
+ * an IALA-B HO ship features that ALREADY follow IALA-B
+ * convention — we have to render them with the swapped colours
+ * so the user sees the same red/green they'd see physically.
+ */
+export type IalaRegion = 'A' | 'B';
+
+/**
+ * Map a 2-letter ENC source HO prefix (the first two characters
+ * of the cell ID, e.g. "AU" / "US" / "JP") to the IALA region
+ * that office's waters belong to.
+ *
+ * Source: IHO P-44 (IALA Maritime Buoyage System status). The
+ * universe of "Region B" countries is small and well-defined:
+ * the Americas, Japan, Korea, the Philippines.
+ *
+ * Default IALA-A — covers ~85% of the world's waters. Returning
+ * a sane default when we don't recognise a prefix means a
+ * mis-classified cell renders the wrong colours; that's acceptable
+ * vs erroring out, and sailors notice colour mismatches with their
+ * physical chart instantly.
+ */
+const IALA_B_PREFIXES: ReadonlySet<string> = new Set([
+    'US', // United States (NOAA)
+    'CA', // Canada (CHS)
+    'MX', // Mexico
+    'BR', // Brazil
+    'AR', // Argentina
+    'CL', // Chile
+    'CO', // Colombia
+    'EC', // Ecuador
+    'PE', // Peru
+    'UY', // Uruguay
+    'VE', // Venezuela
+    'JP', // Japan
+    'KR', // South Korea
+    'PH', // Philippines
+    'PA', // Panama
+    'CR', // Costa Rica
+    'NI', // Nicaragua
+    'CU', // Cuba
+    'DO', // Dominican Republic
+    'HT', // Haiti
+    'JM', // Jamaica
+    'TT', // Trinidad & Tobago
+    'BS', // Bahamas
+    'BB', // Barbados
+]);
+
+export function ialaRegionForSourceHO(sourceHO: string | undefined): IalaRegion {
+    if (!sourceHO || sourceHO.length < 2) return 'A';
+    const prefix = sourceHO.slice(0, 2).toUpperCase();
+    return IALA_B_PREFIXES.has(prefix) ? 'B' : 'A';
+}
+
+/**
+ * Resolve the display colour of a lateral mark given its CATLAM
+ * code and the IALA region of the source cell. Encapsulates the
+ * region inversion in one place so the renderer doesn't have to
+ * carry case expressions.
+ *
+ * CATLAM:
+ *   1 = port-hand
+ *   2 = starboard-hand
+ *   3 = preferred-channel-port (renders as port)
+ *   4 = preferred-channel-starboard (renders as starboard)
+ *
+ * Returns hex colour strings matched to the existing palette.
+ */
+export function lateralMarkColour(catlam: number | null | undefined, region: IalaRegion): string {
+    const RED = '#dc2626';
+    const GREEN = '#16a34a';
+    const YELLOW = '#facc15'; // unspecified / special purpose
+    if (catlam == null) return YELLOW;
+    const c = Math.round(catlam);
+    const isPortHand = c === 1 || c === 3;
+    const isStbdHand = c === 2 || c === 4;
+    if (isPortHand) return region === 'A' ? RED : GREEN;
+    if (isStbdHand) return region === 'A' ? GREEN : RED;
+    return YELLOW;
+}
 
 /**
  * Layers we ship in the conversion result but treat as info-only.
@@ -239,6 +329,10 @@ export interface EncConversionResult {
         BOYLAT?: GeoJSON.FeatureCollection;
         /** Cardinal buoys (point features). Display only. */
         BOYCAR?: GeoJSON.FeatureCollection;
+        /** Lateral beacons — rigid lateral marks. Display only. */
+        BCNLAT?: GeoJSON.FeatureCollection;
+        /** Cardinal beacons — rigid cardinal marks. Display only. */
+        BCNCAR?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */
         M_QUAL?: GeoJSON.FeatureCollection;
     };
