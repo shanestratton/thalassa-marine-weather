@@ -299,6 +299,81 @@ What's deferred to Phase 13.x:
   build a centerline-distance penalty, which would hug the marked
   channel even more strictly.
 
+### Phase 14 — S-63 encrypted ENC import (deferred until license in hand)
+
+NOAA cells are public-domain `.000` files — drop them on the Pi, GDAL
+parses them, done. AHO (Australian Hydrographic Office) and most
+non-US offices ship their cells **S-63 encrypted**: the `.000` file
+is wrapped in IHO's standard chart-protection scheme, decryption keys
+arrive as text-file permits tied to a hardware fingerprint.
+
+This phase adds S-63 import to the existing pipeline so users with
+licensed AusENC / UKHO / etc. cells can import them the same way
+they import NOAA today.
+
+**What the user has to provide:**
+
+S-63 distributions ship as a directory tree containing:
+
+- `.000` (and update `.001`/`.002`) — the encrypted ENC cell files
+- `PERMIT.TXT` — per-cell decryption keys (CRC-checked, format
+  documented in IHO S-63)
+- `SERIAL.ENC` — distribution catalogue
+- A separate `userPermit.txt` (or printed/emailed by the HO when
+  the license was issued) — 28-character hex string tied to the
+  user's hardware fingerprint
+
+The first three live alongside the cells; the userPermit is a
+one-time setup on the Pi.
+
+**Implementation plan:**
+
+- [ ] **Pi: GDAL S-63 driver** — most distros ship `gdal-bin`
+      without S-63 (it's behind a build flag because IHO requires
+      a license-distribution agreement). On Pi OS we either:
+      a) Build GDAL from source with `-DGDAL_USE_S63=ON` —
+      ~30 min compile but stable.
+      b) Use a community APT repo with S-63-enabled GDAL —
+      faster but trust-the-third-party.
+      Recommend (a) — script it into `install.sh` behind a
+      `--with-s63` flag so default installs stay fast and only
+      users who want it pay the build time.
+- [ ] **Pi: userPermit storage** — drop into
+      `${INSTALL_DIR}/.s63/userPermit.txt` (mode 0600). New
+      endpoint `POST /api/enc/s63/userpermit` `{userPermit: string}`
+      validates the format (28 hex chars + 8-char manufacturer
+      key) and writes it.
+- [ ] **Pi: `POST /api/enc/install-s63`** — accepts a ZIP
+      containing the cell files + `PERMIT.TXT` + `SERIAL.ENC`.
+      Calls `ogr2ogr -oo USERPERMIT=$KEY -oo CELL_PERMIT=...` per
+      cell. Same downstream pipeline as the public NOAA flow —
+      writes decrypted GeoJSON to the chart store.
+- [ ] **Device: import UI** — extend `EncCellManager.tsx` with a
+      new "Install S-63 (encrypted)" button next to the existing
+      "Install on Pi from URL" / "Upload from this device". First-
+      run prompts for the userPermit; subsequent imports just
+      need the cell ZIP.
+- [ ] **Source attribution** — IHO requires displaying "Source:
+      AHO" (or whichever HO) when a chart's data is shown. The
+      EncCellManager and the route-results panel already track
+      `sourceHO`; just need to ensure it's visible.
+
+**Tested-on prerequisite:**
+
+This phase is gated on having a real AusENC license to test against.
+Without actual encrypted cells + permits, we can scope-out the API
+shape but can't verify the GDAL S-63 driver actually decrypts
+properly. Recommended order: user buys an AusENC subscription →
+ships me one cell + the permits → I plumb it through end-to-end →
+ship.
+
+**Out of scope for this phase:**
+
+- o-charts (oeSENC) format — closed proprietary, dongle-decryption
+  inside OpenCPN only, no extraction path. Users who only have
+  o-charts must keep using OpenCPN for AU vector chart routing
+  until they license direct AusENCs.
+
 ### Phase 12+ — Small polish (deferred, captured 2026-05-09)
 
 - [ ] **Surface DSID_UPDN alongside edition** — NOAA cells often
