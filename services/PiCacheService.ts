@@ -14,6 +14,9 @@
 import { CapacitorHttp } from '@capacitor/core';
 import { LocationStore } from '../stores/LocationStore';
 import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('PiCacheService');
 
 // ── Types ──
 

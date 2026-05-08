@@ -417,6 +417,12 @@ export interface EncMergedVectorData {
     OBSTRN: FeatureCollection;
     WRECKS: FeatureCollection;
     UWTROC: FeatureCollection;
+    /** Lights / lighthouses (display only). */
+    LIGHTS: FeatureCollection;
+    /** Lateral buoys (display only). */
+    BOYLAT: FeatureCollection;
+    /** Cardinal buoys (display only). */
+    BOYCAR: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -453,6 +459,9 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         OBSTRN: { type: 'FeatureCollection', features: [] },
         WRECKS: { type: 'FeatureCollection', features: [] },
         UWTROC: { type: 'FeatureCollection', features: [] },
+        LIGHTS: { type: 'FeatureCollection', features: [] },
+        BOYLAT: { type: 'FeatureCollection', features: [] },
+        BOYCAR: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -467,9 +476,12 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         if (!blob) continue;
         merged.cellCount++;
 
-        const tagAndPush = (target: EncLayer, fc: FeatureCollection | undefined) => {
+        const tagAndPush = (
+            target: keyof Omit<EncMergedVectorData, 'cellCount'>,
+            fc: FeatureCollection | undefined,
+        ) => {
             if (!fc || !Array.isArray(fc.features)) return;
-            const dest = merged[target as keyof Omit<EncMergedVectorData, 'cellCount'>];
+            const dest = merged[target];
             for (const feat of fc.features) {
                 if (!feat || !feat.geometry) continue;
                 // Decorate properties with provenance so the map
@@ -485,13 +497,17 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         tagAndPush('OBSTRN', blob.layers.OBSTRN);
         tagAndPush('WRECKS', blob.layers.WRECKS);
         tagAndPush('UWTROC', blob.layers.UWTROC);
+        tagAndPush('LIGHTS', blob.layers.LIGHTS);
+        tagAndPush('BOYLAT', blob.layers.BOYLAT);
+        tagAndPush('BOYCAR', blob.layers.BOYCAR);
     }
 
     mergedCache = { version: currentVersion, data: merged };
     log.info(
         `merged vector data: ${merged.cellCount} cells, ` +
             `DEPARE=${merged.DEPARE.features.length}, COALNE=${merged.COALNE.features.length}, ` +
-            `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}`,
+            `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}, ` +
+            `LIGHTS=${merged.LIGHTS.features.length}, BOYLAT=${merged.BOYLAT.features.length}, BOYCAR=${merged.BOYCAR.features.length}`,
     );
     return merged;
 }

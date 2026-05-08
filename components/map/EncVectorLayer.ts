@@ -38,6 +38,7 @@ import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
+import { CATZOC_LABELS, isLowConfidenceCatzoc, type EncCatzoc } from '../../services/enc/types';
 
 const log = createLogger('EncVectorLayer');
 
@@ -48,6 +49,7 @@ export const ENC_VEC_SRC = {
     DEPARE: 'enc-vec-depare',
     COALNE: 'enc-vec-coalne',
     POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged
+    NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOYLAT + BOYCAR merged
 } as const;
 
 export const ENC_VEC_LAYERS = {
@@ -57,16 +59,22 @@ export const ENC_VEC_LAYERS = {
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
     UWTROC: 'enc-vec-uwtroc-circle',
+    BOYLAT: 'enc-vec-boylat-circle',
+    BOYCAR: 'enc-vec-boycar-circle',
+    LIGHTS: 'enc-vec-lights-symbol',
 } as const;
 
 // All layer IDs, ordered bottom-to-top for correct stacking.
 const ALL_LAYER_IDS = [
-    ENC_VEC_LAYERS.DEPARE, // bottom
+    ENC_VEC_LAYERS.DEPARE, // bottom (water fills)
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.COALNE,
+    ENC_VEC_LAYERS.BOYLAT,
+    ENC_VEC_LAYERS.BOYCAR,
     ENC_VEC_LAYERS.OBSTRN,
     ENC_VEC_LAYERS.WRECKS,
     ENC_VEC_LAYERS.UWTROC,
+    ENC_VEC_LAYERS.LIGHTS, // top (lights paint on everything)
 ];
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
@@ -117,6 +125,29 @@ function buildMergedPoints(data: EncMergedVectorData): FeatureCollection {
     return { type: 'FeatureCollection', features };
 }
 
+/**
+ * Same approach for navaids — one source, layer-level filters by
+ * `_kind`. Saves the worker tile-build cost of three separate
+ * sources holding the same Point geometries.
+ */
+function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
+    const features = [
+        ...data.LIGHTS.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'LIGHTS' },
+        })),
+        ...data.BOYLAT.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BOYLAT' },
+        })),
+        ...data.BOYCAR.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BOYCAR' },
+        })),
+    ];
+    return { type: 'FeatureCollection', features };
+}
+
 // ── Mount ──────────────────────────────────────────────────────────
 
 export interface EncVectorMountOptions {
@@ -160,6 +191,7 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.DEPARE, data.DEPARE);
     ensureSource(ENC_VEC_SRC.COALNE, data.COALNE);
     ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
+    ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
 
     const before = findInsertionAnchor(map);
 
@@ -303,11 +335,127 @@ export function mountEncVectorLayer(
         );
     }
 
+    // ── BOYLAT (lateral buoys) ────────────────────────────────────
+    // S-57 CATLAM:
+    //   1 = port-hand        (IALA-A: red, IALA-B: green)
+    //   2 = starboard-hand   (IALA-A: green, IALA-B: red)
+    //   3 = preferred-channel-port    (renders like port)
+    //   4 = preferred-channel-starboard (renders like starboard)
+    //
+    // We assume IALA-A here (most of the world incl. Australia,
+    // Europe, Asia, South Pacific). IALA-B (Americas, Japan, S Korea,
+    // Philippines) gets the colors inverted — Phase 10 can detect
+    // region from cell metadata or vessel home port.
+    if (!map.getLayer(ENC_VEC_LAYERS.BOYLAT)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.BOYLAT,
+                type: 'circle',
+                source: ENC_VEC_SRC.NAVAIDS,
+                minzoom: minZoom,
+                filter: ['==', ['get', '_kind'], 'BOYLAT'],
+                paint: {
+                    'circle-color': [
+                        'match',
+                        ['to-number', ['coalesce', ['get', 'CATLAM'], ['get', 'catlam'], 0]],
+                        1,
+                        '#dc2626', // red — port-hand
+                        3,
+                        '#dc2626', // red — preferred-channel-port
+                        2,
+                        '#16a34a', // green — starboard-hand
+                        4,
+                        '#16a34a', // green — preferred-channel-stbd
+                        /* default */ '#facc15', // yellow — unspecified lateral
+                    ],
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
+                    'circle-stroke-color': '#000000',
+                    'circle-stroke-width': 1,
+                    'circle-opacity': opacity,
+                    'circle-stroke-opacity': opacity,
+                },
+            },
+            before,
+        );
+    }
+
+    // ── BOYCAR (cardinal buoys) ───────────────────────────────────
+    // Yellow + black with bands indicating quadrant. Simplified
+    // here as a single yellow circle with a black ring; the proper
+    // cardinal-marker styling (top marks, double-cone shapes) is
+    // beyond what circle layers can do — Phase 10 can introduce
+    // SVG icons for that.
+    if (!map.getLayer(ENC_VEC_LAYERS.BOYCAR)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.BOYCAR,
+                type: 'circle',
+                source: ENC_VEC_SRC.NAVAIDS,
+                minzoom: minZoom,
+                filter: ['==', ['get', '_kind'], 'BOYCAR'],
+                paint: {
+                    'circle-color': '#facc15', // yellow base
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
+                    'circle-stroke-color': '#000000', // black ring
+                    'circle-stroke-width': 1.6,
+                    'circle-opacity': opacity,
+                    'circle-stroke-opacity': opacity,
+                },
+            },
+            before,
+        );
+    }
+
+    // ── LIGHTS (lighthouses + lit aids) ───────────────────────────
+    // Symbol layer with a star char so it stays sharp at any zoom.
+    // Color cues from the LIGHTS.COLOUR attribute:
+    //   1=white  3=red  4=green  6=yellow  -- the ones you commonly
+    //   see on a chart. Default to bright yellow for unknown.
+    if (!map.getLayer(ENC_VEC_LAYERS.LIGHTS)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.LIGHTS,
+                type: 'symbol',
+                source: ENC_VEC_SRC.NAVAIDS,
+                minzoom: minZoom,
+                filter: ['==', ['get', '_kind'], 'LIGHTS'],
+                layout: {
+                    'text-field': '★',
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 11, 16, 15, 22],
+                    'text-allow-overlap': true,
+                    'text-anchor': 'center',
+                },
+                paint: {
+                    // S-57 COLOUR is a comma-separated string of codes.
+                    // We use a regex-style match on the first character
+                    // (most lights are mono-coloured); fall back to
+                    // bright yellow for the typical "FlW" lighthouse.
+                    'text-color': [
+                        'match',
+                        ['coalesce', ['get', 'COLOUR'], ['get', 'colour'], '6'],
+                        '3',
+                        '#ef4444', // red
+                        '4',
+                        '#22c55e', // green
+                        '1',
+                        '#ffffff', // white
+                        /* default */ '#fde047', // yellow
+                    ],
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.5,
+                    'text-opacity': opacity,
+                },
+            },
+            before,
+        );
+    }
+
     log.info(
         `mounted vector layers: ${data.cellCount} cells, ` +
             `${data.DEPARE.features.length} depare, ${data.LNDARE.features.length} lndare, ` +
             `${data.COALNE.features.length} coalne, ` +
-            `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} points`,
+            `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} hazard pts, ` +
+            `${data.LIGHTS.features.length} lights, ${data.BOYLAT.features.length} lat-buoys, ${data.BOYCAR.features.length} card-buoys`,
     );
 }
 
@@ -325,6 +473,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     setData(ENC_VEC_SRC.DEPARE, data.DEPARE);
     setData(ENC_VEC_SRC.COALNE, data.COALNE);
     setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
+    setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
     log.info(`refreshed vector data: ${data.cellCount} cells`);
 }
 
@@ -363,4 +512,368 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
     for (const id of ALL_LAYER_IDS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
     }
+}
+
+// ── Click-to-popup ─────────────────────────────────────────────────
+
+/**
+ * Escape HTML special chars so feature properties (e.g. `OBJNAM`
+ * containing apostrophes) can't break the popup HTML.
+ */
+function esc(s: unknown): string {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function fmtDepth(v: unknown, suffix = ' m'): string {
+    const n = typeof v === 'number' ? v : Number(v);
+    if (!Number.isFinite(n)) return '—';
+    return `${n.toFixed(1)}${suffix}`;
+}
+
+function fmtRange(min: unknown, max: unknown): string | null {
+    const a = typeof min === 'number' ? min : Number(min);
+    const b = typeof max === 'number' ? max : Number(max);
+    if (!Number.isFinite(a) && !Number.isFinite(b)) return null;
+    if (Number.isFinite(a) && Number.isFinite(b)) return `${a.toFixed(1)}–${b.toFixed(1)} m`;
+    if (Number.isFinite(a)) return `${a.toFixed(1)} m+`;
+    return `≤${b.toFixed(1)} m`;
+}
+
+/**
+ * S-57 attribute lookups for the popup. Wreck and obstruction
+ * categories are coded ints in the source — we map the most-common
+ * ones; unknown codes fall back to the raw value.
+ */
+const CATWRK_LABELS: Record<string, string> = {
+    '1': 'Non-dangerous wreck',
+    '2': 'Dangerous wreck',
+    '3': 'Distributed remains',
+    '4': 'Wreck showing mast/funnel',
+    '5': 'Wreck showing hull',
+};
+
+const CATOBS_LABELS: Record<string, string> = {
+    '1': 'Snag/Stump',
+    '2': 'Wellhead',
+    '3': 'Diffuser',
+    '4': 'Crib',
+    '5': 'Fish haven',
+    '6': 'Foul area',
+    '7': 'Foul ground',
+    '8': 'Ice boom',
+    '9': 'Ground tackle',
+    '10': 'Boom',
+};
+
+const WATLEV_LABELS: Record<string, string> = {
+    '1': 'Partly submerged at high water',
+    '2': 'Always dry',
+    '3': 'Always submerged',
+    '4': 'Covers and uncovers',
+    '5': 'Awash',
+    '6': 'Subject to inundation/flooding',
+    '7': 'Floating',
+};
+
+/**
+ * Build the popup HTML for a feature. The layer ID determines
+ * which fields we surface — DEPARE shows depth range, WRECKS
+ * shows category + depth, etc.
+ *
+ * Style: dark glassmorphic to match the rest of the app's chart
+ * UI. Mapbox's default popup CSS gives us a white background; we
+ * override per-class in the class names.
+ */
+function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>): string {
+    const cellId = props._cellId as string | undefined;
+    const sourceHO = props._sourceHO as string | undefined;
+    const provenance = cellId
+        ? `<div class="enc-popup-cell">${esc(cellId)}${sourceHO ? ` · ${esc(sourceHO)}` : ''}</div>`
+        : '';
+
+    let title = 'Feature';
+    let body = '';
+    let accent = '#0ea5e9'; // sky-500 default
+
+    if (layerId === ENC_VEC_LAYERS.DEPARE) {
+        title = 'Depth area';
+        accent = '#3a8dbf';
+        const range = fmtRange(props.DRVAL1 ?? props.drval1, props.DRVAL2 ?? props.drval2);
+        if (range) body += `<div class="enc-popup-row"><span>Depth</span><b>${range}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.LNDARE) {
+        title = 'Land';
+        accent = '#a8956a';
+        body += `<div class="enc-popup-row"><span>Type</span><b>Charted land area</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.COALNE) {
+        title = 'Coastline';
+        accent = '#ffffff';
+        body += `<div class="enc-popup-row"><span>Type</span><b>Charted coastline</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.OBSTRN) {
+        title = 'Obstruction';
+        accent = '#d837a9';
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+        const cat = String(props.CATOBS ?? props.catobs ?? '');
+        if (cat && CATOBS_LABELS[cat]) {
+            body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATOBS_LABELS[cat])}</b></div>`;
+        }
+        const depth = props.VALSOU ?? props.valsou;
+        if (depth != null) body += `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(depth))}</b></div>`;
+        const watlev = String(props.WATLEV ?? props.watlev ?? '');
+        if (watlev && WATLEV_LABELS[watlev]) {
+            body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
+        }
+    } else if (layerId === ENC_VEC_LAYERS.WRECKS) {
+        title = 'Wreck';
+        accent = '#d837a9';
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+        const cat = String(props.CATWRK ?? props.catwrk ?? '');
+        if (cat && CATWRK_LABELS[cat]) {
+            body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATWRK_LABELS[cat])}</b></div>`;
+        }
+        const depth = props.VALSOU ?? props.valsou;
+        if (depth != null) body += `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(depth))}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.UWTROC) {
+        title = 'Underwater rock';
+        accent = '#d837a9';
+        const depth = props.VALSOU ?? props.valsou;
+        if (depth != null) body += `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(depth))}</b></div>`;
+        const watlev = String(props.WATLEV ?? props.watlev ?? '');
+        if (watlev && WATLEV_LABELS[watlev]) {
+            body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
+        }
+    } else if (layerId === ENC_VEC_LAYERS.LIGHTS) {
+        title = 'Light';
+        accent = '#fde047';
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+        // S-57 light "character" stitched together — closest the
+        // popup gets to a full nautical light description like
+        // "FL.W.5s.18m." Without symbol expansion we just show the
+        // raw fields the user can cross-reference on a chart.
+        const litchr = props.LITCHR ?? props.litchr;
+        const sigper = props.SIGPER ?? props.sigper;
+        const valnmr = props.VALNMR ?? props.valnmr;
+        const height = props.HEIGHT ?? props.height;
+        const colour = props.COLOUR ?? props.colour;
+        if (litchr) body += `<div class="enc-popup-row"><span>Character</span><b>${esc(String(litchr))}</b></div>`;
+        if (sigper) body += `<div class="enc-popup-row"><span>Period</span><b>${esc(sigper)} s</b></div>`;
+        if (height) body += `<div class="enc-popup-row"><span>Height</span><b>${esc(fmtDepth(height))}</b></div>`;
+        if (valnmr) body += `<div class="enc-popup-row"><span>Range</span><b>${esc(valnmr)} NM</b></div>`;
+        if (colour) body += `<div class="enc-popup-row"><span>Colour code</span><b>${esc(String(colour))}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.BOYLAT) {
+        title = 'Lateral buoy';
+        accent = '#facc15';
+        const CATLAM_LABELS: Record<string, string> = {
+            '1': 'Port-hand mark',
+            '2': 'Starboard-hand mark',
+            '3': 'Preferred channel — port',
+            '4': 'Preferred channel — starboard',
+            '5': 'Channel marker',
+            '6': 'Bifurcation',
+            '7': 'Junction',
+            '8': 'Wreck mark',
+        };
+        const cat = String(props.CATLAM ?? props.catlam ?? '');
+        if (cat && CATLAM_LABELS[cat]) {
+            body += `<div class="enc-popup-row"><span>Mark</span><b>${esc(CATLAM_LABELS[cat])}</b></div>`;
+        }
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.BOYCAR) {
+        title = 'Cardinal buoy';
+        accent = '#facc15';
+        const CATCAM_LABELS: Record<string, string> = {
+            '1': 'North',
+            '2': 'East',
+            '3': 'South',
+            '4': 'West',
+        };
+        const cat = String(props.CATCAM ?? props.catcam ?? '');
+        if (cat && CATCAM_LABELS[cat]) {
+            body += `<div class="enc-popup-row"><span>Quadrant</span><b>${esc(CATCAM_LABELS[cat])}</b></div>`;
+        }
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+    }
+
+    if (!body) body = `<div class="enc-popup-row"><span>Feature</span><b>${esc(title)}</b></div>`;
+
+    return `
+        <div class="enc-popup">
+            <button class="enc-popup-close" aria-label="Close">×</button>
+            <div class="enc-popup-title" style="color:${accent}">${esc(title)}</div>
+            <div class="enc-popup-body">${body}</div>
+            ${provenance}
+        </div>
+        <style>
+            .enc-popup {
+                position: relative;
+                font-family: system-ui, -apple-system, sans-serif;
+                color: rgb(229, 231, 235);
+                background: rgba(15, 23, 42, 0.92);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 10px;
+                padding: 10px 12px;
+                font-size: 12px;
+                line-height: 1.5;
+                min-width: 180px;
+                max-width: 280px;
+            }
+            .enc-popup-close {
+                position: absolute;
+                top: 4px;
+                right: 6px;
+                background: rgba(15, 23, 42, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                color: rgb(209, 213, 219);
+                border-radius: 999px;
+                width: 22px;
+                height: 22px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                font-size: 16px;
+                line-height: 1;
+                font-weight: bold;
+                padding: 0;
+            }
+            .enc-popup-close:hover {
+                background: rgba(220, 38, 38, 0.85);
+                color: white;
+            }
+            .enc-popup-title {
+                font-size: 13px;
+                font-weight: 700;
+                margin-bottom: 6px;
+                padding-right: 22px;
+            }
+            .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
+            .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
+            .enc-popup-row span { color: rgba(229, 231, 235, 0.55); }
+            .enc-popup-row b { font-weight: 600; color: rgb(229, 231, 235); }
+            .enc-popup-cell {
+                margin-top: 6px;
+                padding-top: 6px;
+                border-top: 1px solid rgba(255, 255, 255, 0.08);
+                font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                font-size: 10px;
+                color: rgba(229, 231, 235, 0.55);
+            }
+            .mapboxgl-popup-content { background: transparent !important; padding: 0 !important; box-shadow: none !important; }
+            .mapboxgl-popup-tip { display: none !important; }
+        </style>
+    `;
+}
+
+/**
+ * Track click handlers per map for clean teardown. We can't use a
+ * closure inside detachClickHandlers without a reference, so we
+ * stash them on the map object itself via a WeakMap.
+ */
+interface AttachedHandlers {
+    click: (e: mapboxgl.MapMouseEvent) => void;
+    enter: () => void;
+    leave: () => void;
+    popup: mapboxgl.Popup | null;
+}
+const attachedHandlers = new WeakMap<mapboxgl.Map, AttachedHandlers>();
+
+/**
+ * Wire up click handlers on every ENC vector layer so tapping a
+ * feature shows a popup describing it. Idempotent — if handlers
+ * are already attached, this is a no-op.
+ */
+export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
+    if (attachedHandlers.has(map)) return;
+
+    const onClick = (e: mapboxgl.MapMouseEvent) => {
+        // queryRenderedFeatures across all our layers; topmost wins.
+        // Order matters: we list points first (small, easy to miss
+        // if covered by a polygon hit) then polygons last.
+        const features = map.queryRenderedFeatures(e.point, { layers: ALL_LAYER_IDS });
+        if (!features.length) return;
+
+        // Prefer point features over big polygons when both are
+        // hit — clicking near a buoy that sits on top of a depth
+        // area should pop the buoy info, not the depth.
+        const POINT_LAYER_IDS = new Set<string>([
+            ENC_VEC_LAYERS.OBSTRN,
+            ENC_VEC_LAYERS.WRECKS,
+            ENC_VEC_LAYERS.UWTROC,
+            ENC_VEC_LAYERS.LIGHTS,
+            ENC_VEC_LAYERS.BOYLAT,
+            ENC_VEC_LAYERS.BOYCAR,
+        ]);
+        const point = features.find((f) => POINT_LAYER_IDS.has(f.layer?.id ?? ''));
+        const feat = point ?? features[0];
+        const layerId = feat.layer?.id ?? '';
+        const props = (feat.properties ?? {}) as Record<string, unknown>;
+
+        const existing = attachedHandlers.get(map);
+        if (existing?.popup) existing.popup.remove();
+
+        const popup = new mapboxgl.Popup({
+            closeButton: false,
+            maxWidth: '280px',
+            offset: 8,
+            className: 'enc-popup-mapbox',
+        })
+            .setLngLat(e.lngLat)
+            .setHTML(buildFeaturePopupHtml(layerId, props))
+            .addTo(map);
+
+        if (existing) existing.popup = popup;
+
+        const closeBtn = popup.getElement()?.querySelector<HTMLButtonElement>('.enc-popup-close');
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => popup.remove());
+        }
+    };
+
+    const onEnter = () => {
+        map.getCanvas().style.cursor = 'pointer';
+    };
+    const onLeave = () => {
+        map.getCanvas().style.cursor = '';
+    };
+
+    for (const id of ALL_LAYER_IDS) {
+        map.on('click', id, onClick);
+        map.on('mouseenter', id, onEnter);
+        map.on('mouseleave', id, onLeave);
+    }
+
+    attachedHandlers.set(map, { click: onClick, enter: onEnter, leave: onLeave, popup: null });
+    log.info('attached ENC feature click handlers');
+}
+
+/**
+ * Tear down click handlers + any open popup. Used when the
+ * useEncVectorLayer hook unmounts.
+ */
+export function detachEncFeatureClickHandlers(map: mapboxgl.Map): void {
+    const h = attachedHandlers.get(map);
+    if (!h) return;
+    for (const id of ALL_LAYER_IDS) {
+        map.off('click', id, h.click);
+        map.off('mouseenter', id, h.enter);
+        map.off('mouseleave', id, h.leave);
+    }
+    if (h.popup) h.popup.remove();
+    attachedHandlers.delete(map);
+    log.info('detached ENC feature click handlers');
 }
