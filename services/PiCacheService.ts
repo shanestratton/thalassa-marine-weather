@@ -13,6 +13,7 @@
 
 import { CapacitorHttp } from '@capacitor/core';
 import { LocationStore } from '../stores/LocationStore';
+import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
 
 // ── Types ──
 
@@ -389,12 +390,26 @@ class PiCacheServiceImpl {
                 }
 
                 if (ok) {
-                    this.config.host = host;
+                    // Resolve mDNS hostnames to a raw IPv4 BEFORE storing
+                    // — every subsequent /api/passthrough-tile, /status,
+                    // /api/charts/* etc. then dials the IP directly and
+                    // skips the per-socket Happy Eyeballs IPv6→IPv4 race.
+                    // That race was the source of the recurring
+                    // tcp_input flags=[R.] noise the user reported.
+                    // Fall back to the hostname on resolution failure
+                    // — connection still works, just without the noise
+                    // reduction. Mirrors BoatNetworkService's pattern.
+                    const ipv4 = await resolveHostnameIpv4(host);
+                    const effectiveHost = ipv4 ?? host;
+                    if (ipv4 && ipv4 !== host) {
+                        log.info(`Resolved ${host} → ${ipv4} for pi-cache connections`);
+                    }
+                    this.config.host = effectiveHost;
                     this.status = {
                         reachable: true,
                         lastCheck: Date.now(),
                         latencyMs: Date.now() - start,
-                        discoveredVia: host,
+                        discoveredVia: effectiveHost,
                     };
 
                     // Persist the winning host so next boot is an instant verify
@@ -402,7 +417,7 @@ class PiCacheServiceImpl {
                     // 5-host discovery sweep.
                     if (typeof localStorage !== 'undefined') {
                         try {
-                            localStorage.setItem('thalassa_pi_cache_host', host);
+                            localStorage.setItem('thalassa_pi_cache_host', effectiveHost);
                         } catch {
                             /* quota/private mode — non-fatal */
                         }

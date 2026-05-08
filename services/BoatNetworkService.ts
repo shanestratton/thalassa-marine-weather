@@ -200,48 +200,11 @@ function withTimeout<T>(promise: Promise<T>, ms: number, fallback: T): Promise<T
 
 const isNative = Capacitor.isNativePlatform();
 
-// ── Hostname → IPv4 resolution ─────────────────────────────────
-//
-// When a Pi is discovered via mDNS hostname (e.g. `calypso.local`),
-// every subsequent TCP connection on iOS triggers a Happy Eyeballs
-// IPv6→IPv4 race because the address set has both, and the Pi's
-// services are bound IPv4-only. The IPv6 attempt always RSTs, then
-// IPv4 succeeds. Cheap per connection (~50ms) but the kernel logs
-// `tcp_input flags=[R.]` for every one, flooding Xcode console.
-//
-// Fix: resolve the hostname to an IPv4 address ONCE at discovery
-// time and have all consumers connect to the IP directly. No race,
-// no RSTs, much quieter logs and slightly faster connections.
-//
-// Calls the native MdnsBrowser plugin's `resolveHostname` method
-// (added 2026-05-08), which uses getaddrinfo with AF_INET. Returns
-// null on web platforms or when resolution fails — caller should
-// fall back to the original hostname in that case.
-const IPV4_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
-
-async function resolveToIpv4(host: string): Promise<string | null> {
-    // Fast path: already an IP (e.g. user configured a static address
-    // via Boat Network settings, or a previous resolution was cached).
-    if (IPV4_REGEX.test(host)) return host;
-
-    // Web platform doesn't have access to the resolver — leave the
-    // hostname alone and let the browser handle it.
-    if (!isNative) return null;
-
-    try {
-        // Dynamic import to avoid hard-failing on platforms where the
-        // plugin isn't registered (web build, Android until ported).
-        const { registerPlugin } = await import('@capacitor/core');
-        interface MdnsBrowserPlugin {
-            resolveHostname(opts: { hostname: string }): Promise<{ ipv4: string }>;
-        }
-        const MdnsBrowser = registerPlugin<MdnsBrowserPlugin>('MdnsBrowser');
-        const res = await withTimeout(MdnsBrowser.resolveHostname({ hostname: host }), 2000, null);
-        return res?.ipv4 ?? null;
-    } catch {
-        return null;
-    }
-}
+// Hostname → IPv4 resolution moved to utils/resolveHostnameIpv4 so
+// every service that owns a host config (PiCacheService, AvNav DRM,
+// this) shares the same helper. Local alias kept for diff churn.
+import { resolveHostnameIpv4 } from '../utils/resolveHostnameIpv4';
+const resolveToIpv4 = (host: string) => resolveHostnameIpv4(host);
 
 async function probeService(host: string, service: ServiceProbe): Promise<{ found: boolean; latencyMs: number }> {
     // TCP-only services (no HTTP path) — try a quick HTTP probe on the port
