@@ -299,80 +299,144 @@ What's deferred to Phase 13.x:
   build a centerline-distance penalty, which would hug the marked
   channel even more strictly.
 
-### Phase 14 — S-63 encrypted ENC import (deferred until license in hand)
+### Phase 14 — Encrypted ENC import (BLOCKED on IHO OEM license)
 
 NOAA cells are public-domain `.000` files — drop them on the Pi, GDAL
 parses them, done. AHO (Australian Hydrographic Office) and most
-non-US offices ship their cells **S-63 encrypted**: the `.000` file
-is wrapped in IHO's standard chart-protection scheme, decryption keys
-arrive as text-file permits tied to a hardware fingerprint.
+non-US offices ship their cells **S-63 encrypted**, and after
+investigating the actual decryption mechanism, the path forward is
+significantly more involved than originally scoped.
 
-This phase adds S-63 import to the existing pipeline so users with
-licensed AusENC / UKHO / etc. cells can import them the same way
-they import NOAA today.
+#### The blocker: M_KEY licensing
 
-**What the user has to provide:**
+S-63 cells encrypt to a "User Permit," and that permit is itself
+derived from **M_KEY + hardware fingerprint**. The M_KEY is the
+IHO's gatekeeping mechanism: it's issued only to OEMs that have
+signed the IHO S-63 distribution agreement, and the contract
+explicitly forbids sharing the M_KEY with third-party software.
 
-S-63 distributions ship as a directory tree containing:
+In practice this means: **even a user who has paid for a perfectly
+valid AusENC subscription cannot decrypt their cells through GDAL
+or any open-source library without an OEM's M_KEY.** Every consumer
+marine app that reads encrypted ENCs (Aqua Map, iNavX, Nobeltec,
+TimeZero, Coastal Explorer, MaxSea, OpenCPN's o-charts plugin) is
+an IHO-licensed OEM that paid for their own M_KEY.
 
-- `.000` (and update `.001`/`.002`) — the encrypted ENC cell files
-- `PERMIT.TXT` — per-cell decryption keys (CRC-checked, format
-  documented in IHO S-63)
-- `SERIAL.ENC` — distribution catalogue
-- A separate `userPermit.txt` (or printed/emailed by the HO when
-  the license was issued) — 28-character hex string tied to the
-  user's hardware fingerprint
+This is also why Navionics works: they're an IHO-licensed OEM with
+their own M_KEY, AND they produce their own proprietary vector format
+(`.NV2`) by licensing raw HO data directly. They have a different
+business model (Garmin-owned, multi-million-dollar marine division,
+decades of HO contracts) that we can't shortcut into.
 
-The first three live alongside the cells; the userPermit is a
-one-time setup on the Pi.
+#### Three paths forward, none easy
 
-**Implementation plan:**
+**Path 1 — Become an IHO-licensed OEM ourselves**
 
-- [ ] **Pi: GDAL S-63 driver** — most distros ship `gdal-bin`
-      without S-63 (it's behind a build flag because IHO requires
-      a license-distribution agreement). On Pi OS we either:
-      a) Build GDAL from source with `-DGDAL_USE_S63=ON` —
-      ~30 min compile but stable.
-      b) Use a community APT repo with S-63-enabled GDAL —
-      faster but trust-the-third-party.
-      Recommend (a) — script it into `install.sh` behind a
-      `--with-s63` flag so default installs stay fast and only
-      users who want it pay the build time.
-- [ ] **Pi: userPermit storage** — drop into
-      `${INSTALL_DIR}/.s63/userPermit.txt` (mode 0600). New
-      endpoint `POST /api/enc/s63/userpermit` `{userPermit: string}`
-      validates the format (28 hex chars + 8-char manufacturer
-      key) and writes it.
+Apply to IHO for an M_KEY. Cost / time:
+
+- Application + audit: ~6 months
+- Annual licensing fees: ~$2,000–5,000 USD
+- Contract obligations around how decrypted data is handled,
+  cached, and (not) redistributed
+- Periodic IHO compliance audits
+
+Once we have an M_KEY: any user who licenses ENCs from any HO
+(AHO, UKHO, NHO, JHA, etc.) can use them in Thalassa without
+additional friction. **This is the strategic answer** — the moment
+Thalassa charges for routing-grade chart import, this is what
+unlocks the entire planet's official ENC catalog.
+
+**Path 2 — OpenCPN plugin bridge (uncertain feasibility)**
+
+Write a "Thalassa Bridge" OpenCPN plugin that runs alongside the
+user's o-charts plugin (or OpenCPN's built-in S-63 plugin) on the
+Pi. The plugin exposes an HTTP API that pi-cache can query: "give
+me all DEPARE / LNDARE features in this bbox." OpenCPN already
+decrypts cells in memory; we'd be reading from OpenCPN's feature
+catalog, not from disk.
+
+**The risk**: o-charts (specifically) is closed-source and likely
+renders directly to GL textures rather than populating OpenCPN's
+standard `ChartFeature` catalog — that's how they keep the data
+inaccessible to other plugins. If true, this path doesn't work for
+o-charts users (which is most AU cruisers). It WOULD work for users
+with the OpenCPN built-in S-63 reader.
+
+Estimate: 1-3 weeks of plugin development plus testing on real
+hardware to know whether the API exposes anything useful. Worth a
+half-day spike on a real OpenCPN-with-o-charts install before
+committing.
+
+**Path 3 — Lean on free regions**
+
+Ship Phase 13 as the inshore-routing capability and accept that:
+
+- **US**: NOAA ENCs work — full vector routing.
+- **NZ**: LINZ public-domain ENCs cover most of NZ — work.
+- **EU**: some countries publish free ENCs (NL, DE partial) — work.
+- **UK / AU / JP / Pacific island nations**: encrypted only,
+  doesn't work without an M_KEY.
+
+Document the M_KEY situation honestly in the chart-import UI so
+users in non-free regions don't buy subscriptions they can't
+actually use through Thalassa.
+
+#### Strategic recommendation
+
+Path (1) — applying for an M_KEY — is the right answer if Thalassa
+becomes a real shipping product where users in any region expect
+routing-grade chart import to work. It's a strategic / business
+decision, not a feature decision: $5k/yr + audits + legal review
+of the IHO contract is real overhead.
+
+Path (3) is the right answer for the personal-toolkit phase —
+inshore routing works perfectly in NOAA and LINZ waters, AU users
+have to wait until either (1) lands or they accept raster-only
+display in AU (which still works via AvNav).
+
+Path (2) is a half-day spike worth doing once, just to know
+whether OpenCPN's plugin API exposes feature data at all when
+o-charts is the loaded chart source. If yes, it's an interesting
+fallback for personal use; if no, we know definitively that path
+is closed and can stop revisiting it.
+
+#### What gets reserved for this phase regardless
+
+If we eventually pursue Path (1) or Path (2) succeeds, the
+implementation work below stays roughly the same — the M_KEY
+unblocks the **decryption**, but everything downstream is the same
+pipeline as Phase 13.
+
+- [ ] **Pi: GDAL S-63 driver** — build GDAL from source with
+      `-DGDAL_USE_S63=ON` since stock `gdal-bin` doesn't include
+      it. Script into `install.sh` behind a `--with-s63` flag so
+      default installs stay fast.
+- [ ] **Pi: M_KEY storage** — once we have one, drop into
+      `${INSTALL_DIR}/.s63/m_key` (mode 0600). NEVER served via
+      HTTP, NEVER logged, NEVER returned by any endpoint.
+- [ ] **Pi: userPermit storage** — separately stored at
+      `${INSTALL_DIR}/.s63/userPermit.txt` (mode 0600). Endpoint
+      `POST /api/enc/s63/userpermit` validates and writes it.
 - [ ] **Pi: `POST /api/enc/install-s63`** — accepts a ZIP
       containing the cell files + `PERMIT.TXT` + `SERIAL.ENC`.
-      Calls `ogr2ogr -oo USERPERMIT=$KEY -oo CELL_PERMIT=...` per
-      cell. Same downstream pipeline as the public NOAA flow —
-      writes decrypted GeoJSON to the chart store.
-- [ ] **Device: import UI** — extend `EncCellManager.tsx` with a
-      new "Install S-63 (encrypted)" button next to the existing
-      "Install on Pi from URL" / "Upload from this device". First-
-      run prompts for the userPermit; subsequent imports just
-      need the cell ZIP.
-- [ ] **Source attribution** — IHO requires displaying "Source:
-      AHO" (or whichever HO) when a chart's data is shown. The
-      EncCellManager and the route-results panel already track
-      `sourceHO`; just need to ensure it's visible.
+      Calls `ogr2ogr` with the M_KEY + userPermit + cell permits.
+      Same downstream pipeline as NOAA — writes decrypted GeoJSON
+      to the chart store.
+- [ ] **Device: import UI** — extend `EncCellManager.tsx` with an
+      "Install S-63 (encrypted)" button. First-run prompts for the
+      userPermit; subsequent imports just need the cell ZIP.
+- [ ] **Source attribution** — IHO contract requires displaying
+      "Source: AHO" (or whichever HO) when a chart's data is
+      shown. The route-results panel already tracks `sourceHO`,
+      just needs visible surfacing.
 
-**Tested-on prerequisite:**
+#### Out of scope
 
-This phase is gated on having a real AusENC license to test against.
-Without actual encrypted cells + permits, we can scope-out the API
-shape but can't verify the GDAL S-63 driver actually decrypts
-properly. Recommended order: user buys an AusENC subscription →
-ships me one cell + the permits → I plumb it through end-to-end →
-ship.
-
-**Out of scope for this phase:**
-
-- o-charts (oeSENC) format — closed proprietary, dongle-decryption
-  inside OpenCPN only, no extraction path. Users who only have
-  o-charts must keep using OpenCPN for AU vector chart routing
-  until they license direct AusENCs.
+- **Reverse-engineering o-charts oeSENC** — closed proprietary
+  format, dongle-bound to OpenCPN, EULA explicitly prohibits
+  decryption outside the plugin. Path (2) is the only avenue
+  that touches o-charts users, and only as a query-bridge — never
+  as a direct format reader.
 
 ### Phase 12+ — Small polish (deferred, captured 2026-05-09)
 
