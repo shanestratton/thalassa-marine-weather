@@ -46,6 +46,12 @@ export type HazardSource = 'enc' | 'gebco' | 'none';
 export interface HazardQueryPoint {
     lat: number;
     lon: number;
+    /**
+     * Optional: when this point will be reached, in epoch ms.
+     * Used by the per-point tide lookup. Caller computes from the
+     * route's departure time + segment-time interpolation.
+     */
+    timeMs?: number;
 }
 
 export interface HazardResult {
@@ -198,20 +204,28 @@ export interface HazardQueryOptions {
      */
     vesselDraftM?: number;
     /**
-     * Tide offset above chart datum in metres. ENC depths (and
-     * GEBCO depths to a lesser extent) are referenced to a low-
-     * water datum; the actual depth at a planned passage time =
-     * charted depth + tide height.
+     * Static tide offset above chart datum in metres, applied to
+     * every point. Use this when the caller has a single
+     * representative value (or "0 = worst case"). When `tideAt` is
+     * also supplied, that callback wins per point.
      *
      * Positive values mean "tide is above datum" (more water, less
      * grounding risk). Default 0 = worst case (chart datum, lowest
      * astronomical tide).
-     *
-     * In v1 this is a single value applied uniformly to the whole
-     * route. A future Phase 6 can compute per-waypoint per-time
-     * corrections from the tide service.
      */
     tideOffsetM?: number;
+    /**
+     * Optional per-point tide lookup. When supplied, queryHazards
+     * calls this for every point that has a `timeMs` set, and uses
+     * the returned value as the tide offset for that point. Falls
+     * back to `tideOffsetM` when the callback returns null
+     * (out-of-range time, no station data, etc.).
+     *
+     * Designed so the route validator can pre-fetch a TideCurve at
+     * the route midpoint and pass `(p) => curve.heightAt(p.timeMs)`
+     * — one network call covers the whole route.
+     */
+    tideAt?: (point: HazardQueryPoint) => number | null;
 }
 
 /**
@@ -248,7 +262,20 @@ export async function queryHazards(
     if (points.length === 0) return [];
 
     const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
-    const tideOffsetM = Number.isFinite(options.tideOffsetM) ? (options.tideOffsetM as number) : 0;
+    const fallbackTideM = Number.isFinite(options.tideOffsetM) ? (options.tideOffsetM as number) : 0;
+
+    /**
+     * Resolve the tide offset for one point. Per-point callback
+     * wins when it returns a finite number; otherwise the static
+     * fallback applies.
+     */
+    const tideForPoint = (p: HazardQueryPoint): number => {
+        if (options.tideAt) {
+            const v = options.tideAt(p);
+            if (typeof v === 'number' && Number.isFinite(v)) return v;
+        }
+        return fallbackTideM;
+    };
 
     // ── Phase 1: ENC pass ─────────────────────────────────────────
     const encResults = await EncHazardService.queryHazards(points);
@@ -262,7 +289,7 @@ export async function queryHazards(
     for (let i = 0; i < points.length; i++) {
         const enc = encResults[i];
         if (enc.covered) {
-            out[i] = encToHazardResult(points[i], enc, hazardThresholdM, tideOffsetM);
+            out[i] = encToHazardResult(points[i], enc, hazardThresholdM, tideForPoint(points[i]));
         } else {
             gebcoNeeded.push(points[i]);
             gebcoIndexMap.push(i);
@@ -276,7 +303,7 @@ export async function queryHazards(
             for (let j = 0; j < gebcoResults.length; j++) {
                 const idx = gebcoIndexMap[j];
                 const g = gebcoResults[j];
-                const tidedDepth = applyTide(g.depth_m, tideOffsetM);
+                const tidedDepth = applyTide(g.depth_m, tideForPoint(points[idx]));
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
@@ -304,7 +331,7 @@ export async function queryHazards(
         const gebcoHits = out.filter((r) => r.source === 'gebco').length;
         const noData = out.filter((r) => r.source === 'none').length;
         log.info(
-            `queryHazards(${points.length}, draft=${options.vesselDraftM ?? DEFAULT_VESSEL_DRAFT_M}m, threshold=${hazardThresholdM.toFixed(2)}m): enc=${encHits} gebco=${gebcoHits} none=${noData}`,
+            `queryHazards(${points.length}, draft=${options.vesselDraftM ?? DEFAULT_VESSEL_DRAFT_M}m, threshold=${hazardThresholdM.toFixed(2)}m, tide=${options.tideAt ? 'per-point' : `${fallbackTideM.toFixed(2)}m`}): enc=${encHits} gebco=${gebcoHits} none=${noData}`,
         );
     }
 

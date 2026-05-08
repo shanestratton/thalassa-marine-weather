@@ -29,12 +29,18 @@
  *   - LNDARE/DEPARE — already handled by the validator (those
  *     cause the route to detour). A report of "land 0.05 NM off
  *     starboard" would be 90% noise.
- *   - Distance to coastline (COALNE) — would need full polyline
- *     integration; phase 6 once we add COALNE to the conversion.
+ *
+ * Phase 6: COALNE proximity. For every cell that intersects the
+ * route's buffered bbox, the closest coastline LineString to any
+ * route segment is reported as a single 'coast' entry — distance,
+ * side, lat/lon, CATZOC. We collapse to one entry per cell so a
+ * 100 NM coastal route doesn't produce thousands of rows.
  */
 
-import type { Geometry } from 'geojson';
+import type { Feature, Geometry, LineString, MultiLineString, Position } from 'geojson';
 import { useEffect, useState } from 'react';
+import pointToLineDistance from '@turf/point-to-line-distance';
+import { lineString as turfLineString, point as turfPoint } from '@turf/helpers';
 
 import { createLogger } from '../../utils/createLogger';
 import * as cellMeta from './EncCellMetadata';
@@ -205,6 +211,87 @@ function dedupeKey(layer: string, repr: { lat: number; lon: number }): string {
     return `${layer}@${repr.lat.toFixed(4)},${repr.lon.toFixed(4)}`;
 }
 
+// ── COALNE proximity ──────────────────────────────────────────────
+
+/**
+ * Walk every line in a coastline geometry collection. Yields
+ * `[Position[], LineString]` pairs that the distance helper can
+ * consume; MultiLineStrings are flattened into their parts.
+ */
+function eachLineString(geoms: { geometry: Geometry }[]): { coords: Position[]; geom: LineString }[] {
+    const out: { coords: Position[]; geom: LineString }[] = [];
+    for (const g of geoms) {
+        if (g.geometry.type === 'LineString') {
+            out.push({ coords: g.geometry.coordinates, geom: g.geometry });
+        } else if (g.geometry.type === 'MultiLineString') {
+            for (const part of (g.geometry as MultiLineString).coordinates) {
+                out.push({
+                    coords: part,
+                    geom: { type: 'LineString', coordinates: part } as LineString,
+                });
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * Find the closest point on the route to any coastline LineString.
+ * Returns the route point (sampled at every leg vertex) with the
+ * smallest distance to any coastline, plus the side relative to
+ * its nearest segment.
+ *
+ * Cap of `bufferNm * 2` so we don't waste cycles on routes far
+ * inland of the bbox match (rare but possible with very loose
+ * bboxes).
+ */
+function closestCoastlineApproach(
+    route: RoutePoint[],
+    coastlines: { geometry: Geometry }[],
+    bufferNm: number,
+): { point: { lat: number; lon: number }; distNm: number; side: 'port' | 'starboard' | 'on' } | null {
+    const lines = eachLineString(coastlines);
+    if (lines.length === 0) return null;
+
+    let bestDist = Infinity;
+    let bestPoint: RoutePoint | null = null;
+    const cap = bufferNm * 2;
+
+    for (const routePt of route) {
+        const pt = turfPoint([routePt.lon, routePt.lat]);
+        for (const { coords, geom } of lines) {
+            if (coords.length < 2) continue;
+            // pointToLineDistance returns the distance in km by
+            // default; convert to NM.
+            let distKm: number;
+            try {
+                distKm = pointToLineDistance(pt, turfLineString(coords));
+            } catch {
+                continue; // Degenerate geometry — skip.
+            }
+            const distNm = distKm * 0.539957;
+            if (distNm > cap) continue;
+            if (distNm < bestDist) {
+                bestDist = distNm;
+                bestPoint = routePt;
+            }
+        }
+    }
+
+    if (!bestPoint || !Number.isFinite(bestDist) || bestDist > cap) return null;
+
+    // Determine which side of the nearest route leg the closest
+    // route point is being measured from. We approximate by using
+    // the nearest leg's bearing — coastline is on the side opposite
+    // the route bearing.
+    const { side } = pointToRoute(bestPoint, route);
+    return {
+        point: { lat: bestPoint.lat, lon: bestPoint.lon },
+        distNm: bestDist,
+        side,
+    };
+}
+
 // ── Bbox helpers ──────────────────────────────────────────────────
 
 function routeBufferedBBox(route: RoutePoint[], bufferNm: number): [number, number, number, number] {
@@ -303,6 +390,31 @@ export async function findHazardsAlongRoute(
                 description: entry.hazard.description,
                 catzoc,
             });
+        }
+
+        // ── COALNE proximity ──────────────────────────────────────
+        // For each cell, compute the closest coastline approach
+        // anywhere along the route. We collapse to one entry per
+        // cell so a coastal route doesn't fill the report with
+        // hundreds of "0.4 NM from coast" rows.
+        const coastlines = index.searchCoastlinesInBBox(queryBBox);
+        if (coastlines.length > 0) {
+            const closest = closestCoastlineApproach(route, coastlines, bufferNm);
+            if (closest) {
+                const catzoc = index.queryCatzocAt(closest.point.lat, closest.point.lon);
+                const key = `coast@${cell.id}`;
+                seen.set(key, {
+                    cellId: cell.id,
+                    sourceHO: cell.sourceHO,
+                    hazardType: 'coast',
+                    representativePoint: closest.point,
+                    distanceNm: closest.distNm,
+                    side: closest.side,
+                    minDepthM: null,
+                    description: 'Charted coastline',
+                    catzoc,
+                });
+            }
         }
     }
 

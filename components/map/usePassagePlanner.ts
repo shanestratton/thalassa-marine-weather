@@ -824,8 +824,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             distance: 0,
                         })) as unknown as IsochroneNode[];
                         const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
+                        const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
                         const validated = await Promise.race([
-                            validateRouteSegments(seedNodes, { vesselDraftM }),
+                            validateRouteSegments(seedNodes, { vesselDraftM, departureTimeMs }),
                             // 30s ceiling (was 12s). Multi-pass detour
                             // search across reef-strewn coastal waters
                             // can take ~15-20s — 12s was killing the
@@ -1243,8 +1244,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         try {
                             const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
                             const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
+                            const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
                             const validated = await Promise.race([
-                                validateRouteSegments(isoResult.route, { vesselDraftM }),
+                                validateRouteSegments(isoResult.route, { vesselDraftM, departureTimeMs }),
                                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
                             ]);
                             if (!validated || computeGenRef.current !== gen) return; // stale or timed out
@@ -1537,8 +1539,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                                     }) as IsochroneNode,
                                             );
                                             const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
+                                            const departureTimeMs = departureTime
+                                                ? new Date(departureTime).getTime()
+                                                : undefined;
                                             const validated = await Promise.race([
-                                                validateRouteSegments(ecmwfNodes, { vesselDraftM }),
+                                                validateRouteSegments(ecmwfNodes, { vesselDraftM, departureTimeMs }),
                                                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
                                             ]);
                                             if (!validated || computeGenRef.current !== gen) return;

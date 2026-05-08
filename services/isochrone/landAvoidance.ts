@@ -473,16 +473,27 @@ export interface ValidateRouteOptions {
      */
     vesselDraftM?: number;
     /**
-     * Tide offset above chart datum, metres. Charted DEPARE depths
-     * are referenced to MLLW; the actual depth at the planned
-     * passage time is `chart_depth + tide`. Default 0 = worst-case.
-     *
-     * In Phase 5 this is a single value applied uniformly along the
-     * route (caller computes a representative tide for the route
-     * mid-point at the route mid-time). Phase 6 can compute per-
-     * waypoint values.
+     * Static tide offset above chart datum, metres. Used as a
+     * fallback when `departureTimeMs` isn't provided (or when the
+     * tide service can't reach a station). Default 0 = worst-case
+     * (chart datum, lowest astronomical tide).
      */
     tideOffsetM?: number;
+    /**
+     * Departure time of the route as epoch ms. When supplied, the
+     * validator fetches a real tide curve at the route midpoint
+     * and applies per-waypoint tide correction during hazard
+     * checks (each sample point gets its actual ETA tide, not a
+     * uniform offset).
+     *
+     * Each route IsochroneNode carries a `timeHours` field; we
+     * compute per-segment ETAs from that and the curve does
+     * synchronous lookups during the hot validation loop.
+     *
+     * If the tide fetch fails (no Pi, no internet, no station
+     * nearby), the validator silently degrades to `tideOffsetM`.
+     */
+    departureTimeMs?: number;
 }
 
 export async function validateRouteSegments(
@@ -492,7 +503,11 @@ export async function validateRouteSegments(
     if (route.length < 2) return route;
 
     let result = [...route];
-    const queryOpts = {
+    const queryOpts: {
+        vesselDraftM?: number;
+        tideOffsetM?: number;
+        tideAt?: (p: { lat: number; lon: number; timeMs?: number }) => number | null;
+    } = {
         vesselDraftM: options.vesselDraftM,
         tideOffsetM: options.tideOffsetM,
     };
@@ -521,9 +536,45 @@ export async function validateRouteSegments(
         }
     }
 
+    // ── Per-waypoint tide curve ──────────────────────────────────
+    // When the caller supplied a departure time, fetch a real tide
+    // curve at the route midpoint covering the planned passage.
+    // The curve gets passed into queryHazards as a per-point
+    // callback so each sample's ETA gets its own tide correction.
+    //
+    // Failure modes (no Pi, no internet, no nearby station) just
+    // fall through to the static `tideOffsetM` fallback — the
+    // validator never blocks routing on tide availability.
+    if (options.departureTimeMs && Number.isFinite(bboxMinLon)) {
+        try {
+            const lastNode = route[route.length - 1];
+            const totalDurMs = Math.max(60_000, (lastNode.timeHours ?? 0) * 3600 * 1000);
+            const startMs = options.departureTimeMs;
+            const endMs = startMs + totalDurMs + 30 * 60 * 1000; // 30-min slack for arrival.
+            const midLat = (bboxMinLat + bboxMaxLat) / 2;
+            const midLon = (bboxMinLon + bboxMaxLon) / 2;
+            const { fetchTideCurve } = await import('../TideHeightService');
+            const curve = await fetchTideCurve(midLat, midLon, startMs, endMs);
+            if (curve) {
+                queryOpts.tideAt = (p) => (p.timeMs != null ? curve.heightAt(p.timeMs) : null);
+                landLog.info(
+                    `[ValidateRoute] tide curve loaded: ${curve.stationName ?? 'station unknown'} ` +
+                        `(${curve.heights.length} heights)`,
+                );
+            } else {
+                landLog.info('[ValidateRoute] no tide curve available — falling back to static tideOffsetM');
+            }
+        } catch (err) {
+            landLog.warn('[ValidateRoute] tide curve fetch failed', err);
+        }
+    }
+
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
         // ── 1. Sample all segments ──
-        const allSamples: { lat: number; lon: number }[] = [];
+        // Each sample carries an optional timeMs computed from the
+        // segment endpoints' timeHours + the route departure. The
+        // tide callback reads this for per-waypoint correction.
+        const allSamples: { lat: number; lon: number; timeMs?: number }[] = [];
         const segmentMeta: { startSampleIdx: number; sampleCount: number }[] = [];
 
         for (let i = 0; i < result.length - 1; i++) {
@@ -531,8 +582,20 @@ export async function validateRouteSegments(
             const b = result[i + 1];
             const startIdx = allSamples.length;
             const samples = sampleSegment(a.lat, a.lon, b.lat, b.lon);
+            const aTimeMs =
+                options.departureTimeMs != null && Number.isFinite(a.timeHours)
+                    ? options.departureTimeMs + a.timeHours * 3_600_000
+                    : undefined;
+            const bTimeMs =
+                options.departureTimeMs != null && Number.isFinite(b.timeHours)
+                    ? options.departureTimeMs + b.timeHours * 3_600_000
+                    : undefined;
             for (const s of samples) {
-                allSamples.push({ lat: s.lat, lon: s.lon });
+                let timeMs: number | undefined;
+                if (aTimeMs != null && bTimeMs != null) {
+                    timeMs = aTimeMs + s.frac * (bTimeMs - aTimeMs);
+                }
+                allSamples.push({ lat: s.lat, lon: s.lon, timeMs });
             }
             segmentMeta.push({ startSampleIdx: startIdx, sampleCount: samples.length });
         }
