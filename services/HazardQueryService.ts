@@ -131,22 +131,28 @@ function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolea
  * Land/obstruction/wreck/rock hazards remain hazards regardless of
  * draft — you don't sail over them at any depth.
  */
-function encToHazardResult(point: HazardQueryPoint, enc: EncHazardResult, hazardThresholdM: number): HazardResult {
-    const flippedDepth = enc.minDepthM == null ? null : -Math.abs(enc.minDepthM);
+function encToHazardResult(
+    point: HazardQueryPoint,
+    enc: EncHazardResult,
+    hazardThresholdM: number,
+    tideOffsetM: number,
+): HazardResult {
+    const chartDepth = enc.minDepthM == null ? null : -Math.abs(enc.minDepthM);
+    const effectiveDepth = applyTide(chartDepth, tideOffsetM);
     let isHazard = enc.hazard;
 
-    // Re-evaluate `shallow` hazards against the caller's draft.
-    // Solid hazards (land/rock/wreck/obstruction with no depth)
-    // stay hazards.
-    if (enc.hazard && enc.hazardType === 'shallow' && flippedDepth !== null) {
-        isHazard = flippedDepth > hazardThresholdM;
+    // Re-evaluate `shallow` hazards against the caller's draft +
+    // tide. Solid hazards (land/rock/wreck/obstruction with no
+    // depth) stay hazards regardless of tide.
+    if (enc.hazard && enc.hazardType === 'shallow' && effectiveDepth !== null) {
+        isHazard = effectiveDepth > hazardThresholdM;
     }
 
     return {
         lat: point.lat,
         lon: point.lon,
         isHazard,
-        depth_m: flippedDepth,
+        depth_m: effectiveDepth,
         source: 'enc',
         cellId: enc.cellId,
         hazardType: enc.hazardType,
@@ -191,6 +197,35 @@ export interface HazardQueryOptions {
      * to match the existing fallback elsewhere in the codebase.
      */
     vesselDraftM?: number;
+    /**
+     * Tide offset above chart datum in metres. ENC depths (and
+     * GEBCO depths to a lesser extent) are referenced to a low-
+     * water datum; the actual depth at a planned passage time =
+     * charted depth + tide height.
+     *
+     * Positive values mean "tide is above datum" (more water, less
+     * grounding risk). Default 0 = worst case (chart datum, lowest
+     * astronomical tide).
+     *
+     * In v1 this is a single value applied uniformly to the whole
+     * route. A future Phase 6 can compute per-waypoint per-time
+     * corrections from the tide service.
+     */
+    tideOffsetM?: number;
+}
+
+/**
+ * Convert a GEBCO-convention depth (negative = below sea level) to
+ * its tide-corrected equivalent.
+ *
+ * Rationale: a charted -2 m point at chart datum is -3 m below the
+ * actual sea surface when tide is at +1 m. In GEBCO convention
+ * this is `depth_m - tideOffsetM`.
+ */
+function applyTide(depth_m: number | null, tideOffsetM: number): number | null {
+    if (depth_m == null) return null;
+    if (!Number.isFinite(tideOffsetM) || tideOffsetM === 0) return depth_m;
+    return depth_m - tideOffsetM;
 }
 
 /**
@@ -213,6 +248,7 @@ export async function queryHazards(
     if (points.length === 0) return [];
 
     const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
+    const tideOffsetM = Number.isFinite(options.tideOffsetM) ? (options.tideOffsetM as number) : 0;
 
     // ── Phase 1: ENC pass ─────────────────────────────────────────
     const encResults = await EncHazardService.queryHazards(points);
@@ -226,7 +262,7 @@ export async function queryHazards(
     for (let i = 0; i < points.length; i++) {
         const enc = encResults[i];
         if (enc.covered) {
-            out[i] = encToHazardResult(points[i], enc, hazardThresholdM);
+            out[i] = encToHazardResult(points[i], enc, hazardThresholdM, tideOffsetM);
         } else {
             gebcoNeeded.push(points[i]);
             gebcoIndexMap.push(i);
@@ -240,12 +276,13 @@ export async function queryHazards(
             for (let j = 0; j < gebcoResults.length; j++) {
                 const idx = gebcoIndexMap[j];
                 const g = gebcoResults[j];
+                const tidedDepth = applyTide(g.depth_m, tideOffsetM);
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
-                    isHazard: gebcoIsHazard(g.depth_m, hazardThresholdM),
-                    depth_m: g.depth_m,
-                    source: g.depth_m == null ? 'none' : 'gebco',
+                    isHazard: gebcoIsHazard(tidedDepth, hazardThresholdM),
+                    depth_m: tidedDepth,
+                    source: tidedDepth == null ? 'none' : 'gebco',
                 };
             }
         } catch (err) {

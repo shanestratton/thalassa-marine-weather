@@ -106,6 +106,7 @@ const CmemsAttribution = lazyRetry(
 // risk of a broken chunk hiding our debug surface.
 import { BlitzortungAttribution } from './BlitzortungAttribution';
 import { EncAttributionChip } from './EncAttributionChip';
+import { HazardReportPanel } from '../passage/HazardReportPanel';
 import { SquallLegend } from './SquallLegend';
 import { ChartModes } from './ChartModes';
 import { ThreatBanner } from './ThreatBanner';
@@ -1778,6 +1779,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Self-contained: subscribes to its own viewport + cell-list
                     events. Tap to expand into a full per-cell list. */}
                 <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
+
+                {/* ═══ ENC HAZARD REPORT (route-adjacent obstructions) ═══ */}
+                {/* Auto-populated by validateRouteSegments after a successful
+                    route plan. Self-subscribes to the hazard-report singleton —
+                    no prop drilling required. Hidden when not in passage mode
+                    or when no hazards within the buffer. */}
+                <HazardReportPanel visible={passage.showPassage} />
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>
