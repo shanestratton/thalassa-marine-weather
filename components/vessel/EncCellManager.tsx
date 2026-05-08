@@ -33,6 +33,7 @@ import {
 } from '../../services/EncImportService';
 import { getCoverage as getEncCoverage, removeCell as removeEncCell } from '../../services/enc/EncHazardService';
 import type { EncCell } from '../../services/enc/types';
+import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -115,6 +116,17 @@ const CellRow: React.FC<{
                     Edition {cell.edition} · Issued {cell.issued} · Imported {formatRelative(cell.importedAt)} ·{' '}
                     {cell.hazardCount.toLocaleString()} features
                 </p>
+                {cell.catzocRange && (
+                    <p
+                        className={`text-[11px] mt-0.5 ${
+                            isLowConfidenceCatzoc(cell.catzocRange[1]) ? 'text-amber-400' : 'text-emerald-400'
+                        }`}
+                    >
+                        {'⚡'} CATZOC {CATZOC_LABELS[cell.catzocRange[0]]}
+                        {cell.catzocRange[0] !== cell.catzocRange[1] && `..${CATZOC_LABELS[cell.catzocRange[1]]}`}
+                        {isLowConfidenceCatzoc(cell.catzocRange[1]) && ' — verify visually'}
+                    </p>
+                )}
             </div>
             {confirming ? (
                 <div className="flex flex-col gap-1 shrink-0">

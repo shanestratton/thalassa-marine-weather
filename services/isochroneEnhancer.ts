@@ -413,7 +413,7 @@ export async function enhanceVoyagePlanWithIsochrone(
         try {
             const { validateRouteSegments } = await import('./isochrone/landAvoidance');
             const validated = await Promise.race([
-                validateRouteSegments(isoResult.route),
+                validateRouteSegments(isoResult.route, { vesselDraftM: vessel.draft }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
             ]);
             if (validated && validated.length !== isoResult.route.length) {

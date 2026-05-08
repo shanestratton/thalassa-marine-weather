@@ -20,8 +20,35 @@ import { booleanPointInPolygon } from '@turf/boolean-point-in-polygon';
 import { point as turfPoint } from '@turf/helpers';
 import type { Geometry, Position } from 'geojson';
 
-import type { BBoxEntry, EncHazard, EncHazardResult, EncHazardType } from './types';
+import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
 import { ENC_HAZARD_DEPTH_M } from './types';
+
+// ── CATZOC zone (M_QUAL) ───────────────────────────────────────────
+
+/**
+ * Internal RBush entry for an M_QUAL polygon. We index these in a
+ * separate tree from hazards because they always cover the whole
+ * cell — including them in the hazard tree would explode the
+ * candidate count for every routing query.
+ */
+interface CatzocEntry {
+    minX: number;
+    minY: number;
+    maxX: number;
+    maxY: number;
+    geometry: Geometry;
+    catzoc: EncCatzoc;
+}
+
+/**
+ * Public shape of an M_QUAL feature handed in to the index. The
+ * `catzoc` value is the `CATZOC` attribute of the source M_QUAL
+ * polygon (1..6).
+ */
+export interface EncCatzocZone {
+    geometry: Geometry;
+    catzoc: EncCatzoc;
+}
 
 // ── BBox computation ───────────────────────────────────────────────
 
@@ -101,18 +128,26 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
 
 /**
  * Per-cell hazard index. Build once when a cell loads; query many.
+ *
+ * Two internal R-trees:
+ *  - `hazardTree` — DEPARE/LNDARE/OBSTRN/WRECKS/UWTROC features
+ *  - `catzocTree` — M_QUAL polygons. Always queried separately
+ *    because they typically cover the whole cell.
  */
 export class EncSpatialIndex {
-    private readonly tree: RBush<BBoxEntry>;
+    private readonly hazardTree: RBush<BBoxEntry>;
+    private readonly catzocTree: RBush<CatzocEntry>;
     private readonly cellId: string;
     private readonly bbox: [number, number, number, number];
     private readonly hazardCount: number;
+    private readonly catzocRange: [EncCatzoc, EncCatzoc] | null;
 
-    constructor(cellId: string, hazards: EncHazard[]) {
+    constructor(cellId: string, hazards: EncHazard[], catzocZones: EncCatzocZone[] = []) {
         this.cellId = cellId;
-        this.tree = new RBush<BBoxEntry>();
+        this.hazardTree = new RBush<BBoxEntry>();
+        this.catzocTree = new RBush<CatzocEntry>();
 
-        const entries: BBoxEntry[] = [];
+        const hazardEntries: BBoxEntry[] = [];
         let minLon = Infinity;
         let minLat = Infinity;
         let maxLon = -Infinity;
@@ -120,7 +155,7 @@ export class EncSpatialIndex {
 
         for (const hazard of hazards) {
             const [hMinLon, hMinLat, hMaxLon, hMaxLat] = geometryBBox(hazard.geometry);
-            entries.push({
+            hazardEntries.push({
                 minX: hMinLon,
                 minY: hMinLat,
                 maxX: hMaxLon,
@@ -135,8 +170,33 @@ export class EncSpatialIndex {
         }
 
         // Bulk-load is much faster than insert-per-entry for large lists.
-        this.tree.load(entries);
-        this.hazardCount = entries.length;
+        this.hazardTree.load(hazardEntries);
+        this.hazardCount = hazardEntries.length;
+
+        // Build the CATZOC tree from M_QUAL polygons.
+        const catzocEntries: CatzocEntry[] = [];
+        let bestCatzoc: EncCatzoc | null = null;
+        let worstCatzoc: EncCatzoc | null = null;
+        for (const zone of catzocZones) {
+            const [zMinLon, zMinLat, zMaxLon, zMaxLat] = geometryBBox(zone.geometry);
+            catzocEntries.push({
+                minX: zMinLon,
+                minY: zMinLat,
+                maxX: zMaxLon,
+                maxY: zMaxLat,
+                geometry: zone.geometry,
+                catzoc: zone.catzoc,
+            });
+            if (zMinLon < minLon) minLon = zMinLon;
+            if (zMinLat < minLat) minLat = zMinLat;
+            if (zMaxLon > maxLon) maxLon = zMaxLon;
+            if (zMaxLat > maxLat) maxLat = zMaxLat;
+            if (bestCatzoc === null || zone.catzoc < bestCatzoc) bestCatzoc = zone.catzoc;
+            if (worstCatzoc === null || zone.catzoc > worstCatzoc) worstCatzoc = zone.catzoc;
+        }
+        this.catzocTree.load(catzocEntries);
+        this.catzocRange = bestCatzoc !== null && worstCatzoc !== null ? [bestCatzoc, worstCatzoc] : null;
+
         this.bbox = Number.isFinite(minLon) ? [minLon, minLat, maxLon, maxLat] : [0, 0, 0, 0];
     }
 
@@ -162,6 +222,40 @@ export class EncSpatialIndex {
      */
     getHazardCount(): number {
         return this.hazardCount;
+    }
+
+    /**
+     * CATZOC range (best..worst) present in this cell's M_QUAL
+     * coverage. Null when M_QUAL was not present.
+     */
+    getCatzocRange(): [EncCatzoc, EncCatzoc] | null {
+        return this.catzocRange;
+    }
+
+    /**
+     * Resolve the CATZOC at a single point. Walks the M_QUAL tree
+     * and returns the value of the most-pessimistic polygon
+     * containing the point (i.e. higher CATZOC numbers win — D
+     * beats B beats A1, because we prefer to surface the worst
+     * case to the user).
+     *
+     * Returns `null` when no M_QUAL polygon covers the point —
+     * either no M_QUAL data was present in the source cell, or
+     * the cell has gaps in M_QUAL coverage (rare).
+     */
+    queryCatzocAt(lat: number, lon: number): EncCatzoc | null {
+        if (this.catzocRange === null) return null;
+        const candidates = this.catzocTree.search({ minX: lon, minY: lat, maxX: lon, maxY: lat });
+        if (candidates.length === 0) return null;
+        const turfPt = turfPoint([lon, lat]);
+        let worst: EncCatzoc | null = null;
+        for (const entry of candidates) {
+            const geom = entry.geometry;
+            if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
+            if (!booleanPointInPolygon(turfPt, geom)) continue;
+            if (worst === null || entry.catzoc > worst) worst = entry.catzoc;
+        }
+        return worst;
     }
 
     /**
@@ -197,7 +291,9 @@ export class EncSpatialIndex {
             return { covered: false, hazard: false, minDepthM: null };
         }
 
-        const candidates = this.tree.search({
+        const catzoc = this.queryCatzocAt(lat, lon);
+
+        const candidates = this.hazardTree.search({
             minX: lon,
             minY: lat,
             maxX: lon,
@@ -205,7 +301,7 @@ export class EncSpatialIndex {
         });
 
         if (candidates.length === 0) {
-            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId };
+            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId, catzoc };
         }
 
         const turfPt = turfPoint([lon, lat]);
@@ -243,7 +339,7 @@ export class EncSpatialIndex {
         }
 
         if (bestType === null) {
-            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId };
+            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId, catzoc };
         }
 
         return {
@@ -252,6 +348,7 @@ export class EncSpatialIndex {
             minDepthM: bestDepth,
             hazardType: bestType,
             cellId: this.cellId,
+            catzoc,
         };
     }
 }

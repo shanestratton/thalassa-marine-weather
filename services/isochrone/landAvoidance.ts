@@ -457,10 +457,31 @@ function findHazardInResults(results: HazardResult[], startIdx: number, count: n
  * This is designed as a POST-PROCESSING step — run once after all other smoothing
  * and land avoidance passes are complete.
  */
-export async function validateRouteSegments(route: IsochroneNode[]): Promise<IsochroneNode[]> {
+/**
+ * Optional caller knobs for `validateRouteSegments`.
+ */
+export interface ValidateRouteOptions {
+    /**
+     * Vessel draft in metres. Drives the depth threshold used to
+     * decide whether a sample point is too shallow. When omitted,
+     * the HazardQueryService 2.5 m default is used.
+     *
+     * Wired through both the GEBCO threshold check and the ENC
+     * `shallow` polygon re-evaluation, so a 1.5 m centreboarder
+     * doesn't get blocked from anchorages a 3 m keelboat couldn't
+     * touch — and vice versa.
+     */
+    vesselDraftM?: number;
+}
+
+export async function validateRouteSegments(
+    route: IsochroneNode[],
+    options: ValidateRouteOptions = {},
+): Promise<IsochroneNode[]> {
     if (route.length < 2) return route;
 
     let result = [...route];
+    const queryOpts = { vesselDraftM: options.vesselDraftM };
 
     // Pre-warm any ENC spatial indexes covering the route bbox so the
     // first hot-path query doesn't pay the index-build cost.
@@ -512,7 +533,7 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
             // ENC-covered points so we don't waste edge-fn calls.
             for (let batchStart = 0; batchStart < allSamples.length; batchStart += GEBCO_BATCH_SIZE) {
                 const batch = allSamples.slice(batchStart, batchStart + GEBCO_BATCH_SIZE);
-                const batchResults = await HazardQueryService.queryHazards(batch);
+                const batchResults = await HazardQueryService.queryHazards(batch, queryOpts);
                 allResults.push(...batchResults);
             }
         } catch (err) {
@@ -534,8 +555,20 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
         if (landSegments.length === 0) {
             const encHits = allResults.filter((r) => r.source === 'enc').length;
             const gebcoHits = allResults.filter((r) => r.source === 'gebco').length;
+            // Flag if any ENC point sat in a low-confidence (CATZOC C/D/U)
+            // zone — the user should verify those visually even though the
+            // route validates clean.
+            let worstCatzoc: number | null = null;
+            for (const r of allResults) {
+                if (typeof r.catzoc !== 'number') continue;
+                if (worstCatzoc === null || r.catzoc > worstCatzoc) worstCatzoc = r.catzoc;
+            }
+            const catzocNote =
+                worstCatzoc !== null && worstCatzoc >= 4
+                    ? ` ⚠ low-confidence ENC zones along route (worst CATZOC ${worstCatzoc}) — verify visually`
+                    : '';
             landLog.info(
-                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})`,
+                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})${catzocNote}`,
             );
             break;
         }
@@ -549,7 +582,7 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
             if (landSegments.includes(i)) {
                 const a = result[i];
                 const b = result[i + 1];
-                const detour = await findDetourAroundIsland(a, b, 0);
+                const detour = await findDetourAroundIsland(a, b, 0, queryOpts);
                 if (detour.length > 0) {
                     fixed.push(...detour);
                 }
@@ -570,7 +603,12 @@ export async function validateRouteSegments(route: IsochroneNode[]): Promise<Iso
  * instead of making individual HTTP requests per candidate. This reduces
  * network calls from ~20+ per island down to 1-3.
  */
-async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth: number): Promise<IsochroneNode[]> {
+async function findDetourAroundIsland(
+    a: IsochroneNode,
+    b: IsochroneNode,
+    depth: number,
+    queryOpts: { vesselDraftM?: number },
+): Promise<IsochroneNode[]> {
     if (depth >= MAX_FIX_DEPTH) return [];
 
     const midLat = (a.lat + b.lat) / 2;
@@ -601,6 +639,7 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
     // ── 2. Batch-query all candidate points in ONE call (ENC + GEBCO unified) ──
     const candidateResults = await HazardQueryService.queryHazards(
         candidates.map((c) => ({ lat: c.pt.lat, lon: c.pt.lon })),
+        queryOpts,
     );
 
     // ── 3. Find the first water-based candidate (smallest push first) ──
@@ -617,6 +656,7 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
         if (allSubSamples.length > 0) {
             const subResults = await HazardQueryService.queryHazards(
                 allSubSamples.map((s) => ({ lat: s.lat, lon: s.lon })),
+                queryOpts,
             );
             const hasHazard = subResults.some((r) => r.isHazard);
             if (hasHazard) continue; // Sub-segments cross land/reef — try next candidate
@@ -660,8 +700,8 @@ async function findDetourAroundIsland(a: IsochroneNode, b: IsochroneNode, depth:
             distance: a.distance + haversineNm(a.lat, a.lon, pt.lat, pt.lon),
         };
 
-        const leftFixes = await findDetourAroundIsland(a, waterMid, depth + 1);
-        const rightFixes = await findDetourAroundIsland(waterMid, b, depth + 1);
+        const leftFixes = await findDetourAroundIsland(a, waterMid, depth + 1, queryOpts);
+        const rightFixes = await findDetourAroundIsland(waterMid, b, depth + 1, queryOpts);
         return [...leftFixes, waterMid, ...rightFixes];
     }
 

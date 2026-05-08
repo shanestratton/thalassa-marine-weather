@@ -99,7 +99,8 @@ export function getCell(id: string): EncCell | null {
 
 /**
  * Insert or update a cell record. Used by the import pipeline
- * after a successful S-57 → GeoJSON conversion.
+ * after a successful S-57 → GeoJSON conversion. Notifies listeners
+ * so the map ENC coverage overlay refreshes immediately.
  */
 export function putCell(cell: EncCell): void {
     localStorage.setItem(recordKey(cell.id), JSON.stringify(cell));
@@ -108,16 +109,19 @@ export function putCell(cell: EncCell): void {
         ids.push(cell.id);
         writeIndex(ids);
     }
+    notify();
 }
 
 /**
  * Remove a cell from the metadata index. Caller is responsible for
  * deleting the GeoJSON blob from the filesystem (EncCellStore).
+ * Notifies listeners.
  */
 export function removeCell(id: string): void {
     localStorage.removeItem(recordKey(id));
     const ids = readIndex().filter((x) => x !== id);
     writeIndex(ids);
+    notify();
 }
 
 /**
@@ -144,5 +148,50 @@ export function clearAllCellMetadata(): void {
     const ids = readIndex();
     for (const id of ids) localStorage.removeItem(recordKey(id));
     localStorage.removeItem(INDEX_KEY);
+    notify();
     log.info('cleared all ENC cell metadata');
+}
+
+// ── Reactivity ────────────────────────────────────────────────────
+
+/**
+ * Lightweight subscription so UI components (and the map ENC
+ * coverage overlay) can react when cells are imported / removed
+ * without polling.
+ *
+ * We don't bother with full pub-sub semantics — there's at most a
+ * handful of listeners (chart locker, map overlay). A bumped
+ * version number is plenty.
+ */
+let version = 0;
+type Listener = () => void;
+const listeners = new Set<Listener>();
+
+function notify(): void {
+    version++;
+    for (const l of listeners) {
+        try {
+            l();
+        } catch (err) {
+            log.warn('listener threw', err);
+        }
+    }
+}
+
+/**
+ * Get the current version counter. Increments on every
+ * putCell / removeCell / clearAllCellMetadata.
+ */
+export function getVersion(): number {
+    return version;
+}
+
+/**
+ * Subscribe to cell-list changes. Returns an unsubscribe function.
+ */
+export function subscribe(listener: Listener): () => void {
+    listeners.add(listener);
+    return () => {
+        listeners.delete(listener);
+    };
 }

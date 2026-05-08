@@ -68,6 +68,7 @@ import { useChlRasterLayer, isCmemsChlEnabled } from './useChlRasterLayer';
 import { useSeaIceRasterLayer, isCmemsSeaIceEnabled } from './useSeaIceRasterLayer';
 import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
+import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -1109,6 +1110,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // "where can I fish?" is orthogonal to "what's the weather doing?".
     // Gated by VITE_MPA_ENABLED.
     useMpaLayer(mapRef, mapReady, weather.mpaVisible);
+
+    // ── ENC Chart Coverage (vector routing data) ──
+    // Auto-mounts whenever the user has imported S-57 ENC cells.
+    // Subtle dashed-outline overlay showing where surveyed vector
+    // chart data is in play vs where routing falls back to GEBCO
+    // bathymetry. Colour-coded by CATZOC confidence.
+    useEncCoverageLayer(mapRef, mapReady);
 
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows

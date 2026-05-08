@@ -26,16 +26,65 @@ import type { Geometry } from 'geojson';
  * - OBSTRN: general obstructions
  * - WRECKS: wrecks
  * - UWTROC: underwater rocks
+ * - M_QUAL: zones of confidence (CATZOC). Not a hazard layer —
+ *          stored alongside as confidence metadata so routing
+ *          can warn when a route passes through poorly-surveyed
+ *          areas.
  *
- * Phase 2 will add COALNE (coastline lines, used as proximity buffer).
+ * Phase 4 will add COALNE (coastline lines, used as proximity buffer).
  */
 export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC';
+
+/**
+ * Layers we ship in the conversion result but treat as info-only.
+ * Listed separately so type-checkers don't complain when the
+ * hazard pipeline iterates EncLayer.
+ */
+export type EncInfoLayer = 'M_QUAL';
 
 /**
  * Hazard type after layer normalisation. Used for UI labels and
  * downstream rendering.
  */
 export type EncHazardType = 'land' | 'shallow' | 'obstruction' | 'wreck' | 'rock';
+
+/**
+ * S-57 CATZOC (Categories of Zone of Confidence) values for
+ * M_QUAL polygons. Numeric IHO codes — we keep them as numbers
+ * because that's what GDAL outputs.
+ *
+ * 1 = A1 — full systematic survey, ±5 m horizontal, ±0.5 m + 1% depth
+ * 2 = A2 — full systematic survey, ±20 m horizontal, ±1.0 m + 2% depth
+ * 3 = B  — full systematic survey, ±50 m horizontal, ±1.0 m + 2% depth
+ * 4 = C  — partial / less rigorous survey, ±500 m horizontal, ±2.0 m + 5% depth
+ * 5 = D  — poor / sparse soundings, worse than C
+ * 6 = U  — unassessed — quality of survey not assessed
+ *
+ * Lower number = higher confidence. CATZOC C/D/U routes warrant a
+ * "verify visually" warning to the user. CATZOC U is the danger
+ * zone — Pacific atolls and remote shores are often U.
+ */
+export type EncCatzoc = 1 | 2 | 3 | 4 | 5 | 6;
+
+/** Human-readable letter codes used in IHO publications. */
+export const CATZOC_LABELS: Record<EncCatzoc, string> = {
+    1: 'A1',
+    2: 'A2',
+    3: 'B',
+    4: 'C',
+    5: 'D',
+    6: 'U',
+};
+
+/**
+ * True if a route passing through `c` should surface a "verify
+ * visually" warning. C/D/U zones have positional uncertainty of
+ * 500 m or worse — small islets/reefs may be off-chart.
+ */
+export function isLowConfidenceCatzoc(c: EncCatzoc | null | undefined): boolean {
+    if (c == null) return true; // No M_QUAL data → assume worst.
+    return c >= 4;
+}
 
 // ── Hazard geometry ────────────────────────────────────────────────
 
@@ -97,6 +146,12 @@ export interface EncCell {
     geojsonPath: string;
     /** Total hazard count across all loaded layers (UI stat). */
     hazardCount: number;
+    /**
+     * CATZOC range present in the cell's M_QUAL coverage.
+     * `[best, worst]` (smaller numbers = higher confidence).
+     * Null when M_QUAL data was not present in the source cell.
+     */
+    catzocRange?: [EncCatzoc, EncCatzoc] | null;
 }
 
 // ── Query result ───────────────────────────────────────────────────
@@ -112,6 +167,10 @@ export interface EncCell {
  *    answer; caller should NOT call GEBCO for this point.
  *  - `covered: true, hazard: true` — point is inside a hazard. Full
  *    detail in `hazardType` / `minDepthM`.
+ *
+ * `catzoc` is the M_QUAL CATZOC at the queried point, when the
+ * cell ships M_QUAL data. Null means no M_QUAL polygon covers this
+ * exact point (rare — most cells have full M_QUAL coverage).
  */
 export interface EncHazardResult {
     covered: boolean;
@@ -119,6 +178,7 @@ export interface EncHazardResult {
     minDepthM: number | null;
     hazardType?: EncHazardType;
     cellId?: string;
+    catzoc?: EncCatzoc | null;
 }
 
 // ── Spatial index entry (RBush format) ─────────────────────────────
@@ -159,6 +219,8 @@ export interface EncConversionResult {
         OBSTRN?: GeoJSON.FeatureCollection;
         WRECKS?: GeoJSON.FeatureCollection;
         UWTROC?: GeoJSON.FeatureCollection;
+        /** Zones of confidence (CATZOC). Info-only — not a hazard. */
+        M_QUAL?: GeoJSON.FeatureCollection;
     };
 }
 
