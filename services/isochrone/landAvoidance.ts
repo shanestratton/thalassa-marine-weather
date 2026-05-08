@@ -370,11 +370,14 @@ export function nudgeWaypointsOffshore(route: IsochroneNode[], grid: BathymetryG
 // ══════════════════════════════════════════════════════════════════
 
 /** Spacing between GEBCO sample points along each segment (NM).
- *  GEBCO_2024 source is 15 arc-seconds ≈ 460m at the equator, so 0.25 NM
- *  (~463m) matches source resolution. 0.5 NM was undersampling the data
- *  by ~2× — we'd skip past narrow channels and reefs. Anything finer than
- *  0.25 NM is redundant queries against the same source pixels. */
-const FINE_SAMPLE_SPACING_NM = 0.25;
+ *  GEBCO_2024 source is 15 arc-seconds ≈ 460m at the equator. By Nyquist,
+ *  reliable detection of every pixel a route diagonally crosses requires
+ *  sampling at 2× source resolution → 230m ≈ 0.125 NM. This costs ~4×
+ *  the GEBCO calls vs. 0.5 NM but eliminates the aliasing failure mode
+ *  where a route threads between adjacent samples and skips a hazard
+ *  pixel. Reasonable cap: anything finer than 0.125 NM is genuinely
+ *  redundant against this source. */
+const FINE_SAMPLE_SPACING_NM = 0.125;
 
 /** Maximum batch size for a single GEBCO edge function call */
 const GEBCO_BATCH_SIZE = 400;
