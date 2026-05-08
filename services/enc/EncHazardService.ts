@@ -35,6 +35,7 @@ import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
+import { ialaRegionForSourceHO, lateralMarkColour } from './types';
 
 const log = createLogger('EncHazardService');
 
@@ -423,6 +424,10 @@ export interface EncMergedVectorData {
     BOYLAT: FeatureCollection;
     /** Cardinal buoys (display only). */
     BOYCAR: FeatureCollection;
+    /** Lateral beacons — rigid lateral marks (display only). */
+    BCNLAT: FeatureCollection;
+    /** Cardinal beacons — rigid cardinal marks (display only). */
+    BCNCAR: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -462,6 +467,8 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         LIGHTS: { type: 'FeatureCollection', features: [] },
         BOYLAT: { type: 'FeatureCollection', features: [] },
         BOYCAR: { type: 'FeatureCollection', features: [] },
+        BCNLAT: { type: 'FeatureCollection', features: [] },
+        BCNCAR: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -476,6 +483,8 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         if (!blob) continue;
         merged.cellCount++;
 
+        const ialaRegion = ialaRegionForSourceHO(cell.sourceHO);
+
         const tagAndPush = (
             target: keyof Omit<EncMergedVectorData, 'cellCount'>,
             fc: FeatureCollection | undefined,
@@ -486,7 +495,23 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
                 if (!feat || !feat.geometry) continue;
                 // Decorate properties with provenance so the map
                 // can keep "which cell" context for clicks/etc.
-                const props = { ...(feat.properties ?? {}), _cellId: cell.id, _sourceHO: cell.sourceHO };
+                const props: Record<string, unknown> = {
+                    ...(feat.properties ?? {}),
+                    _cellId: cell.id,
+                    _sourceHO: cell.sourceHO,
+                    _ialaRegion: ialaRegion,
+                };
+
+                // Pre-compute the display colour for lateral marks
+                // (BOYLAT/BCNLAT) so the renderer doesn't need a
+                // case expression that knows about IALA regions.
+                // Cardinal marks (BOYCAR/BCNCAR) are always yellow.
+                if (target === 'BOYLAT' || target === 'BCNLAT') {
+                    const catlamRaw = (feat.properties?.CATLAM ?? feat.properties?.catlam) as unknown;
+                    const catlam = typeof catlamRaw === 'number' ? catlamRaw : Number(catlamRaw);
+                    props._displayColor = lateralMarkColour(Number.isFinite(catlam) ? catlam : null, ialaRegion);
+                }
+
                 dest.features.push({ ...feat, properties: props });
             }
         };
@@ -500,6 +525,8 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         tagAndPush('LIGHTS', blob.layers.LIGHTS);
         tagAndPush('BOYLAT', blob.layers.BOYLAT);
         tagAndPush('BOYCAR', blob.layers.BOYCAR);
+        tagAndPush('BCNLAT', blob.layers.BCNLAT);
+        tagAndPush('BCNCAR', blob.layers.BCNCAR);
     }
 
     mergedCache = { version: currentVersion, data: merged };
@@ -507,7 +534,9 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         `merged vector data: ${merged.cellCount} cells, ` +
             `DEPARE=${merged.DEPARE.features.length}, COALNE=${merged.COALNE.features.length}, ` +
             `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}, ` +
-            `LIGHTS=${merged.LIGHTS.features.length}, BOYLAT=${merged.BOYLAT.features.length}, BOYCAR=${merged.BOYCAR.features.length}`,
+            `LIGHTS=${merged.LIGHTS.features.length}, ` +
+            `lat (BOY+BCN)=${merged.BOYLAT.features.length + merged.BCNLAT.features.length}, ` +
+            `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}`,
     );
     return merged;
 }
