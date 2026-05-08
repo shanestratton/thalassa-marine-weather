@@ -30,23 +30,52 @@ export type GpsQuality = 'precision' | 'standard' | 'degraded';
 const ROLLING_WINDOW = 10;
 
 /**
- * Threshold: if rolling average accuracy < this, precision GPS detected.
- * Bad Elf GPS Pro+ typically reports 1-3m, but can hit 4-6m at altitude
- * (aircraft), in urban canyons, or under tree cover. Phone GPS is usually 8-15m.
- * 6m accommodates altitude spikes while still cleanly separating from phone GPS.
+ * Threshold: rolling average accuracy must be tighter than this to count
+ * as "precision".
+ *
+ * Tightened from 6.0m → 3.0m on 2026-05-08 because modern iPhones
+ * (iPhone 12+ with dual-band L1+L5 GPS) routinely hit 4-6m horizontal
+ * accuracy outdoors under clear sky. Users without any external GPS
+ * connected were getting the External GPS row in System Status falsely
+ * lit. The original 6.0m threshold dated from when phone GPS was
+ * reliably 8-15m — that assumption no longer holds.
+ *
+ * Reference: Bad Elf GPS Pro+ → 2.5m typical (datasheet), 1-3m in
+ * practice. Bad Elf XGNSS w/ SBAS → 0.5-2m. Ship's NMEA GPS → typically
+ * 1-5m depending on antenna mount. Modern iPhone → 3-15m, with a long
+ * tail of occasional sub-3m fixes that the variance check below
+ * filters out.
  */
-const PRECISION_THRESHOLD_M = 6.0;
+const PRECISION_THRESHOLD_M = 3.0;
 
 /** Threshold: if rolling average accuracy > this, GPS is degraded */
 const DEGRADED_THRESHOLD_M = 20.0;
 
 /**
- * Asymmetric hysteresis — easy to enter precision, sticky to leave.
- * This prevents the badge from flickering when GPS is borderline.
- *   Enter precision: 3 consecutive readings (fast detection ~15s)
- *   Leave precision: 5 consecutive readings (doesn't drop on one bad sample)
+ * Stability gate — Bad Elf and NMEA GPS sources are characteristically
+ * STABLE: accuracy values change slowly and stay within a narrow band.
+ * iPhone GPS jitters a lot frame-to-frame even when the average is
+ * good (a single fix can be 4m, the next 11m, the next 6m). Requiring
+ * the rolling-window range (max - min) to be ≤ this value separates
+ * "consistently precise external receiver" from "iPhone got a good
+ * sample run by luck".
  */
-const HYSTERESIS_ENTER = 3;
+const PRECISION_STABILITY_RANGE_M = 2.0;
+
+/**
+ * Asymmetric hysteresis — easy to enter precision, sticky to leave.
+ * Prevents flicker when GPS is borderline.
+ *
+ *   Enter precision: 8 consecutive readings (~40s) — bumped from 3
+ *     because the previous count let a single string of good iPhone
+ *     fixes flip the state. 8 samples × ~5s GPS cadence is enough
+ *     to be confident an actual external receiver is connected, not
+ *     just a temporary good sky view.
+ *   Leave precision: 5 consecutive readings — unchanged. Once we've
+ *     committed to "precision", let it stick through transient
+ *     accuracy degradations (e.g. boat moving through a marina).
+ */
+const HYSTERESIS_ENTER = 8;
 const HYSTERESIS_LEAVE = 5;
 
 // ── Service ─────────────────────────────────────────────────────
@@ -84,11 +113,15 @@ class GpsPrecisionTrackerClass {
             this.samples.shift();
         }
 
-        // Need minimum samples before evaluating
-        if (this.samples.length < 3) return;
+        // Need minimum samples before evaluating. Bumped from 3 to 5
+        // alongside the threshold tightening — gives the variance check
+        // (used by classifyQuality below) a meaningful sample to work
+        // with. 5 samples × ~5s cadence ≈ 25s to first classification.
+        if (this.samples.length < 5) return;
 
         const avg = this.getAverageAccuracy();
-        const detected = this.classifyQuality(avg);
+        const range = this.getAccuracyRange();
+        const detected = this.classifyQuality(avg, range);
 
         // Asymmetric hysteresis: faster to enter precision, slower to leave
         if (detected !== this.currentQuality) {
@@ -148,6 +181,20 @@ class GpsPrecisionTrackerClass {
         return this.samples.reduce((a, b) => a + b.accuracy, 0) / this.samples.length;
     }
 
+    /** Range (max - min) of the rolling window. Cheap stand-in for
+     *  variance — a tight range means the receiver is consistent; a
+     *  wide range means it's bouncing around like a phone GPS does. */
+    getAccuracyRange(): number {
+        if (this.samples.length < 2) return 999;
+        let min = Infinity;
+        let max = -Infinity;
+        for (const s of this.samples) {
+            if (s.accuracy < min) min = s.accuracy;
+            if (s.accuracy > max) max = s.accuracy;
+        }
+        return max - min;
+    }
+
     /**
      * Get adapted thresholds based on current GPS quality.
      * Downstream systems use these instead of hardcoded constants.
@@ -192,8 +239,22 @@ class GpsPrecisionTrackerClass {
 
     // ── Private ─────────────────────────────────────────────────
 
-    private classifyQuality(avgAccuracy: number): GpsQuality {
-        if (avgAccuracy <= PRECISION_THRESHOLD_M) return 'precision';
+    /**
+     * Two-gate classification: BOTH the average AND the variance must
+     * indicate an external receiver. iPhone GPS can hit good accuracy
+     * occasionally but never STABLE accuracy — its values swing around
+     * frame-to-frame even when the mean is low. Bad Elf and NMEA GPS
+     * sources are characteristically tight and consistent.
+     *
+     *   precision  →  avg ≤ 3m   AND  range ≤ 2m
+     *   degraded   →  avg ≥ 20m
+     *   standard   →  everything else (including iPhone with good fix
+     *                 but high jitter, which previously fooled this)
+     */
+    private classifyQuality(avgAccuracy: number, accuracyRange: number): GpsQuality {
+        if (avgAccuracy <= PRECISION_THRESHOLD_M && accuracyRange <= PRECISION_STABILITY_RANGE_M) {
+            return 'precision';
+        }
         if (avgAccuracy >= DEGRADED_THRESHOLD_M) return 'degraded';
         return 'standard';
     }
