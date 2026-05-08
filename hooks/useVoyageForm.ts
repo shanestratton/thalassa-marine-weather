@@ -403,16 +403,32 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                                     result.originCoordinates,
                                     result.destinationCoordinates,
                                 ),
-                                __inshoreRouted: true,
-                            } as typeof enhancedPlan & { __inshoreRouted: boolean };
+                                __inshoreRouting: {
+                                    status: 'success',
+                                    cellsUsed: inshoreRes.cellsUsed,
+                                    distanceNM: inshoreRes.distanceNM,
+                                },
+                            };
                             inshoreSucceeded = true;
                             saveIfActive(enhancedPlan);
                         } else if (inshoreRes && 'error' in inshoreRes) {
-                            // Pi answered but couldn't route. Surface to console
-                            // for diagnosis; UI fallback is the existing pipeline.
+                            // Pi answered but couldn't route. Tag the plan
+                            // so the UI can show a useful warning instead
+                            // of failing silently while ocean routers also
+                            // produce nothing on a too-short route.
                             console.warn(
                                 `[useVoyageForm] inshore router failed: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
                             );
+                            enhancedPlan = {
+                                ...enhancedPlan,
+                                __inshoreRouting: {
+                                    status: 'failed',
+                                    error: inshoreRes.error,
+                                    errorCode: inshoreRes.code,
+                                    cellsUsed: inshoreRes.cellsUsed,
+                                },
+                            };
+                            saveIfActive(enhancedPlan);
                         }
                     }
                 } catch (_) {

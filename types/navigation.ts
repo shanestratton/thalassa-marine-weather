@@ -111,6 +111,26 @@ export interface VoyagePlan {
     __multiModelComparison?: import('../services/weather/MultiModelWeatherService').MultiModelResult;
     /** Spatiotemporal weather routing payload — stashed by enhanceVoyagePlanWithWeather */
     __spatiotemporalPayload?: import('../types/spatiotemporal').SpatiotemporalPayload;
+    /**
+     * Inshore-routing status — set by useVoyageForm Step 0 when the
+     * inshore router was attempted (Pi reachable + ENC coverage at
+     * both endpoints + ≤50 NM straight-line). Surfaces the outcome so
+     * UI can show a chip ("Routed via ENC channels (US5GA22M, 7.8 NM)")
+     * or an actionable warning ("Origin too far from charted water —
+     * try a port name closer to the dock").
+     */
+    __inshoreRouting?: {
+        /** 'success' = routeGeoJSON was set by the inshore router. */
+        status: 'success' | 'failed';
+        /** Cells consulted on success. */
+        cellsUsed?: string[];
+        /** Distance produced by the inshore router (NM). */
+        distanceNM?: number;
+        /** Pi-side error message when status='failed'. */
+        error?: string;
+        /** Pi-side error code when status='failed' (origin-on-land, etc). */
+        errorCode?: string;
+    };
 }
 
 /**
