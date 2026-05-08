@@ -35,6 +35,7 @@ import { SmartPolarStore } from '../../services/SmartPolarStore';
 
 import { WindStore } from '../../stores/WindStore';
 import { PassageStore, type PassageLeg } from '../../stores/PassageStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { WindDataController } from '../../services/weather/WindDataController';
 import { triggerHaptic } from '../../utils/system';
 import { Preferences } from '@capacitor/preferences';
@@ -822,8 +823,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             parentIndex: null,
                             distance: 0,
                         })) as unknown as IsochroneNode[];
+                        const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
                         const validated = await Promise.race([
-                            validateRouteSegments(seedNodes),
+                            validateRouteSegments(seedNodes, { vesselDraftM }),
                             // 30s ceiling (was 12s). Multi-pass detour
                             // search across reef-strewn coastal waters
                             // can take ~15-20s — 12s was killing the
@@ -1240,8 +1242,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     (async () => {
                         try {
                             const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
+                            const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
                             const validated = await Promise.race([
-                                validateRouteSegments(isoResult.route),
+                                validateRouteSegments(isoResult.route, { vesselDraftM }),
                                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
                             ]);
                             if (!validated || computeGenRef.current !== gen) return; // stale or timed out
@@ -1533,8 +1536,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                                         distance: 0,
                                                     }) as IsochroneNode,
                                             );
+                                            const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
                                             const validated = await Promise.race([
-                                                validateRouteSegments(ecmwfNodes),
+                                                validateRouteSegments(ecmwfNodes, { vesselDraftM }),
                                                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
                                             ]);
                                             if (!validated || computeGenRef.current !== gen) return;

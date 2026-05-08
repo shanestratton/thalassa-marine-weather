@@ -29,7 +29,7 @@
 import { createLogger } from '../utils/createLogger';
 import { GebcoDepthService } from './GebcoDepthService';
 import * as EncHazardService from './enc/EncHazardService';
-import type { EncHazardResult, EncHazardType } from './enc/types';
+import type { EncCatzoc, EncHazardResult, EncHazardType } from './enc/types';
 import { ENC_HAZARD_DEPTH_M } from './enc/types';
 
 const log = createLogger('HazardQueryService');
@@ -67,20 +67,51 @@ export interface HazardResult {
     cellId?: string;
     /** ENC hazard category if applicable. */
     hazardType?: EncHazardType;
+    /**
+     * S-57 CATZOC value at this point (1=A1 best, 6=U unassessed),
+     * when the answering ENC cell ships M_QUAL data. Always null
+     * for GEBCO results.
+     */
+    catzoc?: EncCatzoc | null;
 }
 
-// ── GEBCO threshold ────────────────────────────────────────────────
+// ── Hazard threshold ──────────────────────────────────────────────
 
 /**
- * Below-this-depth = hazard, in GEBCO convention (negative metres).
- * Matches the `GEBCO_HAZARD_DEPTH_M = -15` constant in
- * landAvoidance.ts and the ENC threshold (`+15` in S-57 convention).
+ * Default vessel draft used when the caller doesn't supply one.
+ * 2.5 m matches the existing fallback used elsewhere in the
+ * codebase (services/departureWindow.ts, services/isochroneEnhancer.ts).
  */
-const GEBCO_HAZARD_DEPTH_M = -15;
+const DEFAULT_VESSEL_DRAFT_M = 2.5;
 
-function gebcoIsHazard(depth_m: number | null): boolean {
+/**
+ * Compute the routing hazard depth threshold (GEBCO convention,
+ * negative metres) from a vessel's draft.
+ *
+ * Formula: -(draft × 1.5 + 0.5) m — keeps the "danger zone"
+ * boundary used by the existing depth-classification logic
+ * (GebcoDepthService comments: ≤1.5× draft = grounding risk),
+ * with a 0.5 m safety margin for swell, sounding error and tide.
+ *
+ * Examples:
+ *   2.0 m draft → -3.5  m   shallower-than threshold for hazard
+ *   2.5 m draft → -4.25 m
+ *   3.0 m draft → -5.0  m
+ *
+ * The previous codebase used a hard-coded -15 m globally, which
+ * would falsely flag any 14 m channel for a 2 m sailboat.
+ */
+export function hazardDepthForDraft(draftM: number | null | undefined): number {
+    const draft = typeof draftM === 'number' && Number.isFinite(draftM) && draftM > 0 ? draftM : DEFAULT_VESSEL_DRAFT_M;
+    // Clamp draft to a sensible band so a typo doesn't produce
+    // pathological thresholds. 0.5 m (kayak) → 5 m (large yacht).
+    const clamped = Math.max(0.5, Math.min(5, draft));
+    return -(clamped * 1.5 + 0.5);
+}
+
+function gebcoIsHazard(depth_m: number | null, hazardThresholdM: number): boolean {
     if (depth_m == null) return false; // No data → don't flag.
-    return depth_m > GEBCO_HAZARD_DEPTH_M;
+    return depth_m > hazardThresholdM;
 }
 
 // ── ENC → HazardResult adapter ─────────────────────────────────────
@@ -90,17 +121,36 @@ function gebcoIsHazard(depth_m: number | null): boolean {
  *
  * Depth conversion: ENC stores depth as positive S-57 metres; we
  * flip sign to match GEBCO convention.
+ *
+ * Hazard reconciliation: ENC marks a polygon as a hazard based on
+ * its built-in threshold (`ENC_HAZARD_DEPTH_M = 15 m`). We re-
+ * evaluate against the caller's draft-derived threshold so a
+ * shallow-draft vessel doesn't get falsely blocked by a depth
+ * polygon deeper than its grounding risk.
+ *
+ * Land/obstruction/wreck/rock hazards remain hazards regardless of
+ * draft — you don't sail over them at any depth.
  */
-function encToHazardResult(point: HazardQueryPoint, enc: EncHazardResult): HazardResult {
+function encToHazardResult(point: HazardQueryPoint, enc: EncHazardResult, hazardThresholdM: number): HazardResult {
     const flippedDepth = enc.minDepthM == null ? null : -Math.abs(enc.minDepthM);
+    let isHazard = enc.hazard;
+
+    // Re-evaluate `shallow` hazards against the caller's draft.
+    // Solid hazards (land/rock/wreck/obstruction with no depth)
+    // stay hazards.
+    if (enc.hazard && enc.hazardType === 'shallow' && flippedDepth !== null) {
+        isHazard = flippedDepth > hazardThresholdM;
+    }
+
     return {
         lat: point.lat,
         lon: point.lon,
-        isHazard: enc.hazard,
+        isHazard,
         depth_m: flippedDepth,
         source: 'enc',
         cellId: enc.cellId,
         hazardType: enc.hazardType,
+        catzoc: enc.catzoc ?? null,
     };
 }
 
@@ -132,6 +182,17 @@ export async function preloadEncForBBox(bbox: [number, number, number, number]):
     return EncHazardService.preloadForBBox(bbox);
 }
 
+/** Caller options for queryHazards. */
+export interface HazardQueryOptions {
+    /**
+     * Vessel draft in metres. Used to compute the hazard depth
+     * threshold (anything shallower than `-(draft * 1.5 + 0.5)` is
+     * treated as a grounding risk). When omitted, defaults to 2.5 m
+     * to match the existing fallback elsewhere in the codebase.
+     */
+    vesselDraftM?: number;
+}
+
 /**
  * Batch-query hazards for an array of points.
  *
@@ -145,8 +206,13 @@ export async function preloadEncForBBox(bbox: [number, number, number, number]):
  *    per `GEBCO_BATCH_SIZE` chunk in landAvoidance (caller-owned).
  *  - When a route is fully ENC-covered, we make ZERO GEBCO calls.
  */
-export async function queryHazards(points: HazardQueryPoint[]): Promise<HazardResult[]> {
+export async function queryHazards(
+    points: HazardQueryPoint[],
+    options: HazardQueryOptions = {},
+): Promise<HazardResult[]> {
     if (points.length === 0) return [];
+
+    const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
 
     // ── Phase 1: ENC pass ─────────────────────────────────────────
     const encResults = await EncHazardService.queryHazards(points);
@@ -160,7 +226,7 @@ export async function queryHazards(points: HazardQueryPoint[]): Promise<HazardRe
     for (let i = 0; i < points.length; i++) {
         const enc = encResults[i];
         if (enc.covered) {
-            out[i] = encToHazardResult(points[i], enc);
+            out[i] = encToHazardResult(points[i], enc, hazardThresholdM);
         } else {
             gebcoNeeded.push(points[i]);
             gebcoIndexMap.push(i);
@@ -177,7 +243,7 @@ export async function queryHazards(points: HazardQueryPoint[]): Promise<HazardRe
                 out[idx] = {
                     lat: points[idx].lat,
                     lon: points[idx].lon,
-                    isHazard: gebcoIsHazard(g.depth_m),
+                    isHazard: gebcoIsHazard(g.depth_m, hazardThresholdM),
                     depth_m: g.depth_m,
                     source: g.depth_m == null ? 'none' : 'gebco',
                 };
@@ -200,7 +266,9 @@ export async function queryHazards(points: HazardQueryPoint[]): Promise<HazardRe
         const encHits = out.filter((r) => r.source === 'enc').length;
         const gebcoHits = out.filter((r) => r.source === 'gebco').length;
         const noData = out.filter((r) => r.source === 'none').length;
-        log.info(`queryHazards(${points.length}): enc=${encHits} gebco=${gebcoHits} none=${noData}`);
+        log.info(
+            `queryHazards(${points.length}, draft=${options.vesselDraftM ?? DEFAULT_VESSEL_DRAFT_M}m, threshold=${hazardThresholdM.toFixed(2)}m): enc=${encHits} gebco=${gebcoHits} none=${noData}`,
+        );
     }
 
     return out;
@@ -209,9 +277,10 @@ export async function queryHazards(points: HazardQueryPoint[]): Promise<HazardRe
 // ── Constants re-exported for backward compatibility ──────────────
 
 /**
- * Re-exported so callers that previously imported from
- * landAvoidance.ts can keep using the same constant after the
- * refactor.
+ * @deprecated The hazard threshold is now computed per-call from
+ * vessel draft via `hazardDepthForDraft()`. This constant is kept
+ * only for any external callers that imported it; new code should
+ * pass `vesselDraftM` to `queryHazards`.
  */
-export const HAZARD_DEPTH_M_GEBCO = GEBCO_HAZARD_DEPTH_M;
+export const HAZARD_DEPTH_M_GEBCO = -15;
 export const HAZARD_DEPTH_M_ENC = ENC_HAZARD_DEPTH_M;

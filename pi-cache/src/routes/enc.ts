@@ -100,8 +100,14 @@ setInterval(() => {
 
 // ── Constants ─────────────────────────────────────────────────────
 
-/** S-57 layers we extract for routing. See docs/ENC_INTEGRATION.md. */
-const ENC_LAYERS = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC'] as const;
+/**
+ * S-57 layers we extract for routing. See docs/ENC_INTEGRATION.md.
+ *
+ * The first five are hazards. M_QUAL ships CATZOC zones — info-
+ * only metadata that the device uses to surface "verify visually"
+ * warnings when a route passes through low-confidence survey areas.
+ */
+const ENC_LAYERS = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'M_QUAL'] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB — big enough for ENC zips

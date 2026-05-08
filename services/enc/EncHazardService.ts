@@ -33,8 +33,8 @@ import type { Feature, FeatureCollection } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
-import { EncSpatialIndex } from './EncSpatialIndex';
-import type { EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
+import { EncSpatialIndex, type EncCatzocZone } from './EncSpatialIndex';
+import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 
 const log = createLogger('EncHazardService');
 
@@ -120,6 +120,26 @@ function buildHazardsForCell(blob: EncConversionResult): EncHazard[] {
     return all;
 }
 
+/**
+ * Build the CATZOC zone list from a cell's M_QUAL FeatureCollection.
+ * Skips features without a usable CATZOC attribute (1..6).
+ */
+function buildCatzocZones(blob: EncConversionResult): EncCatzocZone[] {
+    const fc = blob.layers.M_QUAL;
+    if (!fc || !Array.isArray(fc.features)) return [];
+    const zones: EncCatzocZone[] = [];
+    for (const feat of fc.features) {
+        if (!feat || !feat.geometry) continue;
+        if (feat.geometry.type !== 'Polygon' && feat.geometry.type !== 'MultiPolygon') continue;
+        const raw = readNumber(feat, 'CATZOC', 'catzoc');
+        if (raw == null) continue;
+        const rounded = Math.round(raw);
+        if (rounded < 1 || rounded > 6) continue;
+        zones.push({ geometry: feat.geometry, catzoc: rounded as EncCatzoc });
+    }
+    return zones;
+}
+
 // ── Lazy index loader ─────────────────────────────────────────────
 
 /**
@@ -147,9 +167,10 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
     }
 
     const hazards = buildHazardsForCell(blob);
-    const index = new EncSpatialIndex(cellId, hazards);
+    const catzocZones = buildCatzocZones(blob);
+    const index = new EncSpatialIndex(cellId, hazards, catzocZones);
     indexes.set(cellId, index);
-    log.info(`built spatial index for cell ${cellId}: ${hazards.length} hazards`);
+    log.info(`built spatial index for cell ${cellId}: ${hazards.length} hazards, ${catzocZones.length} CATZOC zones`);
     return index;
 }
 
@@ -279,9 +300,26 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
 
     // Rough hazard count for the metadata record (without parsing
     // every feature). Small inaccuracy is fine — UI stat only.
+    // We exclude M_QUAL from this count because it's coverage
+    // info, not a hazard.
     let hazardCount = 0;
-    for (const fc of Object.values(blob.layers)) {
+    for (const [layer, fc] of Object.entries(blob.layers)) {
+        if (layer === 'M_QUAL') continue;
         if (fc && Array.isArray(fc.features)) hazardCount += fc.features.length;
+    }
+
+    // Compute the cell's CATZOC range up front so the UI can show
+    // it without forcing a spatial-index build.
+    const zones = buildCatzocZones(blob);
+    let catzocRange: [EncCatzoc, EncCatzoc] | null = null;
+    if (zones.length > 0) {
+        let best: EncCatzoc = zones[0].catzoc;
+        let worst: EncCatzoc = zones[0].catzoc;
+        for (const z of zones) {
+            if (z.catzoc < best) best = z.catzoc;
+            if (z.catzoc > worst) worst = z.catzoc;
+        }
+        catzocRange = [best, worst];
     }
 
     const cell: EncCell = {
@@ -293,6 +331,7 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
         bbox: blob.bbox,
         geojsonPath: path,
         hazardCount,
+        catzocRange,
     };
     cellMeta.putCell(cell);
 
@@ -300,7 +339,8 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
     indexes.delete(cell.id);
     failedLoads.delete(cell.id);
 
-    log.info(`imported cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features`);
+    const catzocStr = catzocRange ? ` CATZOC ${catzocRange[0]}..${catzocRange[1]}` : '';
+    log.info(`imported cell ${cell.id} (${cell.sourceHO} ed.${cell.edition}): ${hazardCount} features${catzocStr}`);
     return cell;
 }
 
@@ -325,3 +365,18 @@ export function dropIndexCache(): void {
     indexes.clear();
     failedLoads.clear();
 }
+
+// ── Reactivity passthrough ────────────────────────────────────────
+
+/**
+ * Subscribe to cell-list changes (import / remove). Re-exported
+ * from EncCellMetadata so consumers don't need to drill into the
+ * private storage layer.
+ */
+export const subscribe = cellMeta.subscribe;
+
+/**
+ * Current version counter — bumped on every put/remove. Useful as
+ * a React hook dependency so re-renders pick up cell-list changes.
+ */
+export const getVersion = cellMeta.getVersion;
