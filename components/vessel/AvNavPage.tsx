@@ -24,6 +24,7 @@ import {
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { ModalSheet } from '../ui/ModalSheet';
+import { EncCellManager } from './EncCellManager';
 
 const SETUP_GUIDE_KEY = 'thalassa_avnav_setup_dismissed';
 
@@ -1131,6 +1132,9 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         </div>
                     )}
                 </div>
+
+                {/* ═══ ENC CHARTS (vector, routing-grade) ═══ */}
+                <EncCellManager />
 
                 {/* ═══ SETUP GUIDE TRIGGER ═══ */}
                 <button

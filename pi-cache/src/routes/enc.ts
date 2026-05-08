@@ -349,13 +349,34 @@ export function createEncRoutes(): Router {
 
     /**
      * POST /api/enc/convert
-     * Body: raw S-57 cell bytes (.000 file)
-     * Header: X-Filename: AU530150.000
+     * Body: raw S-57 cell bytes (.000 file), OR a base64 string
+     *       when X-Body-Encoding: base64 is set (the path the
+     *       Thalassa iOS app uses, since CapacitorHttp's binary-
+     *       body support is unreliable cross-platform).
+     * Headers: X-Filename: AU530150.000
+     *          X-Body-Encoding: base64  (optional)
      */
     router.post('/convert', rawBodyParser, async (req: Request, res: Response) => {
-        const rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
+        let rawBody = (req as Request & { rawBody?: Buffer }).rawBody;
         if (!rawBody || rawBody.length === 0) {
             return res.status(400).json({ error: 'Empty body' });
+        }
+
+        // Optional base64 decode for clients that can't send raw
+        // binary reliably. We trust the header — this endpoint isn't
+        // public-facing (Pi is on the boat LAN) so payload-validation
+        // attacks aren't a real risk here.
+        const encoding = req.header('x-body-encoding') || req.header('X-Body-Encoding');
+        if (encoding && encoding.toLowerCase() === 'base64') {
+            try {
+                const ascii = rawBody.toString('utf8');
+                rawBody = Buffer.from(ascii, 'base64');
+                if (rawBody.length === 0) {
+                    return res.status(400).json({ error: 'Body decoded to zero bytes — bad base64?' });
+                }
+            } catch (err) {
+                return res.status(400).json({ error: `Failed to base64-decode body: ${(err as Error).message}` });
+            }
         }
 
         const filenameHeader = req.header('x-filename') || req.header('X-Filename') || 'cell.000';
