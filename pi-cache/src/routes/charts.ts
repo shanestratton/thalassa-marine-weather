@@ -273,10 +273,25 @@ async function runDownload(job: ChartJob): Promise<void> {
             fileStream.once('error', reject);
         });
 
+        // ── Auto-extract zip packages ────────────────────────────────
+        // Community chart packs (e.g. Bruce Balan's New Caledonia from
+        // MediaFire) ship as .zip containing one or more .mbtiles files.
+        // AvNav's chart scanner only recognises raw .mbtiles/.gemf/.kap
+        // /.bsb/.xml on disk — it does NOT extract zips. Without this
+        // step the download "succeeds" but the chart never appears in
+        // the AvNav viewer (or in Thalassa's chart layer FAB).
+        //
+        // We extract the chart-shaped entries into CHART_DIR (flattened
+        // — directory structure inside the zip is dropped, basename
+        // wins) and delete the original .zip. If extraction fails for
+        // any reason the .zip is left in place so the user / a future
+        // retry can deal with it manually.
+        const finalPath = await maybeExtractZip(job.name, filePath);
+
         job.status = 'done';
         job.progress = 1;
         job.completedAt = Date.now();
-        job.filePath = filePath;
+        job.filePath = finalPath;
         // If we never knew bytesTotal up-front, set it now from what we
         // actually transferred so clients see a clean 100% / matching
         // numerator + denominator.
@@ -291,5 +306,83 @@ async function runDownload(job: ChartJob): Promise<void> {
             /* ignore — file may not exist if we failed before write */
         }
         throw err;
+    }
+}
+
+/**
+ * Chart file extensions that AvNav recognises on its own. If a zip
+ * contains entries with these extensions we extract them; everything
+ * else (READMEs, screenshots, license PDFs) is dropped.
+ *
+ * `.xml` is included because o-charts / OpenCPN distributions sometimes
+ * ship a chartlist.xml alongside .kap files.
+ */
+const CHART_EXTENSIONS = new Set(['.mbtiles', '.gemf', '.kap', '.bsb', '.xml']);
+const MAX_EXTRACT_BYTES = 5 * 1024 * 1024 * 1024; // 5 GB safety cap per entry
+
+/**
+ * If `name` is a `.zip`, extract the chart-shaped entries inside into
+ * CHART_DIR and delete the original. Returns the path that should be
+ * recorded as the final job.filePath (either the first extracted chart
+ * or — on extraction failure — the original zip).
+ *
+ * Best-effort: any error here is logged but doesn't fail the job. The
+ * download itself succeeded; the user can still see the .zip on disk
+ * and extract it by hand if needed.
+ */
+async function maybeExtractZip(name: string, filePath: string): Promise<string> {
+    if (!name.toLowerCase().endsWith('.zip')) return filePath;
+
+    try {
+        // Dynamic import so adm-zip only loads when actually needed —
+        // most chart downloads are raw .mbtiles and don't need it.
+        const AdmZipMod = await import('adm-zip');
+        const AdmZip = AdmZipMod.default;
+        const zip = new AdmZip(filePath);
+        const entries = zip.getEntries();
+
+        const extracted: string[] = [];
+        for (const entry of entries) {
+            if (entry.isDirectory) continue;
+
+            const ext = path.extname(entry.entryName).toLowerCase();
+            if (!CHART_EXTENSIONS.has(ext)) continue;
+
+            // Refuse absurdly large entries — protects against zip
+            // bombs and avoids exhausting the SD card.
+            if (entry.header.size > MAX_EXTRACT_BYTES) {
+                console.warn(`[charts] Skipping oversized entry ${entry.entryName} (${entry.header.size} bytes)`);
+                continue;
+            }
+
+            // Flatten: drop any internal directory structure and
+            // sanitise the same way we sanitise the download filename.
+            const safeBase = path.basename(entry.entryName).replace(/[^a-zA-Z0-9._-]/g, '_');
+            if (!safeBase || safeBase === '.' || safeBase === '..') continue;
+
+            const outPath = path.join(CHART_DIR, safeBase);
+            await fs.writeFile(outPath, entry.getData());
+            extracted.push(outPath);
+        }
+
+        if (extracted.length === 0) {
+            console.warn(`[charts] Zip ${name} contained no recognised chart files; leaving on disk`);
+            return filePath;
+        }
+
+        // Extraction worked — drop the original .zip so AvNav's chart
+        // scanner doesn't see both the package and its contents.
+        try {
+            await fs.unlink(filePath);
+        } catch {
+            /* ignore — leaving the zip is harmless if unlink races */
+        }
+
+        console.log(`[charts] Extracted ${extracted.length} chart file(s) from ${name}`);
+        return extracted[0]!;
+    } catch (err) {
+        console.warn(`[charts] Zip extraction failed for ${name}:`, err instanceof Error ? err.message : err);
+        // Leave the .zip on disk — failing here doesn't fail the job.
+        return filePath;
     }
 }
