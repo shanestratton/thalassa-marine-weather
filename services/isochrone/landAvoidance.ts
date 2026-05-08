@@ -369,8 +369,12 @@ export function nudgeWaypointsOffshore(route: IsochroneNode[], grid: BathymetryG
 // Fine-Grained Island Validation (GEBCO Full Resolution)
 // ══════════════════════════════════════════════════════════════════
 
-/** Spacing between GEBCO sample points along each segment (NM) */
-const FINE_SAMPLE_SPACING_NM = 0.5;
+/** Spacing between GEBCO sample points along each segment (NM).
+ *  GEBCO_2024 source is 15 arc-seconds ≈ 460m at the equator, so 0.25 NM
+ *  (~463m) matches source resolution. 0.5 NM was undersampling the data
+ *  by ~2× — we'd skip past narrow channels and reefs. Anything finer than
+ *  0.25 NM is redundant queries against the same source pixels. */
+const FINE_SAMPLE_SPACING_NM = 0.25;
 
 /** Maximum batch size for a single GEBCO edge function call */
 const GEBCO_BATCH_SIZE = 400;
