@@ -281,6 +281,101 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             const a = Math.sin(dLat / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dLonH / 2) ** 2;
             return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         })();
+        // ── Inshore router (NEW — Phase 13): handle short coastal/river/harbor passages ──
+        // Before bailing on short routes, try the Pi-side ENC inshore
+        // router. It's specifically designed for the routes the deep-
+        // water passage planner refuses (city-to-city via river,
+        // marina-to-marina across a harbor, etc.) and only fires when
+        // the user has imported an ENC for the area.
+        //
+        // If the router succeeds, render its polyline directly and
+        // return — the rest of the deep-water pipeline is irrelevant
+        // for a 6-NM trip up the Savannah River.
+        try {
+            const { tryInshoreRoute } = await import('../../services/InshoreRouter');
+            // Use a sane default draft until vessel-aware routing on
+            // this surface is wired up (the deep-water passage planner
+            // also hard-codes 2.5 m at line ~398 — same approach).
+            const INSHORE_DEFAULT_DRAFT_M = 2.5;
+            const inshoreRes = await tryInshoreRoute(
+                { lat: departure.lat, lon: departure.lon },
+                { lat: arrival.lat, lon: arrival.lon },
+                INSHORE_DEFAULT_DRAFT_M,
+            );
+            if (gen !== computeGenRef.current) return; // user moved on, abort
+            if (inshoreRes && 'polyline' in inshoreRes) {
+                log.info(
+                    `[Passage] inshore route ${inshoreRes.distanceNM.toFixed(2)} NM via ENC ` +
+                        `(cells: ${inshoreRes.cellsUsed.join(',')}, ${inshoreRes.elapsedMs} ms)`,
+                );
+
+                // Render the polyline as a single safe-water route line.
+                // No sea buoy gates, no harbour legs, no isochrone — the
+                // ENC chart already encoded all the channel knowledge we
+                // need. The line goes straight on the channel.
+                const inshoreFeature: GeoJSON.Feature<GeoJSON.LineString> = {
+                    type: 'Feature',
+                    properties: { safety: 'green', source: 'inshore-router' },
+                    geometry: { type: 'LineString', coordinates: inshoreRes.polyline },
+                };
+                const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
+                if (routeSrc) {
+                    routeSrc.setData({ type: 'FeatureCollection', features: [inshoreFeature] });
+                }
+                const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
+                if (wpSource) {
+                    wpSource.setData({
+                        type: 'FeatureCollection',
+                        features: [
+                            {
+                                type: 'Feature' as const,
+                                properties: { name: departure.name || 'Departure', color: '#10b981' },
+                                geometry: { type: 'Point' as const, coordinates: [departure.lon, departure.lat] },
+                            },
+                            {
+                                type: 'Feature' as const,
+                                properties: { name: arrival.name || 'Arrival', color: '#ef4444' },
+                                geometry: { type: 'Point' as const, coordinates: [arrival.lon, arrival.lat] },
+                            },
+                        ],
+                    });
+                }
+
+                // Fit bounds to the route extent.
+                const bounds = new mapboxgl.LngLatBounds();
+                for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
+                map.fitBounds(bounds, { padding: 80, duration: 1000 });
+
+                // Surface a route-summary event so PassageBanner can show
+                // distance/cells used. Same shape as deep-water route, just
+                // sourced from the ENC router.
+                try {
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:passage-inshore-route', {
+                            detail: {
+                                distanceNM: inshoreRes.distanceNM,
+                                cellsUsed: inshoreRes.cellsUsed,
+                                elapsedMs: inshoreRes.elapsedMs,
+                                pointCount: inshoreRes.polyline.length,
+                            },
+                        }),
+                    );
+                } catch (_) {
+                    /* not fatal */
+                }
+
+                return; // skip the rest of the deep-water compute
+            } else if (inshoreRes && 'error' in inshoreRes) {
+                log.warn(
+                    `[Passage] inshore router could not produce a route: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
+                );
+                // Fall through — for short routes this means the
+                // too-short check will bail with the friendly message.
+            }
+        } catch (err) {
+            log.warn(`[Passage] inshore routing threw — falling through`, err);
+        }
+
         // ── Too-short route detection: passage planning is for deep water only ──
         const TOO_SHORT_NM = 15;
         if (straightLineNM < TOO_SHORT_NM) {
@@ -293,7 +388,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         detail: {
                             distanceNM: Math.round(straightLineNM),
                             message:
-                                'This route is too short for passage planning. Check Community Routes for local harbour exits and coastal routes.',
+                                'This route is too short for passage planning. Check Community Routes for local harbour exits and coastal routes. (Tip: import an ENC for this area to enable inshore river/harbor routing.)',
                         },
                     }),
                 );
