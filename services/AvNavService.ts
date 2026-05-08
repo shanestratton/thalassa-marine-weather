@@ -477,6 +477,27 @@ class AvNavServiceClass {
     getCharts(): AvNavChart[] {
         return this.charts;
     }
+    /** Force an immediate chart-catalog re-scan, bypassing the 5-min
+     *  background refresh. Called by ChartLockerService after a chart
+     *  download finishes so the new chart appears in Thalassa's Charts
+     *  page within seconds instead of waiting up to 5 minutes for the
+     *  next scheduled poll. Safe no-op when not connected. */
+    async refreshCharts(): Promise<void> {
+        if (this.status !== 'connected') {
+            log.info('refreshCharts: not connected, skipping');
+            return;
+        }
+        try {
+            if (this.serverType === 'avnav') {
+                await this.fetchAvNavCharts();
+            } else {
+                await this.fetchCharts();
+            }
+            log.info(`refreshCharts: rescanned, ${this.charts.length} charts now visible`);
+        } catch (err) {
+            log.warn('refreshCharts failed:', err);
+        }
+    }
     getApiVersion(): string | null {
         return this.apiVersion;
     }
