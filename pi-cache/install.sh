@@ -195,6 +195,26 @@ AVAHIEOF
 systemctl restart avahi-daemon >/dev/null 2>&1
 echo -e "  ${GREEN}✓${NC} mDNS published (_thalassa-cache._tcp)"
 
+# ── Chart download permissions ──
+# pi-cache's new /api/charts/download endpoint writes chart files (NOAA
+# MBTiles, LINZ packages, community charts) into AvNav's chart directory
+# so AvNav picks them up automatically. AvNav owns /var/lib/avnav/charts
+# as the `avnav` user; pi-cache runs as ${REAL_USER}. We add ${REAL_USER}
+# to the avnav group and make the chart dir group-writable so the API
+# can write without escalating privileges.
+#
+# Idempotent — safe on every install. If avnav isn't installed yet, this
+# block is a no-op (skipper will need to re-run install.sh after avnav
+# is set up to pick up permissions).
+if [[ -d /var/lib/avnav/charts ]] && getent group avnav >/dev/null 2>&1; then
+    usermod -a -G avnav "${REAL_USER}" 2>/dev/null || true
+    chmod 775 /var/lib/avnav/charts 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} Chart download permissions configured"
+else
+    echo -e "  ${YELLOW}!${NC} AvNav not detected — chart downloads will fail until avnav is installed"
+    echo -e "    (Re-run install.sh after installing avnav to fix.)"
+fi
+
 sleep 2
 
 # ── Done ──
@@ -206,7 +226,7 @@ if systemctl is-active --quiet thalassa-cache; then
     echo -e "${GREEN}${BOLD}  ✓ Done!${NC}"
     echo ""
     echo -e "  Now open Thalassa on your phone"
-    echo -e "  Go to ${BOLD}Settings → Pi Cache${NC}"
+    echo -e "  Go to ${BOLD}Settings → Boat Network${NC} (or Nav Station → Boat Network)"
     echo -e "  Flip the toggle — it'll find this Pi automatically."
     echo ""
     echo -e "  ${CYAN}http://${PI_IP}:3001${NC}"

@@ -25,6 +25,7 @@ import { createTileRoutes } from './routes/tiles.js';
 import { createGribRoutes } from './routes/grib.js';
 import { createTideRoutes } from './routes/tides.js';
 import { createMiscRoutes } from './routes/misc.js';
+import { createChartRoutes } from './routes/charts.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 
@@ -186,6 +187,7 @@ app.use('/api/tiles', createTileRoutes(cache, proxyConfig));
 app.use('/api/grib', createGribRoutes(cache, proxyConfig));
 app.use('/api/tides', createTideRoutes(cache, proxyConfig));
 app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
+app.use('/api/charts', createChartRoutes());
 
 // ── Start ──
 

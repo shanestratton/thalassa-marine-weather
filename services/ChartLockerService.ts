@@ -13,6 +13,7 @@
 import { createLogger } from '../utils/createLogger';
 import { CapacitorHttp } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
+import { piCache } from './PiCacheService';
 
 const log = createLogger('ChartLocker');
 
@@ -1275,69 +1276,199 @@ class ChartLockerServiceImpl {
      * This uses AvNav's import from URL capability or a direct command.
      * Pi must have internet access for this to work.
      */
+    /**
+     * Pi-direct chart download — REWRITE 2026-05-08.
+     *
+     * The previous implementation hit a non-existent AvNav endpoint
+     * (`/viewer/api/handler` with a custom `request: 'download'` body) —
+     * AvNav has no such API, so this always 404'd. The "1% stuck" symptom
+     * users saw was the inevitable fall-through to phone-proxy mode (which
+     * itself has iOS Capacitor streaming quirks).
+     *
+     * This rewrite drives the new `pi-cache` chart-download endpoint —
+     * `POST /api/charts/download` starts an async job, `GET /api/charts/jobs/:id`
+     * polls progress. The Pi downloads server-side via Node `fetch()` (no
+     * iOS WebView restrictions, real Content-Length-driven progress) and
+     * writes directly into `/var/lib/avnav/charts/`, where AvNav picks the
+     * file up automatically.
+     *
+     * Note: the `host` / `port` parameters in the original signature
+     * pointed at AvNav (8080), but we now talk to pi-cache (3001) instead.
+     * The parameters are kept for ABI stability (callers like
+     * `downloadChart()` still pass them) but are unused here — pi-cache's
+     * host/port comes from the singleton's resolved discovery state.
+     */
     async piDirectDownload(
         pkg: ChartPackage,
-        host: string,
-        port: number,
+        _avnavHost: string,
+        _avnavPort: number,
         onProgress?: (progress: UploadProgress) => void,
     ): Promise<{ success: boolean; error?: string }> {
-        const baseUrl = `http://${host}:${port}`;
+        if (!piCache.isAvailable()) {
+            const msg =
+                'Pi cache not reachable — connect to your boat’s WiFi and toggle Pi Cache on in Boat Network settings.';
+            onProgress?.({
+                phase: 'error',
+                progress: 0,
+                message: msg,
+                bytesTransferred: 0,
+                bytesTotal: 0,
+                error: msg,
+            });
+            return { success: false, error: msg };
+        }
+
+        const piCacheBase = piCache.baseUrl;
+        // For MediaFire packages we still need to resolve the real direct
+        // download URL on the phone first (page scraping requires JS in
+        // a browser context); the Pi just downloads whatever URL we hand
+        // it. NOAA/LINZ/community direct URLs pass through unchanged.
+        let downloadUrl = pkg.url;
+        if (pkg.isMediaFire) {
+            try {
+                downloadUrl = await this.resolveMediaFireUrl(pkg.url);
+            } catch (err) {
+                const msg = `MediaFire link resolution failed: ${(err as Error)?.message ?? String(err)}`;
+                onProgress?.({
+                    phase: 'error',
+                    progress: 0,
+                    message: msg,
+                    bytesTransferred: 0,
+                    bytesTotal: 0,
+                    error: msg,
+                });
+                return { success: false, error: msg };
+            }
+        }
+
+        // Filename — prefer URL's last segment so the file on the Pi looks
+        // exactly like the upstream package (helps users identify what's
+        // installed in /var/lib/avnav/charts/). Fall back to the catalog
+        // id + format extension if the URL has nothing usable.
+        const fileName =
+            (() => {
+                try {
+                    const fromUrl = new URL(downloadUrl).pathname.split('/').pop();
+                    return fromUrl && fromUrl.length > 0 ? fromUrl : null;
+                } catch {
+                    return null;
+                }
+            })() || `${pkg.id}.${pkg.format}`;
+
+        const totalBytesEstimate = pkg.sizeMB * 1024 * 1024;
 
         onProgress?.({
             phase: 'downloading',
-            progress: 0.1,
-            message: `Sending download request to Pi...`,
+            progress: 0,
+            message: `Asking Pi to download ${pkg.name}...`,
             bytesTransferred: 0,
-            bytesTotal: pkg.sizeMB * 1024 * 1024,
+            bytesTotal: totalBytesEstimate,
         });
 
         try {
-            // Try AvNav's download-from-URL handler
-            // This is an attempt at the internal API — may need adjustment
-            const response = await CapacitorHttp.post({
-                url: `${baseUrl}/viewer/api/handler`,
+            // ── Kick off the job on the Pi ──
+            const startRes = await CapacitorHttp.post({
+                url: `${piCacheBase}/api/charts/download`,
                 headers: { 'Content-Type': 'application/json' },
-                data: JSON.stringify({
-                    request: 'download',
-                    type: 'chart',
-                    url: pkg.url,
-                    name: pkg.url.split('/').pop() || `${pkg.id}.mbtiles`,
-                }),
+                data: JSON.stringify({ url: downloadUrl, name: fileName }),
             });
 
-            if (response.status >= 200 && response.status < 300) {
-                log.info(`[PiDirect] Download request accepted by AvNav`);
-
-                onProgress?.({
-                    phase: 'downloading',
-                    progress: 0.5,
-                    message: `Pi is downloading ${pkg.name} (${pkg.sizeMB} MB)...`,
-                    bytesTransferred: 0,
-                    bytesTotal: pkg.sizeMB * 1024 * 1024,
-                });
-
-                // Poll for completion (Pi downloads in background)
-                // For now, show an optimistic progress since we can't track Pi's download
-                await new Promise((resolve) => setTimeout(resolve, 3000));
-
-                onProgress?.({
-                    phase: 'done',
-                    progress: 1,
-                    message: `${pkg.name} downloading on Pi — check AvNav for status`,
-                    bytesTransferred: pkg.sizeMB * 1024 * 1024,
-                    bytesTotal: pkg.sizeMB * 1024 * 1024,
-                });
-
-                return { success: true };
+            if (startRes.status < 200 || startRes.status >= 300) {
+                throw new Error(
+                    `Pi cache rejected download request (HTTP ${startRes.status}). ` +
+                        `Make sure pi-cache is at version with /api/charts support.`,
+                );
             }
 
-            // If AvNav's URL download isn't supported, fall back to phone-proxy
-            log.warn(`[PiDirect] AvNav returned ${response.status} — falling back to phone-proxy`);
-            return { success: false, error: 'Pi-direct not supported — use phone-proxy mode' };
+            const jobId =
+                typeof startRes.data === 'object' && startRes.data !== null
+                    ? (startRes.data as { jobId?: string }).jobId
+                    : undefined;
+            if (!jobId) throw new Error('Pi cache did not return a jobId');
+
+            log.info(`[PiDirect] Started job ${jobId} for ${pkg.name}`);
+
+            // ── Poll for progress ──
+            // 2 s cadence is a fair trade-off: tight enough for a fluid
+            // progress bar, sparse enough that 20 min downloads don't pile
+            // up thousands of pointless requests on the Pi. Hard ceiling
+            // of ~20 min total wall time covers even slow LTE backhauls
+            // for the largest 1+ GB chart packs without blocking forever
+            // if the Pi crashes mid-download.
+            const POLL_INTERVAL_MS = 2000;
+            const MAX_ATTEMPTS = 600; // 600 × 2s = 20 min
+            for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+                await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+
+                const statusRes = await CapacitorHttp.get({
+                    url: `${piCacheBase}/api/charts/jobs/${jobId}`,
+                });
+
+                if (statusRes.status === 404) {
+                    throw new Error('Pi cache lost the download job (server may have restarted)');
+                }
+                if (statusRes.status < 200 || statusRes.status >= 300) {
+                    throw new Error(`Job poll failed: HTTP ${statusRes.status}`);
+                }
+
+                const job = statusRes.data as {
+                    status: 'pending' | 'downloading' | 'done' | 'error';
+                    progress: number;
+                    bytesTransferred: number;
+                    bytesTotal: number;
+                    error?: string;
+                };
+
+                const transferred = job.bytesTransferred || 0;
+                const total = job.bytesTotal > 0 ? job.bytesTotal : totalBytesEstimate;
+
+                if (job.status === 'done') {
+                    onProgress?.({
+                        phase: 'done',
+                        progress: 1,
+                        message: `${pkg.name} installed on Pi ✓`,
+                        bytesTransferred: transferred || total,
+                        bytesTotal: total,
+                    });
+                    log.info(`[PiDirect] Job ${jobId} complete: ${transferred} bytes`);
+                    return { success: true };
+                }
+
+                if (job.status === 'error') {
+                    throw new Error(job.error || 'Pi-side download failed (no detail)');
+                }
+
+                // status === 'pending' or 'downloading' — emit a progress
+                // tick. Use the Pi's reported bytes (real numbers) rather
+                // than fudging based on attempt count.
+                const fmtMB = (b: number) => (b / 1024 / 1024).toFixed(0);
+                onProgress?.({
+                    phase: 'downloading',
+                    progress: Math.max(job.progress || 0, 0.01), // never display 0% mid-download
+                    message:
+                        total > 0
+                            ? `Pi downloading: ${fmtMB(transferred)} / ${fmtMB(total)} MB`
+                            : `Pi downloading: ${fmtMB(transferred)} MB`,
+                    bytesTransferred: transferred,
+                    bytesTotal: total,
+                });
+            }
+
+            throw new Error('Download timed out after 20 minutes');
         } catch (err) {
             const errMsg = err instanceof Error ? err.message : String(err);
-            log.warn(`[PiDirect] Failed: ${errMsg} — suggest phone-proxy fallback`);
-            return { success: false, error: `Pi-direct failed: ${errMsg}. Try phone-proxy mode.` };
+            log.warn(`[PiDirect] Failed: ${errMsg}`);
+
+            onProgress?.({
+                phase: 'error',
+                progress: 0,
+                message: errMsg,
+                bytesTransferred: 0,
+                bytesTotal: 0,
+                error: errMsg,
+            });
+
+            return { success: false, error: errMsg };
         }
     }
 
@@ -1812,8 +1943,29 @@ class ChartLockerServiceImpl {
     // ── Combined download handler ──
 
     /**
-     * Download a chart package using the specified mode.
-     * Falls back from pi-direct to phone-proxy automatically.
+     * Download a chart package.
+     *
+     * As of 2026-05-08 the default — and recommended — mode is `pi-direct`,
+     * which streams the file via the new pi-cache `/api/charts/download`
+     * endpoint straight onto the Pi (writes into `/var/lib/avnav/charts`,
+     * AvNav picks it up automatically). Pi-side downloads are reliable
+     * because the Pi has no iOS WebView restrictions, has decent server-
+     * side fetch with proper Content-Length-driven progress, and isn't
+     * subject to the user's phone going to sleep mid-download.
+     *
+     * `phone-proxy` mode is still callable via this signature for the
+     * rare punter who wants to install a chart they downloaded manually
+     * to their phone, but it is no longer the auto-fallback target —
+     * if pi-direct fails, we surface the error to the UI rather than
+     * silently retrying through the phone (which had its own iOS
+     * Capacitor streaming/Filesystem-progress quirks that produced the
+     * "stuck at 1%" UX bug).
+     *
+     * @param mode Either 'pi-direct' (default + recommended) or 'phone-proxy'.
+     * @param host AvNav host (only used by phone-proxy for the upload
+     *             half; pi-direct ignores this and resolves pi-cache from
+     *             the discovered singleton).
+     * @param port AvNav port (same — only used by phone-proxy).
      */
     async downloadChart(
         pkg: ChartPackage,
@@ -1824,11 +1976,11 @@ class ChartLockerServiceImpl {
         onProgress?: (progress: UploadProgress) => void,
     ): Promise<{ success: boolean; error?: string }> {
         if (mode === 'pi-direct') {
-            const result = await this.piDirectDownload(pkg, host, port, onProgress);
-            if (result.success) return result;
-
-            // Auto-fallback to phone-proxy
-            log.info(`[Download] Pi-direct failed, falling back to phone-proxy`);
+            // No fall-through. If pi-direct fails, the user sees a real
+            // error message explaining what's wrong (typically "pi-cache
+            // not reachable" or "needs pi-cache update"). Silently
+            // retrying through phone-proxy was masking real failures.
+            return this.piDirectDownload(pkg, host, port, onProgress);
         }
 
         return this.phoneProxyDownload(pkg, host, port, deleteAfter, onProgress);

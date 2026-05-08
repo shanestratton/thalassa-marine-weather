@@ -231,8 +231,19 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
 
     // Chart Locker state
     const [lockerExpanded, setLockerExpanded] = useState(false);
-    const [deleteAfterUpload, setDeleteAfterUpload] = useState(true);
-    const [downloadMode, setDownloadMode] = useState<DownloadMode>('phone-proxy');
+    // deleteAfterUpload only matters for phone-proxy (whether to keep the
+    // file on the phone after upload completes). With pi-direct the file
+    // never touches the phone, so the value is irrelevant — just default
+    // to true and don't surface the toggle.
+    const [deleteAfterUpload] = useState(true);
+    // Default to pi-direct — phone-proxy was a 2024-era fallback that had
+    // chronic iOS streaming issues (the "stuck at 1%" bug). As of the new
+    // pi-cache /api/charts/download endpoint (2026-05-08), pi-direct is
+    // the only reliable path, and the UI no longer surfaces phone-proxy
+    // as a chooseable mode. The state still exists for the future case
+    // of "punter has the chart already on their phone and just wants to
+    // upload it" — that's a different flow (pickAndUpload).
+    const [downloadMode] = useState<DownloadMode>('pi-direct');
     const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
     const [activePackageId, setActivePackageId] = useState<string | null>(null);
     const [expandedRegions, setExpandedRegions] = useState<Set<ChartRegion>>(new Set());
@@ -1025,61 +1036,33 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                                 </div>
                             </div>
 
-                            {/* ── Settings ── */}
-                            <div className="space-y-2 px-1">
-                                {/* Delete after upload toggle */}
-                                <button
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        setDeleteAfterUpload(!deleteAfterUpload);
-                                    }}
-                                    className="w-full flex items-center gap-3"
-                                >
-                                    <div
-                                        className={`w-8 h-4.5 rounded-full transition-colors relative ${deleteAfterUpload ? 'bg-emerald-500' : 'bg-white/10'}`}
-                                    >
-                                        <div
-                                            className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow transition-transform ${deleteAfterUpload ? 'translate-x-4' : 'translate-x-0.5'}`}
-                                        />
-                                    </div>
-                                    <span className="text-[11px] text-gray-300">Delete from phone after upload</span>
-                                </button>
-
-                                {/* Download mode toggle */}
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            setDownloadMode('phone-proxy');
-                                        }}
-                                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
-                                            downloadMode === 'phone-proxy'
-                                                ? 'bg-sky-500/15 border border-sky-500/30 text-sky-400'
-                                                : 'bg-white/[0.03] border border-white/[0.06] text-gray-500'
-                                        }`}
-                                    >
-                                        {'\u{1F4F1}'} Via Phone
-                                    </button>
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            setDownloadMode('pi-direct');
-                                        }}
-                                        className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider transition-all ${
-                                            downloadMode === 'pi-direct'
-                                                ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400'
-                                                : 'bg-white/[0.03] border border-white/[0.06] text-gray-500'
-                                        }`}
-                                    >
-                                        {'\u{1F5A5}'} Pi Direct
-                                    </button>
-                                </div>
+                            {/* ── Download mode info ──
+                             *
+                             * We removed the phone-proxy / pi-direct
+                             * selector that used to live here. Phone-proxy
+                             * had a chronic "stuck at 1%" UX bug on iOS
+                             * (Filesystem.downloadFile emits no JS-level
+                             * progress events; the WebView XHR stream
+                             * fallback hits cert/CORS quirks on some
+                             * hosts). Pi-direct is now the single path —
+                             * the Pi downloads server-side via the new
+                             * pi-cache `/api/charts/download` endpoint
+                             * and writes directly to /var/lib/avnav/charts
+                             * where AvNav picks it up automatically.
+                             *
+                             * deleteAfterUpload is also gone from the UI:
+                             * it's only meaningful for phone-proxy (where
+                             * the file lands on the phone first), and
+                             * with pi-direct the file never touches the
+                             * phone in the first place. The state var
+                             * is kept (still passed to downloadChart for
+                             * API compat) and just defaults to true.
+                             */}
+                            <div className="px-1">
                                 <p className="text-[11px] text-gray-500 leading-relaxed px-0.5">
                                     {!skConnected
-                                        ? 'Not connected to AvNav — charts will be saved to your phone. Upload them later when connected.'
-                                        : downloadMode === 'phone-proxy'
-                                          ? 'Downloads chart to your phone first, then uploads to Pi. Works without Pi internet.'
-                                          : 'Tells the Pi to download directly. Faster, but Pi needs internet access. Falls back to phone if unavailable.'}
+                                        ? 'Pi cache not reachable — connect to your boat’s WiFi to install charts.'
+                                        : 'Charts download directly onto your boat’s Pi — no phone storage needed. Pi must have internet for the initial download (cellular hotspot or marina WiFi works fine).'}
                                 </p>
                             </div>
 
