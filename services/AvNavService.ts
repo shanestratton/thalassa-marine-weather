@@ -53,6 +53,17 @@ export interface AvNavChart {
     maxZoom: number;
     bounds?: [number, number, number, number]; // [west, south, east, north]
     type: 'raster' | 'vector';
+    /**
+     * Tile axis convention. mbtiles stores tiles in TMS (Y=0 at the
+     * bottom); Mapbox defaults to XYZ (Y=0 at the top), so without an
+     * explicit `'tms'` here the chart renders mirrored in Y — usually
+     * "blank map" because the requested tile doesn't exist on the other
+     * side of the equator.
+     *
+     * AvNav's chart-list response includes `scheme: 'tms'` on mbtiles
+     * imports; we forward that through and Mapbox handles the flip.
+     */
+    scheme?: 'xyz' | 'tms';
     /** True if this chart is DRM-protected (ocharts) and needs URL encryption */
     isDrm?: boolean;
 }
@@ -1217,6 +1228,11 @@ class AvNavServiceClass {
                 tilesUrl = `${tilesUrl}/{z}/{x}/{y}.png`;
             }
 
+            // AvNav's response uses `scheme: 'tms'` for mbtiles
+            // imports; default to XYZ if absent.
+            const rawScheme = typeof item.scheme === 'string' ? item.scheme.toLowerCase() : '';
+            const scheme: 'xyz' | 'tms' | undefined = rawScheme === 'tms' ? 'tms' : undefined;
+
             charts.push({
                 id: `avnav-${name.replace(/[^a-zA-Z0-9-]/g, '_')}`,
                 name: name.replace(/\.(gemf|mbtiles|xml)$/i, ''),
@@ -1227,6 +1243,7 @@ class AvNavServiceClass {
                 maxZoom: Number(item.maxzoom ?? 18),
                 bounds: item.bounds ? item.bounds : undefined,
                 type: 'raster',
+                scheme,
                 isDrm: hasToken || undefined,
             });
         }
