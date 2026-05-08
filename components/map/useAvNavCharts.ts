@@ -83,9 +83,13 @@ export function useAvNavCharts(
                         minzoom: chart.minZoom,
                         maxzoom: chart.maxZoom,
                         ...(chart.bounds ? { bounds: chart.bounds } : {}),
+                        // mbtiles store tiles in TMS (Y=0 at bottom).
+                        // Without this, Mapbox requests the wrong row
+                        // and the chart appears blank or mirrored.
+                        ...(chart.scheme === 'tms' ? { scheme: 'tms' as const } : {}),
                     });
                     chartLog(
-                        `Added source: ${sourceId}, tilesUrl=${chart.tilesUrl}, zoom=${chart.minZoom}-${chart.maxZoom}, bounds=${JSON.stringify(chart.bounds)}`,
+                        `Added source: ${sourceId}, tilesUrl=${chart.tilesUrl}, zoom=${chart.minZoom}-${chart.maxZoom}, scheme=${chart.scheme ?? 'xyz'}, bounds=${JSON.stringify(chart.bounds)}`,
                     );
 
                     // Add layer — insert below 'sea-marks' if it exists,
