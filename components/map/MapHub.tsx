@@ -105,6 +105,7 @@ const CmemsAttribution = lazyRetry(
 // exact failure mode we're trying to fix. Tiny component, not worth the
 // risk of a broken chunk hiding our debug surface.
 import { BlitzortungAttribution } from './BlitzortungAttribution';
+import { EncAttributionChip } from './EncAttributionChip';
 import { SquallLegend } from './SquallLegend';
 import { ChartModes } from './ChartModes';
 import { ThreatBanner } from './ThreatBanner';
@@ -1770,6 +1771,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <SquallLegend visible={squallVisible} />
                     </div>
                 )}
+
+                {/* ═══ ENC SOURCE ATTRIBUTION ═══ */}
+                {/* Viewport-aware — only renders when ENC cells overlap the
+                    current view. IHO standard practice for chart displays.
+                    Self-contained: subscribes to its own viewport + cell-list
+                    events. Tap to expand into a full per-cell list. */}
+                <EncAttributionChip mapRef={mapRef} mapReady={mapReady} />
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>

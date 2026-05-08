@@ -55,6 +55,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import AdmZip from 'adm-zip';
 
 // ── Job state ─────────────────────────────────────────────────────
 
@@ -74,12 +75,18 @@ interface EncJob {
     resultPath?: string;
     /** Path to the temp working directory. */
     workDir?: string;
-    /** Cell ID once parsed. */
+    /** First cell ID once parsed (for single-file uploads, this is the cell). */
     cellId?: string;
-    /** Bbox once parsed. */
+    /** Bbox of the first / single cell. */
     bbox?: [number, number, number, number];
-    /** Total feature count once parsed. */
+    /** Total feature count across all converted cells. */
     featureCount?: number;
+    /** For batch (ZIP) uploads — total cells found in the archive. */
+    cellCount?: number;
+    /** Cells successfully converted so far (multi-cell jobs). */
+    cellsDone?: number;
+    /** Cells that errored during batch conversion (filename + reason). */
+    skippedCells?: { filename: string; error: string }[];
 }
 
 const jobs = new Map<string, EncJob>();
@@ -110,7 +117,7 @@ setInterval(() => {
 const ENC_LAYERS = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'M_QUAL'] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100 MB — big enough for ENC zips
+const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // 300 MB — covers regional AHO/NOAA ZIP packs
 const OGR2OGR_TIMEOUT_MS = 60 * 1000; // 1 minute per layer is generous
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -271,52 +278,171 @@ async function parseS57Metadata(inputPath: string): Promise<{
 }
 
 /**
- * Background job runner. Updates `job` state in place and writes
- * the final EncConversionResult to disk.
+ * Read the first 4 bytes of a file. Used to sniff ZIP magic bytes
+ * (PK\x03\x04) before we trust an extension.
  */
-async function runConversion(job: EncJob): Promise<void> {
-    job.status = 'extracting';
-    job.step = 'reading cell';
-    if (!job.workDir) throw new Error('workDir not set');
-    const inputPath = path.join(job.workDir, job.filename);
+async function readMagicBytes(filePath: string, n = 4): Promise<Buffer> {
+    const fh = await fs.open(filePath, 'r');
+    try {
+        const buf = Buffer.alloc(n);
+        await fh.read(buf, 0, n, 0);
+        return buf;
+    } finally {
+        await fh.close();
+    }
+}
 
-    job.status = 'converting';
-    job.step = 'parsing metadata';
+function isZipFile(magic: Buffer): boolean {
+    // PK\x03\x04 (regular zip) or PK\x05\x06 (empty zip) or PK\x07\x08 (spanned)
+    if (magic.length < 4) return false;
+    return magic[0] === 0x50 && magic[1] === 0x4b;
+}
+
+/**
+ * Walk the extracted ENC_ROOT tree finding every `.000` cell file.
+ * Returns absolute paths. Update files (.001..009) are NOT
+ * returned — they live alongside the .000 in the same directory
+ * and GDAL's S-57 driver applies them automatically.
+ */
+async function findEncCells(root: string): Promise<string[]> {
+    const out: string[] = [];
+    async function walk(dir: string): Promise<void> {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        for (const e of entries) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) await walk(full);
+            else if (e.isFile() && /\.000$/i.test(e.name)) out.push(full);
+        }
+    }
+    await walk(root);
+    return out;
+}
+
+/**
+ * Convert one S-57 cell file into our EncConversionResult shape.
+ * Pulled out of `runConversion` so the multi-cell ZIP loop can
+ * call it per cell.
+ */
+async function convertOneCell(
+    inputPath: string,
+    outputDir: string,
+): Promise<{ result: object; featureCount: number; cellId: string; bbox: [number, number, number, number] }> {
     const meta = await parseS57Metadata(inputPath);
-    job.cellId = meta.cellId;
-    job.bbox = meta.bbox;
-
-    const outputDir = path.join(job.workDir, 'out');
-    await fs.mkdir(outputDir, { recursive: true });
 
     const layers: Record<string, unknown> = {};
     let totalFeatures = 0;
-    const stepFraction = 0.7 / ENC_LAYERS.length;
-    let progress = 0.2; // After metadata parse.
-
     for (const layer of ENC_LAYERS) {
-        job.step = `converting ${layer}`;
-        job.progress = progress;
         const fc = await runOgr2Ogr(inputPath, layer, outputDir);
         if (fc && Array.isArray(fc.features)) {
             layers[layer] = fc;
             totalFeatures += fc.features.length;
         }
-        progress += stepFraction;
     }
 
-    job.featureCount = totalFeatures;
-
-    const result = {
+    return {
+        result: {
+            cellId: meta.cellId,
+            sourceHO: meta.sourceHO,
+            edition: meta.edition,
+            issued: meta.issued,
+            bbox: meta.bbox,
+            layers,
+        },
+        featureCount: totalFeatures,
         cellId: meta.cellId,
-        sourceHO: meta.sourceHO,
-        edition: meta.edition,
-        issued: meta.issued,
         bbox: meta.bbox,
-        layers,
+    };
+}
+
+/**
+ * Background job runner. Detects whether the upload is a single
+ * `.000` or a ZIP archive of cells, processes accordingly, and
+ * writes a single EncConversionBatch JSON file to disk.
+ *
+ * Always returns a batch envelope ({cells: [...], skipped?: [...]}),
+ * even for single-cell uploads — keeps the device-side import flow
+ * uniform.
+ */
+async function runConversion(job: EncJob): Promise<void> {
+    if (!job.workDir) throw new Error('workDir not set');
+    const inputPath = path.join(job.workDir, job.filename);
+
+    job.status = 'extracting';
+    job.step = 'inspecting upload';
+    const magic = await readMagicBytes(inputPath);
+
+    const outputBaseDir = path.join(job.workDir, 'out');
+    await fs.mkdir(outputBaseDir, { recursive: true });
+
+    const cells: object[] = [];
+    const skipped: { filename: string; error: string }[] = [];
+
+    if (isZipFile(magic)) {
+        // ── ZIP MODE ─────────────────────────────────────────────
+        job.step = 'unzipping archive';
+        const unzipDir = path.join(job.workDir, 'unzipped');
+        await fs.mkdir(unzipDir, { recursive: true });
+
+        try {
+            const zip = new AdmZip(inputPath);
+            zip.extractAllTo(unzipDir, /* overwrite */ true);
+        } catch (err) {
+            throw new Error(`Failed to unzip: ${(err as Error).message}`);
+        }
+
+        const cellPaths = await findEncCells(unzipDir);
+        if (cellPaths.length === 0) {
+            throw new Error('No .000 cell files found in ZIP');
+        }
+        job.cellCount = cellPaths.length;
+        job.cellsDone = 0;
+
+        for (let i = 0; i < cellPaths.length; i++) {
+            const cellPath = cellPaths[i];
+            const cellName = path.basename(cellPath);
+            job.step = `converting ${cellName} (${i + 1}/${cellPaths.length})`;
+            job.progress = 0.05 + (i / cellPaths.length) * 0.9;
+            try {
+                const cellOutDir = path.join(outputBaseDir, path.basename(cellPath, '.000'));
+                await fs.mkdir(cellOutDir, { recursive: true });
+                const conv = await convertOneCell(cellPath, cellOutDir);
+                cells.push(conv.result);
+                if (job.cellId == null) {
+                    job.cellId = conv.cellId;
+                    job.bbox = conv.bbox;
+                }
+                job.featureCount = (job.featureCount ?? 0) + conv.featureCount;
+                job.cellsDone = (job.cellsDone ?? 0) + 1;
+            } catch (err) {
+                const msg = err instanceof Error ? err.message : String(err);
+                skipped.push({ filename: cellName, error: msg });
+            }
+        }
+        if (cells.length === 0) {
+            throw new Error(`All ${cellPaths.length} cells in archive failed to convert`);
+        }
+    } else {
+        // ── SINGLE-CELL MODE ─────────────────────────────────────
+        job.cellCount = 1;
+        job.cellsDone = 0;
+        job.step = 'parsing metadata';
+        job.progress = 0.1;
+        const conv = await convertOneCell(inputPath, outputBaseDir);
+        cells.push(conv.result);
+        job.cellId = conv.cellId;
+        job.bbox = conv.bbox;
+        job.featureCount = conv.featureCount;
+        job.cellsDone = 1;
+    }
+
+    if (skipped.length > 0) job.skippedCells = skipped;
+
+    const batch = {
+        cells,
+        ...(skipped.length > 0 ? { skipped } : {}),
     };
     const resultPath = path.join(job.workDir, 'result.json');
-    await fs.writeFile(resultPath, JSON.stringify(result), 'utf8');
+    await fs.writeFile(resultPath, JSON.stringify(batch), 'utf8');
     job.resultPath = resultPath;
     job.progress = 1;
     job.step = 'done';
@@ -338,7 +464,7 @@ export function createEncRoutes(): Router {
         req.on('data', (chunk: Buffer) => {
             total += chunk.length;
             if (total > MAX_UPLOAD_BYTES) {
-                res.status(413).json({ error: 'Upload too large (max 100 MB)' });
+                res.status(413).json({ error: 'Upload too large (max 300 MB)' });
                 req.destroy();
                 return;
             }
@@ -438,6 +564,9 @@ export function createEncRoutes(): Router {
             cellId: job.cellId,
             bbox: job.bbox,
             featureCount: job.featureCount,
+            cellCount: job.cellCount,
+            cellsDone: job.cellsDone,
+            skippedCells: job.skippedCells,
             resultUrl: job.status === 'done' ? `/api/enc/result/${job.id}` : undefined,
         });
     });

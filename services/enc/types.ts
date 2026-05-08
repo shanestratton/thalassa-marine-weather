@@ -224,6 +224,21 @@ export interface EncConversionResult {
     };
 }
 
+/**
+ * Wire format for batch (multi-cell) conversion results. The Pi
+ * always returns this shape from `/api/enc/result/:id` so the
+ * client can handle single-cell uploads (`cells.length === 1`)
+ * and ZIP uploads (`cells.length === N`) with the same code path.
+ *
+ * `skipped` lists cells the Pi could not convert — e.g. a corrupted
+ * `.000` inside a multi-cell ZIP — so the UI can surface them
+ * without aborting the whole batch.
+ */
+export interface EncConversionBatch {
+    cells: EncConversionResult[];
+    skipped?: { filename: string; error: string }[];
+}
+
 // ── Constants ──────────────────────────────────────────────────────
 
 /**

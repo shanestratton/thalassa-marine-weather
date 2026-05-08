@@ -34,7 +34,7 @@ import { CapacitorHttp } from '@capacitor/core';
 import { createLogger } from '../utils/createLogger';
 import { piCache } from './PiCacheService';
 import * as EncHazardService from './enc/EncHazardService';
-import type { EncCell, EncConversionResult } from './enc/types';
+import type { EncCell, EncConversionBatch, EncConversionResult } from './enc/types';
 
 const log = createLogger('EncImportService');
 
@@ -54,6 +54,29 @@ export interface EncImportProgress {
     cellId?: string;
     /** For UI: cell bbox once conversion has read it. */
     bbox?: [number, number, number, number];
+    /** For ZIP / batch uploads: total cells in the archive (Pi-reported). */
+    cellCount?: number;
+    /** Cells the Pi has finished converting (ramps to cellCount). */
+    cellsDone?: number;
+}
+
+/**
+ * Per-cell error captured during a batch import. The user sees
+ * these in the import UI's "skipped cells" footer alongside the
+ * successful imports.
+ */
+export interface EncImportSkipped {
+    filename: string;
+    error: string;
+}
+
+/**
+ * Result of a batch import. For single-cell uploads `cells` is
+ * length 1. For ZIP uploads it can be many.
+ */
+export interface EncImportSummary {
+    cells: EncCell[];
+    skipped: EncImportSkipped[];
 }
 
 // ── Constants ──────────────────────────────────────────────────────
@@ -168,7 +191,10 @@ export async function checkPiHasGdal(): Promise<string | null> {
  * thrown message; the same message is also sent via
  * `onProgress({phase: 'error', error: ...})` first.
  */
-export async function importEncCell(file: File | Blob, onProgress?: (p: EncImportProgress) => void): Promise<EncCell> {
+export async function importEncCell(
+    file: File | Blob,
+    onProgress?: (p: EncImportProgress) => void,
+): Promise<EncImportSummary> {
     const filename = file instanceof File ? file.name : 'cell.000';
 
     const emit = (p: EncImportProgress): void => {
@@ -288,6 +314,8 @@ export async function importEncCell(file: File | Blob, onProgress?: (p: EncImpor
             error?: string;
             cellId?: string;
             bbox?: [number, number, number, number];
+            cellCount?: number;
+            cellsDone?: number;
         };
         lastJobState = job;
 
@@ -297,9 +325,11 @@ export async function importEncCell(file: File | Blob, onProgress?: (p: EncImpor
             emit({
                 phase: 'fetching',
                 progress: 0.85,
-                step: 'fetching converted cell from Pi',
+                step: 'fetching converted cells from Pi',
                 cellId: job.cellId,
                 bbox: job.bbox,
+                cellCount: job.cellCount,
+                cellsDone: job.cellsDone,
             });
             break;
         }
@@ -316,6 +346,8 @@ export async function importEncCell(file: File | Blob, onProgress?: (p: EncImpor
             step: job.step ?? `Pi: ${job.status}`,
             cellId: job.cellId,
             bbox: job.bbox,
+            cellCount: job.cellCount,
+            cellsDone: job.cellsDone,
         });
     }
 
@@ -326,36 +358,65 @@ export async function importEncCell(file: File | Blob, onProgress?: (p: EncImpor
     }
 
     // ── 4. Fetch the converted blob ───────────────────────────────
-    let conversion: EncConversionResult;
+    let batch: EncConversionBatch;
     try {
         const res = await CapacitorHttp.get({
             url: `${piBase}/api/enc/result/${jobId}`,
             connectTimeout: 10000,
-            readTimeout: 120000, // 2 min for very large cells
+            readTimeout: 180000, // 3 min for very large multi-cell ZIPs
             responseType: 'json',
         });
         if (res.status < 200 || res.status >= 300) {
             throw new Error(`HTTP ${res.status} fetching result`);
         }
-        conversion = res.data as EncConversionResult;
-        if (!conversion || !conversion.cellId) {
+        const raw = res.data as EncConversionBatch | EncConversionResult;
+        // Backward compat: older Pi versions return a single result object,
+        // new ones return a `{cells, skipped?}` envelope. Coerce.
+        if ('cells' in raw && Array.isArray(raw.cells)) {
+            batch = raw;
+        } else if ('cellId' in raw) {
+            batch = { cells: [raw as EncConversionResult] };
+        } else {
             throw new Error('Pi returned malformed conversion result');
         }
-        log.info(`[Import] Fetched conversion for cell ${conversion.cellId}`);
+        if (batch.cells.length === 0) {
+            throw new Error('Pi returned an empty cell list');
+        }
+        log.info(
+            `[Import] Fetched ${batch.cells.length} cell(s)${batch.skipped?.length ? `, ${batch.skipped.length} skipped` : ''}`,
+        );
     } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
     }
 
-    // ── 5. Persist on device ──────────────────────────────────────
-    emit({ phase: 'storing', progress: 0.92, step: 'saving to device' });
+    // ── 5. Persist on device — one cell at a time ─────────────────
+    const persisted: EncCell[] = [];
+    const persistFailures: EncImportSkipped[] = [];
 
-    let cell: EncCell;
-    try {
-        cell = await EncHazardService.importCell(conversion);
-    } catch (err) {
-        const error = `Failed to save cell on device: ${err instanceof Error ? err.message : String(err)}`;
+    for (let i = 0; i < batch.cells.length; i++) {
+        const conversion = batch.cells[i];
+        emit({
+            phase: 'storing',
+            progress: 0.86 + (0.13 * (i + 1)) / batch.cells.length,
+            step: `saving ${conversion.cellId} (${i + 1}/${batch.cells.length})`,
+            cellId: conversion.cellId,
+            cellCount: batch.cells.length,
+            cellsDone: i,
+        });
+        try {
+            const cell = await EncHazardService.importCell(conversion);
+            persisted.push(cell);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log.warn(`[Import] persist failed for cell ${conversion.cellId}`, err);
+            persistFailures.push({ filename: conversion.cellId, error: msg });
+        }
+    }
+
+    if (persisted.length === 0) {
+        const error = 'All cells failed to save on device';
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
     }
@@ -363,15 +424,22 @@ export async function importEncCell(file: File | Blob, onProgress?: (p: EncImpor
     // ── 6. Best-effort: ask Pi to clean up its temp files ─────────
     void CapacitorHttp.delete({ url: `${piBase}/api/enc/jobs/${jobId}` }).catch(() => {});
 
+    const skipped: EncImportSkipped[] = [...(batch.skipped ?? []), ...persistFailures];
     emit({
         phase: 'done',
         progress: 1,
-        step: `imported ${cell.id}`,
-        cellId: cell.id,
-        bbox: cell.bbox,
+        step:
+            persisted.length === 1
+                ? `imported ${persisted[0].id}`
+                : `imported ${persisted.length} cells${skipped.length > 0 ? `, ${skipped.length} skipped` : ''}`,
+        cellId: persisted[0].id,
+        bbox: persisted[0].bbox,
+        cellCount: batch.cells.length,
+        cellsDone: persisted.length,
     });
-    log.info(`[Import] ✓ ${cell.id} (${cell.sourceHO} ed.${cell.edition}) — ${cell.hazardCount} features`);
-    return cell;
+    log.info(`[Import] ✓ ${persisted.length} cell(s) imported${skipped.length ? ` (${skipped.length} skipped)` : ''}`);
+
+    return { cells: persisted, skipped };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
