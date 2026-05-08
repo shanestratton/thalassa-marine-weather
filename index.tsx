@@ -13,6 +13,56 @@ Preferences.set({ key: 'BOOT_DIAG', value: `index.tsx loaded at ${new Date().toI
     })
     .catch(() => {});
 
+// ── Global error capture ──
+// Capacitor's bridge swallows exception details by default — Xcode just
+// shows "⚡️ JS Eval error A JavaScript exception occurred" with no
+// stack. These two listeners surface the actual error message + stack
+// via Preferences (which DOES appear in Xcode as "⚡️ TO JS {value:...}")
+// and route the exception to Sentry. Installed as early as possible so
+// boot-time issues (loading order bugs, polyfill conflicts, plugin
+// init failures) are no longer invisible.
+//
+// The ErrorBoundary further down catches React render errors; this
+// catches everything ELSE — async rejections, unhandled timeouts,
+// imperative throws from third-party libs.
+if (typeof window !== 'undefined') {
+    window.addEventListener('error', (event: ErrorEvent) => {
+        // Stringify what we know about the error without losing detail
+        const detail =
+            event.error instanceof Error
+                ? `${event.error.name}: ${event.error.message}\n${event.error.stack ?? ''}`
+                : `${event.message} @ ${event.filename}:${event.lineno}:${event.colno}`;
+        // Native console (Xcode) — the Preferences round-trip is the
+        // only way to make a JS error reliably appear in the iOS logs.
+        Preferences.set({ key: 'BOOT_ERR', value: `[window.error] ${detail.slice(0, 1500)}` }).catch(() => {});
+        // Web console (in case anyone has the inspector attached)
+        // eslint-disable-next-line no-console
+        console.error('[GlobalErrorHandler]', detail);
+        // Sentry — best-effort, swallow if Sentry isn't ready yet
+        try {
+            if (event.error instanceof Error) captureException(event.error, { tags: { source: 'window.error' } });
+        } catch {
+            /* sentry not ready */
+        }
+    });
+
+    window.addEventListener('unhandledrejection', (event: PromiseRejectionEvent) => {
+        const reason = event.reason;
+        const detail =
+            reason instanceof Error
+                ? `${reason.name}: ${reason.message}\n${reason.stack ?? ''}`
+                : `[unhandled rejection] ${typeof reason === 'object' ? JSON.stringify(reason) : String(reason)}`;
+        Preferences.set({ key: 'BOOT_REJECT', value: detail.slice(0, 1500) }).catch(() => {});
+        // eslint-disable-next-line no-console
+        console.error('[UnhandledRejection]', detail);
+        try {
+            if (reason instanceof Error) captureException(reason, { tags: { source: 'unhandledrejection' } });
+        } catch {
+            /* sentry not ready */
+        }
+    });
+}
+
 import React, { ErrorInfo, ReactNode } from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';

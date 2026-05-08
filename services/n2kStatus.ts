@@ -26,6 +26,29 @@ const BOSUN_WEB_PORT = 5000;
 const POLL_INTERVAL_MS = 30_000;
 const FETCH_TIMEOUT_MS = 3_000;
 
+// ── Failure backoff ──
+// Boats without an N2K bridge running on the Pi were getting hammered
+// every 30s with connection-refused errors that flooded the Xcode
+// console with `tcp_input flags=[R.]` and `nw_endpoint_flow_failed`
+// noise. Once we've seen consistent failures, slow the cadence way
+// down — by N consecutive misses the service is clearly not running,
+// and continuing to probe at 30s gains nothing.
+//
+//   0-2 consecutive misses  → keep polling at 30s  (original cadence)
+//   3-5 misses              → 5 min between polls
+//   6-9 misses              → 15 min
+//   10+ misses              → 30 min  (probe twice an hour, just in
+//                                       case the user starts the service
+//                                       mid-session)
+//
+// One successful fetch resets the counter to 0.
+const FAILURE_BACKOFF_MS: Record<number, number> = {
+    0: POLL_INTERVAL_MS, // 30s
+    3: 5 * 60_000, // 5 min
+    6: 15 * 60_000, // 15 min
+    10: 30 * 60_000, // 30 min
+};
+
 export type N2kHealth = 'red' | 'amber' | 'green';
 
 /** Subset of the Pi's response we surface to the UI. */
@@ -79,7 +102,9 @@ const INITIAL: N2kStatus = {
 class N2kStatusServiceClass {
     private status: N2kStatus = INITIAL;
     private listeners = new Set<(s: N2kStatus) => void>();
-    private timer: ReturnType<typeof setInterval> | null = null;
+    private timer: ReturnType<typeof setTimeout> | null = null;
+    /** Consecutive failure count — drives the backoff schedule above. */
+    private consecutiveFailures = 0;
 
     getStatus(): N2kStatus {
         return this.status;
@@ -97,35 +122,63 @@ class N2kStatusServiceClass {
     }
 
     /**
-     * Start the 30s background poll. Idempotent — calling twice doesn't
+     * Start the background poll. Idempotent — calling twice doesn't
      * spawn two timers. Stops itself when no piHost is discoverable
-     * and resumes when one shows up.
+     * and resumes when one shows up. Uses a self-rescheduling setTimeout
+     * (instead of setInterval) so each tick can pick its own delay
+     * based on the current failure count — that's what implements
+     * the backoff schedule above.
      */
     start(): void {
         if (this.timer) return;
         // Fire one off immediately so consumers get a value before the
-        // first interval tick.
-        void this.refresh();
-        this.timer = setInterval(() => {
-            // Visibility gate matches PiCacheService — no point burning
-            // network when the user has the app backgrounded.
-            if (typeof document !== 'undefined' && document.hidden) return;
-            void this.refresh();
-        }, POLL_INTERVAL_MS);
+        // first delay.
+        void this.tick();
+    }
+
+    private tick = async (): Promise<void> => {
+        // Visibility gate matches PiCacheService — no point burning
+        // network when the user has the app backgrounded.
+        if (typeof document === 'undefined' || !document.hidden) {
+            await this.refresh();
+        }
+        // Schedule the NEXT tick using the current failure count to
+        // pick a delay. Reading the schedule fresh each time means a
+        // recovery (failure count drops to 0) immediately bumps us
+        // back to 30s without waiting out the long backoff.
+        const delay = this.delayForFailures(this.consecutiveFailures);
+        this.timer = setTimeout(this.tick, delay);
+    };
+
+    /** Map a consecutive-failure count to the next-poll delay. */
+    private delayForFailures(failures: number): number {
+        // Walk the FAILURE_BACKOFF_MS table from highest threshold down,
+        // returning the first one this failure count meets. O(table size).
+        const thresholds = Object.keys(FAILURE_BACKOFF_MS)
+            .map(Number)
+            .sort((a, b) => b - a);
+        for (const t of thresholds) {
+            if (failures >= t) return FAILURE_BACKOFF_MS[t];
+        }
+        return POLL_INTERVAL_MS;
     }
 
     stop(): void {
         if (this.timer) {
-            clearInterval(this.timer);
+            clearTimeout(this.timer);
             this.timer = null;
         }
     }
 
-    /** Force an immediate fetch — used when the System Status modal opens. */
+    /** Force an immediate fetch — used when the System Status modal opens.
+     *  Resets the backoff counter on a successful fetch so an N2K bridge
+     *  that's just been started picks up immediately. */
     async refresh(): Promise<void> {
         const piHost = BoatNetworkService.getState().piHost;
         if (!piHost) {
             this.publish(INITIAL);
+            // No piHost is a "skipped" not a "failed" — don't penalise
+            // future polls for a transient discovery gap.
             return;
         }
 
@@ -138,6 +191,12 @@ class N2kStatusServiceClass {
             const env = (await r.json()) as PiEnvelope<RawValue>;
             if (!env.value) throw new Error(env.error || 'empty value');
             const v = env.value;
+            // Successful fetch — reset the backoff so we go right back
+            // to 30s polling. If the user just spun up the N2K bridge
+            // after 20 minutes of silence, this catches the recovery
+            // immediately rather than making them wait out the next
+            // long-backoff window.
+            this.consecutiveFailures = 0;
             this.publish({
                 reachable: true,
                 health: v.health,
@@ -151,7 +210,12 @@ class N2kStatusServiceClass {
         } catch {
             // Soft-fail: keep the existing summary/wireUp etc. in case the
             // user just dropped a single packet, but mark as unreachable
-            // so the UI dims the row.
+            // so the UI dims the row. Bump the consecutive-failure count
+            // — once it crosses the thresholds in FAILURE_BACKOFF_MS,
+            // the tick loop slows down to stop spamming the network
+            // with connection-refused errors when no N2K bridge is
+            // running on the Pi.
+            this.consecutiveFailures++;
             this.publish({ ...this.status, reachable: false });
         } finally {
             clearTimeout(watchdog);
