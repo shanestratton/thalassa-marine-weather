@@ -324,6 +324,71 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                     >
                         <ResourceCalculator voyagePlan={voyagePlan} vessel={vessel} crewCount={vessel.crewCount || 2} />
                     </AccordionSection>
+                    {/* INSHORE ROUTING (ENC) — shown only when the inshore router was attempted */}
+                    {voyagePlan.__inshoreRouting && (
+                        <AccordionSection
+                            title={
+                                voyagePlan.__inshoreRouting.status === 'success'
+                                    ? 'Inshore Routing'
+                                    : 'Inshore Routing Skipped'
+                            }
+                            subtitle={
+                                voyagePlan.__inshoreRouting.status === 'success'
+                                    ? 'ENC Channel A* (Pi)'
+                                    : 'ENC Channel A* — Could Not Route'
+                            }
+                            icon={<WaveIcon className="w-5 h-5" />}
+                            accent={voyagePlan.__inshoreRouting.status === 'success' ? 'emerald' : 'amber'}
+                            defaultOpen={voyagePlan.__inshoreRouting.status === 'failed'}
+                            badge={
+                                voyagePlan.__inshoreRouting.status === 'success'
+                                    ? `${(voyagePlan.__inshoreRouting.distanceNM ?? 0).toFixed(1)} NM`
+                                    : voyagePlan.__inshoreRouting.errorCode || 'failed'
+                            }
+                        >
+                            <div className="space-y-2 text-sm">
+                                {voyagePlan.__inshoreRouting.status === 'success' ? (
+                                    <>
+                                        <p className="text-slate-300">
+                                            Route computed by ENC inshore router. Avoided land, shoals shallower than
+                                            vessel draft, wrecks, and obstructions using surveyed vector chart data.
+                                        </p>
+                                        {voyagePlan.__inshoreRouting.cellsUsed?.length ? (
+                                            <p className="text-slate-400 text-xs">
+                                                Cells:{' '}
+                                                <span className="font-mono">
+                                                    {voyagePlan.__inshoreRouting.cellsUsed.join(', ')}
+                                                </span>
+                                            </p>
+                                        ) : null}
+                                    </>
+                                ) : (
+                                    <>
+                                        <p className="text-amber-200">
+                                            {voyagePlan.__inshoreRouting.error ??
+                                                'The inshore router could not produce a route.'}
+                                        </p>
+                                        {voyagePlan.__inshoreRouting.errorCode === 'origin-on-land' ? (
+                                            <p className="text-slate-400 text-xs">
+                                                Try setting the origin to a marina, dock, or anchorage near the actual
+                                                departure point — the geocoded location is too far from charted water.
+                                            </p>
+                                        ) : voyagePlan.__inshoreRouting.errorCode === 'destination-on-land' ? (
+                                            <p className="text-slate-400 text-xs">
+                                                Try setting the destination closer to the dock — the geocoded location
+                                                is too far from charted water.
+                                            </p>
+                                        ) : voyagePlan.__inshoreRouting.errorCode === 'no-path' ? (
+                                            <p className="text-slate-400 text-xs">
+                                                The router built a navigability grid but couldn't find a clear channel
+                                                between origin and destination at this draft.
+                                            </p>
+                                        ) : null}
+                                    </>
+                                )}
+                            </div>
+                        </AccordionSection>
+                    )}
                     {/* GEBCO DEPTH ANALYSIS */}
                     {voyagePlan.__depthSummary && (
                         <AccordionSection

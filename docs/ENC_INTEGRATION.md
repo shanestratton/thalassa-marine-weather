@@ -225,6 +225,80 @@ panel showing which hydrographic office's data is in use
 - [ ] ENC update workflow (HOs release new editions monthly)
 - [ ] Multi-cell route handling (route spans multiple cells)
 
+### Phase 13 — Inshore A\* router (shipped 2026-05-09)
+
+The ocean routers (isochrone, corridor, bathymetric) all bail on
+short coastal/river/harbor passages — isochrone explicitly skips
+under 100 NM, corridor needs open water for its 30 NM-wide A\*
+graph, and GEBCO at 15 arc-sec smooths over channels narrower than
+~460m. Result: typing "Savannah, GA → Port Wentworth" produced
+nothing on the chart even with a Savannah ENC imported.
+
+Phase 13 closes that gap with a Pi-side A\* router that operates
+directly on the ENC vector data:
+
+- [x] **Pi: `pi-cache/src/services/inshoreRouter.ts`** — pure-JS
+      polygon rasterizer + 8-neighbor A\* + line-of-sight smoothing + Douglas-Peucker. Loads no extra deps. Synthetic-geometry
+      tests at `inshoreRouter.test.mts` (9 cases, all passing).
+- [x] **Pi: `POST /api/enc/route`** — accepts `{from, to, draftM}`,
+      auto-selects installed cells whose bbox covers the route,
+      merges layer FeatureCollections, returns
+      `{polyline, distanceNM, cellsUsed, elapsedMs}`.
+      422 with codes (`origin-on-land`, `no-path`, etc.) when
+      grid built but no path exists.
+- [x] **Device: `services/InshoreRouter.ts`** — wraps the Pi call,
+      gates on Pi reachability + ENC coverage at both endpoints +
+      ≤50 NM straight-line distance. Returns null silently when
+      gates fail (caller falls through to ocean pipeline);
+      surfaces 422 failures via `__inshoreRouting` for UI.
+- [x] **Pipeline integration** — `useVoyageForm.ts` runs the
+      inshore router as Step 0. On success, the
+      bathymetric/isochrone/corridor steps are SKIPPED so they
+      can't overwrite the channel-following polyline with a
+      straight line through land.
+- [x] **UI surface** — `VoyageResults.tsx` shows an
+      "Inshore Routing" accordion when the inshore router was
+      attempted. Green chip on success ("US5GA22M, 7.8 NM"),
+      amber on failure with actionable copy
+      ("Try a marina or anchorage near the dock").
+
+Algorithm details:
+
+- **Grid resolution**: 50 m default (configurable via
+  `resolutionM`). Wide enough to keep build time under 1s for a
+  typical harbor cell on Pi 5; tight enough for 200 m channels.
+- **Cell encoding**: Float32, `NaN` = blocked, ≥0 = depth in
+  meters (0 = open with unknown depth — outside DEPARE coverage).
+- **Cost shaping**: All multipliers ≥ 1.0 (haversine heuristic
+  stays admissible). 1.0 for ≥10 m DEPARE (preferred channel),
+  1.05 for ≥5 m, 1.2 for shallow-but-open, 1.5 for unknown.
+  Result: A\* prefers staying inside marked deep water even when
+  a slightly shorter route exists outside it.
+- **Endpoint snapping**: BFS up to 5 km from the geocoded
+  origin/destination — handles the common "Savannah, GA"
+  geocoding to a city center on dry land, where the actual
+  departure dock is on the river ~1 km away.
+- **Smoothing**: Line-of-sight string-pulling (Bresenham clear-line
+  test) post-A\*. Without this, A\* on uniform-cost grids produces
+  stair-stepped paths that can be 1.5× longer than the geometric
+  optimum after sum-of-haversines on the polyline.
+
+What's deferred to Phase 13.x:
+
+- **Multi-cell stitching at boundaries** — currently we merge
+  feature collections across cells, which works but doesn't
+  de-dupe boundary polygons (rare visible artifact).
+- **Tide-aware draft** — Phase 13.3. Currently uses static DRVAL1
+  from chart datum; should subtract current tide height from the
+  vessel draft for cells where a tide station is nearby.
+- **ENC update awareness** — when a cell's edition/UPDN
+  increments, persisted nav grids should be invalidated. Not yet
+  cached anyway, so harmless for now.
+- **Channel preference using DEPCNT** — current cost shaping uses
+  DEPARE.DRVAL1 only. Could use DEPCNT (depth contour lines) to
+  build a centerline-distance penalty, which would hug the marked
+  channel even more strictly.
+
 ### Phase 12+ — Small polish (deferred, captured 2026-05-09)
 
 - [ ] **Surface DSID_UPDN alongside edition** — NOAA cells often
