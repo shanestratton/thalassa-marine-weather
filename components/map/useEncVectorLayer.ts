@@ -22,7 +22,13 @@ import { useEffect, useRef, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
 import { createLogger } from '../../utils/createLogger';
-import { mountEncVectorLayer, refreshEncVectorData, unmountEncVectorLayer } from './EncVectorLayer';
+import {
+    attachEncFeatureClickHandlers,
+    detachEncFeatureClickHandlers,
+    mountEncVectorLayer,
+    refreshEncVectorData,
+    unmountEncVectorLayer,
+} from './EncVectorLayer';
 import { getMergedVectorData, hasAnyCells, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 
 const log = createLogger('useEncVectorLayer');
@@ -46,6 +52,7 @@ export function useEncVectorLayer(mapRef: React.MutableRefObject<mapboxgl.Map | 
         const apply = async () => {
             if (!hasAnyCells()) {
                 if (mountedRef.current) {
+                    detachEncFeatureClickHandlers(map);
                     unmountEncVectorLayer(map);
                     mountedRef.current = false;
                 }
@@ -59,6 +66,11 @@ export function useEncVectorLayer(mapRef: React.MutableRefObject<mapboxgl.Map | 
                     refreshEncVectorData(map, data);
                 } else {
                     mountEncVectorLayer(map, data);
+                    // Click handlers reference the layer IDs that
+                    // mount() just registered. Attach is idempotent
+                    // so repeat-mounts on cell-list bumps don't pile
+                    // up listeners.
+                    attachEncFeatureClickHandlers(map);
                     mountedRef.current = true;
                 }
             } catch (err) {

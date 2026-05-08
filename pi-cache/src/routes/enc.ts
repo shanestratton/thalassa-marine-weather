@@ -114,9 +114,22 @@ setInterval(() => {
  *   the route around them).
  * - COALNE is the coastline — info-only, used by the hazard report
  *   to flag "route passes within X NM of coast" without rerouting.
+ * - LIGHTS / BOYLAT / BOYCAR are navigation aids — display only,
+ *   render as point symbols on the chart.
  * - M_QUAL ships CATZOC zones for survey-confidence warnings.
  */
-const ENC_LAYERS = ['DEPARE', 'LNDARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'COALNE', 'M_QUAL'] as const;
+const ENC_LAYERS = [
+    'DEPARE',
+    'LNDARE',
+    'OBSTRN',
+    'WRECKS',
+    'UWTROC',
+    'COALNE',
+    'LIGHTS',
+    'BOYLAT',
+    'BOYCAR',
+    'M_QUAL',
+] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
 const MAX_UPLOAD_BYTES = 300 * 1024 * 1024; // 300 MB — covers regional AHO/NOAA ZIP packs

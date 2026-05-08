@@ -21,15 +21,29 @@ import type { Geometry } from 'geojson';
 /**
  * Subset of S-57 layers we extract for routing.
  *
+ * Hazard layers (drive routing detours):
  * - DEPARE: depth area polygons (the gold for hazard checks)
  * - LNDARE: land area polygons (always hazard)
  * - OBSTRN: general obstructions
  * - WRECKS: wrecks
  * - UWTROC: underwater rocks
+ *
+ * Soft / info layers (rendered + reported, never reroute):
  * - COALNE: coastline lines, used for proximity warnings
- * - M_QUAL: zones of confidence (CATZOC). Info layer.
+ * - LIGHTS: lights / lighthouses (display only)
+ * - BOYLAT: lateral buoys (display only)
+ * - BOYCAR: cardinal buoys (display only)
+ * - M_QUAL: zones of confidence (CATZOC). Tagged on every result.
  */
 export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'COALNE';
+
+/**
+ * Aids-to-navigation layers. Display-only — never affect routing,
+ * never appear in the hazard report. Carried separately from
+ * EncLayer because the hazard pipeline iterates EncLayer and we
+ * don't want navaids walked into hazard processing.
+ */
+export type EncNavaidLayer = 'LIGHTS' | 'BOYLAT' | 'BOYCAR';
 
 /**
  * Layers we ship in the conversion result but treat as info-only.
@@ -219,6 +233,12 @@ export interface EncConversionResult {
         UWTROC?: GeoJSON.FeatureCollection;
         /** Coastline LineStrings — used for proximity warnings only. */
         COALNE?: GeoJSON.FeatureCollection;
+        /** Lights / lighthouses (point features). Display only. */
+        LIGHTS?: GeoJSON.FeatureCollection;
+        /** Lateral buoys (point features). Display only. */
+        BOYLAT?: GeoJSON.FeatureCollection;
+        /** Cardinal buoys (point features). Display only. */
+        BOYCAR?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */
         M_QUAL?: GeoJSON.FeatureCollection;
     };
