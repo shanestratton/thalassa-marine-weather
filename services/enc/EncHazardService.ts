@@ -399,6 +399,103 @@ export async function getIndexForCell(cellId: string): Promise<EncSpatialIndex |
     return getOrBuildIndex(cellId);
 }
 
+// ── Merged-vector access (for the map vector layer) ───────────────
+
+/**
+ * Per-layer merged FeatureCollections across every imported cell.
+ * Returned by `getMergedVectorData`; consumed by EncVectorLayer
+ * to push to Mapbox as GeoJSON sources.
+ *
+ * Each feature is decorated with `cellId` and `sourceHO` in its
+ * properties so the rendering layer can keep provenance for
+ * click-handlers and per-cell styling.
+ */
+export interface EncMergedVectorData {
+    DEPARE: FeatureCollection;
+    LNDARE: FeatureCollection;
+    COALNE: FeatureCollection;
+    OBSTRN: FeatureCollection;
+    WRECKS: FeatureCollection;
+    UWTROC: FeatureCollection;
+    /** Total cells contributing data. */
+    cellCount: number;
+}
+
+let mergedCache: { version: number; data: EncMergedVectorData } | null = null;
+
+/**
+ * Build the per-layer FeatureCollections by reading every imported
+ * cell's GeoJSON from filesystem and concatenating features. Cached
+ * across calls within a single cell-list version (i.e. until the
+ * user imports or removes a cell).
+ *
+ * Memory caveat: this loads every cell's full vector data into
+ * memory at once. For the typical 1-10 cell user, ~5-50 MB total
+ * — fine for Capacitor iOS. For a fleet user with 50+ cells, this
+ * is a future optimisation (viewport-filter the merge).
+ *
+ * Returns null when no cells are imported (so the caller can skip
+ * mounting the Mapbox source entirely).
+ */
+export async function getMergedVectorData(): Promise<EncMergedVectorData | null> {
+    const cells = cellMeta.listCells();
+    if (cells.length === 0) {
+        mergedCache = null;
+        return null;
+    }
+    const currentVersion = cellMeta.getVersion();
+    if (mergedCache && mergedCache.version === currentVersion) return mergedCache.data;
+
+    const merged: EncMergedVectorData = {
+        DEPARE: { type: 'FeatureCollection', features: [] },
+        LNDARE: { type: 'FeatureCollection', features: [] },
+        COALNE: { type: 'FeatureCollection', features: [] },
+        OBSTRN: { type: 'FeatureCollection', features: [] },
+        WRECKS: { type: 'FeatureCollection', features: [] },
+        UWTROC: { type: 'FeatureCollection', features: [] },
+        cellCount: 0,
+    };
+
+    for (const cell of cells) {
+        let blob;
+        try {
+            blob = await cellStore.loadCellGeoJSON(cell.id);
+        } catch (err) {
+            log.warn(`getMergedVectorData: failed to load cell ${cell.id}`, err);
+            continue;
+        }
+        if (!blob) continue;
+        merged.cellCount++;
+
+        const tagAndPush = (target: EncLayer, fc: FeatureCollection | undefined) => {
+            if (!fc || !Array.isArray(fc.features)) return;
+            const dest = merged[target as keyof Omit<EncMergedVectorData, 'cellCount'>];
+            for (const feat of fc.features) {
+                if (!feat || !feat.geometry) continue;
+                // Decorate properties with provenance so the map
+                // can keep "which cell" context for clicks/etc.
+                const props = { ...(feat.properties ?? {}), _cellId: cell.id, _sourceHO: cell.sourceHO };
+                dest.features.push({ ...feat, properties: props });
+            }
+        };
+
+        tagAndPush('DEPARE', blob.layers.DEPARE);
+        tagAndPush('LNDARE', blob.layers.LNDARE);
+        tagAndPush('COALNE', blob.layers.COALNE);
+        tagAndPush('OBSTRN', blob.layers.OBSTRN);
+        tagAndPush('WRECKS', blob.layers.WRECKS);
+        tagAndPush('UWTROC', blob.layers.UWTROC);
+    }
+
+    mergedCache = { version: currentVersion, data: merged };
+    log.info(
+        `merged vector data: ${merged.cellCount} cells, ` +
+            `DEPARE=${merged.DEPARE.features.length}, COALNE=${merged.COALNE.features.length}, ` +
+            `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}`,
+    );
+    return merged;
+}
+
 // ── Reactivity passthrough ────────────────────────────────────────
 
 /**
