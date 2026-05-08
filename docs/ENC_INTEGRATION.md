@@ -225,6 +225,26 @@ panel showing which hydrographic office's data is in use
 - [ ] ENC update workflow (HOs release new editions monthly)
 - [ ] Multi-cell route handling (route spans multiple cells)
 
+### Phase 12+ — Small polish (deferred, captured 2026-05-09)
+
+- [ ] **Surface DSID_UPDN alongside edition** — NOAA cells often
+      ship at "edition 0" with N updates applied. The cell row
+      currently shows "ed.0" with no signal that updates have
+      happened. Show "ed.0u2" or "Update 2" so users know the
+      chart isn't actually pristine-base.
+      Touches: pi-cache enc.ts (capture UPDN), services/enc/types.ts
+      (EncCell.updateNumber), components/vessel/EncCellManager.tsx
+      (cell-row label).
+- [ ] **Prefer DSID_ISDT over DSID_UADT for the displayed date** —
+      ISDT is the chart's issue date (what cruisers mean by "the
+      chart is from..."); UADT is the date the latest update was
+      applied. Currently we show UADT as `issued`. Switch to ISDT
+      when present, fall back to UADT.
+      Touches: pi-cache enc.ts (capture ISDT into the persisted
+      record), staleness logic in EncCellManager.tsx — staleness
+      should be relative to the SOURCE chart age, not the patch
+      delivery date.
+
 ## Acceptance criteria for Phase 1
 
 A test route between two points where:
