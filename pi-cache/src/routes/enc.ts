@@ -153,10 +153,15 @@ const OGR2OGR_TIMEOUT_MS = 60 * 1000; // 1 minute per layer is generous
  * Persistent ENC chart store. The Pi keeps converted ENCs here so
  * they survive restarts and can be served to any device on the
  * boat (Phase 11). One file per cell + a small index for fast
- * listing. Backed by env so the boat operator can move it onto
- * a bigger disk if needed.
+ * listing.
+ *
+ * Default is install-dir-relative (`./enc-charts`) — same pattern
+ * as the existing `./cache` dir. That keeps everything under the
+ * `skipper`-owned install dir so the pi-cache process can write
+ * without sudo. Override via $ENC_CHART_DIR if a sysop wants the
+ * data on a bigger disk.
  */
-const CHART_STORE_DIR = process.env.ENC_CHART_DIR || '/var/lib/thalassa-enc-charts';
+const CHART_STORE_DIR = process.env.ENC_CHART_DIR || './enc-charts';
 const CHART_INDEX_PATH = path.join(CHART_STORE_DIR, 'index.json');
 const CHART_CELL_DIR = path.join(CHART_STORE_DIR, 'cells');
 const URL_DOWNLOAD_TIMEOUT_MS = 5 * 60 * 1000; // 5 min for big regional ZIPs
