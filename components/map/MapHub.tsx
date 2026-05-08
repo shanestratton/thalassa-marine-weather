@@ -70,6 +70,7 @@ import { useSeaIceRasterLayer, isCmemsSeaIceEnabled } from './useSeaIceRasterLay
 import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
+import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
@@ -1156,6 +1157,49 @@ export const MapHub: React.FC<MapHubProps> = ({
     // bathymetry. Colour-coded by CATZOC confidence.
     useEncCoverageLayer(mapRef, mapReady);
 
+    // ── Pending fit-to-bbox request ──
+    // Used by EncCellManager (and any future "show me on the map"
+    // entry point) to fit the viewport to a bbox after navigating
+    // to the map. We consume on mount (if a request was staged
+    // before navigation) and on subscription bumps (if one comes
+    // in while the map is already mounted).
+    useEffect(() => {
+        if (!mapReady) return;
+        const apply = () => {
+            const map = mapRef.current;
+            if (!map) return;
+            const target = consumeMapFit();
+            if (!target) return;
+            const [minLon, minLat, maxLon, maxLat] = target.bbox;
+            try {
+                map.fitBounds(
+                    [
+                        [minLon, minLat],
+                        [maxLon, maxLat],
+                    ],
+                    {
+                        padding: target.paddingPx ?? 60,
+                        maxZoom: target.maxZoom ?? 11,
+                        duration: 1200,
+                        essential: true,
+                    },
+                );
+            } catch (err) {
+                // Mapbox throws on degenerate bboxes (single point).
+                // Fall back to a simple flyTo at the centre.
+                map.flyTo({
+                    center: [(minLon + maxLon) / 2, (minLat + maxLat) / 2],
+                    zoom: target.maxZoom ?? 11,
+                    essential: true,
+                });
+            }
+        };
+        // Apply any request staged before mount.
+        if (peekMapFit()) apply();
+        // Apply any future requests dispatched while we're mounted.
+        return subscribeMapFit(apply);
+    }, [mapReady]);
+
     // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
     // The openseamap-overlay (PNG tiles) is baked into the map style and shows
     // its own seamark icons. When o-charts are active they render their own
@@ -1821,7 +1865,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                     route plan. Self-subscribes to the hazard-report singleton —
                     no prop drilling required. Hidden when not in passage mode
                     or when no hazards within the buffer. */}
-                <HazardReportPanel visible={passage.showPassage} />
+                <HazardReportPanel
+                    visible={passage.showPassage}
+                    onHazardClick={(entry) => {
+                        const map = mapRef.current;
+                        if (!map) return;
+                        triggerHaptic('light');
+                        // Zoom 13 ≈ ~1 NM/cm — tight enough to show
+                        // chart context around the hazard, loose
+                        // enough to keep the surrounding route visible.
+                        map.flyTo({
+                            center: [entry.representativePoint.lon, entry.representativePoint.lat],
+                            zoom: Math.max(map.getZoom(), 13),
+                            speed: 1.6,
+                            essential: true,
+                        });
+                    }}
+                />
 
                 {/* ═══ AIS COLOUR LEGEND + GUARD ZONE TOGGLE ═══ */}
                 <Suspense fallback={null}>

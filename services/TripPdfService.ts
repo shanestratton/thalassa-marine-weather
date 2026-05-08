@@ -19,6 +19,8 @@ import { createLogger } from '../utils/createLogger';
 import type { EnrichedTripOverview, LegForecast, TripOverview } from './TripOverviewService';
 import { getCountrySnippets } from './TripOverviewService';
 import type { ResolvedCountrySnippet } from './CountrySnippetService';
+import type { RouteHazardReport, RouteHazardReportEntry } from './enc/EncHazardReportService';
+import { CATZOC_LABELS, isLowConfidenceCatzoc } from './enc/types';
 
 const log = createLogger('TripPDF');
 
@@ -159,6 +161,98 @@ const SAFETY_GEAR = [
     'AIS transmitting + receiving. VHF + HF/SSB tested. Sat phone subscription active.',
 ];
 
+// ── ENC hazard report rendering ──────────────────────────────────
+
+/**
+ * Format a hazard distance for the PDF body. Uses the same
+ * conventions as the on-screen panel so users see consistent
+ * numbers across surfaces.
+ */
+function formatHazardDistance(nm: number): string {
+    if (nm < 0.05) return '<0.05 NM';
+    if (nm < 1) return `${nm.toFixed(2)} NM`;
+    return `${nm.toFixed(1)} NM`;
+}
+
+function hazardSideLabel(side: RouteHazardReportEntry['side']): string {
+    return side === 'port' ? 'port' : side === 'starboard' ? 'stbd' : 'on track';
+}
+
+function hazardTypeLabel(type: RouteHazardReportEntry['hazardType']): string {
+    switch (type) {
+        case 'wreck':
+            return 'Wreck';
+        case 'rock':
+            return 'Underwater rock';
+        case 'obstruction':
+            return 'Obstruction';
+        case 'coast':
+            return 'Charted coastline';
+        default:
+            return 'Hazard';
+    }
+}
+
+function hazardLatLon(p: { lat: number; lon: number }): string {
+    const lat = `${Math.abs(p.lat).toFixed(3)} ${p.lat >= 0 ? 'N' : 'S'}`;
+    const lon = `${Math.abs(p.lon).toFixed(3)} ${p.lon >= 0 ? 'E' : 'W'}`;
+    return `${lat}  ${lon}`;
+}
+
+/**
+ * Render the "ENC Hazards Along Route" section — pulled out so it
+ * doesn't bloat the main `generateTripPdf` body. Caller is
+ * responsible for confirming the report is non-empty before
+ * calling.
+ */
+function renderHazardReportSection(b: PdfBuilder, report: RouteHazardReport): void {
+    b.sectionTitle('ENC Hazards Along Route');
+    b.paragraph(
+        `Charted obstructions, wrecks, rocks, and coastline within ${report.bufferNm.toFixed(1)} NM of the planned route, derived from your imported S-57 ENC cells (${report.cellsConsulted} cell${report.cellsConsulted === 1 ? '' : 's'} consulted). Verify visually before relying on these positions — Pacific atolls and remote shores often have positional uncertainty of 100–500 m.`,
+        COLORS.muted,
+        8.5,
+    );
+
+    for (const entry of report.entries) {
+        b.ensureRoom(20);
+
+        // Card background
+        b.doc.setFillColor(...COLORS.cardBg);
+        b.doc.roundedRect(b.margin, b.y, b.contentW, 17, 2, 2, 'F');
+
+        // Type + description on first line
+        b.doc.setFontSize(9.5);
+        b.doc.setTextColor(...COLORS.amber);
+        const headline = entry.description ?? hazardTypeLabel(entry.hazardType);
+        b.doc.text(headline, b.margin + 4, b.y + 6);
+
+        // Distance + side on the right
+        b.doc.setFontSize(8.5);
+        b.doc.setTextColor(...COLORS.muted);
+        const distLabel = `${formatHazardDistance(entry.distanceNm)}  ${hazardSideLabel(entry.side)}`;
+        b.doc.text(distLabel, b.margin + b.contentW - 4, b.y + 6, { align: 'right' });
+
+        // Detail line: depth + cell + CATZOC + lat/lon
+        b.doc.setFontSize(7.5);
+        b.doc.setTextColor(...COLORS.dim);
+        const detailParts: string[] = [];
+        if (entry.minDepthM != null) detailParts.push(`${entry.minDepthM.toFixed(1)} m`);
+        detailParts.push(`${entry.cellId} (${entry.sourceHO})`);
+        if (entry.catzoc != null) {
+            const catzocLabel = `CATZOC ${CATZOC_LABELS[entry.catzoc]}`;
+            detailParts.push(isLowConfidenceCatzoc(entry.catzoc) ? `${catzocLabel} — verify visually` : catzocLabel);
+        }
+        b.doc.text(detailParts.join('  ·  '), b.margin + 4, b.y + 11.5);
+
+        // Lat/lon on the right of the detail line
+        b.doc.text(hazardLatLon(entry.representativePoint), b.margin + b.contentW - 4, b.y + 11.5, {
+            align: 'right',
+        });
+
+        b.y += 19;
+    }
+}
+
 const MEDICAL_KIT = [
     'Personal Rx for every crew member — full passage supply + 3-month contingency. Copies of original prescriptions.',
     'OTC pain/fever: paracetamol, ibuprofen, aspirin (for suspected MI under medical guidance).',
@@ -283,6 +377,12 @@ export function generateTripPdf(
          *  When omitted, the PDF falls back to the curated-only
          *  list so a stand-alone caller still gets sensible output. */
         countrySnippets?: ResolvedCountrySnippet[];
+        /** Route hazard report for the most recently validated
+         *  route (caller usually passes EncHazardReportService.
+         *  getLastReport()). Renders an "ENC Hazards Along Route"
+         *  section when present + non-empty; absent when no ENC
+         *  coverage on the route. */
+        hazardReport?: RouteHazardReport | null;
     },
 ): Blob {
     const b = new PdfBuilder();
@@ -450,6 +550,13 @@ export function generateTripPdf(
         b.paragraph(
             'The South Pacific dry season runs May to October — outside cyclone season (November to April), with reliable southeast trade winds for an eastbound run. Plan departure for a 5-7 day forecast window of sustained 15-25 kt SE/E winds and combined sea/swell under 3 m. A long swell period (8 s+) makes the difference between rough and rolling.',
         );
+    }
+
+    // ─────────────────────────────────────────────────────────
+    // ENC hazards along route (if a report was supplied)
+    // ─────────────────────────────────────────────────────────
+    if (opts?.hazardReport && opts.hazardReport.entries.length > 0) {
+        renderHazardReportSection(b, opts.hazardReport);
     }
 
     // ─────────────────────────────────────────────────────────
