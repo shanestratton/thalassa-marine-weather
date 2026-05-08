@@ -59,7 +59,14 @@ const PULSE_MS = 60 * 1000;
 
 // Trim the buffer at this size — defensive cap so a heavy storm doesn't
 // chew unbounded memory if the user leaves the layer on for hours.
-const MAX_STRIKES = 5000;
+// Hard cap on the strike buffer. 2000 (was 5000) — at the typical
+// 50-100 strikes/min rate during a Texas-grade storm and a 10-min
+// TTL, natural steady-state is 500-1000. 5000 was overkill and just
+// gave us extra memory pressure during long sessions in heavy
+// lightning territory. 2000 keeps a 2× safety margin without the
+// pressure that was triggering iOS WKWebView to force-close the
+// WebSocket during peak activity.
+const MAX_STRIKES = 2000;
 
 // Strike data shape stored on each Mapbox feature.
 interface StrikeFeatureProps {
@@ -241,10 +248,18 @@ export function useLightningLayer(
                 // into the buffer; the RAF loop pushes them onto the map.
                 unsubRef.current = subscribeLightningStrikes((strike) => {
                     strikesRef.current.set(strike.id, strike);
-                    // Trim oldest if over cap.
+                    // Trim oldest if over cap. Since the Map preserves
+                    // insertion order and strikes arrive roughly in time
+                    // order from Blitzortung, keys().next().value gives
+                    // us the oldest entry in O(1) — no need to spread
+                    // and sort 2000 items on every incoming strike like
+                    // the previous implementation did. That sort was
+                    // running 50-100×/sec during heavy storms and was
+                    // a meaningful contributor to the WebView load that
+                    // triggered the WebSocket disconnects.
                     if (strikesRef.current.size > MAX_STRIKES) {
-                        const oldest = [...strikesRef.current.values()].sort((a, b) => a.time - b.time)[0];
-                        if (oldest) strikesRef.current.delete(oldest.id);
+                        const oldestKey = strikesRef.current.keys().next().value;
+                        if (oldestKey !== undefined) strikesRef.current.delete(oldestKey);
                     }
                 });
 
@@ -259,19 +274,35 @@ export function useLightningLayer(
                 // "is the storm I'm watching intensifying?". The viewport
                 // window for rate is the last 60s.
                 const VIEWPORT_RATE_WINDOW_MS = 60 * 1000;
-                // Repaint cadence: ~16Hz (60ms) so the shockwave-ring
-                // expansion animation reads as smooth motion rather than
-                // a steppy flicker. The previous 250ms tick gave only
-                // 6 frames per shockwave — enough for a fade alpha
-                // change but not enough to see the ring grow. setData
-                // on the GeoJSON source is cheap (Mapbox diffs it),
-                // so 16Hz with up to 5000 features is well within
-                // budget.
+                // ADAPTIVE REPAINT CADENCE — was a fixed 16Hz (60ms) which
+                // looked great for a single-strike shockwave but broke
+                // down hard during a real storm (Texas/Mexico, hundreds
+                // of strikes/min). At 16Hz × 2000 features × Mapbox
+                // setData/tessellation, iOS WKWebView ran out of GPU
+                // memory and force-closed the WebSocket (code 1005,
+                // "markAllLayersVolatile: Failed" in the console).
+                //
+                // The cure: scale the repaint interval inversely with
+                // buffer size. Quiet conditions still get the smooth
+                // 16Hz shockwave; busy conditions degrade gracefully:
+                //
+                //   buffer    interval   effective rate
+                //   <200      60ms       16.7Hz   (smooth shockwaves)
+                //   200-800   120ms      8.3Hz    (still snappy)
+                //   800-1500  200ms      5Hz      (fade still smooth)
+                //   >1500     333ms      3Hz      (stays alive in chaos)
+                //
+                // Pulse animations still look fine at 3Hz because the
+                // pulse phase is sampled per-strike based on age, not
+                // synchronised with the repaint clock.
+                const repaintIntervalMs = (count: number) =>
+                    count < 200 ? 60 : count < 800 ? 120 : count < 1500 ? 200 : 333;
                 let lastTick = 0;
                 let lastViewportPush = 0;
                 const tick = (now: number) => {
                     if (!rafRef.current) return;
-                    if (now - lastTick > 60) {
+                    const interval = repaintIntervalMs(strikesRef.current.size);
+                    if (now - lastTick > interval) {
                         lastTick = now;
                         repaintStrikes(map, strikesRef.current);
                     }
