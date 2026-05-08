@@ -233,6 +233,28 @@ export class EncSpatialIndex {
     }
 
     /**
+     * Search every hazard whose bounding box intersects `bbox`.
+     * Used by the hazard-report service to find OBSTRN/WRECKS/
+     * UWTROC features near a planned route, not just exactly under
+     * a sample point.
+     *
+     * Results include the underlying EncHazard plus its bbox so
+     * the caller can do precise distance work without a second
+     * geometry pass.
+     *
+     * `bbox` is `[minLon, minLat, maxLon, maxLat]`.
+     */
+    searchInBBox(bbox: [number, number, number, number]): BBoxEntry[] {
+        const [minLon, minLat, maxLon, maxLat] = bbox;
+        return this.hazardTree.search({
+            minX: minLon,
+            minY: minLat,
+            maxX: maxLon,
+            maxY: maxLat,
+        });
+    }
+
+    /**
      * Resolve the CATZOC at a single point. Walks the M_QUAL tree
      * and returns the value of the most-pessimistic polygon
      * containing the point (i.e. higher CATZOC numbers win — D

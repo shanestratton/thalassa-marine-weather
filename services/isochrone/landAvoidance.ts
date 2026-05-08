@@ -472,6 +472,17 @@ export interface ValidateRouteOptions {
      * touch — and vice versa.
      */
     vesselDraftM?: number;
+    /**
+     * Tide offset above chart datum, metres. Charted DEPARE depths
+     * are referenced to MLLW; the actual depth at the planned
+     * passage time is `chart_depth + tide`. Default 0 = worst-case.
+     *
+     * In Phase 5 this is a single value applied uniformly along the
+     * route (caller computes a representative tide for the route
+     * mid-point at the route mid-time). Phase 6 can compute per-
+     * waypoint values.
+     */
+    tideOffsetM?: number;
 }
 
 export async function validateRouteSegments(
@@ -481,7 +492,10 @@ export async function validateRouteSegments(
     if (route.length < 2) return route;
 
     let result = [...route];
-    const queryOpts = { vesselDraftM: options.vesselDraftM };
+    const queryOpts = {
+        vesselDraftM: options.vesselDraftM,
+        tideOffsetM: options.tideOffsetM,
+    };
 
     // Pre-warm any ENC spatial indexes covering the route bbox so the
     // first hot-path query doesn't pay the index-build cost.
@@ -593,6 +607,40 @@ export async function validateRouteSegments(
         result = fixed;
     }
 
+    // ── Phase 5: Hazard proximity report ─────────────────────────
+    // After validation succeeds the route is guaranteed clear of
+    // hazards. But the user still wants to know about charted
+    // obstructions / wrecks / rocks NEAR the route — a wreck 0.4 NM
+    // off the rhumbline is worth flagging even though we won't be
+    // routing through it.
+    //
+    // We import dynamically so the hazard-report module isn't pulled
+    // into routes that don't have any ENC coverage (it'd no-op
+    // anyway, but avoiding the import keeps cold-start lean).
+    if (HazardQueryService.hasEncCoverageFor([bboxMinLon, bboxMinLat, bboxMaxLon, bboxMaxLat])) {
+        try {
+            const { findHazardsAlongRoute, setLastReport } = await import('./../enc/EncHazardReportService');
+            const report = await findHazardsAlongRoute(result.map((n) => ({ lat: n.lat, lon: n.lon })));
+            setLastReport(report);
+            if (report.entries.length > 0) {
+                landLog.info(
+                    `[ValidateRoute] ${report.entries.length} hazards within ${report.bufferNm.toFixed(1)} NM of route`,
+                );
+            }
+        } catch (err) {
+            landLog.warn('[ValidateRoute] hazard report generation failed', err);
+        }
+    } else {
+        // No ENC coverage → clear any stale report from a previous
+        // route so the UI doesn't show outdated data.
+        try {
+            const { setLastReport } = await import('./../enc/EncHazardReportService');
+            setLastReport(null);
+        } catch {
+            /* best effort */
+        }
+    }
+
     return result;
 }
 
@@ -607,7 +655,7 @@ async function findDetourAroundIsland(
     a: IsochroneNode,
     b: IsochroneNode,
     depth: number,
-    queryOpts: { vesselDraftM?: number },
+    queryOpts: { vesselDraftM?: number; tideOffsetM?: number },
 ): Promise<IsochroneNode[]> {
     if (depth >= MAX_FIX_DEPTH) return [];
 

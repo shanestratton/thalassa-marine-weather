@@ -366,6 +366,19 @@ export function dropIndexCache(): void {
     failedLoads.clear();
 }
 
+/**
+ * Lazy-load (if needed) and return the spatial index for a single
+ * cell. Used by the hazard-report service to do multi-cell bbox
+ * searches without exposing the whole index Map.
+ *
+ * Returns null if metadata is missing, the GeoJSON blob is
+ * unreadable, or the cell ID is unknown. Failed loads stay null
+ * for the rest of the session — re-import to clear.
+ */
+export async function getIndexForCell(cellId: string): Promise<EncSpatialIndex | null> {
+    return getOrBuildIndex(cellId);
+}
+
 // ── Reactivity passthrough ────────────────────────────────────────
 
 /**
