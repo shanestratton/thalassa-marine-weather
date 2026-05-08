@@ -384,11 +384,29 @@ export function useLightningLayer(
         }
 
         return () => {
-            // Only the toggle-driven cleanup runs the disconnect — this
-            // unmount cleanup just nukes any residual RAF.
+            // Full unmount cleanup. Previous version ONLY cancelled the
+            // RAF and explicitly skipped the unsubscribe, on the
+            // mistaken theory that the component would remount and want
+            // to keep the connection. In practice when the user navigates
+            // off the Charts page entirely, MapHub unmounts and never
+            // comes back — leaving the Blitzortung WebSocket subscribed
+            // to a ghost listener for the rest of the session, eating
+            // battery + cellular data + triggering the WS-flap-under-
+            // load loop the user reported as "still streaming when the
+            // lightning page isn't even open".
+            //
+            // If the component DOES remount (e.g. tab switch back to
+            // Charts), the new effect run will subscribe afresh — and
+            // since the underlying service ref-counts listeners and
+            // disconnects when count hits zero, the small re-connect
+            // cost on a remount is fine and predictable.
             if (rafRef.current !== null) {
                 cancelAnimationFrame(rafRef.current);
                 rafRef.current = null;
+            }
+            if (unsubRef.current) {
+                unsubRef.current();
+                unsubRef.current = null;
             }
         };
     }, [mapRef, mapReady, visible]);
