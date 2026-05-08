@@ -460,6 +460,20 @@ async function parseS57Metadata(inputPath: string): Promise<{
                 const u = values[uadtIdx];
                 issued = `${u.slice(0, 4)}-${u.slice(4, 6)}-${u.slice(6, 8)}`;
             }
+            // TODO(phase-12-polish): two small UX upgrades worth doing
+            // when we revisit the chart-locker UI:
+            //   1. Capture DSID_UPDN and surface it as "ed.0u2" (or
+            //      "edition 0, update 2") in the cell row label. NOAA
+            //      ships many cells at edition 0 with N updates
+            //      applied — currently the user sees "ed.0" and has
+            //      no signal that the chart has been updated since.
+            //   2. Prefer DSID_ISDT (chart issue date) over DSID_UADT
+            //      (date this update was applied) when both are
+            //      present. ISDT is what cruisers usually mean when
+            //      they ask "how old is this chart?" UADT only tells
+            //      you when the latest patch landed.
+            // Both require: extending the wire format (EncCell.update
+            // / EncCell.isdt) + UI tweak in EncCellManager.
         }
     } catch (err) {
         // Non-fatal — keep edition=0 / issued=today. Logged so a
