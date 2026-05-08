@@ -272,17 +272,261 @@ export async function importEncCell(
         throw new Error(error);
     }
 
-    // ── 3. Poll for conversion progress ────────────────────────────
-    let lastJobState: {
-        status: string;
-        progress?: number;
-        step?: string;
-        cellId?: string;
-        bbox?: [number, number, number, number];
-    } | null = null;
+    // ── 3-6. Poll → fetch → persist ────────────────────────────────
+    // Shared with installEncFromUrl / syncEncFromPi via the helper.
+    return pollAndFetchAndStore(piBase, jobId, emit);
+}
+
+// ── Pi-server install (Phase 11) ──────────────────────────────────
+
+/**
+ * Pi-side metadata record for an installed cell. Mirrors the shape
+ * returned by `GET /api/enc/installed`.
+ */
+export interface PiInstalledCell {
+    cellId: string;
+    sourceHO: string;
+    edition: number;
+    issued: string;
+    bbox: [number, number, number, number];
+    featureCount: number;
+    sizeBytes: number;
+    installedAt: string;
+    source: 'phone-upload' | 'url';
+    sourceUrl?: string;
+}
+
+/**
+ * Install a chart on the Pi by URL. Pi downloads from the URL,
+ * runs through the same GDAL conversion pipeline as a phone
+ * upload, and persists every successfully-converted cell to its
+ * chart store.
+ *
+ * The flow is identical to importEncCell from the polling
+ * standpoint — same job/poll/result endpoints — so we share the
+ * progress + result-handling code.
+ */
+export async function installEncFromUrl(
+    url: string,
+    filename: string | undefined,
+    onProgress?: (p: EncImportProgress) => void,
+): Promise<EncImportSummary> {
+    const emit = (p: EncImportProgress): void => {
+        try {
+            onProgress?.(p);
+        } catch (err) {
+            log.warn('progress callback threw', err);
+        }
+    };
+
+    if (!piCache.isAvailable()) {
+        const error = 'Pi cache not reachable. Connect to your boat WiFi and try again.';
+        emit({ phase: 'error', progress: 0, error });
+        throw new Error(error);
+    }
+
+    const piBase = piCache.baseUrl;
+
+    emit({ phase: 'uploading', progress: 0.05, step: 'asking Pi to download chart' });
+
+    let jobId: string;
+    try {
+        const res = await CapacitorHttp.post({
+            url: `${piBase}/api/enc/install-from-url`,
+            headers: { 'Content-Type': 'application/json' },
+            data: JSON.stringify({ url, filename }),
+            connectTimeout: 5000,
+            readTimeout: 15000,
+        });
+        if (res.status < 200 || res.status >= 300) {
+            const detail =
+                typeof res.data === 'object' && res.data && 'error' in res.data
+                    ? (res.data as { error?: string }).error
+                    : `HTTP ${res.status}`;
+            throw new Error(`Pi rejected install request: ${detail}`);
+        }
+        const data = res.data as { jobId?: string } | undefined;
+        if (!data || typeof data.jobId !== 'string') throw new Error('Pi did not return a job ID');
+        jobId = data.jobId;
+        log.info(`[InstallFromUrl] Pi accepted — jobId=${jobId}`);
+    } catch (err) {
+        const error = err instanceof Error ? err.message : String(err);
+        emit({ phase: 'error', progress: 0, error });
+        throw new Error(error);
+    }
+
+    // Drain the existing poll/fetch/persist pipeline. We reuse
+    // pollAndFetchAndStore so the URL-install path and the upload
+    // path share progress UX + skipped-cells handling identically.
+    return pollAndFetchAndStore(piBase, jobId, emit);
+}
+
+/**
+ * Pull every Pi-installed cell that isn't already on the device.
+ * Used by the "Sync from Pi" button and on first launch when the
+ * phone has localStorage cleared but the Pi still holds charts.
+ *
+ * For each cell:
+ *   1. If already in device localStorage and edition matches: skip.
+ *   2. Otherwise GET /api/enc/installed/:cellId/data and run
+ *      EncHazardService.importCell on the result.
+ */
+export async function syncEncFromPi(onProgress?: (p: EncImportProgress) => void): Promise<EncImportSummary> {
+    const emit = (p: EncImportProgress): void => {
+        try {
+            onProgress?.(p);
+        } catch (err) {
+            log.warn('progress callback threw', err);
+        }
+    };
+
+    if (!piCache.isAvailable()) {
+        const error = 'Pi cache not reachable. Connect to your boat WiFi and try again.';
+        emit({ phase: 'error', progress: 0, error });
+        throw new Error(error);
+    }
+
+    const piBase = piCache.baseUrl;
+    emit({ phase: 'fetching', progress: 0.05, step: 'asking Pi for installed charts' });
+
+    let installed: PiInstalledCell[];
+    try {
+        const res = await CapacitorHttp.get({
+            url: `${piBase}/api/enc/installed`,
+            connectTimeout: 5000,
+            readTimeout: 10000,
+            responseType: 'json',
+        });
+        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status}`);
+        installed = ((res.data as { cells?: PiInstalledCell[] })?.cells ?? []) as PiInstalledCell[];
+    } catch (err) {
+        const error = `Failed to list Pi charts: ${err instanceof Error ? err.message : String(err)}`;
+        emit({ phase: 'error', progress: 0, error });
+        throw new Error(error);
+    }
+
+    if (installed.length === 0) {
+        emit({ phase: 'done', progress: 1, step: 'Pi has no charts installed' });
+        return { cells: [], skipped: [] };
+    }
+
+    // Skip cells we already have locally at the same edition.
+    const localCellIds = new Set(EncHazardService.getCoverage().map((c) => `${c.id}@${c.edition}`));
+    const toFetch = installed.filter((c) => !localCellIds.has(`${c.cellId}@${c.edition}`));
+
+    if (toFetch.length === 0) {
+        emit({
+            phase: 'done',
+            progress: 1,
+            step: `already in sync (${installed.length} cells)`,
+            cellCount: installed.length,
+            cellsDone: installed.length,
+        });
+        return { cells: [], skipped: [] };
+    }
+
+    const persisted: EncCell[] = [];
+    const skipped: EncImportSkipped[] = [];
+
+    for (let i = 0; i < toFetch.length; i++) {
+        const remote = toFetch[i];
+        emit({
+            phase: 'fetching',
+            progress: 0.1 + ((i + 1) / toFetch.length) * 0.85,
+            step: `pulling ${remote.cellId} (${i + 1}/${toFetch.length})`,
+            cellCount: toFetch.length,
+            cellsDone: i,
+            cellId: remote.cellId,
+            bbox: remote.bbox,
+        });
+        try {
+            const res = await CapacitorHttp.get({
+                url: `${piBase}/api/enc/installed/${encodeURIComponent(remote.cellId)}/data`,
+                connectTimeout: 10000,
+                readTimeout: 120000,
+                responseType: 'json',
+            });
+            if (res.status < 200 || res.status >= 300) {
+                throw new Error(`HTTP ${res.status} fetching cell data`);
+            }
+            const blob = res.data as EncConversionBatch;
+            if (!blob || !Array.isArray(blob.cells) || blob.cells.length === 0) {
+                throw new Error('Pi returned malformed cell data');
+            }
+            // Each Pi cell file holds one cell, but the wire format
+            // is the {cells: [...]} envelope so a future multi-cell
+            // bundle would also work.
+            for (const conversion of blob.cells) {
+                const cell = await EncHazardService.importCell(conversion);
+                persisted.push(cell);
+            }
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log.warn(`[SyncFromPi] cell ${remote.cellId} failed`, err);
+            skipped.push({ filename: remote.cellId, error: msg });
+        }
+    }
+
+    emit({
+        phase: 'done',
+        progress: 1,
+        step:
+            persisted.length === 1
+                ? `synced ${persisted[0].id}`
+                : `synced ${persisted.length} cells${skipped.length > 0 ? `, ${skipped.length} skipped` : ''}`,
+        cellCount: toFetch.length,
+        cellsDone: persisted.length,
+    });
+    return { cells: persisted, skipped };
+}
+
+/**
+ * Pi-side: ask the Pi which charts it has installed. Cheap call,
+ * just metadata; safe to use for "is there anything to sync?"
+ * checks.
+ */
+export async function listPiInstalledCharts(): Promise<PiInstalledCell[]> {
+    if (!piCache.isAvailable()) return [];
+    try {
+        const res = await CapacitorHttp.get({
+            url: `${piCache.baseUrl}/api/enc/installed`,
+            connectTimeout: 3000,
+            readTimeout: 5000,
+            responseType: 'json',
+        });
+        if (res.status < 200 || res.status >= 300) return [];
+        return ((res.data as { cells?: PiInstalledCell[] })?.cells ?? []) as PiInstalledCell[];
+    } catch (err) {
+        log.warn('listPiInstalledCharts failed', err);
+        return [];
+    }
+}
+
+/**
+ * Internal helper shared by `importEncCell` and `installEncFromUrl`.
+ * Polls a job until done, fetches the result, and writes each cell
+ * into EncHazardService.
+ */
+interface PiJobStatus {
+    status: string;
+    progress?: number;
+    step?: string;
+    error?: string;
+    cellId?: string;
+    bbox?: [number, number, number, number];
+    cellCount?: number;
+    cellsDone?: number;
+}
+
+async function pollAndFetchAndStore(
+    piBase: string,
+    jobId: string,
+    emit: (p: EncImportProgress) => void,
+): Promise<EncImportSummary> {
+    let lastJobState: PiJobStatus | null = null;
+
     for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-
         let res;
         try {
             res = await CapacitorHttp.get({
@@ -291,37 +535,19 @@ export async function importEncCell(
                 readTimeout: 10000,
             });
         } catch (err) {
-            // Transient network blip — keep trying for a few cycles
-            // before giving up.
-            log.warn(`[Import] Poll attempt ${attempt} failed`, err);
+            log.warn(`[Poll] attempt ${attempt} failed`, err);
             continue;
         }
-
         if (res.status === 404) {
             const error = 'Pi lost the conversion job (server may have restarted)';
             emit({ phase: 'error', progress: 0, error });
             throw new Error(error);
         }
-        if (res.status < 200 || res.status >= 300) {
-            log.warn(`[Import] Poll returned HTTP ${res.status}`);
-            continue;
-        }
-
-        const job = res.data as {
-            status: string;
-            progress?: number;
-            step?: string;
-            error?: string;
-            cellId?: string;
-            bbox?: [number, number, number, number];
-            cellCount?: number;
-            cellsDone?: number;
-        };
+        if (res.status < 200 || res.status >= 300) continue;
+        const job = res.data as PiJobStatus | null;
+        if (!job) continue;
         lastJobState = job;
-
         if (job.status === 'done') {
-            // Map Pi-side progress (which goes 0..1 over the whole
-            // conversion) into our 0.15..0.85 device-side window.
             emit({
                 phase: 'fetching',
                 progress: 0.85,
@@ -338,11 +564,10 @@ export async function importEncCell(
             emit({ phase: 'error', progress: 0, error });
             throw new Error(error);
         }
-
         const piProgress = typeof job.progress === 'number' ? job.progress : 0;
         emit({
             phase: 'converting',
-            progress: 0.15 + piProgress * 0.7,
+            progress: 0.05 + piProgress * 0.8,
             step: job.step ?? `Pi: ${job.status}`,
             cellId: job.cellId,
             bbox: job.bbox,
@@ -357,44 +582,28 @@ export async function importEncCell(
         throw new Error(error);
     }
 
-    // ── 4. Fetch the converted blob ───────────────────────────────
     let batch: EncConversionBatch;
     try {
         const res = await CapacitorHttp.get({
             url: `${piBase}/api/enc/result/${jobId}`,
             connectTimeout: 10000,
-            readTimeout: 180000, // 3 min for very large multi-cell ZIPs
+            readTimeout: 180000,
             responseType: 'json',
         });
-        if (res.status < 200 || res.status >= 300) {
-            throw new Error(`HTTP ${res.status} fetching result`);
-        }
+        if (res.status < 200 || res.status >= 300) throw new Error(`HTTP ${res.status} fetching result`);
         const raw = res.data as EncConversionBatch | EncConversionResult;
-        // Backward compat: older Pi versions return a single result object,
-        // new ones return a `{cells, skipped?}` envelope. Coerce.
-        if ('cells' in raw && Array.isArray(raw.cells)) {
-            batch = raw;
-        } else if ('cellId' in raw) {
-            batch = { cells: [raw as EncConversionResult] };
-        } else {
-            throw new Error('Pi returned malformed conversion result');
-        }
-        if (batch.cells.length === 0) {
-            throw new Error('Pi returned an empty cell list');
-        }
-        log.info(
-            `[Import] Fetched ${batch.cells.length} cell(s)${batch.skipped?.length ? `, ${batch.skipped.length} skipped` : ''}`,
-        );
+        if ('cells' in raw && Array.isArray(raw.cells)) batch = raw;
+        else if ('cellId' in raw) batch = { cells: [raw as EncConversionResult] };
+        else throw new Error('Pi returned malformed conversion result');
+        if (batch.cells.length === 0) throw new Error('Pi returned an empty cell list');
     } catch (err) {
         const error = err instanceof Error ? err.message : String(err);
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
     }
 
-    // ── 5. Persist on device — one cell at a time ─────────────────
     const persisted: EncCell[] = [];
     const persistFailures: EncImportSkipped[] = [];
-
     for (let i = 0; i < batch.cells.length; i++) {
         const conversion = batch.cells[i];
         emit({
@@ -410,18 +619,15 @@ export async function importEncCell(
             persisted.push(cell);
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
-            log.warn(`[Import] persist failed for cell ${conversion.cellId}`, err);
             persistFailures.push({ filename: conversion.cellId, error: msg });
         }
     }
-
     if (persisted.length === 0) {
         const error = 'All cells failed to save on device';
         emit({ phase: 'error', progress: 0, error });
         throw new Error(error);
     }
 
-    // ── 6. Best-effort: ask Pi to clean up its temp files ─────────
     void CapacitorHttp.delete({ url: `${piBase}/api/enc/jobs/${jobId}` }).catch(() => {});
 
     const skipped: EncImportSkipped[] = [...(batch.skipped ?? []), ...persistFailures];
@@ -437,8 +643,6 @@ export async function importEncCell(
         cellCount: batch.cells.length,
         cellsDone: persisted.length,
     });
-    log.info(`[Import] ✓ ${persisted.length} cell(s) imported${skipped.length ? ` (${skipped.length} skipped)` : ''}`);
-
     return { cells: persisted, skipped };
 }
 
