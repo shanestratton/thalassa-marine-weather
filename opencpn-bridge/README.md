@@ -120,7 +120,64 @@ GeoJSON FeatureCollection with one `Feature` per S-57 object:
 }
 ```
 
-## Build (macOS)
+## Production deployment: on the Pi
+
+The boat Pi is the real target — it's where the dongle lives offshore.
+Mac is for development verification only (the Mac doesn't go sailing).
+
+### Build on the Pi
+
+```bash
+cd /opt/thalassa-pi-cache/opencpn-bridge   # or wherever the repo lives
+sudo ./build-pi.sh
+```
+
+The script installs build deps via apt (cmake, build-essential,
+libwxgtk3.2-dev), clones OpenCPN source for the plugin SDK headers,
+fetches cpp-httplib, builds, and installs the plugin to
+`~/.opencpn/plugins/lib/`. ~5 minutes on Pi 5, mostly the OpenCPN
+source clone.
+
+### The o-charts plugin must also be on the Pi
+
+The Thalassa Bridge plugin doesn't decrypt charts — it asks OpenCPN's
+already-decrypted feature catalog for the data. So you also need
+**o-charts plugin (`oesenc_pi`) installed on the same Pi**, otherwise
+there's nothing for us to bridge.
+
+OpenCPN's master plugin catalogue may not include an arm64 build of
+oesenc_pi (we found this earlier — that's why we did the spike on Mac).
+You have to grab the .deb directly from o-charts.org:
+
+1. Go to https://o-charts.org/shop2/en/ → log in with your dongle
+2. Download section → look for "OpenCPN plugin for Linux ARM64
+   (Raspberry Pi)"
+3. `sudo dpkg -i ocharts_pi_X.X-X_arm64.deb` on the Pi
+4. Restart OpenCPN — `oesenc_pi` should appear in the plugin list
+
+Activate it once with the dongle plugged into the Pi USB.
+
+If o-charts.org doesn't ship an arm64 build for Pi 5: the bridge
+plugin still works, but you'd need OpenCPN+o-charts on a separate
+machine (e.g. a small x86 NUC also on the boat, or a laptop you bring
+aboard) and the bridge plugin runs on THAT machine, exposing port 3002
+on the LAN. Pi-cache discovers it via mDNS or explicit host config.
+
+### Once both plugins are loaded
+
+OpenCPN starts → both plugins init → Thalassa Bridge HTTP server is up.
+Pi-cache (also on the Pi, on a different port) calls
+`http://localhost:3002/features` to extract chart data.
+
+You don't need to keep OpenCPN's GUI visible — it can run minimized
+or even headless via `xvfb-run` if you want it as a background
+service. The HTTP endpoint stays responsive either way.
+
+## Build (macOS — spike verification only)
+
+Use this if you want to verify the plugin code works before deploying
+to the Pi. The build artifact (`libthalassa_bridge_pi.dylib`) only
+runs on macOS; the Pi needs `build-pi.sh` to produce a `.so`.
 
 Prerequisites:
 
