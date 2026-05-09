@@ -54,12 +54,18 @@ std::string FeatureExtractor::Extract(const double bbox[4],
 
     bool first = true;
 
-    // ── MOCK: synthesize one DEPARE polygon spanning the bbox ──
+    // ── MOCK: synthesize a few features so pi-cache integration ──
+    // ── can prove its plumbing against a realistic response ────
     //
     // Real implementation will iterate OpenCPN's chart objects.
-    // For now we emit a polygon shaped like the bbox so pi-cache
-    // can wire up against the response shape.
-    if (IsRequested(layers, "DEPARE")) {
+    // For now we emit one polygon per requested polygon-typed layer
+    // so the GeoJSON shape covers the routing-essential set
+    // (DEPARE/DRGARE/LNDARE) and the descriptive set
+    // (SEAARE/ADMARE/HRBARE/CTNARE/RESARE/PRCARE).
+
+    auto emit_polygon = [&](const std::string& layer,
+                            const std::string& extra_props) {
+        if (!IsRequested(layers, layer)) return;
         if (!first) out << ',';
         first = false;
         out << R"({"type":"Feature",)"
@@ -70,9 +76,24 @@ std::string FeatureExtractor::Extract(const double bbox[4],
             << '[' << bbox[0] << ',' << bbox[3] << "],"
             << '[' << bbox[0] << ',' << bbox[1] << ']'
             << "]]},"
-            << R"("properties":{"_layer":"DEPARE","_cellId":"MOCK",)"
-            << R"("_mock":true,"DRVAL1":10.0,"DRVAL2":20.0}})";
-    }
+            << R"("properties":{"_layer":")" << layer << R"(",)"
+            << R"("_cellId":"MOCK","_mock":true)"
+            << (extra_props.empty() ? "" : "," + extra_props)
+            << "}}";
+    };
+
+    // Routing-essential
+    emit_polygon("DEPARE", R"("DRVAL1":10.0,"DRVAL2":20.0)");
+    emit_polygon("DRGARE",
+                 R"("DRVAL1":14.0,"QUASOU":1,"OBJNAM":"Mock Channel")");
+    emit_polygon("LNDARE", "");
+
+    // Descriptive
+    emit_polygon("SEAARE", R"("OBJNAM":"Mock Reach","CATSEA":1)");
+    emit_polygon("ADMARE", R"("OBJNAM":"Mock Port Limits","NATION":"AU")");
+    emit_polygon("HRBARE", R"("OBJNAM":"Mock Harbour")");
+    emit_polygon("CTNARE",
+                 R"("INFORM":"Contact VTS on Ch 12 prior to entering")");
 
     out << "]}";
     return out.str();

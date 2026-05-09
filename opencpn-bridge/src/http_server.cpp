@@ -78,13 +78,34 @@ HttpServer::HttpServer(std::string host, int port, FeatureExtractor* extractor)
             return;
         }
 
-        // Optional: layers. Default to the routing-relevant set.
+        // Optional: layers. Default covers two purposes:
+        //
+        //   Routing-essential (drive the inshore A* graph):
+        //     DEPARE, DRGARE, LNDARE, OBSTRN, WRECKS, UWTROC
+        //
+        //   Descriptive (route narration + advisories):
+        //     SEAARE  (named water bodies — "Inner Bar Reach")
+        //     ADMARE  (admin areas — "Brisbane Port limits")
+        //     HRBARE  (harbour boundaries)
+        //     CTNARE  (caution areas — "VTS contact required")
+        //     RESARE  (restricted — no-anchor / military / marine park)
+        //     PRCARE  (precautionary — heavy traffic zones)
+        //
+        // The plugin returns whatever the caller requests; this is
+        // just what we'd default to if no explicit list is given.
+        // pi-cache calls with the routing-essential set; future UI
+        // surfaces (route description, jurisdiction badge) call with
+        // the descriptive layers separately.
         std::vector<std::string> layers;
         if (req.has_param("layers")) {
             layers = ParseLayerList(req.get_param_value("layers"));
         } else {
-            layers = {"DEPARE", "DRGARE", "LNDARE",
-                      "OBSTRN", "WRECKS", "UWTROC"};
+            layers = {
+                // Routing-essential
+                "DEPARE", "DRGARE", "LNDARE", "OBSTRN", "WRECKS", "UWTROC",
+                // Descriptive
+                "SEAARE", "ADMARE", "HRBARE", "CTNARE", "RESARE", "PRCARE",
+            };
         }
 
         const std::string geojson = extractor->Extract(bbox, layers);
