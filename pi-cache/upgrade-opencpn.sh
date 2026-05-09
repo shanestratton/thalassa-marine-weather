@@ -125,14 +125,38 @@ EOF
 echo -e "  ${GREEN}✓${NC} PPA source added at ${PPA_LIST}"
 
 # ── Update + install ────────────────────────────────────────────────
+#
+# apt-get update returns non-zero if ANY configured repo fails, which
+# breaks naive `if ! ...; then exit; fi` — common on Pi setups where
+# unrelated third-party repos (comitup, OpenPlotter, etc.) have stale
+# keys. We instead:
+#   1. Run apt-get update (don't bail on unrelated failures)
+#   2. Verify specifically that the OpenCPN PPA's index file exists
+#   3. Only fail if WE failed; warn-and-continue if the failure was
+#      another repo
+#
+# This way the user can have ten broken third-party repos and we
+# still install OpenCPN successfully.
 echo -e "  Updating apt cache..."
 APT_UPDATE_LOG="/tmp/upgrade-opencpn-apt.log"
-if ! apt-get update >"$APT_UPDATE_LOG" 2>&1; then
-    echo -e "${RED}  ✗ apt update failed:${NC}"
-    tail -15 "$APT_UPDATE_LOG" | sed 's/^/    /'
+apt-get update >"$APT_UPDATE_LOG" 2>&1 || true
+
+# Check specifically that OpenCPN's package index landed.
+OPENCPN_INDEX="/var/lib/apt/lists/ppa.launchpadcontent.net_opencpn_opencpn_ubuntu_dists_jammy_InRelease"
+if [[ ! -f "$OPENCPN_INDEX" ]]; then
+    echo -e "${RED}  ✗ OpenCPN PPA index not fetched. apt-update output:${NC}"
+    tail -25 "$APT_UPDATE_LOG" | sed 's/^/    /'
     exit 1
 fi
-echo -e "  ${GREEN}✓${NC} Apt cache updated"
+
+# Warn (but don't fail) about unrelated repos that broke during update.
+OTHER_FAILS=$(grep -E "^Err:" "$APT_UPDATE_LOG" | grep -v "ppa.launchpadcontent.net/opencpn" || true)
+if [[ -n "$OTHER_FAILS" ]]; then
+    echo -e "  ${YELLOW}!${NC} Unrelated repo errors (won't block OpenCPN install):"
+    echo "$OTHER_FAILS" | sed 's/^/    /'
+fi
+
+echo -e "  ${GREEN}✓${NC} OpenCPN PPA cache present"
 
 echo -e "  Installing/upgrading OpenCPN..."
 INSTALL_LOG="/tmp/upgrade-opencpn-install.log"
