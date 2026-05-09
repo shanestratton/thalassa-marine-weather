@@ -80,17 +80,23 @@ chmod +x "$REAL_HOME/.vnc/xstartup"
 chown -R "${REAL_USER}:${REAL_USER}" "$REAL_HOME/.vnc"
 
 # ── VNC password ──
-# vncpasswd is interactive. We can't automate without security risk,
-# so we leave this as a one-time manual step for the user.
+# Set a default password non-interactively via vncpasswd -f, which
+# reads from stdin and writes the encoded password to stdout. The
+# previous "interactive vncpasswd" approach failed under curl|sudo
+# bash because stdin is the pipe, not a TTY — vncpasswd printed
+# "Password not changed" and the script bailed silently.
+#
+# Default password is "thalassa". User can change it later with
+# `vncpasswd` from a real shell. Security is fine — VNC is bound
+# to localhost (see -localhost yes below), only reachable via SSH
+# tunnel, so the password is mostly belt-and-braces anyway.
 PASSWD_FILE="$REAL_HOME/.vnc/passwd"
+DEFAULT_VNC_PASSWORD="thalassa"
 if [[ ! -f "$PASSWD_FILE" ]]; then
-    echo ""
-    echo -e "${YELLOW}  Setting up VNC password (one-time, interactive)${NC}"
-    echo -e "  Pick anything — doesn't need to be strong, VNC is bound to localhost"
-    echo -e "  and reached over your existing SSH tunnel."
-    echo ""
-    sudo -u "$REAL_USER" vncpasswd
-    echo ""
+    echo "$DEFAULT_VNC_PASSWORD" | vncpasswd -f > "$PASSWD_FILE"
+    chmod 600 "$PASSWD_FILE"
+    chown "${REAL_USER}:${REAL_USER}" "$PASSWD_FILE"
+    echo -e "  ${GREEN}✓${NC} VNC password set to: ${BOLD}${DEFAULT_VNC_PASSWORD}${NC} (change with: vncpasswd)"
 fi
 
 # ── Firewall — VNC bound to localhost ──
