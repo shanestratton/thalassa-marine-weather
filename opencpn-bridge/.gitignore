@@ -1,0 +1,14 @@
+# Build artifacts
+build/
+
+# Vendored single-header library, fetched by build-mac.sh
+third_party/httplib.h
+
+# CMake junk
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.o
+*.dylib
+*.so
