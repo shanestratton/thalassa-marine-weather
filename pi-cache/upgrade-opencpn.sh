@@ -115,11 +115,34 @@ chmod 644 "$PPA_KEY"
 KEY_BLOCKS=$(grep -c "BEGIN PGP PUBLIC KEY BLOCK" "$PPA_KEY")
 echo -e "  ${GREEN}✓${NC} PPA key file written (${KEY_BLOCKS} key blocks, $(stat -c%s "$PPA_KEY") bytes)"
 
-# Use Ubuntu jammy (22.04) — OpenCPN PPA's most-aligned build for
-# Debian Bookworm/Trixie. Noble (24.04) sometimes has libwxgtk
-# version conflicts on Pi OS; jammy is safer.
+# Pick the Ubuntu codename that matches the host OS's library
+# naming. The big switch-point is the t64 transition (time_t became
+# 64-bit on 32-bit architectures, and many libraries got renamed
+# with a `t64` suffix to avoid ABI mixing).
+#
+#   - Ubuntu jammy (22.04) and earlier: pre-t64. Has libshp2,
+#     libunarr1 etc. without the t64 suffix.
+#   - Ubuntu noble (24.04) and later: post-t64. Has libshp2t64,
+#     libunarr1t64.
+#   - Debian bookworm (12): pre-t64.
+#   - Debian trixie (13): post-t64.
+#
+# So bookworm matches jammy, trixie matches noble. We detect
+# which Debian we're on and pick the right codename.
+DEBIAN_CODENAME=$(. /etc/os-release; echo "${VERSION_CODENAME:-${ID_VERSION:-unknown}}")
+case "$DEBIAN_CODENAME" in
+    trixie|forky|sid)
+        PPA_CODENAME="noble"
+        echo -e "  Detected Debian ${DEBIAN_CODENAME} (post-t64) — using noble PPA"
+        ;;
+    bookworm|*)
+        PPA_CODENAME="jammy"
+        echo -e "  Detected Debian ${DEBIAN_CODENAME} (pre-t64) — using jammy PPA"
+        ;;
+esac
+
 cat > "$PPA_LIST" <<EOF
-deb [signed-by=${PPA_KEY}] https://ppa.launchpadcontent.net/opencpn/opencpn/ubuntu jammy main
+deb [signed-by=${PPA_KEY}] https://ppa.launchpadcontent.net/opencpn/opencpn/ubuntu ${PPA_CODENAME} main
 EOF
 
 echo -e "  ${GREEN}✓${NC} PPA source added at ${PPA_LIST}"
@@ -141,8 +164,9 @@ echo -e "  Updating apt cache..."
 APT_UPDATE_LOG="/tmp/upgrade-opencpn-apt.log"
 apt-get update >"$APT_UPDATE_LOG" 2>&1 || true
 
-# Check specifically that OpenCPN's package index landed.
-OPENCPN_INDEX="/var/lib/apt/lists/ppa.launchpadcontent.net_opencpn_opencpn_ubuntu_dists_jammy_InRelease"
+# Check specifically that OpenCPN's package index landed (path
+# depends on which Ubuntu codename we picked above).
+OPENCPN_INDEX="/var/lib/apt/lists/ppa.launchpadcontent.net_opencpn_opencpn_ubuntu_dists_${PPA_CODENAME}_InRelease"
 if [[ ! -f "$OPENCPN_INDEX" ]]; then
     echo -e "${RED}  ✗ OpenCPN PPA index not fetched. apt-update output:${NC}"
     tail -25 "$APT_UPDATE_LOG" | sed 's/^/    /'
