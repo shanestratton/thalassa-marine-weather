@@ -194,11 +194,34 @@ echo -e "  ${GREEN}✓${NC} OpenCPN PPA cache present"
 if [[ "$DEBIAN_CODENAME" == "trixie" || "$DEBIAN_CODENAME" == "forky" ]]; then
     if ! dpkg -s libunarr1 &>/dev/null; then
         echo -e "  Pulling libunarr1 from Bookworm archive (missing in Trixie)..."
-        UNARR_URL="http://deb.debian.org/debian/pool/main/u/unarr/libunarr1_1.1.0-2.1_arm64.deb"
+
+        # Query Bookworm's package index to find the actual current
+        # filename — the version-pinned URL changes when Debian
+        # releases a security/bugfix update.
+        BOOKWORM_PKGS_URL="http://deb.debian.org/debian/dists/bookworm/main/binary-arm64/Packages.gz"
+        UNARR_RELPATH=$(
+            curl -fsSL --max-time 60 "$BOOKWORM_PKGS_URL" \
+                | gunzip 2>/dev/null \
+                | awk '
+                    /^Package: libunarr1$/ { found=1; next }
+                    /^Package:/ && found { exit }
+                    found && /^Filename:/ { print $2; exit }
+                ' || true
+        )
+
+        if [[ -z "$UNARR_RELPATH" ]]; then
+            echo -e "${RED}  ✗ Could not find libunarr1 in Bookworm Packages index.${NC}"
+            echo -e "    Fetched: ${BOOKWORM_PKGS_URL}"
+            echo -e "    The package may have been removed or renamed."
+            exit 1
+        fi
+
+        UNARR_URL="http://deb.debian.org/debian/${UNARR_RELPATH}"
         UNARR_DEB="/tmp/libunarr1_bookworm.deb"
+        echo -e "    Resolved: ${UNARR_URL}"
+
         if ! curl -fsSL --max-time 60 "$UNARR_URL" -o "$UNARR_DEB"; then
-            echo -e "${RED}  ✗ Failed to download libunarr1 from Bookworm.${NC}"
-            echo -e "    URL: ${UNARR_URL}"
+            echo -e "${RED}  ✗ Failed to download libunarr1.${NC}"
             exit 1
         fi
         if ! dpkg -i "$UNARR_DEB" >/tmp/libunarr1-install.log 2>&1; then
