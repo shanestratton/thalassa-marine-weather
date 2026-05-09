@@ -37,13 +37,27 @@ echo -e "  Service user: ${BOLD}${REAL_USER}${NC}"
 # ── Install OpenCPN + minimal desktop + VNC ──
 # openbox = lightweight window manager (10MB), no full Xfce/GNOME bloat.
 # xterm = needed inside the VNC session to launch opencpn.
+#
+# Output is captured to a log file so silent failures (which bit us
+# during the Phase 13 install.sh debugging session) are visible. We
+# also keep packages to a minimum core — opencpn-doc / opencpn-data
+# don't exist as separate packages on Pi OS Bookworm; opencpn alone
+# pulls in everything it needs.
 echo -e "  Installing OpenCPN, openbox, xterm, TigerVNC..."
-apt-get update -qq >/dev/null 2>&1
-apt-get install -y \
-    opencpn opencpn-data opencpn-doc \
-    tigervnc-standalone-server tigervnc-common \
-    openbox xterm dbus-x11 \
-    >/dev/null 2>&1
+INSTALL_LOG="/tmp/setup-opencpn.log"
+{
+    apt-get update
+    apt-get install -y \
+        opencpn \
+        tigervnc-standalone-server tigervnc-common \
+        openbox xterm dbus-x11
+} >"$INSTALL_LOG" 2>&1 || {
+    echo -e "  ${RED}✗${NC} Install failed. Last 30 lines:"
+    tail -30 "$INSTALL_LOG" | sed 's/^/    /'
+    echo ""
+    echo -e "  ${RED}Aborting.${NC} Full log: $INSTALL_LOG"
+    exit 1
+}
 echo -e "  ${GREEN}✓${NC} Installed"
 
 # ── Set up VNC config for the real user ──
