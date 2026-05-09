@@ -64,8 +64,41 @@ Sanity check. Returns `{"status":"ok","plugin":"thalassa-bridge","version":"0.1.
 ### `GET /features?bbox=minLon,minLat,maxLon,maxLat&layers=DEPARE,LNDARE,...`
 
 Returns all S-57 features in the given bbox, filtered by the requested
-layer types. Output is GeoJSON FeatureCollection with one `Feature`
-per S-57 object:
+layer types. The `layers` param is optional — if omitted, the plugin
+returns the default set listed below.
+
+#### Supported layers
+
+The plugin doesn't whitelist — it returns whatever you ask for if
+OpenCPN's catalog has it. These are the ones we've designed for:
+
+**Routing-essential** (consumed by the Phase 13 inshore router):
+
+| Code     | S-57 name       | Why it matters                                             |
+| -------- | --------------- | ---------------------------------------------------------- |
+| `DEPARE` | Depth area      | Polygon w/ DRVAL1/DRVAL2 — channel depth bands             |
+| `DRGARE` | Dredged area    | Maintained-depth channels (more authoritative than DEPARE) |
+| `LNDARE` | Land area       | Hard navigation block                                      |
+| `OBSTRN` | Obstruction     | Wrecks/structures with VALSOU                              |
+| `WRECKS` | Wreck           | Sunken vessels with VALSOU when known                      |
+| `UWTROC` | Underwater rock | Always blocked, no exceptions                              |
+
+**Descriptive** (route narration, jurisdiction info, advisories):
+
+| Code     | S-57 name                   | What we use it for                                     |
+| -------- | --------------------------- | ------------------------------------------------------ |
+| `SEAARE` | Sea area / named water body | "Inner Bar Reach", "Moreton Bay" — route segment names |
+| `ADMARE` | Administrative area         | Territorial waters, EEZ, port limits                   |
+| `HRBARE` | Harbour area                | "Entering Brisbane Port"                               |
+| `CTNARE` | Caution area                | "VTS contact required on Ch 12"                        |
+| `RESARE` | Restricted area             | No-anchor / military / marine park boundaries          |
+| `PRCARE` | Precautionary area          | High-traffic zones — "expect commercial traffic"       |
+
+**Default** (when `layers` param is omitted): all of the above.
+
+#### Output shape
+
+GeoJSON FeatureCollection with one `Feature` per S-57 object:
 
 ```json
 {
