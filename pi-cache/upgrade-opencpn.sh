@@ -53,32 +53,45 @@ PPA_KEY="/etc/apt/trusted.gpg.d/opencpn.gpg"
 
 echo -e "  Adding OpenCPN PPA..."
 
-# The PPA's GPG signing key — fingerprint published on launchpad.net
-PPA_KEY_FINGERPRINT="C0E27FE253D4FF6E55CD34E32F28EFEF67993D08"
-if [[ ! -f "$PPA_KEY" ]]; then
-    UPGRADE_LOG="/tmp/upgrade-opencpn.log"
-    {
-        # Pull the key from the Ubuntu keyserver and dearmor to the trusted
-        # keys dir — modern Debian/Ubuntu pattern, no apt-key (deprecated).
-        gpg --keyserver keyserver.ubuntu.com \
-            --recv-keys "$PPA_KEY_FINGERPRINT"
-        gpg --export "$PPA_KEY_FINGERPRINT" > "$PPA_KEY"
-    } >"$UPGRADE_LOG" 2>&1 || {
-        echo -e "${RED}  ✗ Failed to fetch PPA signing key.${NC}"
-        echo -e "  Last lines of log:"
-        tail -10 "$UPGRADE_LOG" | sed 's/^/    /'
+# OpenCPN PPA's GPG signing keys. apt told us BOTH are needed:
+# the InRelease file is multi-signed during a key transition.
+# These fingerprints are stable; if they rotate the script will
+# fail at apt update with a clear error showing the new ones,
+# which is much better than a silent fail.
+PPA_KEYS=(
+    "5F35EA0636CED80D5C6D604DF9066567FF7CB0D5"
+    "116A13C5EDCEAB50DB00229867E4A52AC865EB40"
+)
+
+# Remove any stale key file from a previous (failed) run.
+rm -f "$PPA_KEY"
+
+UPGRADE_LOG="/tmp/upgrade-opencpn.log"
+echo "" > "$UPGRADE_LOG"
+for key in "${PPA_KEYS[@]}"; do
+    if ! gpg --keyserver keyserver.ubuntu.com --recv-keys "$key" >>"$UPGRADE_LOG" 2>&1; then
+        echo -e "${RED}  ✗ Failed to fetch PPA key ${key}.${NC}"
+        tail -15 "$UPGRADE_LOG" | sed 's/^/    /'
         exit 1
-    }
+    fi
+done
+
+# Export both keys into a single file for apt to use.
+if ! gpg --export "${PPA_KEYS[@]}" > "$PPA_KEY" 2>>"$UPGRADE_LOG"; then
+    echo -e "${RED}  ✗ Failed to export PPA keys.${NC}"
+    tail -15 "$UPGRADE_LOG" | sed 's/^/    /'
+    exit 1
 fi
+chmod 644 "$PPA_KEY"
 
 # Use Ubuntu jammy (22.04) — OpenCPN PPA's most-aligned build for
-# Debian Bookworm. Noble (24.04) sometimes has libwxgtk version
-# conflicts on Pi OS; jammy is safer.
+# Debian Bookworm/Trixie. Noble (24.04) sometimes has libwxgtk
+# version conflicts on Pi OS; jammy is safer.
 cat > "$PPA_LIST" <<'PPAEOF'
 deb [signed-by=/etc/apt/trusted.gpg.d/opencpn.gpg] https://ppa.launchpadcontent.net/opencpn/opencpn/ubuntu jammy main
 PPAEOF
 
-echo -e "  ${GREEN}✓${NC} PPA added"
+echo -e "  ${GREEN}✓${NC} PPA added with both signing keys"
 
 # ── Update + install ────────────────────────────────────────────────
 echo -e "  Updating apt cache..."
