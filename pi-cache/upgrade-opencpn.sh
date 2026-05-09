@@ -48,50 +48,81 @@ if [[ "$ARCH" != "arm64" ]] && [[ "$ARCH" != "armhf" ]]; then
 fi
 
 # ── Add the OpenCPN Ubuntu PPA ──────────────────────────────────────
-PPA_LIST="/etc/apt/sources.list.d/opencpn-opencpn.list"
-PPA_KEY="/etc/apt/trusted.gpg.d/opencpn.gpg"
+#
+# Modern Debian Trixie uses sqv (Sequoia) for signature verification,
+# stricter than the older gpgv. The reliable pattern that works
+# across both old and new Debian:
+#   1. Fetch keys directly via HTTPS from the keyserver web API
+#      (gives clear curl error codes, no silent failures)
+#   2. Write to /etc/apt/keyrings/ as ASCII-armored .asc file
+#      (universally accepted by sqv, gpgv, and apt-key)
+#   3. Reference via signed-by= in the sources.list.d entry
+#
+# This replaced an earlier attempt with gpg --recv-keys + gpg --export
+# that was producing a file sqv accepted but reported "Missing key"
+# for. Most likely cause: gpg --recv-keys silently fetched nothing
+# and the export was an empty file. Curl-based fetch fixes that.
+
+PPA_LIST="/etc/apt/sources.list.d/opencpn.list"
+KEYRING_DIR="/etc/apt/keyrings"
+PPA_KEY="${KEYRING_DIR}/opencpn.asc"
 
 echo -e "  Adding OpenCPN PPA..."
 
-# OpenCPN PPA's GPG signing keys. apt told us BOTH are needed:
-# the InRelease file is multi-signed during a key transition.
-# These fingerprints are stable; if they rotate the script will
-# fail at apt update with a clear error showing the new ones,
-# which is much better than a silent fail.
+# OpenCPN PPA signing keys (apt-update told us exactly which ones are
+# needed; the InRelease file is signed by both).
 PPA_KEYS=(
     "5F35EA0636CED80D5C6D604DF9066567FF7CB0D5"
     "116A13C5EDCEAB50DB00229867E4A52AC865EB40"
 )
 
-# Remove any stale key file from a previous (failed) run.
+mkdir -p "$KEYRING_DIR"
+chmod 755 "$KEYRING_DIR"
+
+# Clear any stale state from prior failed runs.
 rm -f "$PPA_KEY"
+rm -f "${KEYRING_DIR}/opencpn.gpg"
+rm -f /etc/apt/trusted.gpg.d/opencpn.gpg
 
 UPGRADE_LOG="/tmp/upgrade-opencpn.log"
 echo "" > "$UPGRADE_LOG"
+
+# Fetch each key as ASCII armor from Ubuntu's HKPS keyserver web API.
+# Concatenate them into a single .asc file (apt accepts multiple
+# armored keys in one file).
 for key in "${PPA_KEYS[@]}"; do
-    if ! gpg --keyserver keyserver.ubuntu.com --recv-keys "$key" >>"$UPGRADE_LOG" 2>&1; then
-        echo -e "${RED}  ✗ Failed to fetch PPA key ${key}.${NC}"
-        tail -15 "$UPGRADE_LOG" | sed 's/^/    /'
+    URL="https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x${key}"
+    echo "Fetching key ${key}..." >> "$UPGRADE_LOG"
+    if ! curl -fsSL --max-time 30 "$URL" >> "$PPA_KEY" 2>>"$UPGRADE_LOG"; then
+        echo -e "${RED}  ✗ Failed to fetch PPA key ${key} from keyserver.${NC}"
+        echo -e "    URL: ${URL}"
+        tail -10 "$UPGRADE_LOG" | sed 's/^/    /'
         exit 1
     fi
+    echo "" >> "$PPA_KEY"
 done
 
-# Export both keys into a single file for apt to use.
-if ! gpg --export "${PPA_KEYS[@]}" > "$PPA_KEY" 2>>"$UPGRADE_LOG"; then
-    echo -e "${RED}  ✗ Failed to export PPA keys.${NC}"
-    tail -15 "$UPGRADE_LOG" | sed 's/^/    /'
+# Sanity: verify the file actually contains armored key data.
+if ! grep -q "BEGIN PGP PUBLIC KEY BLOCK" "$PPA_KEY"; then
+    echo -e "${RED}  ✗ Fetched key file doesn't contain ASCII-armored keys.${NC}"
+    echo -e "    File size: $(stat -c%s "$PPA_KEY" 2>/dev/null || echo "?") bytes"
+    echo -e "    First few lines:"
+    head -5 "$PPA_KEY" | sed 's/^/      /'
     exit 1
 fi
 chmod 644 "$PPA_KEY"
 
+KEY_BLOCKS=$(grep -c "BEGIN PGP PUBLIC KEY BLOCK" "$PPA_KEY")
+echo -e "  ${GREEN}✓${NC} PPA key file written (${KEY_BLOCKS} key blocks, $(stat -c%s "$PPA_KEY") bytes)"
+
 # Use Ubuntu jammy (22.04) — OpenCPN PPA's most-aligned build for
 # Debian Bookworm/Trixie. Noble (24.04) sometimes has libwxgtk
 # version conflicts on Pi OS; jammy is safer.
-cat > "$PPA_LIST" <<'PPAEOF'
-deb [signed-by=/etc/apt/trusted.gpg.d/opencpn.gpg] https://ppa.launchpadcontent.net/opencpn/opencpn/ubuntu jammy main
-PPAEOF
+cat > "$PPA_LIST" <<EOF
+deb [signed-by=${PPA_KEY}] https://ppa.launchpadcontent.net/opencpn/opencpn/ubuntu jammy main
+EOF
 
-echo -e "  ${GREEN}✓${NC} PPA added with both signing keys"
+echo -e "  ${GREEN}✓${NC} PPA source added at ${PPA_LIST}"
 
 # ── Update + install ────────────────────────────────────────────────
 echo -e "  Updating apt cache..."
