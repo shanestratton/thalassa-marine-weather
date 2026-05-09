@@ -1,5 +1,15 @@
 # Phase 14 Spike — OpenCPN feature-query test
 
+> **STATUS: ✅ CONFIRMED — Path 2 is real.** OpenCPN's standard
+> Object Query / feature-catalog API returns full S-57 attribute
+> data when an o-charts encrypted cell is the loaded chart source.
+> Verified 2026-05-09 against AusENC OC-61-10ENB5.oesu (Brisbane)
+> via dongle-activated `oesenc_pi` plugin on macOS OpenCPN 5.14.0.
+> Confirmed layers returning attributes: DEPARE, DRGARE, NAVLNE,
+> RECTRC, TOPMAR, MAGVAR, M_NSYS. DRVAL1/DRVAL2 depth values come
+> through cleanly; OBJNAM, INFORM, QUASOU, TXTDSC, source cell ID
+> all populated. Phase 14b (Thalassa Bridge plugin) is unblocked.
+
 Purpose: determine whether the OpenCPN plugin API exposes vector
 chart features when an o-charts (encrypted oeSENC) chart is the
 loaded chart source. If yes, we can build a Thalassa Bridge plugin
@@ -109,24 +119,54 @@ This is the real spike.
 
 **Three possible outcomes:**
 
-### Outcome A — Full feature data returned
+### Outcome A — Full feature data returned ← **THIS IS WHAT HAPPENED**
 
 You see the same DEPARE / DRVAL1 / etc. fields as on NOAA. The
 o-charts plugin populates OpenCPN's standard feature catalog.
 
-**This means Path 2 is real.** Next steps:
+**Path 2 is real.** What we actually saw on the 2026-05-09 test:
 
-- I scaffold a `thalassa-probe` OpenCPN plugin that calls the
-  same feature-query API programmatically.
-- Probe iterates DEPARE / LNDARE / OBSTRN / WRECKS / UWTROC
-  in a bbox and serializes them as GeoJSON.
-- pi-cache adds a `POST /api/enc/route?via=opencpn` endpoint
-  that asks OpenCPN for features instead of reading from disk.
+- Right-click on any chart feature in Brisbane harbour returned
+  full structured S-57 attributes — same shape as NOAA, just from
+  the dongle-decrypted AusENC cell `OC-61-10ENB5.oesu`.
+- DEPARE polygons returned with depth ranges (e.g. "2 m - 5 m").
+- DRGARE (Dredged Area) returned with maintained depth, OBJNAM
+  ("Swinging Basin"), QUASOU=10 (maintained depth), INFORM, and
+  the linked text-description file.
+- Navigation lines (NAVLNE, RECTRC) returned with bearings,
+  CATTRK / CATNAV / TRAFIC categorical attributes.
+- Topmark (TOPMAR) returned with explicit lat/lon, COLOUR=red,
+  TOPSHP=cylinder.
+- Magnetic variation (MAGVAR) returned with VALMAG and annual
+  change rate.
+
+The data we need for routing — DEPARE, DRGARE, LNDARE, OBSTRN,
+WRECKS, UWTROC with their depth/safety attributes — is all there.
+
+Next steps (Phase 14b onwards):
+
+- Scaffold a `thalassa-bridge` OpenCPN plugin that calls the same
+  feature-query API programmatically.
+- Plugin iterates DEPARE / DRGARE / LNDARE / OBSTRN / WRECKS /
+  UWTROC in a bbox and serializes them as GeoJSON.
+- Plugin exposes a tiny localhost HTTP server (`localhost:3002` or
+  similar) so pi-cache can query without going through the
+  OpenCPN UI.
+- pi-cache adds a `POST /api/enc/route?via=opencpn` endpoint that
+  asks the bridge for features instead of reading from disk.
 - Routing pipeline: unchanged — same A\* on the same shape of
   GeoJSON, just a different decryption path.
 
 Estimate: 2-3 weeks to working build (real plugin development,
 real testing, real packaging).
+
+**Strategic implication:** any user with an o-charts subscription
+(any region: AU, UK, NL, NZ, Caribbean, Pacific, etc.) can plug
+their dongle into the Pi or any always-on machine on the boat LAN
+and Thalassa gets vector routing on every cell they're licensed
+for. No M_KEY, no per-region public-data pipeline (though that
+remains a useful fallback for users without o-charts), no IHO
+licensing fee. Worldwide vector routing through ONE plugin.
 
 ### Outcome B — Empty result / "no information"
 
