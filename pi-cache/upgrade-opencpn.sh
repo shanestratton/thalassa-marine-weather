@@ -182,16 +182,47 @@ fi
 
 echo -e "  ${GREEN}✓${NC} OpenCPN PPA cache present"
 
+# ── Bridging dep: libunarr1 from Debian Bookworm ────────────────────
+#
+# OpenCPN's noble build depends on libunarr1, which Debian removed
+# from Trixie due to upstream maintenance issues. Bookworm still has
+# it. Pull the Bookworm .deb directly and install — it's a tiny
+# self-contained archive-reading library, no further dep cascade.
+#
+# Only needed on Trixie + post-t64 Debian. On bookworm the apt
+# install will find libunarr1 in the standard repos.
+if [[ "$DEBIAN_CODENAME" == "trixie" || "$DEBIAN_CODENAME" == "forky" ]]; then
+    if ! dpkg -s libunarr1 &>/dev/null; then
+        echo -e "  Pulling libunarr1 from Bookworm archive (missing in Trixie)..."
+        UNARR_URL="http://deb.debian.org/debian/pool/main/u/unarr/libunarr1_1.1.0-2.1_arm64.deb"
+        UNARR_DEB="/tmp/libunarr1_bookworm.deb"
+        if ! curl -fsSL --max-time 60 "$UNARR_URL" -o "$UNARR_DEB"; then
+            echo -e "${RED}  ✗ Failed to download libunarr1 from Bookworm.${NC}"
+            echo -e "    URL: ${UNARR_URL}"
+            exit 1
+        fi
+        if ! dpkg -i "$UNARR_DEB" >/tmp/libunarr1-install.log 2>&1; then
+            echo -e "${RED}  ✗ Failed to dpkg install libunarr1:${NC}"
+            tail -10 /tmp/libunarr1-install.log | sed 's/^/    /'
+            exit 1
+        fi
+        echo -e "  ${GREEN}✓${NC} libunarr1 installed from Bookworm"
+    else
+        echo -e "  ${GREEN}✓${NC} libunarr1 already present"
+    fi
+fi
+
 echo -e "  Installing/upgrading OpenCPN..."
 INSTALL_LOG="/tmp/upgrade-opencpn-install.log"
 if ! apt-get install -y opencpn >"$INSTALL_LOG" 2>&1; then
     echo -e "${RED}  ✗ apt install opencpn failed. Last lines:${NC}"
     tail -25 "$INSTALL_LOG" | sed 's/^/    /'
     echo ""
-    echo -e "  ${YELLOW}Common cause:${NC} libwxgtk version conflict between"
-    echo -e "  Debian's default and the PPA. If you see 'unmet dependencies',"
-    echo -e "  try: ${BOLD}sudo apt-get install -y aptitude && sudo aptitude install opencpn${NC}"
-    echo -e "  aptitude is better at resolving complex dep graphs."
+    echo -e "  ${YELLOW}If you see more 'libfoo not installable' errors,${NC} they may"
+    echo -e "  also need pulling from Bookworm. Common Debian Trixie casualties:"
+    echo -e "    - libunarr1 (handled above)"
+    echo -e "    - libwxgtk3.0-gtk3-0v5"
+    echo -e "  Or try: ${BOLD}sudo apt-get install -y aptitude && sudo aptitude install opencpn${NC}"
     exit 1
 fi
 
