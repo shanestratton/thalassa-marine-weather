@@ -1,0 +1,9 @@
+# Downloaded source data (large, fetched on-demand)
+data/
+
+# Generated GeoJSON output
+out/
+
+# Built TypeScript output
+dist/
+node_modules/
