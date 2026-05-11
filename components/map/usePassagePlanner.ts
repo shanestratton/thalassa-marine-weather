@@ -298,13 +298,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // for a 6-NM trip up the Savannah River.
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
-            // Use the configured vessel draft when available — falling
-            // back to 2.5 m only if the user hasn't set one. Same pattern
-            // as useVoyageForm. Hardcoding 2.5 m forces a 2.7 m navigability
-            // cutoff at safetyM=0.2, which re-blocks the 2 m DEPARE band
-            // on GMRT-derived charts and fragments Bramble Bay back into
-            // disconnected components.
-            const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft ?? 2.5;
+            // vessel.draft is stored in FEET in the settings store
+            // (OnboardingWizard converts whatever the user enters to
+            // d_ft before saving — see components/OnboardingWizard.tsx).
+            // tryInshoreRoute / the engine work in metres. A Tayana 55's
+            // 7.87 ft draft becoming 7.87 m means safetyM=0.2 + draft
+            // gives an 8.07 m navigability cutoff, blocking every DEPARE
+            // band below 8 m — which is why Newport→Brisbane kept
+            // failing with destination-disconnected even though the
+            // chart was healthy.
+            const draftFt = useSettingsStore.getState().settings.vessel?.draft;
+            const vesselDraftM = draftFt != null && draftFt > 0 ? draftFt / 3.28084 : 2.5;
             const inshoreRes = await tryInshoreRoute(
                 { lat: departure.lat, lon: departure.lon },
                 { lat: arrival.lat, lon: arrival.lon },
