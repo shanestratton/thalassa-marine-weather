@@ -591,21 +591,34 @@ class MinHeap {
  *   depth >= 10m → 1.00 (baseline — preferred channel)
  *   depth >= 5m  → 1.10 (moderate — fine for most cruisers)
  *   depth >= 0   → 1.30 (shallow but navigable for shallow draft)
- *   depth == 0   → 5.00 (UNKNOWN_OPEN — strong penalty against marsh
- *                        and unsurveyed water)
+ *   depth == 0   → 50.0 (UNKNOWN_OPEN — strong penalty against marsh,
+ *                        sliver gaps, and unsurveyed water)
  *
- * The 5× UNKNOWN_OPEN penalty (was 1.5×) tightens the route to the
- * marked channel: the Savannah test produced a polyline that drifted
- * into marsh areas where DEPARE didn't cover. With 5× cost, A* will
- * accept up to a 5km marked-channel detour to avoid 1km of marsh.
- * Routes through DEPARE-only water look noticeably tighter to the
- * channel after this change.
+ * UNKNOWN_OPEN was 5× originally (compared to 1.5× before that). The
+ * 5× value still wasn't enough at public-data resolutions: ogr2ogr's
+ * polygon simplifier leaves narrow slivers between adjacent simplified
+ * DEPARE polygons, and a 5× penalty was small enough that A* threaded
+ * routes through them — producing paths that visually appeared to
+ * cross "marked-shallow" polygons even though the underlying grid
+ * cells were technically in the gap between bands. Bumped to 50× so
+ * A* will detour up to 50 cells through marked-deep water before
+ * accepting a single unmarked cell.
  */
 function cellCostMultiplier(depth: number): number {
     if (depth >= 10) return 1.0;
     if (depth >= 5) return 1.1;
     if (depth > 0) return 1.3;
-    return 5.0; // UNKNOWN_OPEN — strong penalty against unsurveyed water
+    // UNKNOWN_OPEN — was 5×; bumped to 50× because at public-data
+    // resolutions the simplifier (`ogr2ogr -simplify 0.001`) leaves
+    // narrow slivers between simplified DEPARE polygons. 5× was small
+    // enough that A* threaded routes through those slivers, producing
+    // paths that visually cross "marked-shallow" polygons even though
+    // the underlying grid cells are technically outside any band.
+    // 50× makes A* detour up to 50 cells through marked-deep water
+    // before accepting a single unmarked cell — eliminates sliver
+    // routing while still allowing UNKNOWN_OPEN as a last resort
+    // when a route is bounded entirely by unmarked area.
+    return 50.0;
 }
 
 /**
