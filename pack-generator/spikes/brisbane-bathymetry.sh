@@ -161,22 +161,26 @@ gdal_contour -q \
 
 # ── Simplify polygons for routing performance ──────────────────────
 # The raw contour output has tens of thousands of vertices per
-# MultiPolygon — each pixel boundary becomes a vertex. At 50m
-# routing grid resolution, vertex density much finer than 50m is
-# wasted work for the inshore router's point-in-polygon tests.
+# MultiPolygon — each pixel boundary becomes a vertex. At ~60m
+# source raster resolution, vertex density finer than 60m is just
+# Douglas-Peucker noise — wasted work for the inshore router's
+# point-in-polygon tests.
 #
-# ogr2ogr -simplify with tolerance ~0.0001 degrees (~10m at AU
-# latitudes) cuts vertex count by ~90% with negligible accuracy
-# loss. First Brisbane spike showed 72-second grid build on raw
-# polygons; with simplification it should drop to ~5-10s.
-echo -e "  Simplifying polygons (10m tolerance)..."
+# First attempt used 0.0001° (~10m) which is *finer* than the source
+# pixel, so simplify had nothing to remove (6.6MB output). 0.001°
+# (~110m at AU latitudes, ~2× source resolution) is the right band:
+# strips raster-jitter without losing real coastline features.
+# Combined with -makevalid to repair any topology the simplifier
+# introduces. Expected: ~70-90% vertex reduction.
+echo -e "  Simplifying polygons (110m tolerance, ~2× source raster)..."
 SIMPLIFIED_GEOJSON="$(mktemp -u --suffix=.geojson 2>/dev/null \
     || echo "/tmp/brisbane-simplified-$$.geojson")"
 rm -f "$SIMPLIFIED_GEOJSON"
 
 ogr2ogr -q \
     -f GeoJSON \
-    -simplify 0.0001 \
+    -simplify 0.001 \
+    -makevalid \
     "$SIMPLIFIED_GEOJSON" \
     "$TEMP_GEOJSON" 2>/dev/null
 
