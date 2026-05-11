@@ -821,6 +821,15 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                     </div>
                 </div>
 
+                {/* ═══ ENC CHARTS (vector, routing-grade) ═══
+                    Pulled up from below the Chart Locker so the Pi-cache
+                    sync affordance is the FIRST chart-related thing the
+                    user sees after the hero. Routing-grade vector data
+                    is more important than raster display for the
+                    routing engine and was previously buried under ~300
+                    lines of raster-chart-downloader UI. */}
+                <EncCellManager />
+
                 {/* ═══ CHART LOCKER ═══ */}
                 <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
                     {/* Header */}
@@ -1132,9 +1141,6 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
                         </div>
                     )}
                 </div>
-
-                {/* ═══ ENC CHARTS (vector, routing-grade) ═══ */}
-                <EncCellManager />
 
                 {/* ═══ SETUP GUIDE TRIGGER ═══ */}
                 <button
