@@ -144,7 +144,11 @@ fi
 # DRVAL1 (min depth in band) and DRVAL2 (max depth in band) — exactly
 # the S-57 attribute names the inshore router expects.
 echo -e "  Extracting depth contour polygons..."
-TEMP_GEOJSON="$(mktemp --suffix=.geojson)"
+# Use mktemp -u so we get a unique filename WITHOUT creating the file —
+# gdal_contour's GeoJSON driver refuses to overwrite existing files.
+TEMP_GEOJSON="$(mktemp -u --suffix=.geojson 2>/dev/null \
+    || echo "/tmp/brisbane-contour-$$.geojson")"
+rm -f "$TEMP_GEOJSON"
 
 gdal_contour -q \
     -p \
