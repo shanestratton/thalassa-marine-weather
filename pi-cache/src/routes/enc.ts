@@ -1176,6 +1176,165 @@ export function createEncRoutes(): Router {
         }
     });
 
+    /**
+     * POST /api/enc/install-public
+     *
+     * Ingests a Phase 14 PIVOT public-data GeoJSON pack as a chart
+     * cell in the same store the NOAA-imported cells live in. Phase 13's
+     * inshore router consumes the result unchanged — same DEPARE/
+     * LNDARE/etc. shape going in, same A* coming out.
+     *
+     * Input GeoJSON should be a FeatureCollection where each Feature
+     * has a `_layer` property identifying its S-57 class:
+     *
+     *   {
+     *     "type": "FeatureCollection",
+     *     "features": [
+     *       { "properties": { "_layer": "DEPARE", "DRVAL1": 0, "DRVAL2": 2 },
+     *         "geometry": ... },
+     *       { "properties": { "_layer": "LNDARE" }, "geometry": ... },
+     *       ...
+     *     ]
+     *   }
+     *
+     * pack-generator's gdal_contour spike emits exactly this shape
+     * for DEPARE; the full pack generator will mix DEPARE + LNDARE +
+     * WRECKS + OBSTRN + others.
+     *
+     * Body: {
+     *   region: string,        // e.g. "au-brisbane-test" — becomes cellId
+     *   sourceHO?: string,     // e.g. "PUB-GMRT" — attribution
+     *   geojson: FeatureCollection
+     * }
+     *
+     * The server:
+     *   1. Validates shape
+     *   2. Groups features by _layer
+     *   3. Computes union bbox
+     *   4. Persists to enc-charts/cells/<region>.json (same flat
+     *      namespace as NOAA imports)
+     *   5. Updates the chart-store index so /installed lists it
+     */
+    router.post('/install-public', async (req: Request, res: Response) => {
+        const body = (req.body ?? {}) as Partial<{
+            region: string;
+            sourceHO: string;
+            geojson: {
+                type?: string;
+                features?: Array<{
+                    type?: string;
+                    properties?: Record<string, unknown> & { _layer?: string };
+                    geometry?: { type: string; coordinates: unknown };
+                }>;
+            };
+        }>;
+
+        // ── Validation ──
+        if (!body.region || typeof body.region !== 'string') {
+            return res.status(400).json({ error: 'Body must include {region: string}' });
+        }
+        if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(body.region)) {
+            return res.status(400).json({
+                error: 'region must be alphanumeric + dash/underscore, ≤64 chars',
+            });
+        }
+        if (!body.geojson || body.geojson.type !== 'FeatureCollection' || !Array.isArray(body.geojson.features)) {
+            return res.status(400).json({
+                error: 'geojson must be a GeoJSON FeatureCollection',
+            });
+        }
+        const features = body.geojson.features;
+        if (features.length === 0) {
+            return res.status(400).json({ error: 'FeatureCollection must contain at least one Feature' });
+        }
+
+        // ── Group features by _layer ──
+        // Each Feature is required to have properties._layer naming
+        // its S-57 class. The inshore router iterates layers by
+        // their canonical name (DEPARE, LNDARE, etc.) so we must
+        // bucket them server-side.
+        const layerBuckets: Record<string, typeof features> = {};
+        let untaggedCount = 0;
+        for (const f of features) {
+            const layer = f.properties?._layer;
+            if (typeof layer !== 'string' || !/^[A-Z]{3,6}$/.test(layer)) {
+                untaggedCount++;
+                continue;
+            }
+            if (!layerBuckets[layer]) layerBuckets[layer] = [];
+            layerBuckets[layer].push(f);
+        }
+        if (untaggedCount > 0 && Object.keys(layerBuckets).length === 0) {
+            return res.status(400).json({
+                error: 'No features had a valid _layer property (expected uppercase S-57 code like DEPARE)',
+                untaggedCount,
+            });
+        }
+
+        // ── Compute union bbox ──
+        let minLon = Infinity,
+            minLat = Infinity,
+            maxLon = -Infinity,
+            maxLat = -Infinity;
+        const walk = (coords: unknown): void => {
+            if (!Array.isArray(coords)) return;
+            if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                const lon = coords[0] as number;
+                const lat = coords[1] as number;
+                if (lon < minLon) minLon = lon;
+                if (lon > maxLon) maxLon = lon;
+                if (lat < minLat) minLat = lat;
+                if (lat > maxLat) maxLat = lat;
+                return;
+            }
+            for (const inner of coords) walk(inner);
+        };
+        for (const f of features) walk(f.geometry?.coordinates);
+        if (!Number.isFinite(minLon)) {
+            return res.status(400).json({ error: 'Could not compute bbox — no numeric coordinates found' });
+        }
+
+        // ── Build the cell record in the same shape as NOAA imports ──
+        const cell = {
+            cellId: body.region,
+            sourceHO: body.sourceHO || 'PUB',
+            edition: 0,
+            issued: new Date().toISOString().slice(0, 10),
+            bbox: [minLon, minLat, maxLon, maxLat] as [number, number, number, number],
+            layers: Object.fromEntries(
+                Object.entries(layerBuckets).map(([layer, feats]) => [
+                    layer,
+                    { type: 'FeatureCollection' as const, features: feats },
+                ]),
+            ),
+        };
+
+        try {
+            const meta = await persistCell(
+                cell as unknown as Parameters<typeof persistCell>[0],
+                features.length - untaggedCount,
+                'url', // closest existing source-type label; future: 'public-data'
+                undefined,
+            );
+            return res.json({
+                ok: true,
+                cellId: meta.cellId,
+                bbox: meta.bbox,
+                featureCount: meta.featureCount,
+                sizeBytes: meta.sizeBytes,
+                layers: Object.keys(layerBuckets).map((k) => ({
+                    layer: k,
+                    count: layerBuckets[k].length,
+                })),
+                untaggedFeatures: untaggedCount,
+            });
+        } catch (err) {
+            return res
+                .status(500)
+                .json({ error: `Failed to persist public pack: ${err instanceof Error ? err.message : String(err)}` });
+        }
+    });
+
     /** GET /api/enc/health — quick sanity check for whether GDAL is installed. */
     router.get('/health', async (_req: Request, res: Response) => {
         try {
