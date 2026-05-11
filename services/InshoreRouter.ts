@@ -223,8 +223,11 @@ export async function tryInshoreRoute(
         };
     }
 
-    log.info(
-        `inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms local, cells: ${cellsUsed.join(',')})`,
+    // Warn-level temporarily so the success path is visible in
+    // production builds during the on-device routing rollout. Drop
+    // back to info() once we trust the path.
+    log.warn(
+        `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms local, cells: ${cellsUsed.join(',')})`,
     );
     return {
         polyline: result.polyline,
