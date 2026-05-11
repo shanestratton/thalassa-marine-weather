@@ -154,7 +154,7 @@ gdal_contour -q \
     -p \
     -amin DRVAL1 \
     -amax DRVAL2 \
-    -fl 0 -fl 1 -fl 2 -fl 3 -fl 5 -fl 8 -fl 12 -fl 20 -fl 30 -fl 50 -fl 100 \
+    -fl 0 -fl 0.5 -fl 1 -fl 1.5 -fl 2 -fl 2.5 -fl 3 -fl 4 -fl 5 -fl 8 -fl 12 -fl 20 -fl 30 -fl 50 -fl 100 \
     -f GeoJSON \
     "$DEPTH_TIF" \
     "$TEMP_GEOJSON"
