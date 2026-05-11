@@ -207,13 +207,20 @@ export async function tryInshoreRoute(
     const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
     if (regionalMarkersUrl) {
         try {
-            const markers = await fetchRegionalMarkers(regionalMarkersUrl);
-            if (markers.length > 0) {
-                const target = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
-                (target.features as unknown[]).push(...markers);
-                merged.BOYLAT = target;
-                log.warn(`STAGE: merged ${markers.length} channel midpoints (paired port+starboard)`);
+            const { midpoints, segments } = await fetchRegionalMarkers(regionalMarkersUrl);
+            if (midpoints.length > 0) {
+                const boylat = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
+                (boylat.features as unknown[]).push(...midpoints);
+                merged.BOYLAT = boylat;
             }
+            if (segments.length > 0) {
+                const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
+                (fairwy.features as unknown[]).push(...segments);
+                merged.FAIRWY = fairwy;
+            }
+            log.warn(
+                `STAGE: merged ${midpoints.length} channel midpoints + ${segments.length} synthetic FAIRWY segments`,
+            );
         } catch (err) {
             log.warn(
                 `regional markers fetch failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
@@ -319,7 +326,7 @@ const REGIONAL_MARKER_FILES: { bbox: [number, number, number, number]; slug: str
  * range) and the URL is stable per region — once loaded, keep them
  * for the session.
  */
-const regionalMarkerCache = new Map<string, Promise<unknown[]>>();
+const regionalMarkerCache = new Map<string, Promise<RegionalChannelData>>();
 
 async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: InshoreOrigin): Promise<string | null> {
     const supabaseBase =
@@ -354,28 +361,43 @@ function haversineMetres(lat1: number, lon1: number, lat2: number, lon2: number)
 }
 
 /**
+ * Result of regional marker processing — both midpoint Points (for
+ * Pass 5 marker-radius) and synthetic channel-segment Polygons (for
+ * Pass 4 FAIRWY) so the engine sees a continuous channel corridor.
+ */
+interface RegionalChannelData {
+    midpoints: unknown[];
+    segments: unknown[];
+}
+
+/**
  * Fetch + cache + transform the regional nav_markers.geojson into
- * SYNTHETIC channel-midpoint features.
+ * SYNTHETIC channel features for routing.
+ *
+ * Two outputs are produced:
+ *
+ * 1. **Midpoint Points** — one per paired port+starboard marker. The
+ *    engine's Pass 5 stamps a pair-distance-aware preferred radius
+ *    around each. Useful as "wide spots" at each gate.
+ *
+ * 2. **Channel-segment Polygons** — thin rectangles (~20 m wide)
+ *    connecting each midpoint to its nearest neighbour within 500 m.
+ *    The engine's Pass 4 (FAIRWY) marks cells inside as preferred.
+ *    Chains of segments form a continuous channel ribbon for A* to
+ *    track. Without this layer, A* can wander on either side of the
+ *    radial preferred-zones at each midpoint — the user observed
+ *    the route going on the wrong side of a green marker at the
+ *    Scarborough peninsula bend, and (after the radius-cap fix)
+ *    moved even closer to shore. The segments enforce direction.
  *
  * Why midpoints and not raw markers
  * ─────────────────────────────────
  * IALA-A buoyage (used in AU, EU, most of the world): red markers on
  * port (left), green on starboard (right) when entering harbour. The
  * channel itself is the corridor BETWEEN paired red+green markers —
- * not around either marker individually. An earlier iteration that
- * marked an 80 m preferred zone around every marker put the
- * preferred cells on the SHALLOW shore side of each marker — exactly
- * the wrong side. A* then routed *through* the shoreward side and
- * the user (correctly) flagged it as "not IALA-A".
- *
- * The fix: pair each port marker with its nearest starboard marker
- * (within ~300 m — typical channel width upper bound), compute the
- * midpoint, and emit that as the only synthetic Point feature we
- * pass to the engine. The engine's existing marker-radius pass marks
- * 80 m around each midpoint as preferred — those preferred cells now
- * sit in the channel centre.
+ * never around either marker individually.
  */
-async function fetchRegionalMarkers(url: string): Promise<unknown[]> {
+async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
     let cached = regionalMarkerCache.get(url);
     if (!cached) {
         cached = (async () => {
@@ -402,7 +424,7 @@ async function fetchRegionalMarkers(url: string): Promise<unknown[]> {
             // multiple ports — a starboard at a fork serves two
             // channels and we'd lose half the corridors otherwise.
             const PAIR_MAX_DIST_M = 300;
-            const midpoints: unknown[] = [];
+            const midpointCoords: { lat: number; lon: number; pairDistM: number }[] = [];
             for (const p of ports) {
                 let bestDist = Infinity;
                 let bestS: { lat: number; lon: number } | null = null;
@@ -414,20 +436,86 @@ async function fetchRegionalMarkers(url: string): Promise<unknown[]> {
                     }
                 }
                 if (!bestS) continue;
-                midpoints.push({
+                midpointCoords.push({
+                    lat: (p.lat + bestS.lat) / 2,
+                    lon: (p.lon + bestS.lon) / 2,
+                    pairDistM: bestDist,
+                });
+            }
+
+            const midpoints: unknown[] = midpointCoords.map((m) => ({
+                type: 'Feature',
+                properties: {
+                    _class: 'channel_midpoint',
+                    _source: 'pair-inferred',
+                    _pairDistanceM: Math.round(m.pairDistM),
+                },
+                geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+            }));
+
+            // Build channel-segment polygons connecting each midpoint
+            // to its nearest neighbour within MAX_SEGMENT_M. Each
+            // segment is a thin rectangle (HALF_WIDTH_M each side of
+            // the connecting line). Successive segments overlap to
+            // form a continuous channel ribbon. Dedupe by only
+            // emitting i→j where i<j.
+            const MAX_SEGMENT_M = 500;
+            const HALF_WIDTH_M = 10;
+            const segments: unknown[] = [];
+            for (let i = 0; i < midpointCoords.length; i++) {
+                const a = midpointCoords[i];
+                let bestJ = -1;
+                let bestDist = Infinity;
+                for (let j = 0; j < midpointCoords.length; j++) {
+                    if (i === j) continue;
+                    const b = midpointCoords[j];
+                    const d = haversineMetres(a.lat, a.lon, b.lat, b.lon);
+                    if (d < bestDist && d <= MAX_SEGMENT_M) {
+                        bestDist = d;
+                        bestJ = j;
+                    }
+                }
+                if (bestJ < 0 || bestJ <= i) continue; // dedupe via i<j
+                const b = midpointCoords[bestJ];
+
+                // Build perpendicular-to-AB unit vector in degrees,
+                // accounting for the latitude-dependent metres/degree.
+                const midLat = (a.lat + b.lat) / 2;
+                const mPerLonAtMid = 111_320 * Math.cos((midLat * Math.PI) / 180);
+                const dxM = (b.lon - a.lon) * mPerLonAtMid;
+                const dyM = (b.lat - a.lat) * 111_320;
+                const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
+                if (lenM < 1) continue;
+                // Perpendicular (rotated 90°) scaled to HALF_WIDTH_M
+                const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
+                const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
+                const perpDLon = perpDxM / mPerLonAtMid;
+                const perpDLat = perpDyM / 111_320;
+
+                segments.push({
                     type: 'Feature',
                     properties: {
-                        _class: 'channel_midpoint',
+                        _layer: 'FAIRWY',
+                        _class: 'synthetic-channel-segment',
                         _source: 'pair-inferred',
-                        _pairDistanceM: Math.round(bestDist),
+                        _lengthM: Math.round(lenM),
                     },
                     geometry: {
-                        type: 'Point',
-                        coordinates: [(p.lon + bestS.lon) / 2, (p.lat + bestS.lat) / 2],
+                        type: 'Polygon',
+                        coordinates: [
+                            [
+                                [a.lon + perpDLon, a.lat + perpDLat],
+                                [a.lon - perpDLon, a.lat - perpDLat],
+                                [b.lon - perpDLon, b.lat - perpDLat],
+                                [b.lon + perpDLon, b.lat + perpDLat],
+                                [a.lon + perpDLon, a.lat + perpDLat],
+                            ],
+                        ],
                     },
                 });
             }
-            return midpoints;
+
+            return { midpoints, segments };
         })();
         regionalMarkerCache.set(url, cached);
     }
