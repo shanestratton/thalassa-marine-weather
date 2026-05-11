@@ -390,10 +390,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 try {
                     if (result.originCoordinates && result.destinationCoordinates) {
                         const { tryInshoreRoute, inshoreRouteToGeoJSON } = await import('../services/InshoreRouter');
+                        // vessel.draft is stored in FEET (OnboardingWizard
+                        // converts metres → feet before saving, line 423).
+                        // tryInshoreRoute works in metres — feeding feet
+                        // straight in produces an absurd ~8 m safety cutoff
+                        // on GMRT-derived charts and the router blocks the
+                        // entire bay. Convert here.
+                        const draftMeters = vessel.draft && vessel.draft > 0 ? vessel.draft / 3.28084 : 2.5;
                         const inshoreRes = await tryInshoreRoute(
                             result.originCoordinates,
                             result.destinationCoordinates,
-                            vessel.draft || 2.5,
+                            draftMeters,
                         );
                         if (inshoreRes && 'polyline' in inshoreRes) {
                             enhancedPlan = {
