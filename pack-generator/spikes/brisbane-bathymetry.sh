@@ -334,6 +334,122 @@ if [[ -f "$SEAMARKS_CACHE" ]]; then
     fi
 fi
 
+# ── OSM water polygons (marinas / canals / docks / rivers) ──────────
+# GMRT bathymetry can't see engineered water features that sit below
+# MSL but are inside the natural shoreline polygon — marina basins,
+# dredged canals, commercial docks, etc. Newport marina is the
+# obvious case: GMRT marks the whole peninsula as land at 60 m pixel
+# resolution, so our LNDARE polygon swallows the marina basin and
+# the router treats it as blocked. Routes refuse to start there.
+#
+# OSM has all of these as `landuse=basin`, `leisure=marina`,
+# `waterway=canal/dock`, `natural=water`. We fetch them via Overpass,
+# tag as DEPARE with sensible default depths, and merge. The engine's
+# "DEPARE wins over LNDARE in overlap" rule (services/inshore-
+# RouterEngine.ts Pass 2) then keeps these cells navigable even
+# though our chunky LNDARE covers the same area.
+#
+# Default depths chosen for general AU east-coast cruising vessels
+# (2-3 m draft typical). Override per-feature by editing the jq.
+WATER_CACHE="data/brisbane-water-polygons.json"
+WATER_GEOJSON="data/brisbane-water-polygons.geojson"
+
+if [[ ! -f "$WATER_CACHE" ]]; then
+    echo -e "  Fetching OSM water polygons (Overpass)..."
+    WATER_QUERY="[out:json][timeout:90];
+(
+  way[\"natural\"=\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"landuse\"=\"basin\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"leisure\"=\"marina\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"waterway\"=\"canal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"waterway\"=\"dock\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"waterway\"=\"riverbank\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"natural\"=\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+);
+out geom;"
+    if curl -fsSL --max-time 180 \
+        --data-urlencode "data=${WATER_QUERY}" \
+        https://overpass-api.de/api/interpreter \
+        -o "$WATER_CACHE"; then
+        SIZE=$(stat -c%s "$WATER_CACHE" 2>/dev/null || stat -f%z "$WATER_CACHE")
+        if [[ "$SIZE" -lt 100 ]]; then
+            echo -e "${YELLOW}  ⚠ OSM water query returned ${SIZE} bytes — error response.${NC}"
+            rm -f "$WATER_CACHE"
+        else
+            echo -e "  ${GREEN}✓${NC} Cached $(du -h "$WATER_CACHE" | awk '{print $1}')"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ OSM water Overpass query failed — continuing without marina overrides${NC}"
+    fi
+else
+    echo -e "  ${GREEN}✓${NC} OSM water polygons cached: $(du -h "$WATER_CACHE" | awk '{print $1}')"
+fi
+
+# Convert OSM water JSON → GeoJSON DEPARE features. Each polygon
+# gets a default DRVAL1 depth based on its OSM tags. The DRVAL2
+# upper bound is just DRVAL1+10 (we don't have real data) — the
+# engine only reads DRVAL1.
+if [[ -f "$WATER_CACHE" ]]; then
+    jq '
+      def default_depth:
+        if .tags.leisure == "marina" then 3.0
+        elif .tags.landuse == "basin" then 3.0
+        elif .tags.waterway == "dock" then 5.0
+        elif .tags.waterway == "canal" then 2.0
+        elif .tags.waterway == "riverbank" then 4.0
+        elif .tags.natural == "water" then 3.0
+        else 2.0 end;
+      def to_polygon:
+        if .type == "way" and (.geometry | length >= 4)
+           and .geometry[0].lat == .geometry[-1].lat
+           and .geometry[0].lon == .geometry[-1].lon then
+          {type: "Polygon", coordinates: [[.geometry[] | [.lon, .lat]]]}
+        else null end;
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map(
+              . as $e |
+              ($e | to_polygon) as $g |
+              if $g == null then null
+              else {
+                type: "Feature",
+                properties: ($e.tags + {
+                  "_layer": "DEPARE",
+                  "_source": "OpenStreetMap",
+                  "_license": "ODbL",
+                  "_grade": "D",
+                  "_osm_id": $e.id,
+                  "_osm_type": $e.type,
+                  "DRVAL1": ($e | default_depth),
+                  "DRVAL2": ($e | default_depth) + 10
+                }),
+                geometry: $g
+              }
+              end
+            )
+          | map(select(. != null))
+        )
+      }
+    ' "$WATER_CACHE" > "$WATER_GEOJSON"
+
+    WATER_COUNT=$(jq '.features | length' "$WATER_GEOJSON")
+    if [[ "$WATER_COUNT" -gt 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} Parsed ${WATER_COUNT} OSM water polygons as DEPARE overrides"
+        MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-merged2-$$.geojson")
+        jq -s '
+          {
+            type: "FeatureCollection",
+            features: ((.[0].features) + (.[1].features))
+          }
+        ' "$DEPARE_GEOJSON" "$WATER_GEOJSON" > "$MERGED"
+        mv "$MERGED" "$DEPARE_GEOJSON"
+    else
+        echo -e "${YELLOW}  ⚠ No OSM water polygons parsed${NC}"
+    fi
+fi
+
 # ── Stats ───────────────────────────────────────────────────────────
 FEATURE_COUNT=$(jq '.features | length' "$DEPARE_GEOJSON")
 LAYER_BREAKDOWN=$(jq -r '
