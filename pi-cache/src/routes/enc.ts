@@ -1297,10 +1297,18 @@ export function createEncRoutes(): Router {
         }
 
         // ── Build the cell record in the same shape as NOAA imports ──
+        // Auto-bump the edition number on every re-install of the same
+        // region. Phone-side sync diffs on `cellId@edition` (see
+        // services/EncImportService.ts:415) — without a bump the device
+        // never re-pulls when we regenerate the public-data pack with
+        // new layers / finer contours / better simplification.
+        const existingIndex = await loadInstalledIndex();
+        const existing = existingIndex.cells.find((c) => c.cellId === body.region);
+        const nextEdition = existing ? existing.edition + 1 : 1;
         const cell = {
             cellId: body.region,
             sourceHO: body.sourceHO || 'PUB',
-            edition: 0,
+            edition: nextEdition,
             issued: new Date().toISOString().slice(0, 10),
             bbox: [minLon, minLat, maxLon, maxLat] as [number, number, number, number],
             layers: Object.fromEntries(
