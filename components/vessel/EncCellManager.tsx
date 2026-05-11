@@ -398,12 +398,13 @@ export const EncCellManager: React.FC = () => {
         }
     }, [refreshCells]);
 
-    // Pi-side installed-cell count, refreshed when the panel
-    // opens. Used to surface "Pi has N charts not yet synced"
-    // affordance without forcing the user to tap to find out.
+    // Pi-side installed-cell count. Fetched on every mount (NOT gated on
+    // expanded) so we know up-front whether there are charts on the Pi
+    // the user should sync — that lets us auto-expand the section and
+    // surface the Sync button without making them tap blind. Cheap: one
+    // small HTTP request, only when the Pi is reachable.
     const [piInstalledCount, setPiInstalledCount] = useState<number | null>(null);
     useEffect(() => {
-        if (!expanded) return;
         let cancelled = false;
         listPiInstalledCharts()
             .then((cells) => {
@@ -415,9 +416,24 @@ export const EncCellManager: React.FC = () => {
         return () => {
             cancelled = true;
         };
-    }, [expanded, cells.length]);
+    }, [cells.length]);
 
     const piHasMoreThanLocal = piInstalledCount !== null && piInstalledCount > cells.length;
+
+    // Auto-expand when the Pi has chart cells the device doesn't have
+    // yet. Otherwise the Sync button is buried behind a tap and users
+    // who don't know to look there miss it entirely (Shane hit this
+    // with the au-brisbane-test public-data cell — Pi had it, device
+    // didn't, but the affordance was invisible).
+    useEffect(() => {
+        if (piHasMoreThanLocal && !expanded) {
+            setExpanded(true);
+        }
+        // We intentionally only fire on piHasMoreThanLocal transitions,
+        // not on every render — if the user explicitly collapses after
+        // a sync, they get to keep it collapsed.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [piHasMoreThanLocal]);
 
     return (
         <div className="mb-3 p-4 rounded-2xl bg-white/[0.03] border border-white/[0.06]">
