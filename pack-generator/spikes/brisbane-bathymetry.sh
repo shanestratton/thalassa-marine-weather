@@ -188,28 +188,33 @@ ogr2ogr -q \
 # below works on the simplified version.
 mv "$SIMPLIFIED_GEOJSON" "$TEMP_GEOJSON"
 
-# ── Tag features for the inshore router + filter land ──────────────
-# Phase 13 uses `_layer` to identify the S-57 class. Add quality
-# grade ("D" = derived from public surveys, per Phase 14 PIVOT spec)
-# and source attribution.
+# ── Tag features for the inshore router + classify land vs water ───
+# Phase 13 uses `_layer` to identify the S-57 class. We need BOTH
+# DEPARE (depth areas, water) and LNDARE (land) — without LNDARE the
+# A* router treats land cells as "unknown open" with a 5× cost
+# penalty, and A* still routes through suburbs if the straight-line
+# saving beats the 5× tax. Routes end up crossing entire cities.
 #
-# Filter out the "below lowest contour" polygon that gdal_contour
-# emits for the area above MSL — that's land, not a depth area.
-# Detected by DRVAL1 < 0 after our sign-flip (the artifact has
-# DRVAL1 = -elevation of highest land peak in the bbox).
+# gdal_contour with `-p` emits a "below-lowest-contour" polygon for
+# the area above MSL — after our sign-flip that polygon has
+# DRVAL1 < 0 (it's "depth less than zero" = land). Earlier we filtered
+# it out; now we keep it and re-tag as LNDARE so the router blocks it.
+#
+# All other polygons (DRVAL1 ≥ 0) are real depth bands — DEPARE.
 jq --arg source "GMRT (Global Multi-Resolution Topography, Lamont-Doherty)" \
    --arg license "Public domain (multi-source aggregate)" \
    '
    {
      type: "FeatureCollection",
      features: (.features
-       | map(select(.properties.DRVAL1 >= 0))
-       | map(.properties += {
-           "_layer": "DEPARE",
-           "_source": $source,
-           "_license": $license,
-           "_grade": "D",
-           "_generated": (now | todate)
+       | map(. + {
+           properties: (.properties + {
+             "_layer": (if .properties.DRVAL1 >= 0 then "DEPARE" else "LNDARE" end),
+             "_source": $source,
+             "_license": $license,
+             "_grade": "D",
+             "_generated": (now | todate)
+           })
          })
      )
    }
@@ -220,17 +225,24 @@ rm -f "$TEMP_GEOJSON"
 
 # ── Stats ───────────────────────────────────────────────────────────
 FEATURE_COUNT=$(jq '.features | length' "$DEPARE_GEOJSON")
+LAYER_BREAKDOWN=$(jq -r '
+    [.features[].properties._layer] | group_by(.)
+    | map("        \(.[0]): \(length) polygons")
+    | join("\n")
+' "$DEPARE_GEOJSON" 2>/dev/null || echo "(parse failed)")
 DEPTH_BREAKDOWN=$(jq -r '
-    [.features[].properties.DRVAL1] | map(select(. != null))
+    [.features[] | select(.properties._layer == "DEPARE") | .properties.DRVAL1]
+    | map(select(. != null))
     | group_by(.) | map({band: .[0], count: length})
-    | map("        \(.band)m: \(.count) polygons")
+    | map("        \(.band)m: \(.count) DEPARE polygons")
     | join("\n")
 ' "$DEPARE_GEOJSON" 2>/dev/null || echo "(parse failed)")
 
 OUTPUT_SIZE=$(du -h "$DEPARE_GEOJSON" | awk '{print $1}')
 
 echo -e "  ${GREEN}✓${NC} ${BOLD}${DEPARE_GEOJSON}${NC} (${OUTPUT_SIZE})"
-echo -e "      ${FEATURE_COUNT} DEPARE polygons, breakdown:"
+echo -e "      ${FEATURE_COUNT} total polygons:"
+echo "${LAYER_BREAKDOWN}"
 echo "${DEPTH_BREAKDOWN}"
 
 # ── Done ────────────────────────────────────────────────────────────
