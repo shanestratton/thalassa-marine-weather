@@ -1110,8 +1110,30 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
 
     // Convert grid path → polyline (cell centers) → simplified polyline.
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
-    polylineRaw[0] = [req.fromLon, req.fromLat];
-    polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
+
+    // Splice the user's input lat/lon back into the polyline ONLY when
+    // the input is close enough to the snapped water cell that the
+    // bridging segment stays in water. If the input geocoded to land
+    // (city centres, marinas, suburbs) the snap moved hundreds of
+    // metres to find navigable water — overriding the polyline endpoint
+    // with that on-land input puts a visible "route crosses land"
+    // segment from input to first water cell.
+    //
+    // Threshold = 150 m. Bigger than typical chart-marker tap precision
+    // (~20 m) and the 50 m grid cell, smaller than the snap distances
+    // (300-700 m) we see for shore-side geocodes. Inside that radius
+    // the bridge segment is short enough we trust it doesn't cross
+    // land; outside, we leave the snapped water cell as the visible
+    // route start.
+    const ENDPOINT_BRIDGE_M = 150;
+    const originSnapM = debug.originSnap?.snapDistanceM ?? Infinity;
+    const destSnapM = debug.destinationSnap?.snapDistanceM ?? Infinity;
+    if (originSnapM <= ENDPOINT_BRIDGE_M) {
+        polylineRaw[0] = [req.fromLon, req.fromLat];
+    }
+    if (destSnapM <= ENDPOINT_BRIDGE_M) {
+        polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
+    }
     // DP tolerance ≈ 1/4 cell. Tighter than the original 1/2 cell —
     // keeps more turn detail in winding channels (Savannah River
     // bends look noticeably closer to the actual channel after this).
