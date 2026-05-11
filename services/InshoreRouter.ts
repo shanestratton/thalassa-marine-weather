@@ -132,12 +132,14 @@ export async function tryInshoreRoute(
 
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
-        log.info(`route is ${distNM.toFixed(1)} NM — exceeds inshore-router cap of ${MAX_INSHORE_NM} NM, deferring`);
+        log.warn(
+            `GATE: route is ${distNM.toFixed(1)} NM — exceeds inshore-router cap of ${MAX_INSHORE_NM} NM, deferring`,
+        );
         return null;
     }
 
     if (!hasEncCoverageForRoute(origin, destination)) {
-        log.info('No ENC coverage at one or both endpoints — skipping inshore router');
+        log.warn('GATE: No ENC coverage at one or both endpoints — skipping inshore router');
         return null;
     }
 
@@ -150,12 +152,12 @@ export async function tryInshoreRoute(
     const maxLon = Math.max(origin.lon, destination.lon);
     const candidateCells = cellsForBBox([minLon, minLat, maxLon, maxLat]);
     if (candidateCells.length === 0) {
-        log.info('No installed cells intersect the route bbox — skipping inshore router');
+        log.warn('GATE: No installed cells intersect the route bbox — skipping inshore router');
         return null;
     }
 
-    log.info(
-        `computing inshore route ${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} → ${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} (draft ${draftM} m) across ${candidateCells.length} cell(s)`,
+    log.warn(
+        `STAGE: computing inshore route across ${candidateCells.length} cell(s): ${candidateCells.map((c) => c.id).join(',')}`,
     );
 
     // Merge candidate cells' layers. Pi-cache used to do this server-side;
@@ -197,6 +199,9 @@ export async function tryInshoreRoute(
     // a full extra metre of clearance the chart can't express. Tide
     // planning is the skipper's job — chart datum is already lowest
     // astronomical tide.
+    log.warn(
+        `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0}, calling routeInshore`,
+    );
     const t0 = Date.now();
     let result;
     try {
