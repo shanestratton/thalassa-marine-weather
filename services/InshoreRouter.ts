@@ -37,9 +37,9 @@
  * producing nothing.
  */
 
-import { CapacitorHttp } from '@capacitor/core';
-import { piCache } from './PiCacheService';
 import { cellsForBBox } from './enc/EncCellMetadata';
+import { loadCellGeoJSON } from './enc/EncCellStore';
+import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InshoreRouter');
@@ -122,11 +122,6 @@ export async function tryInshoreRoute(
     destination: InshoreOrigin,
     draftM: number,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
-    if (!piCache.isAvailable()) {
-        log.info('Pi not available — skipping inshore router');
-        return null;
-    }
-
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
         log.info(`route is ${distNM.toFixed(1)} NM — exceeds inshore-router cap of ${MAX_INSHORE_NM} NM, deferring`);
@@ -138,88 +133,97 @@ export async function tryInshoreRoute(
         return null;
     }
 
-    const url = `${piCache.baseUrl}/api/enc/route`;
-    // safetyM=0.2 instead of the Pi router's 1.0 m default. Our public-
-    // data DEPARE bands are 1 m wide (DRVAL1 ∈ {0,1,2,3,5,8,…}), so a
-    // 1 m safety re-blocks the 2 m-depth band (depth 2-3 m) even though
-    // a 1.8 m-draft boat clears it comfortably. 0.2 m keeps the 2 m
-    // band open and acknowledges the discretisation noise without
-    // demanding a full extra metre of clearance the chart can't
-    // express. Tide planning is the skipper's job — chart datum is
-    // already lowest astronomical tide.
-    const body = {
-        fromLat: origin.lat,
-        fromLon: origin.lon,
-        toLat: destination.lat,
-        toLon: destination.lon,
-        draftM,
-        safetyM: 0.2,
-    };
+    // Find every installed cell whose bbox intersects the route's lat/lon
+    // envelope. We load them all from device storage and concat features
+    // per layer — the engine doesn't care which cell a feature came from.
+    const minLat = Math.min(origin.lat, destination.lat);
+    const maxLat = Math.max(origin.lat, destination.lat);
+    const minLon = Math.min(origin.lon, destination.lon);
+    const maxLon = Math.max(origin.lon, destination.lon);
+    const candidateCells = cellsForBBox([minLon, minLat, maxLon, maxLat]);
+    if (candidateCells.length === 0) {
+        log.info('No installed cells intersect the route bbox — skipping inshore router');
+        return null;
+    }
 
     log.info(
-        `requesting inshore route ${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} → ${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} (draft ${draftM} m)`,
+        `computing inshore route ${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} → ${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} (draft ${draftM} m) across ${candidateCells.length} cell(s)`,
     );
 
-    let status = 0;
-    let data: unknown = null;
+    // Merge candidate cells' layers. Pi-cache used to do this server-side;
+    // we now do it on the device since iPhone CPU outpaces a Pi 5 several-
+    // fold and the cell GeoJSON is already cached in the local Filesystem.
+    const merged: InshoreLayers = {
+        LNDARE: { type: 'FeatureCollection', features: [] },
+        DEPARE: { type: 'FeatureCollection', features: [] },
+        OBSTRN: { type: 'FeatureCollection', features: [] },
+        WRECKS: { type: 'FeatureCollection', features: [] },
+        UWTROC: { type: 'FeatureCollection', features: [] },
+    };
+    const cellsUsed: string[] = [];
+    for (const cell of candidateCells) {
+        const blob = await loadCellGeoJSON(cell.id);
+        if (!blob) {
+            log.warn(`cell ${cell.id} listed but GeoJSON not on device — sync via Pi Cache first`);
+            continue;
+        }
+        for (const layer of ['LNDARE', 'DEPARE', 'OBSTRN', 'WRECKS', 'UWTROC'] as const) {
+            const fc = blob.layers?.[layer];
+            const target = merged[layer];
+            if (fc?.features && Array.isArray(fc.features) && target) {
+                (target.features as unknown[]).push(...fc.features);
+            }
+        }
+        cellsUsed.push(cell.id);
+    }
+    if (cellsUsed.length === 0) {
+        log.warn('No cells could be loaded from device storage — sync first via the Pi Cache button');
+        return null;
+    }
+
+    // safetyM=0.2 instead of the engine's 1.0 m default. Our public-data
+    // DEPARE bands are 1 m wide (DRVAL1 ∈ {0,1,2,3,5,8,…}), so a 1 m
+    // safety re-blocks the 2 m-depth band (depth 2-3 m) even though a
+    // 1.8 m-draft boat clears it comfortably. 0.2 m keeps the 2 m band
+    // open and acknowledges the discretisation noise without demanding
+    // a full extra metre of clearance the chart can't express. Tide
+    // planning is the skipper's job — chart datum is already lowest
+    // astronomical tide.
+    const t0 = Date.now();
+    let result;
     try {
-        try {
-            const res = await CapacitorHttp.post({
-                url,
-                headers: { 'Content-Type': 'application/json' },
-                data: JSON.stringify(body),
-                connectTimeout: 5_000,
-                readTimeout: 60_000,
-            });
-            status = res.status;
-            data = res.data;
-        } catch {
-            const res = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body),
-                signal: AbortSignal.timeout(60_000),
-            });
-            status = res.status;
-            data = await res.json();
-        }
+        result = routeInshore(merged, {
+            fromLat: origin.lat,
+            fromLon: origin.lon,
+            toLat: destination.lat,
+            toLon: destination.lon,
+            draftM,
+            safetyM: 0.2,
+        });
     } catch (err) {
-        log.warn(`Pi /api/enc/route failed: ${err instanceof Error ? err.message : String(err)}`);
+        log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
+    const elapsedMs = Date.now() - t0;
 
-    // 200 → success
-    if (status === 200 && data && typeof data === 'object') {
-        const r = data as Partial<InshoreRouteResult>;
-        if (Array.isArray(r.polyline) && typeof r.distanceNM === 'number') {
-            log.info(
-                `inshore route ${r.distanceNM.toFixed(2)} NM (${r.polyline.length} pts, ${r.elapsedMs ?? '?'} ms, cells: ${r.cellsUsed?.join(',')})`,
-            );
-            return {
-                polyline: r.polyline,
-                distanceNM: r.distanceNM,
-                cellsUsed: r.cellsUsed ?? [],
-                elapsedMs: r.elapsedMs ?? 0,
-            };
-        }
-        log.warn('Pi returned 200 but body shape was unexpected');
-        return null;
-    }
-
-    // 422 → grid built but no path / endpoint on land
-    if (status === 422 && data && typeof data === 'object') {
-        const f = data as Partial<InshoreRouteFailure>;
-        log.warn(`inshore router failed: ${f.error ?? '(no error)'} (${f.code ?? 'no code'})`);
+    if ('error' in result) {
+        log.warn(`inshore router failed: ${result.error} (${result.code ?? 'no code'})`);
         return {
-            error: f.error ?? 'Inshore routing failed',
-            code: f.code,
-            cellsUsed: f.cellsUsed,
+            error: result.error,
+            code: result.code,
+            cellsUsed,
         };
     }
 
-    // 4xx/5xx → unknown — fall through silently
-    log.warn(`Pi returned status ${status}`);
-    return null;
+    log.info(
+        `inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms local, cells: ${cellsUsed.join(',')})`,
+    );
+    return {
+        polyline: result.polyline,
+        distanceNM: result.distanceNM,
+        cellsUsed,
+        elapsedMs,
+    };
 }
 
 /**
