@@ -154,10 +154,35 @@ gdal_contour -q \
     -p \
     -amin DRVAL1 \
     -amax DRVAL2 \
-    -fl 0 -fl 2 -fl 5 -fl 10 -fl 20 -fl 30 -fl 50 -fl 100 -fl 200 \
+    -fl 0 -fl 1 -fl 2 -fl 3 -fl 5 -fl 8 -fl 12 -fl 20 -fl 30 -fl 50 -fl 100 \
     -f GeoJSON \
     "$DEPTH_TIF" \
     "$TEMP_GEOJSON"
+
+# ── Simplify polygons for routing performance ──────────────────────
+# The raw contour output has tens of thousands of vertices per
+# MultiPolygon — each pixel boundary becomes a vertex. At 50m
+# routing grid resolution, vertex density much finer than 50m is
+# wasted work for the inshore router's point-in-polygon tests.
+#
+# ogr2ogr -simplify with tolerance ~0.0001 degrees (~10m at AU
+# latitudes) cuts vertex count by ~90% with negligible accuracy
+# loss. First Brisbane spike showed 72-second grid build on raw
+# polygons; with simplification it should drop to ~5-10s.
+echo -e "  Simplifying polygons (10m tolerance)..."
+SIMPLIFIED_GEOJSON="$(mktemp -u --suffix=.geojson 2>/dev/null \
+    || echo "/tmp/brisbane-simplified-$$.geojson")"
+rm -f "$SIMPLIFIED_GEOJSON"
+
+ogr2ogr -q \
+    -f GeoJSON \
+    -simplify 0.0001 \
+    "$SIMPLIFIED_GEOJSON" \
+    "$TEMP_GEOJSON" 2>/dev/null
+
+# Swap simplified output back into TEMP_GEOJSON so the jq pipeline
+# below works on the simplified version.
+mv "$SIMPLIFIED_GEOJSON" "$TEMP_GEOJSON"
 
 # ── Tag features for the inshore router + filter land ──────────────
 # Phase 13 uses `_layer` to identify the S-57 class. Add quality
