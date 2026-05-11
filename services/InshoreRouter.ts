@@ -169,6 +169,8 @@ export async function tryInshoreRoute(
         OBSTRN: { type: 'FeatureCollection', features: [] },
         WRECKS: { type: 'FeatureCollection', features: [] },
         UWTROC: { type: 'FeatureCollection', features: [] },
+        FAIRWY: { type: 'FeatureCollection', features: [] },
+        DRGARE: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
     for (const cell of candidateCells) {
@@ -177,7 +179,7 @@ export async function tryInshoreRoute(
             log.warn(`cell ${cell.id} listed but GeoJSON not on device — sync via Pi Cache first`);
             continue;
         }
-        for (const layer of ['LNDARE', 'DEPARE', 'OBSTRN', 'WRECKS', 'UWTROC'] as const) {
+        for (const layer of ['LNDARE', 'DEPARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'FAIRWY', 'DRGARE'] as const) {
             const fc = blob.layers?.[layer];
             const target = merged[layer];
             if (fc?.features && Array.isArray(fc.features) && target) {

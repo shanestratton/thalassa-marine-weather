@@ -335,6 +335,12 @@ export interface EncConversionResult {
         BCNCAR?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */
         M_QUAL?: GeoJSON.FeatureCollection;
+        /** Marked fairway polygons — inshore router prefers these cells. */
+        FAIRWY?: GeoJSON.FeatureCollection;
+        /** Dredged area polygons — same routing preference as FAIRWY. */
+        DRGARE?: GeoJSON.FeatureCollection;
+        /** Recommended tracks (line features). Display + future routing. */
+        RECTRC?: GeoJSON.FeatureCollection;
     };
 }
 
