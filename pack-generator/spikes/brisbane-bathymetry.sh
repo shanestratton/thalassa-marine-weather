@@ -159,19 +159,32 @@ gdal_contour -q \
     "$DEPTH_TIF" \
     "$TEMP_GEOJSON"
 
-# ── Tag features for the inshore router ─────────────────────────────
+# ── Tag features for the inshore router + filter land ──────────────
 # Phase 13 uses `_layer` to identify the S-57 class. Add quality
 # grade ("D" = derived from public surveys, per Phase 14 PIVOT spec)
 # and source attribution.
+#
+# Filter out the "below lowest contour" polygon that gdal_contour
+# emits for the area above MSL — that's land, not a depth area.
+# Detected by DRVAL1 < 0 after our sign-flip (the artifact has
+# DRVAL1 = -elevation of highest land peak in the bbox).
 jq --arg source "GMRT (Global Multi-Resolution Topography, Lamont-Doherty)" \
    --arg license "Public domain (multi-source aggregate)" \
-   '.features |= map(.properties += {
-        "_layer": "DEPARE",
-        "_source": $source,
-        "_license": $license,
-        "_grade": "D",
-        "_generated": (now | todate)
-    })' \
+   '
+   {
+     type: "FeatureCollection",
+     features: (.features
+       | map(select(.properties.DRVAL1 >= 0))
+       | map(.properties += {
+           "_layer": "DEPARE",
+           "_source": $source,
+           "_license": $license,
+           "_grade": "D",
+           "_generated": (now | todate)
+         })
+     )
+   }
+   ' \
    "$TEMP_GEOJSON" > "$DEPARE_GEOJSON"
 
 rm -f "$TEMP_GEOJSON"
