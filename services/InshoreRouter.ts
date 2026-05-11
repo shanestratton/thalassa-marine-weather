@@ -139,12 +139,21 @@ export async function tryInshoreRoute(
     }
 
     const url = `${piCache.baseUrl}/api/enc/route`;
+    // safetyM=0.2 instead of the Pi router's 1.0 m default. Our public-
+    // data DEPARE bands are 1 m wide (DRVAL1 ∈ {0,1,2,3,5,8,…}), so a
+    // 1 m safety re-blocks the 2 m-depth band (depth 2-3 m) even though
+    // a 1.8 m-draft boat clears it comfortably. 0.2 m keeps the 2 m
+    // band open and acknowledges the discretisation noise without
+    // demanding a full extra metre of clearance the chart can't
+    // express. Tide planning is the skipper's job — chart datum is
+    // already lowest astronomical tide.
     const body = {
         fromLat: origin.lat,
         fromLon: origin.lon,
         toLat: destination.lat,
         toLon: destination.lon,
         draftM,
+        safetyM: 0.2,
     };
 
     log.info(
