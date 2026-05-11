@@ -122,6 +122,13 @@ export async function tryInshoreRoute(
     destination: InshoreOrigin,
     draftM: number,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
+    // Loud entry log so we can tell from a noisy console whether this
+    // function is even being called. Remove once on-device routing is
+    // stable on the surfaces that matter.
+    log.info(
+        `ENTRY origin=${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} dest=${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} draft=${draftM}`,
+    );
+
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
         log.info(`route is ${distNM.toFixed(1)} NM — exceeds inshore-router cap of ${MAX_INSHORE_NM} NM, deferring`);
