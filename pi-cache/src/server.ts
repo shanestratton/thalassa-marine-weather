@@ -44,7 +44,12 @@ const cache = new Cache(CACHE_DIR);
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Bump body parser limit for public-data chart uploads. A regional
+// GeoJSON pack for AU coastal coverage runs 10-50MB after gdal_contour
+// simplification — the 100kb default would reject them on POST. ENC
+// imports go through a different code path (raw octet-stream / base64)
+// so they aren't affected by this limit.
+app.use(express.json({ limit: '100mb' }));
 
 // ── Health & Status ──
 
