@@ -212,7 +212,7 @@ export async function tryInshoreRoute(
                 const target = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
                 (target.features as unknown[]).push(...markers);
                 merged.BOYLAT = target;
-                log.warn(`STAGE: merged ${markers.length} regional nav markers (lateral)`);
+                log.warn(`STAGE: merged ${markers.length} channel midpoints (paired port+starboard)`);
             }
         } catch (err) {
             log.warn(
@@ -340,11 +340,40 @@ async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: Inshor
 }
 
 /**
- * Fetch + cache + filter the regional nav_markers.geojson. Returns
- * GeoJSON Point features whose `_class` is port / starboard / lateral
- * — those are the lateral channel markers that drive the channel
- * inference pass. Cardinals / dangers / lights are ignored for
- * routing (they're hazard / display info, not channel markers).
+ * Haversine distance between two lat/lon points in metres.
+ * Local to the marker-pairing logic — the engine has its own copy.
+ */
+function haversineMetres(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6_371_000;
+    const φ1 = (lat1 * Math.PI) / 180;
+    const φ2 = (lat2 * Math.PI) / 180;
+    const dφ = ((lat2 - lat1) * Math.PI) / 180;
+    const dλ = ((lon2 - lon1) * Math.PI) / 180;
+    const a = Math.sin(dφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(dλ / 2) ** 2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Fetch + cache + transform the regional nav_markers.geojson into
+ * SYNTHETIC channel-midpoint features.
+ *
+ * Why midpoints and not raw markers
+ * ─────────────────────────────────
+ * IALA-A buoyage (used in AU, EU, most of the world): red markers on
+ * port (left), green on starboard (right) when entering harbour. The
+ * channel itself is the corridor BETWEEN paired red+green markers —
+ * not around either marker individually. An earlier iteration that
+ * marked an 80 m preferred zone around every marker put the
+ * preferred cells on the SHALLOW shore side of each marker — exactly
+ * the wrong side. A* then routed *through* the shoreward side and
+ * the user (correctly) flagged it as "not IALA-A".
+ *
+ * The fix: pair each port marker with its nearest starboard marker
+ * (within ~300 m — typical channel width upper bound), compute the
+ * midpoint, and emit that as the only synthetic Point feature we
+ * pass to the engine. The engine's existing marker-radius pass marks
+ * 80 m around each midpoint as preferred — those preferred cells now
+ * sit in the channel centre.
  */
 async function fetchRegionalMarkers(url: string): Promise<unknown[]> {
     let cached = regionalMarkerCache.get(url);
@@ -353,12 +382,52 @@ async function fetchRegionalMarkers(url: string): Promise<unknown[]> {
             const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status} fetching nav_markers`);
             const data = (await res.json()) as {
-                features?: { properties?: { _class?: string }; geometry?: { type?: string } }[];
+                features?: {
+                    properties?: { _class?: string };
+                    geometry?: { type?: string; coordinates?: [number, number] };
+                }[];
             };
-            const lateralClasses = new Set(['port', 'starboard', 'lateral']);
-            return (data.features ?? []).filter(
-                (f) => f?.geometry?.type === 'Point' && lateralClasses.has(f.properties?._class ?? ''),
-            ) as unknown[];
+
+            const ports: { lat: number; lon: number }[] = [];
+            const starboards: { lat: number; lon: number }[] = [];
+            for (const f of data.features ?? []) {
+                if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
+                const [lon, lat] = f.geometry.coordinates;
+                if (f.properties?._class === 'port') ports.push({ lat, lon });
+                else if (f.properties?._class === 'starboard') starboards.push({ lat, lon });
+            }
+
+            // Pair each port with its nearest starboard within
+            // PAIR_MAX_DIST_M. Allow each starboard to be matched by
+            // multiple ports — a starboard at a fork serves two
+            // channels and we'd lose half the corridors otherwise.
+            const PAIR_MAX_DIST_M = 300;
+            const midpoints: unknown[] = [];
+            for (const p of ports) {
+                let bestDist = Infinity;
+                let bestS: { lat: number; lon: number } | null = null;
+                for (const s of starboards) {
+                    const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
+                    if (d < bestDist && d <= PAIR_MAX_DIST_M) {
+                        bestDist = d;
+                        bestS = s;
+                    }
+                }
+                if (!bestS) continue;
+                midpoints.push({
+                    type: 'Feature',
+                    properties: {
+                        _class: 'channel_midpoint',
+                        _source: 'pair-inferred',
+                        _pairDistanceM: Math.round(bestDist),
+                    },
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [(p.lon + bestS.lon) / 2, (p.lat + bestS.lat) / 2],
+                    },
+                });
+            }
+            return midpoints;
         })();
         regionalMarkerCache.set(url, cached);
     }
