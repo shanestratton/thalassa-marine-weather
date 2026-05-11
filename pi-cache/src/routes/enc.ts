@@ -1120,6 +1120,8 @@ export function createEncRoutes(): Router {
             UWTROC: { type: 'FeatureCollection', features: [] },
             FAIRWY: { type: 'FeatureCollection', features: [] },
             DRGARE: { type: 'FeatureCollection', features: [] },
+            BOYLAT: { type: 'FeatureCollection', features: [] },
+            BCNLAT: { type: 'FeatureCollection', features: [] },
         };
         const cellsUsed: string[] = [];
         for (const cellId of candidates) {
@@ -1130,7 +1132,17 @@ export function createEncRoutes(): Router {
                 };
                 const cell = blob.cells?.[0];
                 if (!cell) continue;
-                for (const layer of ['LNDARE', 'DEPARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'FAIRWY', 'DRGARE'] as const) {
+                for (const layer of [
+                    'LNDARE',
+                    'DEPARE',
+                    'OBSTRN',
+                    'WRECKS',
+                    'UWTROC',
+                    'FAIRWY',
+                    'DRGARE',
+                    'BOYLAT',
+                    'BCNLAT',
+                ] as const) {
                     const fc = cell.layers?.[layer];
                     if (fc?.features && Array.isArray(fc.features)) {
                         // Features came from GDAL→GeoJSON so they conform to the

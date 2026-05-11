@@ -1,11 +1,12 @@
 /**
  * Inshore Router — A* pathfinding through ENC navigability grids.
  *
- * THIS IS THE PI-SIDE FALLBACK. The iOS app runs `/api/enc/route`
- * locally via `services/inshoreRouterEngine.ts` — those two files are
- * kept in sync by hand. The Pi endpoint stays alive for direct HTTP
- * consumers (curl, future external integrations) and as a fallback if
- * the device-side compute breaks.
+ * THIS IS THE PI-SIDE FALLBACK. The iOS app runs the same routing
+ * pure function locally via `services/inshoreRouterEngine.ts` — those
+ * two files are kept byte-identical apart from this docstring. The Pi
+ * endpoint stays alive for direct HTTP consumers (curl, future
+ * external integrations) and as a fallback if the device-side compute
+ * breaks.
  *
  * What this does
  * ──────────────
@@ -63,6 +64,20 @@ export interface InshoreLayers {
      * deep water exists outside it.
      */
     DRGARE?: FeatureCollection;
+    /**
+     * Lateral buoys (S-57 BOYLAT) — port + starboard channel markers.
+     * Used by Pass 5 of buildNavGrid to mark cells within
+     * MARKER_CHANNEL_RADIUS_M as preferred, so chains of paired
+     * markers form an implicit channel corridor for A* to follow.
+     * Useful when the chart has no FAIRWY/DRGARE polygons but does
+     * have marker points (e.g. the SE QLD regional nav-markers file).
+     */
+    BOYLAT?: FeatureCollection;
+    /**
+     * Lateral beacons (S-57 BCNLAT) — fixed-marker analogue of BOYLAT.
+     * Same channel-inference treatment.
+     */
+    BCNLAT?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -431,6 +446,38 @@ function buildNavGrid(
     };
     for (const f of layers.FAIRWY?.features ?? []) markChannelPreference(f);
     for (const f of layers.DRGARE?.features ?? []) markChannelPreference(f);
+
+    // ── Pass 5: Lateral markers → preferred-cell radius ─────────────
+    // Where no FAIRWY/DRGARE polygons exist, chains of port+starboard
+    // markers carry the same channel information — the channel is the
+    // corridor between them. Mark cells within MARKER_CHANNEL_RADIUS_M
+    // of any lateral marker as preferred. With markers typically
+    // spaced ~100-300 m along a channel and a 80 m radius, the
+    // preferred cells fuse into a continuous corridor along the
+    // marker chain that A* will track.
+    const MARKER_CHANNEL_RADIUS_M = 80;
+    const markMarkerRadius = (f: Feature): void => {
+        if (!f.geometry || f.geometry.type !== 'Point') return;
+        const [lon, lat] = (f.geometry as Point).coordinates;
+        const dLatBuf = MARKER_CHANNEL_RADIUS_M / M_PER_DEG_LAT;
+        const dLonBuf = MARKER_CHANNEL_RADIUS_M / mPerLon;
+        const x0 = Math.max(0, Math.floor((lon - dLonBuf - minLon) / dLon));
+        const x1 = Math.min(width - 1, Math.ceil((lon + dLonBuf - minLon) / dLon));
+        const y0 = Math.max(0, Math.floor((lat - dLatBuf - minLat) / dLat));
+        const y1 = Math.min(height - 1, Math.ceil((lat + dLatBuf - minLat) / dLat));
+        for (let y = y0; y <= y1; y++) {
+            const cellLat = minLat + (y + 0.5) * dLat;
+            for (let x = x0; x <= x1; x++) {
+                const cellLon = minLon + (x + 0.5) * dLon;
+                const dM = haversineM(cellLat, cellLon, lat, lon);
+                if (dM <= MARKER_CHANNEL_RADIUS_M) {
+                    preferred[y * width + x] = 1;
+                }
+            }
+        }
+    };
+    for (const f of layers.BOYLAT?.features ?? []) markMarkerRadius(f);
+    for (const f of layers.BCNLAT?.features ?? []) markMarkerRadius(f);
 
     return grid;
 }

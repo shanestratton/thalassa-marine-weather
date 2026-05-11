@@ -171,6 +171,8 @@ export async function tryInshoreRoute(
         UWTROC: { type: 'FeatureCollection', features: [] },
         FAIRWY: { type: 'FeatureCollection', features: [] },
         DRGARE: { type: 'FeatureCollection', features: [] },
+        BOYLAT: { type: 'FeatureCollection', features: [] },
+        BCNLAT: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
     for (const cell of candidateCells) {
@@ -191,6 +193,32 @@ export async function tryInshoreRoute(
     if (cellsUsed.length === 0) {
         log.warn('No cells could be loaded from device storage — sync first via the Pi Cache button');
         return null;
+    }
+
+    // ── Regional nav-markers (lateral buoys/beacons) ──
+    // The app already loads this file for chart display (useMapInit.ts).
+    // For routing we re-fetch it and convert port/starboard markers to
+    // BOYLAT features — the engine uses them to mark cells in a radius
+    // as "preferred", so chains of markers naturally form a channel
+    // corridor that A* follows.
+    //
+    // For now we only have one regional file (SE QLD). Future regions
+    // will live at parallel URLs and the lookup table can grow.
+    const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
+    if (regionalMarkersUrl) {
+        try {
+            const markers = await fetchRegionalMarkers(regionalMarkersUrl);
+            if (markers.length > 0) {
+                const target = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
+                (target.features as unknown[]).push(...markers);
+                merged.BOYLAT = target;
+                log.warn(`STAGE: merged ${markers.length} regional nav markers (lateral)`);
+            }
+        } catch (err) {
+            log.warn(
+                `regional markers fetch failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
     }
 
     // safetyM=0.2 instead of the engine's 1.0 m default. Our public-data
@@ -267,4 +295,72 @@ export function inshoreRouteToGeoJSON(
             destination: { lat: destination.lat, lon: destination.lon },
         },
     };
+}
+
+// ── Regional nav-markers helpers ───────────────────────────────────
+
+/**
+ * Pre-built regional marker files in Supabase storage. Each file
+ * covers a bbox of curated lateral / cardinal / lights / dangers
+ * pulled from OSM seamarks, AHO data, and hand-edited fixes. The map
+ * already fetches these for chart display (see useMapInit.ts); for
+ * routing we re-use the SAME file rather than re-querying Overpass.
+ *
+ * Add more regions as they ship by extending the `regions` array.
+ * URL resolution is by bbox-contains — keep entries non-overlapping.
+ */
+const REGIONAL_MARKER_FILES: { bbox: [number, number, number, number]; slug: string }[] = [
+    // [minLon, minLat, maxLon, maxLat], slug
+    { bbox: [152.0, -28.5, 154.5, -26.0], slug: 'australia_se_qld' },
+];
+
+/**
+ * Cached marker fetches keyed by URL. The files are small (~1 MB
+ * range) and the URL is stable per region — once loaded, keep them
+ * for the session.
+ */
+const regionalMarkerCache = new Map<string, Promise<unknown[]>>();
+
+async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: InshoreOrigin): Promise<string | null> {
+    const supabaseBase =
+        (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
+        'https://pcisdplnodrphauixcau.supabase.co';
+    // Pick the first region whose bbox contains both endpoints. Most
+    // inshore routes are short enough that this single-region match
+    // is correct; cross-region routes can come later.
+    for (const region of REGIONAL_MARKER_FILES) {
+        const [w, s, e, n] = region.bbox;
+        const insideOrigin = origin.lon >= w && origin.lon <= e && origin.lat >= s && origin.lat <= n;
+        const insideDest = destination.lon >= w && destination.lon <= e && destination.lat >= s && destination.lat <= n;
+        if (insideOrigin && insideDest) {
+            return `${supabaseBase}/storage/v1/object/public/regions/${region.slug}/nav_markers.geojson`;
+        }
+    }
+    return null;
+}
+
+/**
+ * Fetch + cache + filter the regional nav_markers.geojson. Returns
+ * GeoJSON Point features whose `_class` is port / starboard / lateral
+ * — those are the lateral channel markers that drive the channel
+ * inference pass. Cardinals / dangers / lights are ignored for
+ * routing (they're hazard / display info, not channel markers).
+ */
+async function fetchRegionalMarkers(url: string): Promise<unknown[]> {
+    let cached = regionalMarkerCache.get(url);
+    if (!cached) {
+        cached = (async () => {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error(`HTTP ${res.status} fetching nav_markers`);
+            const data = (await res.json()) as {
+                features?: { properties?: { _class?: string }; geometry?: { type?: string } }[];
+            };
+            const lateralClasses = new Set(['port', 'starboard', 'lateral']);
+            return (data.features ?? []).filter(
+                (f) => f?.geometry?.type === 'Point' && lateralClasses.has(f.properties?._class ?? ''),
+            ) as unknown[];
+        })();
+        regionalMarkerCache.set(url, cached);
+    }
+    return cached;
 }
