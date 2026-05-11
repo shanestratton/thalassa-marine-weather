@@ -807,18 +807,26 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
     // Build a route bbox = origin/destination envelope expanded
-    // generously. Was 10%/0.005° (≈550 m) min — too tight for routes
-    // where the river meanders well outside the GC line between
-    // origin and destination (real-world Savannah River loops south
-    // before tracking NW to Port Wentworth). Bump to 25%/0.02°
-    // (≈2.2 km) — costs more compute but keeps the actual channel
-    // inside the grid.
+    // generously. The padding has to be SYMMETRIC across both axes —
+    // earlier versions padded each axis by its own span, which left a
+    // mostly-N-S route with almost no E-W margin. Real-world example:
+    // Newport→Brisbane port is 18 km N-S × 1 km E-W as the crow flies,
+    // but the actual navigable channel through Moreton Bay sits 5-7 km
+    // east of that line. With per-axis padding (~0.02°≈2 km min), the
+    // bbox missed the deepwater channel entirely and the origin
+    // snapped into a 5-cell marina basin.
+    //
+    // Now: pad BOTH axes by 25% of the LARGER span (with a 0.05°≈5.5km
+    // floor). That gives lateral room equal to the route's longer
+    // dimension percentage — enough for harbour approaches that don't
+    // run along the great-circle line.
     const minLat = Math.min(req.fromLat, req.toLat);
     const maxLat = Math.max(req.fromLat, req.toLat);
     const minLon = Math.min(req.fromLon, req.toLon);
     const maxLon = Math.max(req.fromLon, req.toLon);
-    const padLat = Math.max((maxLat - minLat) * 0.25, 0.02);
-    const padLon = Math.max((maxLon - minLon) * 0.25, 0.02);
+    const maxSpan = Math.max(maxLat - minLat, maxLon - minLon);
+    const padLat = Math.max(maxSpan * 0.25, 0.05);
+    const padLon = Math.max(maxSpan * 0.25, 0.05);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     const grid = buildNavGrid(layers, bbox, resolutionM, req.draftM, safetyM, obstructionBufferM);
