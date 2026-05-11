@@ -479,19 +479,37 @@ function buildNavGrid(
     for (const f of layers.DRGARE?.features ?? []) markChannelPreference(f);
 
     // ── Pass 5: Lateral markers → preferred-cell radius ─────────────
-    // Where no FAIRWY/DRGARE polygons exist, chains of port+starboard
-    // markers carry the same channel information — the channel is the
-    // corridor between them. Mark cells within MARKER_CHANNEL_RADIUS_M
-    // of any lateral marker as preferred. With markers typically
-    // spaced ~100-300 m along a channel and a 80 m radius, the
-    // preferred cells fuse into a continuous corridor along the
-    // marker chain that A* will track.
-    const MARKER_CHANNEL_RADIUS_M = 80;
+    // When the iOS side pairs port+starboard markers and emits the
+    // midpoint as a BOYLAT Point with `_pairDistanceM` on it, we use
+    // that distance to size the preferred radius — capping it at
+    // half the pair distance so the preferred zone never extends
+    // past either marker. Without this cap a 80 m radius around a
+    // midpoint of a narrow (e.g. 100 m) pair leaks 30 m past the
+    // marker on the shore side, and A* threads the route on the
+    // wrong side of the green marker. User flagged this at the
+    // Scarborough peninsula bend on 2026-05-12.
+    //
+    // For markers without `_pairDistanceM` (raw beacons / buoys
+    // outside the paired pipeline), we fall back to the default
+    // 80 m radius — those are best-effort hints, not pair midpoints.
+    const MARKER_CHANNEL_RADIUS_DEFAULT_M = 80;
+    const MARKER_CHANNEL_RADIUS_MIN_M = 15;
+    const MARKER_CHANNEL_PAIR_MARGIN_M = 5;
     const markMarkerRadius = (f: Feature): void => {
         if (!f.geometry || f.geometry.type !== 'Point') return;
         const [lon, lat] = (f.geometry as Point).coordinates;
-        const dLatBuf = MARKER_CHANNEL_RADIUS_M / M_PER_DEG_LAT;
-        const dLonBuf = MARKER_CHANNEL_RADIUS_M / mPerLon;
+
+        const pairDistM = (f.properties as { _pairDistanceM?: number } | null)?._pairDistanceM;
+        const radius =
+            typeof pairDistM === 'number' && pairDistM > 0
+                ? Math.max(
+                      MARKER_CHANNEL_RADIUS_MIN_M,
+                      Math.min(MARKER_CHANNEL_RADIUS_DEFAULT_M, pairDistM / 2 - MARKER_CHANNEL_PAIR_MARGIN_M),
+                  )
+                : MARKER_CHANNEL_RADIUS_DEFAULT_M;
+
+        const dLatBuf = radius / M_PER_DEG_LAT;
+        const dLonBuf = radius / mPerLon;
         const x0 = Math.max(0, Math.floor((lon - dLonBuf - minLon) / dLon));
         const x1 = Math.min(width - 1, Math.ceil((lon + dLonBuf - minLon) / dLon));
         const y0 = Math.max(0, Math.floor((lat - dLatBuf - minLat) / dLat));
@@ -501,7 +519,7 @@ function buildNavGrid(
             for (let x = x0; x <= x1; x++) {
                 const cellLon = minLon + (x + 0.5) * dLon;
                 const dM = haversineM(cellLat, cellLon, lat, lon);
-                if (dM <= MARKER_CHANNEL_RADIUS_M) {
+                if (dM <= radius) {
                     preferred[y * width + x] = 1;
                 }
             }
