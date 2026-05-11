@@ -1060,6 +1060,7 @@ export function createEncRoutes(): Router {
             resolutionM: number;
             safetyM: number;
             obstructionBufferM: number;
+            minComponentCells: number;
         }>;
 
         // ── Input validation ──
@@ -1161,6 +1162,7 @@ export function createEncRoutes(): Router {
                 resolutionM: body.resolutionM,
                 safetyM: body.safetyM,
                 obstructionBufferM: body.obstructionBufferM,
+                minComponentCells: body.minComponentCells,
             };
             const result = routeInshore(merged, reqRoute);
             const elapsedMs = Date.now() - t0;

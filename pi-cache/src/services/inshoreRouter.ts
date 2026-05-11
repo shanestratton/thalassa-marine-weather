@@ -76,6 +76,12 @@ export interface RouteRequest {
     resolutionM?: number;
     /** Buffer around point obstructions in meters. Default 30 m. */
     obstructionBufferM?: number;
+    /**
+     * Minimum cells in the origin's connected component before the
+     * snap accepts it. Default 25 (≈62,500 m² at 50 m resolution).
+     * Lower for tight harbour entrances, raise to demand bigger water.
+     */
+    minComponentCells?: number;
 }
 
 /**
@@ -451,50 +457,61 @@ function snapToNavigable(
 }
 
 /**
- * Flood-fill 8-neighbor from `start`, marking every reachable
- * navigable cell. Output is a Uint8Array sized to the grid
- * (1 = reachable, 0 = blocked or never visited).
+ * Label every connected component of navigable cells in the grid.
  *
- * Used to compute the connected component containing the origin
- * BEFORE snapping the destination. If we naively snap destination
- * to its nearest navigable cell, that cell can be in a totally
- * unrelated body of water (the geocoded "Port Wentworth" might
- * sit closer to a flooded marsh than to the actual Savannah River
- * channel that connects to origin). Snapping into the origin's
- * connected component guarantees A* finds a path.
+ * Returns `labels` (Int32Array, -1 for blocked cells, 0+ for component
+ * ID) and `sizes` (Map of label → cell count).
+ *
+ * Why this exists: at coarse bathymetry resolutions (GMRT 60m, GEBCO
+ * 460m) a coastal origin point often snaps into a tiny 2-5 cell pocket
+ * — a marina basin, mud-flat puddle, or single deeper pixel — that's
+ * surrounded by shallow blocked cells and disconnected from the main
+ * bay. Without component awareness the snap finds the closest navigable
+ * cell, which is exactly that wrong pocket. With it we can demand the
+ * snap target sits in a sizeable water body before accepting it.
+ *
+ * One pass through the grid, O(cells). Cheap compared to grid build.
  */
-function reachableCellsFrom(grid: NavGrid, start: { x: number; y: number }): Uint8Array {
+function labelConnectedComponents(grid: NavGrid): { labels: Int32Array; sizes: Map<number, number> } {
     const total = grid.width * grid.height;
-    const reachable = new Uint8Array(total);
-    const startIdx = start.y * grid.width + start.x;
-    reachable[startIdx] = 1;
-    // Using a flat queue with head index instead of shift() — shift()
-    // is O(n) per pop in V8, which would make this loop quadratic on
-    // a large grid.
+    const labels = new Int32Array(total);
+    labels.fill(-1);
+    const sizes = new Map<number, number>();
     const queue = new Int32Array(total);
-    queue[0] = startIdx;
-    let qHead = 0;
-    let qTail = 1;
-    while (qHead < qTail) {
-        const idx = queue[qHead++];
-        const x = idx % grid.width;
-        const y = Math.floor(idx / grid.width);
-        for (let dy = -1; dy <= 1; dy++) {
-            const ny = y + dy;
-            if (ny < 0 || ny >= grid.height) continue;
-            for (let dx = -1; dx <= 1; dx++) {
-                if (dx === 0 && dy === 0) continue;
-                const nx = x + dx;
-                if (nx < 0 || nx >= grid.width) continue;
-                const nIdx = ny * grid.width + nx;
-                if (reachable[nIdx]) continue;
-                if (Number.isNaN(grid.cells[nIdx])) continue;
-                reachable[nIdx] = 1;
-                queue[qTail++] = nIdx;
+    let nextLabel = 0;
+
+    for (let seed = 0; seed < total; seed++) {
+        if (labels[seed] !== -1) continue;
+        if (Number.isNaN(grid.cells[seed])) continue;
+
+        const labelId = nextLabel++;
+        labels[seed] = labelId;
+        queue[0] = seed;
+        let qHead = 0;
+        let qTail = 1;
+
+        while (qHead < qTail) {
+            const idx = queue[qHead++];
+            const x = idx % grid.width;
+            const y = Math.floor(idx / grid.width);
+            for (let dy = -1; dy <= 1; dy++) {
+                const ny = y + dy;
+                if (ny < 0 || ny >= grid.height) continue;
+                for (let dx = -1; dx <= 1; dx++) {
+                    if (dx === 0 && dy === 0) continue;
+                    const nx = x + dx;
+                    if (nx < 0 || nx >= grid.width) continue;
+                    const nIdx = ny * grid.width + nx;
+                    if (labels[nIdx] !== -1) continue;
+                    if (Number.isNaN(grid.cells[nIdx])) continue;
+                    labels[nIdx] = labelId;
+                    queue[qTail++] = nIdx;
+                }
             }
         }
+        sizes.set(labelId, qTail);
     }
-    return reachable;
+    return { labels, sizes };
 }
 
 // ── Min-heap for A* open set ────────────────────────────────────────
@@ -849,16 +866,43 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         cellsBlocked: blocked,
     };
 
-    // ── Snap origin ──
+    // ── Label connected components ──
+    // One pass to bucket every navigable cell into its 8-connected
+    // water body. Drives the size-aware origin snap below.
+    const { labels, sizes } = labelConnectedComponents(grid);
+
+    // ── Snap origin to a SIZEABLE water body ──
+    // At GMRT 60m resolution a coastal point often snaps into a 2-5
+    // cell pocket that is disconnected from the actual bay (marina
+    // basin, mud-flat puddle, single deeper pixel). A snap that
+    // ignores component size lands there and then A* finds no path.
+    // We require the snap target to be in a component with at least
+    // MIN_COMPONENT_CELLS cells (~62,500 m² at 50 m res ≈ 250 m
+    // square — smaller than any real harbour, larger than every
+    // bathymetry artefact we've seen so far). Configurable per
+    // request for tighter or looser thresholds.
+    const minComponentCells = req.minComponentCells ?? 25;
     const maxSnapCells = Math.ceil(5_000 / resolutionM);
-    const startCell = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
+    const inLargeComponent = (idx: number): boolean => {
+        const lab = labels[idx];
+        return lab !== -1 && (sizes.get(lab) ?? 0) >= minComponentCells;
+    };
+    const startCell = snapWithPredicate(grid, req.fromLat, req.fromLon, maxSnapCells, inLargeComponent);
     if (!startCell) {
+        // Fall back to any navigable cell so the error message can
+        // distinguish "origin is on land entirely" from "origin only
+        // touches a tiny isolated puddle". Both deserve a different UI.
+        const anyNav = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
         return {
-            error: 'Origin point and surrounding area are not navigable for this draft',
+            error: anyNav
+                ? 'Origin is in an isolated water pocket smaller than the routing threshold. Try a coordinate further from shore or in deeper marked water.'
+                : 'Origin point and surrounding area are not navigable for this draft',
             code: 'origin-on-land',
             debug,
         };
     }
+    const originLabel = labels[startCell.y * grid.width + startCell.x];
+    debug.cellsReachableFromOrigin = sizes.get(originLabel) ?? 0;
     {
         const [snapLon, snapLat] = gridToLatLon(grid, startCell.x, startCell.y);
         debug.originSnap = {
@@ -870,20 +914,9 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         };
     }
 
-    // ── Connected component from origin ──
-    // Flood-fills every navigable cell reachable by 8-neighbor moves
-    // from the origin. Pre-computed before snapping the destination
-    // so we can guarantee the destination snap lands in a cell that
-    // A* can actually reach. Without this step, "no-path" failures
-    // happen when origin and destination both snap to nearby water
-    // that turns out to be different lakes/marshes/ponds.
-    const reachable = reachableCellsFrom(grid, startCell);
-    let reachableCount = 0;
-    for (let i = 0; i < reachable.length; i++) reachableCount += reachable[i];
-    debug.cellsReachableFromOrigin = reachableCount;
-
     // ── Snap destination INTO the origin's connected component ──
-    const endCell = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => reachable[idx] === 1);
+    // Same component label as the origin guarantees A* finds a path.
+    const endCell = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => labels[idx] === originLabel);
     if (!endCell) {
         // Destination might be on land OR in a disconnected water body.
         // Distinguish for a more useful error:
