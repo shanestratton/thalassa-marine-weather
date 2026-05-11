@@ -123,9 +123,10 @@ export async function tryInshoreRoute(
     draftM: number,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // Loud entry log so we can tell from a noisy console whether this
-    // function is even being called. Remove once on-device routing is
-    // stable on the surfaces that matter.
-    log.info(
+    // function is even being called. createLogger silences info() in
+    // production builds — use warn() so it actually emits on iOS.
+    // Remove once on-device routing is stable on the surfaces that matter.
+    log.warn(
         `ENTRY origin=${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} dest=${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} draft=${draftM}`,
     );
 
