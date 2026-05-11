@@ -404,35 +404,33 @@ export const EncCellManager: React.FC = () => {
     // surface the Sync button without making them tap blind. Cheap: one
     // small HTTP request, only when the Pi is reachable.
     //
-    // We track the FULL list of cellIds (not just count) because the
-    // device's local cell list can contain stale duplicate records
-    // (e.g. "String" + "US5GA22M" both pointing at the same Savannah
-    // bbox — leftover from an old metadata-parsing bug). A naïve count
-    // comparison says "device has 2, Pi has 2, nothing to sync" even
-    // when the Pi actually has a cell (au-brisbane-test) the device
-    // is missing. Cell-ID comparison catches that correctly.
-    const [piCellIds, setPiCellIds] = useState<string[] | null>(null);
+    // We track each Pi cell's cellId AND edition because EncImportService
+    // diffs on `cellId@edition`. A pure cellId match misses the case where
+    // we regenerate the public-data pack with new layers / better
+    // simplification — same name, newer content. Without edition awareness
+    // the Sync button stays hidden and the device keeps running against
+    // the stale local copy.
+    const [piCellsSummary, setPiCellsSummary] = useState<{ cellId: string; edition: number }[] | null>(null);
     useEffect(() => {
         let cancelled = false;
         listPiInstalledCharts()
             .then((piCells) => {
-                if (!cancelled) setPiCellIds(piCells.map((c) => c.cellId));
+                if (!cancelled) setPiCellsSummary(piCells.map((c) => ({ cellId: c.cellId, edition: c.edition ?? 0 })));
             })
             .catch(() => {
-                if (!cancelled) setPiCellIds(null);
+                if (!cancelled) setPiCellsSummary(null);
             });
         return () => {
             cancelled = true;
         };
     }, [cells.length]);
 
-    // Find Pi cellIds that aren't present in the device's local set.
-    // This is the actual "missing on device" count — what the user
-    // would actually gain by tapping Sync.
-    const localCellIds = useMemo(() => new Set(cells.map((c) => c.id)), [cells]);
+    // Find Pi cells the device is either missing OR has at a stale
+    // edition. Both count as "the user has something to sync".
+    const localCellKeys = useMemo(() => new Set(cells.map((c) => `${c.id}@${c.edition ?? 0}`)), [cells]);
     const missingOnDevice = useMemo(
-        () => (piCellIds ?? []).filter((cellId) => !localCellIds.has(cellId)),
-        [piCellIds, localCellIds],
+        () => (piCellsSummary ?? []).filter(({ cellId, edition }) => !localCellKeys.has(`${cellId}@${edition}`)),
+        [piCellsSummary, localCellKeys],
     );
     const piHasMoreThanLocal = missingOnDevice.length > 0;
 
