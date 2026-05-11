@@ -223,6 +223,117 @@ jq --arg source "GMRT (Global Multi-Resolution Topography, Lamont-Doherty)" \
 
 rm -f "$TEMP_GEOJSON"
 
+# ── Seamarks from OpenSeaMap (fairways, buoys, beacons) ─────────────
+# GMRT bathymetry tells us depth but nothing about marked channels.
+# For real channel-following routing we need:
+#   FAIRWY — fairway polygons (the marked channel area)
+#   DRGARE — dredged area polygons (engineered deep water)
+#   BOYLAT — lateral buoys (channel edge markers)
+#   BCNLAT — lateral beacons (channel edge fixed markers)
+#   RECTRC — recommended tracks (line features)
+#
+# OpenSeaMap publishes all of these as OSM features under
+# seamark:type=* tags. We pull them via the Overpass API
+# (https://overpass-api.de) — public, free, no auth, has good
+# Brisbane coverage. Cached on disk after first run so subsequent
+# spike runs don't hammer the Overpass servers.
+SEAMARKS_CACHE="data/brisbane-seamarks.json"
+SEAMARKS_GEOJSON="data/brisbane-seamarks.geojson"
+
+if [[ ! -f "$SEAMARKS_CACHE" ]]; then
+    echo -e "  Fetching seamarks from OpenSeaMap (Overpass)..."
+    # bbox: south,west,north,east
+    OVERPASS_QUERY="[out:json][timeout:60];
+(
+  nwr[\"seamark:type\"=\"fairway\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  nwr[\"seamark:type\"=\"dredged_area\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  nwr[\"seamark:type\"=\"recommended_track\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  node[\"seamark:type\"=\"buoy_lateral\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  node[\"seamark:type\"=\"beacon_lateral\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+);
+out geom;"
+    if curl -fsSL --max-time 120 \
+        --data-urlencode "data=${OVERPASS_QUERY}" \
+        https://overpass-api.de/api/interpreter \
+        -o "$SEAMARKS_CACHE"; then
+        SIZE=$(stat -c%s "$SEAMARKS_CACHE" 2>/dev/null || stat -f%z "$SEAMARKS_CACHE")
+        if [[ "$SIZE" -lt 100 ]]; then
+            echo -e "${YELLOW}  ⚠ Overpass returned ${SIZE} bytes — probably an error response.${NC}"
+            rm -f "$SEAMARKS_CACHE"
+        else
+            echo -e "  ${GREEN}✓${NC} Cached $(du -h "$SEAMARKS_CACHE" | awk '{print $1}')"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ Overpass query failed — continuing without seamarks${NC}"
+    fi
+else
+    echo -e "  ${GREEN}✓${NC} Seamarks already cached: $(du -h "$SEAMARKS_CACHE" | awk '{print $1}')"
+fi
+
+# Convert Overpass JSON → GeoJSON FeatureCollection with our _layer tags.
+# Nodes become Point features (BOYLAT / BCNLAT). Ways with the same
+# start+end node become Polygon (FAIRWY / DRGARE); open ways become
+# LineString (RECTRC).
+if [[ -f "$SEAMARKS_CACHE" ]]; then
+    jq '
+      def to_geom:
+        if .type == "node" then
+          {type: "Point", coordinates: [.lon, .lat]}
+        elif .type == "way" and (.geometry | length >= 2) then
+          if .geometry[0].lat == .geometry[-1].lat and .geometry[0].lon == .geometry[-1].lon then
+            {type: "Polygon", coordinates: [[.geometry[] | [.lon, .lat]]]}
+          else
+            {type: "LineString", coordinates: [.geometry[] | [.lon, .lat]]}
+          end
+        else null end;
+      def to_layer:
+        if .tags."seamark:type" == "fairway" then "FAIRWY"
+        elif .tags."seamark:type" == "dredged_area" then "DRGARE"
+        elif .tags."seamark:type" == "recommended_track" then "RECTRC"
+        elif .tags."seamark:type" == "buoy_lateral" then "BOYLAT"
+        elif .tags."seamark:type" == "beacon_lateral" then "BCNLAT"
+        else null end;
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map({
+              type: "Feature",
+              properties: (.tags + {
+                "_layer": to_layer,
+                "_source": "OpenSeaMap (OSM)",
+                "_license": "ODbL",
+                "_grade": "D",
+                "osm_id": .id,
+                "osm_type": .type
+              }),
+              geometry: to_geom
+            })
+          | map(select(.geometry != null and .properties._layer != null))
+        )
+      }
+    ' "$SEAMARKS_CACHE" > "$SEAMARKS_GEOJSON"
+
+    SEAMARK_COUNT=$(jq '.features | length' "$SEAMARKS_GEOJSON")
+    if [[ "$SEAMARK_COUNT" -gt 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} Parsed ${SEAMARK_COUNT} seamarks"
+
+        # Merge seamarks into the main DEPARE GeoJSON. The result is
+        # still a single FeatureCollection that install-public can
+        # group by _layer.
+        MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-merged-$$.geojson")
+        jq -s '
+          {
+            type: "FeatureCollection",
+            features: ((.[0].features) + (.[1].features))
+          }
+        ' "$DEPARE_GEOJSON" "$SEAMARKS_GEOJSON" > "$MERGED"
+        mv "$MERGED" "$DEPARE_GEOJSON"
+    else
+        echo -e "${YELLOW}  ⚠ No seamarks parsed — Overpass returned no matching features${NC}"
+    fi
+fi
+
 # ── Stats ───────────────────────────────────────────────────────────
 FEATURE_COUNT=$(jq '.features | length' "$DEPARE_GEOJSON")
 LAYER_BREAKDOWN=$(jq -r '

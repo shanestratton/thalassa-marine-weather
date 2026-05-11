@@ -62,6 +62,19 @@ export interface InshoreLayers {
     OBSTRN?: FeatureCollection;
     WRECKS?: FeatureCollection;
     UWTROC?: FeatureCollection;
+    /**
+     * Marked fairway polygons (S-57 FAIRWY) — the channel area itself.
+     * Cells inside FAIRWY get the baseline routing cost (1.0×) so A*
+     * stays inside the marked channel where one exists.
+     */
+    FAIRWY?: FeatureCollection;
+    /**
+     * Engineered deep water (S-57 DRGARE — dredged area). Treated the
+     * same as FAIRWY for routing purposes: stay inside it when one
+     * exists, even if a geometrically shorter path through generic
+     * deep water exists outside it.
+     */
+    DRGARE?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -233,6 +246,14 @@ interface NavGrid {
     dLat: number;
     /** Float32Array length = width*height. NaN = blocked, ≥0 = depth. */
     cells: Float32Array;
+    /**
+     * Per-cell channel preference flag (1 = inside FAIRWY or DRGARE,
+     * 0 = outside). When set, A* uses the baseline 1.0× cost regardless
+     * of depth — this is how the router "stays in the marked channel"
+     * when one exists, even if a geometrically shorter path through
+     * generic deep water is available.
+     */
+    preferred: Uint8Array;
 }
 
 function isNavigable(grid: NavGrid, x: number, y: number): boolean {
@@ -278,7 +299,8 @@ function buildNavGrid(
 
     const cells = new Float32Array(width * height);
     cells.fill(UNKNOWN_OPEN); // permissive default — see header doc
-    const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells };
+    const preferred = new Uint8Array(width * height);
+    const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred };
 
     // Helper to convert a polygon bbox to grid coordinate range.
     const polyToCellRange = (
@@ -395,6 +417,32 @@ function buildNavGrid(
     for (const f of layers.OBSTRN?.features ?? []) handlePointFeature(f);
     for (const f of layers.WRECKS?.features ?? []) handlePointFeature(f);
     for (const f of layers.UWTROC?.features ?? []) handlePointFeature(f);
+
+    // ── Pass 4: FAIRWY + DRGARE — mark preferred channel cells ─────
+    // We don't change the navigability of these cells (a navigable cell
+    // stays navigable, a blocked cell stays blocked — fairways CAN
+    // overlap with shallow flats at low tide, and the chart's DEPARE
+    // pass is the authoritative source for "is there enough depth").
+    // We just flag cells that fall inside a marked channel so the A*
+    // cost function can prefer them.
+    const markChannelPreference = (f: Feature): void => {
+        if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
+        const g = f.geometry as Polygon | MultiPolygon;
+        const pBbox = geometryBbox(g);
+        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
+        if (x0 > x1 || y0 > y1) return;
+        for (let y = y0; y <= y1; y++) {
+            const lat = minLat + (y + 0.5) * dLat;
+            for (let x = x0; x <= x1; x++) {
+                const lon = minLon + (x + 0.5) * dLon;
+                if (pointInGeometry(lon, lat, g)) {
+                    preferred[y * width + x] = 1;
+                }
+            }
+        }
+    };
+    for (const f of layers.FAIRWY?.features ?? []) markChannelPreference(f);
+    for (const f of layers.DRGARE?.features ?? []) markChannelPreference(f);
 
     return grid;
 }
@@ -604,20 +652,26 @@ class MinHeap {
  * A* will detour up to 50 cells through marked-deep water before
  * accepting a single unmarked cell.
  */
-function cellCostMultiplier(depth: number): number {
-    if (depth >= 10) return 1.0;
-    if (depth >= 5) return 1.1;
-    if (depth > 0) return 1.3;
-    // UNKNOWN_OPEN — was 5×; bumped to 50× because at public-data
-    // resolutions the simplifier (`ogr2ogr -simplify 0.001`) leaves
-    // narrow slivers between simplified DEPARE polygons. 5× was small
-    // enough that A* threaded routes through those slivers, producing
-    // paths that visually cross "marked-shallow" polygons even though
-    // the underlying grid cells are technically outside any band.
-    // 50× makes A* detour up to 50 cells through marked-deep water
-    // before accepting a single unmarked cell — eliminates sliver
-    // routing while still allowing UNKNOWN_OPEN as a last resort
-    // when a route is bounded entirely by unmarked area.
+function cellCostMultiplier(depth: number, preferred: boolean): number {
+    // Cells inside a marked fairway / dredged area always get the
+    // baseline cost regardless of depth band — that's how we get
+    // A* to follow the channel instead of cutting across deeper
+    // open water nearby.
+    if (preferred) return 1.0;
+
+    // Outside marked channels, prefer deeper water but allow shallow
+    // navigable cells. The penalties are stiffer than before (was
+    // 1.1/1.3/5.0 → now 1.5/2.5/50) because we now have FAIRWY data
+    // for the "right" path and want to push A* into it. A 1.5×
+    // penalty for "deep but unmarked" water means a 50% detour
+    // through fairway beats a straight shot through unmarked deep
+    // water — about right when the chart actually has fairways.
+    if (depth >= 10) return 1.2;
+    if (depth >= 5) return 1.5;
+    if (depth > 0) return 2.5;
+    // UNKNOWN_OPEN — 50× makes A* detour up to 50 cells through
+    // marked-deep water before accepting a single unmarked cell.
+    // See the docstring above for the sliver-routing rationale.
     return 50.0;
 }
 
@@ -703,7 +757,8 @@ function aStar(
             const cellDepth = grid.cells[nIdx];
             if (Number.isNaN(cellDepth)) continue; // blocked
 
-            const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth);
+            const cellPreferred = grid.preferred[nIdx] === 1;
+            const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred);
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
                 gScore[nIdx] = tentativeG;
