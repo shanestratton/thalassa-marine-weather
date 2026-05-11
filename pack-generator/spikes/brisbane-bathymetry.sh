@@ -243,13 +243,20 @@ SEAMARKS_GEOJSON="data/brisbane-seamarks.geojson"
 if [[ ! -f "$SEAMARKS_CACHE" ]]; then
     echo -e "  Fetching seamarks from OpenSeaMap (Overpass)..."
     # bbox: south,west,north,east
+    # Note: we deliberately DON'T query node[buoy_lateral] / node[beacon_lateral]
+    # here. The engine treats individual lateral markers by stamping an 80 m
+    # preferred radius around each — which is fine when those markers have
+    # been pre-paired (port + starboard → midpoint, see services/InshoreRouter.ts
+    # fetchRegionalMarkers). Raw unpaired markers cause the preferred zones
+    # to land on the SHALLOW shore side of each marker (the wrong side of the
+    # channel), and the route then weaves toward shore. The iOS-side regional
+    # nav_markers.geojson fetch handles pairing — leave individual markers
+    # to that path, and only pull channel POLYGONS / LINES here.
     OVERPASS_QUERY="[out:json][timeout:60];
 (
   nwr[\"seamark:type\"=\"fairway\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   nwr[\"seamark:type\"=\"dredged_area\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   nwr[\"seamark:type\"=\"recommended_track\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
-  node[\"seamark:type\"=\"buoy_lateral\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
-  node[\"seamark:type\"=\"beacon_lateral\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
     if curl -fsSL --max-time 120 \
@@ -423,7 +430,7 @@ if [[ -f "$WATER_CACHE" ]]; then
                   "_osm_id": $e.id,
                   "_osm_type": $e.type,
                   "DRVAL1": ($e | default_depth),
-                  "DRVAL2": ($e | default_depth) + 10
+                  "DRVAL2": (($e | default_depth) + 10)
                 }),
                 geometry: $g
               }
