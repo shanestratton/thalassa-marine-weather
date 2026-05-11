@@ -21,7 +21,7 @@
  *   - error:    inline error banner under the import button
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { triggerHaptic } from '../../utils/system';
 import {
@@ -398,33 +398,47 @@ export const EncCellManager: React.FC = () => {
         }
     }, [refreshCells]);
 
-    // Pi-side installed-cell count. Fetched on every mount (NOT gated on
+    // Pi-side installed-cell list. Fetched on every mount (NOT gated on
     // expanded) so we know up-front whether there are charts on the Pi
     // the user should sync — that lets us auto-expand the section and
     // surface the Sync button without making them tap blind. Cheap: one
     // small HTTP request, only when the Pi is reachable.
-    const [piInstalledCount, setPiInstalledCount] = useState<number | null>(null);
+    //
+    // We track the FULL list of cellIds (not just count) because the
+    // device's local cell list can contain stale duplicate records
+    // (e.g. "String" + "US5GA22M" both pointing at the same Savannah
+    // bbox — leftover from an old metadata-parsing bug). A naïve count
+    // comparison says "device has 2, Pi has 2, nothing to sync" even
+    // when the Pi actually has a cell (au-brisbane-test) the device
+    // is missing. Cell-ID comparison catches that correctly.
+    const [piCellIds, setPiCellIds] = useState<string[] | null>(null);
     useEffect(() => {
         let cancelled = false;
         listPiInstalledCharts()
-            .then((cells) => {
-                if (!cancelled) setPiInstalledCount(cells.length);
+            .then((piCells) => {
+                if (!cancelled) setPiCellIds(piCells.map((c) => c.cellId));
             })
             .catch(() => {
-                if (!cancelled) setPiInstalledCount(null);
+                if (!cancelled) setPiCellIds(null);
             });
         return () => {
             cancelled = true;
         };
     }, [cells.length]);
 
-    const piHasMoreThanLocal = piInstalledCount !== null && piInstalledCount > cells.length;
+    // Find Pi cellIds that aren't present in the device's local set.
+    // This is the actual "missing on device" count — what the user
+    // would actually gain by tapping Sync.
+    const localCellIds = useMemo(() => new Set(cells.map((c) => c.id)), [cells]);
+    const missingOnDevice = useMemo(
+        () => (piCellIds ?? []).filter((cellId) => !localCellIds.has(cellId)),
+        [piCellIds, localCellIds],
+    );
+    const piHasMoreThanLocal = missingOnDevice.length > 0;
 
-    // Auto-expand when the Pi has chart cells the device doesn't have
-    // yet. Otherwise the Sync button is buried behind a tap and users
-    // who don't know to look there miss it entirely (Shane hit this
-    // with the au-brisbane-test public-data cell — Pi had it, device
-    // didn't, but the affordance was invisible).
+    // Auto-expand when there are cells on the Pi the device doesn't
+    // have yet — surfaces the Sync button immediately on page load
+    // instead of burying it behind a tap.
     useEffect(() => {
         if (piHasMoreThanLocal && !expanded) {
             setExpanded(true);
@@ -531,9 +545,11 @@ export const EncCellManager: React.FC = () => {
                             </span>
                         </button>
 
-                        {/* Sync — surfaced when Pi has more charts than
-                            the phone knows about (e.g. you installed on
-                            another device first). */}
+                        {/* Sync — surfaced when Pi has cellIds the device
+                            doesn't (compared by ID, not by count, so stale
+                            duplicate records on the device don't suppress
+                            this button when there's actually new data to
+                            pull). */}
                         {piHasMoreThanLocal && (
                             <button
                                 onClick={handleSyncFromPi}
@@ -543,8 +559,8 @@ export const EncCellManager: React.FC = () => {
                                 <span className="flex items-center justify-center gap-2">
                                     <span>{'\u{1F504}'}</span>
                                     <span>
-                                        Sync {piInstalledCount! - cells.length} chart
-                                        {piInstalledCount! - cells.length === 1 ? '' : 's'} from Pi
+                                        Sync {missingOnDevice.length} chart
+                                        {missingOnDevice.length === 1 ? '' : 's'} from Pi
                                     </span>
                                 </span>
                             </button>
