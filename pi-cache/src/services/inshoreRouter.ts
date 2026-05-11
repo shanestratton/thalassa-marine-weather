@@ -868,41 +868,96 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
 
     // ── Label connected components ──
     // One pass to bucket every navigable cell into its 8-connected
-    // water body. Drives the size-aware origin snap below.
+    // water body. Drives the shared-component snap below.
     const { labels, sizes } = labelConnectedComponents(grid);
 
-    // ── Snap origin to a SIZEABLE water body ──
-    // At GMRT 60m resolution a coastal point often snaps into a 2-5
-    // cell pocket that is disconnected from the actual bay (marina
-    // basin, mud-flat puddle, single deeper pixel). A snap that
-    // ignores component size lands there and then A* finds no path.
-    // We require the snap target to be in a component with at least
-    // MIN_COMPONENT_CELLS cells (~62,500 m² at 50 m res ≈ 250 m
-    // square — smaller than any real harbour, larger than every
-    // bathymetry artefact we've seen so far). Configurable per
-    // request for tighter or looser thresholds.
+    // ── Shared-component snap ──────────────────────────────────────
+    // For each sizeable component, find its nearest cell to origin AND
+    // to destination. Pick the component minimising combined snap
+    // distance. This guarantees origin and destination land in the
+    // SAME component (so A* succeeds), and at coarse bathymetry
+    // resolutions it often produces a better route than greedy "snap
+    // origin to nearest big water, hope destination fits".
+    //
+    // The earlier two-step approach (snap origin first, require
+    // destination same-component) failed on routes like Newport →
+    // Brisbane Port where each endpoint is closest to a different
+    // component but a third — the main bay — is reachable from both.
+    //
+    // Snap radius is generous (10 km). Newport's nearest deep channel
+    // sits 6-8 km east in main Moreton Bay; the old 5 km radius
+    // couldn't reach it.
     const minComponentCells = req.minComponentCells ?? 25;
-    const maxSnapCells = Math.ceil(5_000 / resolutionM);
-    const inLargeComponent = (idx: number): boolean => {
-        const lab = labels[idx];
-        return lab !== -1 && (sizes.get(lab) ?? 0) >= minComponentCells;
-    };
-    const startCell = snapWithPredicate(grid, req.fromLat, req.fromLon, maxSnapCells, inLargeComponent);
-    if (!startCell) {
-        // Fall back to any navigable cell so the error message can
-        // distinguish "origin is on land entirely" from "origin only
-        // touches a tiny isolated puddle". Both deserve a different UI.
-        const anyNav = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
+    const maxSnapCells = Math.ceil(10_000 / resolutionM);
+
+    let bestStart: { x: number; y: number } | null = null;
+    let bestEnd: { x: number; y: number } | null = null;
+    let bestLabel = -1;
+    let bestCombinedM = Infinity;
+    let bestComponentSize = 0;
+
+    for (const [label, size] of sizes) {
+        if (size < minComponentCells) continue;
+        const startCandidate = snapWithPredicate(
+            grid,
+            req.fromLat,
+            req.fromLon,
+            maxSnapCells,
+            (idx) => labels[idx] === label,
+        );
+        if (!startCandidate) continue;
+        const endCandidate = snapWithPredicate(
+            grid,
+            req.toLat,
+            req.toLon,
+            maxSnapCells,
+            (idx) => labels[idx] === label,
+        );
+        if (!endCandidate) continue;
+
+        const [startLon, startLat] = gridToLatLon(grid, startCandidate.x, startCandidate.y);
+        const [endLon, endLat] = gridToLatLon(grid, endCandidate.x, endCandidate.y);
+        const combinedM =
+            haversineM(req.fromLat, req.fromLon, startLat, startLon) + haversineM(req.toLat, req.toLon, endLat, endLon);
+
+        if (combinedM < bestCombinedM) {
+            bestCombinedM = combinedM;
+            bestLabel = label;
+            bestStart = startCandidate;
+            bestEnd = endCandidate;
+            bestComponentSize = size;
+        }
+    }
+
+    if (!bestStart || !bestEnd) {
+        // No sizeable component lies within snap radius of both endpoints.
+        // Distinguish "origin on land" from "no shared water body".
+        const originNav = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
+        const destNav = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
+        if (!originNav) {
+            return {
+                error: 'Origin point and surrounding area are not navigable for this draft',
+                code: 'origin-on-land',
+                debug,
+            };
+        }
+        if (!destNav) {
+            return {
+                error: 'Destination point and surrounding area are not navigable for this draft',
+                code: 'destination-on-land',
+                debug,
+            };
+        }
         return {
-            error: anyNav
-                ? 'Origin is in an isolated water pocket smaller than the routing threshold. Try a coordinate further from shore or in deeper marked water.'
-                : 'Origin point and surrounding area are not navigable for this draft',
-            code: 'origin-on-land',
+            error: 'Origin and destination are in disconnected water bodies — no shared navigable channel reaches both within the route bbox',
+            code: 'destination-disconnected',
             debug,
         };
     }
-    const originLabel = labels[startCell.y * grid.width + startCell.x];
-    debug.cellsReachableFromOrigin = sizes.get(originLabel) ?? 0;
+
+    const startCell = bestStart;
+    const endCell = bestEnd;
+    debug.cellsReachableFromOrigin = bestComponentSize;
     {
         const [snapLon, snapLat] = gridToLatLon(grid, startCell.x, startCell.y);
         debug.originSnap = {
@@ -913,27 +968,9 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
             snapDistanceM: haversineM(req.fromLat, req.fromLon, snapLat, snapLon),
         };
     }
-
-    // ── Snap destination INTO the origin's connected component ──
-    // Same component label as the origin guarantees A* finds a path.
-    const endCell = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => labels[idx] === originLabel);
-    if (!endCell) {
-        // Destination might be on land OR in a disconnected water body.
-        // Distinguish for a more useful error:
-        const navOnly = snapToNavigable(grid, req.toLat, req.toLon, maxSnapCells);
-        if (!navOnly) {
-            return {
-                error: 'Destination point and surrounding area are not navigable for this draft',
-                code: 'destination-on-land',
-                debug,
-            };
-        }
-        return {
-            error: 'Destination is in a disconnected body of water — no navigable channel reaches it from the origin within the route bbox',
-            code: 'destination-disconnected',
-            debug,
-        };
-    }
+    // Silence the unused-variable warning while preserving the
+    // diagnostic value of bestLabel in any future debug output.
+    void bestLabel;
     {
         const [snapLon, snapLat] = gridToLatLon(grid, endCell.x, endCell.y);
         debug.destinationSnap = {

@@ -298,14 +298,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // for a 6-NM trip up the Savannah River.
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
-            // Use a sane default draft until vessel-aware routing on
-            // this surface is wired up (the deep-water passage planner
-            // also hard-codes 2.5 m at line ~398 — same approach).
-            const INSHORE_DEFAULT_DRAFT_M = 2.5;
+            // Use the configured vessel draft when available — falling
+            // back to 2.5 m only if the user hasn't set one. Same pattern
+            // as useVoyageForm. Hardcoding 2.5 m forces a 2.7 m navigability
+            // cutoff at safetyM=0.2, which re-blocks the 2 m DEPARE band
+            // on GMRT-derived charts and fragments Bramble Bay back into
+            // disconnected components.
+            const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft ?? 2.5;
             const inshoreRes = await tryInshoreRoute(
                 { lat: departure.lat, lon: departure.lon },
                 { lat: arrival.lat, lon: arrival.lon },
-                INSHORE_DEFAULT_DRAFT_M,
+                vesselDraftM,
             );
             if (gen !== computeGenRef.current) return; // user moved on, abort
             if (inshoreRes && 'polyline' in inshoreRes) {
