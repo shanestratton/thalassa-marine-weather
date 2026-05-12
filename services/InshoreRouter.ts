@@ -882,7 +882,15 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             // chain. Each segment is a thin rectangle (~20 m wide)
             // aligned with the connecting line. No cross-channel
             // artefacts because we only connect within a chain.
-            const HALF_WIDTH_M = 10;
+            // FAIRWY ribbon half-width: 30 m (60 m total) means each
+            // ribbon covers at least 1 cell at our 50 m grid even at
+            // the narrowest, and 2+ cells through the middle. A 10 m
+            // half-width (20 m total) left ribbons narrower than a
+            // single grid cell — A* could dodge around them by ½ cell
+            // and the channel preference didn't bite. The user
+            // observed exactly this on the Brisbane River shipping
+            // channel approach.
+            const HALF_WIDTH_M = 30;
             // Re-group midpoints by chain to walk them in order
             const byChain = new Map<number, Midpoint[]>();
             for (const mp of midpointCoords) {
@@ -894,15 +902,17 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 arr.sort((a, b) => a.chainOrder - b.chainOrder);
             }
 
-            // SEGMENT_MAX_M = 400: drop segments where consecutive
-            // midpoints in a chain are >400 m apart. At public-data
-            // marker densities a >400 m intra-chain gap almost always
-            // means the chain has bridged across a feature (peninsula,
-            // island, dredged-channel break) and the segment would
-            // run over land. Better to leave a gap and let A* find a
-            // deep-water path than draw a preferred ribbon across
-            // dirt. 800 m → 400 m on the cap.
-            const SEGMENT_MAX_M = 400;
+            // SEGMENT_MAX_M = 600: drop segments where consecutive
+            // chain-midpoints sit more than 600 m apart. Bumped from
+            // 400 m so the Brisbane River shipping channel — markers
+            // routinely 400-500 m apart on the long straight stretches
+            // — stays connected as a continuous ribbon instead of
+            // fragmenting at every wide gap. The IALA-oriented
+            // hazards + coastline-buffered LNDARE + cross-bay false
+            // bridges being uncommon at chain-clusters that span 600 m
+            // mean we don't pay the over-block tax we'd have paid at
+            // the old 150 m CLUSTER_LINK_M.
+            const SEGMENT_MAX_M = 600;
             const segments: unknown[] = [];
             for (const arr of byChain.values()) {
                 for (let i = 0; i < arr.length - 1; i++) {
