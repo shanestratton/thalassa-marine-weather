@@ -490,14 +490,39 @@ function orientHazardsTowardLand(
     // Scarborough Reef). With radius = shoreDistance, that corridor
     // disappears: the half-disc spans the full reef extent.
     const HAZARD_RADIUS_MIN_M = 80; // floor — solo markers far from any land vertex
-    // Ceiling on the half-circle radius. Was 2000 m, which produced
-    // 4 km-wide no-go blobs around markers 3+ km from any shore (the
-    // Moreton Bay scenario). Many overlapping blobs ended up forming
-    // a wall that pushed A* across the dredged shipping channel and
-    // produced the observed zigzag pattern. 300 m still covers any
-    // realistic shoreside-reef extent (Scarborough Reef ≈ 150 m wide)
-    // while keeping mid-bay markers as compact point hazards.
-    const HAZARD_RADIUS_MAX_M = 300;
+    // Proximity-aware radius policy.
+    //
+    // History
+    // ───────
+    // Original was a flat 2000 m cap. That produced 4 km-wide no-go
+    // blobs around markers 3+ km from any shore (Moreton Bay), which
+    // overlapped into a wall pushing the route across the shipping
+    // channel.
+    //
+    // First attempt: flat 300 m cap. Killed the Moreton-Bay wall but
+    // broke Scarborough Reef — that reef extends ~400-600 m from
+    // shore, so the 300 m half-circle stops short of the reef edge
+    // and A* threads through the resulting gap on the wrong (shore)
+    // side of the green marker. User reported this regression
+    // 2026-05-12 ("going inside it").
+    //
+    // The right policy is to read shoreDistM as a *classifier*:
+    //   • shoreDistM < OPEN_WATER_THRESHOLD_M → reef-edge marker,
+    //     extend the half-circle all the way to the coastline
+    //     (radius = shoreDistM + 30, capped at REEF_RADIUS_MAX so a
+    //     single anomalously-distant land vertex doesn't generate a
+    //     km-wide blob).
+    //   • shoreDistM >= OPEN_WATER_THRESHOLD_M → open-water marker,
+    //     stay compact (OPEN_WATER_RADIUS_M) so multiple mid-bay
+    //     markers don't gang up into a wall.
+    //
+    // 1500 m threshold catches real reefs (Scarborough ≈ 600 m,
+    // Mud I. ≈ 400 m, Peel I. fringing ≈ 1000 m) while excluding
+    // genuinely open-water aids-to-navigation in the middle of the
+    // bay (typically > 2-3 km from any shore).
+    const OPEN_WATER_THRESHOLD_M = 1500;
+    const REEF_RADIUS_MAX_M = 1500; // ceiling for the reef-edge case
+    const OPEN_WATER_RADIUS_M = 100; // compact half-circle for mid-bay markers
     const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
@@ -558,15 +583,21 @@ function orientHazardsTowardLand(
         }
         // The half-circle is centred on the land bearing — its arc
         // faces the land (shore-side cells get blocked). Radius is
-        // dynamic: spans from marker to the nearest LNDARE vertex
-        // (clamped to [HAZARD_RADIUS_MIN_M, HAZARD_RADIUS_MAX_M]) so
-        // the half-disc fully covers the reef strip between the
-        // marker and the shore.
+        // proximity-aware: reef-edge markers (close to coast) get a
+        // disc that fully spans the reef strip back to shore; open-
+        // water markers get a compact disc that doesn't form bay-
+        // crossing walls when many of them overlap.
         const landAngle = Math.atan2(landDyM, landDxM);
-        const radiusM = Math.min(
-            HAZARD_RADIUS_MAX_M,
-            Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30), // +30 m so the curved edge sits *just past* the nearest land vertex (covers slop in LNDARE precision)
-        );
+        const radiusM =
+            shoreDistM >= OPEN_WATER_THRESHOLD_M
+                ? OPEN_WATER_RADIUS_M
+                : Math.min(
+                      REEF_RADIUS_MAX_M,
+                      // +30 m so the curved edge sits *just past* the
+                      // nearest land vertex — covers slop in LNDARE
+                      // precision.
+                      Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30),
+                  );
 
         const coords: [number, number][] = [];
         // Arc from (landAngle - π/2) sweeping counter-clockwise to
