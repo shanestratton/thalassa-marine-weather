@@ -769,10 +769,20 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     if (depth >= 10) return 1.2;
     if (depth >= 5) return 1.5;
     if (depth > 0) return 2.5;
-    // UNKNOWN_OPEN — 50× makes A* detour up to 50 cells through
-    // marked-deep water before accepting a single unmarked cell.
-    // See the docstring above for the sliver-routing rationale.
-    return 50.0;
+    // UNKNOWN_OPEN — now 500× (was 50×). At 50× A* was still picking
+    // straight-line routes across e.g. the Scarborough peninsula where
+    // our LNDARE polygon has gaps, because traversing 200 m of unknown
+    // cells (50× × 200 m = 10 km equiv cost) was cheaper than the
+    // ~22 km around-bay deep-water alternative (1.2× × 22 km ≈ 26 km
+    // equiv cost). 500× makes the same peninsula 200 m × 500 = 100 km
+    // equivalent, decisively worse than the around-bay path.
+    //
+    // Tradeoff: routes through unmarked / unsurveyed areas effectively
+    // fail (no path) instead of going straight through them. For
+    // public-data charts where we have nearly-full bathymetry coverage,
+    // this is correct — unmarked == probably-land or really-uncharted,
+    // both of which the boat shouldn't cross blindly.
+    return 500.0;
 }
 
 /**
