@@ -457,6 +457,138 @@ if [[ -f "$WATER_CACHE" ]]; then
     fi
 fi
 
+# ── OSM ferry routes → synthetic FAIRWY polygons ────────────────────
+# Ferries follow real, surveyed, well-marked deep channels by
+# definition — they have to, repeatedly, every day. Aggregating
+# ferry route geometries gives us channel polylines basically for
+# free, with zero algorithm work, anywhere in the world that has
+# OSM ferry coverage (most of the developed coastal world).
+#
+# We buffer each ferry route LineString by 30 m on each side and
+# emit as a FAIRWY polygon. The engine's existing Pass 4 marks
+# cells inside as preferred. A* then prefers to track along the
+# ferry route, which is exactly what we want for shipping channels.
+#
+# Note: ferry routes won't cover every channel (no ferries through
+# every harbour), but for major shipping lanes they're authoritative.
+FERRY_CACHE="data/brisbane-ferry-routes.json"
+FERRY_GEOJSON="data/brisbane-ferry-routes.geojson"
+
+if [[ ! -f "$FERRY_CACHE" ]]; then
+    echo -e "  Fetching OSM ferry routes (Overpass)..."
+    FERRY_QUERY="[out:json][timeout:60];
+(
+  way[\"route\"=\"ferry\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"route\"=\"ferry\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+);
+out geom;"
+    if curl -fsSL --max-time 120 \
+        --data-urlencode "data=${FERRY_QUERY}" \
+        https://overpass-api.de/api/interpreter \
+        -o "$FERRY_CACHE"; then
+        SIZE=$(stat -c%s "$FERRY_CACHE" 2>/dev/null || stat -f%z "$FERRY_CACHE")
+        if [[ "$SIZE" -lt 100 ]]; then
+            echo -e "${YELLOW}  ⚠ Ferry query returned ${SIZE} bytes — error response.${NC}"
+            rm -f "$FERRY_CACHE"
+        else
+            echo -e "  ${GREEN}✓${NC} Cached $(du -h "$FERRY_CACHE" | awk '{print $1}')"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ Ferry Overpass query failed — continuing without ferry routes${NC}"
+    fi
+else
+    echo -e "  ${GREEN}✓${NC} Ferry routes cached: $(du -h "$FERRY_CACHE" | awk '{print $1}')"
+fi
+
+# Convert each ferry-route way into a buffered Polygon along the
+# route line. We buffer ±30 m perpendicular to each segment of the
+# line — gives a ~60 m wide channel ribbon that closely matches
+# the actual swept path of typical ferry boats.
+if [[ -f "$FERRY_CACHE" ]]; then
+    # The buffering is non-trivial in jq alone (perpendicular vectors
+    # in lat/lon need cos(lat) scaling). We use ogr2ogr's BUFFER op
+    # via a small in-memory pipeline: write the raw line GeoJSON,
+    # use ogr2ogr -sql "SELECT ST_Buffer(geom, ...)" to buffer.
+    LINES_TMP=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-ferry-lines-$$.geojson")
+
+    jq '
+      def to_line:
+        if .type == "way" and (.geometry | length >= 2) then
+          {type: "LineString", coordinates: [.geometry[] | [.lon, .lat]]}
+        else null end;
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map(
+              . as $e |
+              ($e | to_line) as $g |
+              if $g == null then null
+              else {
+                type: "Feature",
+                properties: ($e.tags + {
+                  "_source": "OpenStreetMap ferry route",
+                  "_osm_id": $e.id,
+                  "_osm_type": $e.type
+                }),
+                geometry: $g
+              }
+              end
+            )
+          | map(select(. != null))
+        )
+      }
+    ' "$FERRY_CACHE" > "$LINES_TMP"
+
+    LINE_COUNT=$(jq '.features | length' "$LINES_TMP")
+    if [[ "$LINE_COUNT" -gt 0 ]]; then
+        # Buffer 30 m. Approximate 30 m as 0.00027° (~30/111000 m/deg);
+        # close enough at AU latitudes for routing-grade ribbons.
+        FERRY_BUFFER_DEG=0.00027
+        ogr2ogr -q \
+            -f GeoJSON \
+            -dialect SQLite \
+            -sql "SELECT ST_Buffer(geometry, ${FERRY_BUFFER_DEG}) AS geometry FROM 'ferry'" \
+            -nln ferry \
+            "$FERRY_GEOJSON" \
+            "$LINES_TMP" 2>/dev/null && {
+            # Re-tag with our _layer/_source schema (ogr2ogr drops properties on ST_Buffer).
+            jq --arg source "OpenStreetMap ferry route" \
+               --arg license "ODbL" \
+               '
+               {
+                 type: "FeatureCollection",
+                 features: (.features
+                   | map(.properties += {
+                       "_layer": "FAIRWY",
+                       "_class": "ferry-route-buffered",
+                       "_source": $source,
+                       "_license": $license,
+                       "_grade": "D"
+                     })
+                 )
+               }' "$FERRY_GEOJSON" > "${FERRY_GEOJSON}.tagged"
+            mv "${FERRY_GEOJSON}.tagged" "$FERRY_GEOJSON"
+
+            FERRY_COUNT=$(jq '.features | length' "$FERRY_GEOJSON")
+            echo -e "  ${GREEN}✓${NC} Parsed ${FERRY_COUNT} ferry routes → buffered FAIRWY polygons"
+            MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-merged3-$$.geojson")
+            jq -s '
+              {
+                type: "FeatureCollection",
+                features: ((.[0].features) + (.[1].features))
+              }
+            ' "$DEPARE_GEOJSON" "$FERRY_GEOJSON" > "$MERGED"
+            mv "$MERGED" "$DEPARE_GEOJSON"
+        } || {
+            echo -e "${YELLOW}  ⚠ ogr2ogr ST_Buffer failed — skipping ferry routes${NC}"
+        }
+    else
+        echo -e "${YELLOW}  ⚠ No ferry routes parsed${NC}"
+    fi
+    rm -f "$LINES_TMP"
+fi
+
 # ── Stats ───────────────────────────────────────────────────────────
 FEATURE_COUNT=$(jq '.features | length' "$DEPARE_GEOJSON")
 LAYER_BREAKDOWN=$(jq -r '
