@@ -37,9 +37,11 @@
  * producing nothing.
  */
 
+import { CapacitorHttp } from '@capacitor/core';
 import { cellsForBBox } from './enc/EncCellMetadata';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
+import { piCache } from './PiCacheService';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InshoreRouter');
@@ -258,42 +260,90 @@ export async function tryInshoreRoute(
     log.warn(
         `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0}, calling routeInshore`,
     );
+    // 60 m hazard buffer (engine default 30 m).
+    //
+    // 100 m made things WORSE — at that radius, seaward hazards'
+    // buffers overlapped into a giant offshore no-go blob, and
+    // A* fell back to a shore-side path because that side had
+    // fewer overlapping buffers (user 2026-05-12: "went back
+    // closer to land again").
+    //
+    // 60 m is the empirical sweet spot — overlaps into
+    // contiguous no-go strips along hazard chains, but doesn't
+    // over-block the deep-water side.
+    const routeOpts = {
+        fromLat: origin.lat,
+        fromLon: origin.lon,
+        toLat: destination.lat,
+        toLon: destination.lon,
+        draftM,
+        safetyM: 0.2,
+        obstructionBufferM: 60,
+    } as const;
+
+    // ── Cloud-first: try Pi-cache before falling back to on-device ──
+    // On-device A* on iPhone JS engine takes 20-36 s for a 15 NM route
+    // (measured 2026-05-12). The same A* code mirrored to Pi-cache
+    // runs maybe 5-10× faster on the Pi 5's V8 because it has more
+    // RAM, faster JIT warmup, and no UI thread to share with.
+    // We POST the iOS-prepped merged blob (cells + synthesised FAIRWY
+    // ribbons + IALA-oriented hazards + paired-marker midpoints) and
+    // let the Pi run A* over it. Falls through to the local compute
+    // path if the Pi is unreachable, times out, or 5xx-errs.
     const t0 = Date.now();
-    let result;
-    try {
-        result = routeInshore(merged, {
-            fromLat: origin.lat,
-            fromLon: origin.lon,
-            toLat: destination.lat,
-            toLon: destination.lon,
-            draftM,
-            safetyM: 0.2,
-            // 60 m hazard buffer (engine default 30 m).
-            //
-            // 100 m made things WORSE — at that radius, seaward
-            // hazards' buffers overlapped into a giant offshore
-            // no-go blob, and A* fell back to a shore-side path
-            // because that side had fewer overlapping buffers
-            // (user 2026-05-12: "went back closer to land again").
-            //
-            // 60 m is the empirical sweet spot — overlap into
-            // contiguous no-go strips along hazard chains, but
-            // doesn't over-block the deep-water side.
-            //
-            // The right fix for orientation-aware blocking (only
-            // block the hazard side of a marker, leave the channel
-            // side open) needs explicit OSM hazard POLYGONS
-            // (`seamark:type=rock` / `obstruction` / `shoal`) or
-            // some inferred sense of "channel direction" — neither
-            // available right now. 60 m is the best the
-            // unoriented-buffer approach gets us.
-            obstructionBufferM: 60,
-        });
-    } catch (err) {
-        log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
-        return null;
+    let result: ReturnType<typeof routeInshore> | null = null;
+    let routedOnCloud = false;
+    if (piCache.isAvailable()) {
+        try {
+            const cloudT0 = Date.now();
+            const res = await CapacitorHttp.post({
+                url: `${piCache.baseUrl}/api/enc/route-prepped`,
+                headers: { 'Content-Type': 'application/json' },
+                data: { ...routeOpts, layers: merged },
+                connectTimeout: 5000,
+                readTimeout: 25000,
+            });
+            const cloudMs = Date.now() - cloudT0;
+            if (res.status >= 200 && res.status < 300 && res.data && typeof res.data === 'object') {
+                const data = res.data as Record<string, unknown>;
+                if ('error' in data) {
+                    log.warn(
+                        `cloud router returned 200 with error payload — falling back to local: ${String(data.error)}`,
+                    );
+                } else if (Array.isArray(data.polyline) && typeof data.distanceNM === 'number') {
+                    result = {
+                        polyline: data.polyline as [number, number][],
+                        distanceNM: data.distanceNM,
+                    } as ReturnType<typeof routeInshore>;
+                    routedOnCloud = true;
+                    log.warn(`STAGE: cloud A* returned in ${cloudMs} ms (Pi-cache)`);
+                }
+            } else if (res.status === 422 && res.data && typeof res.data === 'object') {
+                // Pi-cache rejected the route (e.g. origin-on-land). Use
+                // the same shape as local so the caller surfaces it.
+                result = res.data as ReturnType<typeof routeInshore>;
+                routedOnCloud = true;
+                log.warn(`cloud router rejected route (HTTP 422) — surfacing as failure`);
+            } else {
+                log.warn(`cloud router HTTP ${res.status} — falling back to local`);
+            }
+        } catch (err) {
+            log.warn(
+                `cloud router request failed (${err instanceof Error ? err.message : String(err)}) — falling back to local`,
+            );
+        }
+    }
+
+    if (!result) {
+        try {
+            result = routeInshore(merged, routeOpts);
+        } catch (err) {
+            log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
+            return null;
+        }
     }
     const elapsedMs = Date.now() - t0;
+    const computeWhere = routedOnCloud ? 'cloud' : 'local';
 
     if ('error' in result) {
         log.warn(`inshore router failed: ${result.error} (${result.code ?? 'no code'})`);
@@ -308,7 +358,7 @@ export async function tryInshoreRoute(
     // production builds during the on-device routing rollout. Drop
     // back to info() once we trust the path.
     log.warn(
-        `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms local, cells: ${cellsUsed.join(',')})`,
+        `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
     );
     return {
         polyline: result.polyline,
