@@ -766,22 +766,25 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     // penalty for "deep but unmarked" water means a 50% detour
     // through fairway beats a straight shot through unmarked deep
     // water — about right when the chart actually has fairways.
-    if (depth >= 10) return 1.2;
-    if (depth >= 5) return 1.5;
-    if (depth > 0) return 2.5;
-    // UNKNOWN_OPEN — now 500× (was 50×). At 50× A* was still picking
-    // straight-line routes across e.g. the Scarborough peninsula where
-    // our LNDARE polygon has gaps, because traversing 200 m of unknown
-    // cells (50× × 200 m = 10 km equiv cost) was cheaper than the
-    // ~22 km around-bay deep-water alternative (1.2× × 22 km ≈ 26 km
-    // equiv cost). 500× makes the same peninsula 200 m × 500 = 100 km
-    // equivalent, decisively worse than the around-bay path.
+    // Steep cost gradient between "marked channel" (FAIRWY) and "just
+    // navigable deep water" so A* commits to channels even when a
+    // ~25% shorter straight-line route exists through generic
+    // bathymetry-deep cells. Earlier 1.2× for deep water meant a
+    // direct 11 NM line at 1.2× (13.2 NM-equiv) beat the 15 NM
+    // channel-following path at 1.0× (15 NM-equiv); the route cut
+    // straight across the Brisbane River shipping channel instead
+    // of riding it.
     //
-    // Tradeoff: routes through unmarked / unsurveyed areas effectively
-    // fail (no path) instead of going straight through them. For
-    // public-data charts where we have nearly-full bathymetry coverage,
-    // this is correct — unmarked == probably-land or really-uncharted,
-    // both of which the boat shouldn't cross blindly.
+    // With deep = 2.5×, the direct line becomes 11 × 2.5 = 27.5
+    // NM-equiv vs channel at 15 NM-equiv — A* now prefers the
+    // channel route decisively. The boat is then routed through
+    // marked safe water rather than open bay.
+    if (depth >= 10) return 2.5;
+    if (depth >= 5) return 3.5;
+    if (depth > 0) return 5.0;
+    // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
+    // bathymetry now at 2.5-5.0× the relative gap to unknown is
+    // smaller (100× → 200×), still decisive.
     return 500.0;
 }
 
