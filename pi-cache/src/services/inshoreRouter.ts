@@ -303,6 +303,13 @@ function buildNavGrid(
     const cells = new Float32Array(width * height);
     cells.fill(UNKNOWN_OPEN); // permissive default — see header doc
     const preferred = new Uint8Array(width * height);
+    // Per-cell "protected" flag: 1 = DEPARE came from an authoritative
+    // engineered-water source (marina, basin, dock, canal) and the
+    // LNDARE pass MUST NOT re-block this cell, even if a chunky
+    // GMRT-derived LNDARE polygon covers it. Generic OSM `natural=water`
+    // and bathymetry-derived DEPARE do NOT get this protection — they
+    // can be erroneously placed and LNDARE should beat them.
+    const protectedCells = new Uint8Array(width * height);
     const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred };
 
     // Helper to convert a polygon bbox to grid coordinate range.
@@ -316,16 +323,33 @@ function buildNavGrid(
         return { x0, x1, y0, y1 };
     };
 
-    // ── Pass 1: DEPARE — assign depth values ────────────────────────
+    // ── Pass 1: DEPARE — assign depth values + flag authoritative ───
     // Done first so a subsequent LNDARE pass overrides shallow water
     // with land-block on cells where both apply (rare but possible).
+    //
+    // A DEPARE feature whose source is "authoritative engineered
+    // water" (OSM marina basin, dock, canal, landuse=basin) also sets
+    // `protectedCells[idx] = 1`. The LNDARE pass below skips those
+    // cells — they're real water that the boat needs even if a chunky
+    // bathymetry-derived LNDARE polygon happens to cover them. Generic
+    // `natural=water` and plain bathymetry-derived DEPARE bands do NOT
+    // get protection; if LNDARE says it's land, they get blocked.
+    const isAuthoritativeDepare = (props: Record<string, unknown> | null): boolean => {
+        if (!props) return false;
+        const leisure = props['leisure'];
+        const landuse = props['landuse'];
+        const waterway = props['waterway'];
+        return leisure === 'marina' || landuse === 'basin' || waterway === 'dock' || waterway === 'canal';
+    };
     const depare = layers.DEPARE?.features ?? [];
     for (const f of depare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
-        const drval1 = (f.properties as Record<string, unknown> | null)?.['DRVAL1'];
+        const props = f.properties as Record<string, unknown> | null;
+        const drval1 = props?.['DRVAL1'];
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
+        const authoritative = isAuthoritativeDepare(props);
 
         const pBbox = geometryBbox(g);
         const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
@@ -352,35 +376,32 @@ function buildNavGrid(
                     } else if (prior === UNKNOWN_OPEN || drval1Num < prior) {
                         cells[idx] = drval1Num;
                     }
+                    if (authoritative) protectedCells[idx] = 1;
                 }
             }
         }
     }
 
-    // ── Pass 2: LNDARE — block land cells, BUT DEPARE wins overlaps ─
-    // Conflict-resolution rule: a cell that DEPARE already marked as
-    // navigable water (cells[idx] > 0) is NOT re-blocked by LNDARE.
+    // ── Pass 2: LNDARE — block land cells, except authoritative water ─
+    // Earlier conflict rule was "DEPARE > 0 beats LNDARE", which let
+    // ANY DEPARE feature override LNDARE — including bathymetry-derived
+    // deep bands that happened to cover the actual peninsula, and
+    // misclassified `natural=water` OSM polygons. The route then
+    // crossed straight over land (Scarborough peninsula bug).
     //
-    // Why: at coarse public-data resolutions our LNDARE polygon is the
-    // "below-lowest-contour" polygon from gdal_contour, which is a
-    // 60 m-pixel approximation of the natural shoreline — it doesn't
-    // know about engineered features like marina basins, dredged
-    // canals, or commercial docks that sit below MSL but are geo-
-    // graphically inside the shoreline polygon. The user reports
-    // Newport marina being covered by our LNDARE even though the
-    // basin is dredged ~3 m deep and is real water.
+    // New rule: LNDARE blocks cells unconditionally UNLESS the DEPARE
+    // pass flagged them `protectedCells[idx] = 1`. That flag is only
+    // set for OSM features tagged `leisure=marina`, `landuse=basin`,
+    // `waterway=dock`, or `waterway=canal` — authoritative engineered
+    // water that we trust over any chunky LNDARE. Other DEPARE sources
+    // (plain `natural=water`, plain bathymetry contours) lose to LNDARE
+    // on overlap, which is the safer "stay in the wet" default the
+    // user asked for.
     //
-    // When we add OSM water polygons (natural=water, landuse=basin,
-    // leisure=marina, waterway=canal) as DEPARE with sensible default
-    // depths, those polygons run Pass 1 first and set cells navigable.
-    // Pass 2 must then respect that — otherwise the chunky LNDARE
-    // re-blocks marinas and the snap moves the route start hundreds
-    // of metres out into open water.
-    //
-    // Cells that DEPARE explicitly blocked (DRVAL1 too shallow → NaN)
-    // and cells that are still UNKNOWN_OPEN (no DEPARE coverage) DO
-    // get blocked by LNDARE — that's the intended "land is land"
-    // semantic for areas without engineered water features.
+    // Trade-off: marinas/canals stay reachable; misclassified inland
+    // water polygons stop creating phantom navigable land. The right
+    // long-term fix is OSM coastline as LNDARE so the land polygons
+    // are accurate sub-10 m instead of 60 m-pixel chunky.
     const lndare = layers.LNDARE?.features ?? [];
     for (const f of lndare) {
         const g = f.geometry;
@@ -395,12 +416,7 @@ function buildNavGrid(
                 const lon = minLon + (x + 0.5) * dLon;
                 if (pointInGeometry(lon, lat, g)) {
                     const idx = y * width + x;
-                    const current = cells[idx];
-                    // current > 0 means DEPARE set a real depth — keep
-                    // it. UNKNOWN_OPEN (=0) and NaN both fall through
-                    // to BLOCKED, which is what LNDARE wants for raw
-                    // land and DEPARE-blocked-shallow cells.
-                    if (!(current > 0)) {
+                    if (!protectedCells[idx]) {
                         cells[idx] = BLOCKED;
                     }
                 }
