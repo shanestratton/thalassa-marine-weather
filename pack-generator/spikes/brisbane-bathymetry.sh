@@ -398,14 +398,36 @@ fi
 # engine only reads DRVAL1.
 if [[ -f "$WATER_CACHE" ]]; then
     jq '
+      # Default depths chosen to match how the engine treats each tag.
+      # Marina / basin / dock / canal are AUTHORITATIVE in the engine
+      # (they beat LNDARE in overlap), so their defaults need to be
+      # ≥ typical cutoff (draft + safety, e.g. 2.6 m). Bumped marina/
+      # basin from 3.0 → 4.0 and canal from 2.0 → 3.0 so they survive
+      # safety margins up to 1.0 m.
+      #
+      # Plain `natural=water` is NOT authoritative — it gets blocked
+      # by LNDARE on overlap, but in LNDARE-gap areas the depth still
+      # determines navigability. Bumping the default DOWN to 1.0
+      # ensures unsubtagged natural=water cells are blocked for any
+      # reasonable boat draft (1 < 2.6 cutoff). Cells that should
+      # actually be navigable (Moreton Bay, Brisbane River main
+      # channel) are covered by the GMRT bathymetry contours which
+      # provide real depth data.
+      #
+      # `water=bay` / `water=sea` / `water=river` subtags get the
+      # generous 5.0 default — these are coastal/major water features
+      # we trust.
       def default_depth:
-        if .tags.leisure == "marina" then 3.0
-        elif .tags.landuse == "basin" then 3.0
+        if .tags.leisure == "marina" then 4.0
+        elif .tags.landuse == "basin" then 4.0
         elif .tags.waterway == "dock" then 5.0
-        elif .tags.waterway == "canal" then 2.0
-        elif .tags.waterway == "riverbank" then 4.0
-        elif .tags.natural == "water" then 3.0
-        else 2.0 end;
+        elif .tags.waterway == "canal" then 3.0
+        elif .tags.waterway == "riverbank" then 1.0
+        elif .tags.water == "bay" then 5.0
+        elif .tags.water == "sea" then 5.0
+        elif .tags.water == "river" then 5.0
+        elif .tags.natural == "water" then 1.0
+        else 1.0 end;
       def to_polygon:
         if .type == "way" and (.geometry | length >= 4)
            and .geometry[0].lat == .geometry[-1].lat
