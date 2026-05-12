@@ -497,47 +497,29 @@ function orientHazardsTowardLand(
     // A* threaded the route through it (the user's exact complaint at
     // Scarborough Reef). With radius = shoreDistance, that corridor
     // disappears: the half-disc spans the full reef extent.
-    // Radius policy. History → see end of comment.
-    //
-    // The disc faces "toward land" — meaningful for markers AT a reef
-    // edge or AT a bank, where the boat must pass on the seaward side.
-    // For markers in genuine open water (e.g. mid-Moreton Bay nav-
-    // aids 2-5 km from any shore), there isn't a meaningful "land
-    // side" — orientation aims at whatever land vertex happens to be
-    // closest, which can be arbitrarily far in a direction the boat
-    // doesn't care about. Stacked together these arbitrary discs
-    // become walls blocking the navigable bay.
-    //
-    // Policy:
-    //   shoreDistM ≤ 1000 m → reef/bank-edge marker, oriented disc,
-    //     radius = shoreDistM + 30 m capped at REEF_RADIUS_MAX_M (covers
-    //     the strip between marker and shore).
-    //   shoreDistM > 1000 m → genuinely-open-water marker, skip
-    //     orientation and emit as a Point hazard. The engine adds its
-    //     own symmetric `obstructionBufferM` (60 m) so the marker is
-    //     still avoided — just as a compact point, not a 1 km blob.
-    //
-    // 1000 m threshold preserves Scarborough Reef (~600 m offshore),
-    // Mud Island fringing (~400 m), Peel Island fringing (~1000 m).
-    // Anything past that is on open water where compact point
-    // hazards make more sense.
+    // Radius policy — flat 300 m cap, the simplest thing that works.
     //
     // History
     // ───────
-    // • Flat 2000 m cap → walled the bay with 4 km blobs.
-    // • Flat 300 m cap → killed walls but stopped at the wrong
-    //   side of Scarborough Reef's green marker.
-    // • Proximity-aware, MAX 1000-1500 m, OPEN_WATER_THRESHOLD 2000 m
-    //   → reefs covered but markers 1-2 km from "land" still got
-    //   km-scale discs that walled the Brisbane River → Fisherman
-    //   Island terminal approach (user 2026-05-12, screenshot showed
-    //   a 4 NM detour around the terminal).
-    // • Current: same proximity policy but with a much tighter
-    //   MAX_SHORE_DISTANCE — markers in the open bay become point
-    //   hazards, eliminating the wall problem at its root.
+    // Various proximity-aware schemes were tried — extending the disc
+    // out to shoreDistM + 30 with caps from 1000-2000 m. They all
+    // either walled the open bay with arbitrary-direction discs OR
+    // shifted destination-cell snapping enough to push A* off the
+    // correct channel-following corridor (user 2026-05-13 confirmed
+    // the river-up behaviour was working before any proximity tweaks
+    // and broke after).
+    //
+    // The "Scarborough Reef coverage gap" that motivated proximity-
+    // awareness is a real problem but the right fix is data-side:
+    // explicit OBSTRN polygons for known submerged reefs, or higher-
+    // res bathymetry that shows the reef as shallow. Tuning per-
+    // marker radii is too blunt a knob — it ripples into the whole
+    // bay's routing.
+    //
+    // Flat 300 m cap restored.
     const HAZARD_RADIUS_MIN_M = 80;
-    const REEF_RADIUS_MAX_M = 1000;
-    const MAX_SHORE_DISTANCE_M = 1000; // was 5000 — now the actual reef-edge cutoff
+    const HAZARD_RADIUS_MAX_M = 300;
+    const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
     // Flatten all LNDARE vertices into a single [lon, lat] list so the
@@ -596,16 +578,11 @@ function orientHazardsTowardLand(
             continue;
         }
         // The half-circle is centred on the land bearing — its arc
-        // faces the land (shore-side cells get blocked). We only get
-        // here when shoreDistM ≤ MAX_SHORE_DISTANCE_M (markers further
-        // out got short-circuited to point hazards earlier). So the
-        // radius is just "reach the reef edge" — shoreDistM + 30 m
-        // (covers LNDARE precision slop), floored at HAZARD_RADIUS_MIN
-        // for very-close-to-bank markers, capped at REEF_RADIUS_MAX
-        // so a single anomalously-distant land vertex doesn't blow
-        // up the disc.
+        // faces the land (shore-side cells get blocked). Radius is
+        // shoreDistM + 30 m (covers LNDARE precision slop), floored
+        // at HAZARD_RADIUS_MIN, capped at HAZARD_RADIUS_MAX.
         const landAngle = Math.atan2(landDyM, landDxM);
-        const radiusM = Math.min(REEF_RADIUS_MAX_M, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
+        const radiusM = Math.min(HAZARD_RADIUS_MAX_M, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
 
         const coords: [number, number][] = [];
         // Arc from (landAngle - π/2) sweeping counter-clockwise to
