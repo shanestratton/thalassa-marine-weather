@@ -512,14 +512,19 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             }
 
             // ── Step 2: Cluster markers into channel chains ────────
-            // CLUSTER_LINK_M = 250 m: any two markers within 250 m link
-            // into the same cluster. Picks up markers along a single
-            // channel (typical spacing 100-300 m) while keeping parallel
-            // channels separated. Earlier "nearest-neighbour midpoint"
-            // approach produced 74 segments from 236 midpoints — most
-            // midpoints' nearest neighbour was in a *different* channel
-            // running perpendicular. Chain-aware clustering fixes this.
-            const CLUSTER_LINK_M = 250;
+            // CLUSTER_LINK_M = 150 m: tight enough that the flood-fill
+            // can't bridge across a peninsula tip (~1 km wide) by
+            // hopping through markers on the shoreline. 250 m turned
+            // out to grow chains all the way around the Scarborough
+            // peninsula, producing synthetic FAIRWY segments that ran
+            // STRAIGHT OVER the land. 150 m breaks at the gap.
+            //
+            // Tradeoff: some legitimate channels with widely-spaced
+            // markers (>150 m gap between successive markers) get
+            // split into multiple sub-chains. Acceptable — A* can
+            // bridge the gap via DEPARE deep-water cells. Better
+            // false-split than false-join across land.
+            const CLUSTER_LINK_M = 150;
             const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
 
             // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
@@ -617,6 +622,15 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 arr.sort((a, b) => a.chainOrder - b.chainOrder);
             }
 
+            // SEGMENT_MAX_M = 400: drop segments where consecutive
+            // midpoints in a chain are >400 m apart. At public-data
+            // marker densities a >400 m intra-chain gap almost always
+            // means the chain has bridged across a feature (peninsula,
+            // island, dredged-channel break) and the segment would
+            // run over land. Better to leave a gap and let A* find a
+            // deep-water path than draw a preferred ribbon across
+            // dirt. 800 m → 400 m on the cap.
+            const SEGMENT_MAX_M = 400;
             const segments: unknown[] = [];
             for (const arr of byChain.values()) {
                 for (let i = 0; i < arr.length - 1; i++) {
@@ -627,7 +641,7 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                     const dxM = (b.lon - a.lon) * mPerLonAtMid;
                     const dyM = (b.lat - a.lat) * 111_320;
                     const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
-                    if (lenM < 1 || lenM > 800) continue; // skip near-zero and absurdly long
+                    if (lenM < 1 || lenM > SEGMENT_MAX_M) continue;
                     const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
                     const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
                     const perpDLon = perpDxM / mPerLonAtMid;
