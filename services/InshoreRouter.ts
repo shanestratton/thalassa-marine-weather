@@ -555,6 +555,7 @@ function orientHazardsTowardLand(
     if (landVertices.length === 0) return hazards as unknown[];
 
     const result: unknown[] = [];
+    const scarboroughDebug: string[] = [];
     for (const h of hazards) {
         const [mLon, mLat] = h.geometry.coordinates;
         // Find nearest land vertex (approx — Euclidean in lat/lon is fine
@@ -604,6 +605,15 @@ function orientHazardsTowardLand(
         const maxRadiusForClass = isReefEdgeSoloLateral ? LATERAL_RADIUS_MAX_M : DIRECT_HAZARD_RADIUS_MAX_M;
         const radiusM = Math.min(maxRadiusForClass, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
 
+        // DEBUG — log markers near Scarborough Reef so we can see whether
+        // the gate is doing its job. Bbox roughly covers the Scarborough/
+        // Redcliffe peninsula. Remove once the radius policy is dialled.
+        if (mLat >= -27.22 && mLat <= -27.17 && mLon >= 153.07 && mLon <= 153.12) {
+            scarboroughDebug.push(
+                `marker @ ${mLat.toFixed(4)},${mLon.toFixed(4)} class=${hazardClass ?? '?'} kind=${(h.properties as { _markerKind?: string } | null | undefined)?._markerKind ?? '?'} shoreDist=${Math.round(shoreDistM)}m reefEdge=${isReefEdgeSoloLateral} → radius=${Math.round(radiusM)}m`,
+            );
+        }
+
         const coords: [number, number][] = [];
         // Arc from (landAngle - π/2) sweeping counter-clockwise to
         // (landAngle + π/2). The chord closes back through the centre,
@@ -638,6 +648,14 @@ function orientHazardsTowardLand(
                 coordinates: [coords],
             },
         });
+    }
+    if (scarboroughDebug.length > 0) {
+        log.warn(`STAGE: Scarborough-area hazards (${scarboroughDebug.length}):`);
+        for (const line of scarboroughDebug) {
+            log.warn(`  • ${line}`);
+        }
+    } else {
+        log.warn(`STAGE: NO hazards processed in Scarborough bbox (-27.22..-27.17, 153.07..153.12)`);
     }
     return result;
 }
