@@ -497,36 +497,42 @@ function orientHazardsTowardLand(
     // A* threaded the route through it (the user's exact complaint at
     // Scarborough Reef). With radius = shoreDistance, that corridor
     // disappears: the half-disc spans the full reef extent.
-    // Class-aware radius policy.
+    // Class-aware + distance-gated radius policy.
     //
-    // Different marker classes warrant different hazard footprints:
+    // Three buckets:
     //
-    //   • SOLO LATERAL (`_class === 'lateral-marker-as-hazard'`) — a
-    //     port/starboard marker that didn't pair with anything in its
-    //     cluster. In IALA-A practice these mark a HAZARD STRIP back
-    //     to shore (reef edge, isolated shoal). The boat passes
-    //     seaward; the entire strip between marker and shore is no-go.
-    //     Radius should EXTEND to the shore so the half-disc spans
-    //     the strip — Scarborough Reef's green marker (~600 m
-    //     offshore) needs ~630 m for the disc to actually reach the
-    //     reef edge it's marking. Capped at LATERAL_RADIUS_MAX so a
-    //     single anomalously-far land vertex doesn't blow up the disc.
+    //   • SOLO LATERAL near shore (`_class === 'lateral-marker-as-hazard'`
+    //     AND shoreDistM ≤ LATERAL_REEF_GATE_M) — port/starboard marker
+    //     that didn't pair AND is close to land. Most plausibly a reef-
+    //     edge or isolated-shoal marker; the boat must pass seaward
+    //     and the strip back to shore is no-go. EXTEND the disc to
+    //     shoreDistM + 30, capped at LATERAL_RADIUS_MAX_M so the disc
+    //     reaches the reef-edge it's marking (Scarborough Reef green
+    //     ≈ 600 m offshore needs ≈ 630 m radius).
     //
-    //   • DIRECT HAZARD (everything else — cardinals, dangers, isolated
-    //     marks) — these are POINT hazards: a specific local obstruction
-    //     (wreck, rock, isolated shoal), NOT a strip back to shore.
-    //     Compact 300 m cap keeps them from forming walls when many
-    //     cluster mid-bay (90 dangers + 51 cardinals in Brisbane bbox).
+    //   • SOLO LATERAL far from shore (shoreDistM > LATERAL_REEF_GATE_M)
+    //     — port/starboard marker that didn't pair and is genuinely
+    //     mid-bay. Almost certainly an unpaired channel marker, not a
+    //     reef. Treat as compact (DIRECT_HAZARD_RADIUS_MAX_M cap). Two
+    //     reasons: (a) extending these built walls that disconnected
+    //     the river from the bay (454 unpaired laterals in the
+    //     Brisbane bbox — if many get km-scale discs they overlap into
+    //     barriers, user 2026-05-13: "Origin and destination are in
+    //     disconnected water bodies"); (b) the marker class alone
+    //     doesn't reliably distinguish reef from channel, so we need
+    //     shore proximity as a second signal.
     //
-    // Earlier single-policy attempts:
-    //   • Flat 300 m for everything → solo laterals stopped short of
-    //     reef edges (Scarborough wrong-side issue).
-    //   • Proximity-extended for everything → mid-bay cardinals got
-    //     km-scale discs that walled the bay (Brisbane regression).
-    // Splitting by class is what makes both ends work simultaneously.
+    //   • DIRECT HAZARD (cardinals, dangers, isolated) — always
+    //     compact at DIRECT_HAZARD_RADIUS_MAX_M. Point hazards
+    //     marking a specific local obstruction.
+    //
+    // LATERAL_REEF_GATE_M = 800 m. Catches Scarborough (~600 m),
+    // Mud I. fringing (~400 m), Peel I. fringing (~700 m). Excludes
+    // mid-Moreton-Bay solo laterals (typically > 1 km from any land).
     const HAZARD_RADIUS_MIN_M = 80;
-    const DIRECT_HAZARD_RADIUS_MAX_M = 300; // cardinals/dangers — compact, no walling
-    const LATERAL_RADIUS_MAX_M = 800; // solo laterals — extend to reach reef edge
+    const DIRECT_HAZARD_RADIUS_MAX_M = 300; // cardinals/dangers — compact
+    const LATERAL_RADIUS_MAX_M = 800; // solo laterals near shore — extend to reach reef
+    const LATERAL_REEF_GATE_M = 800; // solo laterals further out → treat as compact
     const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
@@ -587,13 +593,15 @@ function orientHazardsTowardLand(
         }
         // The half-circle is centred on the land bearing — its arc
         // faces the land (shore-side cells get blocked). Radius cap
-        // varies by class (see the policy comment at the top of the
-        // function): solo laterals extend to cover reef strips, direct
-        // hazards stay compact.
+        // is gated by class AND shore proximity (see the policy
+        // comment at the top of the function): solo laterals near
+        // shore get the extended LATERAL_RADIUS_MAX cap; everything
+        // else (direct hazards, OR solo laterals further than the
+        // reef-gate) stays compact at DIRECT_HAZARD_RADIUS_MAX.
         const landAngle = Math.atan2(landDyM, landDxM);
         const hazardClass = (h.properties as { _class?: string } | null | undefined)?._class;
-        const maxRadiusForClass =
-            hazardClass === 'lateral-marker-as-hazard' ? LATERAL_RADIUS_MAX_M : DIRECT_HAZARD_RADIUS_MAX_M;
+        const isReefEdgeSoloLateral = hazardClass === 'lateral-marker-as-hazard' && shoreDistM <= LATERAL_REEF_GATE_M;
+        const maxRadiusForClass = isReefEdgeSoloLateral ? LATERAL_RADIUS_MAX_M : DIRECT_HAZARD_RADIUS_MAX_M;
         const radiusM = Math.min(maxRadiusForClass, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
 
         const coords: [number, number][] = [];
