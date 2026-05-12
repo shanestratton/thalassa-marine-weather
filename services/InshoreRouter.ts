@@ -242,7 +242,7 @@ export async function tryInshoreRoute(
     // planning is the skipper's job — chart datum is already lowest
     // astronomical tide.
     log.warn(
-        `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0}, calling routeInshore`,
+        `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0}, calling routeInshore`,
     );
     const t0 = Date.now();
     let result;
@@ -254,6 +254,13 @@ export async function tryInshoreRoute(
             toLon: destination.lon,
             draftM,
             safetyM: 0.2,
+            // 60 m hazard buffer instead of the engine's 30 m default.
+            // Solo lateral / cardinal / danger markers all push to
+            // OBSTRN now; with markers typically spaced 50-100 m
+            // along a chain, a 30 m buffer leaves gaps wide enough
+            // for A* to thread through. 60 m forces overlapping
+            // bubbles → contiguous no-go strips around hazard chains.
+            obstructionBufferM: 60,
         });
     } catch (err) {
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
@@ -518,13 +525,40 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 }[];
             };
 
-            // ── Step 1: Parse all lateral markers ───────────────────
+            // ── Step 1: Parse markers ───────────────────────────────
+            // Two classes:
+            //  - "lateral" channel-marker candidates (port/starboard):
+            //    enter the cluster + pair-or-solo pipeline.
+            //  - "direct hazard" markers (cardinal, danger, isolated,
+            //    notice, pile): never define a channel, always indicate
+            //    a hazard. Skip the pairing and emit straight to the
+            //    soloHazards list in Step 6.
+            //
+            // Earlier iteration only filtered port/starboard, which
+            // missed the green Scarborough Reef marker (user reported)
+            // because it's tagged as a generic hazard, not a paired
+            // channel side.
             const markers: Marker[] = [];
+            const directHazards: { lat: number; lon: number; cls: string }[] = [];
+            const DIRECT_HAZARD_CLASSES = new Set([
+                'cardinal',
+                'cardinal_n',
+                'cardinal_s',
+                'cardinal_e',
+                'cardinal_w',
+                'danger',
+                'isolated',
+                'notice',
+                'pile',
+                'lateral', // unsubclassed lateral — treat as hazard, not channel side
+            ]);
             for (const f of data.features ?? []) {
                 if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
                 const [lon, lat] = f.geometry.coordinates;
-                if (f.properties?._class === 'port') markers.push({ lat, lon, kind: 'port' });
-                else if (f.properties?._class === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
+                const cls = (f.properties?._class as string | undefined) ?? '';
+                if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
+                else if (cls === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
+                else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
             }
 
             // ── Step 2: Cluster markers into channel chains ────────
@@ -705,17 +739,31 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 }
             }
 
-            // ── Step 6: Solo markers → OBSTRN hazard points ─────────
-            // See the RegionalChannelData docstring for rationale.
-            const hazards: unknown[] = soloMarkers.map((m) => ({
-                type: 'Feature',
-                properties: {
-                    _class: 'lateral-marker-as-hazard',
-                    _source: 'solo-lateral-inferred',
-                    _markerKind: m.kind,
-                },
-                geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
-            }));
+            // ── Step 6: Solo + direct-hazard markers → OBSTRN points ─
+            // Solo lateral markers (unpaired in their cluster) join
+            // the directHazards collected in Step 1 (cardinals, dangers,
+            // notices, piles, generic lateral). All emitted as OBSTRN
+            // Point features for the engine's Pass 3 buffer.
+            const hazards: unknown[] = [
+                ...soloMarkers.map((m) => ({
+                    type: 'Feature' as const,
+                    properties: {
+                        _class: 'lateral-marker-as-hazard',
+                        _source: 'solo-lateral-inferred',
+                        _markerKind: m.kind,
+                    },
+                    geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
+                })),
+                ...directHazards.map((h) => ({
+                    type: 'Feature' as const,
+                    properties: {
+                        _class: 'direct-hazard',
+                        _source: 'osm-class',
+                        _osmClass: h.cls,
+                    },
+                    geometry: { type: 'Point' as const, coordinates: [h.lon, h.lat] },
+                })),
+            ];
 
             return { midpoints, segments, hazards };
         })();
