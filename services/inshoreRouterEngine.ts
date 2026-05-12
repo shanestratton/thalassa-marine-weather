@@ -790,9 +790,19 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     // NM-equiv vs channel at 15 NM-equiv — A* now prefers the
     // channel route decisively. The boat is then routed through
     // marked safe water rather than open bay.
-    if (depth >= 10) return 2.5;
-    if (depth >= 5) return 3.5;
-    if (depth > 0) return 5.0;
+    //
+    // 2026-05-12: bumped deep from 2.5 → 5.0. Coverage analysis
+    // showed that even with 2.5× deep cost, the channel was only
+    // winning when FAIRWY coverage was > 70% along the path. The
+    // synthetic FAIRWY ribbon at 30 m half-width left gaps where
+    // cell-centre sampling missed the polygon, dropping effective
+    // coverage to ~50% — at which point direct-line through deep
+    // beat the channel detour. Pairing this with the iOS-side
+    // ribbon widening (30 → 100 m half-width) plus a stiffer 5×
+    // gradient makes the channel route win even at 60% coverage.
+    if (depth >= 10) return 5.0;
+    if (depth >= 5) return 6.0;
+    if (depth > 0) return 8.0;
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.

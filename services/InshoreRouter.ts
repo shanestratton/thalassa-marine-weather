@@ -440,7 +440,14 @@ function orientHazardsTowardLand(
     // Scarborough Reef). With radius = shoreDistance, that corridor
     // disappears: the half-disc spans the full reef extent.
     const HAZARD_RADIUS_MIN_M = 80; // floor — solo markers far from any land vertex
-    const HAZARD_RADIUS_MAX_M = 2000; // ceiling — don't block unreasonably far seaward
+    // Ceiling on the half-circle radius. Was 2000 m, which produced
+    // 4 km-wide no-go blobs around markers 3+ km from any shore (the
+    // Moreton Bay scenario). Many overlapping blobs ended up forming
+    // a wall that pushed A* across the dredged shipping channel and
+    // produced the observed zigzag pattern. 300 m still covers any
+    // realistic shoreside-reef extent (Scarborough Reef ≈ 150 m wide)
+    // while keeping mid-bay markers as compact point hazards.
+    const HAZARD_RADIUS_MAX_M = 300;
     const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
@@ -739,7 +746,14 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 'cardinal_w',
                 'danger',
                 'isolated',
-                'notice',
+                // 'notice' deliberately omitted: IALA-A "special marks"
+                // (yellow X-topmark) are informational — they mark
+                // no-anchoring zones, fishing areas, water-ski zones,
+                // cable crossings, etc. They are NOT navigational
+                // hazards. Treating them as hazards generated half-
+                // circle no-go polygons that blocked legitimate
+                // channel approaches (observed at Fisherman Island
+                // arc on the Brisbane River approach 2026-05-12).
                 'pile',
                 'lateral', // unsubclassed lateral — treat as hazard, not channel side
             ]);
@@ -890,7 +904,20 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             // and the channel preference didn't bite. The user
             // observed exactly this on the Brisbane River shipping
             // channel approach.
-            const HALF_WIDTH_M = 30;
+            // FAIRWY ribbon half-width. Was 30 m (60 m total). At the
+            // engine's 50 m grid resolution, a 60 m ribbon only covers
+            // 1 cell column reliably — and only when the ribbon
+            // happens to straddle two cell centres. When the cell
+            // centre falls outside the ribbon (the diagonal case),
+            // NO cells get flagged as preferred and A* loses the
+            // channel hint entirely. Bumping to 100 m (200 m total)
+            // guarantees 3-4 cell-wide coverage regardless of
+            // orientation, so the preferred strip is contiguous and
+            // wide enough for A* to follow without threading a needle.
+            // 200 m is still narrower than a typical shipping channel
+            // (the Brisbane River dredged channel is ~150-300 m wide)
+            // so we don't bleed preference into hazard-side cells.
+            const HALF_WIDTH_M = 100;
             // Re-group midpoints by chain to walk them in order
             const byChain = new Map<number, Midpoint[]>();
             for (const mp of midpointCoords) {
@@ -912,7 +939,17 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             // bridges being uncommon at chain-clusters that span 600 m
             // mean we don't pay the over-block tax we'd have paid at
             // the old 150 m CLUSTER_LINK_M.
-            const SEGMENT_MAX_M = 600;
+            // Max gap between consecutive chain-ordered midpoints. Was
+            // 600 m. The Brisbane River shipping channel has marker
+            // pairs at the *bends* spaced 800-1000 m apart on the long
+            // straight stretches between curves, which at 600 m left
+            // ribbon gaps right where A* needs to commit. Bumped to
+            // 1200 m to bridge those gaps. False bridges (across-
+            // peninsula chains) at 1200 m are still rare because the
+            // CLUSTER_LINK_M=350 m clustering won't link markers
+            // 1200 m apart in the first place — only WITHIN a cluster
+            // do we draw segments, and a cluster spans ≤350 m hops.
+            const SEGMENT_MAX_M = 1200;
             const segments: unknown[] = [];
             for (const arr of byChain.values()) {
                 for (let i = 0; i < arr.length - 1; i++) {
