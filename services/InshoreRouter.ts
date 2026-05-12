@@ -254,13 +254,22 @@ export async function tryInshoreRoute(
             toLon: destination.lon,
             draftM,
             safetyM: 0.2,
-            // 60 m hazard buffer instead of the engine's 30 m default.
-            // Solo lateral / cardinal / danger markers all push to
-            // OBSTRN now; with markers typically spaced 50-100 m
-            // along a chain, a 30 m buffer leaves gaps wide enough
-            // for A* to thread through. 60 m forces overlapping
-            // bubbles → contiguous no-go strips around hazard chains.
-            obstructionBufferM: 60,
+            // 100 m hazard buffer (engine default 30 m, was 60 m).
+            //
+            // User reported the route was "much closer to the green
+            // [Scarborough Reef] marker but still inside it" at 60 m.
+            // The reef-edge marker is solo-classed → OBSTRN with a
+            // 60 m no-go bubble, but the shore-side strip between
+            // marker and land is ~80-100 m wide so A* could still
+            // squeeze through it. 100 m makes the bubble large
+            // enough to cover both the marker itself AND the strip
+            // on the shore side, forcing A* to take the seaward path.
+            //
+            // Only affects solo / direct-hazard markers — paired
+            // channel markers don't become OBSTRN, they're BOYLAT
+            // midpoints with a preferred radius (Pass 5). Channel
+            // navigation isn't constrained by this buffer.
+            obstructionBufferM: 100,
         });
     } catch (err) {
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
