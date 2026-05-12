@@ -301,7 +301,15 @@ export async function tryInshoreRoute(
                 headers: { 'Content-Type': 'application/json' },
                 data: { ...routeOpts, layers: merged },
                 connectTimeout: 5000,
-                readTimeout: 25000,
+                // 90 s read timeout. The Pi 5's V8 is comparable to (not
+                // dramatically faster than) the iPhone JS engine for
+                // single-threaded A* over a 200×400 grid with 660+ hazard
+                // polygons. Empirically iOS-local landed at 26-47 s, so a
+                // 25 s cap was triggering before the Pi ever finished.
+                // 90 s lets the Pi return its result; the user can still
+                // get a local-fallback result by killing/reissuing the
+                // request if the Pi is genuinely unresponsive.
+                readTimeout: 90000,
             });
             const cloudMs = Date.now() - cloudT0;
             if (res.status >= 200 && res.status < 300 && res.data && typeof res.data === 'object') {
