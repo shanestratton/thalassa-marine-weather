@@ -489,40 +489,41 @@ function orientHazardsTowardLand(
     // A* threaded the route through it (the user's exact complaint at
     // Scarborough Reef). With radius = shoreDistance, that corridor
     // disappears: the half-disc spans the full reef extent.
-    const HAZARD_RADIUS_MIN_M = 80; // floor — solo markers far from any land vertex
-    // Proximity-aware radius policy.
+    // Floor and ceiling for the proximity-aware radius below.
     //
     // History
     // ───────
-    // Original was a flat 2000 m cap. That produced 4 km-wide no-go
-    // blobs around markers 3+ km from any shore (Moreton Bay), which
-    // overlapped into a wall pushing the route across the shipping
-    // channel.
+    // Original was a flat 2000 m ceiling, MIN 80 m. That produced
+    // 4 km-wide no-go blobs around markers 3+ km from any shore
+    // (Moreton Bay), which overlapped into a wall pushing the route
+    // across the shipping channel.
     //
-    // First attempt: flat 300 m cap. Killed the Moreton-Bay wall but
-    // broke Scarborough Reef — that reef extends ~400-600 m from
+    // Second attempt: flat 300 m cap. Killed the Moreton-Bay wall
+    // but broke Scarborough Reef — that reef extends ~400-600 m from
     // shore, so the 300 m half-circle stops short of the reef edge
-    // and A* threads through the resulting gap on the wrong (shore)
-    // side of the green marker. User reported this regression
-    // 2026-05-12 ("going inside it").
+    // and A* threads through the gap on the wrong (shore) side of
+    // the green marker.
     //
-    // The right policy is to read shoreDistM as a *classifier*:
-    //   • shoreDistM < OPEN_WATER_THRESHOLD_M → reef-edge marker,
-    //     extend the half-circle all the way to the coastline
-    //     (radius = shoreDistM + 30, capped at REEF_RADIUS_MAX so a
-    //     single anomalously-distant land vertex doesn't generate a
-    //     km-wide blob).
-    //   • shoreDistM >= OPEN_WATER_THRESHOLD_M → open-water marker,
-    //     stay compact (OPEN_WATER_RADIUS_M) so multiple mid-bay
-    //     markers don't gang up into a wall.
+    // Third attempt (this one): proximity-aware. shoreDistM is the
+    // classifier — reef-edge markers get a disc spanning all the way
+    // to shore; genuine mid-bay markers stay compact so overlapping
+    // discs don't wall off the bay.
     //
-    // 1500 m threshold catches real reefs (Scarborough ≈ 600 m,
-    // Mud I. ≈ 400 m, Peel I. fringing ≈ 1000 m) while excluding
-    // genuinely open-water aids-to-navigation in the middle of the
-    // bay (typically > 2-3 km from any shore).
-    const OPEN_WATER_THRESHOLD_M = 1500;
-    const REEF_RADIUS_MAX_M = 1500; // ceiling for the reef-edge case
-    const OPEN_WATER_RADIUS_M = 100; // compact half-circle for mid-bay markers
+    // First proximity attempt had MIN=80, OPEN_WATER_THRESHOLD=1500.
+    // That regressed the Brisbane River channel because river
+    // markers sit ~150 m from each bank, so radius computed to
+    // ~180 m — *smaller* than the previous flat 300 m cap. The
+    // half-circle strips along each bank stopped overlapping into a
+    // continuous no-go corridor, and A* cut corners through them.
+    // Floor bumped to 250 m to preserve the bank-side wall density,
+    // OPEN_WATER_THRESHOLD widened to 2000 m so more markers count
+    // as reef-edge (overshoot on classification is fine — the
+    // REEF_RADIUS_MAX caps the blob size at 1000 m so overlap walls
+    // are still bounded).
+    const HAZARD_RADIUS_MIN_M = 250;
+    const REEF_RADIUS_MAX_M = 1000; // ceiling for the reef-edge case
+    const OPEN_WATER_RADIUS_M = 250; // compact for genuine mid-bay markers
+    const OPEN_WATER_THRESHOLD_M = 2000;
     const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
