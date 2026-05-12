@@ -840,13 +840,19 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 // (yellow X-topmark) are informational — they mark
                 // no-anchoring zones, fishing areas, water-ski zones,
                 // cable crossings, etc. They are NOT navigational
-                // hazards. Treating them as hazards generated half-
-                // circle no-go polygons that blocked legitimate
-                // channel approaches (observed at Fisherman Island
-                // arc on the Brisbane River approach 2026-05-12).
-                'pile',
+                // hazards.
+                // 'pile' deliberately omitted (2026-05-12): mooring
+                // piles around port terminals form regular arcs (~15+
+                // piles around the SE corner of Fisherman Island
+                // terminal). Each was getting a 250 m+ half-circle
+                // that overlapped into a continuous wall blocking the
+                // direct channel-to-terminal approach. Piles are
+                // PHYSICAL but VERY LOCAL — a boat needs to not hit
+                // one, but you don't avoid a 250 m radius around each.
+                // For routing purposes treat them as not-a-hazard.
                 'lateral', // unsubclassed lateral — treat as hazard, not channel side
             ]);
+            const droppedByClass = new Map<string, number>();
             for (const f of data.features ?? []) {
                 if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
                 const [lon, lat] = f.geometry.coordinates;
@@ -854,6 +860,28 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
                 else if (cls === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
                 else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
+                else droppedByClass.set(cls || '<empty>', (droppedByClass.get(cls || '<empty>') ?? 0) + 1);
+            }
+            if (droppedByClass.size > 0) {
+                const summary = [...droppedByClass.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(' ');
+                log.warn(`STAGE: marker classes NOT used as hazard or lateral: ${summary}`);
+            }
+            // Same breakdown for the markers we ARE treating as
+            // hazards — so we can see whether one class dominates
+            // the OBSTRN count and tune from there.
+            if (directHazards.length > 0) {
+                const byHazardClass = new Map<string, number>();
+                for (const h of directHazards) {
+                    byHazardClass.set(h.cls, (byHazardClass.get(h.cls) ?? 0) + 1);
+                }
+                const summary = [...byHazardClass.entries()]
+                    .sort((a, b) => b[1] - a[1])
+                    .map(([k, v]) => `${k}=${v}`)
+                    .join(' ');
+                log.warn(`STAGE: direct-hazard markers by class: ${summary}`);
             }
 
             // ── Step 2: Cluster markers into channel chains ────────
