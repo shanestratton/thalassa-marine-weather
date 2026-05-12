@@ -207,7 +207,7 @@ export async function tryInshoreRoute(
     const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
     if (regionalMarkersUrl) {
         try {
-            const { midpoints, segments } = await fetchRegionalMarkers(regionalMarkersUrl);
+            const { midpoints, segments, hazards } = await fetchRegionalMarkers(regionalMarkersUrl);
             if (midpoints.length > 0) {
                 const boylat = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
                 (boylat.features as unknown[]).push(...midpoints);
@@ -218,8 +218,13 @@ export async function tryInshoreRoute(
                 (fairwy.features as unknown[]).push(...segments);
                 merged.FAIRWY = fairwy;
             }
+            if (hazards.length > 0) {
+                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+                (obstrn.features as unknown[]).push(...hazards);
+                merged.OBSTRN = obstrn;
+            }
             log.warn(
-                `STAGE: merged ${midpoints.length} channel midpoints + ${segments.length} synthetic FAIRWY segments`,
+                `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} solo-marker hazards`,
             );
         } catch (err) {
             log.warn(
@@ -361,13 +366,24 @@ function haversineMetres(lat1: number, lon1: number, lat2: number, lon2: number)
 }
 
 /**
- * Result of regional marker processing — both midpoint Points (for
- * Pass 5 marker-radius) and synthetic channel-segment Polygons (for
- * Pass 4 FAIRWY) so the engine sees a continuous channel corridor.
+ * Result of regional marker processing.
+ *
+ * - `midpoints`: pair-centre Points (Pass 5 marker-radius)
+ * - `segments`: synthetic channel-ribbon Polygons (Pass 4 FAIRWY)
+ * - `hazards`: SOLO lateral markers — port/starboard buoys that
+ *   couldn't be paired with an opposite-colour partner. In real-world
+ *   IALA-A buoyage, these almost always mark a hazard (reef edge,
+ *   shoal, isolated rock) rather than a channel side. We emit them
+ *   as OBSTRN Point features so the engine's Pass 3 obstruction
+ *   buffer blocks cells within ~30 m, forcing the route around the
+ *   hazard regardless of which side our (often inaccurate) chart
+ *   shows as deeper. Specifically catches the Scarborough Reef green
+ *   marker case the user flagged 2026-05-12.
  */
 interface RegionalChannelData {
     midpoints: unknown[];
     segments: unknown[];
+    hazards: unknown[];
 }
 
 /**
@@ -528,12 +544,24 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
 
             // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
+            // Markers that don't end up in a mixed-colour cluster are
+            // collected as `soloMarkers` and emitted as OBSTRN
+            // features (Step 6 below). In IALA-A buoyage a lone
+            // port/starboard marker almost always indicates a hazard
+            // (reef edge, isolated shoal, dangerous rock) rather than
+            // a channel side. The engine's Pass 3 then blocks cells
+            // within ~30 m, forcing the route to detour around.
             const PAIR_MAX_DIST_M = 300; // max within-pair gap
             const midpointCoords: Midpoint[] = [];
+            const soloMarkers: Marker[] = [];
 
             for (let chainId = 0; chainId < clusters.length; chainId++) {
                 const cluster = clusters[chainId];
-                if (cluster.length < 2) continue;
+                if (cluster.length < 2) {
+                    // Isolated single marker — definitely a hazard.
+                    for (const idx of cluster) soloMarkers.push(markers[idx]);
+                    continue;
+                }
 
                 const clusterPorts: { lat: number; lon: number }[] = [];
                 const clusterStbds: { lat: number; lon: number }[] = [];
@@ -542,7 +570,13 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                     if (m.kind === 'port') clusterPorts.push({ lat: m.lat, lon: m.lon });
                     else clusterStbds.push({ lat: m.lat, lon: m.lon });
                 }
-                if (clusterPorts.length === 0 || clusterStbds.length === 0) continue;
+                if (clusterPorts.length === 0 || clusterStbds.length === 0) {
+                    // Single-colour cluster — hazard indicators, not
+                    // a channel edge. Common at reefs (e.g. Scarborough
+                    // Reef green marker).
+                    for (const idx of cluster) soloMarkers.push(markers[idx]);
+                    continue;
+                }
 
                 // Sort each list along the cluster's principal axis so
                 // index i corresponds to chain-position i.
@@ -671,7 +705,19 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 }
             }
 
-            return { midpoints, segments };
+            // ── Step 6: Solo markers → OBSTRN hazard points ─────────
+            // See the RegionalChannelData docstring for rationale.
+            const hazards: unknown[] = soloMarkers.map((m) => ({
+                type: 'Feature',
+                properties: {
+                    _class: 'lateral-marker-as-hazard',
+                    _source: 'solo-lateral-inferred',
+                    _markerKind: m.kind,
+                },
+                geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+            }));
+
+            return { midpoints, segments, hazards };
         })();
         regionalMarkerCache.set(url, cached);
     }
