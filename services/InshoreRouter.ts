@@ -430,8 +430,18 @@ function orientHazardsTowardLand(
 ): unknown[] {
     if (lndareFeatures.length === 0) return hazards as unknown[];
 
-    const HAZARD_RADIUS_M = 100; // ≥ engine's obstructionBufferM, makes the orientation matter
-    const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable
+    // Hazard radius is DYNAMIC: it scales with the distance to nearest
+    // land. The half-circle's curved edge then reaches all the way to
+    // the coastline, blocking every cell between the marker and shore.
+    //
+    // A fixed 100 m radius left a corridor BETWEEN the half-circle and
+    // the actual coastline when the reef extended > 100 m offshore —
+    // A* threaded the route through it (the user's exact complaint at
+    // Scarborough Reef). With radius = shoreDistance, that corridor
+    // disappears: the half-disc spans the full reef extent.
+    const HAZARD_RADIUS_MIN_M = 80; // floor — solo markers far from any land vertex
+    const HAZARD_RADIUS_MAX_M = 2000; // ceiling — don't block unreasonably far seaward
+    const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
     // Flatten all LNDARE vertices into a single [lon, lat] list so the
@@ -489,9 +499,17 @@ function orientHazardsTowardLand(
             result.push(h);
             continue;
         }
-        // The half-circle is centred on the land bearing — i.e. its
-        // arc faces the land (shore-side cells get blocked).
+        // The half-circle is centred on the land bearing — its arc
+        // faces the land (shore-side cells get blocked). Radius is
+        // dynamic: spans from marker to the nearest LNDARE vertex
+        // (clamped to [HAZARD_RADIUS_MIN_M, HAZARD_RADIUS_MAX_M]) so
+        // the half-disc fully covers the reef strip between the
+        // marker and the shore.
         const landAngle = Math.atan2(landDyM, landDxM);
+        const radiusM = Math.min(
+            HAZARD_RADIUS_MAX_M,
+            Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30), // +30 m so the curved edge sits *just past* the nearest land vertex (covers slop in LNDARE precision)
+        );
 
         const coords: [number, number][] = [];
         // Arc from (landAngle - π/2) sweeping counter-clockwise to
@@ -501,8 +519,8 @@ function orientHazardsTowardLand(
         for (let i = 0; i <= ARC_SEGMENTS; i++) {
             const t = i / ARC_SEGMENTS;
             const angle = landAngle - Math.PI / 2 + t * Math.PI;
-            const dxM = HAZARD_RADIUS_M * Math.cos(angle);
-            const dyM = HAZARD_RADIUS_M * Math.sin(angle);
+            const dxM = radiusM * Math.cos(angle);
+            const dyM = radiusM * Math.sin(angle);
             const lon = mLon + dxM / mPerLonAtMid;
             const lat = mLat + dyM / 111_320;
             coords.push([lon, lat]);
@@ -518,6 +536,7 @@ function orientHazardsTowardLand(
                 _class: 'iala-oriented-hazard',
                 _source: 'land-bearing-inferred',
                 _shoreDistanceM: Math.round(shoreDistM),
+                _radiusM: Math.round(radiusM),
                 // Keep the original Point's properties for debug
                 _origin: h.properties,
             },
