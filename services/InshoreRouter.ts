@@ -219,12 +219,26 @@ export async function tryInshoreRoute(
                 merged.FAIRWY = fairwy;
             }
             if (hazards.length > 0) {
+                // IALA-A orientation: for each solo hazard marker, the
+                // hazard sits between the marker and the nearest shore
+                // (reef edge, isolated rock, shoal). Boats pass on the
+                // SEAWARD side. We turn each Point hazard into a
+                // half-circle Polygon facing land — engine blocks the
+                // shore-side cells, leaving the seaward side open.
+                // Symmetric full-circle buffering can't do this; it
+                // blocks both sides equally and A* picks the shorter
+                // side, which is often the wrong (shore) side.
+                const lndareForOrientation = merged.LNDARE?.features ?? [];
+                const orientedHazards = orientHazardsTowardLand(
+                    hazards as { geometry: { type: 'Point'; coordinates: [number, number] }; properties?: unknown }[],
+                    lndareForOrientation,
+                );
                 const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
-                (obstrn.features as unknown[]).push(...hazards);
+                (obstrn.features as unknown[]).push(...orientedHazards);
                 merged.OBSTRN = obstrn;
             }
             log.warn(
-                `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} solo-marker hazards`,
+                `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} IALA-oriented hazards`,
             );
         } catch (err) {
             log.warn(
@@ -369,6 +383,151 @@ async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: Inshor
         }
     }
     return null;
+}
+
+/**
+ * Turn each Point-hazard marker into a half-circle Polygon facing
+ * the nearest shore.
+ *
+ * Why
+ * ───
+ * IALA-A (and IALA-B) buoyage: a solo lateral / cardinal / danger
+ * marker indicates a hazard whose physical extent runs FROM THE
+ * MARKER TOWARD SHORE. The boat passes on the seaward (away-from-
+ * shore) side. A symmetric circular no-go zone treats both sides
+ * equally and A* picks the shorter detour — which can be the WRONG
+ * (shore) side at narrow reef-edge approaches like Scarborough Reef.
+ *
+ * By emitting a half-circle whose flat edge points seaward, we
+ * block only the shore-side cells. A* is forced to detour around
+ * the seaward side — the correct IALA behaviour regardless of
+ * inbound/outbound direction.
+ *
+ * Algorithm
+ * ─────────
+ * 1. For each Point hazard, find the nearest vertex on any LNDARE
+ *    polygon ring → that's the rough "shore direction".
+ * 2. Build a half-circle Polygon at the marker, radius = bufferM,
+ *    180° arc centred on the shore-bearing.
+ * 3. Emit as OBSTRN Polygon. The engine's Pass 3 already handles
+ *    polygon obstructions by blocking interior cells.
+ *
+ * Fallbacks
+ * ─────────
+ * - No LNDARE features available → return Points unchanged (engine
+ *   uses symmetric `obstructionBufferM` buffer).
+ * - Marker further than MAX_SHORE_DISTANCE_M (5 km) from any land
+ *   vertex → can't reliably determine shore-side; return Point
+ *   unchanged. These are typically far-offshore solo markers
+ *   (deep-ocean obstructions) where symmetric buffering is fine.
+ */
+function orientHazardsTowardLand(
+    hazards: {
+        geometry: { type: 'Point'; coordinates: [number, number] };
+        properties?: unknown;
+    }[],
+    lndareFeatures: { geometry: { type: string; coordinates?: unknown } }[],
+): unknown[] {
+    if (lndareFeatures.length === 0) return hazards as unknown[];
+
+    const HAZARD_RADIUS_M = 100; // ≥ engine's obstructionBufferM, makes the orientation matter
+    const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable
+    const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
+
+    // Flatten all LNDARE vertices into a single [lon, lat] list so the
+    // inner loop is a single typed-array walk instead of nested geom
+    // descent per marker. With one big multipolygon at GMRT resolution
+    // this is a few thousand vertices.
+    const landVertices: [number, number][] = [];
+    const walk = (coords: unknown): void => {
+        if (!Array.isArray(coords)) return;
+        if (typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+            landVertices.push([coords[0] as number, coords[1] as number]);
+            return;
+        }
+        for (const inner of coords) walk(inner);
+    };
+    for (const f of lndareFeatures) {
+        walk(f.geometry?.coordinates);
+    }
+    if (landVertices.length === 0) return hazards as unknown[];
+
+    const result: unknown[] = [];
+    for (const h of hazards) {
+        const [mLon, mLat] = h.geometry.coordinates;
+        // Find nearest land vertex (approx — Euclidean in lat/lon is fine
+        // at this scale for nearest-neighbour selection).
+        let bestSqr = Infinity;
+        let bestLon = mLon;
+        let bestLat = mLat;
+        for (let i = 0; i < landVertices.length; i++) {
+            const lv = landVertices[i];
+            const dLon = lv[0] - mLon;
+            const dLat = lv[1] - mLat;
+            const sqr = dLon * dLon + dLat * dLat;
+            if (sqr < bestSqr) {
+                bestSqr = sqr;
+                bestLon = lv[0];
+                bestLat = lv[1];
+            }
+        }
+
+        const shoreDistM = haversineMetres(mLat, mLon, bestLat, bestLon);
+        if (shoreDistM > MAX_SHORE_DISTANCE_M) {
+            // Offshore — keep as Point, engine buffers symmetrically.
+            result.push(h);
+            continue;
+        }
+
+        // Bearing from marker → nearest land (in metres-projected space).
+        const midLat = (mLat + bestLat) / 2;
+        const mPerLonAtMid = 111_320 * Math.cos((midLat * Math.PI) / 180);
+        const landDxM = (bestLon - mLon) * mPerLonAtMid;
+        const landDyM = (bestLat - mLat) * 111_320;
+        const landLen = Math.sqrt(landDxM * landDxM + landDyM * landDyM);
+        if (landLen < 1) {
+            result.push(h);
+            continue;
+        }
+        // The half-circle is centred on the land bearing — i.e. its
+        // arc faces the land (shore-side cells get blocked).
+        const landAngle = Math.atan2(landDyM, landDxM);
+
+        const coords: [number, number][] = [];
+        // Arc from (landAngle - π/2) sweeping counter-clockwise to
+        // (landAngle + π/2). The chord closes back through the centre,
+        // but a closed half-disk needs the marker centre included so
+        // the polygon doesn't double-cover the diameter line.
+        for (let i = 0; i <= ARC_SEGMENTS; i++) {
+            const t = i / ARC_SEGMENTS;
+            const angle = landAngle - Math.PI / 2 + t * Math.PI;
+            const dxM = HAZARD_RADIUS_M * Math.cos(angle);
+            const dyM = HAZARD_RADIUS_M * Math.sin(angle);
+            const lon = mLon + dxM / mPerLonAtMid;
+            const lat = mLat + dyM / 111_320;
+            coords.push([lon, lat]);
+        }
+        // Close polygon back to start (it's already a half-disk going
+        // arc-end → arc-start via the diameter chord because GeoJSON
+        // polygons close by repeating the first vertex).
+        coords.push(coords[0]);
+
+        result.push({
+            type: 'Feature',
+            properties: {
+                _class: 'iala-oriented-hazard',
+                _source: 'land-bearing-inferred',
+                _shoreDistanceM: Math.round(shoreDistM),
+                // Keep the original Point's properties for debug
+                _origin: h.properties,
+            },
+            geometry: {
+                type: 'Polygon',
+                coordinates: [coords],
+            },
+        });
+    }
+    return result;
 }
 
 /**
