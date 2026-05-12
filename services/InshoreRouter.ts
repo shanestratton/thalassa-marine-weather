@@ -753,19 +753,22 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             }
 
             // ── Step 2: Cluster markers into channel chains ────────
-            // CLUSTER_LINK_M = 150 m: tight enough that the flood-fill
-            // can't bridge across a peninsula tip (~1 km wide) by
-            // hopping through markers on the shoreline. 250 m turned
-            // out to grow chains all the way around the Scarborough
-            // peninsula, producing synthetic FAIRWY segments that ran
-            // STRAIGHT OVER the land. 150 m breaks at the gap.
+            // CLUSTER_LINK_M = 350 m: relaxed from 150 m now that the
+            // IALA-oriented hazards + coastline-buffered LNDARE block
+            // bridge-across-peninsula failures structurally. 150 m
+            // was so tight that legitimate dredged-channel chains
+            // (Brisbane River main shipping channel has markers
+            // spaced 300-500 m apart) fragmented into single-marker
+            // clusters with no pairing → no midpoints, no FAIRWY
+            // ribbons, A* didn't see the channel as preferred.
             //
-            // Tradeoff: some legitimate channels with widely-spaced
-            // markers (>150 m gap between successive markers) get
-            // split into multiple sub-chains. Acceptable — A* can
-            // bridge the gap via DEPARE deep-water cells. Better
-            // false-split than false-join across land.
-            const CLUSTER_LINK_M = 150;
+            // 350 m comfortably captures real channels while staying
+            // tight enough that any cross-peninsula or cross-bay
+            // false bridges produce segments > SEGMENT_MAX_M (400 m,
+            // capped in Step 5 below) and get dropped automatically.
+            // The hazard half-circles defend the peninsula approach
+            // regardless of whether a bridging chain forms.
+            const CLUSTER_LINK_M = 350;
             const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
 
             // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
