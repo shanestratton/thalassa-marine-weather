@@ -611,6 +611,208 @@ if [[ -f "$FERRY_CACHE" ]]; then
     rm -f "$LINES_TMP"
 fi
 
+# ── OSM seamark hazard polygons → OBSTRN ────────────────────────────
+# (A) Explicit hazard polygons from OSM seamarks. Where mappers have
+# digitised the actual shape of a rock / shoal / obstruction, we
+# get a precise no-go zone instead of having to infer from buoy
+# positions. Most useful where coastlines are well-mapped — Australia
+# east coast, Europe, US. Polygons may be empty in less-mapped areas.
+HAZARD_CACHE="data/brisbane-hazards.json"
+HAZARD_GEOJSON="data/brisbane-hazards.geojson"
+
+if [[ ! -f "$HAZARD_CACHE" ]]; then
+    echo -e "  Fetching OSM seamark hazard polygons (Overpass)..."
+    HAZARD_QUERY="[out:json][timeout:60];
+(
+  way[\"seamark:type\"=\"rock\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"seamark:type\"=\"obstruction\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"seamark:type\"=\"shoal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"seamark:type\"=\"wreck\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"natural\"=\"reef\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"natural\"=\"shoal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+);
+out geom;"
+    if curl -fsSL --max-time 90 \
+        --data-urlencode "data=${HAZARD_QUERY}" \
+        https://overpass-api.de/api/interpreter \
+        -o "$HAZARD_CACHE"; then
+        SIZE=$(stat -c%s "$HAZARD_CACHE" 2>/dev/null || stat -f%z "$HAZARD_CACHE")
+        if [[ "$SIZE" -lt 100 ]]; then
+            echo -e "${YELLOW}  ⚠ Hazard query returned ${SIZE} bytes — error response.${NC}"
+            rm -f "$HAZARD_CACHE"
+        else
+            echo -e "  ${GREEN}✓${NC} Cached $(du -h "$HAZARD_CACHE" | awk '{print $1}')"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ Hazard Overpass query failed — continuing without hazard polygons${NC}"
+    fi
+else
+    echo -e "  ${GREEN}✓${NC} OSM hazards cached: $(du -h "$HAZARD_CACHE" | awk '{print $1}')"
+fi
+
+if [[ -f "$HAZARD_CACHE" ]]; then
+    jq '
+      def to_polygon:
+        if .type == "way" and (.geometry | length >= 4)
+           and .geometry[0].lat == .geometry[-1].lat
+           and .geometry[0].lon == .geometry[-1].lon then
+          {type: "Polygon", coordinates: [[.geometry[] | [.lon, .lat]]]}
+        else null end;
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map(
+              . as $e |
+              ($e | to_polygon) as $g |
+              if $g == null then null
+              else {
+                type: "Feature",
+                properties: ($e.tags + {
+                  "_layer": "OBSTRN",
+                  "_class": "osm-explicit-hazard",
+                  "_source": "OpenStreetMap (OSM seamark)",
+                  "_license": "ODbL",
+                  "_grade": "D",
+                  "_osm_id": $e.id,
+                  "_osm_type": $e.type
+                }),
+                geometry: $g
+              }
+              end
+            )
+          | map(select(. != null))
+        )
+      }
+    ' "$HAZARD_CACHE" > "$HAZARD_GEOJSON"
+
+    HAZARD_COUNT=$(jq '.features | length' "$HAZARD_GEOJSON")
+    if [[ "$HAZARD_COUNT" -gt 0 ]]; then
+        echo -e "  ${GREEN}✓${NC} Parsed ${HAZARD_COUNT} OSM hazard polygons → OBSTRN"
+        MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-merged4-$$.geojson")
+        jq -s '
+          {
+            type: "FeatureCollection",
+            features: ((.[0].features) + (.[1].features))
+          }
+        ' "$DEPARE_GEOJSON" "$HAZARD_GEOJSON" > "$MERGED"
+        mv "$MERGED" "$DEPARE_GEOJSON"
+    else
+        echo -e "${YELLOW}  ⚠ No OSM hazard polygons in bbox (data sparse for this area)${NC}"
+    fi
+fi
+
+# ── OSM coastline → buffered LNDARE strip ───────────────────────────
+# (B) Precise coastline as authoritative land. OSM coastline is
+# crowd-mapped at sub-10 m accuracy in well-mapped regions (most of
+# Australia, all of Europe, etc.). Our existing LNDARE (the
+# "below-lowest-contour" polygon from gdal_contour at 60 m pixels)
+# is chunky and has gaps. By querying the coastline LineString and
+# buffering it ±40 m, we get a precise 80 m-wide land/water boundary
+# strip that catches shore-adjacent shallows GMRT can't see. The
+# engine then blocks cells inside the strip alongside the chunky
+# bathymetry-derived LNDARE.
+#
+# Tradeoff: ±40 m blocks an 80 m strip along all coastlines. Cells
+# more than 40 m offshore are unaffected; cells from coastline to 40 m
+# inland get blocked (already in our other LNDARE, harmless overlap).
+COASTLINE_CACHE="data/brisbane-coastline.json"
+COASTLINE_LINES="data/brisbane-coastline-lines.geojson"
+COASTLINE_BUFFER="data/brisbane-coastline-buffer.geojson"
+
+if [[ ! -f "$COASTLINE_CACHE" ]]; then
+    echo -e "  Fetching OSM coastline (Overpass)..."
+    COASTLINE_QUERY="[out:json][timeout:90];
+(
+  way[\"natural\"=\"coastline\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+);
+out geom;"
+    if curl -fsSL --max-time 180 \
+        --data-urlencode "data=${COASTLINE_QUERY}" \
+        https://overpass-api.de/api/interpreter \
+        -o "$COASTLINE_CACHE"; then
+        SIZE=$(stat -c%s "$COASTLINE_CACHE" 2>/dev/null || stat -f%z "$COASTLINE_CACHE")
+        if [[ "$SIZE" -lt 100 ]]; then
+            echo -e "${YELLOW}  ⚠ Coastline query returned ${SIZE} bytes — error response.${NC}"
+            rm -f "$COASTLINE_CACHE"
+        else
+            echo -e "  ${GREEN}✓${NC} Cached $(du -h "$COASTLINE_CACHE" | awk '{print $1}')"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ Coastline Overpass query failed — continuing without precise LNDARE${NC}"
+    fi
+else
+    echo -e "  ${GREEN}✓${NC} OSM coastline cached: $(du -h "$COASTLINE_CACHE" | awk '{print $1}')"
+fi
+
+if [[ -f "$COASTLINE_CACHE" ]]; then
+    # Convert ways to LineString features
+    jq '
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map(
+              if .type == "way" and (.geometry | length >= 2) then
+                {
+                  type: "Feature",
+                  properties: {_osm_id: .id},
+                  geometry: {type: "LineString", coordinates: [.geometry[] | [.lon, .lat]]}
+                }
+              else null end
+            )
+          | map(select(. != null))
+        )
+      }
+    ' "$COASTLINE_CACHE" > "$COASTLINE_LINES"
+
+    COASTLINE_COUNT=$(jq '.features | length' "$COASTLINE_LINES")
+    if [[ "$COASTLINE_COUNT" -gt 0 ]]; then
+        # Buffer 40 m on each side using ogr2ogr ST_Buffer.
+        # 40 m ≈ 0.00036° at AU latitudes.
+        COASTLINE_BUFFER_DEG=0.00036
+        ogr2ogr -q \
+            -f GeoJSON \
+            -dialect SQLite \
+            -sql "SELECT ST_Buffer(geometry, ${COASTLINE_BUFFER_DEG}) AS geometry FROM 'brisbane-coastline-lines'" \
+            -nln "brisbane-coastline-lines" \
+            "$COASTLINE_BUFFER" \
+            "$COASTLINE_LINES" 2>/dev/null && {
+            jq --arg source "OpenStreetMap coastline (buffered)" \
+               --arg license "ODbL" \
+               '
+               {
+                 type: "FeatureCollection",
+                 features: (.features
+                   | map(.properties += {
+                       "_layer": "LNDARE",
+                       "_class": "coastline-buffered",
+                       "_source": $source,
+                       "_license": $license,
+                       "_grade": "D"
+                     })
+                 )
+               }' "$COASTLINE_BUFFER" > "${COASTLINE_BUFFER}.tagged"
+            mv "${COASTLINE_BUFFER}.tagged" "$COASTLINE_BUFFER"
+
+            BUF_COUNT=$(jq '.features | length' "$COASTLINE_BUFFER")
+            echo -e "  ${GREEN}✓${NC} Parsed ${COASTLINE_COUNT} coastline ways → ${BUF_COUNT} buffered LNDARE polygons"
+            MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-merged5-$$.geojson")
+            jq -s '
+              {
+                type: "FeatureCollection",
+                features: ((.[0].features) + (.[1].features))
+              }
+            ' "$DEPARE_GEOJSON" "$COASTLINE_BUFFER" > "$MERGED"
+            mv "$MERGED" "$DEPARE_GEOJSON"
+        } || {
+            echo -e "${YELLOW}  ⚠ ogr2ogr coastline buffer failed — skipping precise LNDARE${NC}"
+        }
+    else
+        echo -e "${YELLOW}  ⚠ No coastline ways parsed${NC}"
+    fi
+fi
+
 # ── Stats ───────────────────────────────────────────────────────────
 FEATURE_COUNT=$(jq '.features | length' "$DEPARE_GEOJSON")
 LAYER_BREAKDOWN=$(jq -r '
