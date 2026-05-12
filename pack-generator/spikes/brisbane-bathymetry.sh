@@ -63,45 +63,108 @@ BBOX_LON_MAX="153.40"
 BBOX_LAT_MAX="-27.10"
 
 # ── Download bathymetry via GMRT ────────────────────────────────────
-# GMRT GridServer: returns GeoTIFF for any bbox at requested resolution.
-# Resolution 'med' = ~100m near coast (good for harbour-scale routing),
-# 'high' = ~50m where data exists. We use 'med' for guaranteed coverage.
+# Try AusSeabed first (~30 m where it has coverage), fall back to GMRT
+# (~100 m globally) if AusSeabed is missing for the area or returns
+# something that won't parse.
 #
-# GMRT data is multi-source: combines GEBCO + many regional surveys.
-# For Australian waters they include AusBathyTopo plus other sources.
-# All public domain in the GMRT distribution.
-if [[ ! -f "$SOURCE_TIF" ]]; then
-    GMRT_URL="https://www.gmrt.org/services/GridServer"
-    GMRT_URL+="?west=${BBOX_LON_MIN}"
-    GMRT_URL+="&east=${BBOX_LON_MAX}"
-    GMRT_URL+="&south=${BBOX_LAT_MIN}"
-    GMRT_URL+="&north=${BBOX_LAT_MAX}"
-    GMRT_URL+="&format=geotiff"
-    GMRT_URL+="&resolution=med"
-    GMRT_URL+="&layer=topo"
+# AusSeabed (Geoscience Australia + state hydrographic offices) hosts
+# the Australian Bathymetry & Topography mosaic plus dozens of high-
+# resolution port/coastal multibeam surveys via a public GeoServer
+# WCS endpoint. Coverage is patchy outside of capital ports but is
+# meaningfully better than GMRT inside surveyed harbours — Port of
+# Brisbane is well-covered. Where AusSeabed has nothing the WCS
+# returns either an exception XML or a zero-byte response; we detect
+# either and silently fall through.
+#
+# GMRT is the universal fallback: returns GeoTIFF for any bbox at
+# requested resolution. Resolution 'med' = ~100m near coast (good
+# for harbour-scale routing), 'high' = ~50m where data exists. We
+# use 'med' for guaranteed coverage. GMRT is multi-source — combines
+# GEBCO + many regional surveys including AusBathyTopo — and all
+# public domain.
+USE_AUSSEABED="${USE_AUSSEABED:-1}" # set USE_AUSSEABED=0 to skip the AusSeabed try
+ausseabed_try() {
+    # AusSeabed Marine Data Portal GeoServer. WCS 2.0.1 GetCoverage on
+    # the national bathymetry mosaic. The exact coverage ID has changed
+    # across releases; we try a few that have all been valid at various
+    # points and use the first one that returns a real GeoTIFF.
+    local AS_BASE="https://geoserver.ausseabed.gov.au/geoserver/ows"
+    local CANDIDATES=(
+        # 2023 release — current as of 2026-05 docs
+        "ausseabed:Australian_Bathymetry_and_Topography_2023_30m_MSL"
+        "ausseabed:Australian_Bathymetry_Topography_2023_30m"
+        # 2024 release where available
+        "ausseabed:AusBathyTopo_2024"
+        # Older mosaics — kept as longshots
+        "ausseabed:Australian_Bathymetry_and_Topography_2009"
+    )
+    for COVERAGE in "${CANDIDATES[@]}"; do
+        local AS_URL="${AS_BASE}?service=WCS&version=2.0.1&request=GetCoverage"
+        AS_URL+="&CoverageId=${COVERAGE}"
+        AS_URL+="&format=image/geotiff"
+        AS_URL+="&subset=Long(${BBOX_LON_MIN},${BBOX_LON_MAX})"
+        AS_URL+="&subset=Lat(${BBOX_LAT_MIN},${BBOX_LAT_MAX})"
+        echo -e "      trying coverage ${COVERAGE}..."
+        if curl -fsSL --max-time 120 -o "$SOURCE_TIF.tmp" "$AS_URL" 2>/dev/null; then
+            local SZ
+            SZ=$(stat -c%s "$SOURCE_TIF.tmp" 2>/dev/null || stat -f%z "$SOURCE_TIF.tmp")
+            # AusSeabed sometimes returns a tiny exception XML on miss; require ≥ 50 KB and gdalinfo OK.
+            if [[ "$SZ" -ge 51200 ]] && gdalinfo "$SOURCE_TIF.tmp" >/dev/null 2>&1; then
+                mv "$SOURCE_TIF.tmp" "$SOURCE_TIF"
+                echo -e "      ${GREEN}✓${NC} AusSeabed coverage hit (${COVERAGE}, $(du -h "$SOURCE_TIF" | awk '{print $1}'))"
+                return 0
+            fi
+        fi
+        rm -f "$SOURCE_TIF.tmp"
+    done
+    return 1
+}
 
-    echo -e "  Downloading bathymetry from GMRT..."
+if [[ ! -f "$SOURCE_TIF" ]]; then
+    echo -e "  Downloading bathymetry..."
     echo -e "      bbox: ${BBOX_LON_MIN},${BBOX_LAT_MIN} → ${BBOX_LON_MAX},${BBOX_LAT_MAX}"
 
-    if ! curl -fsSL --max-time 120 -o "$SOURCE_TIF" "$GMRT_URL"; then
-        echo -e "${RED}  ✗ GMRT download failed.${NC}"
-        echo -e "    URL: ${GMRT_URL}"
-        echo -e "    The GMRT service may be down, or the bbox may be too large."
-        echo -e "    Try a smaller bbox or check https://www.gmrt.org status."
-        exit 1
+    DOWNLOADED=0
+    if [[ "$USE_AUSSEABED" == "1" ]]; then
+        echo -e "      source 1: AusSeabed WCS (high-res where it has coverage)"
+        if ausseabed_try; then
+            DOWNLOADED=1
+        else
+            echo -e "      ${YELLOW}AusSeabed had no usable coverage for this bbox — falling back to GMRT${NC}"
+        fi
     fi
 
-    SIZE=$(stat -c%s "$SOURCE_TIF" 2>/dev/null || stat -f%z "$SOURCE_TIF")
-    if [[ "$SIZE" -lt 1000 ]]; then
-        # Likely an HTML error page rather than a real GeoTIFF
-        echo -e "${RED}  ✗ Downloaded file is too small (${SIZE} bytes).${NC}"
-        echo -e "    Probably an error response. First 200 chars:"
-        head -c 200 "$SOURCE_TIF" | sed 's/^/      /'
-        echo ""
-        rm -f "$SOURCE_TIF"
-        exit 1
+    if [[ "$DOWNLOADED" != "1" ]]; then
+        echo -e "      source 2: GMRT (global ~100 m)"
+        GMRT_URL="https://www.gmrt.org/services/GridServer"
+        GMRT_URL+="?west=${BBOX_LON_MIN}"
+        GMRT_URL+="&east=${BBOX_LON_MAX}"
+        GMRT_URL+="&south=${BBOX_LAT_MIN}"
+        GMRT_URL+="&north=${BBOX_LAT_MAX}"
+        GMRT_URL+="&format=geotiff"
+        GMRT_URL+="&resolution=med"
+        GMRT_URL+="&layer=topo"
+
+        if ! curl -fsSL --max-time 120 -o "$SOURCE_TIF" "$GMRT_URL"; then
+            echo -e "${RED}  ✗ GMRT download failed.${NC}"
+            echo -e "    URL: ${GMRT_URL}"
+            echo -e "    The GMRT service may be down, or the bbox may be too large."
+            echo -e "    Try a smaller bbox or check https://www.gmrt.org status."
+            exit 1
+        fi
+
+        SIZE=$(stat -c%s "$SOURCE_TIF" 2>/dev/null || stat -f%z "$SOURCE_TIF")
+        if [[ "$SIZE" -lt 1000 ]]; then
+            # Likely an HTML error page rather than a real GeoTIFF
+            echo -e "${RED}  ✗ Downloaded file is too small (${SIZE} bytes).${NC}"
+            echo -e "    Probably an error response. First 200 chars:"
+            head -c 200 "$SOURCE_TIF" | sed 's/^/      /'
+            echo ""
+            rm -f "$SOURCE_TIF"
+            exit 1
+        fi
+        echo -e "  ${GREEN}✓${NC} Downloaded from GMRT ($(du -h "$SOURCE_TIF" | awk '{print $1}'))"
     fi
-    echo -e "  ${GREEN}✓${NC} Downloaded $(du -h "$SOURCE_TIF" | awk '{print $1}')"
 else
     echo -e "  ${GREEN}✓${NC} Source already cached: $(du -h "$SOURCE_TIF" | awk '{print $1}')"
 fi

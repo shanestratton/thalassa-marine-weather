@@ -1193,6 +1193,104 @@ export function createEncRoutes(): Router {
     });
 
     /**
+     * POST /api/enc/route-prepped
+     *
+     * "Just run A*" endpoint. iOS does all the pre-processing on the
+     * device (cell merging, regional-marker pairing, FAIRWY ribbon
+     * synthesis, IALA-oriented hazards) and ships the prepared
+     * InshoreLayers blob here so the Pi can do the CPU-heavy A* search.
+     *
+     * Why a separate endpoint
+     * ───────────────────────
+     * `/api/enc/route` loads cells from the Pi's local disk and runs
+     * A* — that works for users who synced their charts to the Pi,
+     * but the iOS-side pipeline produces a much richer InshoreLayers
+     * (with synthesised FAIRWY ribbons from paired markers + IALA-
+     * oriented hazard half-circles + chain-clustered midpoints) that
+     * the Pi doesn't currently generate. Easiest path to speed: let
+     * iOS do the prep, then hand off the routing CPU.
+     *
+     * The wire payload is potentially large (several MB of GeoJSON
+     * once FAIRWY ribbons + IALA hazards + midpoints + DEPARE are
+     * combined). Over LAN that's a few hundred ms; over LTE we
+     * fall back to the iOS-local A* so cellular users aren't penalised.
+     *
+     * Body shape (JSON):
+     *   {
+     *     "fromLat": -27.21, "fromLon": 153.09,
+     *     "toLat":   -27.38, "toLon":   153.17,
+     *     "draftM":  2.4,
+     *     "layers":  { LNDARE: {...}, DEPARE: {...}, ... },
+     *     "safetyM":            0.2,   // optional
+     *     "obstructionBufferM": 60,    // optional
+     *     "resolutionM":        50,    // optional
+     *     "minComponentCells":  100    // optional
+     *   }
+     *
+     * Returns the same RouteResult shape as `/api/enc/route` but with
+     * `cellsUsed: []` (caller already knows; we didn't load anything
+     * from disk).
+     */
+    router.post('/route-prepped', async (req: Request, res: Response) => {
+        const body = (req.body ?? {}) as Partial<{
+            fromLat: number;
+            fromLon: number;
+            toLat: number;
+            toLon: number;
+            draftM: number;
+            layers: InshoreLayers;
+            resolutionM: number;
+            safetyM: number;
+            obstructionBufferM: number;
+            minComponentCells: number;
+        }>;
+
+        for (const k of ['fromLat', 'fromLon', 'toLat', 'toLon', 'draftM'] as const) {
+            if (typeof body[k] !== 'number' || !Number.isFinite(body[k])) {
+                return res.status(400).json({ error: `Missing or invalid number: ${k}` });
+            }
+        }
+        if (!body.layers || typeof body.layers !== 'object') {
+            return res.status(400).json({ error: 'Missing layers object' });
+        }
+        const fromLat = body.fromLat as number;
+        const fromLon = body.fromLon as number;
+        const toLat = body.toLat as number;
+        const toLon = body.toLon as number;
+        const draftM = body.draftM as number;
+        if (Math.abs(fromLat) > 90 || Math.abs(toLat) > 90 || Math.abs(fromLon) > 180 || Math.abs(toLon) > 180) {
+            return res.status(400).json({ error: 'Coordinates out of WGS84 range' });
+        }
+        if (draftM < 0 || draftM > 30) {
+            return res.status(400).json({ error: 'draftM out of plausible range (0-30 m)' });
+        }
+
+        try {
+            const t0 = Date.now();
+            const result = routeInshore(body.layers as InshoreLayers, {
+                fromLat,
+                fromLon,
+                toLat,
+                toLon,
+                draftM,
+                resolutionM: body.resolutionM,
+                safetyM: body.safetyM,
+                obstructionBufferM: body.obstructionBufferM,
+                minComponentCells: body.minComponentCells,
+            });
+            const elapsedMs = Date.now() - t0;
+            if ('error' in result) {
+                return res.status(422).json({ ...result, cellsUsed: [], elapsedMs });
+            }
+            return res.json({ ...result, cellsUsed: [], elapsedMs });
+        } catch (err) {
+            return res
+                .status(500)
+                .json({ error: `Routing failed: ${err instanceof Error ? err.message : String(err)}` });
+        }
+    });
+
+    /**
      * POST /api/enc/install-public
      *
      * Ingests a Phase 14 PIVOT public-data GeoJSON pack as a chart
