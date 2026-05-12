@@ -254,22 +254,26 @@ export async function tryInshoreRoute(
             toLon: destination.lon,
             draftM,
             safetyM: 0.2,
-            // 100 m hazard buffer (engine default 30 m, was 60 m).
+            // 60 m hazard buffer (engine default 30 m).
             //
-            // User reported the route was "much closer to the green
-            // [Scarborough Reef] marker but still inside it" at 60 m.
-            // The reef-edge marker is solo-classed → OBSTRN with a
-            // 60 m no-go bubble, but the shore-side strip between
-            // marker and land is ~80-100 m wide so A* could still
-            // squeeze through it. 100 m makes the bubble large
-            // enough to cover both the marker itself AND the strip
-            // on the shore side, forcing A* to take the seaward path.
+            // 100 m made things WORSE — at that radius, seaward
+            // hazards' buffers overlapped into a giant offshore
+            // no-go blob, and A* fell back to a shore-side path
+            // because that side had fewer overlapping buffers
+            // (user 2026-05-12: "went back closer to land again").
             //
-            // Only affects solo / direct-hazard markers — paired
-            // channel markers don't become OBSTRN, they're BOYLAT
-            // midpoints with a preferred radius (Pass 5). Channel
-            // navigation isn't constrained by this buffer.
-            obstructionBufferM: 100,
+            // 60 m is the empirical sweet spot — overlap into
+            // contiguous no-go strips along hazard chains, but
+            // doesn't over-block the deep-water side.
+            //
+            // The right fix for orientation-aware blocking (only
+            // block the hazard side of a marker, leave the channel
+            // side open) needs explicit OSM hazard POLYGONS
+            // (`seamark:type=rock` / `obstruction` / `shoal`) or
+            // some inferred sense of "channel direction" — neither
+            // available right now. 60 m is the best the
+            // unoriented-buffer approach gets us.
+            obstructionBufferM: 60,
         });
     } catch (err) {
         log.warn(`local inshore route compute threw: ${err instanceof Error ? err.message : String(err)}`);
