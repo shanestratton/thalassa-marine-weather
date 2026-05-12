@@ -801,20 +801,22 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 clusterPorts.sort((a, b) => projection(a) - projection(b));
                 clusterStbds.sort((a, b) => projection(a) - projection(b));
 
-                // Pair each port with the chain-nearest starboard:
-                // walk both lists, advancing whichever projection is
-                // behind. For each port, pick its nearest starboard
-                // in projection space, requiring true distance ≤ PAIR_MAX_DIST_M.
+                // Pair each port with the chain-nearest starboard.
+                // Track which ports and starboards actually got into a
+                // pair — UNPAIRED markers in a mixed-colour cluster are
+                // emitted as hazards in Step 6 (they're chain orphans —
+                // usually reef edges or isolated marks that should
+                // never be passed within the buffer distance).
                 let chainOrder = 0;
+                const pairedPorts = new Set<{ lat: number; lon: number }>();
+                const pairedStbds = new Set<{ lat: number; lon: number }>();
                 for (const p of clusterPorts) {
                     const pProj = projection(p);
                     let bestDist = Infinity;
                     let bestS: { lat: number; lon: number } | null = null;
                     for (const s of clusterStbds) {
                         const projDiff = Math.abs(projection(s) - pProj);
-                        // Limit to starboards whose chain-order is near
-                        // this port's, then check true distance.
-                        if (projDiff > 0.01) continue; // ~1 km in projected lat/lon — coarse pre-filter
+                        if (projDiff > 0.01) continue;
                         const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
                         if (d < bestDist && d <= PAIR_MAX_DIST_M) {
                             bestDist = d;
@@ -822,6 +824,8 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                         }
                     }
                     if (!bestS) continue;
+                    pairedPorts.add(p);
+                    pairedStbds.add(bestS);
                     midpointCoords.push({
                         lat: (p.lat + bestS.lat) / 2,
                         lon: (p.lon + bestS.lon) / 2,
@@ -829,6 +833,12 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                         chainId,
                         chainOrder: chainOrder++,
                     });
+                }
+                for (const p of clusterPorts) {
+                    if (!pairedPorts.has(p)) soloMarkers.push({ lat: p.lat, lon: p.lon, kind: 'port' });
+                }
+                for (const s of clusterStbds) {
+                    if (!pairedStbds.has(s)) soloMarkers.push({ lat: s.lat, lon: s.lon, kind: 'starboard' });
                 }
             }
 
