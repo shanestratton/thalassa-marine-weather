@@ -397,6 +397,98 @@ interface RegionalChannelData {
  * channel itself is the corridor BETWEEN paired red+green markers —
  * never around either marker individually.
  */
+type Marker = { lat: number; lon: number; kind: 'port' | 'starboard' };
+type Midpoint = { lat: number; lon: number; pairDistM: number; chainId: number; chainOrder: number };
+
+/**
+ * Group markers into channel-chain clusters by spatial proximity.
+ *
+ * Flood-fill clustering: any two markers within CLUSTER_LINK_M of each
+ * other are in the same cluster. The threshold is tuned so that:
+ * - Markers along a single chain (typical spacing 100-300 m) link
+ * - Markers in *different* channels stay in separate clusters
+ *
+ * Output: array of clusters, each cluster is an array of marker
+ * indices into the input array.
+ */
+function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number): number[][] {
+    const n = markers.length;
+    const visited = new Uint8Array(n);
+    const clusters: number[][] = [];
+    for (let seed = 0; seed < n; seed++) {
+        if (visited[seed]) continue;
+        const cluster: number[] = [];
+        const queue: number[] = [seed];
+        visited[seed] = 1;
+        while (queue.length) {
+            const i = queue.shift()!;
+            cluster.push(i);
+            const mi = markers[i];
+            for (let j = 0; j < n; j++) {
+                if (visited[j]) continue;
+                const mj = markers[j];
+                if (haversineMetres(mi.lat, mi.lon, mj.lat, mj.lon) <= CLUSTER_LINK_M) {
+                    visited[j] = 1;
+                    queue.push(j);
+                }
+            }
+        }
+        clusters.push(cluster);
+    }
+    return clusters;
+}
+
+/**
+ * Principal axis of a 2D point set via 2x2 PCA. Returns a unit vector
+ * (in lat/lon units, anisotropic) along the direction of maximum
+ * variance — i.e. the chain's "along-channel" axis.
+ *
+ * For chains that run mostly along a cardinal direction this is
+ * trivially correct; for curved chains it gives the dominant
+ * direction, which is good enough to sort markers in approximate
+ * channel order for the synthetic-segment ribbon.
+ */
+function principalAxis(points: { lat: number; lon: number }[]): { lat: number; lon: number } {
+    const n = points.length;
+    if (n < 2) return { lat: 1, lon: 0 };
+    let meanLat = 0;
+    let meanLon = 0;
+    for (const p of points) {
+        meanLat += p.lat;
+        meanLon += p.lon;
+    }
+    meanLat /= n;
+    meanLon /= n;
+    let cxx = 0;
+    let cxy = 0;
+    let cyy = 0;
+    for (const p of points) {
+        const dx = p.lon - meanLon;
+        const dy = p.lat - meanLat;
+        cxx += dx * dx;
+        cxy += dx * dy;
+        cyy += dy * dy;
+    }
+    const trace = cxx + cyy;
+    const det = cxx * cyy - cxy * cxy;
+    const disc = Math.max(0, trace * trace - 4 * det);
+    const lambda = (trace + Math.sqrt(disc)) / 2;
+    let vx: number;
+    let vy: number;
+    if (Math.abs(cxy) > 1e-14) {
+        vx = cxy;
+        vy = lambda - cxx;
+    } else if (cxx >= cyy) {
+        vx = 1;
+        vy = 0;
+    } else {
+        vx = 0;
+        vy = 1;
+    }
+    const len = Math.sqrt(vx * vx + vy * vy);
+    return len > 0 ? { lat: vy / len, lon: vx / len } : { lat: 1, lon: 0 };
+}
+
 async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
     let cached = regionalMarkerCache.get(url);
     if (!cached) {
@@ -410,109 +502,159 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 }[];
             };
 
-            const ports: { lat: number; lon: number }[] = [];
-            const starboards: { lat: number; lon: number }[] = [];
+            // ── Step 1: Parse all lateral markers ───────────────────
+            const markers: Marker[] = [];
             for (const f of data.features ?? []) {
                 if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
                 const [lon, lat] = f.geometry.coordinates;
-                if (f.properties?._class === 'port') ports.push({ lat, lon });
-                else if (f.properties?._class === 'starboard') starboards.push({ lat, lon });
+                if (f.properties?._class === 'port') markers.push({ lat, lon, kind: 'port' });
+                else if (f.properties?._class === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
             }
 
-            // Pair each port with its nearest starboard within
-            // PAIR_MAX_DIST_M. Allow each starboard to be matched by
-            // multiple ports — a starboard at a fork serves two
-            // channels and we'd lose half the corridors otherwise.
-            const PAIR_MAX_DIST_M = 300;
-            const midpointCoords: { lat: number; lon: number; pairDistM: number }[] = [];
-            for (const p of ports) {
-                let bestDist = Infinity;
-                let bestS: { lat: number; lon: number } | null = null;
-                for (const s of starboards) {
-                    const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
-                    if (d < bestDist && d <= PAIR_MAX_DIST_M) {
-                        bestDist = d;
-                        bestS = s;
-                    }
+            // ── Step 2: Cluster markers into channel chains ────────
+            // CLUSTER_LINK_M = 250 m: any two markers within 250 m link
+            // into the same cluster. Picks up markers along a single
+            // channel (typical spacing 100-300 m) while keeping parallel
+            // channels separated. Earlier "nearest-neighbour midpoint"
+            // approach produced 74 segments from 236 midpoints — most
+            // midpoints' nearest neighbour was in a *different* channel
+            // running perpendicular. Chain-aware clustering fixes this.
+            const CLUSTER_LINK_M = 250;
+            const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
+
+            // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
+            const PAIR_MAX_DIST_M = 300; // max within-pair gap
+            const midpointCoords: Midpoint[] = [];
+
+            for (let chainId = 0; chainId < clusters.length; chainId++) {
+                const cluster = clusters[chainId];
+                if (cluster.length < 2) continue;
+
+                const clusterPorts: { lat: number; lon: number }[] = [];
+                const clusterStbds: { lat: number; lon: number }[] = [];
+                for (const idx of cluster) {
+                    const m = markers[idx];
+                    if (m.kind === 'port') clusterPorts.push({ lat: m.lat, lon: m.lon });
+                    else clusterStbds.push({ lat: m.lat, lon: m.lon });
                 }
-                if (!bestS) continue;
-                midpointCoords.push({
-                    lat: (p.lat + bestS.lat) / 2,
-                    lon: (p.lon + bestS.lon) / 2,
-                    pairDistM: bestDist,
-                });
+                if (clusterPorts.length === 0 || clusterStbds.length === 0) continue;
+
+                // Sort each list along the cluster's principal axis so
+                // index i corresponds to chain-position i.
+                const allPts = [...clusterPorts, ...clusterStbds];
+                const axis = principalAxis(allPts);
+                let meanLat = 0;
+                let meanLon = 0;
+                for (const p of allPts) {
+                    meanLat += p.lat;
+                    meanLon += p.lon;
+                }
+                meanLat /= allPts.length;
+                meanLon /= allPts.length;
+                const projection = (p: { lat: number; lon: number }): number =>
+                    (p.lon - meanLon) * axis.lon + (p.lat - meanLat) * axis.lat;
+                clusterPorts.sort((a, b) => projection(a) - projection(b));
+                clusterStbds.sort((a, b) => projection(a) - projection(b));
+
+                // Pair each port with the chain-nearest starboard:
+                // walk both lists, advancing whichever projection is
+                // behind. For each port, pick its nearest starboard
+                // in projection space, requiring true distance ≤ PAIR_MAX_DIST_M.
+                let chainOrder = 0;
+                for (const p of clusterPorts) {
+                    const pProj = projection(p);
+                    let bestDist = Infinity;
+                    let bestS: { lat: number; lon: number } | null = null;
+                    for (const s of clusterStbds) {
+                        const projDiff = Math.abs(projection(s) - pProj);
+                        // Limit to starboards whose chain-order is near
+                        // this port's, then check true distance.
+                        if (projDiff > 0.01) continue; // ~1 km in projected lat/lon — coarse pre-filter
+                        const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
+                        if (d < bestDist && d <= PAIR_MAX_DIST_M) {
+                            bestDist = d;
+                            bestS = s;
+                        }
+                    }
+                    if (!bestS) continue;
+                    midpointCoords.push({
+                        lat: (p.lat + bestS.lat) / 2,
+                        lon: (p.lon + bestS.lon) / 2,
+                        pairDistM: bestDist,
+                        chainId,
+                        chainOrder: chainOrder++,
+                    });
+                }
             }
 
+            // ── Step 4: Build midpoint Point features ───────────────
             const midpoints: unknown[] = midpointCoords.map((m) => ({
                 type: 'Feature',
                 properties: {
                     _class: 'channel_midpoint',
-                    _source: 'pair-inferred',
+                    _source: 'pair-inferred-chain-ordered',
                     _pairDistanceM: Math.round(m.pairDistM),
+                    _chainId: m.chainId,
+                    _chainOrder: m.chainOrder,
                 },
                 geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
             }));
 
-            // Build channel-segment polygons connecting each midpoint
-            // to its nearest neighbour within MAX_SEGMENT_M. Each
-            // segment is a thin rectangle (HALF_WIDTH_M each side of
-            // the connecting line). Successive segments overlap to
-            // form a continuous channel ribbon. Dedupe by only
-            // emitting i→j where i<j.
-            const MAX_SEGMENT_M = 500;
+            // ── Step 5: Build ribbon polygons IN CHAIN ORDER ────────
+            // Connect midpoint i with midpoint i+1 within the SAME
+            // chain. Each segment is a thin rectangle (~20 m wide)
+            // aligned with the connecting line. No cross-channel
+            // artefacts because we only connect within a chain.
             const HALF_WIDTH_M = 10;
+            // Re-group midpoints by chain to walk them in order
+            const byChain = new Map<number, Midpoint[]>();
+            for (const mp of midpointCoords) {
+                const arr = byChain.get(mp.chainId) ?? [];
+                arr.push(mp);
+                byChain.set(mp.chainId, arr);
+            }
+            for (const arr of byChain.values()) {
+                arr.sort((a, b) => a.chainOrder - b.chainOrder);
+            }
+
             const segments: unknown[] = [];
-            for (let i = 0; i < midpointCoords.length; i++) {
-                const a = midpointCoords[i];
-                let bestJ = -1;
-                let bestDist = Infinity;
-                for (let j = 0; j < midpointCoords.length; j++) {
-                    if (i === j) continue;
-                    const b = midpointCoords[j];
-                    const d = haversineMetres(a.lat, a.lon, b.lat, b.lon);
-                    if (d < bestDist && d <= MAX_SEGMENT_M) {
-                        bestDist = d;
-                        bestJ = j;
-                    }
-                }
-                if (bestJ < 0 || bestJ <= i) continue; // dedupe via i<j
-                const b = midpointCoords[bestJ];
-
-                // Build perpendicular-to-AB unit vector in degrees,
-                // accounting for the latitude-dependent metres/degree.
-                const midLat = (a.lat + b.lat) / 2;
-                const mPerLonAtMid = 111_320 * Math.cos((midLat * Math.PI) / 180);
-                const dxM = (b.lon - a.lon) * mPerLonAtMid;
-                const dyM = (b.lat - a.lat) * 111_320;
-                const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
-                if (lenM < 1) continue;
-                // Perpendicular (rotated 90°) scaled to HALF_WIDTH_M
-                const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
-                const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
-                const perpDLon = perpDxM / mPerLonAtMid;
-                const perpDLat = perpDyM / 111_320;
-
-                segments.push({
-                    type: 'Feature',
-                    properties: {
-                        _layer: 'FAIRWY',
-                        _class: 'synthetic-channel-segment',
-                        _source: 'pair-inferred',
-                        _lengthM: Math.round(lenM),
-                    },
-                    geometry: {
-                        type: 'Polygon',
-                        coordinates: [
-                            [
-                                [a.lon + perpDLon, a.lat + perpDLat],
-                                [a.lon - perpDLon, a.lat - perpDLat],
-                                [b.lon - perpDLon, b.lat - perpDLat],
-                                [b.lon + perpDLon, b.lat + perpDLat],
-                                [a.lon + perpDLon, a.lat + perpDLat],
+            for (const arr of byChain.values()) {
+                for (let i = 0; i < arr.length - 1; i++) {
+                    const a = arr[i];
+                    const b = arr[i + 1];
+                    const midLat = (a.lat + b.lat) / 2;
+                    const mPerLonAtMid = 111_320 * Math.cos((midLat * Math.PI) / 180);
+                    const dxM = (b.lon - a.lon) * mPerLonAtMid;
+                    const dyM = (b.lat - a.lat) * 111_320;
+                    const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
+                    if (lenM < 1 || lenM > 800) continue; // skip near-zero and absurdly long
+                    const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
+                    const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
+                    const perpDLon = perpDxM / mPerLonAtMid;
+                    const perpDLat = perpDyM / 111_320;
+                    segments.push({
+                        type: 'Feature',
+                        properties: {
+                            _layer: 'FAIRWY',
+                            _class: 'synthetic-channel-segment',
+                            _source: 'chain-ordered',
+                            _chainId: a.chainId,
+                            _lengthM: Math.round(lenM),
+                        },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [a.lon + perpDLon, a.lat + perpDLat],
+                                    [a.lon - perpDLon, a.lat - perpDLat],
+                                    [b.lon - perpDLon, b.lat - perpDLat],
+                                    [b.lon + perpDLon, b.lat + perpDLat],
+                                    [a.lon + perpDLon, a.lat + perpDLat],
+                                ],
                             ],
-                        ],
-                    },
-                });
+                        },
+                    });
+                }
             }
 
             return { midpoints, segments };
