@@ -867,10 +867,17 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 'lateral', // unsubclassed lateral — treat as hazard, not channel side
             ]);
             const droppedByClass = new Map<string, number>();
+            // DEBUG — Scarborough Reef area inventory. Tight bbox around
+            // -27.190, 153.094 (the green marker user keeps flagging).
+            // Remove once the pairing/classification puzzle is solved.
+            const scarboroughRawMarkers: string[] = [];
             for (const f of data.features ?? []) {
                 if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
                 const [lon, lat] = f.geometry.coordinates;
                 const cls = (f.properties?._class as string | undefined) ?? '';
+                if (lat >= -27.2 && lat <= -27.17 && lon >= 153.08 && lon <= 153.11) {
+                    scarboroughRawMarkers.push(`${cls} @ ${lat.toFixed(4)},${lon.toFixed(4)}`);
+                }
                 if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
                 else if (cls === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
                 else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
@@ -896,6 +903,20 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                     .map(([k, v]) => `${k}=${v}`)
                     .join(' ');
                 log.warn(`STAGE: direct-hazard markers by class: ${summary}`);
+            }
+
+            // DEBUG — raw Scarborough-area markers as they come out of
+            // nav_markers.geojson. Tells us whether the green Scarborough
+            // Reef marker is even in the source data and what `_class`
+            // it carries. Compare against what shows up post-pairing in
+            // the Scarborough-area hazards block from orientHazardsTowardLand.
+            if (scarboroughRawMarkers.length > 0) {
+                log.warn(`STAGE: Scarborough-area RAW markers (${scarboroughRawMarkers.length}):`);
+                for (const line of scarboroughRawMarkers) {
+                    log.warn(`  • ${line}`);
+                }
+            } else {
+                log.warn(`STAGE: NO raw markers in Scarborough bbox`);
             }
 
             // ── Step 2: Cluster markers into channel chains ────────
