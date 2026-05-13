@@ -875,7 +875,9 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
                 const [lon, lat] = f.geometry.coordinates;
                 const cls = (f.properties?._class as string | undefined) ?? '';
-                if (lat >= -27.2 && lat <= -27.17 && lon >= 153.08 && lon <= 153.11) {
+                // Wider bbox: Navionics has the reef beacon at ~153.133,
+                // so we extend the longitude window east to catch it.
+                if (lat >= -27.2 && lat <= -27.17 && lon >= 153.08 && lon <= 153.15) {
                     scarboroughRawMarkers.push(`${cls} @ ${lat.toFixed(4)},${lon.toFixed(4)}`);
                 }
                 if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
