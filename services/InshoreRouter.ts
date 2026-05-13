@@ -972,7 +972,30 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             // (reef edge, isolated shoal, dangerous rock) rather than
             // a channel side. The engine's Pass 3 then blocks cells
             // within ~30 m, forcing the route to detour around.
-            const PAIR_MAX_DIST_M = 300; // max within-pair gap
+            // Max distance between paired port + starboard markers
+            // across a channel. Was 300 m, which caught small harbour
+            // entries (Scarborough boat harbour at ~60 m) but missed
+            // wider shipping channels — Brisbane River shipping
+            // channel is 300-500 m across, so port-starboard pairs
+            // there exceeded the cap and never formed. Result:
+            //   - 236 midpoints across ~124 fragmented chains
+            //     (avg 1.9 midpoints/chain = mostly stubs with 0
+            //     FAIRWY segments)
+            //   - Brisbane River markers ended up as 454 solo lateral
+            //     hazards (oriented half-circles facing land) that
+            //     formed walls along *both* banks of the channel
+            //   - A* avoided the channel entirely and routed parallel
+            //     to it on whichever side was geometrically shorter
+            //
+            // 600 m catches the BR shipping channel and most other
+            // commercial channels in Australian waters. False-pair
+            // risk (markers from unrelated nearby features bridging
+            // into a fake channel pair) is bounded by:
+            //   - CLUSTER_LINK_M=350 m still has to link them
+            //     transitively into the same cluster
+            //   - PCA chain ordering only emits segments WITHIN a
+            //     cluster, so cross-cluster false pairs don't happen
+            const PAIR_MAX_DIST_M = 600;
             const midpointCoords: Midpoint[] = [];
             const soloMarkers: Marker[] = [];
 
