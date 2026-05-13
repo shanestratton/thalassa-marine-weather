@@ -599,19 +599,49 @@ if [[ ! -f "$WATER_CACHE" ]]; then
   relation[\"harbour\"=\"yes\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
-    if curl -fsSL --max-time 180 \
-        --data-urlencode "data=${WATER_QUERY}" \
-        https://overpass-api.de/api/interpreter \
-        -o "$WATER_CACHE"; then
-        SIZE=$(stat -c%s "$WATER_CACHE" 2>/dev/null || stat -f%z "$WATER_CACHE")
-        if [[ "$SIZE" -lt 100 ]]; then
-            echo -e "${YELLOW}  ⚠ OSM water query returned ${SIZE} bytes — error response.${NC}"
-            rm -f "$WATER_CACHE"
+    # Try multiple Overpass mirrors. The primary (overpass-api.de) has
+    # the strictest resource budget and has returned 406 for our
+    # multi-tag union query; alternates often work where the primary
+    # rejects. lz4.overpass-api.de is a high-bandwidth instance.
+    OVERPASS_MIRRORS=(
+        "https://overpass-api.de/api/interpreter"
+        "https://lz4.overpass-api.de/api/interpreter"
+        "https://overpass.kumi.systems/api/interpreter"
+    )
+    WATER_OK=0
+    for MIRROR in "${OVERPASS_MIRRORS[@]}"; do
+        echo -e "      → trying ${MIRROR}"
+        # Use -sS (silent + show errors) and capture HTTP code so we
+        # can see what Overpass actually says when it 406s.
+        HTTP_CODE=$(curl -sS --max-time 180 \
+            --data-urlencode "data=${WATER_QUERY}" \
+            -w "%{http_code}" \
+            -o "$WATER_CACHE.tmp" \
+            "$MIRROR")
+        if [[ "$HTTP_CODE" == "200" ]]; then
+            mv "$WATER_CACHE.tmp" "$WATER_CACHE"
+            SIZE=$(stat -c%s "$WATER_CACHE" 2>/dev/null || stat -f%z "$WATER_CACHE")
+            if [[ "$SIZE" -lt 100 ]]; then
+                echo -e "${YELLOW}      ⚠ Mirror returned only ${SIZE} bytes — likely empty${NC}"
+                rm -f "$WATER_CACHE"
+            else
+                echo -e "  ${GREEN}✓${NC} Cached $(du -h "$WATER_CACHE" | awk '{print $1}') from ${MIRROR}"
+                WATER_OK=1
+                break
+            fi
         else
-            echo -e "  ${GREEN}✓${NC} Cached $(du -h "$WATER_CACHE" | awk '{print $1}')"
+            echo -e "${YELLOW}      ⚠ HTTP ${HTTP_CODE} from ${MIRROR}${NC}"
+            # Print first 300 chars of error body so we can see why
+            if [[ -f "$WATER_CACHE.tmp" ]]; then
+                echo -e "      error body:"
+                head -c 300 "$WATER_CACHE.tmp" | sed 's/^/        /'
+                echo
+                rm -f "$WATER_CACHE.tmp"
+            fi
         fi
-    else
-        echo -e "${YELLOW}  ⚠ OSM water Overpass query failed — continuing without marina overrides${NC}"
+    done
+    if [[ "$WATER_OK" != "1" ]]; then
+        echo -e "${YELLOW}  ⚠ All Overpass mirrors failed for water query — continuing without marina overrides${NC}"
     fi
 else
     echo -e "  ${GREEN}✓${NC} OSM water polygons cached: $(du -h "$WATER_CACHE" | awk '{print $1}')"
