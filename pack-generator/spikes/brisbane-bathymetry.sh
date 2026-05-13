@@ -554,7 +554,7 @@ WATER_GEOJSON="data/brisbane-water-polygons.geojson"
 # results from older query shapes get invalidated. v2 = 2026-05-13:
 # added relation queries + water=*/harbour=*/waterway=fairway tags
 # to fix Newport-style marina canal coverage.
-WATER_CACHE_VERSION="v2"
+WATER_CACHE_VERSION="v3"
 WATER_CACHE_VERSION_FILE="data/brisbane-water-polygons.version"
 if [[ ! -f "$WATER_CACHE_VERSION_FILE" ]] || [[ "$(cat "$WATER_CACHE_VERSION_FILE" 2>/dev/null)" != "$WATER_CACHE_VERSION" ]]; then
     rm -f "$WATER_CACHE" "$WATER_GEOJSON"
@@ -571,7 +571,12 @@ if [[ ! -f "$WATER_CACHE" ]]; then
     # tagged as relations not single ways. Without the relation
     # queries, the canal cells appeared as land and the router
     # refused to route through the marina.
-    WATER_QUERY="[out:json][timeout:90];
+    # NB: removed the bare `way["water"]` / `relation["water"]`
+    # catch-all queries — they over-matched and Overpass returned
+    # HTTP 406 (Not Acceptable, query resource budget exceeded).
+    # Replaced with specific value matches for the water=* values
+    # we actually care about (basin/canal/marina/harbour/dock).
+    WATER_QUERY="[out:json][timeout:120];
 (
   way[\"natural\"=\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   way[\"landuse\"=\"basin\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
@@ -581,14 +586,17 @@ if [[ ! -f "$WATER_CACHE" ]]; then
   way[\"waterway\"=\"riverbank\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   way[\"waterway\"=\"fairway\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   way[\"harbour\"=\"yes\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
-  way[\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"water\"=\"basin\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"water\"=\"canal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"water\"=\"harbour\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"water\"=\"marina\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"water\"=\"dock\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"natural\"=\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"landuse\"=\"basin\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"leisure\"=\"marina\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"waterway\"=\"canal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"waterway\"=\"dock\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"harbour\"=\"yes\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
-  relation[\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
     if curl -fsSL --max-time 180 \
