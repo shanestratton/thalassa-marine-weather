@@ -824,9 +824,16 @@ fi
 if [[ -f "$FERRY_CACHE" ]]; then
     # The buffering is non-trivial in jq alone (perpendicular vectors
     # in lat/lon need cos(lat) scaling). We use ogr2ogr's BUFFER op
-    # via a small in-memory pipeline: write the raw line GeoJSON,
-    # use ogr2ogr -sql "SELECT ST_Buffer(geom, ...)" to buffer.
-    LINES_TMP=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-ferry-lines-$$.geojson")
+    # via a small pipeline: write the raw line GeoJSON, then
+    # ogr2ogr -sql "SELECT ST_Buffer(geom, ...)" to buffer.
+    #
+    # NB: the SQL `FROM '<layer>'` clause must match ogr2ogr's view of
+    # the input layer name, which for the GeoJSON driver is the file
+    # basename minus extension. So we use a STABLE filename in data/
+    # and reference that same name in the SQL — matching the COASTLINE
+    # block below. Using a random mktemp -u name would name the layer
+    # `tmp.XXXXX` and the SQL would fail to find layer 'ferry'.
+    FERRY_LINES="data/brisbane-ferry-lines.geojson"
 
     jq '
       def to_line:
@@ -855,20 +862,27 @@ if [[ -f "$FERRY_CACHE" ]]; then
           | map(select(. != null))
         )
       }
-    ' "$FERRY_CACHE" > "$LINES_TMP"
+    ' "$FERRY_CACHE" > "$FERRY_LINES"
 
-    LINE_COUNT=$(jq '.features | length' "$LINES_TMP")
+    LINE_COUNT=$(jq '.features | length' "$FERRY_LINES")
     if [[ "$LINE_COUNT" -gt 0 ]]; then
         # Buffer 30 m. Approximate 30 m as 0.00027° (~30/111000 m/deg);
         # close enough at AU latitudes for routing-grade ribbons.
+        # Remove existing $FERRY_GEOJSON first — ogr2ogr's GeoJSON
+        # driver refuses to overwrite.
+        rm -f "$FERRY_GEOJSON"
         FERRY_BUFFER_DEG=0.00027
-        ogr2ogr -q \
+        # Capture stderr to a log file so we can show the actual error
+        # if ogr2ogr fails (previously we redirected to /dev/null and
+        # the failure was a filename mismatch nobody could see).
+        FERRY_OGR_LOG="/tmp/ferry-ogr2ogr-$$.log"
+        if ogr2ogr -q \
             -f GeoJSON \
             -dialect SQLite \
-            -sql "SELECT ST_Buffer(geometry, ${FERRY_BUFFER_DEG}) AS geometry FROM 'ferry'" \
-            -nln ferry \
+            -sql "SELECT ST_Buffer(geometry, ${FERRY_BUFFER_DEG}) AS geometry FROM 'brisbane-ferry-lines'" \
+            -nln "brisbane-ferry-lines" \
             "$FERRY_GEOJSON" \
-            "$LINES_TMP" 2>/dev/null && {
+            "$FERRY_LINES" 2>"$FERRY_OGR_LOG"; then
             # Re-tag with our _layer/_source schema (ogr2ogr drops properties on ST_Buffer).
             jq --arg source "OpenStreetMap ferry route" \
                --arg license "ODbL" \
@@ -897,9 +911,14 @@ if [[ -f "$FERRY_CACHE" ]]; then
               }
             ' "$DEPARE_GEOJSON" "$FERRY_GEOJSON" > "$MERGED"
             mv "$MERGED" "$DEPARE_GEOJSON"
-        } || {
-            echo -e "${YELLOW}  ⚠ ogr2ogr ST_Buffer failed — skipping ferry routes${NC}"
-        }
+            rm -f "$FERRY_OGR_LOG"
+        else
+            echo -e "${YELLOW}  ⚠ ogr2ogr ST_Buffer failed — ferry routes skipped${NC}"
+            echo -e "      stderr:"
+            head -c 500 "$FERRY_OGR_LOG" | sed 's/^/        /'
+            echo
+            rm -f "$FERRY_OGR_LOG"
+        fi
     else
         echo -e "${YELLOW}  ⚠ No ferry routes parsed${NC}"
     fi
