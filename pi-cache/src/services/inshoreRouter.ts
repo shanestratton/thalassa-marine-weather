@@ -1038,6 +1038,14 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
+    const timings: Record<string, number> = {};
+    const t0Total = Date.now();
+    const mark = (label: string, start: number): number => {
+        const now = Date.now();
+        timings[label] = (timings[label] ?? 0) + (now - start);
+        return now;
+    };
+
     // Build a route bbox = origin/destination envelope expanded
     // generously. The padding has to be SYMMETRIC across both axes —
     // earlier versions padded each axis by its own span, which left a
@@ -1061,7 +1069,9 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const padLon = Math.max(maxSpan * 0.25, 0.05);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
+    let tPhase = Date.now();
     const grid = buildNavGrid(layers, bbox, resolutionM, req.draftM, safetyM, obstructionBufferM);
+    tPhase = mark('buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
         return { error: 'Empty grid', code: 'empty-grid' };
     }
@@ -1085,6 +1095,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // One pass to bucket every navigable cell into its 8-connected
     // water body. Drives the shared-component snap below.
     const { labels, sizes } = labelConnectedComponents(grid);
+    tPhase = mark('labelComponents', tPhase);
 
     // ── Shared-component snap ──────────────────────────────────────
     // For each sizeable component, find its nearest cell to origin AND
@@ -1200,13 +1211,21 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
     // grid has a path-cost edge case I haven't anticipated.
+    tPhase = mark('componentSnap', tPhase);
     const cells = aStar(grid, startCell, endCell);
+    tPhase = mark('aStar', tPhase);
     if (!cells) {
         return { error: 'A* failed despite reachability flood-fill — should be impossible', code: 'no-path', debug };
     }
 
     // String-pull the A* output to remove stair-step artifacts.
     const smoothedCells = smoothPath(grid, cells);
+    tPhase = mark('smoothPath', tPhase);
+    const totalMs = Date.now() - t0Total;
+    const breakdown = Object.entries(timings)
+        .map(([k, v]) => `${k}=${v}ms`)
+        .join(' ');
+    console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
 
     // Convert grid path → polyline (cell centers) → simplified polyline.
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
