@@ -1325,56 +1325,30 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // Convert grid path → polyline (cell centers) → simplified polyline.
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
 
-    // Splice the user's input lat/lon back into the polyline so the
-    // route visually starts/ends where they tapped — UNLESS doing so
-    // would draw a bridge segment across land. We sample the line from
-    // input → polyline[0] (and polyline[end] → input) and check each
-    // sample against LNDARE polygons; if any sample is on land, we
-    // leave the snapped water cell as the visible endpoint instead.
+    // Always splice the input coords as the visible start/end of the
+    // polyline. The bridge segment from input → first water cell
+    // (and last water cell → input) is shown as part of the route.
     //
-    // User-visible behaviour:
-    //   - tap in clear water near a snapped cell → route starts at the
-    //     tap, looks correct
-    //   - tap on land or behind a peninsula where the snap had to
-    //     traverse a feature to reach water → route shows a gap
-    //     between the tap and the actual start; that's the visual
-    //     signal that the input wasn't reachable from the routed water
+    // Earlier versions tried various gates (150 m threshold, LNDARE-
+    // crossing check) to hide the bridge when it would visually cross
+    // land — but that meant routes silently appeared to start/end
+    // somewhere different from where the user tapped. Confusing.
     //
-    // Earlier version used a flat ENDPOINT_BRIDGE_M = 150 m threshold,
-    // which forced the snapped cell to remain visible for any tap
-    // > 150 m from water — even when the bridge would have been
-    // perfectly fine (over open water for a shore-line tap, say).
-    const lndareForBridgeCheck = layers.LNDARE?.features ?? [];
-    const bridgeCrossesLandare = (p1: [number, number], p2: [number, number]): boolean => {
-        if (lndareForBridgeCheck.length === 0) return false;
-        // Sample 10 points along the line; if any sits inside a LNDARE
-        // polygon, treat the bridge as crossing land.
-        const samples = 10;
-        for (let i = 1; i < samples; i++) {
-            const t = i / samples;
-            const lon = p1[0] + (p2[0] - p1[0]) * t;
-            const lat = p1[1] + (p2[1] - p1[1]) * t;
-            for (const f of lndareForBridgeCheck) {
-                const g = f.geometry;
-                if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
-                if (pointInGeometry(lon, lat, g as Polygon | MultiPolygon)) return true;
-            }
-        }
-        return false;
-    };
-    const originSnapM = debug.originSnap?.snapDistanceM ?? Infinity;
-    const destSnapM = debug.destinationSnap?.snapDistanceM ?? Infinity;
-    if (originSnapM > 0 && polylineRaw.length > 0) {
-        const inputPt: [number, number] = [req.fromLon, req.fromLat];
-        if (!bridgeCrossesLandare(inputPt, polylineRaw[0])) {
-            polylineRaw[0] = inputPt;
-        }
-    }
-    if (destSnapM > 0 && polylineRaw.length > 0) {
-        const inputPt: [number, number] = [req.toLon, req.toLat];
-        if (!bridgeCrossesLandare(polylineRaw[polylineRaw.length - 1], inputPt)) {
-            polylineRaw[polylineRaw.length - 1] = inputPt;
-        }
+    // User-visible behaviour now:
+    //   - tap in open water → route visibly starts at the tap, bridge
+    //     is short and over water, looks correct
+    //   - tap in marina canal / on dock → bridge segment visibly
+    //     crosses dock structures, signalling "your tap wasn't in
+    //     clean water — move the pin if you want a cleaner approach"
+    //   - tap miles inland → long bridge over land, obvious that the
+    //     input was wrong
+    //
+    // Visual feedback is the right primitive for this — we don't have
+    // the routing constraints to know whether the user *meant* a
+    // marina exit or a coastline tap.
+    if (polylineRaw.length > 0) {
+        polylineRaw[0] = [req.fromLon, req.fromLat];
+        polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
     }
     // DP tolerance ≈ 1/4 cell. Tighter than the original 1/2 cell —
     // keeps more turn detail in winding channels (Savannah River
