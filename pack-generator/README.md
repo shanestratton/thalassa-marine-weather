@@ -68,15 +68,23 @@ What it does:
    S-57 conventions, and `_layer: "DEPARE"` for the inshore router.
 4. Writes `out/brisbane-depare.geojson`.
 
-You can then point Phase 13's inshore router at this file via:
+Install the pack into pi-cache so iOS can pull it via "Sync from Pi":
 
 ```bash
-curl -X POST http://localhost:3001/api/enc/install-public \
-  -H "Content-Type: application/json" \
-  -d '{"region":"au-brisbane-test","geojsonPath":"/path/to/out/brisbane-depare.geojson"}'
+# Run on the same box as pi-cache (where the spike output lives)
+jq -nc --slurpfile g out/brisbane-depare.geojson '{
+  region: "au-brisbane-test",
+  sourceHO: "PUB-AusBathyTopo+OSM",
+  geojson: $g[0]
+}' | curl -X POST http://localhost:3001/api/enc/install-public \
+  -H 'Content-Type: application/json' \
+  --data-binary @-
 ```
 
-(Endpoint to be added in pi-cache as part of Phase 14b.)
+Pi-cache persists the cell to `enc-charts/cells/au-brisbane-test.json`. Then
+in the iOS app, open chart management and tap **"Sync from Pi"** — the phone
+GETs `/api/enc/installed/<cellId>/data` and caches the cell locally for
+the inshore router to consume.
 
 ## Architecture
 
