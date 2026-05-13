@@ -533,6 +533,14 @@ function orientHazardsTowardLand(
     const DIRECT_HAZARD_RADIUS_MAX_M = 300; // cardinals/dangers — compact
     const LATERAL_RADIUS_MAX_M = 800; // solo laterals near shore — extend to reach reef
     const LATERAL_REEF_GATE_M = 800; // solo laterals further out → treat as compact
+    // `isolated` markers are intentionally used to flag reef-edge
+    // beacons that sit far offshore — Scarborough Reef beacon has
+    // shoreDistM = 1942 m, with a reef strip extending all the way
+    // back to shore. The disc needs to span that strip end-to-end
+    // for A* to actually be pushed seaward. Cap at 2500 m is roomy
+    // enough for any plausible Australian/coastal reef while still
+    // bounded against a runaway shoreDistance reading.
+    const ISOLATED_RADIUS_MAX_M = 2500;
     const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
@@ -600,9 +608,25 @@ function orientHazardsTowardLand(
         // else (direct hazards, OR solo laterals further than the
         // reef-gate) stays compact at DIRECT_HAZARD_RADIUS_MAX.
         const landAngle = Math.atan2(landDyM, landDxM);
-        const hazardClass = (h.properties as { _class?: string } | null | undefined)?._class;
+        const hazardProps =
+            (h.properties as { _class?: string; _osmClass?: string; _markerKind?: string } | null | undefined) ?? {};
+        const hazardClass = hazardProps._class;
+        const osmClass = hazardProps._osmClass;
         const isReefEdgeSoloLateral = hazardClass === 'lateral-marker-as-hazard' && shoreDistM <= LATERAL_REEF_GATE_M;
-        const maxRadiusForClass = isReefEdgeSoloLateral ? LATERAL_RADIUS_MAX_M : DIRECT_HAZARD_RADIUS_MAX_M;
+        // `isolated` markers are intentionally tagged in nav_markers
+        // .geojson to mark reef edges (Scarborough Reef beacon being
+        // the canonical example). Their hazard strip can extend the
+        // full distance back to shore; let the disc span it instead
+        // of capping at DIRECT_HAZARD_RADIUS_MAX_M.
+        const isIsolatedReefMarker = osmClass === 'isolated';
+        let maxRadiusForClass: number;
+        if (isReefEdgeSoloLateral) {
+            maxRadiusForClass = LATERAL_RADIUS_MAX_M;
+        } else if (isIsolatedReefMarker) {
+            maxRadiusForClass = ISOLATED_RADIUS_MAX_M;
+        } else {
+            maxRadiusForClass = DIRECT_HAZARD_RADIUS_MAX_M;
+        }
         const radiusM = Math.min(maxRadiusForClass, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
 
         // DEBUG — log markers near Scarborough Reef so we can see whether
@@ -610,7 +634,7 @@ function orientHazardsTowardLand(
         // the isolated Scarborough Reef beacon at ~153.133 is captured.
         if (mLat >= -27.22 && mLat <= -27.17 && mLon >= 153.07 && mLon <= 153.15) {
             scarboroughDebug.push(
-                `marker @ ${mLat.toFixed(4)},${mLon.toFixed(4)} class=${hazardClass ?? '?'} kind=${(h.properties as { _markerKind?: string } | null | undefined)?._markerKind ?? '?'} shoreDist=${Math.round(shoreDistM)}m reefEdge=${isReefEdgeSoloLateral} → radius=${Math.round(radiusM)}m`,
+                `marker @ ${mLat.toFixed(4)},${mLon.toFixed(4)} class=${hazardClass ?? '?'} osm=${osmClass ?? '?'} kind=${hazardProps._markerKind ?? '?'} shoreDist=${Math.round(shoreDistM)}m reef=${isReefEdgeSoloLateral} iso=${isIsolatedReefMarker} → radius=${Math.round(radiusM)}m`,
             );
         }
 
