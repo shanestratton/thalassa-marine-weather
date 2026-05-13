@@ -139,6 +139,12 @@ export interface RouteResult {
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
     debug?: RouteDebug;
+    /**
+     * Per-phase timing in ms. Useful for finding the bottleneck during
+     * speed optimisation. Keys: buildNavGrid, labelComponents,
+     * componentSnap, aStar, smoothPath.
+     */
+    phaseTimings?: Record<string, number>;
 }
 
 export interface RouteFailure {
@@ -1288,5 +1294,6 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         gridSize: { width: grid.width, height: grid.height },
         bbox,
         debug,
+        phaseTimings: timings,
     };
 }

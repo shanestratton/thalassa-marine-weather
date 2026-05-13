@@ -371,6 +371,15 @@ export async function tryInshoreRoute(
     log.warn(
         `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
     );
+    // Per-phase timing breakdown from the engine (only for local
+    // computes — cloud results don't pass timings through yet).
+    const phaseTimings = (result as { phaseTimings?: Record<string, number> }).phaseTimings;
+    if (phaseTimings && Object.keys(phaseTimings).length > 0) {
+        const breakdown = Object.entries(phaseTimings)
+            .map(([k, v]) => `${k}=${v}ms`)
+            .join(' ');
+        log.warn(`STAGE: engine phase timings — ${breakdown}`);
+    }
     return {
         polyline: result.polyline,
         distanceNM: result.distanceNM,
