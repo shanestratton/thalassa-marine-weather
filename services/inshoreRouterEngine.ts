@@ -423,7 +423,23 @@ function buildNavGrid(
         const leisure = props['leisure'];
         const landuse = props['landuse'];
         const waterway = props['waterway'];
-        return leisure === 'marina' || landuse === 'basin' || waterway === 'dock' || waterway === 'canal';
+        const water = props['water'];
+        const harbour = props['harbour'];
+        return (
+            leisure === 'marina' ||
+            landuse === 'basin' ||
+            waterway === 'dock' ||
+            waterway === 'canal' ||
+            waterway === 'fairway' ||
+            // `water=*` subtags for marina contexts (Newport canals use
+            // these for the side arms branching off the main basin)
+            water === 'basin' ||
+            water === 'canal' ||
+            water === 'harbour' ||
+            water === 'marina' ||
+            water === 'dock' ||
+            harbour === 'yes'
+        );
     };
     const depare = layers.DEPARE?.features ?? [];
     for (const f of depare) {

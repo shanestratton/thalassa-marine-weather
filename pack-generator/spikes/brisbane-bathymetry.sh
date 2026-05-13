@@ -423,9 +423,27 @@ fi
 # (2-3 m draft typical). Override per-feature by editing the jq.
 WATER_CACHE="data/brisbane-water-polygons.json"
 WATER_GEOJSON="data/brisbane-water-polygons.geojson"
+# Cache version — bump when the OSM query changes so existing cached
+# results from older query shapes get invalidated. v2 = 2026-05-13:
+# added relation queries + water=*/harbour=*/waterway=fairway tags
+# to fix Newport-style marina canal coverage.
+WATER_CACHE_VERSION="v2"
+WATER_CACHE_VERSION_FILE="data/brisbane-water-polygons.version"
+if [[ ! -f "$WATER_CACHE_VERSION_FILE" ]] || [[ "$(cat "$WATER_CACHE_VERSION_FILE" 2>/dev/null)" != "$WATER_CACHE_VERSION" ]]; then
+    rm -f "$WATER_CACHE" "$WATER_GEOJSON"
+    echo "$WATER_CACHE_VERSION" > "$WATER_CACHE_VERSION_FILE"
+fi
 
 if [[ ! -f "$WATER_CACHE" ]]; then
     echo -e "  Fetching OSM water polygons (Overpass)..."
+    # Pulls every way/relation OSM uses to encode water in marina,
+    # harbour, and canal contexts. Newport-style marinas (the
+    # 2026-05-13 case) frequently tag the main basin as
+    # leisure=marina (way) but the side canals as natural=water
+    # (way) or water=canal (way/relation), and some big marinas are
+    # tagged as relations not single ways. Without the relation
+    # queries, the canal cells appeared as land and the router
+    # refused to route through the marina.
     WATER_QUERY="[out:json][timeout:90];
 (
   way[\"natural\"=\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
@@ -434,7 +452,16 @@ if [[ ! -f "$WATER_CACHE" ]]; then
   way[\"waterway\"=\"canal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   way[\"waterway\"=\"dock\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   way[\"waterway\"=\"riverbank\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"waterway\"=\"fairway\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"harbour\"=\"yes\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  way[\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   relation[\"natural\"=\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"landuse\"=\"basin\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"leisure\"=\"marina\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"waterway\"=\"canal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"waterway\"=\"dock\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"harbour\"=\"yes\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  relation[\"water\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
     if curl -fsSL --max-time 180 \
@@ -481,14 +508,34 @@ if [[ -f "$WATER_CACHE" ]]; then
       # generous 5.0 default — these are coastal/major water features
       # we trust.
       def default_depth:
+        # Authoritative waterway tags (engine treats these as
+        # protected — they beat LNDARE in overlap, so the depth
+        # must be ≥ typical safety cutoff to leave the cell
+        # actually navigable for a cruising vessel).
         if .tags.leisure == "marina" then 4.0
         elif .tags.landuse == "basin" then 4.0
         elif .tags.waterway == "dock" then 5.0
         elif .tags.waterway == "canal" then 3.0
+        elif .tags.waterway == "fairway" then 5.0
         elif .tags.waterway == "riverbank" then 1.0
+        # `water=*` subtags. Marina / harbour / canal contexts use
+        # these instead of leisure=marina sometimes — particularly
+        # for the smaller canal arms inside large complexes that
+        # the user reported (Newport).
         elif .tags.water == "bay" then 5.0
         elif .tags.water == "sea" then 5.0
         elif .tags.water == "river" then 5.0
+        elif .tags.water == "harbour" then 4.0
+        elif .tags.water == "basin" then 4.0
+        elif .tags.water == "canal" then 3.0
+        elif .tags.water == "marina" then 4.0
+        elif .tags.water == "dock" then 5.0
+        # `harbour=yes` on a polygon is rare but valid.
+        elif .tags.harbour == "yes" then 4.0
+        # Plain `natural=water` is NOT authoritative — see engine
+        # comment. Bumping to 1.0 keeps unsubtagged ponds blocked
+        # for any reasonable boat draft, while properly-tagged
+        # canals/basins use the more generous defaults above.
         elif .tags.natural == "water" then 1.0
         else 1.0 end;
       def to_polygon:
