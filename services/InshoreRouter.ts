@@ -312,7 +312,16 @@ export async function tryInshoreRoute(
                 // 90 s lets the Pi return its result; the user can still
                 // get a local-fallback result by killing/reissuing the
                 // request if the Pi is genuinely unresponsive.
-                readTimeout: 90000,
+                // 8 s read timeout. Was 90 s, which caused the UI to
+                // hang for a full 90 seconds when Pi-cache was slow or
+                // unresponsive (user reported "screen hangs with no
+                // picture, pinch to unblock"). Pi-cache running the same
+                // engine has the same grid-build cost on cold caches —
+                // there's no scenario where it should beat a warm local
+                // cache. If cloud doesn't respond in 8 s, the local
+                // fallback (which now hits the grid cache for repeated
+                // routes) will be faster anyway.
+                readTimeout: 8000,
             });
             const cloudMs = Date.now() - cloudT0;
             if (res.status >= 200 && res.status < 300 && res.data && typeof res.data === 'object') {
@@ -1048,7 +1057,21 @@ async function fetchRegionalMarkers(
         // capped in Step 5 below) and get dropped automatically.
         // The hazard half-circles defend the peninsula approach
         // regardless of whether a bridging chain forms.
-        const CLUSTER_LINK_M = 350;
+        // CLUSTER_LINK_M = 700 m: bumped from 350 m so Brisbane River
+        // shipping-channel pairs (~500 m apart longitudinally) link
+        // transitively into a single chain. At 350 m, pairs along
+        // the channel didn't link — each pair was its own cluster
+        // with one midpoint and zero FAIRWY segments, so A* had no
+        // ribbon preference along the channel and routed wherever
+        // bathymetry was cheapest (often on the bank side of green
+        // markers — user 2026-05-13).
+        //
+        // Safe at 700 m because the LNDARE-between-pair check
+        // (`pointInLandare` on each candidate midpoint) rejects
+        // any pair whose channel midpoint lands on solid ground.
+        // SEGMENT_MAX_M=1200 m additionally caps any over-long
+        // FAIRWY segment that PCA chain ordering might produce.
+        const CLUSTER_LINK_M = 700;
         const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
 
         // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
