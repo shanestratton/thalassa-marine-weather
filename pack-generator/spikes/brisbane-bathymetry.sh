@@ -82,7 +82,16 @@ BBOX_LAT_MAX="-27.10"
 # use 'med' for guaranteed coverage. GMRT is multi-source — combines
 # GEBCO + many regional surveys including AusBathyTopo — and all
 # public domain.
-USE_AUSSEABED="${USE_AUSSEABED:-1}" # set USE_AUSSEABED=0 to skip the AusSeabed try
+# AusSeabed try defaults to OFF — the candidate coverage IDs in the
+# query function below were never verified against the actual GA
+# Marine portal, and probing the portal directly confirmed the
+# geoserver hostname doesn't resolve. The step always silently falls
+# back to GMRT. Leaving the code in place so it's easy to re-enable
+# once we have a real endpoint, but disabled by default so we don't
+# burn time on dead DNS lookups.
+# Set USE_AUSSEABED=1 to re-enable (e.g. after updating the candidate
+# coverage IDs below to real ones).
+USE_AUSSEABED="${USE_AUSSEABED:-0}"
 ausseabed_try() {
     # AusSeabed Marine Data Portal GeoServer. WCS 2.0.1 GetCoverage on
     # the national bathymetry mosaic. The exact coverage ID has changed
