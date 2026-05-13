@@ -973,29 +973,25 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
             // a channel side. The engine's Pass 3 then blocks cells
             // within ~30 m, forcing the route to detour around.
             // Max distance between paired port + starboard markers
-            // across a channel. Was 300 m, which caught small harbour
-            // entries (Scarborough boat harbour at ~60 m) but missed
-            // wider shipping channels — Brisbane River shipping
-            // channel is 300-500 m across, so port-starboard pairs
-            // there exceeded the cap and never formed. Result:
-            //   - 236 midpoints across ~124 fragmented chains
-            //     (avg 1.9 midpoints/chain = mostly stubs with 0
-            //     FAIRWY segments)
-            //   - Brisbane River markers ended up as 454 solo lateral
-            //     hazards (oriented half-circles facing land) that
-            //     formed walls along *both* banks of the channel
-            //   - A* avoided the channel entirely and routed parallel
-            //     to it on whichever side was geometrically shorter
+            // across a channel. Held at 300 m for now.
             //
-            // 600 m catches the BR shipping channel and most other
-            // commercial channels in Australian waters. False-pair
-            // risk (markers from unrelated nearby features bridging
-            // into a fake channel pair) is bounded by:
-            //   - CLUSTER_LINK_M=350 m still has to link them
-            //     transitively into the same cluster
-            //   - PCA chain ordering only emits segments WITHIN a
-            //     cluster, so cross-cluster false pairs don't happen
-            const PAIR_MAX_DIST_M = 600;
+            // History
+            // ───────
+            // Tried bumping to 600 m to catch the Brisbane River
+            // shipping channel (300-500 m wide). It did pair 46 more
+            // markers (236→282 midpoints, 112→153 FAIRWY segments,
+            // 597→540 solo hazards) but the route regressed at both
+            // ends — almost certainly because the wider gap also
+            // allowed FALSE pairs across canal complexes at Newport
+            // marina and unrelated features in the bay.
+            //
+            // The principled fix is a "LNDARE between pair" check —
+            // reject pair candidates whose midpoint or connecting
+            // line crosses a land polygon. That lets us safely bump
+            // PAIR_MAX_DIST again. Until that lands, sticking with
+            // 300 m so we keep the Scarborough fix without breaking
+            // Newport.
+            const PAIR_MAX_DIST_M = 300;
             const midpointCoords: Midpoint[] = [];
             const soloMarkers: Marker[] = [];
 
