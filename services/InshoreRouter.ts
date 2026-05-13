@@ -1044,6 +1044,27 @@ async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
                 geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
             }));
 
+            // DEBUG — dump midpoint chain order for the Scarborough area
+            // so we can see whether the chain is laying out N-S along the
+            // channel (good) or zigzagging E-W across multiple channels
+            // (bad — would make the FAIRWY ribbon useless).
+            const scarbMidpts = midpointCoords
+                .filter((m) => m.lat >= -27.2 && m.lat <= -27.17 && m.lon >= 153.08 && m.lon <= 153.11)
+                .sort((a, b) => a.chainId - b.chainId || a.chainOrder - b.chainOrder);
+            if (scarbMidpts.length > 0) {
+                log.warn(`STAGE: Scarborough-area midpoints (${scarbMidpts.length}) by chain:`);
+                let lastChain = -1;
+                for (const m of scarbMidpts) {
+                    if (m.chainId !== lastChain) {
+                        log.warn(`  chain ${m.chainId}:`);
+                        lastChain = m.chainId;
+                    }
+                    log.warn(
+                        `    [${m.chainOrder}] @ ${m.lat.toFixed(4)},${m.lon.toFixed(4)} pairDist=${Math.round(m.pairDistM)}m`,
+                    );
+                }
+            }
+
             // ── Step 5: Build ribbon polygons IN CHAIN ORDER ────────
             // Connect midpoint i with midpoint i+1 within the SAME
             // chain. Each segment is a thin rectangle (~20 m wide)
