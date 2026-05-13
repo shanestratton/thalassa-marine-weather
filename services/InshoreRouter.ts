@@ -119,6 +119,14 @@ export function hasEncCoverageForRoute(origin: InshoreOrigin, destination: Insho
  * built a grid but couldn't find a path — the caller should surface a
  * user-friendly message rather than silently fall through.
  */
+// Deduplicate concurrent calls to tryInshoreRoute. Multiple upstream
+// hooks (useVoyageForm + usePassagePlanner) fire the same route compute
+// for the same origin/destination on each plan request. Without
+// dedupe, the engine runs the 20 s buildNavGrid twice in parallel.
+// Cache by a coarse origin+destination+draft signature; subsequent
+// concurrent calls return the same Promise.
+const inflightRouteRequests = new Map<string, Promise<InshoreRouteResult | InshoreRouteFailure | null>>();
+
 export async function tryInshoreRoute(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
@@ -132,6 +140,26 @@ export async function tryInshoreRoute(
         `ENTRY origin=${origin.lat.toFixed(4)},${origin.lon.toFixed(4)} dest=${destination.lat.toFixed(4)},${destination.lon.toFixed(4)} draft=${draftM}`,
     );
 
+    // Dedupe check — quantise to 4 decimal places (~11 m precision)
+    // so tiny float jitter between callers still hits the same key.
+    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}`;
+    const inflight = inflightRouteRequests.get(dedupeKey);
+    if (inflight) {
+        log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
+        return inflight;
+    }
+    const promise = tryInshoreRouteInner(origin, destination, draftM).finally(() => {
+        inflightRouteRequests.delete(dedupeKey);
+    });
+    inflightRouteRequests.set(dedupeKey, promise);
+    return promise;
+}
+
+async function tryInshoreRouteInner(
+    origin: InshoreOrigin,
+    destination: InshoreOrigin,
+    draftM: number,
+): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
         log.warn(
