@@ -35,13 +35,13 @@ echo -e "${CYAN}  ════════════════════�
 echo ""
 
 # ── Prereqs ─────────────────────────────────────────────────────────
-for cmd in gdal_contour gdalinfo curl jq; do
+for cmd in gdal_contour gdalinfo gdal_translate curl jq unzip python3; do
     if ! command -v "$cmd" &>/dev/null; then
         case "$cmd" in
-            gdal_contour|gdalinfo)
+            gdal_contour|gdalinfo|gdal_translate)
                 echo -e "${RED}  GDAL not installed.${NC} On Pi: ${BOLD}sudo apt install gdal-bin${NC}"
                 ;;
-            curl|jq)
+            curl|jq|unzip|python3)
                 echo -e "${RED}  $cmd not installed.${NC} On Pi: ${BOLD}sudo apt install $cmd${NC}"
                 ;;
         esac
@@ -54,6 +54,16 @@ echo -e "  ${GREEN}✓${NC} GDAL ${GDAL_VERSION}"
 # ── Working dirs ────────────────────────────────────────────────────
 mkdir -p data out
 SOURCE_TIF="data/brisbane-bathymetry.tif"
+# Bump SOURCE_TIF_VERSION when the bathymetry source changes (e.g.
+# switching GMRT → AusBathyTopo) so users running the spike on
+# update pick up the new high-resolution data instead of their
+# cached GMRT raster.
+SOURCE_TIF_VERSION="v2-ausbathytopo"
+SOURCE_TIF_VERSION_FILE="data/brisbane-bathymetry.version"
+if [[ ! -f "$SOURCE_TIF_VERSION_FILE" ]] || [[ "$(cat "$SOURCE_TIF_VERSION_FILE" 2>/dev/null)" != "$SOURCE_TIF_VERSION" ]]; then
+    rm -f "$SOURCE_TIF" "data/brisbane-depth.tif"
+    echo "$SOURCE_TIF_VERSION" > "$SOURCE_TIF_VERSION_FILE"
+fi
 DEPARE_GEOJSON="out/brisbane-depare.geojson"
 
 # Brisbane bbox: Moreton Bay + River + outer shelf. About 30km × 45km.
@@ -63,25 +73,23 @@ BBOX_LON_MAX="153.40"
 BBOX_LAT_MAX="-27.10"
 
 # ── Download bathymetry via GMRT ────────────────────────────────────
-# Try AusSeabed first (~30 m where it has coverage), fall back to GMRT
-# (~100 m globally) if AusSeabed is missing for the area or returns
-# something that won't parse.
+# Two-tier bathymetry source pipeline:
 #
-# AusSeabed (Geoscience Australia + state hydrographic offices) hosts
-# the Australian Bathymetry & Topography mosaic plus dozens of high-
-# resolution port/coastal multibeam surveys via a public GeoServer
-# WCS endpoint. Coverage is patchy outside of capital ports but is
-# meaningfully better than GMRT inside surveyed harbours — Port of
-# Brisbane is well-covered. Where AusSeabed has nothing the WCS
-# returns either an exception XML or a zero-byte response; we detect
-# either and silently fall through.
+#   1. **AusBathyTopo (Great Barrier Reef tile D)** — 30 m resolution
+#      official AHO multibeam-derived bathymetry. Despite the "GBR"
+#      name in the ZIP filename, tile D covers lon 150-156°E, lat
+#      -29 to -23°S — the entire SE QLD coast including all of
+#      Moreton Bay, Brisbane River, and northern NSW. 3.8 GB total
+#      ZIP, ~1 GB for tile D alone. Downloaded once on first run, then
+#      clipped per-bbox via gdal_translate. Free, public, official.
 #
-# GMRT is the universal fallback: returns GeoTIFF for any bbox at
-# requested resolution. Resolution 'med' = ~100m near coast (good
-# for harbour-scale routing), 'high' = ~50m where data exists. We
-# use 'med' for guaranteed coverage. GMRT is multi-source — combines
-# GEBCO + many regional surveys including AusBathyTopo — and all
-# public domain.
+#   2. **GMRT (Global Multi-Resolution Topography)** — fallback. ~100 m
+#      near coast. Used when the spike bbox is outside AusBathyTopo
+#      tile D coverage (other Australian regions, non-AU coverage).
+#
+# (Old WCS-via-geoserver.ausseabed.gov.au code is still in the script
+# below, disabled by default — kept as a placeholder for when we
+# identify a working GA Marine WCS endpoint.)
 # AusSeabed try defaults to OFF — the candidate coverage IDs in the
 # query function below were never verified against the actual GA
 # Marine portal, and probing the portal directly confirmed the
@@ -91,6 +99,90 @@ BBOX_LAT_MAX="-27.10"
 # burn time on dead DNS lookups.
 # Set USE_AUSSEABED=1 to re-enable (e.g. after updating the candidate
 # coverage IDs below to real ones).
+# ── AusBathyTopo (GBR ZIP tile D) ──────────────────────────────────
+# Tile D covers all of SE QLD + northern NSW at 30 m resolution.
+# Enable by default for bboxes inside its coverage.
+USE_AUSBATHYTOPO="${USE_AUSBATHYTOPO:-1}"
+GBR_ZIP="data/ausbathytopo-gbr-2020.zip"
+GBR_TILE_D="data/ausbathytopo-tile-d-2020.tif"
+GBR_ZIP_URL="https://files.ausseabed.gov.au/survey/Great%20Barrier%20Reef%20Bathymetry%202020%2030m.zip"
+GBR_TILE_D_NAME="Great_Barrier_Reef_D_2020_30m_MSL_cog.tif"
+# Tile D coverage (verified via rasterio):
+#   lon 150.0001 to 156.0001, lat -28.9999 to -22.9999
+# Use slightly conservative inset for the inside-check.
+GBR_TILE_D_LON_MIN=150.0
+GBR_TILE_D_LON_MAX=156.0
+GBR_TILE_D_LAT_MIN=-29.0
+GBR_TILE_D_LAT_MAX=-23.0
+
+ausbathytopo_try() {
+    # Bbox must be entirely inside tile D coverage.
+    local inside
+    inside=$(python3 -c "
+lon_min, lon_max = ${BBOX_LON_MIN}, ${BBOX_LON_MAX}
+lat_min, lat_max = ${BBOX_LAT_MIN}, ${BBOX_LAT_MAX}
+t_lon_min, t_lon_max = ${GBR_TILE_D_LON_MIN}, ${GBR_TILE_D_LON_MAX}
+t_lat_min, t_lat_max = ${GBR_TILE_D_LAT_MIN}, ${GBR_TILE_D_LAT_MAX}
+print('yes' if (lon_min >= t_lon_min and lon_max <= t_lon_max
+                 and lat_min >= t_lat_min and lat_max <= t_lat_max) else 'no')
+")
+    if [[ "$inside" != "yes" ]]; then
+        echo -e "      ${YELLOW}bbox outside AusBathyTopo tile D coverage — skipping${NC}"
+        return 1
+    fi
+
+    # Download the 3.8 GB ZIP if not cached. Range-resumable in case
+    # of broken connection (curl -C - resumes from existing partial).
+    if [[ ! -f "$GBR_ZIP" ]]; then
+        echo -e "      downloading AusBathyTopo GBR 2020 30m ZIP (3.8 GB, ~10 min on AU broadband)..."
+        if ! curl -fL --max-time 1800 -C - -o "$GBR_ZIP" "$GBR_ZIP_URL"; then
+            echo -e "${RED}      ✗ AusBathyTopo ZIP download failed.${NC}"
+            rm -f "$GBR_ZIP"
+            return 1
+        fi
+        local ZIP_SIZE
+        ZIP_SIZE=$(stat -c%s "$GBR_ZIP" 2>/dev/null || stat -f%z "$GBR_ZIP")
+        if [[ "$ZIP_SIZE" -lt 3000000000 ]]; then
+            echo -e "${RED}      ✗ AusBathyTopo ZIP truncated (${ZIP_SIZE} bytes < 3 GB).${NC}"
+            rm -f "$GBR_ZIP"
+            return 1
+        fi
+        echo -e "      ${GREEN}✓${NC} Downloaded $(du -h "$GBR_ZIP" | awk '{print $1}')"
+    else
+        echo -e "      ${GREEN}✓${NC} AusBathyTopo ZIP already cached"
+    fi
+
+    # Extract tile D from the ZIP (cached once extracted).
+    if [[ ! -f "$GBR_TILE_D" ]]; then
+        echo -e "      extracting ${GBR_TILE_D_NAME} from ZIP (~1 GB)..."
+        if ! unzip -p "$GBR_ZIP" "$GBR_TILE_D_NAME" > "$GBR_TILE_D"; then
+            echo -e "${RED}      ✗ unzip extraction failed.${NC}"
+            rm -f "$GBR_TILE_D"
+            return 1
+        fi
+        if ! gdalinfo "$GBR_TILE_D" >/dev/null 2>&1; then
+            echo -e "${RED}      ✗ extracted file is not a valid GeoTIFF.${NC}"
+            rm -f "$GBR_TILE_D"
+            return 1
+        fi
+        echo -e "      ${GREEN}✓${NC} Extracted $(du -h "$GBR_TILE_D" | awk '{print $1}')"
+    else
+        echo -e "      ${GREEN}✓${NC} Tile D already extracted"
+    fi
+
+    # Clip to the spike's bbox with gdal_translate. -projwin takes
+    # upper-left then lower-right (lon, lat).
+    echo -e "      clipping tile D to spike bbox..."
+    if ! gdal_translate -q -projwin "$BBOX_LON_MIN" "$BBOX_LAT_MAX" "$BBOX_LON_MAX" "$BBOX_LAT_MIN" \
+        -of GTiff "$GBR_TILE_D" "$SOURCE_TIF" 2>/dev/null; then
+        echo -e "${RED}      ✗ gdal_translate clip failed.${NC}"
+        rm -f "$SOURCE_TIF"
+        return 1
+    fi
+    echo -e "      ${GREEN}✓${NC} AusBathyTopo tile D clipped → $(du -h "$SOURCE_TIF" | awk '{print $1}')"
+    return 0
+}
+
 USE_AUSSEABED="${USE_AUSSEABED:-0}"
 ausseabed_try() {
     # AusSeabed Marine Data Portal GeoServer. WCS 2.0.1 GetCoverage on
@@ -134,8 +226,15 @@ if [[ ! -f "$SOURCE_TIF" ]]; then
     echo -e "      bbox: ${BBOX_LON_MIN},${BBOX_LAT_MIN} → ${BBOX_LON_MAX},${BBOX_LAT_MAX}"
 
     DOWNLOADED=0
-    if [[ "$USE_AUSSEABED" == "1" ]]; then
-        echo -e "      source 1: AusSeabed WCS (high-res where it has coverage)"
+    if [[ "$USE_AUSBATHYTOPO" == "1" ]]; then
+        echo -e "      source 1: AusBathyTopo GBR tile D (official AHO 30 m, SE QLD only)"
+        if ausbathytopo_try; then
+            DOWNLOADED=1
+        fi
+    fi
+
+    if [[ "$DOWNLOADED" != "1" ]] && [[ "$USE_AUSSEABED" == "1" ]]; then
+        echo -e "      source 2: AusSeabed WCS (placeholder, endpoints unverified)"
         if ausseabed_try; then
             DOWNLOADED=1
         else
@@ -144,7 +243,7 @@ if [[ ! -f "$SOURCE_TIF" ]]; then
     fi
 
     if [[ "$DOWNLOADED" != "1" ]]; then
-        echo -e "      source 2: GMRT (global ~100 m)"
+        echo -e "      source 3: GMRT (global ~100 m)"
         GMRT_URL="https://www.gmrt.org/services/GridServer"
         GMRT_URL+="?west=${BBOX_LON_MIN}"
         GMRT_URL+="&east=${BBOX_LON_MAX}"
@@ -182,32 +281,51 @@ fi
 echo -e "  Source raster info:"
 gdalinfo "$SOURCE_TIF" 2>/dev/null | grep -E '^(Size|Pixel Size|Origin)' | head -3 | sed 's/^/      /'
 
-# Detect depth-value sign convention. GMRT uses NEGATIVE for below
-# sea level (z = elevation, negative below MSL). ENC convention is
-# POSITIVE for depth below MSL. We need to flip the sign.
-DEPTH_SAMPLE=$(gdalinfo -mm "$SOURCE_TIF" 2>/dev/null \
-    | grep "Computed Min/Max" | head -1 | grep -oE -- '-?[0-9]+\.?[0-9]*' | head -1)
-echo -e "      Min elevation: ${DEPTH_SAMPLE} (negative = below MSL — flipping for DEPARE)"
+# Detect depth-value sign convention. Inputs vary:
+#   - GMRT: negative = below MSL (elevation convention, z < 0 → depth)
+#   - AusBathyTopo: depends on the dataset; can be either convention
+# Auto-detect by reading the Min value via gdalinfo -mm and flip only
+# if it's negative.
+DEPTH_MM=$(gdalinfo -mm "$SOURCE_TIF" 2>/dev/null | grep "Computed Min/Max" | head -1)
+DEPTH_MIN=$(echo "$DEPTH_MM" | grep -oE -- '-?[0-9]+\.?[0-9]*' | head -1)
+DEPTH_MAX=$(echo "$DEPTH_MM" | grep -oE -- '-?[0-9]+\.?[0-9]*' | sed -n '2p')
+echo -e "      Source value range: min=${DEPTH_MIN}, max=${DEPTH_MAX}"
+# Sign-detection: if min < 0 → elevation convention → flip
+# (works for GMRT and any "topographic" GeoTIFF). If min ≥ 0 →
+# already in depth-below-MSL convention → just copy.
+NEEDS_FLIP=$(python3 -c "
+m = float('${DEPTH_MIN}')
+print('yes' if m < 0 else 'no')
+")
+if [[ "$NEEDS_FLIP" == "yes" ]]; then
+    echo -e "      → elevation convention detected (negative = below MSL); flipping sign"
+else
+    echo -e "      → depth convention detected (positive = below MSL); using raw values"
+fi
 
-# ── Flip elevation → depth (multiply by -1) ────────────────────────
-# gdal_calc inverts the values so that "deeper" = larger positive,
-# matching ENC's DRVAL1/DRVAL2 convention.
+# ── Convert source → depth.tif ──────────────────────────────────────
+# DRVAL1/DRVAL2 in ENC = positive depth in meters below MSL.
 DEPTH_TIF="data/brisbane-depth.tif"
 if [[ ! -f "$DEPTH_TIF" ]] || [[ "$SOURCE_TIF" -nt "$DEPTH_TIF" ]]; then
-    echo -e "  Flipping sign (elevation → depth)..."
-    gdal_calc.py --quiet \
-        -A "$SOURCE_TIF" \
-        --outfile="$DEPTH_TIF" \
-        --calc="-A" \
-        --NoDataValue=-9999 \
-        --overwrite >/dev/null 2>&1 || {
-        # gdal_calc.py may not be installed — fallback to gdal_translate
-        # with a scale factor of -1 (works in older GDAL too).
-        gdal_translate -q -scale 0 -1 0 1 "$SOURCE_TIF" "$DEPTH_TIF" 2>/dev/null || {
-            echo -e "${YELLOW}  Sign-flip failed — using raw values. Contour DRVAL may be negative.${NC}"
-            cp "$SOURCE_TIF" "$DEPTH_TIF"
+    if [[ "$NEEDS_FLIP" == "yes" ]]; then
+        echo -e "  Flipping sign (elevation → depth)..."
+        gdal_calc.py --quiet \
+            -A "$SOURCE_TIF" \
+            --outfile="$DEPTH_TIF" \
+            --calc="-A" \
+            --NoDataValue=-9999 \
+            --overwrite >/dev/null 2>&1 || {
+            # gdal_calc.py may not be installed — fallback to gdal_translate
+            # with a scale factor of -1 (works in older GDAL too).
+            gdal_translate -q -scale 0 -1 0 1 "$SOURCE_TIF" "$DEPTH_TIF" 2>/dev/null || {
+                echo -e "${YELLOW}  Sign-flip failed — using raw values. Contour DRVAL may be negative.${NC}"
+                cp "$SOURCE_TIF" "$DEPTH_TIF"
+            }
         }
-    }
+    else
+        # Already positive-below-MSL — straight copy.
+        cp "$SOURCE_TIF" "$DEPTH_TIF"
+    fi
 fi
 
 # ── Contour extraction ─────────────────────────────────────────────
