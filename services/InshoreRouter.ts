@@ -209,7 +209,10 @@ export async function tryInshoreRoute(
     const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
     if (regionalMarkersUrl) {
         try {
-            const { midpoints, segments, hazards } = await fetchRegionalMarkers(regionalMarkersUrl);
+            const { midpoints, segments, hazards } = await fetchRegionalMarkers(
+                regionalMarkersUrl,
+                merged.LNDARE?.features ?? [],
+            );
             if (midpoints.length > 0) {
                 const boylat = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
                 (boylat.features as unknown[]).push(...midpoints);
@@ -423,7 +426,9 @@ const REGIONAL_MARKER_FILES: { bbox: [number, number, number, number]; slug: str
  * range) and the URL is stable per region — once loaded, keep them
  * for the session.
  */
-const regionalMarkerCache = new Map<string, Promise<RegionalChannelData>>();
+// Old `regionalMarkerCache` removed — see `rawMarkerFetchCache` below
+// (cache only the HTTP fetch, not the processed pairing result, because
+// pairing decisions now depend on the cell pack's LNDARE polygons).
 
 async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: InshoreOrigin): Promise<string | null> {
     const supabaseBase =
@@ -797,6 +802,59 @@ function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number): number[][] {
  * direction, which is good enough to sort markers in approximate
  * channel order for the synthetic-segment ribbon.
  */
+/**
+ * Ray-casting point-in-polygon test. Returns true if the point falls
+ * inside ANY ring of the polygon/multipolygon. Doesn't distinguish
+ * outer rings from holes — for our use case (was this midpoint on
+ * land?) we want any-ring containment.
+ */
+function pointInLandare(
+    lon: number,
+    lat: number,
+    lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
+): boolean {
+    for (const f of lndareFeatures) {
+        const g = f.geometry;
+        if (!g) continue;
+        const ringsList: number[][][][] =
+            g.type === 'Polygon'
+                ? [g.coordinates as number[][][]]
+                : g.type === 'MultiPolygon'
+                  ? (g.coordinates as number[][][][])
+                  : [];
+        for (const polygon of ringsList) {
+            // Bbox prune — skip polygons that don't contain the point's bbox
+            let minLon = Infinity;
+            let maxLon = -Infinity;
+            let minLat = Infinity;
+            let maxLat = -Infinity;
+            const outerRing = polygon[0];
+            if (!outerRing) continue;
+            for (const v of outerRing) {
+                if (v[0] < minLon) minLon = v[0];
+                if (v[0] > maxLon) maxLon = v[0];
+                if (v[1] < minLat) minLat = v[1];
+                if (v[1] > maxLat) maxLat = v[1];
+            }
+            if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) continue;
+            // Ray cast against the outer ring
+            let inside = false;
+            const ring = outerRing;
+            const n = ring.length;
+            for (let i = 0, j = n - 1; i < n; j = i++) {
+                const xi = ring[i][0];
+                const yi = ring[i][1];
+                const xj = ring[j][0];
+                const yj = ring[j][1];
+                const intersect = yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+                if (intersect) inside = !inside;
+            }
+            if (inside) return true;
+        }
+    }
+    return false;
+}
+
 function principalAxis(points: { lat: number; lon: number }[]): { lat: number; lon: number } {
     const n = points.length;
     if (n < 2) return { lat: 1, lon: 0 };
@@ -838,406 +896,430 @@ function principalAxis(points: { lat: number; lon: number }[]): { lat: number; l
     return len > 0 ? { lat: vy / len, lon: vx / len } : { lat: 1, lon: 0 };
 }
 
-async function fetchRegionalMarkers(url: string): Promise<RegionalChannelData> {
-    let cached = regionalMarkerCache.get(url);
-    if (!cached) {
-        cached = (async () => {
+/**
+ * Cached by URL. We do NOT cache the processed result because pair
+ * validation (LNDARE-between-pair check) depends on the cell pack's
+ * land polygons, which can differ. The 50ms or so spent on
+ * clustering+pairing per route call is small.
+ */
+const rawMarkerFetchCache = new Map<
+    string,
+    Promise<{
+        features?: { properties?: { _class?: string }; geometry?: { type?: string; coordinates?: [number, number] } }[];
+    }>
+>();
+
+async function fetchRegionalMarkers(
+    url: string,
+    lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
+): Promise<RegionalChannelData> {
+    let dataPromise = rawMarkerFetchCache.get(url);
+    if (!dataPromise) {
+        dataPromise = (async () => {
             const res = await fetch(url);
             if (!res.ok) throw new Error(`HTTP ${res.status} fetching nav_markers`);
-            const data = (await res.json()) as {
+            return (await res.json()) as {
                 features?: {
                     properties?: { _class?: string };
                     geometry?: { type?: string; coordinates?: [number, number] };
                 }[];
             };
-
-            // ── Step 1: Parse markers ───────────────────────────────
-            // Two classes:
-            //  - "lateral" channel-marker candidates (port/starboard):
-            //    enter the cluster + pair-or-solo pipeline.
-            //  - "direct hazard" markers (cardinal, danger, isolated,
-            //    notice, pile): never define a channel, always indicate
-            //    a hazard. Skip the pairing and emit straight to the
-            //    soloHazards list in Step 6.
-            //
-            // Earlier iteration only filtered port/starboard, which
-            // missed the green Scarborough Reef marker (user reported)
-            // because it's tagged as a generic hazard, not a paired
-            // channel side.
-            const markers: Marker[] = [];
-            const directHazards: { lat: number; lon: number; cls: string }[] = [];
-            const DIRECT_HAZARD_CLASSES = new Set([
-                'cardinal',
-                'cardinal_n',
-                'cardinal_s',
-                'cardinal_e',
-                'cardinal_w',
-                'danger',
-                'isolated',
-                // 'notice' deliberately omitted: IALA-A "special marks"
-                // (yellow X-topmark) are informational — they mark
-                // no-anchoring zones, fishing areas, water-ski zones,
-                // cable crossings, etc. They are NOT navigational
-                // hazards.
-                // 'pile' deliberately omitted (2026-05-12): mooring
-                // piles around port terminals form regular arcs (~15+
-                // piles around the SE corner of Fisherman Island
-                // terminal). Each was getting a 250 m+ half-circle
-                // that overlapped into a continuous wall blocking the
-                // direct channel-to-terminal approach. Piles are
-                // PHYSICAL but VERY LOCAL — a boat needs to not hit
-                // one, but you don't avoid a 250 m radius around each.
-                // For routing purposes treat them as not-a-hazard.
-                'lateral', // unsubclassed lateral — treat as hazard, not channel side
-            ]);
-            const droppedByClass = new Map<string, number>();
-            // DEBUG — Scarborough Reef area inventory. Tight bbox around
-            // -27.190, 153.094 (the green marker user keeps flagging).
-            // Remove once the pairing/classification puzzle is solved.
-            const scarboroughRawMarkers: string[] = [];
-            for (const f of data.features ?? []) {
-                if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
-                const [lon, lat] = f.geometry.coordinates;
-                const cls = (f.properties?._class as string | undefined) ?? '';
-                // Wider bbox: Navionics has the reef beacon at ~153.133,
-                // so we extend the longitude window east to catch it.
-                if (lat >= -27.2 && lat <= -27.17 && lon >= 153.08 && lon <= 153.15) {
-                    scarboroughRawMarkers.push(`${cls} @ ${lat.toFixed(4)},${lon.toFixed(4)}`);
-                }
-                if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
-                else if (cls === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
-                else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
-                else droppedByClass.set(cls || '<empty>', (droppedByClass.get(cls || '<empty>') ?? 0) + 1);
-            }
-            if (droppedByClass.size > 0) {
-                const summary = [...droppedByClass.entries()]
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([k, v]) => `${k}=${v}`)
-                    .join(' ');
-                log.warn(`STAGE: marker classes NOT used as hazard or lateral: ${summary}`);
-            }
-            // Same breakdown for the markers we ARE treating as
-            // hazards — so we can see whether one class dominates
-            // the OBSTRN count and tune from there.
-            if (directHazards.length > 0) {
-                const byHazardClass = new Map<string, number>();
-                for (const h of directHazards) {
-                    byHazardClass.set(h.cls, (byHazardClass.get(h.cls) ?? 0) + 1);
-                }
-                const summary = [...byHazardClass.entries()]
-                    .sort((a, b) => b[1] - a[1])
-                    .map(([k, v]) => `${k}=${v}`)
-                    .join(' ');
-                log.warn(`STAGE: direct-hazard markers by class: ${summary}`);
-            }
-
-            // DEBUG — raw Scarborough-area markers as they come out of
-            // nav_markers.geojson. Tells us whether the green Scarborough
-            // Reef marker is even in the source data and what `_class`
-            // it carries. Compare against what shows up post-pairing in
-            // the Scarborough-area hazards block from orientHazardsTowardLand.
-            if (scarboroughRawMarkers.length > 0) {
-                log.warn(`STAGE: Scarborough-area RAW markers (${scarboroughRawMarkers.length}):`);
-                for (const line of scarboroughRawMarkers) {
-                    log.warn(`  • ${line}`);
-                }
-            } else {
-                log.warn(`STAGE: NO raw markers in Scarborough bbox`);
-            }
-
-            // ── Step 2: Cluster markers into channel chains ────────
-            // CLUSTER_LINK_M = 350 m: relaxed from 150 m now that the
-            // IALA-oriented hazards + coastline-buffered LNDARE block
-            // bridge-across-peninsula failures structurally. 150 m
-            // was so tight that legitimate dredged-channel chains
-            // (Brisbane River main shipping channel has markers
-            // spaced 300-500 m apart) fragmented into single-marker
-            // clusters with no pairing → no midpoints, no FAIRWY
-            // ribbons, A* didn't see the channel as preferred.
-            //
-            // 350 m comfortably captures real channels while staying
-            // tight enough that any cross-peninsula or cross-bay
-            // false bridges produce segments > SEGMENT_MAX_M (400 m,
-            // capped in Step 5 below) and get dropped automatically.
-            // The hazard half-circles defend the peninsula approach
-            // regardless of whether a bridging chain forms.
-            const CLUSTER_LINK_M = 350;
-            const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
-
-            // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
-            // Markers that don't end up in a mixed-colour cluster are
-            // collected as `soloMarkers` and emitted as OBSTRN
-            // features (Step 6 below). In IALA-A buoyage a lone
-            // port/starboard marker almost always indicates a hazard
-            // (reef edge, isolated shoal, dangerous rock) rather than
-            // a channel side. The engine's Pass 3 then blocks cells
-            // within ~30 m, forcing the route to detour around.
-            // Max distance between paired port + starboard markers
-            // across a channel. Held at 300 m for now.
-            //
-            // History
-            // ───────
-            // Tried bumping to 600 m to catch the Brisbane River
-            // shipping channel (300-500 m wide). It did pair 46 more
-            // markers (236→282 midpoints, 112→153 FAIRWY segments,
-            // 597→540 solo hazards) but the route regressed at both
-            // ends — almost certainly because the wider gap also
-            // allowed FALSE pairs across canal complexes at Newport
-            // marina and unrelated features in the bay.
-            //
-            // The principled fix is a "LNDARE between pair" check —
-            // reject pair candidates whose midpoint or connecting
-            // line crosses a land polygon. That lets us safely bump
-            // PAIR_MAX_DIST again. Until that lands, sticking with
-            // 300 m so we keep the Scarborough fix without breaking
-            // Newport.
-            const PAIR_MAX_DIST_M = 300;
-            const midpointCoords: Midpoint[] = [];
-            const soloMarkers: Marker[] = [];
-
-            for (let chainId = 0; chainId < clusters.length; chainId++) {
-                const cluster = clusters[chainId];
-                if (cluster.length < 2) {
-                    // Isolated single marker — definitely a hazard.
-                    for (const idx of cluster) soloMarkers.push(markers[idx]);
-                    continue;
-                }
-
-                const clusterPorts: { lat: number; lon: number }[] = [];
-                const clusterStbds: { lat: number; lon: number }[] = [];
-                for (const idx of cluster) {
-                    const m = markers[idx];
-                    if (m.kind === 'port') clusterPorts.push({ lat: m.lat, lon: m.lon });
-                    else clusterStbds.push({ lat: m.lat, lon: m.lon });
-                }
-                if (clusterPorts.length === 0 || clusterStbds.length === 0) {
-                    // Single-colour cluster — hazard indicators, not
-                    // a channel edge. Common at reefs (e.g. Scarborough
-                    // Reef green marker).
-                    for (const idx of cluster) soloMarkers.push(markers[idx]);
-                    continue;
-                }
-
-                // Sort each list along the cluster's principal axis so
-                // index i corresponds to chain-position i.
-                const allPts = [...clusterPorts, ...clusterStbds];
-                const axis = principalAxis(allPts);
-                let meanLat = 0;
-                let meanLon = 0;
-                for (const p of allPts) {
-                    meanLat += p.lat;
-                    meanLon += p.lon;
-                }
-                meanLat /= allPts.length;
-                meanLon /= allPts.length;
-                const projection = (p: { lat: number; lon: number }): number =>
-                    (p.lon - meanLon) * axis.lon + (p.lat - meanLat) * axis.lat;
-                clusterPorts.sort((a, b) => projection(a) - projection(b));
-                clusterStbds.sort((a, b) => projection(a) - projection(b));
-
-                // Pair each port with the chain-nearest starboard.
-                // Track which ports and starboards actually got into a
-                // pair — UNPAIRED markers in a mixed-colour cluster are
-                // emitted as hazards in Step 6 (they're chain orphans —
-                // usually reef edges or isolated marks that should
-                // never be passed within the buffer distance).
-                let chainOrder = 0;
-                const pairedPorts = new Set<{ lat: number; lon: number }>();
-                const pairedStbds = new Set<{ lat: number; lon: number }>();
-                for (const p of clusterPorts) {
-                    const pProj = projection(p);
-                    let bestDist = Infinity;
-                    let bestS: { lat: number; lon: number } | null = null;
-                    for (const s of clusterStbds) {
-                        const projDiff = Math.abs(projection(s) - pProj);
-                        if (projDiff > 0.01) continue;
-                        const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
-                        if (d < bestDist && d <= PAIR_MAX_DIST_M) {
-                            bestDist = d;
-                            bestS = s;
-                        }
-                    }
-                    if (!bestS) continue;
-                    pairedPorts.add(p);
-                    pairedStbds.add(bestS);
-                    midpointCoords.push({
-                        lat: (p.lat + bestS.lat) / 2,
-                        lon: (p.lon + bestS.lon) / 2,
-                        pairDistM: bestDist,
-                        chainId,
-                        chainOrder: chainOrder++,
-                    });
-                }
-                for (const p of clusterPorts) {
-                    if (!pairedPorts.has(p)) soloMarkers.push({ lat: p.lat, lon: p.lon, kind: 'port' });
-                }
-                for (const s of clusterStbds) {
-                    if (!pairedStbds.has(s)) soloMarkers.push({ lat: s.lat, lon: s.lon, kind: 'starboard' });
-                }
-            }
-
-            // ── Step 4: Build midpoint Point features ───────────────
-            const midpoints: unknown[] = midpointCoords.map((m) => ({
-                type: 'Feature',
-                properties: {
-                    _class: 'channel_midpoint',
-                    _source: 'pair-inferred-chain-ordered',
-                    _pairDistanceM: Math.round(m.pairDistM),
-                    _chainId: m.chainId,
-                    _chainOrder: m.chainOrder,
-                },
-                geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
-            }));
-
-            // DEBUG — dump midpoint chain order for the Scarborough area
-            // so we can see whether the chain is laying out N-S along the
-            // channel (good) or zigzagging E-W across multiple channels
-            // (bad — would make the FAIRWY ribbon useless).
-            const scarbMidpts = midpointCoords
-                .filter((m) => m.lat >= -27.2 && m.lat <= -27.17 && m.lon >= 153.08 && m.lon <= 153.11)
-                .sort((a, b) => a.chainId - b.chainId || a.chainOrder - b.chainOrder);
-            if (scarbMidpts.length > 0) {
-                log.warn(`STAGE: Scarborough-area midpoints (${scarbMidpts.length}) by chain:`);
-                let lastChain = -1;
-                for (const m of scarbMidpts) {
-                    if (m.chainId !== lastChain) {
-                        log.warn(`  chain ${m.chainId}:`);
-                        lastChain = m.chainId;
-                    }
-                    log.warn(
-                        `    [${m.chainOrder}] @ ${m.lat.toFixed(4)},${m.lon.toFixed(4)} pairDist=${Math.round(m.pairDistM)}m`,
-                    );
-                }
-            }
-
-            // ── Step 5: Build ribbon polygons IN CHAIN ORDER ────────
-            // Connect midpoint i with midpoint i+1 within the SAME
-            // chain. Each segment is a thin rectangle (~20 m wide)
-            // aligned with the connecting line. No cross-channel
-            // artefacts because we only connect within a chain.
-            // FAIRWY ribbon half-width: 30 m (60 m total) means each
-            // ribbon covers at least 1 cell at our 50 m grid even at
-            // the narrowest, and 2+ cells through the middle. A 10 m
-            // half-width (20 m total) left ribbons narrower than a
-            // single grid cell — A* could dodge around them by ½ cell
-            // and the channel preference didn't bite. The user
-            // observed exactly this on the Brisbane River shipping
-            // channel approach.
-            // FAIRWY ribbon half-width. Was 30 m (60 m total). At the
-            // engine's 50 m grid resolution, a 60 m ribbon only covers
-            // 1 cell column reliably — and only when the ribbon
-            // happens to straddle two cell centres. When the cell
-            // centre falls outside the ribbon (the diagonal case),
-            // NO cells get flagged as preferred and A* loses the
-            // channel hint entirely. Bumping to 100 m (200 m total)
-            // guarantees 3-4 cell-wide coverage regardless of
-            // orientation, so the preferred strip is contiguous and
-            // wide enough for A* to follow without threading a needle.
-            // 200 m is still narrower than a typical shipping channel
-            // (the Brisbane River dredged channel is ~150-300 m wide)
-            // so we don't bleed preference into hazard-side cells.
-            const HALF_WIDTH_M = 100;
-            // Re-group midpoints by chain to walk them in order
-            const byChain = new Map<number, Midpoint[]>();
-            for (const mp of midpointCoords) {
-                const arr = byChain.get(mp.chainId) ?? [];
-                arr.push(mp);
-                byChain.set(mp.chainId, arr);
-            }
-            for (const arr of byChain.values()) {
-                arr.sort((a, b) => a.chainOrder - b.chainOrder);
-            }
-
-            // SEGMENT_MAX_M = 600: drop segments where consecutive
-            // chain-midpoints sit more than 600 m apart. Bumped from
-            // 400 m so the Brisbane River shipping channel — markers
-            // routinely 400-500 m apart on the long straight stretches
-            // — stays connected as a continuous ribbon instead of
-            // fragmenting at every wide gap. The IALA-oriented
-            // hazards + coastline-buffered LNDARE + cross-bay false
-            // bridges being uncommon at chain-clusters that span 600 m
-            // mean we don't pay the over-block tax we'd have paid at
-            // the old 150 m CLUSTER_LINK_M.
-            // Max gap between consecutive chain-ordered midpoints. Was
-            // 600 m. The Brisbane River shipping channel has marker
-            // pairs at the *bends* spaced 800-1000 m apart on the long
-            // straight stretches between curves, which at 600 m left
-            // ribbon gaps right where A* needs to commit. Bumped to
-            // 1200 m to bridge those gaps. False bridges (across-
-            // peninsula chains) at 1200 m are still rare because the
-            // CLUSTER_LINK_M=350 m clustering won't link markers
-            // 1200 m apart in the first place — only WITHIN a cluster
-            // do we draw segments, and a cluster spans ≤350 m hops.
-            const SEGMENT_MAX_M = 1200;
-            const segments: unknown[] = [];
-            for (const arr of byChain.values()) {
-                for (let i = 0; i < arr.length - 1; i++) {
-                    const a = arr[i];
-                    const b = arr[i + 1];
-                    const midLat = (a.lat + b.lat) / 2;
-                    const mPerLonAtMid = 111_320 * Math.cos((midLat * Math.PI) / 180);
-                    const dxM = (b.lon - a.lon) * mPerLonAtMid;
-                    const dyM = (b.lat - a.lat) * 111_320;
-                    const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
-                    if (lenM < 1 || lenM > SEGMENT_MAX_M) continue;
-                    const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
-                    const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
-                    const perpDLon = perpDxM / mPerLonAtMid;
-                    const perpDLat = perpDyM / 111_320;
-                    segments.push({
-                        type: 'Feature',
-                        properties: {
-                            _layer: 'FAIRWY',
-                            _class: 'synthetic-channel-segment',
-                            _source: 'chain-ordered',
-                            _chainId: a.chainId,
-                            _lengthM: Math.round(lenM),
-                        },
-                        geometry: {
-                            type: 'Polygon',
-                            coordinates: [
-                                [
-                                    [a.lon + perpDLon, a.lat + perpDLat],
-                                    [a.lon - perpDLon, a.lat - perpDLat],
-                                    [b.lon - perpDLon, b.lat - perpDLat],
-                                    [b.lon + perpDLon, b.lat + perpDLat],
-                                    [a.lon + perpDLon, a.lat + perpDLat],
-                                ],
-                            ],
-                        },
-                    });
-                }
-            }
-
-            // ── Step 6: Solo + direct-hazard markers → OBSTRN points ─
-            // Solo lateral markers (unpaired in their cluster) join
-            // the directHazards collected in Step 1 (cardinals, dangers,
-            // notices, piles, generic lateral). All emitted as OBSTRN
-            // Point features for the engine's Pass 3 buffer.
-            const hazards: unknown[] = [
-                ...soloMarkers.map((m) => ({
-                    type: 'Feature' as const,
-                    properties: {
-                        _class: 'lateral-marker-as-hazard',
-                        _source: 'solo-lateral-inferred',
-                        _markerKind: m.kind,
-                    },
-                    geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
-                })),
-                ...directHazards.map((h) => ({
-                    type: 'Feature' as const,
-                    properties: {
-                        _class: 'direct-hazard',
-                        _source: 'osm-class',
-                        _osmClass: h.cls,
-                    },
-                    geometry: { type: 'Point' as const, coordinates: [h.lon, h.lat] },
-                })),
-            ];
-
-            return { midpoints, segments, hazards };
         })();
-        regionalMarkerCache.set(url, cached);
+        rawMarkerFetchCache.set(url, dataPromise);
     }
-    return cached;
+    const data = await dataPromise;
+    return (async () => {
+        // ── Step 1: Parse markers ───────────────────────────────
+        // Two classes:
+        //  - "lateral" channel-marker candidates (port/starboard):
+        //    enter the cluster + pair-or-solo pipeline.
+        //  - "direct hazard" markers (cardinal, danger, isolated,
+        //    notice, pile): never define a channel, always indicate
+        //    a hazard. Skip the pairing and emit straight to the
+        //    soloHazards list in Step 6.
+        //
+        // Earlier iteration only filtered port/starboard, which
+        // missed the green Scarborough Reef marker (user reported)
+        // because it's tagged as a generic hazard, not a paired
+        // channel side.
+        const markers: Marker[] = [];
+        const directHazards: { lat: number; lon: number; cls: string }[] = [];
+        const DIRECT_HAZARD_CLASSES = new Set([
+            'cardinal',
+            'cardinal_n',
+            'cardinal_s',
+            'cardinal_e',
+            'cardinal_w',
+            'danger',
+            'isolated',
+            // 'notice' deliberately omitted: IALA-A "special marks"
+            // (yellow X-topmark) are informational — they mark
+            // no-anchoring zones, fishing areas, water-ski zones,
+            // cable crossings, etc. They are NOT navigational
+            // hazards.
+            // 'pile' deliberately omitted (2026-05-12): mooring
+            // piles around port terminals form regular arcs (~15+
+            // piles around the SE corner of Fisherman Island
+            // terminal). Each was getting a 250 m+ half-circle
+            // that overlapped into a continuous wall blocking the
+            // direct channel-to-terminal approach. Piles are
+            // PHYSICAL but VERY LOCAL — a boat needs to not hit
+            // one, but you don't avoid a 250 m radius around each.
+            // For routing purposes treat them as not-a-hazard.
+            'lateral', // unsubclassed lateral — treat as hazard, not channel side
+        ]);
+        const droppedByClass = new Map<string, number>();
+        // DEBUG — Scarborough Reef area inventory. Tight bbox around
+        // -27.190, 153.094 (the green marker user keeps flagging).
+        // Remove once the pairing/classification puzzle is solved.
+        const scarboroughRawMarkers: string[] = [];
+        for (const f of data.features ?? []) {
+            if (f?.geometry?.type !== 'Point' || !f.geometry.coordinates) continue;
+            const [lon, lat] = f.geometry.coordinates;
+            const cls = (f.properties?._class as string | undefined) ?? '';
+            // Wider bbox: Navionics has the reef beacon at ~153.133,
+            // so we extend the longitude window east to catch it.
+            if (lat >= -27.2 && lat <= -27.17 && lon >= 153.08 && lon <= 153.15) {
+                scarboroughRawMarkers.push(`${cls} @ ${lat.toFixed(4)},${lon.toFixed(4)}`);
+            }
+            if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
+            else if (cls === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
+            else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
+            else droppedByClass.set(cls || '<empty>', (droppedByClass.get(cls || '<empty>') ?? 0) + 1);
+        }
+        if (droppedByClass.size > 0) {
+            const summary = [...droppedByClass.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, v]) => `${k}=${v}`)
+                .join(' ');
+            log.warn(`STAGE: marker classes NOT used as hazard or lateral: ${summary}`);
+        }
+        // Same breakdown for the markers we ARE treating as
+        // hazards — so we can see whether one class dominates
+        // the OBSTRN count and tune from there.
+        if (directHazards.length > 0) {
+            const byHazardClass = new Map<string, number>();
+            for (const h of directHazards) {
+                byHazardClass.set(h.cls, (byHazardClass.get(h.cls) ?? 0) + 1);
+            }
+            const summary = [...byHazardClass.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .map(([k, v]) => `${k}=${v}`)
+                .join(' ');
+            log.warn(`STAGE: direct-hazard markers by class: ${summary}`);
+        }
+
+        // DEBUG — raw Scarborough-area markers as they come out of
+        // nav_markers.geojson. Tells us whether the green Scarborough
+        // Reef marker is even in the source data and what `_class`
+        // it carries. Compare against what shows up post-pairing in
+        // the Scarborough-area hazards block from orientHazardsTowardLand.
+        if (scarboroughRawMarkers.length > 0) {
+            log.warn(`STAGE: Scarborough-area RAW markers (${scarboroughRawMarkers.length}):`);
+            for (const line of scarboroughRawMarkers) {
+                log.warn(`  • ${line}`);
+            }
+        } else {
+            log.warn(`STAGE: NO raw markers in Scarborough bbox`);
+        }
+
+        // ── Step 2: Cluster markers into channel chains ────────
+        // CLUSTER_LINK_M = 350 m: relaxed from 150 m now that the
+        // IALA-oriented hazards + coastline-buffered LNDARE block
+        // bridge-across-peninsula failures structurally. 150 m
+        // was so tight that legitimate dredged-channel chains
+        // (Brisbane River main shipping channel has markers
+        // spaced 300-500 m apart) fragmented into single-marker
+        // clusters with no pairing → no midpoints, no FAIRWY
+        // ribbons, A* didn't see the channel as preferred.
+        //
+        // 350 m comfortably captures real channels while staying
+        // tight enough that any cross-peninsula or cross-bay
+        // false bridges produce segments > SEGMENT_MAX_M (400 m,
+        // capped in Step 5 below) and get dropped automatically.
+        // The hazard half-circles defend the peninsula approach
+        // regardless of whether a bridging chain forms.
+        const CLUSTER_LINK_M = 350;
+        const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
+
+        // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
+        // Markers that don't end up in a mixed-colour cluster are
+        // collected as `soloMarkers` and emitted as OBSTRN
+        // features (Step 6 below). In IALA-A buoyage a lone
+        // port/starboard marker almost always indicates a hazard
+        // (reef edge, isolated shoal, dangerous rock) rather than
+        // a channel side. The engine's Pass 3 then blocks cells
+        // within ~30 m, forcing the route to detour around.
+        // Max distance between paired port + starboard markers
+        // across a channel. 600 m catches the Brisbane River
+        // shipping channel (300-500 m wide) and most other
+        // commercial channels.
+        //
+        // History
+        // ───────
+        // Was 300 m, which missed wider channels (BR shipping
+        // channel markers ended up as 454 solo hazards forming
+        // walls along both banks).
+        //
+        // First 600 m attempt regressed at Newport — false pairs
+        // formed across canal complexes (midpoint landed on land,
+        // creating a fake channel through buildings/canals).
+        //
+        // Now safe because the pairing loop additionally rejects
+        // any pair whose midpoint falls inside a LNDARE polygon
+        // (see `pointInLandare` check below). Pairs across land
+        // can't form.
+        const PAIR_MAX_DIST_M = 600;
+        const midpointCoords: Midpoint[] = [];
+        const soloMarkers: Marker[] = [];
+
+        for (let chainId = 0; chainId < clusters.length; chainId++) {
+            const cluster = clusters[chainId];
+            if (cluster.length < 2) {
+                // Isolated single marker — definitely a hazard.
+                for (const idx of cluster) soloMarkers.push(markers[idx]);
+                continue;
+            }
+
+            const clusterPorts: { lat: number; lon: number }[] = [];
+            const clusterStbds: { lat: number; lon: number }[] = [];
+            for (const idx of cluster) {
+                const m = markers[idx];
+                if (m.kind === 'port') clusterPorts.push({ lat: m.lat, lon: m.lon });
+                else clusterStbds.push({ lat: m.lat, lon: m.lon });
+            }
+            if (clusterPorts.length === 0 || clusterStbds.length === 0) {
+                // Single-colour cluster — hazard indicators, not
+                // a channel edge. Common at reefs (e.g. Scarborough
+                // Reef green marker).
+                for (const idx of cluster) soloMarkers.push(markers[idx]);
+                continue;
+            }
+
+            // Sort each list along the cluster's principal axis so
+            // index i corresponds to chain-position i.
+            const allPts = [...clusterPorts, ...clusterStbds];
+            const axis = principalAxis(allPts);
+            let meanLat = 0;
+            let meanLon = 0;
+            for (const p of allPts) {
+                meanLat += p.lat;
+                meanLon += p.lon;
+            }
+            meanLat /= allPts.length;
+            meanLon /= allPts.length;
+            const projection = (p: { lat: number; lon: number }): number =>
+                (p.lon - meanLon) * axis.lon + (p.lat - meanLat) * axis.lat;
+            clusterPorts.sort((a, b) => projection(a) - projection(b));
+            clusterStbds.sort((a, b) => projection(a) - projection(b));
+
+            // Pair each port with the chain-nearest starboard.
+            // Track which ports and starboards actually got into a
+            // pair — UNPAIRED markers in a mixed-colour cluster are
+            // emitted as hazards in Step 6 (they're chain orphans —
+            // usually reef edges or isolated marks that should
+            // never be passed within the buffer distance).
+            let chainOrder = 0;
+            const pairedPorts = new Set<{ lat: number; lon: number }>();
+            const pairedStbds = new Set<{ lat: number; lon: number }>();
+            for (const p of clusterPorts) {
+                const pProj = projection(p);
+                let bestDist = Infinity;
+                let bestS: { lat: number; lon: number } | null = null;
+                for (const s of clusterStbds) {
+                    const projDiff = Math.abs(projection(s) - pProj);
+                    if (projDiff > 0.01) continue;
+                    const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
+                    if (d >= bestDist || d > PAIR_MAX_DIST_M) continue;
+                    // LNDARE-between-pair check: reject pair if the
+                    // midpoint falls inside any land polygon. This is
+                    // what lets us bump PAIR_MAX_DIST_M into shipping-
+                    // channel territory without false pairs forming
+                    // across canal complexes or land features.
+                    const midLat = (p.lat + s.lat) / 2;
+                    const midLon = (p.lon + s.lon) / 2;
+                    if (pointInLandare(midLon, midLat, lndareFeatures)) continue;
+                    bestDist = d;
+                    bestS = s;
+                }
+                if (!bestS) continue;
+                pairedPorts.add(p);
+                pairedStbds.add(bestS);
+                midpointCoords.push({
+                    lat: (p.lat + bestS.lat) / 2,
+                    lon: (p.lon + bestS.lon) / 2,
+                    pairDistM: bestDist,
+                    chainId,
+                    chainOrder: chainOrder++,
+                });
+            }
+            for (const p of clusterPorts) {
+                if (!pairedPorts.has(p)) soloMarkers.push({ lat: p.lat, lon: p.lon, kind: 'port' });
+            }
+            for (const s of clusterStbds) {
+                if (!pairedStbds.has(s)) soloMarkers.push({ lat: s.lat, lon: s.lon, kind: 'starboard' });
+            }
+        }
+
+        // ── Step 4: Build midpoint Point features ───────────────
+        const midpoints: unknown[] = midpointCoords.map((m) => ({
+            type: 'Feature',
+            properties: {
+                _class: 'channel_midpoint',
+                _source: 'pair-inferred-chain-ordered',
+                _pairDistanceM: Math.round(m.pairDistM),
+                _chainId: m.chainId,
+                _chainOrder: m.chainOrder,
+            },
+            geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
+        }));
+
+        // DEBUG — dump midpoint chain order for the Scarborough area
+        // so we can see whether the chain is laying out N-S along the
+        // channel (good) or zigzagging E-W across multiple channels
+        // (bad — would make the FAIRWY ribbon useless).
+        const scarbMidpts = midpointCoords
+            .filter((m) => m.lat >= -27.2 && m.lat <= -27.17 && m.lon >= 153.08 && m.lon <= 153.11)
+            .sort((a, b) => a.chainId - b.chainId || a.chainOrder - b.chainOrder);
+        if (scarbMidpts.length > 0) {
+            log.warn(`STAGE: Scarborough-area midpoints (${scarbMidpts.length}) by chain:`);
+            let lastChain = -1;
+            for (const m of scarbMidpts) {
+                if (m.chainId !== lastChain) {
+                    log.warn(`  chain ${m.chainId}:`);
+                    lastChain = m.chainId;
+                }
+                log.warn(
+                    `    [${m.chainOrder}] @ ${m.lat.toFixed(4)},${m.lon.toFixed(4)} pairDist=${Math.round(m.pairDistM)}m`,
+                );
+            }
+        }
+
+        // ── Step 5: Build ribbon polygons IN CHAIN ORDER ────────
+        // Connect midpoint i with midpoint i+1 within the SAME
+        // chain. Each segment is a thin rectangle (~20 m wide)
+        // aligned with the connecting line. No cross-channel
+        // artefacts because we only connect within a chain.
+        // FAIRWY ribbon half-width: 30 m (60 m total) means each
+        // ribbon covers at least 1 cell at our 50 m grid even at
+        // the narrowest, and 2+ cells through the middle. A 10 m
+        // half-width (20 m total) left ribbons narrower than a
+        // single grid cell — A* could dodge around them by ½ cell
+        // and the channel preference didn't bite. The user
+        // observed exactly this on the Brisbane River shipping
+        // channel approach.
+        // FAIRWY ribbon half-width. Was 30 m (60 m total). At the
+        // engine's 50 m grid resolution, a 60 m ribbon only covers
+        // 1 cell column reliably — and only when the ribbon
+        // happens to straddle two cell centres. When the cell
+        // centre falls outside the ribbon (the diagonal case),
+        // NO cells get flagged as preferred and A* loses the
+        // channel hint entirely. Bumping to 100 m (200 m total)
+        // guarantees 3-4 cell-wide coverage regardless of
+        // orientation, so the preferred strip is contiguous and
+        // wide enough for A* to follow without threading a needle.
+        // 200 m is still narrower than a typical shipping channel
+        // (the Brisbane River dredged channel is ~150-300 m wide)
+        // so we don't bleed preference into hazard-side cells.
+        const HALF_WIDTH_M = 100;
+        // Re-group midpoints by chain to walk them in order
+        const byChain = new Map<number, Midpoint[]>();
+        for (const mp of midpointCoords) {
+            const arr = byChain.get(mp.chainId) ?? [];
+            arr.push(mp);
+            byChain.set(mp.chainId, arr);
+        }
+        for (const arr of byChain.values()) {
+            arr.sort((a, b) => a.chainOrder - b.chainOrder);
+        }
+
+        // SEGMENT_MAX_M = 600: drop segments where consecutive
+        // chain-midpoints sit more than 600 m apart. Bumped from
+        // 400 m so the Brisbane River shipping channel — markers
+        // routinely 400-500 m apart on the long straight stretches
+        // — stays connected as a continuous ribbon instead of
+        // fragmenting at every wide gap. The IALA-oriented
+        // hazards + coastline-buffered LNDARE + cross-bay false
+        // bridges being uncommon at chain-clusters that span 600 m
+        // mean we don't pay the over-block tax we'd have paid at
+        // the old 150 m CLUSTER_LINK_M.
+        // Max gap between consecutive chain-ordered midpoints. Was
+        // 600 m. The Brisbane River shipping channel has marker
+        // pairs at the *bends* spaced 800-1000 m apart on the long
+        // straight stretches between curves, which at 600 m left
+        // ribbon gaps right where A* needs to commit. Bumped to
+        // 1200 m to bridge those gaps. False bridges (across-
+        // peninsula chains) at 1200 m are still rare because the
+        // CLUSTER_LINK_M=350 m clustering won't link markers
+        // 1200 m apart in the first place — only WITHIN a cluster
+        // do we draw segments, and a cluster spans ≤350 m hops.
+        const SEGMENT_MAX_M = 1200;
+        const segments: unknown[] = [];
+        for (const arr of byChain.values()) {
+            for (let i = 0; i < arr.length - 1; i++) {
+                const a = arr[i];
+                const b = arr[i + 1];
+                const midLat = (a.lat + b.lat) / 2;
+                const mPerLonAtMid = 111_320 * Math.cos((midLat * Math.PI) / 180);
+                const dxM = (b.lon - a.lon) * mPerLonAtMid;
+                const dyM = (b.lat - a.lat) * 111_320;
+                const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
+                if (lenM < 1 || lenM > SEGMENT_MAX_M) continue;
+                const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
+                const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
+                const perpDLon = perpDxM / mPerLonAtMid;
+                const perpDLat = perpDyM / 111_320;
+                segments.push({
+                    type: 'Feature',
+                    properties: {
+                        _layer: 'FAIRWY',
+                        _class: 'synthetic-channel-segment',
+                        _source: 'chain-ordered',
+                        _chainId: a.chainId,
+                        _lengthM: Math.round(lenM),
+                    },
+                    geometry: {
+                        type: 'Polygon',
+                        coordinates: [
+                            [
+                                [a.lon + perpDLon, a.lat + perpDLat],
+                                [a.lon - perpDLon, a.lat - perpDLat],
+                                [b.lon - perpDLon, b.lat - perpDLat],
+                                [b.lon + perpDLon, b.lat + perpDLat],
+                                [a.lon + perpDLon, a.lat + perpDLat],
+                            ],
+                        ],
+                    },
+                });
+            }
+        }
+
+        // ── Step 6: Solo + direct-hazard markers → OBSTRN points ─
+        // Solo lateral markers (unpaired in their cluster) join
+        // the directHazards collected in Step 1 (cardinals, dangers,
+        // notices, piles, generic lateral). All emitted as OBSTRN
+        // Point features for the engine's Pass 3 buffer.
+        const hazards: unknown[] = [
+            ...soloMarkers.map((m) => ({
+                type: 'Feature' as const,
+                properties: {
+                    _class: 'lateral-marker-as-hazard',
+                    _source: 'solo-lateral-inferred',
+                    _markerKind: m.kind,
+                },
+                geometry: { type: 'Point' as const, coordinates: [m.lon, m.lat] },
+            })),
+            ...directHazards.map((h) => ({
+                type: 'Feature' as const,
+                properties: {
+                    _class: 'direct-hazard',
+                    _source: 'osm-class',
+                    _osmClass: h.cls,
+                },
+                geometry: { type: 'Point' as const, coordinates: [h.lon, h.lat] },
+            })),
+        ];
+
+        return { midpoints, segments, hazards };
+    })();
 }
