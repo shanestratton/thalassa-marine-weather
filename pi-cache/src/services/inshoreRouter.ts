@@ -1300,14 +1300,35 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // the bridge segment is short enough we trust it doesn't cross
     // land; outside, we leave the snapped water cell as the visible
     // route start.
-    const ENDPOINT_BRIDGE_M = 150;
+    const lndareForBridgeCheck = layers.LNDARE?.features ?? [];
+    const bridgeCrossesLandare = (p1: [number, number], p2: [number, number]): boolean => {
+        if (lndareForBridgeCheck.length === 0) return false;
+        const samples = 10;
+        for (let i = 1; i < samples; i++) {
+            const t = i / samples;
+            const lon = p1[0] + (p2[0] - p1[0]) * t;
+            const lat = p1[1] + (p2[1] - p1[1]) * t;
+            for (const f of lndareForBridgeCheck) {
+                const g = f.geometry;
+                if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+                if (pointInGeometry(lon, lat, g as Polygon | MultiPolygon)) return true;
+            }
+        }
+        return false;
+    };
     const originSnapM = debug.originSnap?.snapDistanceM ?? Infinity;
     const destSnapM = debug.destinationSnap?.snapDistanceM ?? Infinity;
-    if (originSnapM <= ENDPOINT_BRIDGE_M) {
-        polylineRaw[0] = [req.fromLon, req.fromLat];
+    if (originSnapM > 0 && polylineRaw.length > 0) {
+        const inputPt: [number, number] = [req.fromLon, req.fromLat];
+        if (!bridgeCrossesLandare(inputPt, polylineRaw[0])) {
+            polylineRaw[0] = inputPt;
+        }
     }
-    if (destSnapM <= ENDPOINT_BRIDGE_M) {
-        polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
+    if (destSnapM > 0 && polylineRaw.length > 0) {
+        const inputPt: [number, number] = [req.toLon, req.toLat];
+        if (!bridgeCrossesLandare(polylineRaw[polylineRaw.length - 1], inputPt)) {
+            polylineRaw[polylineRaw.length - 1] = inputPt;
+        }
     }
     // DP tolerance ≈ 1/4 cell. Tighter than the original 1/2 cell —
     // keeps more turn detail in winding channels (Savannah River
