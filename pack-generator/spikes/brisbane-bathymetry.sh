@@ -613,7 +613,20 @@ out geom;"
         echo -e "      → trying ${MIRROR}"
         # Use -sS (silent + show errors) and capture HTTP code so we
         # can see what Overpass actually says when it 406s.
-        HTTP_CODE=$(curl -sS --max-time 180 \
+        #
+        # Headers that bypass overpass-api.de's old Apache 2.4.6
+        # mod_security rules (which 406'd the bare curl UA + missing
+        # Accept-Encoding):
+        #   - User-Agent: a real browser UA pattern
+        #   - Accept: */*
+        #   - Accept-Encoding: gzip, deflate (server requires SOME
+        #     content-negotiation value, even if we don't use it)
+        # We pass --compressed so curl auto-decompresses if the server
+        # gzips its response.
+        HTTP_CODE=$(curl -sS --compressed --max-time 180 \
+            -A "Mozilla/5.0 (compatible; ThalassaPackGen/1.0; +https://github.com/shanestratton/thalassa-marine-weather)" \
+            -H "Accept: */*" \
+            -H "Accept-Encoding: gzip, deflate" \
             --data-urlencode "data=${WATER_QUERY}" \
             -w "%{http_code}" \
             -o "$WATER_CACHE.tmp" \
