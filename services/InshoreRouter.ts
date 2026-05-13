@@ -606,9 +606,9 @@ function orientHazardsTowardLand(
         const radiusM = Math.min(maxRadiusForClass, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
 
         // DEBUG — log markers near Scarborough Reef so we can see whether
-        // the gate is doing its job. Bbox roughly covers the Scarborough/
-        // Redcliffe peninsula. Remove once the radius policy is dialled.
-        if (mLat >= -27.22 && mLat <= -27.17 && mLon >= 153.07 && mLon <= 153.12) {
+        // the gate is doing its job. Bbox matches the RAW-marker bbox so
+        // the isolated Scarborough Reef beacon at ~153.133 is captured.
+        if (mLat >= -27.22 && mLat <= -27.17 && mLon >= 153.07 && mLon <= 153.15) {
             scarboroughDebug.push(
                 `marker @ ${mLat.toFixed(4)},${mLon.toFixed(4)} class=${hazardClass ?? '?'} kind=${(h.properties as { _markerKind?: string } | null | undefined)?._markerKind ?? '?'} shoreDist=${Math.round(shoreDistM)}m reefEdge=${isReefEdgeSoloLateral} → radius=${Math.round(radiusM)}m`,
             );
