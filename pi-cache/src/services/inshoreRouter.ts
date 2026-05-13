@@ -283,6 +283,54 @@ function latLonToGrid(grid: NavGrid, lat: number, lon: number): { x: number; y: 
  * Time complexity is roughly O(featureCount × cellsPerFeatureBbox).
  * Polygons rasterize in their bbox slice rather than the whole grid.
  */
+interface CachedNavGrid {
+    grid: NavGrid;
+    ts: number;
+}
+const navGridCache = new Map<string, CachedNavGrid>();
+const NAV_GRID_CACHE_MAX = 5;
+
+function buildNavGridCached(
+    layers: InshoreLayers,
+    bbox: [number, number, number, number],
+    resolutionM: number,
+    draftM: number,
+    safetyM: number,
+    obstructionBufferM: number,
+): { grid: NavGrid; cacheHit: boolean } {
+    const sig = [
+        layers.LNDARE?.features.length ?? 0,
+        layers.DEPARE?.features.length ?? 0,
+        layers.OBSTRN?.features.length ?? 0,
+        layers.WRECKS?.features.length ?? 0,
+        layers.UWTROC?.features.length ?? 0,
+        layers.FAIRWY?.features.length ?? 0,
+        layers.DRGARE?.features.length ?? 0,
+        layers.BOYLAT?.features.length ?? 0,
+        layers.BCNLAT?.features.length ?? 0,
+    ].join(',');
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
+    const cached = navGridCache.get(key);
+    if (cached) {
+        cached.ts = Date.now();
+        return { grid: cached.grid, cacheHit: true };
+    }
+    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM);
+    if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
+        let oldestKey: string | null = null;
+        let oldestTs = Infinity;
+        for (const [k, v] of navGridCache) {
+            if (v.ts < oldestTs) {
+                oldestTs = v.ts;
+                oldestKey = k;
+            }
+        }
+        if (oldestKey) navGridCache.delete(oldestKey);
+    }
+    navGridCache.set(key, { grid, ts: Date.now() });
+    return { grid, cacheHit: false };
+}
+
 function buildNavGrid(
     layers: InshoreLayers,
     bbox: [number, number, number, number],
@@ -1071,8 +1119,15 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();
-    const grid = buildNavGrid(layers, bbox, resolutionM, req.draftM, safetyM, obstructionBufferM);
-    tPhase = mark('buildNavGrid', tPhase);
+    const { grid, cacheHit: gridCacheHit } = buildNavGridCached(
+        layers,
+        bbox,
+        resolutionM,
+        req.draftM,
+        safetyM,
+        obstructionBufferM,
+    );
+    tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
         return { error: 'Empty grid', code: 'empty-grid' };
     }

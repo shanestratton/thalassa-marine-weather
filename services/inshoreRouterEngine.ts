@@ -295,6 +295,73 @@ function latLonToGrid(grid: NavGrid, lat: number, lon: number): { x: number; y: 
 }
 
 /**
+ * Process-wide cache for buildNavGrid output. Keyed by the inputs that
+ * deterministically produce a grid. Grid build is the routing pipeline's
+ * dominant cost (20+ s for the Brisbane test case at 50 m resolution) so
+ * even simple memoisation lets repeated routes against the same cell
+ * pack skip everything except A* (which is ~50 ms).
+ *
+ * Cache key composition:
+ *   - bbox, resolutionM, draftM, safetyM, obstructionBufferM (route params)
+ *   - feature-counts-per-layer signature (cheap fingerprint of the merged
+ *     layer data; sufficient given the layer data is deterministic upstream
+ *     from cell-pack + Supabase nav markers + iOS-side pairing)
+ *
+ * The signature is best-effort — distinct layer payloads with matching
+ * feature counts would collide. Fine for now; tighten with a content hash
+ * if we ever hit it.
+ *
+ * Hard size cap of 5 grids (≈1 MB at 200×400×4 bytes) to bound memory.
+ */
+interface CachedNavGrid {
+    grid: NavGrid;
+    ts: number;
+}
+const navGridCache = new Map<string, CachedNavGrid>();
+const NAV_GRID_CACHE_MAX = 5;
+
+function buildNavGridCached(
+    layers: InshoreLayers,
+    bbox: [number, number, number, number],
+    resolutionM: number,
+    draftM: number,
+    safetyM: number,
+    obstructionBufferM: number,
+): { grid: NavGrid; cacheHit: boolean } {
+    const sig = [
+        layers.LNDARE?.features.length ?? 0,
+        layers.DEPARE?.features.length ?? 0,
+        layers.OBSTRN?.features.length ?? 0,
+        layers.WRECKS?.features.length ?? 0,
+        layers.UWTROC?.features.length ?? 0,
+        layers.FAIRWY?.features.length ?? 0,
+        layers.DRGARE?.features.length ?? 0,
+        layers.BOYLAT?.features.length ?? 0,
+        layers.BCNLAT?.features.length ?? 0,
+    ].join(',');
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
+    const cached = navGridCache.get(key);
+    if (cached) {
+        cached.ts = Date.now();
+        return { grid: cached.grid, cacheHit: true };
+    }
+    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM);
+    if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
+        let oldestKey: string | null = null;
+        let oldestTs = Infinity;
+        for (const [k, v] of navGridCache) {
+            if (v.ts < oldestTs) {
+                oldestTs = v.ts;
+                oldestKey = k;
+            }
+        }
+        if (oldestKey) navGridCache.delete(oldestKey);
+    }
+    navGridCache.set(key, { grid, ts: Date.now() });
+    return { grid, cacheHit: false };
+}
+
+/**
  * Build a navigability grid for the given bbox, draft, and resolution.
  * Time complexity is roughly O(featureCount × cellsPerFeatureBbox).
  * Polygons rasterize in their bbox slice rather than the whole grid.
@@ -1090,8 +1157,15 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();
-    const grid = buildNavGrid(layers, bbox, resolutionM, req.draftM, safetyM, obstructionBufferM);
-    tPhase = mark('buildNavGrid', tPhase);
+    const { grid, cacheHit: gridCacheHit } = buildNavGridCached(
+        layers,
+        bbox,
+        resolutionM,
+        req.draftM,
+        safetyM,
+        obstructionBufferM,
+    );
+    tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
         return { error: 'Empty grid', code: 'empty-grid' };
     }
