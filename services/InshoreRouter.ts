@@ -1070,6 +1070,13 @@ async function fetchRegionalMarkers(
         // (see `pointInLandare` check below). Pairs across land
         // can't form.
         const PAIR_MAX_DIST_M = 600;
+        const pairDiag = {
+            considered: 0,
+            rejectedByLandare: 0,
+            wideConsidered: 0, // pairs > 300 m apart (only possible with PAIR_MAX_DIST > 300)
+            wideAccepted: 0,
+            wideRejected: 0,
+        };
         const midpointCoords: Midpoint[] = [];
         const soloMarkers: Marker[] = [];
 
@@ -1131,6 +1138,8 @@ async function fetchRegionalMarkers(
                     if (projDiff > 0.01) continue;
                     const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
                     if (d >= bestDist || d > PAIR_MAX_DIST_M) continue;
+                    pairDiag.considered++;
+                    if (d > 300) pairDiag.wideConsidered++;
                     // LNDARE-between-pair check: reject pair if the
                     // midpoint falls inside any land polygon. This is
                     // what lets us bump PAIR_MAX_DIST_M into shipping-
@@ -1138,7 +1147,12 @@ async function fetchRegionalMarkers(
                     // across canal complexes or land features.
                     const midLat = (p.lat + s.lat) / 2;
                     const midLon = (p.lon + s.lon) / 2;
-                    if (pointInLandare(midLon, midLat, lndareFeatures)) continue;
+                    if (pointInLandare(midLon, midLat, lndareFeatures)) {
+                        pairDiag.rejectedByLandare++;
+                        if (d > 300) pairDiag.wideRejected++;
+                        continue;
+                    }
+                    if (d > 300) pairDiag.wideAccepted++;
                     bestDist = d;
                     bestS = s;
                 }
@@ -1160,6 +1174,12 @@ async function fetchRegionalMarkers(
                 if (!pairedStbds.has(s)) soloMarkers.push({ lat: s.lat, lon: s.lon, kind: 'starboard' });
             }
         }
+
+        log.warn(
+            `STAGE: pair-candidate diagnostics — considered=${pairDiag.considered} ` +
+                `rejectedByLandare=${pairDiag.rejectedByLandare} ` +
+                `wide(>300m): considered=${pairDiag.wideConsidered} accepted=${pairDiag.wideAccepted} rejected=${pairDiag.wideRejected}`,
+        );
 
         // ── Step 4: Build midpoint Point features ───────────────
         const midpoints: unknown[] = midpointCoords.map((m) => ({
