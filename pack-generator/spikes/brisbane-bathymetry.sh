@@ -599,59 +599,66 @@ if [[ ! -f "$WATER_CACHE" ]]; then
   relation[\"harbour\"=\"yes\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
-    # Try multiple Overpass mirrors. The primary (overpass-api.de) has
-    # the strictest resource budget and has returned 406 for our
-    # multi-tag union query; alternates often work where the primary
-    # rejects. lz4.overpass-api.de is a high-bandwidth instance.
+    # Try multiple Overpass mirrors. We previously hit Apache 2.4.6 406s
+    # from overpass-api.de + lz4.overpass-api.de — turned out to be
+    # caused by *adding* custom UA + Accept-Encoding headers. The other
+    # Overpass curl calls in this script (ferry, hazards, coastline)
+    # use plain `curl -fsSL` and they work fine, so we now match that
+    # form here too.
+    #
+    # Kumi listed first because it's a different server (nginx, not
+    # Apache) — so if Heidelberg's Apache is being weird again, Kumi
+    # is unaffected.
+    #
+    # Each mirror is tried twice: once via POST (the standard form),
+    # and if that returns 406 (Apache content-negotiation bullshit),
+    # once via GET with the query in the URL. Overpass accepts both.
     OVERPASS_MIRRORS=(
+        "https://overpass.kumi.systems/api/interpreter"
         "https://overpass-api.de/api/interpreter"
         "https://lz4.overpass-api.de/api/interpreter"
-        "https://overpass.kumi.systems/api/interpreter"
     )
     WATER_OK=0
     for MIRROR in "${OVERPASS_MIRRORS[@]}"; do
-        echo -e "      → trying ${MIRROR}"
-        # Use -sS (silent + show errors) and capture HTTP code so we
-        # can see what Overpass actually says when it 406s.
-        #
-        # Headers that bypass overpass-api.de's old Apache 2.4.6
-        # mod_security rules (which 406'd the bare curl UA + missing
-        # Accept-Encoding):
-        #   - User-Agent: a real browser UA pattern
-        #   - Accept: */*
-        #   - Accept-Encoding: gzip, deflate (server requires SOME
-        #     content-negotiation value, even if we don't use it)
-        # We pass --compressed so curl auto-decompresses if the server
-        # gzips its response.
-        HTTP_CODE=$(curl -sS --compressed --max-time 180 \
-            -A "Mozilla/5.0 (compatible; ThalassaPackGen/1.0; +https://github.com/shanestratton/thalassa-marine-weather)" \
-            -H "Accept: */*" \
-            -H "Accept-Encoding: gzip, deflate" \
-            --data-urlencode "data=${WATER_QUERY}" \
-            -w "%{http_code}" \
-            -o "$WATER_CACHE.tmp" \
-            "$MIRROR")
-        if [[ "$HTTP_CODE" == "200" ]]; then
-            mv "$WATER_CACHE.tmp" "$WATER_CACHE"
-            SIZE=$(stat -c%s "$WATER_CACHE" 2>/dev/null || stat -f%z "$WATER_CACHE")
-            if [[ "$SIZE" -lt 100 ]]; then
-                echo -e "${YELLOW}      ⚠ Mirror returned only ${SIZE} bytes — likely empty${NC}"
-                rm -f "$WATER_CACHE"
+        for METHOD in POST GET; do
+            echo -e "      → trying ${METHOD} ${MIRROR}"
+            if [[ "$METHOD" == "POST" ]]; then
+                HTTP_CODE=$(curl -sS --max-time 120 \
+                    --data-urlencode "data=${WATER_QUERY}" \
+                    -w "%{http_code}" \
+                    -o "$WATER_CACHE.tmp" \
+                    "$MIRROR")
             else
-                echo -e "  ${GREEN}✓${NC} Cached $(du -h "$WATER_CACHE" | awk '{print $1}') from ${MIRROR}"
-                WATER_OK=1
-                break
+                # GET form: query goes in URL ?data=<urlencoded>
+                HTTP_CODE=$(curl -sS --max-time 120 \
+                    -G \
+                    --data-urlencode "data=${WATER_QUERY}" \
+                    -w "%{http_code}" \
+                    -o "$WATER_CACHE.tmp" \
+                    "$MIRROR")
             fi
-        else
-            echo -e "${YELLOW}      ⚠ HTTP ${HTTP_CODE} from ${MIRROR}${NC}"
-            # Print first 300 chars of error body so we can see why
-            if [[ -f "$WATER_CACHE.tmp" ]]; then
-                echo -e "      error body:"
-                head -c 300 "$WATER_CACHE.tmp" | sed 's/^/        /'
-                echo
-                rm -f "$WATER_CACHE.tmp"
+            if [[ "$HTTP_CODE" == "200" ]]; then
+                mv "$WATER_CACHE.tmp" "$WATER_CACHE"
+                SIZE=$(stat -c%s "$WATER_CACHE" 2>/dev/null || stat -f%z "$WATER_CACHE")
+                if [[ "$SIZE" -lt 100 ]]; then
+                    echo -e "${YELLOW}      ⚠ Mirror returned only ${SIZE} bytes — likely empty${NC}"
+                    rm -f "$WATER_CACHE"
+                else
+                    echo -e "  ${GREEN}✓${NC} Cached $(du -h "$WATER_CACHE" | awk '{print $1}') from ${METHOD} ${MIRROR}"
+                    WATER_OK=1
+                    break 2
+                fi
+            else
+                echo -e "${YELLOW}      ⚠ HTTP ${HTTP_CODE} from ${METHOD} ${MIRROR}${NC}"
+                # Print first 200 chars of error body so we can see why
+                if [[ -f "$WATER_CACHE.tmp" ]]; then
+                    echo -e "      error body:"
+                    head -c 200 "$WATER_CACHE.tmp" | sed 's/^/        /'
+                    echo
+                    rm -f "$WATER_CACHE.tmp"
+                fi
             fi
-        fi
+        done
     done
     if [[ "$WATER_OK" != "1" ]]; then
         echo -e "${YELLOW}  ⚠ All Overpass mirrors failed for water query — continuing without marina overrides${NC}"
