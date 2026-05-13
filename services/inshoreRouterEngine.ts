@@ -527,13 +527,36 @@ function buildNavGrid(
         const [lon, lat] = (f.geometry as Point).coordinates;
 
         const pairDistM = (f.properties as { _pairDistanceM?: number } | null)?._pairDistanceM;
-        const radius =
-            typeof pairDistM === 'number' && pairDistM > 0
-                ? Math.max(
-                      MARKER_CHANNEL_RADIUS_MIN_M,
-                      Math.min(MARKER_CHANNEL_RADIUS_DEFAULT_M, pairDistM / 2 - MARKER_CHANNEL_PAIR_MARGIN_M),
-                  )
-                : MARKER_CHANNEL_RADIUS_DEFAULT_M;
+
+        // Only the iOS-paired channel midpoints (which carry
+        // `_pairDistanceM`) generate preferred-cell zones. Pack-level
+        // BOYLAT/BCNLAT features (from OSM seamarks via the pack
+        // generator) get NO preferred zone. Why:
+        //
+        //   • A paired midpoint really IS a channel — the boat passes
+        //     between two markers, so attracting A* to the area
+        //     between them is correct.
+        //   • A pack-level OSM beacon_lateral is a single point on a
+        //     real chart. It might be a paired channel marker OR a
+        //     SOLO reef-edge marker (Scarborough Reef beacon is the
+        //     canonical example, confirmed via Navionics 2026-05-13).
+        //     If it's solo, the 80 m preferred radius around the
+        //     marker becomes an *attractor* drawing A* right onto the
+        //     reef instead of pushing it seaward. We can't tell from
+        //     the pack data alone which it is, so we treat ALL pack-
+        //     level laterals as no-op rather than as attractors.
+        //
+        // Cost of being wrong: if a real channel pair exists in the
+        // pack data without an iOS-side pairing record, A* won't see
+        // it as preferred. That's fine — A* still routes through deep
+        // water, just without an explicit channel bias.
+        if (typeof pairDistM !== 'number' || pairDistM <= 0) {
+            return;
+        }
+        const radius = Math.max(
+            MARKER_CHANNEL_RADIUS_MIN_M,
+            Math.min(MARKER_CHANNEL_RADIUS_DEFAULT_M, pairDistM / 2 - MARKER_CHANNEL_PAIR_MARGIN_M),
+        );
 
         const dLatBuf = radius / M_PER_DEG_LAT;
         const dLonBuf = radius / mPerLon;
