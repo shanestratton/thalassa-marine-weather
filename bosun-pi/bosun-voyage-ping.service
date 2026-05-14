@@ -1,0 +1,14 @@
+[Unit]
+Description=Bosun → Thalassa Voyage Log — hourly telemetry ping
+Documentation=https://github.com/shanestratton/thalassa-marine-weather/blob/master/bosun-pi/voyage-ping-setup.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=skipper
+EnvironmentFile=/mnt/nvme/bosun/voyage-ping.env
+ExecStart=/mnt/nvme/bosun/el-venv/bin/python /mnt/nvme/bosun/bosun_voyage_ping.py
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=60
