@@ -408,6 +408,10 @@ async function tryInshoreRouteInner(
     log.warn(
         `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
     );
+    // DIAGNOSTIC (2026-05-14): dump every polyline vertex as lat,lon so
+    // we can see exactly where the route runs without guessing from the
+    // rendered map. Drop this once Newport channel-choice is settled.
+    log.warn(`STAGE: polyline — ${result.polyline.map((p) => `${p[1].toFixed(4)},${p[0].toFixed(4)}`).join('  →  ')}`);
     // Per-phase timing breakdown from the engine (only for local
     // computes — cloud results don't pass timings through yet).
     const phaseTimings = (result as { phaseTimings?: Record<string, number> }).phaseTimings;
