@@ -525,22 +525,23 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 photos,
             });
             if (ok) {
-                setEntries((prev) =>
-                    prev.map((e) =>
-                        e.id === editingId
-                            ? {
-                                  ...e,
-                                  title: title.trim() || e.title,
-                                  body: body.trim(),
-                                  mood,
-                                  photos,
-                                  audio_url: audioUrl,
-                              }
-                            : e,
-                    ),
-                );
+                const prevEntry = entries.find((e) => e.id === editingId);
+                const updated: DiaryEntry | null = prevEntry
+                    ? {
+                          ...prevEntry,
+                          title: title.trim() || prevEntry.title,
+                          body: body.trim(),
+                          mood,
+                          photos,
+                          audio_url: audioUrl,
+                      }
+                    : null;
+                setEntries((prev) => prev.map((e) => (e.id === editingId && updated ? updated : e)));
                 setShowCompose(false);
                 setEditingId(null);
+                // Same publish checkpoint as a new entry — lets the skipper
+                // publish/unpublish on save.
+                if (updated) setPublishPromptEntry(updated);
             }
         } else {
             const entry = await DiaryService.createEntry({
@@ -670,6 +671,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onTranscribe={handleTranscribe}
                 onUndo={handleUndoDelete}
                 onDismissDelete={handleDismissDelete}
+                onPublishedChange={(id, isPublic) => {
+                    setEntries((prev) => prev.map((en) => (en.id === id ? { ...en, is_public: isPublic } : en)));
+                    setSelectedEntry(selectedEntry ? { ...selectedEntry, is_public: isPublic } : null);
+                }}
             />
         );
     }
@@ -925,12 +930,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onDismiss={handleDismissDelete}
                 duration={5000}
             />
-            {/* Publish-to-Voyage-Log prompt — shown once after a new entry saves */}
+            {/* Publish-to-Voyage-Log checkpoint — shown after saving a new or edited entry */}
             {publishPromptEntry && (
                 <DiaryPublishModal
                     entry={publishPromptEntry}
-                    onKeepPrivate={() => setPublishPromptEntry(null)}
-                    onPublished={(updated) =>
+                    onClose={() => setPublishPromptEntry(null)}
+                    onPublishChange={(updated) =>
                         setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
                     }
                 />

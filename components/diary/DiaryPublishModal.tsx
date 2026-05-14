@@ -1,55 +1,72 @@
 /**
- * DiaryPublishModal — "Share this to your Voyage Log?"
+ * DiaryPublishModal — Voyage Log publish checkpoint.
  *
- * Shown once, right after a new diary entry is saved. Offers the punter
- * a choice: keep the entry private (default) or publish it to their
- * public Voyage Log. Publishing flips the entry's is_public flag and,
- * on first use, provisions their voyage_log_configs row.
+ * Shown after a diary entry is saved (new OR edited). State-aware:
+ *   - private entry → offer to publish it to the public Voyage Log
+ *   - public entry  → show the share link, offer to unpublish
+ * Publishing provisions the voyage_log_configs row on first use.
  */
 
-import React, { useState } from 'react';
-import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
-import { DiaryService } from '../../services/DiaryService';
+import React, { useEffect, useState } from 'react';
+import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryService';
 import { VoyageLogService, voyageLogPublicUrl } from '../../services/VoyageLogService';
 import { triggerHaptic } from '../../utils/system';
 
-type Phase = 'prompt' | 'publishing' | 'published';
+type Phase = 'choose' | 'working' | 'done';
 
 interface DiaryPublishModalProps {
     entry: DiaryEntry;
-    /** Dismiss without publishing — entry stays private. */
-    onKeepPrivate: () => void;
-    /** Entry was published; receives the entry with is_public flipped on. */
-    onPublished: (entry: DiaryEntry) => void;
+    /** Dismiss the modal. */
+    onClose: () => void;
+    /** Publish state changed — receives the entry with is_public updated. */
+    onPublishChange: (entry: DiaryEntry) => void;
 }
 
-export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onKeepPrivate, onPublished }) => {
-    const [phase, setPhase] = useState<Phase>('prompt');
+export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onClose, onPublishChange }) => {
+    const startsPublic = !!entry.is_public;
+    const [phase, setPhase] = useState<Phase>('choose');
+    // What the last action did — drives the 'done' screen copy.
+    const [result, setResult] = useState<'published' | 'unpublished' | null>(null);
     const [publicUrl, setPublicUrl] = useState<string | null>(null);
     const [copied, setCopied] = useState(false);
 
-    const mood = MOOD_CONFIG[entry.mood];
+    const mood = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
     const photoCount = entry.photos?.length ?? 0;
+    const working = phase === 'working';
+
+    // Already public? Fetch the share link so it shows on the manage screen.
+    useEffect(() => {
+        if (!startsPublic) return;
+        let cancelled = false;
+        void VoyageLogService.getConfig().then((cfg) => {
+            if (!cancelled && cfg) setPublicUrl(voyageLogPublicUrl(cfg.handle, cfg.api_key));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [startsPublic]);
 
     const handlePublish = async () => {
-        setPhase('publishing');
+        setPhase('working');
         triggerHaptic('medium');
-
-        // Provision/enable the voyage log and publish the entry in parallel.
-        // setEntryPublished is race-safe — it resolves the offline-first id
-        // and forces the flag on the real server row.
         const [config, ok] = await Promise.all([
             VoyageLogService.ensureEnabled(),
             DiaryService.setEntryPublished(entry.id, true),
         ]);
+        if (ok) onPublishChange({ ...entry, is_public: true });
+        if (config) setPublicUrl(voyageLogPublicUrl(config.handle, config.api_key));
+        setResult('published');
+        setPhase('done');
+        triggerHaptic('light');
+    };
 
-        if (ok) {
-            onPublished({ ...entry, is_public: true });
-        }
-        if (config) {
-            setPublicUrl(voyageLogPublicUrl(config.handle, config.api_key));
-        }
-        setPhase('published');
+    const handleUnpublish = async () => {
+        setPhase('working');
+        triggerHaptic('medium');
+        const ok = await DiaryService.setEntryPublished(entry.id, false);
+        if (ok) onPublishChange({ ...entry, is_public: false });
+        setResult('unpublished');
+        setPhase('done');
         triggerHaptic('light');
     };
 
@@ -65,22 +82,39 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
         }
     };
 
+    // ── Screen copy ───────────────────────────────────────────────
+    let icon = '⚓';
+    let heading = 'Share to your Voyage Log?';
+    let blurb =
+        'Publish this entry to your public voyage page. Your private diary stays private — only what you publish is shared.';
+    if (phase === 'done' && result === 'published') {
+        icon = '🌍';
+        heading = 'Published to your Voyage Log';
+        blurb = 'Anyone with your log link can now read this entry.';
+    } else if (phase === 'done' && result === 'unpublished') {
+        icon = '🔒';
+        heading = 'Removed from your Voyage Log';
+        blurb = 'This entry is private again — it no longer appears on your public page.';
+    } else if (startsPublic) {
+        icon = '🌍';
+        heading = 'On your Voyage Log';
+        blurb = 'This entry is live on your public voyage page.';
+    }
+
+    // Show the share link on the manage screen and after publishing —
+    // but not after an unpublish, and not mid-action.
+    const showLink = !working && result !== 'unpublished' && (startsPublic || result === 'published');
+
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
             <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl shadow-2xl slide-up-enter overflow-hidden">
                 {/* ── Header ── */}
                 <div className="px-6 pt-6 pb-4 bg-gradient-to-b from-sky-500/10 to-transparent text-center">
                     <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-500/15 border border-sky-500/20 flex items-center justify-center text-3xl">
-                        {phase === 'published' ? '🌍' : '⚓'}
+                        {icon}
                     </div>
-                    <h2 className="mt-3 text-xl font-extrabold text-white">
-                        {phase === 'published' ? 'Published to your Voyage Log' : 'Share to your Voyage Log?'}
-                    </h2>
-                    <p className="mt-1 text-[13px] text-gray-400 leading-relaxed">
-                        {phase === 'published'
-                            ? 'Anyone with your log link can now read this entry.'
-                            : 'Publish this entry to your public voyage page. Your private diary stays private — only what you publish is shared.'}
-                    </p>
+                    <h2 className="mt-3 text-xl font-extrabold text-white">{heading}</h2>
+                    <p className="mt-1 text-[13px] text-gray-400 leading-relaxed">{blurb}</p>
                 </div>
 
                 {/* ── Entry preview ── */}
@@ -95,8 +129,8 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
                     </div>
                 </div>
 
-                {/* ── Published: share link ── */}
-                {phase === 'published' && (
+                {/* ── Share link ── */}
+                {showLink && (
                     <div className="px-6 pt-2 pb-1">
                         {publicUrl ? (
                             <button
@@ -132,19 +166,45 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
 
                 {/* ── Actions ── */}
                 <div className="p-6 pt-4 flex gap-3">
-                    {phase === 'published' ? (
+                    {phase === 'done' ? (
                         <button
-                            onClick={onKeepPrivate}
+                            onClick={onClose}
                             aria-label="Done"
                             className="flex-1 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 text-white font-bold text-sm transition-colors active:scale-[0.98]"
                         >
                             Done
                         </button>
+                    ) : startsPublic ? (
+                        <>
+                            <button
+                                onClick={handleUnpublish}
+                                disabled={working}
+                                aria-label="Remove this entry from your voyage log"
+                                className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-amber-300 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+                            >
+                                {working ? (
+                                    <>
+                                        <span className="w-4 h-4 border-2 border-amber-300/40 border-t-amber-300 rounded-full animate-spin" />
+                                        Removing…
+                                    </>
+                                ) : (
+                                    'Unpublish'
+                                )}
+                            </button>
+                            <button
+                                onClick={onClose}
+                                disabled={working}
+                                aria-label="Done"
+                                className="flex-1 py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold text-sm transition-colors active:scale-[0.98]"
+                            >
+                                Done
+                            </button>
+                        </>
                     ) : (
                         <>
                             <button
-                                onClick={onKeepPrivate}
-                                disabled={phase === 'publishing'}
+                                onClick={onClose}
+                                disabled={working}
                                 aria-label="Keep this entry private"
                                 className="flex-1 py-3 rounded-xl bg-white/5 border border-white/[0.08] text-gray-300 font-bold text-sm hover:bg-white/10 transition-colors active:scale-[0.98] disabled:opacity-50"
                             >
@@ -152,11 +212,11 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
                             </button>
                             <button
                                 onClick={handlePublish}
-                                disabled={phase === 'publishing'}
+                                disabled={working}
                                 aria-label="Publish this entry to your voyage log"
                                 className="flex-[1.4] py-3 rounded-xl bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-400 text-white font-bold text-sm transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
                             >
-                                {phase === 'publishing' ? (
+                                {working ? (
                                     <>
                                         <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                                         Publishing…

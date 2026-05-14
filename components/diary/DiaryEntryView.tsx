@@ -4,11 +4,12 @@
  * Extracted from DiaryPage to reduce component size.
  */
 
-import React from 'react';
-import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
+import React, { useState } from 'react';
+import { DiaryEntry, DiaryService, MOOD_CONFIG } from '../../services/DiaryService';
 import { AudioWidget } from './AudioWidget';
 import { DiaryPhoto } from './DiaryPhoto';
 import { UndoToast } from '../ui/UndoToast';
+import { toast } from '../Toast';
 
 // ── Helpers ─────────────────────────────────────────────────────
 const formatDate = (iso: string): string => {
@@ -43,6 +44,8 @@ interface DiaryEntryViewProps {
     onTranscribe: (url: string) => void;
     onUndo: () => void;
     onDismissDelete: () => void;
+    /** Entry's public/private state changed — parent updates its lists. */
+    onPublishedChange?: (id: string, isPublic: boolean) => void;
 }
 
 export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
@@ -58,9 +61,25 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
         onTranscribe,
         onUndo,
         onDismissDelete,
+        onPublishedChange,
     }) => {
         const moodCfg = MOOD_CONFIG[e.mood] || MOOD_CONFIG.neutral;
         const hasCoords = e.latitude != null && e.longitude != null;
+        const isPublished = !!e.is_public;
+        const [publishBusy, setPublishBusy] = useState(false);
+
+        const handleTogglePublish = async () => {
+            if (publishBusy) return;
+            const next = !isPublished;
+            setPublishBusy(true);
+            const ok = await DiaryService.setEntryPublished(e.id, next);
+            setPublishBusy(false);
+            if (ok) {
+                onPublishedChange?.(e.id, next);
+            } else {
+                toast.error('Could not update — try again');
+            }
+        };
 
         return (
             <div className="flex flex-col h-full bg-slate-950 text-white">
@@ -328,6 +347,40 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                 </span>
                             </div>
                         )}
+
+                        {/* Voyage Log publish toggle */}
+                        <div className="bg-white/[0.03] border border-white/[0.08] rounded-2xl p-4 flex items-center gap-3">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-white">
+                                    {isPublished ? '🌍 On your Voyage Log' : 'Publish to Voyage Log'}
+                                </p>
+                                <p className="text-[11px] text-gray-400 mt-0.5 leading-relaxed">
+                                    {isPublished
+                                        ? 'This entry is live on your public voyage page.'
+                                        : 'Share this entry on your public voyage page.'}
+                                </p>
+                            </div>
+                            <button
+                                role="switch"
+                                aria-checked={isPublished}
+                                aria-label="Publish this entry to your voyage log"
+                                disabled={publishBusy}
+                                onClick={handleTogglePublish}
+                                className="relative shrink-0 disabled:opacity-60"
+                            >
+                                <div
+                                    className={`w-11 h-6 rounded-full transition-colors ${
+                                        isPublished ? 'bg-sky-600' : 'bg-slate-700'
+                                    }`}
+                                >
+                                    <div
+                                        className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-all ${
+                                            isPublished ? 'left-6' : 'left-1'
+                                        } ${publishBusy ? 'animate-pulse' : ''}`}
+                                    />
+                                </div>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
