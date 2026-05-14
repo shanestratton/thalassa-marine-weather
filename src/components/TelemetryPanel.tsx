@@ -50,15 +50,15 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) 
     if (stats.length === 0) return null;
 
     return (
-        <div className="pointer-events-auto w-[min(20rem,calc(100vw-2rem))] bg-slate-900/85 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-2 border-b border-white/[0.06]">
+        <div className="shrink-0 border-b border-slate-700 bg-slate-900/40">
+            <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-400">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Live
                 </span>
                 <span className="text-[10px] font-mono text-slate-500">{relativeTime(t.updated_at)}</span>
             </div>
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-x-4 gap-y-3 px-4 py-3">
+            <div className="grid grid-cols-4 gap-x-3 gap-y-2.5 px-4 pb-3">
                 {stats.map((s) => (
                     <Stat key={s.label} label={s.label} value={s.value} tone={s.tone} />
                 ))}
