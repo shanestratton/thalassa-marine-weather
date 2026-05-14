@@ -471,13 +471,34 @@ function buildNavGrid(
                     continue;
                 }
                 if (drval1Num < draftM + safetyM) {
-                    cells[idx] = BLOCKED;
+                    // Shallow water — block UNLESS an authoritative
+                    // engineered-water DEPARE already claimed this cell.
+                    // Coarse public bathymetry (30 m AusBathyTopo) can't
+                    // resolve dredged marina basins / canals: it reads
+                    // them at the shallow surrounding-terrain depth, and
+                    // that shallow band would otherwise block the cell
+                    // before the precise OSM marina/canal polygon claims
+                    // it. The protectedCells guard makes the outcome
+                    // order-independent — once authoritative water has
+                    // claimed a cell, no shallow band re-blocks it.
+                    // (2026-05-14: Newport canal-estate bug — the dredged
+                    // canals read as 0.5-2 m in AusBathyTopo, so the
+                    // whole marina was blocked and the route snapped
+                    // ~2.4 km across the peninsula to the nearest water.)
+                    if (protectedCells[idx] !== 1) {
+                        cells[idx] = BLOCKED;
+                    }
                 } else {
-                    // Track shallowest known depth at this cell.
+                    // Deep enough for this vessel.
                     const prior = cells[idx];
                     if (Number.isNaN(prior)) {
-                        // already blocked
+                        // Cell was blocked by an earlier (shallow) band.
+                        // An authoritative engineered-water DEPARE
+                        // overrides that shallow reading — un-block the
+                        // cell to the authoritative depth.
+                        if (authoritative) cells[idx] = drval1Num;
                     } else if (prior === UNKNOWN_OPEN || drval1Num < prior) {
+                        // Track shallowest known depth at this cell.
                         cells[idx] = drval1Num;
                     }
                     if (authoritative) protectedCells[idx] = 1;
