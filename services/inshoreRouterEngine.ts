@@ -1049,9 +1049,35 @@ function* bresenhamCells(x0: number, y0: number, x1: number, y1: number): Genera
     }
 }
 
+/**
+ * Cost multiplier at a specific grid cell. Thin wrapper over
+ * cellCostMultiplier that reads depth + preferred straight from
+ * the grid arrays.
+ */
+function cellCostAt(grid: NavGrid, x: number, y: number): number {
+    const idx = y * grid.width + x;
+    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1);
+}
+
 function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
+    // Cost-aware line of sight. The smoothed straight line must not
+    // route through water STRICTLY WORSE than either endpoint already
+    // uses. This is what keeps smoothPath from collapsing a channel
+    // traversal into a corner-cutting diagonal: inside a FAIRWY both
+    // endpoints are cost 1.0, so the line can only "see through" other
+    // 1.0 cells — it has to stay in the channel, threading the marker
+    // pairs A* routed it through. In open water both endpoints are
+    // 5.0, so the line is free to cut across other 5.0 cells.
+    //
+    // Before this was cost-blind (just `isNavigable`), which let
+    // smoothPath straight-line from a channel's entrance to its exit
+    // because the open water ALONGSIDE the channel is technically
+    // navigable — producing routes that visibly ignored the "stay
+    // between the markers" rule (the Brisbane River bug, 2026-05-14).
+    const budget = Math.max(cellCostAt(grid, a.x, a.y), cellCostAt(grid, b.x, b.y));
     for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
         if (!isNavigable(grid, c.x, c.y)) return false;
+        if (cellCostAt(grid, c.x, c.y) > budget) return false;
     }
     return true;
 }
