@@ -81,11 +81,15 @@ const MAX_PHOTO_SIZE = 1200;
 
 class DiaryServiceClass {
     private _syncInProgress = false;
+    // In-flight sync promise — lets callers (e.g. setEntryPublished) await an
+    // already-running sync instead of racing past it.
+    private _syncPromise: Promise<void> | null = null;
     private _lastRefreshTime = 0;
     private _refreshPromise: Promise<void> | null = null;
     // Buffer of recently-synced entries — prevents race condition where entry
-    // vanishes between pending removal and server cache arrival
-    private _recentlySynced: { entry: DiaryEntry; syncedAt: number }[] = [];
+    // vanishes between pending removal and server cache arrival. `offlineId`
+    // maps the original offline- id to the real server row.
+    private _recentlySynced: { offlineId: string; entry: DiaryEntry; syncedAt: number }[] = [];
     // In-memory cache of photo blobs keyed by blob: URL — avoids base64 in localStorage
     private _pendingPhotoBlobs = new Map<string, Blob>();
     // Cache mapping idb: references → short-lived blob URLs for <img> rendering.
@@ -247,6 +251,10 @@ class DiaryServiceClass {
                 this._savePending(pending);
                 return true;
             }
+            // Not in the pending queue — it likely synced already. Resolve the
+            // offline id to the real server id so the Supabase update below hits.
+            const synced = this._recentlySynced.find((r) => r.offlineId === id);
+            if (synced) id = synced.entry.id;
         }
 
         // Update in Supabase
@@ -256,6 +264,48 @@ class DiaryServiceClass {
             .update({ ...updates, updated_at: new Date().toISOString() })
             .eq('id', id);
 
+        if (!error) this._refreshFromServer(50);
+        return !error;
+    }
+
+    // ── Publish ────────────────────────────────────────────────
+
+    /**
+     * Publish (or unpublish) an entry to the public Voyage Log.
+     *
+     * Robust against the offline-first race: a freshly-created entry might
+     * still be in the pending queue, mid-sync, or already on the server
+     * under a real id by the time the user taps "Publish". This walks all
+     * three cases so the server row reliably ends up with the right flag.
+     */
+    async setEntryPublished(id: string, isPublic: boolean): Promise<boolean> {
+        if (id.startsWith('offline-')) {
+            // Set the flag on the pending entry so it goes up correctly if it
+            // hasn't synced yet.
+            const pending = this._getPendingEntries();
+            const idx = pending.findIndex((e) => e.id === id);
+            if (idx >= 0) {
+                pending[idx].is_public = isPublic;
+                this._savePending(pending);
+            }
+            // Push it to the server now — awaits any in-flight sync too.
+            await this.syncPending();
+            // If it landed, force the flag on the real row directly. Covers the
+            // race where it had already synced as not-public before this call.
+            const synced = this._recentlySynced.find((r) => r.offlineId === id);
+            if (synced) return this._setPublishedOnServer(synced.entry.id, isPublic);
+            // Still offline — the flag is on the pending entry and syncs with it.
+            return this._getPendingEntries().some((e) => e.id === id);
+        }
+        return this._setPublishedOnServer(id, isPublic);
+    }
+
+    private async _setPublishedOnServer(id: string, isPublic: boolean): Promise<boolean> {
+        if (!supabase) return false;
+        const { error } = await supabase
+            .from(TABLE)
+            .update({ is_public: isPublic, updated_at: new Date().toISOString() })
+            .eq('id', id);
         if (!error) this._refreshFromServer(50);
         return !error;
     }
@@ -435,6 +485,21 @@ class DiaryServiceClass {
     // ── Sync Engine ────────────────────────────────────────────
 
     async syncPending(): Promise<void> {
+        // If a sync is already running, await it rather than bailing — callers
+        // like setEntryPublished need to know when the entry has actually landed.
+        if (this._syncPromise) {
+            await this._syncPromise;
+            return;
+        }
+        this._syncPromise = this._runSyncPending();
+        try {
+            await this._syncPromise;
+        } finally {
+            this._syncPromise = null;
+        }
+    }
+
+    private async _runSyncPending(): Promise<void> {
         if (this._syncInProgress) return;
         // On native (Capacitor), navigator.onLine can lie — probe the network instead
         const isOnline = await this._checkConnectivity();
@@ -600,7 +665,11 @@ class DiaryServiceClass {
                         this._savePending(remaining);
                         // Keep the server-returned entry in a short-lived buffer so it
                         // survives the gap between pending removal and server cache refresh
-                        this._recentlySynced.push({ entry: data as DiaryEntry, syncedAt: Date.now() });
+                        this._recentlySynced.push({
+                            offlineId: entry.id,
+                            entry: data as DiaryEntry,
+                            syncedAt: Date.now(),
+                        });
                         syncedCount++;
                         log.info(`✅ Synced entry: ${entry.title || entry.id}`);
                     } else if (error) {

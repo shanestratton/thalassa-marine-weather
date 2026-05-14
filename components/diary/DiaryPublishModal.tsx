@@ -35,10 +35,12 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
         setPhase('publishing');
         triggerHaptic('medium');
 
-        // Provision/enable the voyage log and flip the entry's flag in parallel.
+        // Provision/enable the voyage log and publish the entry in parallel.
+        // setEntryPublished is race-safe — it resolves the offline-first id
+        // and forces the flag on the real server row.
         const [config, ok] = await Promise.all([
             VoyageLogService.ensureEnabled(),
-            DiaryService.updateEntry(entry.id, { is_public: true }),
+            DiaryService.setEntryPublished(entry.id, true),
         ]);
 
         if (ok) {
