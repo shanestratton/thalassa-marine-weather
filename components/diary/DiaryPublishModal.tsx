@@ -64,8 +64,8 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="w-full sm:max-w-md bg-slate-900 border-t sm:border border-white/10 rounded-t-3xl sm:rounded-3xl shadow-2xl slide-up-enter overflow-hidden">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md bg-slate-900 border border-white/10 rounded-3xl shadow-2xl slide-up-enter overflow-hidden">
                 {/* ── Header ── */}
                 <div className="px-6 pt-6 pb-4 bg-gradient-to-b from-sky-500/10 to-transparent text-center">
                     <div className="mx-auto w-14 h-14 rounded-2xl bg-sky-500/15 border border-sky-500/20 flex items-center justify-center text-3xl">
