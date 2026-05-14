@@ -382,14 +382,48 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // No sea buoy gates, no harbour legs, no isochrone — the
                 // ENC chart already encoded all the channel knowledge we
                 // need. The line goes straight on the channel.
-                const inshoreFeature: GeoJSON.Feature<GeoJSON.LineString> = {
-                    type: 'Feature',
-                    properties: { safety: 'green', source: 'inshore-router' },
-                    geometry: { type: 'LineString', coordinates: inshoreRes.polyline },
-                };
+                // Split the polyline into runs of consecutive segments
+                // that share the same caution state. Each run becomes one
+                // LineString feature: normal water keeps safety:'green'
+                // (the cyan inshore-route default), caution water — water
+                // our coarse bathymetry reads as too shallow for this
+                // vessel but which is NOT land/hazard — gets
+                // safety:'danger' so the route-line layer draws it red.
+                // The skipper verifies depth on those red stretches.
+                const inshorePoly = inshoreRes.polyline;
+                const cautionMask = inshoreRes.cautionMask;
+                const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+                if (!cautionMask || cautionMask.length !== inshorePoly.length - 1 || inshorePoly.length < 2) {
+                    // No (or mismatched) caution data — single green line.
+                    inshoreFeatures.push({
+                        type: 'Feature',
+                        properties: { safety: 'green', source: 'inshore-router' },
+                        geometry: { type: 'LineString', coordinates: inshorePoly },
+                    });
+                } else {
+                    let runStart = 0;
+                    for (let i = 0; i <= cautionMask.length; i++) {
+                        const atEnd = i === cautionMask.length;
+                        if (atEnd || cautionMask[i] !== cautionMask[runStart]) {
+                            inshoreFeatures.push({
+                                type: 'Feature',
+                                properties: {
+                                    safety: cautionMask[runStart] ? 'danger' : 'green',
+                                    source: 'inshore-router',
+                                },
+                                // run = segments [runStart, i) → points [runStart, i]
+                                geometry: {
+                                    type: 'LineString',
+                                    coordinates: inshorePoly.slice(runStart, i + 1),
+                                },
+                            });
+                            runStart = i;
+                        }
+                    }
+                }
                 const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                 if (routeSrc) {
-                    routeSrc.setData({ type: 'FeatureCollection', features: [inshoreFeature] });
+                    routeSrc.setData({ type: 'FeatureCollection', features: inshoreFeatures });
                 }
                 const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
                 if (wpSource) {

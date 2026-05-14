@@ -55,6 +55,15 @@ export interface InshoreOrigin {
 
 export interface InshoreRouteResult {
     polyline: [number, number][]; // [lon, lat]
+    /**
+     * Per-segment caution flag, length `polyline.length - 1`.
+     * true = the segment crosses water that reads too shallow for this
+     * vessel in our coarse public bathymetry (but is not land/hazard).
+     * The map renderer draws these segments red. May be undefined on
+     * cloud results that predate the field — treat undefined as "all
+     * segments normal".
+     */
+    cautionMask?: boolean[];
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -423,6 +432,7 @@ async function tryInshoreRouteInner(
     }
     return {
         polyline: result.polyline,
+        cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,
