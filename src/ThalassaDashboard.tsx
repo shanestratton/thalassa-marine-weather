@@ -3,7 +3,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import TopNav from './components/TopNav';
 import MapContainer from './components/MapContainer';
 import DiarySidebar from './components/DiarySidebar';
-import { TelemetryPanel } from './components/TelemetryPanel';
 import { PhotoLightbox } from './components/PhotoLightbox';
 import {
     fetchVoyageLog,
@@ -33,8 +32,9 @@ const entryCaption = (e: VoyageLogEntry): string =>
 
 export default function ThalassaDashboard() {
     const [state, setState] = useState<LoadState>({ status: 'loading' });
-    // Entry the viewer selected — the map flies to it.
-    const [focusEntry, setFocusEntry] = useState<VoyageLogEntry | null>(null);
+    // The entry currently in focus — drives the map fly-to AND the
+    // sidebar's master/detail mode (null = show the full feed).
+    const [selectedEntry, setSelectedEntry] = useState<VoyageLogEntry | null>(null);
     // Open photo lightbox, if any.
     const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
@@ -64,16 +64,16 @@ export default function ThalassaDashboard() {
         return () => clearInterval(id);
     }, [load]);
 
-    // Selecting an entry flies the map there; if it carries photos, open them.
+    // Selecting an entry flies the map there and opens its detail in the box.
     const handleSelect = useCallback((entry: VoyageLogEntry) => {
-        setFocusEntry(entry);
-        if (entry.photos.length > 0) {
-            setLightbox({ photos: entry.photos, index: 0, caption: entryCaption(entry) });
-        }
+        setSelectedEntry(entry);
     }, []);
 
+    const handleClear = useCallback(() => setSelectedEntry(null), []);
+
+    // A photo tap: focus the entry (so the box shows its story) + open fullscreen.
     const handlePhoto = useCallback((entry: VoyageLogEntry, index: number) => {
-        setFocusEntry(entry);
+        setSelectedEntry(entry);
         setLightbox({ photos: entry.photos, index, caption: entryCaption(entry) });
     }, []);
 
@@ -107,16 +107,23 @@ export default function ThalassaDashboard() {
 
             <div className="flex flex-1 overflow-hidden relative flex-col md:flex-row">
                 <main className="flex-1 bg-slate-950 relative min-h-[45vh]">
-                    <MapContainer track={track} entries={entries} focusEntry={focusEntry} onEntryClick={handleSelect} />
-                    {telemetry && (
-                        <div className="pointer-events-none absolute bottom-4 left-4 z-10">
-                            <TelemetryPanel telemetry={telemetry} />
-                        </div>
-                    )}
+                    <MapContainer
+                        track={track}
+                        entries={entries}
+                        focusEntry={selectedEntry}
+                        onEntryClick={handleSelect}
+                    />
                 </main>
 
                 <aside className="w-full md:w-96 bg-slate-800 border-t md:border-t-0 md:border-l border-slate-700 flex flex-col z-10 shadow-xl">
-                    <DiarySidebar entries={entries} onEntryClick={handleSelect} onPhotoClick={handlePhoto} />
+                    <DiarySidebar
+                        entries={entries}
+                        telemetry={telemetry}
+                        selectedEntry={selectedEntry}
+                        onSelectEntry={handleSelect}
+                        onClearSelection={handleClear}
+                        onPhotoClick={handlePhoto}
+                    />
                 </aside>
             </div>
 
