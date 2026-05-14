@@ -1,0 +1,16 @@
+[Unit]
+Description=Hourly trigger for the Bosun Voyage Log telemetry ping
+
+[Timer]
+# Top of every hour, exactly as the store-and-forward design calls for.
+OnCalendar=hourly
+# AccuracySec keeps it tight to the hour rather than systemd's default
+# 1-minute smear window.
+AccuracySec=15s
+# If the Pi was powered down at the top of the hour, fire once on the
+# next boot so a missed slot still gets a ping (the script's own queue
+# handles longer offline stretches).
+Persistent=true
+
+[Install]
+WantedBy=timers.target
