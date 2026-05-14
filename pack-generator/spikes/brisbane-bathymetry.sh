@@ -698,7 +698,6 @@ if [[ -f "$WATER_CACHE" ]]; then
         # must be ≥ typical safety cutoff to leave the cell
         # actually navigable for a cruising vessel).
         if .tags.leisure == "marina" then 4.0
-        elif .tags.landuse == "basin" then 4.0
         elif .tags.waterway == "dock" then 5.0
         elif .tags.waterway == "canal" then 3.0
         elif .tags.waterway == "fairway" then 5.0
@@ -711,12 +710,21 @@ if [[ -f "$WATER_CACHE" ]]; then
         elif .tags.water == "sea" then 5.0
         elif .tags.water == "river" then 5.0
         elif .tags.water == "harbour" then 4.0
-        elif .tags.water == "basin" then 4.0
         elif .tags.water == "canal" then 3.0
         elif .tags.water == "marina" then 4.0
         elif .tags.water == "dock" then 5.0
         # `harbour=yes` on a polygon is rare but valid.
         elif .tags.harbour == "yes" then 4.0
+        # `landuse=basin` and `water=basin` get a shallow 1.0 m default
+        # (2026-05-14). Suburban areas use these for stormwater
+        # retention basins, drainage ponds, and ornamental water
+        # features — none of which should unblock a routing corridor
+        # for a 2+m draft cruising vessel. With DRVAL1=1.0 they fall
+        # below any reasonable draft+safety cutoff and get blocked
+        # in Pass 1 of the engine, regardless of LNDARE coverage.
+        # Real marina basins are tagged leisure=marina (4.0 m above).
+        elif .tags.landuse == "basin" then 1.0
+        elif .tags.water == "basin" then 1.0
         # Plain `natural=water` is NOT authoritative — see engine
         # comment. Bumping to 1.0 keeps unsubtagged ponds blocked
         # for any reasonable boat draft, while properly-tagged
