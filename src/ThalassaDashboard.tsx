@@ -3,6 +3,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import TopNav from './components/TopNav';
 import MapContainer from './components/MapContainer';
 import DiarySidebar from './components/DiarySidebar';
+import { TelemetryPanel } from './components/TelemetryPanel';
+import { PhotoLightbox } from './components/PhotoLightbox';
 import {
     fetchVoyageLog,
     parseVoyageLogParams,
@@ -20,10 +22,21 @@ type LoadState =
     | { status: 'error'; message: string }
     | { status: 'ready'; data: VoyageLogData };
 
+interface LightboxState {
+    photos: string[];
+    index: number;
+    caption: string;
+}
+
+const entryCaption = (e: VoyageLogEntry): string =>
+    [e.title || 'Untitled', e.location_name].filter(Boolean).join(' · ');
+
 export default function ThalassaDashboard() {
     const [state, setState] = useState<LoadState>({ status: 'loading' });
-    // Entry the viewer tapped in the sidebar — the map flies to it.
+    // Entry the viewer selected — the map flies to it.
     const [focusEntry, setFocusEntry] = useState<VoyageLogEntry | null>(null);
+    // Open photo lightbox, if any.
+    const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
     const load = useCallback(async (showSpinner: boolean) => {
         const { handle, key } = parseVoyageLogParams();
@@ -51,6 +64,19 @@ export default function ThalassaDashboard() {
         return () => clearInterval(id);
     }, [load]);
 
+    // Selecting an entry flies the map there; if it carries photos, open them.
+    const handleSelect = useCallback((entry: VoyageLogEntry) => {
+        setFocusEntry(entry);
+        if (entry.photos.length > 0) {
+            setLightbox({ photos: entry.photos, index: 0, caption: entryCaption(entry) });
+        }
+    }, []);
+
+    const handlePhoto = useCallback((entry: VoyageLogEntry, index: number) => {
+        setFocusEntry(entry);
+        setLightbox({ photos: entry.photos, index, caption: entryCaption(entry) });
+    }, []);
+
     // ── Loading ───────────────────────────────────────────────────
     if (state.status === 'loading') {
         return (
@@ -77,17 +103,31 @@ export default function ThalassaDashboard() {
 
     return (
         <div className="flex flex-col h-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
-            <TopNav vessel={vessel} telemetry={telemetry} />
+            <TopNav vessel={vessel} telemetry={telemetry} entryCount={entries.length} />
 
             <div className="flex flex-1 overflow-hidden relative flex-col md:flex-row">
-                <main className="flex-1 bg-slate-950 relative min-h-[40vh]">
-                    <MapContainer track={track} entries={entries} focusEntry={focusEntry} />
+                <main className="flex-1 bg-slate-950 relative min-h-[45vh]">
+                    <MapContainer track={track} entries={entries} focusEntry={focusEntry} onEntryClick={handleSelect} />
+                    {telemetry && (
+                        <div className="pointer-events-none absolute bottom-4 left-4 z-10">
+                            <TelemetryPanel telemetry={telemetry} />
+                        </div>
+                    )}
                 </main>
 
                 <aside className="w-full md:w-96 bg-slate-800 border-t md:border-t-0 md:border-l border-slate-700 flex flex-col z-10 shadow-xl">
-                    <DiarySidebar entries={entries} onEntryClick={setFocusEntry} />
+                    <DiarySidebar entries={entries} onEntryClick={handleSelect} onPhotoClick={handlePhoto} />
                 </aside>
             </div>
+
+            {lightbox && (
+                <PhotoLightbox
+                    photos={lightbox.photos}
+                    startIndex={lightbox.index}
+                    caption={lightbox.caption}
+                    onClose={() => setLightbox(null)}
+                />
+            )}
         </div>
     );
 }
