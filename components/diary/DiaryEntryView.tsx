@@ -141,7 +141,10 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                         </div>
                     )}
 
-                    <div className="p-5 space-y-4">
+                    <div
+                        className="p-5 space-y-4"
+                        style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 24px)' }}
+                    >
                         {/* 1. Date & Time */}
                         <div className="flex items-center gap-2 text-xs text-gray-400">
                             <span className="font-mono">{formatDate(e.created_at)}</span>
