@@ -25,9 +25,9 @@ export interface VoyageLogConfig {
     updated_at: string;
 }
 
-/** Public renderer URL for a vessel's voyage log. */
-export function voyageLogPublicUrl(handle: string): string {
-    return `${PUBLIC_BASE}/${handle}`;
+/** Public renderer URL for a vessel's voyage log — the shareable link, key included. */
+export function voyageLogPublicUrl(handle: string, apiKey: string): string {
+    return `${PUBLIC_BASE}/${encodeURIComponent(handle)}?k=${encodeURIComponent(apiKey)}`;
 }
 
 /** Raw API endpoint a punter's own front-end would call. */
