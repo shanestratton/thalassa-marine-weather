@@ -16,6 +16,7 @@ import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
 import { CalypsoIntegrationsTab } from './settings/CalypsoIntegrationsTab';
 import { PiCacheTab } from './settings/PiCacheTab';
+import { VoyageLogTab } from './settings/VoyageLogTab';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
 interface SettingsViewProps {
@@ -203,7 +204,8 @@ type SettingsTab =
     | 'locations'
     | 'layout'
     | 'calypso'
-    | 'boatNetwork';
+    | 'boatNetwork'
+    | 'voyageLog';
 
 const MENU_ITEMS: {
     id: SettingsTab;
@@ -299,6 +301,25 @@ const MENU_ITEMS: {
         ),
         iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
         iconHoverBg: 'group-hover:bg-emerald-500/25',
+    },
+    {
+        // Voyage Log — the punter's public passage page + API. Globe icon
+        // signals "this is the outward-facing, shared-with-the-world view"
+        // — distinct from the inward-facing diary on the Ship's Office page.
+        id: 'voyageLog',
+        label: 'Voyage Log',
+        description: 'Public passage page & API',
+        icon: (c) => (
+            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 21a9 9 0 100-18 9 9 0 000 18zm0 0a8.949 8.949 0 004.951-1.488M12 21a8.949 8.949 0 01-4.951-1.488M3.6 9h16.8M3.6 15h16.8M12 3a13.5 13.5 0 000 18 13.5 13.5 0 000-18z"
+                />
+            </svg>
+        ),
+        iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
+        iconHoverBg: 'group-hover:bg-sky-500/25',
     },
 ];
 
@@ -560,6 +581,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {activeTab === 'calypso' && <CalypsoIntegrationsTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'boatNetwork' && <PiCacheTab settings={settings} onSave={onSave} />}
+
+                        {activeTab === 'voyageLog' && <VoyageLogTab settings={settings} onSave={onSave} />}
                     </div>
                 </div>
 

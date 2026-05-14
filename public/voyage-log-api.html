@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <meta name="theme-color" content="#0f172a" />
+        <meta
+            name="description"
+            content="Voyage Log API — build your own front-end for a vessel's published passage log."
+        />
+        <title>Voyage Log API — Thalassa</title>
+        <style>
+            :root {
+                color-scheme: dark;
+            }
+            * {
+                box-sizing: border-box;
+            }
+            body {
+                margin: 0;
+                background: #0f172a;
+                color: #cbd5e1;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                line-height: 1.6;
+            }
+            main {
+                max-width: 760px;
+                margin: 0 auto;
+                padding: 48px 24px 96px;
+            }
+            h1 {
+                color: #fff;
+                font-size: 1.9rem;
+                margin: 0 0 4px;
+            }
+            h2 {
+                color: #fff;
+                font-size: 1.25rem;
+                margin: 44px 0 12px;
+                padding-bottom: 6px;
+                border-bottom: 1px solid #1e293b;
+            }
+            h3 {
+                color: #e2e8f0;
+                font-size: 1rem;
+                margin: 24px 0 8px;
+            }
+            a {
+                color: #38bdf8;
+            }
+            .lede {
+                color: #94a3b8;
+                font-size: 1.05rem;
+            }
+            .brand {
+                color: #3b82f6;
+                font-weight: 700;
+                letter-spacing: 0.15em;
+                text-transform: uppercase;
+                font-size: 0.8rem;
+            }
+            code {
+                background: #1e293b;
+                color: #e2e8f0;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 0.875em;
+                font-family: 'SF Mono', Menlo, Consolas, monospace;
+            }
+            pre {
+                background: #1e293b;
+                border: 1px solid #334155;
+                border-radius: 10px;
+                padding: 16px;
+                overflow-x: auto;
+                font-size: 0.85rem;
+            }
+            pre code {
+                background: none;
+                padding: 0;
+                color: #cbd5e1;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin: 12px 0;
+                font-size: 0.9rem;
+            }
+            th,
+            td {
+                text-align: left;
+                padding: 8px 10px;
+                border-bottom: 1px solid #1e293b;
+                vertical-align: top;
+            }
+            th {
+                color: #94a3b8;
+                font-weight: 600;
+                text-transform: uppercase;
+                font-size: 0.72rem;
+                letter-spacing: 0.05em;
+            }
+            td:first-child {
+                white-space: nowrap;
+            }
+            .method {
+                display: inline-block;
+                background: #065f46;
+                color: #6ee7b7;
+                font-weight: 700;
+                font-size: 0.75rem;
+                padding: 2px 8px;
+                border-radius: 4px;
+                letter-spacing: 0.05em;
+            }
+            .note {
+                background: #1e293b;
+                border-left: 3px solid #38bdf8;
+                border-radius: 0 8px 8px 0;
+                padding: 12px 16px;
+                margin: 16px 0;
+                font-size: 0.9rem;
+            }
+        </style>
+    </head>
+    <body>
+        <main>
+            <p class="brand">Thalassa</p>
+            <h1>Voyage Log API</h1>
+            <p class="lede">
+                A read-only JSON API for a single vessel's published voyage log — diary entries, GPS track, and the
+                latest telemetry. The default page at <code>/logs/&lt;handle&gt;</code> is built on this exact API; you
+                can build your own front-end against it however you like.
+            </p>
+
+            <h2>Endpoint</h2>
+            <pre><code><span class="method">GET</span>  https://&lt;your-project&gt;.supabase.co/functions/v1/voyage-log?handle=&lt;handle&gt;&amp;key=&lt;key&gt;</code></pre>
+            <p>
+                The exact URL — pre-filled with your <code>handle</code> and <code>key</code> — is shown in the Thalassa
+                app under <strong>Settings → Voyage Log → API access</strong>.
+            </p>
+
+            <h3>Query parameters</h3>
+            <table>
+                <tr>
+                    <th>Param</th>
+                    <th>Description</th>
+                </tr>
+                <tr>
+                    <td><code>handle</code></td>
+                    <td>The vessel's public handle — a slug of the vessel name, e.g. <code>serene-summer</code>.</td>
+                </tr>
+                <tr>
+                    <td><code>key</code></td>
+                    <td>
+                        The vessel's publishable API key. It is an identifier — not a secret — so it is safe to ship in
+                        a public web page. It gates rate-limiting and can be rotated by toggling the log off and on in
+                        the app.
+                    </td>
+                </tr>
+            </table>
+
+            <h2>Response</h2>
+            <p>
+                <code>200 OK</code> with a JSON body. <code>Cache-Control: public, max-age=60</code> — the underlying
+                data only moves every few minutes, so caching for a minute is plenty. CORS is open (<code
+                    >Access-Control-Allow-Origin: *</code
+                >), so you can call it directly from any browser front-end.
+            </p>
+            <pre><code>{
+  "vessel":    { "name": "Serene Summer", "type": "sail", "model": "Tayana 55" },
+  "entries":   [
+    {
+      "id": "…", "title": "…", "body": "…",
+      "mood": "epic | good | neutral | rough | storm",
+      "photos": ["https://…"],
+      "location_name": "Moreton Bay",
+      "latitude": -27.19, "longitude": 153.08,
+      "weather_summary": "22°C · Wind 15kts SE",
+      "weather_data": { "airTemp": 22, "windSpeed": 15, "windDir": "SE", … },
+      "tags": [],
+      "created_at": "2026-05-14T08:00:00Z"
+    }
+  ],
+  "track":     [
+    { "lat": -27.19, "lon": 153.08, "timestamp": "…",
+      "speed_kts": 6.8, "course_deg": 45, "pressure": 1014 }
+  ],
+  "telemetry": {
+    "sog": 6.8, "cog": 45, "baro": 1014,
+    "baro_trend": "rising | falling | steady",
+    "lat": -27.19, "lon": 153.08,
+    "updated_at": "2026-05-14T09:00:00Z"
+  },
+  "generated_at": "2026-05-14T09:01:00Z"
+}</code></pre>
+
+            <h3>Fields</h3>
+            <table>
+                <tr>
+                    <th>Field</th>
+                    <th>Notes</th>
+                </tr>
+                <tr>
+                    <td><code>vessel</code></td>
+                    <td>Vessel identity. <code>model</code> may be <code>null</code>.</td>
+                </tr>
+                <tr>
+                    <td><code>entries</code></td>
+                    <td>
+                        Published diary entries, newest first (max 200). Only entries the skipper explicitly published
+                        appear here — the private diary is never exposed. <code>latitude</code>/<code>longitude</code>
+                        may be <code>null</code> if the entry has no pin.
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>track</code></td>
+                    <td>
+                        GPS breadcrumb for the configured window (default 30 days), oldest first. Numeric fields may be
+                        <code>null</code> for older fixes.
+                    </td>
+                </tr>
+                <tr>
+                    <td><code>telemetry</code></td>
+                    <td>
+                        The most recent track point, surfaced for a "live" ribbon. <code>null</code> if the vessel has
+                        no track yet.
+                    </td>
+                </tr>
+            </table>
+
+            <h2>Errors</h2>
+            <p>Errors return a JSON body of the shape <code>{ "error": "…" }</code> with one of:</p>
+            <table>
+                <tr>
+                    <th>Status</th>
+                    <th>Meaning</th>
+                </tr>
+                <tr>
+                    <td><code>400</code></td>
+                    <td><code>handle</code> or <code>key</code> missing from the request.</td>
+                </tr>
+                <tr>
+                    <td><code>401</code></td>
+                    <td>The <code>key</code> does not match the <code>handle</code>.</td>
+                </tr>
+                <tr>
+                    <td><code>403</code></td>
+                    <td>The vessel exists but its voyage log is switched off.</td>
+                </tr>
+                <tr>
+                    <td><code>404</code></td>
+                    <td>No vessel with that <code>handle</code>.</td>
+                </tr>
+            </table>
+
+            <h2>Example</h2>
+            <pre><code>const res = await fetch(
+  'https://your-project.supabase.co/functions/v1/voyage-log' +
+  '?handle=serene-summer&amp;key=YOUR_PUBLISHABLE_KEY'
+);
+if (!res.ok) throw new Error((await res.json()).error);
+const log = await res.json();
+
+console.log(`${log.vessel.name} — ${log.entries.length} entries`);
+if (log.telemetry) {
+  console.log(`Now: ${log.telemetry.sog} kt, baro ${log.telemetry.baro} hPa`);
+}</code></pre>
+
+            <div class="note">
+                Building something with this? It's the same data the official renderer uses — feel free to lay it out
+                however suits you. The skipper controls what's published and can switch the whole log off at any time.
+            </div>
+        </main>
+    </body>
+</html>
