@@ -27,22 +27,25 @@ const Stat: React.FC<{ label: string; value: string; tone: string }> = ({ label,
 /** Floating glass instrument cluster — the live telemetry over the map. */
 export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) => {
     const stats: { label: string; value: string; tone: string }[] = [];
-    const add = (ok: boolean, label: string, value: string, tone: string) => {
-        if (ok) stats.push({ label, value, tone });
+
+    // The formatter only runs when the value is present — avoids the
+    // eager-evaluation trap of computing `value.toFixed()` on a null.
+    const stat = (label: string, value: number | null, format: (v: number) => string, tone: string): void => {
+        if (value != null) stats.push({ label, value: format(value), tone });
     };
 
-    add(t.sog != null, 'SOG', `${t.sog!.toFixed(1)} kt`, 'text-emerald-400');
-    add(t.cog != null, 'COG', `${Math.round(t.cog!)}°`, 'text-amber-400');
-    add(t.heading != null, 'HDG', `${Math.round(t.heading!)}°`, 'text-amber-300');
-    add(t.aws != null, 'AWS', `${t.aws!.toFixed(1)} kt`, 'text-sky-300');
-    add(t.awa != null, 'AWA', `${Math.abs(t.awa!)}° ${t.awa! < 0 ? 'P' : 'S'}`, 'text-sky-300');
-    add(t.tws != null, 'TWS', `${t.tws!.toFixed(1)} kt`, 'text-sky-400');
-    add(t.twd != null, 'TWD', `${Math.round(t.twd!)}°`, 'text-sky-400');
-    add(t.baro != null, 'Baro', `${Math.round(t.baro!)} ${trendArrow(t.baro_trend)}`, 'text-blue-300');
-    add(t.depth != null, 'Depth', `${t.depth!.toFixed(1)} m`, 'text-teal-300');
-    add(t.wave_height != null, 'Seas', `${t.wave_height!.toFixed(1)} m`, 'text-cyan-300');
-    add(t.air_temp != null, 'Air', `${Math.round(t.air_temp!)}°C`, 'text-slate-100');
-    add(t.water_temp != null, 'Sea', `${Math.round(t.water_temp!)}°C`, 'text-sky-200');
+    stat('SOG', t.sog, (v) => `${v.toFixed(1)} kt`, 'text-emerald-400');
+    stat('COG', t.cog, (v) => `${Math.round(v)}°`, 'text-amber-400');
+    stat('HDG', t.heading, (v) => `${Math.round(v)}°`, 'text-amber-300');
+    stat('AWS', t.aws, (v) => `${v.toFixed(1)} kt`, 'text-sky-300');
+    stat('AWA', t.awa, (v) => `${Math.abs(v)}° ${v < 0 ? 'P' : 'S'}`, 'text-sky-300');
+    stat('TWS', t.tws, (v) => `${v.toFixed(1)} kt`, 'text-sky-400');
+    stat('TWD', t.twd, (v) => `${Math.round(v)}°`, 'text-sky-400');
+    stat('Baro', t.baro, (v) => `${Math.round(v)} ${trendArrow(t.baro_trend)}`, 'text-blue-300');
+    stat('Depth', t.depth, (v) => `${v.toFixed(1)} m`, 'text-teal-300');
+    stat('Seas', t.wave_height, (v) => `${v.toFixed(1)} m`, 'text-cyan-300');
+    stat('Air', t.air_temp, (v) => `${Math.round(v)}°C`, 'text-slate-100');
+    stat('Sea', t.water_temp, (v) => `${Math.round(v)}°C`, 'text-sky-200');
 
     if (stats.length === 0) return null;
 
