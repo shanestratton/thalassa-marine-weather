@@ -1169,9 +1169,22 @@ function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: nu
     // because the open water ALONGSIDE the channel is technically
     // navigable — producing routes that visibly ignored the "stay
     // between the markers" rule (the Brisbane River bug, 2026-05-14).
+    //
+    // Also: never smooth ACROSS the CAUTION boundary. A straight line
+    // is clear only if every cell shares the anchor's caution-state.
+    // Without this, smoothPath strings a long diagonal from real water
+    // straight THROUGH shallow caution water — the cost-budget gate
+    // doesn't stop it because budget = max(endpoints), and a caution
+    // endpoint (400×) lifts the bar high enough for the 400× caution
+    // cells in between to pass. Result: long diagonals cutting corners
+    // across shallow flats, and mostly-deep segments wrongly flagged
+    // red. Splitting at the boundary keeps red runs and normal runs as
+    // cleanly-bounded segments that follow the real cell path.
+    const aCaution = grid.cells[a.y * grid.width + a.x] < 0;
     const budget = Math.max(cellCostAt(grid, a.x, a.y), cellCostAt(grid, b.x, b.y));
     for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
         if (!isNavigable(grid, c.x, c.y)) return false;
+        if (grid.cells[c.y * grid.width + c.x] < 0 !== aCaution) return false;
         if (cellCostAt(grid, c.x, c.y) > budget) return false;
     }
     return true;
