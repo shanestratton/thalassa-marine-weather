@@ -421,19 +421,23 @@ function buildNavGrid(
     const isAuthoritativeDepare = (props: Record<string, unknown> | null): boolean => {
         if (!props) return false;
         const leisure = props['leisure'];
-        const landuse = props['landuse'];
+        // `landuse=basin` and `water=basin` REMOVED from the authoritative
+        // whitelist (2026-05-14). Suburban OSM tags inland stormwater
+        // retention ponds and drainage basins with these tags; on the
+        // Redcliffe Peninsula (Newport→Brisbane bbox) there are dozens
+        // of them, each unblocking a phantom 3-4 m DEPARE corridor across
+        // land. Real marina basins are tagged `leisure=marina` (kept).
+        // Real navigable canals are tagged `waterway=canal` (also kept).
         const waterway = props['waterway'];
         const water = props['water'];
         const harbour = props['harbour'];
         return (
             leisure === 'marina' ||
-            landuse === 'basin' ||
             waterway === 'dock' ||
             waterway === 'canal' ||
             waterway === 'fairway' ||
             // `water=*` subtags for marina contexts (Newport canals use
             // these for the side arms branching off the main basin)
-            water === 'basin' ||
             water === 'canal' ||
             water === 'harbour' ||
             water === 'marina' ||
