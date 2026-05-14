@@ -14,6 +14,7 @@ import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
 import { DiaryEntryView } from './diary/DiaryEntryView';
 import { DiaryComposeForm } from './diary/DiaryComposeForm';
+import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
@@ -198,6 +199,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     );
     const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
     const [polishIntensity, _setPolishIntensity] = useState(30); // 0=clean grammar, 100=shakespearean
+    // Publish-to-Voyage-Log prompt — holds the just-saved entry while the modal is open
+    const [publishPromptEntry, setPublishPromptEntry] = useState<DiaryEntry | null>(null);
     // Weather context
     const { weatherData } = useWeather();
     const { settings } = useSettings();
@@ -556,6 +559,8 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             if (entry) {
                 setEntries((prev) => [entry, ...prev]);
                 setShowCompose(false);
+                // Offer to publish it to the public Voyage Log.
+                setPublishPromptEntry(entry);
             }
         }
         setSaving(false);
@@ -890,25 +895,25 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <FirstRunHint id="diary-compose" message="Slide to write your first log entry" position="top">
-                    <SlideToAction
-                        label="Slide to Write Entry"
-                        thumbIcon={
-                            <svg
-                                className="w-5 h-5 text-white"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={2.5}
-                            >
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                            </svg>
-                        }
-                        onConfirm={() => {
-                            triggerHaptic('medium');
-                            openCompose();
-                        }}
-                        theme="sky"
-                    />
+                        <SlideToAction
+                            label="Slide to Write Entry"
+                            thumbIcon={
+                                <svg
+                                    className="w-5 h-5 text-white"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                                </svg>
+                            }
+                            onConfirm={() => {
+                                triggerHaptic('medium');
+                                openCompose();
+                            }}
+                            theme="sky"
+                        />
                     </FirstRunHint>
                 </div>
             </div>
@@ -920,6 +925,16 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onDismiss={handleDismissDelete}
                 duration={5000}
             />
+            {/* Publish-to-Voyage-Log prompt — shown once after a new entry saves */}
+            {publishPromptEntry && (
+                <DiaryPublishModal
+                    entry={publishPromptEntry}
+                    onKeepPrivate={() => setPublishPromptEntry(null)}
+                    onPublished={(updated) =>
+                        setEntries((prev) => prev.map((e) => (e.id === updated.id ? updated : e)))
+                    }
+                />
+            )}
         </div>
     );
 });

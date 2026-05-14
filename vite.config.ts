@@ -296,6 +296,12 @@ export default defineConfig(({ mode }) => {
             cssMinify: true,
             chunkSizeWarningLimit: 750,
             rollupOptions: {
+                // Two entry points: the main Thalassa SPA, and the standalone
+                // public Voyage Log renderer (logs.html → /logs/<handle>).
+                input: {
+                    main: path.resolve(__dirname, 'index.html'),
+                    logs: path.resolve(__dirname, 'logs.html'),
+                },
                 onwarn(warning, warn) {
                     // Suppress "is dynamically imported by X but also statically imported by Y"
                     if (

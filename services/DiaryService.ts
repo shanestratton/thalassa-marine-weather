@@ -51,6 +51,7 @@ export interface DiaryEntry {
     weather_data?: DiaryWeatherData | null; // Structured weather at pin
     voyage_id: string | null;
     tags: string[];
+    is_public: boolean; // Published to the public Voyage Log API
     created_at: string;
     updated_at: string;
     _offline?: boolean; // Client-only flag — not persisted to DB
@@ -177,6 +178,7 @@ class DiaryServiceClass {
         weather_data?: DiaryWeatherData | null;
         voyage_id?: string | null;
         tags?: string[];
+        is_public?: boolean;
     }): Promise<DiaryEntry> {
         const now = new Date().toISOString();
         const localEntry: DiaryEntry = {
@@ -194,6 +196,7 @@ class DiaryServiceClass {
             weather_data: entry.weather_data ?? null,
             voyage_id: entry.voyage_id ?? null,
             tags: entry.tags || [],
+            is_public: entry.is_public ?? false,
             created_at: now,
             updated_at: now,
             _offline: true,
@@ -229,7 +232,10 @@ class DiaryServiceClass {
     async updateEntry(
         id: string,
         updates: Partial<
-            Pick<DiaryEntry, 'title' | 'body' | 'mood' | 'photos' | 'location_name' | 'weather_summary' | 'tags'>
+            Pick<
+                DiaryEntry,
+                'title' | 'body' | 'mood' | 'photos' | 'location_name' | 'weather_summary' | 'tags' | 'is_public'
+            >
         >,
     ): Promise<boolean> {
         // Update in pending queue if offline entry
@@ -582,6 +588,7 @@ class DiaryServiceClass {
                             weather_data: entry.weather_data ?? null,
                             voyage_id: entry.voyage_id,
                             tags: entry.tags,
+                            is_public: entry.is_public ?? false,
                             created_at: entry.created_at,
                         })
                         .select()
