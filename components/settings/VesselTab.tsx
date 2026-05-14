@@ -8,6 +8,7 @@ import { LengthUnit, WeightUnit, VolumeUnit, VesselDimensionUnits, VesselProfile
 import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { Capacitor } from '@capacitor/core';
+import { saveIdentity } from '../../services/VesselIdentityService';
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
@@ -124,6 +125,26 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const isObserver = settings.vessel?.type === 'observer';
     const scrollRef = useRef<HTMLDivElement>(null);
     const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+    // Mirror the identity-relevant vessel fields into the `vessel_identity`
+    // table. Settings only persist to device-local Capacitor Preferences, so
+    // without this the public Voyage Log API (and the handle generator) never
+    // see the vessel's name. Debounced so typing doesn't fire an upsert per
+    // keystroke.
+    const vesselName = settings.vessel?.name;
+    const vesselType = settings.vessel?.type;
+    const vesselModel = settings.vessel?.model;
+    useEffect(() => {
+        if (!vesselName) return;
+        const t = setTimeout(() => {
+            void saveIdentity({
+                vessel_name: vesselName,
+                vessel_type: vesselType === 'power' ? 'power' : vesselType === 'observer' ? 'observer' : 'sail',
+                ...(vesselModel ? { model: vesselModel } : {}),
+            });
+        }, 1200);
+        return () => clearTimeout(t);
+    }, [vesselName, vesselType, vesselModel]);
 
     // ── Keyboard tracking — same pattern as DiaryPage/OnboardingWizard ──
     useEffect(() => {
