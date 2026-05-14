@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl, type MapRef } from 'react-map-gl/mapbox';
+import React, { useMemo, useState } from 'react';
+import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { MAPBOX_TOKEN, MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
@@ -7,8 +7,6 @@ import { MAPBOX_TOKEN, MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } fro
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
     entries: VoyageLogEntry[];
-    /** Entry the viewer selected — the map flies to it. */
-    focusEntry: VoyageLogEntry | null;
     /** A map marker was tapped. */
     onEntryClick: (entry: VoyageLogEntry) => void;
 }
@@ -22,9 +20,8 @@ type StyleMode = keyof typeof STYLES;
 const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number; longitude: number } =>
     e.latitude != null && e.longitude != null;
 
-export default function MapContainer({ track, entries, focusEntry, onEntryClick }: MapContainerProps) {
-    const mapRef = useRef<MapRef>(null);
-    const [styleMode, setStyleMode] = useState<StyleMode>('dark');
+export default function MapContainer({ track, entries, onEntryClick }: MapContainerProps) {
+    const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
 
     const trackCoords = useMemo<[number, number][]>(
         () => track.map((p) => [p.lon, p.lat] as [number, number]),
@@ -95,16 +92,8 @@ export default function MapContainer({ track, entries, focusEntry, onEntryClick 
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fly to a selected entry.
-    useEffect(() => {
-        if (focusEntry && hasCoords(focusEntry)) {
-            mapRef.current?.flyTo({
-                center: [focusEntry.longitude, focusEntry.latitude],
-                zoom: 9,
-                duration: 1400,
-            });
-        }
-    }, [focusEntry]);
+    // Selecting an entry deliberately does NOT move the camera — the whole
+    // track is already framed, and viewers want to keep the overview.
 
     const lastFix = trackCoords[trackCoords.length - 1];
 
@@ -119,7 +108,6 @@ export default function MapContainer({ track, entries, focusEntry, onEntryClick 
     return (
         <div className="w-full h-full relative bg-slate-900">
             <Map
-                ref={mapRef}
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}

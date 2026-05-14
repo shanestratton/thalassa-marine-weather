@@ -1,5 +1,6 @@
 import React from 'react';
 import type { VoyageLogTelemetry } from '../voyageLogApi';
+import { ArcDial, CompassDial, WindDial } from './dials';
 
 interface TelemetryPanelProps {
     telemetry: VoyageLogTelemetry;
@@ -19,26 +20,20 @@ const relativeTime = (iso: string): string => {
 
 const Stat: React.FC<{ label: string; value: string; tone: string }> = ({ label, value, tone }) => (
     <div className="flex flex-col">
-        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.15em]">{label}</span>
-        <span className={`text-sm font-bold font-mono leading-tight ${tone}`}>{value}</span>
+        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-[0.13em]">{label}</span>
+        <span className={`text-xs font-bold font-mono leading-tight ${tone}`}>{value}</span>
     </div>
 );
 
-/** Floating glass instrument cluster — the live telemetry over the map. */
+/** Live instrument cluster — dials + readouts, pinned atop the sidebar. */
 export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) => {
+    // Secondary readouts — everything the three dials don't already show.
     const stats: { label: string; value: string; tone: string }[] = [];
-
-    // The formatter only runs when the value is present — avoids the
-    // eager-evaluation trap of computing `value.toFixed()` on a null.
     const stat = (label: string, value: number | null, format: (v: number) => string, tone: string): void => {
         if (value != null) stats.push({ label, value: format(value), tone });
     };
 
-    stat('SOG', t.sog, (v) => `${v.toFixed(1)} kt`, 'text-emerald-400');
-    stat('COG', t.cog, (v) => `${Math.round(v)}°`, 'text-amber-400');
     stat('HDG', t.heading, (v) => `${Math.round(v)}°`, 'text-amber-300');
-    stat('AWS', t.aws, (v) => `${v.toFixed(1)} kt`, 'text-sky-300');
-    stat('AWA', t.awa, (v) => `${Math.abs(v)}° ${v < 0 ? 'P' : 'S'}`, 'text-sky-300');
     stat('TWS', t.tws, (v) => `${v.toFixed(1)} kt`, 'text-sky-400');
     stat('TWD', t.twd, (v) => `${Math.round(v)}°`, 'text-sky-400');
     stat('Baro', t.baro, (v) => `${Math.round(v)} ${trendArrow(t.baro_trend)}`, 'text-blue-300');
@@ -47,22 +42,34 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) 
     stat('Air', t.air_temp, (v) => `${Math.round(v)}°C`, 'text-slate-100');
     stat('Sea', t.water_temp, (v) => `${Math.round(v)}°C`, 'text-sky-200');
 
-    if (stats.length === 0) return null;
+    const hasDialData = t.sog != null || t.cog != null || t.aws != null || t.awa != null;
+    if (!hasDialData && stats.length === 0) return null;
 
     return (
         <div className="shrink-0 border-b border-slate-700 bg-slate-900/40">
-            <div className="flex items-center justify-between px-4 pt-3 pb-1.5">
+            <div className="flex items-center justify-between px-4 pt-2.5 pb-1">
                 <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-emerald-400">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                     Live
                 </span>
                 <span className="text-[10px] font-mono text-slate-500">{relativeTime(t.updated_at)}</span>
             </div>
-            <div className="grid grid-cols-4 gap-x-3 gap-y-2.5 px-4 pb-3">
-                {stats.map((s) => (
-                    <Stat key={s.label} label={s.label} value={s.value} tone={s.tone} />
-                ))}
+
+            {/* Instrument dials */}
+            <div className="flex items-start justify-around px-2 pb-1">
+                <ArcDial value={t.sog} max={12} unit="kt" label="SOG" accent="#34d399" />
+                <CompassDial value={t.cog} label="COG" accent="#fbbf24" />
+                <WindDial awa={t.awa} aws={t.aws} label="Wind kt" accent="#38bdf8" />
             </div>
+
+            {/* Secondary readouts */}
+            {stats.length > 0 && (
+                <div className="grid grid-cols-4 gap-x-3 gap-y-2 px-4 pt-1.5 pb-3 border-t border-white/[0.05]">
+                    {stats.map((s) => (
+                        <Stat key={s.label} label={s.label} value={s.value} tone={s.tone} />
+                    ))}
+                </div>
+            )}
         </div>
     );
 };

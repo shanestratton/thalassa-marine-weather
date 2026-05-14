@@ -107,12 +107,7 @@ export default function ThalassaDashboard() {
 
             <div className="flex flex-1 overflow-hidden relative flex-col md:flex-row">
                 <main className="flex-1 bg-slate-950 relative min-h-[45vh]">
-                    <MapContainer
-                        track={track}
-                        entries={entries}
-                        focusEntry={selectedEntry}
-                        onEntryClick={handleSelect}
-                    />
+                    <MapContainer track={track} entries={entries} onEntryClick={handleSelect} />
                 </main>
 
                 <aside className="w-full md:w-96 bg-slate-800 border-t md:border-t-0 md:border-l border-slate-700 flex flex-col z-10 shadow-xl">
