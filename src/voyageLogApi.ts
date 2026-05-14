@@ -9,6 +9,10 @@
 const SUPABASE_URL: string =
     (import.meta.env.VITE_SUPABASE_URL as string | undefined) || process.env.SUPABASE_URL || '';
 
+/** Mapbox access token — publishable, safe to ship in this public bundle. */
+export const MAPBOX_TOKEN: string =
+    (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined) || process.env.MAPBOX_ACCESS_TOKEN || '';
+
 export type DiaryMood = 'epic' | 'good' | 'neutral' | 'rough' | 'storm';
 
 /** Mood → emoji + Tailwind text colour, mirrored from the app's MOOD_CONFIG. */
@@ -51,14 +55,32 @@ export interface VoyageLogTrackPoint {
     timestamp: string;
     speed_kts: number | null;
     course_deg: number | null;
+    heading_deg: number | null;
     pressure: number | null;
+    wind_speed_apparent: number | null;
+    wind_angle_apparent: number | null;
+    wind_speed_true: number | null;
+    wind_direction_true: number | null;
+    depth_m: number | null;
+    air_temp: number | null;
+    water_temp: number | null;
+    wave_height: number | null;
 }
 
 export interface VoyageLogTelemetry {
     sog: number | null;
     cog: number | null;
+    heading: number | null;
     baro: number | null;
     baro_trend: 'rising' | 'falling' | 'steady';
+    aws: number | null;
+    awa: number | null;
+    tws: number | null;
+    twd: number | null;
+    depth: number | null;
+    air_temp: number | null;
+    water_temp: number | null;
+    wave_height: number | null;
     lat: number;
     lon: number;
     updated_at: string;

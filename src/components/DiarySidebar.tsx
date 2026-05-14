@@ -3,13 +3,16 @@ import { MOOD, type VoyageLogEntry } from '../voyageLogApi';
 
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
+    /** Card tapped — fly the map to the entry. */
     onEntryClick: (entry: VoyageLogEntry) => void;
+    /** A photo thumbnail tapped — open the lightbox at that photo. */
+    onPhotoClick: (entry: VoyageLogEntry, index: number) => void;
 }
 
 const formatDate = (iso: string): string =>
     new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
-export default function DiarySidebar({ entries, onEntryClick }: DiarySidebarProps) {
+export default function DiarySidebar({ entries, onEntryClick, onPhotoClick }: DiarySidebarProps) {
     return (
         <div className="flex flex-col h-full bg-slate-800">
             {/* Header */}
@@ -33,55 +36,58 @@ export default function DiarySidebar({ entries, onEntryClick }: DiarySidebarProp
                         const mood = MOOD[entry.mood];
                         const canFocus = entry.latitude != null && entry.longitude != null;
                         return (
-                            <button
+                            <div
                                 key={entry.id}
-                                type="button"
-                                onClick={() => onEntryClick(entry)}
-                                disabled={!canFocus}
-                                className={`group block w-full text-left border-l-2 border-slate-700 pl-4 transition-all ${
-                                    canFocus ? 'hover:border-blue-500 cursor-pointer' : 'cursor-default'
+                                className={`group border-l-2 pl-4 transition-colors ${
+                                    canFocus ? 'border-slate-700 hover:border-blue-500' : 'border-slate-700'
                                 }`}
                             >
-                                {/* Meta row */}
-                                <div className="flex justify-between items-baseline mb-1.5 gap-2">
-                                    <span className="text-[10px] font-mono text-blue-400 uppercase shrink-0">
-                                        {formatDate(entry.created_at)}
-                                    </span>
-                                    <span className="text-[10px] text-slate-500 font-mono truncate">
-                                        {entry.location_name}
-                                    </span>
-                                </div>
-
-                                {/* Title + mood */}
-                                {entry.title && (
-                                    <div className="flex items-center gap-1.5 mb-1">
-                                        <span className="text-sm">{mood?.emoji ?? '📍'}</span>
-                                        <h3 className="text-sm font-bold text-white truncate">{entry.title}</h3>
+                                {/* Text region — tap to fly the map */}
+                                <button
+                                    type="button"
+                                    onClick={() => onEntryClick(entry)}
+                                    disabled={!canFocus}
+                                    className={`block w-full text-left ${canFocus ? 'cursor-pointer' : 'cursor-default'}`}
+                                >
+                                    <div className="flex justify-between items-baseline mb-1.5 gap-2">
+                                        <span className="text-[10px] font-mono text-blue-400 uppercase shrink-0">
+                                            {formatDate(entry.created_at)}
+                                        </span>
+                                        <span className="text-[10px] text-slate-500 font-mono truncate">
+                                            {entry.location_name}
+                                        </span>
                                     </div>
-                                )}
+                                    {entry.title && (
+                                        <div className="flex items-center gap-1.5 mb-1">
+                                            <span className="text-sm">{mood?.emoji ?? '📍'}</span>
+                                            <h3 className="text-sm font-bold text-white truncate">{entry.title}</h3>
+                                        </div>
+                                    )}
+                                    {entry.body && (
+                                        <p className="text-sm text-slate-300 leading-relaxed mb-3 whitespace-pre-line line-clamp-6">
+                                            {entry.body}
+                                        </p>
+                                    )}
+                                </button>
 
-                                {/* Body */}
-                                {entry.body && (
-                                    <p className="text-sm text-slate-300 leading-relaxed mb-3 whitespace-pre-line line-clamp-6">
-                                        {entry.body}
-                                    </p>
-                                )}
-
-                                {/* Photos */}
+                                {/* Photos — tap to open the lightbox */}
                                 {entry.photos.length > 0 && (
                                     <div className="grid grid-cols-3 gap-1.5 mb-3">
                                         {entry.photos.slice(0, 6).map((url, i) => (
-                                            <div
+                                            <button
                                                 key={i}
-                                                className="aspect-square rounded-lg overflow-hidden border border-slate-700 bg-slate-900"
+                                                type="button"
+                                                onClick={() => onPhotoClick(entry, i)}
+                                                aria-label={`View photo ${i + 1} from ${entry.title || 'this entry'}`}
+                                                className="aspect-square rounded-lg overflow-hidden border border-slate-700 bg-slate-900 cursor-pointer"
                                             >
                                                 <img
                                                     src={url}
                                                     alt=""
                                                     loading="lazy"
-                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    className="w-full h-full object-cover transition-transform duration-500 hover:scale-110"
                                                 />
-                                            </div>
+                                            </button>
                                         ))}
                                     </div>
                                 )}
@@ -93,7 +99,7 @@ export default function DiarySidebar({ entries, onEntryClick }: DiarySidebarProp
                                         <span className="truncate">{entry.weather_summary}</span>
                                     </div>
                                 )}
-                            </button>
+                            </div>
                         );
                     })}
                 </div>

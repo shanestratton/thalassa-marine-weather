@@ -18,8 +18,13 @@
  *     entries:   [{ id, title, body, mood, photos[], location_name,
  *                   latitude, longitude, weather_summary, weather_data,
  *                   tags[], created_at }],
- *     track:     [{ lat, lon, timestamp, speed_kts, course_deg, pressure }],
- *     telemetry: { sog, cog, baro, baro_trend, lat, lon, updated_at } | null,
+ *     track:     [{ lat, lon, timestamp, speed_kts, course_deg, heading_deg,
+ *                   pressure, wind_speed_apparent, wind_angle_apparent,
+ *                   wind_speed_true, wind_direction_true, depth_m,
+ *                   air_temp, water_temp, wave_height }],
+ *     telemetry: { sog, cog, heading, baro, baro_trend, aws, awa, tws, twd,
+ *                   depth, air_temp, water_temp, wave_height,
+ *                   lat, lon, updated_at } | null,
  *     generated_at: <ISO string>
  *   }
  *
@@ -126,7 +131,11 @@ Deno.serve(async (req: Request) => {
                 .limit(MAX_ENTRIES),
             supabase
                 .from('ship_log')
-                .select('latitude, longitude, timestamp, speed_kts, course_deg, pressure')
+                .select(
+                    'latitude, longitude, timestamp, speed_kts, course_deg, heading_deg, pressure, ' +
+                        'wind_speed_apparent, wind_angle_apparent, wind_speed_true, wind_direction_true, ' +
+                        'depth_m, air_temp, water_temp, wave_height',
+                )
                 .eq('user_id', ownerId)
                 .gte('timestamp', trackSince)
                 .order('timestamp', { ascending: true })
@@ -169,7 +178,16 @@ Deno.serve(async (req: Request) => {
             timestamp: p.timestamp,
             speed_kts: p.speed_kts,
             course_deg: p.course_deg,
+            heading_deg: p.heading_deg ?? null,
             pressure: p.pressure,
+            wind_speed_apparent: p.wind_speed_apparent ?? null,
+            wind_angle_apparent: p.wind_angle_apparent ?? null,
+            wind_speed_true: p.wind_speed_true ?? null,
+            wind_direction_true: p.wind_direction_true ?? null,
+            depth_m: p.depth_m ?? null,
+            air_temp: p.air_temp ?? null,
+            water_temp: p.water_temp ?? null,
+            wave_height: p.wave_height ?? null,
         }));
 
         // ── Latest telemetry = most recent track point ─────────────
@@ -178,8 +196,17 @@ Deno.serve(async (req: Request) => {
             ? {
                   sog: last.speed_kts,
                   cog: last.course_deg,
+                  heading: last.heading_deg,
                   baro: last.pressure,
                   baro_trend: baroTrend(track),
+                  aws: last.wind_speed_apparent,
+                  awa: last.wind_angle_apparent,
+                  tws: last.wind_speed_true,
+                  twd: last.wind_direction_true,
+                  depth: last.depth_m,
+                  air_temp: last.air_temp,
+                  water_temp: last.water_temp,
+                  wave_height: last.wave_height,
                   lat: last.lat,
                   lon: last.lon,
                   updated_at: last.timestamp,

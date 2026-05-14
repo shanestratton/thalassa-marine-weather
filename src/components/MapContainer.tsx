@@ -1,39 +1,42 @@
-import React, { useEffect, useMemo, useRef } from 'react';
-import Map, { Source, Layer, Marker, type MapRef } from 'react-map-gl/maplibre';
-import type { FeatureCollection, Feature, LineString } from 'geojson';
-import 'maplibre-gl/dist/maplibre-gl.css';
-import { MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Map, { Source, Layer, Marker, NavigationControl, type MapRef } from 'react-map-gl/mapbox';
+import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
+import 'mapbox-gl/dist/mapbox-gl.css';
+import { MAPBOX_TOKEN, MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
     entries: VoyageLogEntry[];
-    /** Entry the viewer tapped in the sidebar — the map flies to it. */
+    /** Entry the viewer selected — the map flies to it. */
     focusEntry: VoyageLogEntry | null;
+    /** A map marker was tapped. */
+    onEntryClick: (entry: VoyageLogEntry) => void;
 }
 
-// CartoDB dark-matter — a sleek dark basemap that suits the nautical theme.
-// (Its domains are allow-listed in vercel.json's CSP connect-src.)
-const MAP_STYLE = 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json';
+const STYLES = {
+    dark: 'mapbox://styles/mapbox/dark-v11',
+    satellite: 'mapbox://styles/mapbox/satellite-streets-v12',
+} as const;
+type StyleMode = keyof typeof STYLES;
 
 const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number; longitude: number } =>
     e.latitude != null && e.longitude != null;
 
-export default function MapContainer({ track, entries, focusEntry }: MapContainerProps) {
+export default function MapContainer({ track, entries, focusEntry, onEntryClick }: MapContainerProps) {
     const mapRef = useRef<MapRef>(null);
+    const [styleMode, setStyleMode] = useState<StyleMode>('dark');
 
     const trackCoords = useMemo<[number, number][]>(
         () => track.map((p) => [p.lon, p.lat] as [number, number]),
         [track],
     );
-
     const pinnedEntries = useMemo(() => entries.filter(hasCoords), [entries]);
-
-    // Everything we'd want in frame: the track plus any pinned entries.
     const allCoords = useMemo<[number, number][]>(
         () => [...trackCoords, ...pinnedEntries.map((e) => [e.longitude, e.latitude] as [number, number])],
         [trackCoords, pinnedEntries],
     );
 
+    // Track line.
     const trackGeojson = useMemo<FeatureCollection<LineString>>(
         () => ({
             type: 'FeatureCollection',
@@ -51,14 +54,26 @@ export default function MapContainer({ track, entries, focusEntry }: MapContaine
         [trackCoords],
     );
 
-    // Initial camera — fit the whole voyage if we have coords, else a world view.
+    // One dot per track point — the literal hourly-positioning breadcrumb.
+    const trackPointsGeojson = useMemo<FeatureCollection<Point>>(
+        () => ({
+            type: 'FeatureCollection',
+            features: trackCoords.map(
+                (c) =>
+                    ({
+                        type: 'Feature',
+                        properties: {},
+                        geometry: { type: 'Point', coordinates: c },
+                    }) satisfies Feature<Point>,
+            ),
+        }),
+        [trackCoords],
+    );
+
+    // Initial camera — fit the whole voyage, else a globe view.
     const initialViewState = useMemo(() => {
-        if (allCoords.length === 0) {
-            return { longitude: 0, latitude: 20, zoom: 1.4 };
-        }
-        if (allCoords.length === 1) {
-            return { longitude: allCoords[0][0], latitude: allCoords[0][1], zoom: 8 };
-        }
+        if (allCoords.length === 0) return { longitude: 0, latitude: 20, zoom: 1.3 };
+        if (allCoords.length === 1) return { longitude: allCoords[0][0], latitude: allCoords[0][1], zoom: 8 };
         let minLon = Infinity;
         let minLat = Infinity;
         let maxLon = -Infinity;
@@ -74,50 +89,76 @@ export default function MapContainer({ track, entries, focusEntry }: MapContaine
                 [minLon, minLat],
                 [maxLon, maxLat],
             ] as [[number, number], [number, number]],
-            fitBoundsOptions: { padding: 64 },
+            fitBoundsOptions: { padding: 90 },
         };
-        // Only the first computed value matters — initialViewState is mount-only.
+        // initialViewState is mount-only — the first computed value is what matters.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Fly to a sidebar-selected entry.
+    // Fly to a selected entry.
     useEffect(() => {
         if (focusEntry && hasCoords(focusEntry)) {
             mapRef.current?.flyTo({
                 center: [focusEntry.longitude, focusEntry.latitude],
                 zoom: 9,
-                duration: 1200,
+                duration: 1400,
             });
         }
     }, [focusEntry]);
 
     const lastFix = trackCoords[trackCoords.length - 1];
 
+    if (!MAPBOX_TOKEN) {
+        return (
+            <div className="w-full h-full flex items-center justify-center bg-slate-900 text-slate-500 text-sm">
+                Map unavailable — Mapbox token not configured for this build.
+            </div>
+        );
+    }
+
     return (
         <div className="w-full h-full relative bg-slate-900">
             <Map
                 ref={mapRef}
+                mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
-                mapStyle={MAP_STYLE}
-                attributionControl={{ compact: true }}
+                mapStyle={STYLES[styleMode]}
+                projection="globe"
             >
-                {/* Voyage track */}
+                <NavigationControl position="top-left" showCompass={false} />
+
+                {/* Voyage track — glow underlay + crisp line */}
                 <Source id="voyage-track" type="geojson" data={trackGeojson}>
                     <Layer
-                        id="track-line-glow"
+                        id="track-glow"
                         type="line"
                         layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                        paint={{ 'line-color': '#38bdf8', 'line-width': 8, 'line-opacity': 0.15 }}
+                        paint={{ 'line-color': '#38bdf8', 'line-width': 11, 'line-blur': 7, 'line-opacity': 0.3 }}
                     />
                     <Layer
                         id="track-line"
                         type="line"
                         layout={{ 'line-cap': 'round', 'line-join': 'round' }}
-                        paint={{ 'line-color': '#3b82f6', 'line-width': 3, 'line-opacity': 0.9 }}
+                        paint={{ 'line-color': '#7dd3fc', 'line-width': 2.5, 'line-opacity': 0.95 }}
                     />
                 </Source>
 
-                {/* Latest known position */}
+                {/* Hourly position dots */}
+                <Source id="voyage-track-points" type="geojson" data={trackPointsGeojson}>
+                    <Layer
+                        id="track-points"
+                        type="circle"
+                        paint={{
+                            'circle-radius': 3,
+                            'circle-color': '#bae6fd',
+                            'circle-stroke-color': '#0c4a6e',
+                            'circle-stroke-width': 1,
+                            'circle-opacity': 0.9,
+                        }}
+                    />
+                </Source>
+
+                {/* Latest known position — pulsing */}
                 {lastFix && (
                     <Marker longitude={lastFix[0]} latitude={lastFix[1]} anchor="center">
                         <span className="relative flex h-4 w-4">
@@ -127,19 +168,51 @@ export default function MapContainer({ track, entries, focusEntry }: MapContaine
                     </Marker>
                 )}
 
-                {/* Diary entry pins */}
-                {pinnedEntries.map((entry) => (
-                    <Marker key={entry.id} longitude={entry.longitude} latitude={entry.latitude} anchor="bottom">
-                        <div
-                            className="text-2xl drop-shadow-lg cursor-default leading-none -translate-y-0.5"
-                            title={entry.title || 'Diary entry'}
-                            style={{ filter: `drop-shadow(0 0 4px ${MOOD[entry.mood]?.hex ?? '#38bdf8'})` }}
-                        >
-                            {MOOD[entry.mood]?.emoji ?? '📍'}
-                        </div>
-                    </Marker>
-                ))}
+                {/* Diary entry pins — camera badge if it carries photos */}
+                {pinnedEntries.map((entry) => {
+                    const hasPhotos = entry.photos.length > 0;
+                    const moodHex = MOOD[entry.mood]?.hex ?? '#38bdf8';
+                    return (
+                        <Marker key={entry.id} longitude={entry.longitude} latitude={entry.latitude} anchor="bottom">
+                            <button
+                                type="button"
+                                onClick={() => onEntryClick(entry)}
+                                aria-label={`Voyage log entry: ${entry.title || 'Untitled'}`}
+                                className="cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95"
+                            >
+                                {hasPhotos ? (
+                                    <span
+                                        className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-900/90 border-2 text-sm shadow-lg"
+                                        style={{ borderColor: moodHex }}
+                                    >
+                                        📷
+                                    </span>
+                                ) : (
+                                    <span className="text-2xl" style={{ filter: `drop-shadow(0 0 4px ${moodHex})` }}>
+                                        {MOOD[entry.mood]?.emoji ?? '📍'}
+                                    </span>
+                                )}
+                            </button>
+                        </Marker>
+                    );
+                })}
             </Map>
+
+            {/* Basemap toggle */}
+            <div className="absolute top-3 right-3 flex rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider">
+                {(['dark', 'satellite'] as StyleMode[]).map((m) => (
+                    <button
+                        key={m}
+                        onClick={() => setStyleMode(m)}
+                        aria-label={`${m === 'dark' ? 'Chart' : 'Satellite'} basemap`}
+                        className={`px-3 py-1.5 transition-colors ${
+                            styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
+                        }`}
+                    >
+                        {m === 'dark' ? 'Chart' : 'Satellite'}
+                    </button>
+                ))}
+            </div>
         </div>
     );
 }

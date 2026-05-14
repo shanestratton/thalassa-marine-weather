@@ -2,12 +2,12 @@
 bosun_voyage_ping — hourly store-and-forward telemetry ping for the
 public Voyage Log.
 
-Once an hour a systemd timer runs this script. It grabs a tiny snapshot
-from SignalK — position, SOG, COG, barometric pressure — and pushes one
-row into the Thalassa `ship_log` table. That table is what the public
-voyage-log API reads for the map track and the live telemetry ribbon, so
-this is what keeps the "folks at home" page current while the boat is
-underway.
+Once an hour a systemd timer runs this script. It grabs a snapshot from
+SignalK — position, SOG, COG, heading, apparent + true wind, barometric
+pressure, depth, air + water temperature — and pushes one row into the
+Thalassa `ship_log` table. That table is what the public voyage-log API
+reads for the map track and the live telemetry panel, so this is what
+keeps the "folks at home" page current while the boat is underway.
 
 Store-and-forward:
     Out of satellite coverage? The insert fails, the ping is appended to
@@ -56,8 +56,9 @@ QUEUE_FILE = Path("/var/lib/calypso/voyage-ping-queue.json")
 # 2000 hourly pings ≈ 83 days; past that we drop the oldest.
 MAX_QUEUE = 2000
 
-# SignalK delivers SI units; ship_log wants knots / degrees / hPa.
+# SignalK delivers SI units; ship_log wants knots / degrees / hPa / °C.
 MS_TO_KNOTS = 1.943844
+KELVIN_TO_C = 273.15
 
 HTTP_TIMEOUT = 15  # seconds — generous, sat links are slow
 
@@ -100,11 +101,12 @@ def _sk_value(node: Any) -> Any:
 
 def fetch_signalk() -> Optional[dict[str, Any]]:
     """
-    Pull the current navigation + pressure snapshot from SignalK.
+    Pull the current navigation + wind + environment snapshot from SignalK.
 
-    Returns a dict with whatever was available, or None if SignalK isn't
-    reachable / has no vessel yet (bench Pi with a quiet bus 404s on
-    vessels/self — that's a normal "nothing to send" case, not an error).
+    Returns a dict of whatever was available (missing instruments → None
+    for that field), or None overall if SignalK isn't reachable / has no
+    vessel yet (bench Pi with a quiet bus 404s on vessels/self — that's a
+    normal "nothing to send" case, not an error).
     """
     url = f"{config.signalk_url}/signalk/v1/api/vessels/self"
     try:
@@ -122,20 +124,29 @@ def fetch_signalk() -> Optional[dict[str, Any]]:
 
     nav = vessel.get("navigation", {}) if isinstance(vessel, dict) else {}
     env = vessel.get("environment", {}) if isinstance(vessel, dict) else {}
+    wind = env.get("wind") or {}
+    outside = env.get("outside") or {}
+    water = env.get("water") or {}
+    depth = env.get("depth") or {}
 
-    position = _sk_value(nav.get("position"))
-    sog_ms = _sk_value(nav.get("speedOverGround"))
     # Prefer course over ground; fall back to heading if COG isn't on the bus.
     cog_rad = _sk_value(nav.get("courseOverGroundTrue"))
     if cog_rad is None:
         cog_rad = _sk_value(nav.get("headingTrue"))
-    pressure_pa = _sk_value((env.get("outside") or {}).get("pressure"))
 
     return {
-        "position": position,
-        "sog_ms": sog_ms,
+        "position": _sk_value(nav.get("position")),
+        "sog_ms": _sk_value(nav.get("speedOverGround")),
         "cog_rad": cog_rad,
-        "pressure_pa": pressure_pa,
+        "heading_rad": _sk_value(nav.get("headingTrue")),
+        "pressure_pa": _sk_value(outside.get("pressure")),
+        "aws_ms": _sk_value(wind.get("speedApparent")),
+        "awa_rad": _sk_value(wind.get("angleApparent")),
+        "tws_ms": _sk_value(wind.get("speedTrue")),
+        "twd_rad": _sk_value(wind.get("directionTrue")),
+        "depth_m": _sk_value(depth.get("belowTransducer")),
+        "water_temp_k": _sk_value(water.get("temperature")),
+        "air_temp_k": _sk_value(outside.get("temperature")),
     }
 
 
@@ -165,17 +176,55 @@ def build_ping(state: dict[str, Any]) -> Optional[dict[str, Any]]:
         "entry_type": "auto",
     }
 
-    sog_ms = state.get("sog_ms")
-    if isinstance(sog_ms, (int, float)):
+    def num(key: str) -> Optional[float]:
+        v = state.get(key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    sog_ms = num("sog_ms")
+    if sog_ms is not None:
         ping["speed_kts"] = round(sog_ms * MS_TO_KNOTS, 1)
 
-    cog_rad = state.get("cog_rad")
-    if isinstance(cog_rad, (int, float)):
+    cog_rad = num("cog_rad")
+    if cog_rad is not None:
         ping["course_deg"] = int(round(math.degrees(cog_rad))) % 360
 
-    pressure_pa = state.get("pressure_pa")
-    if isinstance(pressure_pa, (int, float)):
+    heading_rad = num("heading_rad")
+    if heading_rad is not None:
+        ping["heading_deg"] = int(round(math.degrees(heading_rad))) % 360
+
+    pressure_pa = num("pressure_pa")
+    if pressure_pa is not None:
         ping["pressure"] = int(round(pressure_pa / 100.0))
+
+    aws_ms = num("aws_ms")
+    if aws_ms is not None:
+        ping["wind_speed_apparent"] = round(aws_ms * MS_TO_KNOTS, 1)
+
+    # Apparent wind angle stays signed: negative = port, positive = starboard.
+    awa_rad = num("awa_rad")
+    if awa_rad is not None:
+        ping["wind_angle_apparent"] = int(round(math.degrees(awa_rad)))
+
+    tws_ms = num("tws_ms")
+    if tws_ms is not None:
+        ping["wind_speed_true"] = round(tws_ms * MS_TO_KNOTS, 1)
+
+    twd_rad = num("twd_rad")
+    if twd_rad is not None:
+        ping["wind_direction_true"] = int(round(math.degrees(twd_rad))) % 360
+
+    depth_m = num("depth_m")
+    if depth_m is not None:
+        ping["depth_m"] = round(depth_m, 1)
+
+    # SignalK temperatures are Kelvin; ship_log stores whole °C.
+    water_temp_k = num("water_temp_k")
+    if water_temp_k is not None:
+        ping["water_temp"] = int(round(water_temp_k - KELVIN_TO_C))
+
+    air_temp_k = num("air_temp_k")
+    if air_temp_k is not None:
+        ping["air_temp"] = int(round(air_temp_k - KELVIN_TO_C))
 
     return ping
 
