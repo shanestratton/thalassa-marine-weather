@@ -394,6 +394,14 @@ function buildNavGrid(
     // and bathymetry-derived DEPARE do NOT get this protection — they
     // can be erroneously placed and LNDARE should beat them.
     const protectedCells = new Uint8Array(width * height);
+    // Per-cell "hard blocked" flag: 1 = blocked by LNDARE (land) or a
+    // point obstruction (OBSTRN / WRECKS / UWTROC). A cell merely
+    // blocked by a shallow DEPARE band has hardBlocked = 0. Pass 4
+    // (FAIRWY) and Pass 5 (paired channel midpoints) are allowed to
+    // RESCUE a shallow-blocked cell back to navigable — a marked
+    // channel is navigable water by definition — but must never
+    // override a hard-blocked cell (actual land / charted hazard).
+    const hardBlocked = new Uint8Array(width * height);
     const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred };
 
     // Helper to convert a polygon bbox to grid coordinate range.
@@ -543,6 +551,7 @@ function buildNavGrid(
                     const idx = y * width + x;
                     if (!protectedCells[idx]) {
                         cells[idx] = BLOCKED;
+                        hardBlocked[idx] = 1;
                     }
                 }
             }
@@ -564,6 +573,7 @@ function buildNavGrid(
                 const dM = haversineM(cellLat, cellLon, lat, lon);
                 if (dM <= obstructionBufferM) {
                     cells[y * width + x] = BLOCKED;
+                    hardBlocked[y * width + x] = 1;
                 }
             }
         }
@@ -583,7 +593,10 @@ function buildNavGrid(
                 const lat = minLat + (y + 0.5) * dLat;
                 for (let x = x0; x <= x1; x++) {
                     const lon = minLon + (x + 0.5) * dLon;
-                    if (pointInGeometry(lon, lat, g)) cells[y * width + x] = BLOCKED;
+                    if (pointInGeometry(lon, lat, g)) {
+                        cells[y * width + x] = BLOCKED;
+                        hardBlocked[y * width + x] = 1;
+                    }
                 }
             }
         }
@@ -611,7 +624,23 @@ function buildNavGrid(
             for (let x = x0; x <= x1; x++) {
                 const lon = minLon + (x + 0.5) * dLon;
                 if (pointInGeometry(lon, lat, g)) {
-                    preferred[y * width + x] = 1;
+                    const idx = y * width + x;
+                    preferred[idx] = 1;
+                    // Rescue: a marked fairway / dredged area is
+                    // navigable water by definition. If coarse public
+                    // bathymetry blocked this cell with a shallow
+                    // DEPARE band, un-block it — the channel markers
+                    // (placed by the harbour authority) are the
+                    // authoritative "navigable" signal, not the 30 m
+                    // raster. Never override a hard-blocked cell
+                    // (LNDARE / obstruction). (2026-05-14: Newport —
+                    // the marked exit channel was preferred-but-
+                    // blocked, so it couldn't connect the canal to
+                    // open water and the route snapped ~2 km across
+                    // the peninsula.)
+                    if (Number.isNaN(cells[idx]) && hardBlocked[idx] !== 1) {
+                        cells[idx] = Math.max(draftM + safetyM, 5.0);
+                    }
                 }
             }
         }
@@ -684,7 +713,17 @@ function buildNavGrid(
                 const cellLon = minLon + (x + 0.5) * dLon;
                 const dM = haversineM(cellLat, cellLon, lat, lon);
                 if (dM <= radius) {
-                    preferred[y * width + x] = 1;
+                    const idx = y * width + x;
+                    preferred[idx] = 1;
+                    // Rescue shallow-blocked cells inside a paired
+                    // channel midpoint zone — same rationale as the
+                    // FAIRWY pass: the boat passes between the two
+                    // markers, so this is navigable channel water even
+                    // where coarse bathymetry reads it shallow. Never
+                    // override a hard-blocked cell (LNDARE / hazard).
+                    if (Number.isNaN(cells[idx]) && hardBlocked[idx] !== 1) {
+                        cells[idx] = Math.max(draftM + safetyM, 5.0);
+                    }
                 }
             }
         }
