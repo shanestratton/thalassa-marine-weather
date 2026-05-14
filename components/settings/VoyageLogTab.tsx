@@ -107,7 +107,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
     }
 
     // ── Set up — full control surface ──────────────────────────────
-    const publicUrl = voyageLogPublicUrl(config.handle);
+    const publicUrl = voyageLogPublicUrl(config.handle, config.api_key);
     const apiUrl = voyageLogApiUrl(config.handle, config.api_key);
     const maskedKey = `${config.api_key.slice(0, 6)}${'•'.repeat(18)}`;
 

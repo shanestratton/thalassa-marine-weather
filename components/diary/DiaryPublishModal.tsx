@@ -45,7 +45,7 @@ export const DiaryPublishModal: React.FC<DiaryPublishModalProps> = ({ entry, onK
             onPublished({ ...entry, is_public: true });
         }
         if (config) {
-            setPublicUrl(voyageLogPublicUrl(config.handle));
+            setPublicUrl(voyageLogPublicUrl(config.handle, config.api_key));
         }
         setPhase('published');
         triggerHaptic('light');
