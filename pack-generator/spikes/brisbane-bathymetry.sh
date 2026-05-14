@@ -782,6 +782,118 @@ if [[ -f "$WATER_CACHE" ]]; then
     fi
 fi
 
+# ── OSM linear waterway=canal → buffered navigable DEPARE ribbons ───
+# Canal estates (Newport QLD is the canonical case) map their canal
+# NETWORK as linear `waterway=canal` ways — centrelines — NOT as
+# closed `water=canal` polygons. The to_polygon jq above only keeps
+# CLOSED ways, so the entire linear canal network was being dropped.
+#
+# Diagnosed 2026-05-14: for Newport, 37 of 39 canal ways are linear
+# and were lost. The result — the whole canal estate read as BLOCKED
+# (30 m AusBathyTopo can't resolve dredged canals → shallow → Pass 1
+# block), the pin landed on a non-navigable cell, and the route
+# snapped ~2 km across the peninsula to the nearest open water.
+#
+# Fix: pull the linear `waterway=canal` ways out of the SAME water
+# cache (they're already fetched, just discarded), buffer each
+# centreline ±25 m with ogr2ogr ST_Buffer, and tag the ribbons as
+# authoritative DEPARE (waterway=canal, DRVAL1=3.0). ±25 m → ~50 m
+# ribbon: wide enough that the engine's 50 m grid reliably samples
+# cell centres along the canal (so the network stays connected),
+# narrow enough to stay within the canal-estate seawalls. Verified
+# via local buildNavGrid replay: turns Newport from a 0-cell blocked
+# void into a 240-cell connected navigable component.
+#
+# NB: this does NOT, on its own, bridge the canal mouth to deep open
+# water where the canals exit through shallow tidal flats the
+# bathymetry can't see — that residual gap needs marked-channel data
+# or the approach-line UX. But it makes the canal estate itself a
+# real routable water body, which it was not before.
+if [[ -f "$WATER_CACHE" ]]; then
+    CANAL_LINES="data/brisbane-canal-lines.geojson"
+    CANAL_BUFFER_GEOJSON="data/brisbane-canal-buffer.geojson"
+
+    # Extract LINEAR waterway=canal ways (open ways: first node != last).
+    jq '
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map(select(
+              .type == "way"
+              and .tags.waterway == "canal"
+              and (.geometry | length >= 2)
+              and ((.geometry[0].lat != .geometry[-1].lat)
+                   or (.geometry[0].lon != .geometry[-1].lon))
+            ))
+          | map({
+              type: "Feature",
+              properties: { _osm_id: .id },
+              geometry: { type: "LineString", coordinates: [.geometry[] | [.lon, .lat]] }
+            })
+        )
+      }
+    ' "$WATER_CACHE" > "$CANAL_LINES"
+
+    CANAL_LINE_COUNT=$(jq '.features | length' "$CANAL_LINES")
+    if [[ "$CANAL_LINE_COUNT" -gt 0 ]]; then
+        echo -e "  Buffering ${CANAL_LINE_COUNT} linear waterway=canal centrelines..."
+        rm -f "$CANAL_BUFFER_GEOJSON"
+        # ~25 m buffer ≈ 0.00025° at AU latitudes → ~50 m ribbon.
+        CANAL_BUFFER_DEG=0.00025
+        CANAL_OGR_LOG="/tmp/canal-ogr2ogr-$$.log"
+        if ogr2ogr -q \
+            -f GeoJSON \
+            -dialect SQLite \
+            -sql "SELECT ST_Buffer(geometry, ${CANAL_BUFFER_DEG}) AS geometry FROM 'brisbane-canal-lines'" \
+            -nln "brisbane-canal-lines" \
+            "$CANAL_BUFFER_GEOJSON" \
+            "$CANAL_LINES" 2>"$CANAL_OGR_LOG"; then
+            # Re-tag as authoritative DEPARE. `waterway=canal` makes the
+            # engine's isAuthoritativeDepare() match, so the cells
+            # survive both the shallow-bathymetry block (Pass 1) and
+            # LNDARE (Pass 2). DRVAL1=3.0 ≥ the 2.6 m cutoff.
+            jq '
+              {
+                type: "FeatureCollection",
+                features: (.features
+                  | map(.properties += {
+                      "_layer": "DEPARE",
+                      "_class": "canal-centreline-buffered",
+                      "_source": "OpenStreetMap waterway=canal (buffered)",
+                      "_license": "ODbL",
+                      "_grade": "D",
+                      "waterway": "canal",
+                      "DRVAL1": 3.0,
+                      "DRVAL2": 13.0
+                    })
+                )
+              }' "$CANAL_BUFFER_GEOJSON" > "${CANAL_BUFFER_GEOJSON}.tagged"
+            mv "${CANAL_BUFFER_GEOJSON}.tagged" "$CANAL_BUFFER_GEOJSON"
+
+            CANAL_BUF_COUNT=$(jq '.features | length' "$CANAL_BUFFER_GEOJSON")
+            echo -e "  ${GREEN}✓${NC} Buffered ${CANAL_BUF_COUNT} canal centrelines → authoritative DEPARE ribbons"
+            MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-canalmerge-$$.geojson")
+            jq -s '
+              {
+                type: "FeatureCollection",
+                features: ((.[0].features) + (.[1].features))
+              }
+            ' "$DEPARE_GEOJSON" "$CANAL_BUFFER_GEOJSON" > "$MERGED"
+            mv "$MERGED" "$DEPARE_GEOJSON"
+            rm -f "$CANAL_OGR_LOG"
+        else
+            echo -e "${YELLOW}  ⚠ ogr2ogr canal buffer failed — linear canals skipped${NC}"
+            echo -e "      stderr:"
+            head -c 500 "$CANAL_OGR_LOG" | sed 's/^/        /'
+            echo
+            rm -f "$CANAL_OGR_LOG"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ No linear waterway=canal ways in water cache${NC}"
+    fi
+fi
+
 # ── OSM ferry routes → synthetic FAIRWY polygons ────────────────────
 # Ferries follow real, surveyed, well-marked deep channels by
 # definition — they have to, repeatedly, every day. Aggregating
