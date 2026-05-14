@@ -972,11 +972,15 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     if (depth > 0) return 8.0;
     // CAUTION (depth < 0, the -1 sentinel) — soft-blocked: too shallow
     // for this vessel per our coarse bathymetry, but not land/hazard.
-    // 400× — A* routes through it ONLY when there is no real-water path
-    // (a 400-cell detour through navigable water beats one caution
-    // cell). Slightly cheaper than UNKNOWN_OPEN because here we at
-    // least have *a* depth reading, even if too shallow.
-    if (depth < 0) return 400.0;
+    // 25× — A* strongly prefers real water (3× the worst real-water
+    // cost of 8×, 5× the typical deep-water 5×), but won't take an
+    // insane detour to avoid caution. 400× was the first cut and it
+    // sent A* on ~10 km zigzag legs to dodge a single caution cell;
+    // 25× means it detours at most ~25 cells (~1.25 km) to stay in
+    // real water, and accepts a caution stretch when the real-water
+    // alternative is more than ~5× longer (e.g. the unavoidable
+    // Newport canal-mouth gap through Hays Inlet's tidal flats).
+    if (depth < 0) return 25.0;
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.
@@ -1435,8 +1439,14 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         .join(' ');
     console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
 
-    // Convert grid path → polyline (cell centers) → simplified polyline.
+    // Convert grid path → polyline (cell centers). Keep each smoothed
+    // cell's caution-state alongside so Douglas-Peucker can be run
+    // per caution-run below — DP itself is not caution-aware, so
+    // DP'ing the whole polyline re-merges a caution patch into an
+    // adjacent deep run and the route draws a long mostly-deep leg
+    // entirely red (the Brisbane "red but could go another way" bug).
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
+    const cautionRaw: boolean[] = smoothedCells.map((c) => grid.cells[c.y * grid.width + c.x] < 0);
 
     // Splice the user's input lat/lon back into the polyline ONLY when
     // the input is close enough to the snapped water cell that the
@@ -1463,36 +1473,46 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // DP tolerance ≈ 1/4 cell. Tighter than the original 1/2 cell —
     // keeps more turn detail in winding channels (Savannah River
     // bends look noticeably closer to the actual channel after this).
-    // The bandwidth cost is small (typically 20-40 polyline points
-    // for a harbor route).
     const tolDeg = Math.min(grid.dLat, grid.dLon) * 0.25;
-    const polyline = douglasPeucker(polylineRaw, tolDeg);
+
+    // Build the final polyline + per-segment cautionMask together.
+    // smoothPath already split the path at caution boundaries; we keep
+    // DP from re-merging across them by splitting polylineRaw into
+    // runs of constant caution-state, Douglas-Peucker'ing each run
+    // independently, then concatenating (the boundary point is shared
+    // between adjacent runs). A segment is "caution" if EITHER of its
+    // endpoint cells is caution — the transition segment is flagged
+    // red, conservatively.
+    let polyline: [number, number][];
+    const cautionMask: boolean[] = [];
+    if (polylineRaw.length < 2) {
+        polyline = polylineRaw.slice();
+    } else {
+        const segCaution: boolean[] = [];
+        for (let i = 0; i < polylineRaw.length - 1; i++) {
+            segCaution.push(cautionRaw[i] || cautionRaw[i + 1]);
+        }
+        polyline = [];
+        let runStart = 0;
+        for (let i = 0; i <= segCaution.length; i++) {
+            const atEnd = i === segCaution.length;
+            if (atEnd || segCaution[i] !== segCaution[runStart]) {
+                // run = segments [runStart, i) → points [runStart, i]
+                const simplified = douglasPeucker(polylineRaw.slice(runStart, i + 1), tolDeg);
+                const runCaution = segCaution[runStart];
+                // skip the boundary point shared with the previous run
+                const from = polyline.length === 0 ? 0 : 1;
+                for (let k = from; k < simplified.length; k++) polyline.push(simplified[k]);
+                for (let k = 0; k < simplified.length - 1; k++) cautionMask.push(runCaution);
+                runStart = i;
+            }
+        }
+    }
 
     // Compute total length in NM along the simplified polyline.
     let distM = 0;
     for (let i = 1; i < polyline.length; i++) {
         distM += haversineM(polyline[i - 1][1], polyline[i - 1][0], polyline[i][1], polyline[i][0]);
-    }
-
-    // Per-segment caution flags. For each polyline segment, walk the
-    // grid cells it crosses (Bresenham) and flag the segment if any
-    // cell is CAUTION (cells[idx] < 0 — soft-blocked shallow water).
-    // Done against the FINAL simplified polyline so it's decoupled
-    // from smoothing/DP — we just ask the grid what each drawn
-    // segment passes over. The renderer draws flagged segments red.
-    const cautionMask: boolean[] = [];
-    for (let i = 1; i < polyline.length; i++) {
-        const a = latLonToGrid(grid, polyline[i - 1][1], polyline[i - 1][0]);
-        const b = latLonToGrid(grid, polyline[i][1], polyline[i][0]);
-        let caution = false;
-        for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
-            if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
-            if (grid.cells[c.y * grid.width + c.x] < 0) {
-                caution = true;
-                break;
-            }
-        }
-        cautionMask.push(caution);
     }
 
     return {
