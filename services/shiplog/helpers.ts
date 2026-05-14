@@ -256,7 +256,11 @@ export function getWeatherSnapshot(): Partial<ShipLogEntry> {
         // Extract base weather values
         const windSpeed = current.windSpeed ?? undefined;
         const windGust = current.windGust ?? undefined;
-        const waveHeight = current.waveHeight ?? undefined;
+        // `current.waveHeight` is in FEET (transformers.ts converts m→ft).
+        // ship_log.wave_height is canonically metres — like the rest of the
+        // voyage-log pipeline — and waveToSeaState() expects metres too, so
+        // convert here, once.
+        const waveHeight = current.waveHeight != null ? current.waveHeight / 3.28084 : undefined;
         const visibility = current.visibility ?? undefined;
 
         // Calculate IMO-compliant scales
