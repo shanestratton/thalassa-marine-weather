@@ -135,6 +135,15 @@ export interface RouteDebug {
 
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
+    /**
+     * Per-segment caution flag, length `polyline.length - 1`.
+     * `cautionMask[i] === true` means the segment polyline[i]→polyline[i+1]
+     * crosses one or more CAUTION cells — water that reads too shallow
+     * for this vessel in our coarse bathymetry but is not land/hazard.
+     * The renderer draws these segments red so the skipper verifies
+     * depth locally. Absent on cloud results that predate this field.
+     */
+    cautionMask?: boolean[];
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
@@ -254,6 +263,17 @@ function geometryBbox(geom: Polygon | MultiPolygon): [number, number, number, nu
  */
 const BLOCKED = Number.NaN;
 const UNKNOWN_OPEN = 0;
+// CAUTION: soft-blocked. The cell reads too shallow for this vessel in
+// our (coarse, public) bathymetry — but it is NOT land and NOT a
+// charted hazard. A* MAY route through it, at a steep cost penalty, so
+// it only does when there is no real-water path. Segments of the
+// output that cross CAUTION cells are flagged in `cautionMask` so the
+// renderer can draw them red — "our data says shallow here, skipper
+// verifies". This is what lets canal estates (Newport) and shallow
+// tidal approaches route end-to-end instead of snapping kilometres to
+// the nearest surveyed-deep water. Negative sentinel so it's distinct
+// from BLOCKED (NaN), UNKNOWN_OPEN (0), and any real depth (>= 0).
+const CAUTION = -1;
 
 interface NavGrid {
     width: number;
@@ -479,34 +499,34 @@ function buildNavGrid(
                     continue;
                 }
                 if (drval1Num < draftM + safetyM) {
-                    // Shallow water — block UNLESS an authoritative
-                    // engineered-water DEPARE already claimed this cell.
-                    // Coarse public bathymetry (30 m AusBathyTopo) can't
-                    // resolve dredged marina basins / canals: it reads
-                    // them at the shallow surrounding-terrain depth, and
-                    // that shallow band would otherwise block the cell
-                    // before the precise OSM marina/canal polygon claims
-                    // it. The protectedCells guard makes the outcome
-                    // order-independent — once authoritative water has
-                    // claimed a cell, no shallow band re-blocks it.
-                    // (2026-05-14: Newport canal-estate bug — the dredged
-                    // canals read as 0.5-2 m in AusBathyTopo, so the
-                    // whole marina was blocked and the route snapped
-                    // ~2.4 km across the peninsula to the nearest water.)
+                    // Shallow water — mark CAUTION (soft-block) UNLESS an
+                    // authoritative engineered-water DEPARE already
+                    // claimed this cell. Coarse public bathymetry (30 m
+                    // AusBathyTopo) can't resolve dredged marina basins /
+                    // canals or shallow tidal approaches: it reads them
+                    // at the shallow surrounding-terrain depth. CAUTION
+                    // keeps the cell *navigable* (A* may route through it
+                    // at a steep cost, the renderer draws it red) instead
+                    // of hard-BLOCKED — so canal estates and shallow
+                    // approaches route end-to-end with an honest "verify
+                    // depth" flag rather than the route snapping
+                    // kilometres to the nearest surveyed-deep water.
+                    // protectedCells guard keeps the outcome order-
+                    // independent: once authoritative water claims a
+                    // cell, no shallow band downgrades it.
                     if (protectedCells[idx] !== 1) {
-                        cells[idx] = BLOCKED;
+                        cells[idx] = CAUTION;
                     }
                 } else {
                     // Deep enough for this vessel.
                     const prior = cells[idx];
                     if (Number.isNaN(prior)) {
-                        // Cell was blocked by an earlier (shallow) band.
-                        // An authoritative engineered-water DEPARE
-                        // overrides that shallow reading — un-block the
-                        // cell to the authoritative depth.
+                        // Cell hard-blocked by an earlier pass — only an
+                        // authoritative DEPARE un-blocks it.
                         if (authoritative) cells[idx] = drval1Num;
-                    } else if (prior === UNKNOWN_OPEN || drval1Num < prior) {
-                        // Track shallowest known depth at this cell.
+                    } else if (prior === UNKNOWN_OPEN || prior === CAUTION || drval1Num < prior) {
+                        // Upgrade an unknown / caution cell to real depth,
+                        // or track the shallowest known real depth.
                         cells[idx] = drval1Num;
                     }
                     if (authoritative) protectedCells[idx] = 1;
@@ -638,7 +658,11 @@ function buildNavGrid(
                     // blocked, so it couldn't connect the canal to
                     // open water and the route snapped ~2 km across
                     // the peninsula.)
-                    if (Number.isNaN(cells[idx]) && hardBlocked[idx] !== 1) {
+                    if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
+                        // Rescue a hard-blocked OR caution-marked cell to
+                        // real navigable depth — the marked channel is
+                        // authoritative over both a shallow bathymetry
+                        // reading and a coastline-buffer over-reach.
                         cells[idx] = Math.max(draftM + safetyM, 5.0);
                     }
                 }
@@ -721,7 +745,11 @@ function buildNavGrid(
                     // markers, so this is navigable channel water even
                     // where coarse bathymetry reads it shallow. Never
                     // override a hard-blocked cell (LNDARE / hazard).
-                    if (Number.isNaN(cells[idx]) && hardBlocked[idx] !== 1) {
+                    if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
+                        // Rescue a hard-blocked OR caution-marked cell to
+                        // real navigable depth — the marked channel is
+                        // authoritative over both a shallow bathymetry
+                        // reading and a coastline-buffer over-reach.
                         cells[idx] = Math.max(draftM + safetyM, 5.0);
                     }
                 }
@@ -979,6 +1007,13 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     if (depth >= 10) return 5.0;
     if (depth >= 5) return 6.0;
     if (depth > 0) return 8.0;
+    // CAUTION (depth < 0, the -1 sentinel) — soft-blocked: too shallow
+    // for this vessel per our coarse bathymetry, but not land/hazard.
+    // 400× — A* routes through it ONLY when there is no real-water path
+    // (a 400-cell detour through navigable water beats one caution
+    // cell). Slightly cheaper than UNKNOWN_OPEN because here we at
+    // least have *a* depth reading, even if too shallow.
+    if (depth < 0) return 400.0;
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.
@@ -1470,8 +1505,30 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         distM += haversineM(polyline[i - 1][1], polyline[i - 1][0], polyline[i][1], polyline[i][0]);
     }
 
+    // Per-segment caution flags. For each polyline segment, walk the
+    // grid cells it crosses (Bresenham) and flag the segment if any
+    // cell is CAUTION (cells[idx] < 0 — soft-blocked shallow water).
+    // Done against the FINAL simplified polyline so it's decoupled
+    // from smoothing/DP — we just ask the grid what each drawn
+    // segment passes over. The renderer draws flagged segments red.
+    const cautionMask: boolean[] = [];
+    for (let i = 1; i < polyline.length; i++) {
+        const a = latLonToGrid(grid, polyline[i - 1][1], polyline[i - 1][0]);
+        const b = latLonToGrid(grid, polyline[i][1], polyline[i][0]);
+        let caution = false;
+        for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
+            if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
+            if (grid.cells[c.y * grid.width + c.x] < 0) {
+                caution = true;
+                break;
+            }
+        }
+        cautionMask.push(caution);
+    }
+
     return {
         polyline,
+        cautionMask,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
