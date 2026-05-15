@@ -167,6 +167,27 @@ async function pullFromCloud(userId: string): Promise<void> {
         await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(merged) });
         _addDebugLog('CLOUD PULL OK: settings merged from profiles + vessel_identity');
         manageScreenEffects(merged);
+
+        // Notify WeatherContext that settings just landed. The
+        // orchestrator's normal init useEffect may have ALREADY fired
+        // before this completed (with no defaultLocation, then
+        // setLoading(false) and returned). On fresh-install +
+        // sign-in, that race left Shane staring at a spinning Glass
+        // page because useAppController's effect re-firing on
+        // settings.defaultLocation change wasn't reliably re-fetching.
+        // A direct event removes that indirection — WeatherContext
+        // listens and triggers fetchWeather as soon as it sees a
+        // location lands.
+        if (typeof window !== 'undefined' && merged.defaultLocation) {
+            window.dispatchEvent(
+                new CustomEvent('thalassa:settings-restored', {
+                    detail: {
+                        defaultLocation: merged.defaultLocation,
+                        defaultLocationCoords: merged.defaultLocationCoords,
+                    },
+                }),
+            );
+        }
     } catch (err) {
         _addDebugLog(`CLOUD PULL FAIL: ${getErrorMessage(err)}`);
     }

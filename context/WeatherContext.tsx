@@ -195,6 +195,39 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settingsLoading, versionChecked]);
 
+    // ── CLOUD-RESTORE TRIGGER ───────────────────────────────
+    // settingsStore.pullFromCloud dispatches this event after it
+    // merges cloud settings into the local store on first sign-in.
+    // The init useEffect above may have already fired with an
+    // empty defaultLocation (the orchestrator then setLoading(false)
+    // and returned without fetching). This listener picks up the
+    // restored location and kicks off the weather fetch the user
+    // expects — without it, the Glass page stayed on its initial
+    // loading state until the next cold boot. Boot-time race.
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const detail = (
+                e as CustomEvent<{
+                    defaultLocation?: string;
+                    defaultLocationCoords?: { lat: number; lon: number };
+                }>
+            ).detail;
+            const loc = detail?.defaultLocation;
+            if (!loc) return;
+            if (weatherDataRef.current) return; // already have data, nothing to do
+            log.info(`[WeatherContext] settings-restored event → fetching weather for ${loc}`);
+            orchestrator.fetchWeather(loc, {
+                force: false,
+                coords: detail?.defaultLocationCoords,
+                showOverlay: false,
+                silent: false,
+            });
+        };
+        window.addEventListener('thalassa:settings-restored', handler);
+        return () => window.removeEventListener('thalassa:settings-restored', handler);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
     // ── PERSISTENCE ─────────────────────────────────────────
     useEffect(() => {
         if (weatherData) saveLargeDataImmediate(DATA_CACHE_KEY, weatherData);
