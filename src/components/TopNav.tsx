@@ -1,6 +1,5 @@
 import React from 'react';
 import type { VoyageLogData, VoyageLogTelemetry } from '../voyageLogApi';
-import { BandwidthToggle } from './BandwidthToggle';
 
 interface TopNavProps {
     vessel: VoyageLogData['vessel'];
@@ -32,19 +31,18 @@ export default function TopNav({ vessel, telemetry, entryCount }: TopNavProps) {
             </div>
 
             {/* Status */}
-            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-                <span className="hidden md:block text-[11px] font-mono text-slate-500">
+            <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+                <span className="hidden sm:block text-[11px] font-mono text-slate-500">
                     {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
                 </span>
                 {telemetry ? (
-                    <span className="hidden sm:flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-emerald-400">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                         Live
                     </span>
                 ) : (
-                    <span className="hidden sm:block text-[11px] font-mono text-slate-500">No telemetry</span>
+                    <span className="text-[11px] font-mono text-slate-500">No telemetry yet</span>
                 )}
-                <BandwidthToggle />
             </div>
         </header>
     );
