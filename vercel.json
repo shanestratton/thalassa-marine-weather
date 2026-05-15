@@ -1,16 +1,6 @@
 {
     "rewrites": [
         {
-            "source": "/((?!.*\\..*).*)",
-            "has": [
-                {
-                    "type": "host",
-                    "value": "^[^.]+\\.thalassawx\\.app$"
-                }
-            ],
-            "destination": "/logs.html"
-        },
-        {
             "source": "/terms",
             "destination": "/terms.html"
         },
