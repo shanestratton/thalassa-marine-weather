@@ -149,6 +149,11 @@ interface AppleMusicPluginInterface {
         artist: string;
         album: string;
         artwork_url: string;
+        /** Seconds. Optional for forwards-compat with plugins built
+         *  before this field shipped — TS layer coerces undefined → 0. */
+        playback_time?: number;
+        /** Seconds. Same forwards-compat note. */
+        duration?: number;
     }>;
 
     // TTS
@@ -839,6 +844,12 @@ export interface NowPlaying {
     artist: string;
     album: string;
     artworkUrl: string;
+    /** Current playback position in seconds. 0 when nothing's queued. */
+    playbackTime: number;
+    /** Track duration in seconds. 0 when unknown (e.g. live radio,
+     *  non-Song queue entry). Consumers should hide progress UI when
+     *  this is <= 0. */
+    duration: number;
 }
 
 export async function getNowPlaying(): Promise<NowPlaying | null> {
@@ -852,6 +863,11 @@ export async function getNowPlaying(): Promise<NowPlaying | null> {
             artist: r.artist,
             album: r.album,
             artworkUrl: r.artwork_url,
+            // Swift sends TimeInterval (Double, seconds). Coerce
+            // defensively in case the plugin is the old version
+            // before this field shipped.
+            playbackTime: typeof r.playback_time === 'number' ? r.playback_time : 0,
+            duration: typeof r.duration === 'number' ? r.duration : 0,
         };
     } catch {
         return null;

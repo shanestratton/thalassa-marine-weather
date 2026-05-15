@@ -1395,6 +1395,15 @@ public class AppleMusicPlugin: CAPPlugin {
             let isPlaying = state.playbackStatus == .playing
             let entry = player.queue.currentEntry
 
+            // Playback position lives on the player directly (not on
+            // state). Duration lives on the queued item — only Song
+            // exposes a non-Optional .duration; other entry types
+            // (Album/Playlist/Station tracks) wrap that same field.
+            // Both default to 0 when nothing is queued — the JS layer
+            // hides the progress bar in that case (duration <= 0).
+            let playbackTime = player.playbackTime
+            var duration: TimeInterval = 0
+
             var title = ""
             var artist = ""
             var album = ""
@@ -1419,6 +1428,7 @@ public class AppleMusicPlugin: CAPPlugin {
                         artist = song.artistName
                     }
                     album = song.albumTitle ?? ""
+                    duration = song.duration ?? 0
                     if artworkUrl.isEmpty, let url = song.artwork?.url(width: 400, height: 400) {
                         artworkUrl = url.absoluteString
                         artworkSource = "song"
@@ -1587,6 +1597,8 @@ public class AppleMusicPlugin: CAPPlugin {
                     "artist": finalArtist,
                     "album": finalAlbum,
                     "artwork_url": finalArtworkUrl,
+                    "playback_time": playbackTime,
+                    "duration": duration,
                 ])
             }
         }
