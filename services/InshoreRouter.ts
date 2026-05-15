@@ -157,9 +157,30 @@ export async function tryInshoreRoute(
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
         return inflight;
     }
-    const promise = tryInshoreRouteInner(origin, destination, draftM).finally(() => {
-        inflightRouteRequests.delete(dedupeKey);
-    });
+    const promise = tryInshoreRouteInner(origin, destination, draftM)
+        .then((res) => {
+            // Loud paired exit log so every ENTRY has a visible
+            // completion in the console. Three outcomes:
+            //   • polyline → success (also logged by the STAGE: lines)
+            //   • error/code → engine ran but couldn't route
+            //   • null → gated out (distance / ENC coverage / no cells)
+            // The latter two were previously near-silent at this layer.
+            if (res && 'polyline' in res) {
+                log.warn(`EXIT: success — ${res.polyline.length} polyline pts, ${res.distanceNM.toFixed(1)} NM`);
+            } else if (res && 'error' in res) {
+                log.warn(`EXIT: engine failure — ${res.error} (code=${res.code ?? 'none'})`);
+            } else {
+                log.warn(`EXIT: gated null — see prior GATE/STAGE logs for which check failed`);
+            }
+            return res;
+        })
+        .catch((err) => {
+            log.warn(`EXIT: threw — ${err instanceof Error ? err.message : String(err)}`);
+            throw err;
+        })
+        .finally(() => {
+            inflightRouteRequests.delete(dedupeKey);
+        });
     inflightRouteRequests.set(dedupeKey, promise);
     return promise;
 }

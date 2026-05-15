@@ -388,7 +388,23 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                 // with a meaningless straight line through land.
                 let inshoreSucceeded = false;
                 try {
+                    // Loud breadcrumb at the orchestrator level so a
+                    // missing-coord skip is visible. Without this, the
+                    // entire InshoreRouter pipeline can no-op silently
+                    // (and you stare at an empty Xcode console wondering
+                    // why none of the [InshoreRouter] logs appear).
+                    const oc = result.originCoordinates;
+                    const dc = result.destinationCoordinates;
+                    console.warn(
+                        `[useVoyageForm] inshore step: origin=${oc ? `${oc.lat.toFixed(4)},${oc.lon.toFixed(4)}` : 'MISSING'} dest=${dc ? `${dc.lat.toFixed(4)},${dc.lon.toFixed(4)}` : 'MISSING'}`,
+                    );
+                    if (!oc || !dc) {
+                        console.warn(
+                            `[useVoyageForm] inshore step skipped — origin/destination coords not yet resolved on the plan result. Pipeline continues with bathymetric/isochrone routers.`,
+                        );
+                    }
                     if (result.originCoordinates && result.destinationCoordinates) {
+                        console.warn(`[useVoyageForm] inshore step: importing InshoreRouter…`);
                         const { tryInshoreRoute, inshoreRouteToGeoJSON } = await import('../services/InshoreRouter');
                         // vessel.draft is stored in FEET (OnboardingWizard
                         // converts metres → feet before saving, line 423).
