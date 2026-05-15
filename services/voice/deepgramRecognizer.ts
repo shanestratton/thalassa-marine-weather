@@ -466,23 +466,51 @@ export async function prewarmMicStream(): Promise<boolean> {
     if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
         return false;
     }
-    try {
-        const t0 = Date.now();
-        const stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-                channelCount: 1,
-                echoCancellation: true,
-                noiseSuppression: true,
-                autoGainControl: true,
-            },
-        });
-        prewarmedMicStream = stream;
-        emitEvent(`[DG] prewarmed mic stream in ${Date.now() - t0}ms`);
-        return true;
-    } catch (err) {
-        emitEvent(`[DG] prewarm mic failed: ${(err as Error).message}`);
-        return false;
+
+    // Retry up to 3 times with backoff. The transient failure mode we're
+    // protecting against: rearmPrewarm fires immediately after a
+    // recognizer's teardown (typical on the "over" auto-stop path, which
+    // doesn't wait for Deepgram's ~1.2s flush before tearing down). iOS
+    // AVAudioSession needs ~300-500ms to fully deactivate the capture
+    // session before getUserMedia can re-acquire cleanly. If we call
+    // during that window the call throws NotReadableError / InvalidState,
+    // we swallow it, leave prewarmedMicStream null, and the next tap
+    // cold-starts. With retry the second attempt succeeds.
+    //
+    // Happy path is unaffected — the first call almost always works,
+    // and the retry loop only runs on the (rare) post-teardown race.
+    const constraints: MediaStreamConstraints = {
+        audio: {
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+        },
+    };
+    const maxAttempts = 3;
+    let lastError = '';
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            const t0 = Date.now();
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            prewarmedMicStream = stream;
+            emitEvent(
+                `[DG] prewarmed mic stream in ${Date.now() - t0}ms${
+                    attempt > 1 ? ` (succeeded on attempt ${attempt})` : ''
+                }`,
+            );
+            return true;
+        } catch (err) {
+            lastError = (err as Error).message;
+            emitEvent(`[DG] prewarm mic attempt ${attempt}/${maxAttempts} failed: ${lastError}`);
+            if (attempt < maxAttempts) {
+                // 350ms, 700ms — enough headroom for iOS AVAudioSession to settle.
+                await new Promise<void>((r) => setTimeout(r, 350 * attempt));
+            }
+        }
     }
+    emitEvent(`[DG] prewarm mic gave up after ${maxAttempts} attempts: ${lastError}`);
+    return false;
 }
 
 export function releasePrewarmedMicStream(): void {
