@@ -30,6 +30,8 @@
 		AA000010AAAA001000000001 /* ThalassaBridgeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000010AAAA001000000002 /* ThalassaBridgeViewController.swift */; };
 		AA000011AAAA001100000001 /* LightningPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000011AAAA001100000002 /* LightningPlugin.swift */; };
 		AA000012AAAA001200000001 /* LightningPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000012AAAA001200000002 /* LightningPlugin.m */; };
+		AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */; };
+		AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */ = {isa = PBXBuildFile; fileRef = AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,6 +86,8 @@
 		AA000010AAAA001000000002 /* ThalassaBridgeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThalassaBridgeViewController.swift; sourceTree = "<group>"; };
 		AA000011AAAA001100000002 /* LightningPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LightningPlugin.swift; sourceTree = "<group>"; };
 		AA000012AAAA001200000002 /* LightningPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = LightningPlugin.m; sourceTree = "<group>"; };
+		AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MdnsBrowserPlugin.swift; sourceTree = "<group>"; };
+		AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = MdnsBrowserPlugin.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -158,6 +162,8 @@
 				AA000010AAAA001000000002 /* ThalassaBridgeViewController.swift */,
 				AA000011AAAA001100000002 /* LightningPlugin.swift */,
 				AA000012AAAA001200000002 /* LightningPlugin.m */,
+				AA000013AAAA001300000002 /* MdnsBrowserPlugin.swift */,
+				AA000014AAAA001400000002 /* MdnsBrowserPlugin.m */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -236,8 +242,9 @@
 		504EC2FC1FED79650016851F /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 2640;
-				LastUpgradeCheck = 0920;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					504EC3031FED79650016851F = {
 						CreatedOnToolsVersion = 9.2;
@@ -370,6 +377,8 @@
 				AA000010AAAA001000000001 /* ThalassaBridgeViewController.swift in Sources */,
 				AA000011AAAA001100000001 /* LightningPlugin.swift in Sources */,
 				AA000012AAAA001200000001 /* LightningPlugin.m in Sources */,
+				AA000013AAAA001300000001 /* MdnsBrowserPlugin.swift in Sources */,
+				AA000014AAAA001400000001 /* MdnsBrowserPlugin.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -424,6 +433,7 @@
 				CLANG_WARN_BOOL_CONVERSION = YES;
 				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_EMPTY_BODY = YES;
@@ -431,8 +441,10 @@
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
@@ -442,6 +454,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = D4TW8A23QZ;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -462,6 +475,7 @@
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -481,6 +495,7 @@
 				CLANG_WARN_BOOL_CONVERSION = YES;
 				CLANG_WARN_COMMA = YES;
 				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
 				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
 				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
 				CLANG_WARN_EMPTY_BODY = YES;
@@ -488,8 +503,10 @@
 				CLANG_WARN_INFINITE_RECURSION = YES;
 				CLANG_WARN_INT_CONVERSION = YES;
 				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
@@ -499,6 +516,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = D4TW8A23QZ;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -512,6 +530,7 @@
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				VALIDATE_PRODUCT = YES;
@@ -526,7 +545,6 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 100;
-				DEVELOPMENT_TEAM = D4TW8A23QZ;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -557,7 +575,6 @@
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 100;
-				DEVELOPMENT_TEAM = D4TW8A23QZ;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -593,7 +610,6 @@
 				CODE_SIGN_ENTITLEMENTS = "ThalassaWatch Watch App/ThalassaWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 100;
-				DEVELOPMENT_TEAM = D4TW8A23QZ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				FRAMEWORK_SEARCH_PATHS = "";
@@ -650,7 +666,6 @@
 				CODE_SIGN_ENTITLEMENTS = "ThalassaWatch Watch App/ThalassaWatch Watch App.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 100;
-				DEVELOPMENT_TEAM = D4TW8A23QZ;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				FRAMEWORK_SEARCH_PATHS = "";

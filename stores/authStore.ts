@@ -13,11 +13,19 @@ import { setUser as setSentryUser } from '../services/sentry';
 
 interface AuthState {
     user: User | null;
+    /**
+     * Has the initial session check completed? Distinguishes "still
+     * loading on cold boot" from "definitely not signed in" so the
+     * AuthGate doesn't flash the SignInScreen for a frame on every
+     * cold start while supabase.auth.getSession resolves.
+     */
+    authChecked: boolean;
     logout: () => Promise<void>;
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
     user: null,
+    authChecked: false,
     logout: async () => {
         if (!supabase) return;
         await PushNotificationService.clearUser();
@@ -35,7 +43,7 @@ function initAuth() {
 
     supabase.auth.getSession().then(({ data: { session } }) => {
         const u = session?.user ?? null;
-        useAuthStore.setState({ user: u });
+        useAuthStore.setState({ user: u, authChecked: true });
         if (u) {
             PushNotificationService.setUser(u.id);
             PushNotificationService.requestPermissionAndRegister();
