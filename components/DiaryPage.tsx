@@ -704,7 +704,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 isRecording={isRecording}
                 recordingTime={recordingTime}
                 transcribing={transcribing}
-                isPlaying={isPlaying}
                 polishStyle={polishStyle}
                 onSetTitle={setTitle}
                 onSetBody={setBody}
@@ -718,9 +717,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 }}
                 onStartRecording={startRecording}
                 onStopRecording={stopRecording}
-                onRemoveAudio={removeAudio}
-                onTogglePlayback={togglePlayback}
-                onTranscribe={handleTranscribe}
                 onPolish={handlePolish}
                 onPhotoSelect={handlePhotoSelect}
                 onPhotoRemove={removePhoto}

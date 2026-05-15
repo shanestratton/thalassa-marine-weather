@@ -8,7 +8,6 @@ import React, { useRef } from 'react';
 import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
-import { AudioWidget } from './AudioWidget';
 import { DiaryPhoto } from './DiaryPhoto';
 import { OfflineBadge } from '../ui/OfflineBadge';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
@@ -36,7 +35,6 @@ interface DiaryComposeFormProps {
     isRecording: boolean;
     recordingTime: number;
     transcribing: boolean;
-    isPlaying: boolean;
     polishStyle: PolishStyle;
     // Setters
     onSetTitle: (v: string) => void;
@@ -49,9 +47,6 @@ interface DiaryComposeFormProps {
     onCancel: () => void;
     onStartRecording: () => void;
     onStopRecording: () => void;
-    onRemoveAudio: () => void;
-    onTogglePlayback: (url: string) => void;
-    onTranscribe: (url: string) => void;
     onPolish: () => void;
     onPhotoSelect: (e: React.ChangeEvent<HTMLInputElement>) => void;
     onPhotoRemove: (idx: number) => void;
@@ -73,7 +68,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         isRecording,
         recordingTime,
         transcribing,
-        isPlaying,
         polishStyle,
         onSetTitle,
         onSetBody,
@@ -84,9 +78,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         onCancel,
         onStartRecording,
         onStopRecording,
-        onRemoveAudio,
-        onTogglePlayback,
-        onTranscribe,
         onPolish,
         onPhotoSelect,
         onPhotoRemove,
@@ -320,19 +311,11 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         </div>
                     )}
 
-                    {/* Audio widget (if recorded) */}
-                    {audioUrl && (
-                        <AudioWidget
-                            url={audioUrl}
-                            isPlaying={isPlaying}
-                            transcribing={transcribing}
-                            onTogglePlayback={onTogglePlayback}
-                            onTranscribe={onTranscribe}
-                            onRemove={onRemoveAudio}
-                            allowTranscribe={true}
-                            allowRemove={true}
-                        />
-                    )}
+                    {/* Voice memo preview deliberately omitted — recording auto-
+                        transcribes on stop (DiaryPage onstop handler), so all
+                        the punter ever sees is the transient transcribing pill
+                        above. audioUrl still rides along on the saved entry
+                        for playback in the entry-detail view. */}
 
                     {/* Photos */}
                     <div className="shrink-0">
