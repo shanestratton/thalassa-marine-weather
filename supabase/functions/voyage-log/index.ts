@@ -204,17 +204,21 @@ Deno.serve(async (req: Request) => {
             wave_height: p.wave_height ?? null,
         }));
 
-        // ── Nearby AIS contacts (60 nm around the latest fix) ──────
-        // Uses the same `vessels_nearby` RPC the iOS app calls. Returns
-        // an empty list if no data, no current position, or the RPC
-        // errors — never blocks the rest of the response.
+        // ── Nearby AIS contacts (200 nm around the latest fix) ─────
+        // Uses the same `vessels_nearby` RPC the iOS app calls. 200 nm is
+        // wide for coastal use but a fair "what's around me" radius on
+        // open ocean — AIS coverage and the "in your shipping lane"
+        // sense both reach further than line-of-sight out at sea. The
+        // 60-result cap keeps coastal density from cluttering. Returns
+        // an empty list if no data / no current position / RPC error —
+        // never blocks the rest of the response.
         const last = track[track.length - 1] ?? null;
         let nearbyVessels: unknown[] = [];
         if (last) {
             const { data: aisData, error: aisErr } = await supabase.rpc('vessels_nearby', {
                 query_lat: last.lat,
                 query_lon: last.lon,
-                radius_m: 60 * 1852, // 60 nm
+                radius_m: 200 * 1852, // 200 nm
                 max_results: 60,
             });
             if (aisErr) {

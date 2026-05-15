@@ -1,9 +1,13 @@
 -- ═══════════════════════════════════════════════════════════════
--- DEMO VOYAGE — Newport → Noumea (in progress, ~⅔ across the Coral Sea)
+-- DEMO VOYAGE — Newport → Nouméa (final approach, ~30 nm out)
 --
 -- Seeds the Voyage Log with a believable hourly track + live telemetry
 -- so the public page has something to show off before the real Pi ping
 -- is feeding it. Run in the Supabase SQL Editor.
+--
+-- End-point chosen to put the boat inside Nouméa's AIS coverage so the
+-- map shows nearby shipping. Mid-Coral-Sea was too sparse (3 vessels
+-- within 200 nm vs hundreds nearer the harbour approaches).
 --
 -- Self-contained: re-asserts the ship_log telemetry columns up top, so
 -- it works whether or not the telemetry migration has been run.
@@ -31,9 +35,9 @@ ALTER TABLE public.ship_log
 -- ── 1. Clear any previous demo run ─────────────────────────────
 DELETE FROM public.ship_log WHERE entry_type = 'demo';
 
--- ── 2. The track — 80 hourly fixes, Newport → mid-Coral-Sea ─────
--- Linear run from Newport, QLD (-27.16, 153.10) toward the current
--- position (~-23.95, 161.7), with a little sine wander for realism.
+-- ── 2. The track — 80 hourly fixes, Newport → Nouméa approach ─
+-- Linear run from Newport, QLD (-27.16, 153.10) toward the Nouméa
+-- approach (~-22.75, 166.45), with a little sine wander for realism.
 -- Trade-wind passage: SE'ly breeze, broad reach on starboard, warm water.
 INSERT INTO public.ship_log (
     user_id, latitude, longitude, timestamp, entry_type,
@@ -43,8 +47,8 @@ INSERT INTO public.ship_log (
 )
 SELECT
     (SELECT owner_id FROM public.voyage_log_configs WHERE handle = 'serene-summer'),
-    -27.16 + 3.20 * (g / 80.0) + sin(g / 4.0) * 0.05,                       -- latitude
-    153.10 + 8.60 * (g / 80.0) + cos(g / 5.0) * 0.06,                       -- longitude
+    -27.16 + 4.41 * (g / 80.0) + sin(g / 4.0) * 0.05,                       -- latitude  (Newport → -22.75)
+    153.10 + 13.35 * (g / 80.0) + cos(g / 5.0) * 0.06,                      -- longitude (Newport → 166.45)
     now() - ((80 - g) || ' hours')::interval,                              -- hourly, ending now
     'demo',
     round((6.4 + sin(g / 3.0) * 1.0 + random() * 0.6)::numeric, 1),        -- SOG  ~5.5–8 kt
@@ -72,11 +76,11 @@ WITH ranked AS (
     WHERE user_id = (SELECT owner_id FROM public.voyage_log_configs WHERE handle = 'serene-summer')
 )
 UPDATE public.diary_entries d
-SET latitude      = -27.16 + 3.20 * ((ranked.rn - 0.5) / ranked.total) + 0.07,
-    longitude     = 153.10 + 8.60 * ((ranked.rn - 0.5) / ranked.total),
+SET latitude      = -27.16 + 4.41 * ((ranked.rn - 0.5) / ranked.total) + 0.07,
+    longitude     = 153.10 + 13.35 * ((ranked.rn - 0.5) / ranked.total),
     location_name = CASE
         WHEN ranked.rn = 1            THEN 'Departing Newport, QLD'
-        WHEN ranked.rn = ranked.total THEN 'Coral Sea — bound for Nouméa'
+        WHEN ranked.rn = ranked.total THEN 'Approaching Nouméa'
         ELSE 'Coral Sea passage'
     END
 FROM ranked

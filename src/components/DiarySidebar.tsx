@@ -32,16 +32,25 @@ const EntryDetail: React.FC<{
     const mood = MOOD[entry.mood];
     return (
         <>
-            <div className="shrink-0 px-4 py-3 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
+            <div className="shrink-0 px-3 py-2 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
                 <button
                     type="button"
                     onClick={onBack}
-                    className="flex items-center gap-1.5 text-xs font-bold text-sky-400 hover:text-sky-300 uppercase tracking-wider transition-colors"
+                    aria-label="Back to all entries"
+                    className="group flex items-center gap-2.5 pr-3 rounded-full hover:bg-white/5 active:bg-white/10 transition-colors"
                 >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-                    </svg>
-                    All entries
+                    <span className="flex items-center justify-center w-11 h-11 rounded-full bg-sky-500/15 border border-sky-400/30 text-sky-300 group-hover:bg-sky-500/25 group-hover:text-sky-200 group-active:scale-95 transition-all shadow-sm">
+                        <svg
+                            className="w-5 h-5"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2.5}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                        </svg>
+                    </span>
+                    <span className="text-xs font-bold text-sky-300 uppercase tracking-wider">All entries</span>
                 </button>
             </div>
 
