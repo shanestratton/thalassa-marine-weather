@@ -53,17 +53,17 @@ export default function ThalassaDashboard() {
     const [lightbox, setLightbox] = useState<LightboxState | null>(null);
 
     const load = useCallback(async (showSpinner: boolean) => {
-        const { handle, key } = parseVoyageLogParams();
-        if (!handle || !key) {
+        const { handle } = parseVoyageLogParams();
+        if (!handle) {
             setState({
                 status: 'error',
-                message: 'This link is incomplete — it needs a vessel handle and key.',
+                message: 'This link is incomplete — it needs a vessel handle.',
             });
             return;
         }
         if (showSpinner) setState({ status: 'loading' });
         try {
-            const data = await fetchVoyageLog(handle, key);
+            const data = await fetchVoyageLog(handle);
             setState({ status: 'ready', data });
         } catch (e) {
             const message = e instanceof VoyageLogError ? e.message : 'Something went wrong loading this voyage log.';

@@ -9,6 +9,13 @@
 -- map shows nearby shipping. Mid-Coral-Sea was too sparse (3 vessels
 -- within 200 nm vs hundreds nearer the harbour approaches).
 --
+-- ASSUMES the multi-crew migration (20260516120000_voyage_log_boats.sql)
+-- has been run. After that, handle='serene-summer' resolves to the
+-- COMBINED config; handle='shane-on-serene-summer' to the personal one.
+-- Both share boat_id + owner_id (Shane), so the lookup below still works.
+-- ship_log.boat_id is auto-populated by the trg_ship_log_set_boat_id
+-- trigger from the migration — no need to set it explicitly.
+--
 -- Self-contained: re-asserts the ship_log telemetry columns up top, so
 -- it works whether or not the telemetry migration has been run.
 --
