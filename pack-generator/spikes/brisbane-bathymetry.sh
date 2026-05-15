@@ -461,7 +461,7 @@ if [[ ! -f "$SEAMARKS_CACHE" ]]; then
   nwr[\"seamark:type\"=\"navigation_line\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
-    if curl -fsSL --max-time 120 \
+    if curl -fsSL --max-time 120 -A "thalassa-pack-generator/1.0 (https://github.com/shanestratton/thalassa-marine-weather)" \
         --data-urlencode "data=${OVERPASS_QUERY}" \
         https://overpass-api.de/api/interpreter \
         -o "$SEAMARKS_CACHE"; then
@@ -1053,7 +1053,7 @@ if [[ ! -f "$FERRY_CACHE" ]]; then
   relation[\"route\"=\"ferry\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
-    if curl -fsSL --max-time 120 \
+    if curl -fsSL --max-time 120 -A "thalassa-pack-generator/1.0 (https://github.com/shanestratton/thalassa-marine-weather)" \
         --data-urlencode "data=${FERRY_QUERY}" \
         https://overpass-api.de/api/interpreter \
         -o "$FERRY_CACHE"; then
@@ -1200,7 +1200,7 @@ if [[ ! -f "$HAZARD_CACHE" ]]; then
   way[\"natural\"=\"shoal\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
-    if curl -fsSL --max-time 90 \
+    if curl -fsSL --max-time 90 -A "thalassa-pack-generator/1.0 (https://github.com/shanestratton/thalassa-marine-weather)" \
         --data-urlencode "data=${HAZARD_QUERY}" \
         https://overpass-api.de/api/interpreter \
         -o "$HAZARD_CACHE"; then
@@ -1295,7 +1295,7 @@ if [[ ! -f "$COASTLINE_CACHE" ]]; then
   way[\"natural\"=\"coastline\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
-    if curl -fsSL --max-time 180 \
+    if curl -fsSL --max-time 180 -A "thalassa-pack-generator/1.0 (https://github.com/shanestratton/thalassa-marine-weather)" \
         --data-urlencode "data=${COASTLINE_QUERY}" \
         https://overpass-api.de/api/interpreter \
         -o "$COASTLINE_CACHE"; then
