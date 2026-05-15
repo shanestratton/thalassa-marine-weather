@@ -81,7 +81,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const [loadingMessage, setLoadingMessage] = useState('Initializing Weather Data...');
     const [backgroundUpdating, setBackgroundUpdating] = useState(false);
     const [staleRefresh, setStaleRefresh] = useState(false);
-    const [locationMode, setLocationMode] = useState<'gps' | 'selected'>('gps');
+    // Initial mode derived from settings — 'Current Location' = GPS
+    // tracking, anything else = locked to that named port. Was
+    // hardcoded 'gps' previously, which meant that on cold boot for
+    // returning users with a saved port (e.g. 'Newport, QLD'), the
+    // 30-second auto-refresh would fire fetchWeather('Current
+    // Location', …) within half a minute and overwrite
+    // weatherData.locationName, so the location box reverted to
+    // 'Current Location' or worse. A sync useEffect below keeps it
+    // consistent if defaultLocation is restored after this init runs.
+    const [locationMode, setLocationMode] = useState<'gps' | 'selected'>(
+        settings.defaultLocation && settings.defaultLocation !== 'Current Location' ? 'selected' : 'gps',
+    );
     const [error, setError] = useState<string | null>(null);
     const [debugInfo] = useState<import('../types').DebugInfo | null>(null);
     const [quotaUsed, setQuotaUsed] = useState(0);
@@ -105,6 +116,23 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         _setWeatherData(data);
         if (data) WeatherOrchestrator.updateEnvironment(data);
     }, []);
+
+    // Keep locationMode in sync with settings.defaultLocation. The
+    // useState init above handles the cold-boot case where settings
+    // load before WeatherContext mounts; this effect handles the
+    // async path where settings load AFTER mount (cloud-pull, user
+    // edits Settings, etc). Without this, the periodic auto-refresh
+    // can fire fetchWeather('Current Location', …) for users who
+    // actually have a saved port, clobbering their location name.
+    useEffect(() => {
+        if (!settings.defaultLocation) return;
+        const expected: 'gps' | 'selected' = settings.defaultLocation === 'Current Location' ? 'gps' : 'selected';
+        if (locationMode !== expected) {
+            setLocationMode(expected);
+            isTrackingCurrentLocation.current = expected === 'gps';
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [settings.defaultLocation]);
 
     // Sync Refs
     useEffect(() => {
