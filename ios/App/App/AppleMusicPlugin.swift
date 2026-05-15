@@ -97,6 +97,37 @@ public class AppleMusicPlugin: CAPPlugin {
         hydratedNameCache[id] = name
     }
 
+    // ── Audio-session hygiene ─────────────────────────────────────
+    // Re-assert the music-friendly AVAudioSession before every play
+    // attempt. Background:
+    //
+    //   • Calypso TTS pauses music, plays via AVAudioPlayer, then
+    //     schedules a 0.2s `asyncAfter` to restore the session and
+    //     resume MusicKit (see playTtsAudio). If that callback gets
+    //     missed — AVAudioPlayer dealloc'd before its delegate fires,
+    //     decode error, app backgrounded mid-utterance — the session
+    //     stays in TTS mode and the next ApplicationMusicPlayer.play()
+    //     silently hangs (no throw, no resolve).
+    //
+    //   • Other Capacitor plugins (push audio, speech recognition,
+    //     background fetch) can mutate the shared session too.
+    //
+    // Calling this every time we start playback is cheap (~1ms) and
+    // closes that whole class of "music won't start" hangs. Failures
+    // are logged but never thrown — the play attempt should still
+    // proceed even if the session call errored (it usually succeeds
+    // even when iOS reports an error code).
+    private func prepareAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(.playback, mode: .default, options: [])
+            try session.setActive(true, options: [])
+            NSLog("[AppleMusic] prepareAudioSession: category=playback active=true")
+        } catch {
+            NSLog("[AppleMusic] prepareAudioSession failed (continuing): \(error)")
+        }
+    }
+
     // ── Pre-warm artwork for upcoming tracks ────────────────────────
     // Library tracks return musicKit:// URLs that the WebView can't
     // render. The live nowPlaying path resolves these via a catalog
@@ -483,6 +514,7 @@ public class AppleMusicPlugin: CAPPlugin {
                     titlesAndArtists: tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
             }
+            await MainActor.run { self.prepareAudioSession() }
             try await player.prepareToPlay()
             try await player.play()
             NSLog("[AppleMusic] ApplicationMusicPlayer.play() succeeded")
@@ -613,6 +645,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: Array(tracks).prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 let trackCount = tracks.count
@@ -801,6 +834,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: trackArray.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 let firstTrack = trackArray.first
@@ -858,6 +892,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: resolved.tracks.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 await MainActor.run {
@@ -1319,6 +1354,7 @@ public class AppleMusicPlugin: CAPPlugin {
                 self.prewarmArtwork(
                     titlesAndArtists: fromHere.prefix(8).map { (title: $0.title, artist: $0.artistName) }
                 )
+                await MainActor.run { self.prepareAudioSession() }
                 try await player.prepareToPlay()
                 try await player.play()
                 let firstTrack = fromHere.first
@@ -1352,8 +1388,23 @@ public class AppleMusicPlugin: CAPPlugin {
     @available(iOS 15.0, *)
     @objc func resume(_ call: CAPPluginCall) {
         Task {
+            let player = ApplicationMusicPlayer.shared
+            // Empty queue → play() can sit indefinitely without
+            // throwing OR resolving. Bail with a clear status code so
+            // the JS layer can pick a sensible recovery (re-queue
+            // from the last playlist, prompt the user, etc.) instead
+            // of hanging the UI.
+            if player.queue.entries.isEmpty {
+                NSLog("[AppleMusic] resume: queue is empty — returning no_queue")
+                await MainActor.run { call.resolve(["status": "no_queue"]) }
+                return
+            }
+            // Re-assert audio session every time — see
+            // prepareAudioSession() doc for why this prevents hangs
+            // after Calypso TTS / other plugins mutate the session.
+            await MainActor.run { self.prepareAudioSession() }
             do {
-                try await ApplicationMusicPlayer.shared.play()
+                try await player.play()
                 await MainActor.run { call.resolve(["status": "playing"]) }
             } catch {
                 await MainActor.run {
