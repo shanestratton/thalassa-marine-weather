@@ -295,13 +295,30 @@ export const useAppController = () => {
                 const name = await reverseGeocode(coords.lat, coords.lon);
                 if (!name) return;
                 log.info(`Reverse-geocoded Current Location → ${name}`);
-                // Promote the friendly name to settings so the
-                // location box, future boots, and cloud-sync all
-                // pick it up. Also update Mapbox-style coords.
-                updateSettings({
-                    defaultLocation: name,
-                    defaultLocationCoords: { lat: coords.lat, lon: coords.lon },
-                });
+                // Promote the friendly name via selectLocation. This:
+                //   1. Flips locationMode 'gps' → 'selected' so the
+                //      30-second auto-refresh stops calling
+                //      fetchWeather('Current Location', ...) which
+                //      was clobbering weatherData.locationName back
+                //      to the literal string every refresh. That was
+                //      the bug behind "name reverts to Current
+                //      Location after restart" — local Preferences
+                //      did save the friendly name, but the refresh
+                //      kept resetting it. (Drift detection in
+                //      WeatherContext still picks up real movement
+                //      and re-runs reverseGeocode → selectLocation
+                //      with the new name, so users underway still
+                //      see their actual position.)
+                //   2. Calls updateSettings({defaultLocation: name})
+                //      internally so the cloud-sync persists the
+                //      friendly name.
+                //   3. Hits the history cache for the just-loaded
+                //      weather, no extra network round-trip.
+                await selectLocation(name, { lat: coords.lat, lon: coords.lon });
+                // Persist coords too — selectLocation only writes the
+                // name. Coords let future cold boots skip the Mapbox
+                // forward-geocode round-trip on the saved name.
+                updateSettings({ defaultLocationCoords: { lat: coords.lat, lon: coords.lon } });
                 setQuery(name);
             } catch (err) {
                 log.warn('reverseGeocode failed:', err);
