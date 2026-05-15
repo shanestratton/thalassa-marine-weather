@@ -972,20 +972,23 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     if (depth > 0) return 8.0;
     // CAUTION (depth < 0, the -1 sentinel) — soft-blocked: too shallow
     // for this vessel per our coarse bathymetry, but not land/hazard.
-    // 40× — A* strongly prefers real water (5× the worst real-water
-    // cost of 8×, 8× the typical deep-water 5×), but won't take an
-    // insane detour to avoid caution. History:
-    //   • 400× was the first cut and sent A* on ~10 km zigzag legs
-    //     to dodge a single caution cell.
-    //   • 25× routed Brisbane fine end-to-end but A* would accept a
-    //     caution stretch when an "obvious" slightly-longer deep
-    //     alternative existed — user said "could actually go a
-    //     little further out to sea and miss that shallow water".
-    //   • 40× — splits the difference. A* detours up to ~50% longer
-    //     through real water before accepting caution. Still uses
-    //     caution when there's no real alternative (the unavoidable
-    //     Newport canal-mouth gap through Hays Inlet's tidal flats).
-    if (depth < 0) return 40.0;
+    // 80× — A* strongly prefers real water (10× the worst real-water
+    // cost of 8×, 16× the typical deep-water 5×). Math: A* picks the
+    // deep alternative if it's less than ~16× longer than the caution
+    // shortcut, which covers any plausible "a little further out to
+    // sea" scenario the user would notice. History:
+    //   • 400× — sent A* on ~10 km zigzag legs to dodge a single
+    //     caution cell (the early Newport pass).
+    //   • 25× — Brisbane routed but accepted a caution shortcut when
+    //     deep alternative was only ~30% longer.
+    //   • 40× — same flavour, just less extreme — user "still
+    //     favouring the shallow water over going through the deep
+    //     water" at Brisbane.
+    //   • 80× — final tune. Still uses caution when there's no real
+    //     alternative (the unavoidable Newport canal-mouth gap
+    //     through Hays Inlet's tidal flats), but takes the deep
+    //     detour any time a plausible one exists.
+    if (depth < 0) return 80.0;
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.
