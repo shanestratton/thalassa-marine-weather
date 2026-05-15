@@ -167,6 +167,38 @@ function nativeAvailable(): boolean {
     return Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios';
 }
 
+// ── Hang-watchdog ──────────────────────────────────────────────────
+//
+// MusicKit / ApplicationMusicPlayer.play() can silently sit forever
+// in a few cases we've actually seen: a wedged AVAudioSession (Calypso
+// TTS left the session in TTS mode and the restore-callback missed),
+// an empty queue passed to .play() (no throw, no resolve), or a
+// streaming track that's silently failing to load over a flaky link.
+//
+// The Swift side has its own guardrails now (prepareAudioSession +
+// empty-queue early-return in resume()), but a defense-in-depth
+// timeout here lets the JS layer surface a real error instead of
+// just hanging the UI for the user. Pick generously — most successful
+// MusicKit calls return in 100-500ms, so 12s is comfortably above the
+// real-world ceiling without making slow networks look like failures.
+const MUSIC_CALL_TIMEOUT_MS = 12_000;
+const NOW_PLAYING_TIMEOUT_MS = 5_000; // tighter — polled every 1s
+
+function withTimeout<T>(p: Promise<T>, label: string, ms: number = MUSIC_CALL_TIMEOUT_MS): Promise<T> {
+    return Promise.race([
+        p,
+        new Promise<T>((_resolve, reject) =>
+            setTimeout(
+                () =>
+                    reject(
+                        new Error(`${label} timed out after ${(ms / 1000).toFixed(0)}s — Apple Music didn't respond`),
+                    ),
+                ms,
+            ),
+        ),
+    ]);
+}
+
 // ── Authorization ──────────────────────────────────────────────────
 
 export interface AuthResult {
@@ -265,7 +297,7 @@ export async function playPlaylist(id: string): Promise<{
 }> {
     if (!nativeAvailable()) return { success: false, error: 'unsupported' };
     try {
-        const r = await AppleMusicNative.playPlaylist({ id });
+        const r = await withTimeout(AppleMusicNative.playPlaylist({ id }), 'playPlaylist');
         if (r.status === 'playing') {
             return {
                 success: true,
@@ -343,7 +375,7 @@ export async function addPlaylistToQueue(id: string): Promise<{
 }> {
     if (!nativeAvailable()) return { success: false, appended: false, error: 'unsupported' };
     try {
-        const r = await AppleMusicNative.addPlaylistToQueue({ id });
+        const r = await withTimeout(AppleMusicNative.addPlaylistToQueue({ id }), 'addPlaylistToQueue');
         if (r.status === 'queued' || r.status === 'playing') {
             return {
                 success: true,
@@ -369,10 +401,13 @@ export async function playTrackInPlaylist(
 ): Promise<{ success: boolean; title?: string; artist?: string; error?: string }> {
     if (!nativeAvailable()) return { success: false, error: 'unsupported' };
     try {
-        const r = await AppleMusicNative.playTrackInPlaylist({
-            playlist_id: playlistId,
-            track_id: trackId,
-        });
+        const r = await withTimeout(
+            AppleMusicNative.playTrackInPlaylist({
+                playlist_id: playlistId,
+                track_id: trackId,
+            }),
+            'playTrackInPlaylist',
+        );
         if (r.status === 'playing') {
             return { success: true, title: r.title, artist: r.artist };
         }
@@ -397,7 +432,7 @@ export async function playLibraryPlaylistByName(query: string): Promise<{ conten
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
     try {
-        const r = await AppleMusicNative.playLibraryPlaylist({ query: trimmed });
+        const r = await withTimeout(AppleMusicNative.playLibraryPlaylist({ query: trimmed }), 'playLibraryPlaylist');
         if (r.status === 'playing') {
             const phrase = r.first_track_title
                 ? `Playing "${r.first_track_title}"${
@@ -727,7 +762,10 @@ export async function playMusicByQuery(
         };
     }
     try {
-        const r = await AppleMusicNative.searchAndPlay({ query: trimmed, kind: kind ?? 'auto' });
+        const r = await withTimeout(
+            AppleMusicNative.searchAndPlay({ query: trimmed, kind: kind ?? 'auto' }),
+            'searchAndPlay',
+        );
         if (r.status === 'playing') {
             const trackTitle = r.first_track_title ?? '';
             const trackArtist = r.first_track_artist ?? '';
@@ -806,7 +844,7 @@ export async function resumeMusic(): Promise<{ content: string; isError: boolean
         return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
     }
     try {
-        const r = await AppleMusicNative.resume();
+        const r = await withTimeout(AppleMusicNative.resume(), 'resume');
         return { content: JSON.stringify({ status: r.status }), isError: false };
     } catch (err) {
         return { content: `ERROR: resume failed — ${(err as Error).message}`, isError: true };
@@ -855,7 +893,11 @@ export interface NowPlaying {
 export async function getNowPlaying(): Promise<NowPlaying | null> {
     if (!nativeAvailable()) return null;
     try {
-        const r = await AppleMusicNative.nowPlaying();
+        // Shorter timeout — the parent polls this every 1s, so a
+        // 12s hang would queue up many stalled callers. 5s lets us
+        // surface a "stuck" state quickly and let the next poll
+        // recover.
+        const r = await withTimeout(AppleMusicNative.nowPlaying(), 'nowPlaying', NOW_PLAYING_TIMEOUT_MS);
         return {
             isPlaying: r.is_playing,
             state: r.state,

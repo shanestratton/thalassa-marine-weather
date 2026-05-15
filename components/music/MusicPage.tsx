@@ -176,9 +176,18 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     const handlePlayPlaylist = useCallback(
         async (id: string) => {
             setActivePlaylistId(id);
-            const r = await playPlaylist(id);
-            if (!r.success) {
-                setLoadError(`Couldn't play: ${r.error}`);
+            try {
+                const r = await playPlaylist(id);
+                if (!r.success) {
+                    setLoadError(`Couldn't play: ${r.error}`);
+                }
+            } catch (err) {
+                // Hits the JS-side 12s timeout — see services/voice/
+                // integrations/appleMusic.ts withTimeout. Most common
+                // cause is the audio session being wedged after Calypso
+                // TTS; the Swift prepareAudioSession() helper closes
+                // that loop, so a retry usually works.
+                setLoadError((err as Error).message);
             }
             refreshNowPlayingFast();
         },
@@ -186,22 +195,45 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
     );
 
     const handlePause = useCallback(async () => {
-        await pauseMusic();
+        try {
+            await pauseMusic();
+        } catch (err) {
+            setLoadError((err as Error).message);
+        }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
     const handleResume = useCallback(async () => {
-        await resumeMusic();
+        try {
+            const r = await resumeMusic();
+            // resume() returns { status: 'no_queue' } when there's
+            // nothing to play (cold-start tap on the play button).
+            // Surface a friendly hint instead of doing nothing.
+            const parsed = JSON.parse(r.content) as { status?: string };
+            if (parsed.status === 'no_queue') {
+                setLoadError('Nothing queued — pick a playlist or song to start.');
+            }
+        } catch (err) {
+            setLoadError((err as Error).message);
+        }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
     const handleNext = useCallback(async () => {
-        await skipNext();
+        try {
+            await skipNext();
+        } catch (err) {
+            setLoadError((err as Error).message);
+        }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
     const handlePrevious = useCallback(async () => {
-        await skipPrevious();
+        try {
+            await skipPrevious();
+        } catch (err) {
+            setLoadError((err as Error).message);
+        }
         refreshNowPlayingFast();
     }, [refreshNowPlayingFast]);
 
