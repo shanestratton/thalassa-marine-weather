@@ -5,7 +5,7 @@
             "has": [
                 {
                     "type": "host",
-                    "value": "(?P<handle>[^.]+)\\.thalassawx\\.app"
+                    "value": "^[^.]+\\.thalassawx\\.app$"
                 }
             ],
             "destination": "/logs.html"
