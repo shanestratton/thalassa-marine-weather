@@ -177,55 +177,68 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         })}
                     </div>
 
-                    {/* ═══ POSITION | VOICE | POLISH — single row ═══ */}
+                    {/* ═══ POSITION (auto, compact) | VOICE | POLISH ═══
+                        Position auto-acquires on compose open — no big "Add
+                        Position" button anymore. This row shows the acquired
+                        coords as a read-only status with a refresh icon for
+                        the rare case GPS was slow / wrong first time. For
+                        back-dated entries (writing about yesterday's
+                        anchorage) the editable "Location" input below
+                        overrides the displayed place name. */}
                     <div className="shrink-0 space-y-2">
-                        <div className="flex gap-2">
-                            {/* Position — 2/3 width */}
+                        <div className="flex items-center gap-2 px-1 text-[11px]">
+                            <svg
+                                className={`w-3.5 h-3.5 shrink-0 ${gpsLoading ? 'text-sky-400 animate-pulse' : 'text-sky-400'}`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.8}
+                                aria-hidden="true"
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                />
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                />
+                            </svg>
+                            <span className="font-mono text-gray-300 truncate min-w-0 flex-1">
+                                {gpsLoading
+                                    ? 'Acquiring GPS…'
+                                    : lat != null && lon != null
+                                      ? formatCoord(lat, lon)
+                                      : 'Position unavailable — edit location below'}
+                            </span>
                             <button
-                                aria-label="Grab Gps"
                                 type="button"
+                                aria-label="Refresh GPS position"
                                 onClick={onGrabGps}
                                 disabled={gpsLoading}
-                                className="flex-[2] bg-gradient-to-r from-sky-500/10 to-sky-500/10 border border-sky-500/15 rounded-xl p-2.5 flex items-center gap-2 min-w-0 transition-colors hover:bg-sky-500/15 active:scale-[0.98] disabled:opacity-60"
+                                className="shrink-0 p-1 rounded-md hover:bg-white/5 active:scale-95 transition-all disabled:opacity-50"
                             >
-                                <div className="p-1.5 bg-sky-500/15 rounded-lg shrink-0">
-                                    {gpsLoading ? (
-                                        <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        <svg
-                                            className="w-4 h-4 text-sky-400"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                            />
-                                        </svg>
-                                    )}
-                                </div>
-                                <div className="flex-1 min-w-0 text-left">
-                                    {lat != null && lon != null ? (
-                                        <p className="text-xs font-bold text-white font-mono tracking-wide truncate">
-                                            {formatCoord(lat, lon)}
-                                        </p>
-                                    ) : (
-                                        <p className="text-[11px] text-sky-400 font-bold truncate">
-                                            {gpsLoading ? 'Acquiring…' : 'Add Position'}
-                                        </p>
-                                    )}
-                                </div>
+                                <svg
+                                    className={`w-3.5 h-3.5 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`}
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+                                    />
+                                </svg>
                             </button>
+                        </div>
 
-                            {/* Voice — 1/6 width */}
+                        <div className="flex gap-2">
+                            {/* Voice */}
                             <button
                                 aria-label="Start voice recording"
                                 onClick={isRecording ? onStopRecording : onStartRecording}
@@ -259,7 +272,7 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                 </span>
                             </button>
 
-                            {/* Polish — 1/6 width */}
+                            {/* Polish */}
                             <button
                                 aria-label="Polish entry text"
                                 onClick={onPolish}
@@ -298,10 +311,13 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             </span>
                         </div>
 
-                        {/* Location name input */}
+                        {/* Location name input — overrides the auto-detected
+                            place name. Useful for back-dated entries where
+                            the current GPS reading doesn't match where the
+                            skipper actually was when the event happened. */}
                         <input
                             type="text"
-                            placeholder="Location (e.g. Moreton Bay)"
+                            placeholder="Location (override e.g. Moreton Bay)"
                             value={locationName}
                             onChange={(e) => onSetLocationName(e.target.value)}
                             onFocus={scrollInputAboveKeyboard}
