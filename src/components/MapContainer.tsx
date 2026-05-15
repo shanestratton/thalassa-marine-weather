@@ -13,6 +13,10 @@ interface MapContainerProps {
     nearbyVessels: NearbyVessel[];
     /** A map marker was tapped. */
     onEntryClick: (entry: VoyageLogEntry) => void;
+    /** Entry currently focused in the sidebar — its pin gets a pulsing
+     *  mood-coloured glow so viewers can spot where the story happened.
+     *  No camera move (the whole track is already framed). */
+    selectedEntryId?: string;
 }
 
 /** Hex fill for an AIS contact's triangle, by ship-type substring. */
@@ -36,7 +40,13 @@ type StyleMode = keyof typeof STYLES;
 const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number; longitude: number } =>
     e.latitude != null && e.longitude != null;
 
-export default function MapContainer({ track, entries, nearbyVessels, onEntryClick }: MapContainerProps) {
+export default function MapContainer({
+    track,
+    entries,
+    nearbyVessels,
+    onEntryClick,
+    selectedEntryId,
+}: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
     const [selectedVessel, setSelectedVessel] = useState<NearbyVessel | null>(null);
 
@@ -195,27 +205,55 @@ export default function MapContainer({ track, entries, nearbyVessels, onEntryCli
                     </Marker>
                 )}
 
-                {/* Diary entry pins — camera badge if it carries photos */}
+                {/* Diary entry pins — camera badge if it carries photos.
+                    When the entry is the one selected in the sidebar, the
+                    pin gets a pulsing mood-coloured halo (camera badge
+                    variant) or an intensified drop-shadow (emoji variant)
+                    so the viewer can quickly spot where on the route the
+                    story happened. */}
                 {pinnedEntries.map((entry) => {
                     const hasPhotos = entry.photos.length > 0;
                     const moodHex = MOOD[entry.mood]?.hex ?? '#38bdf8';
+                    const isSelected = !!selectedEntryId && entry.id === selectedEntryId;
                     return (
                         <Marker key={entry.id} longitude={entry.longitude} latitude={entry.latitude} anchor="bottom">
                             <button
                                 type="button"
                                 onClick={() => onEntryClick(entry)}
                                 aria-label={`Voyage log entry: ${entry.title || 'Untitled'}`}
-                                className="cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95"
+                                className={`relative cursor-pointer leading-none -translate-y-0.5 transition-transform hover:scale-110 active:scale-95 ${
+                                    isSelected ? 'scale-125' : ''
+                                }`}
                             >
+                                {/* Halo — only renders for the selected pin. Sits
+                                    behind the badge/emoji, mood-coloured, pulses
+                                    to draw the eye. */}
+                                {isSelected && (
+                                    <span
+                                        aria-hidden="true"
+                                        className="absolute inset-0 -m-2 rounded-full animate-ping"
+                                        style={{ backgroundColor: `${moodHex}66` }}
+                                    />
+                                )}
                                 {hasPhotos ? (
                                     <span
-                                        className="flex items-center justify-center w-7 h-7 rounded-full bg-slate-900/90 border-2 text-sm shadow-lg"
-                                        style={{ borderColor: moodHex }}
+                                        className="relative flex items-center justify-center w-7 h-7 rounded-full bg-slate-900/90 border-2 text-sm shadow-lg"
+                                        style={{
+                                            borderColor: moodHex,
+                                            boxShadow: isSelected ? `0 0 16px ${moodHex}` : undefined,
+                                        }}
                                     >
                                         📷
                                     </span>
                                 ) : (
-                                    <span className="text-2xl" style={{ filter: `drop-shadow(0 0 4px ${moodHex})` }}>
+                                    <span
+                                        className="relative text-2xl"
+                                        style={{
+                                            filter: isSelected
+                                                ? `drop-shadow(0 0 10px ${moodHex}) drop-shadow(0 0 6px ${moodHex})`
+                                                : `drop-shadow(0 0 4px ${moodHex})`,
+                                        }}
+                                    >
                                         {MOOD[entry.mood]?.emoji ?? '📍'}
                                     </span>
                                 )}
