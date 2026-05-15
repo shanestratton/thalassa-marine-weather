@@ -30,11 +30,20 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('useLiveLocationName');
 
-// Tuning constants. 10s cadence for normal polling; 50m movement
-// threshold filters GPS jitter while still catching meaningful
-// movement (e.g. motoring out of the marina).
-const POLL_INTERVAL_MS = 10_000;
-const MIN_MOVEMENT_M = 50;
+// Tuning constants. 3s cadence so the label flips "almost the moment
+// you cross the Welcome to Rothwell sign" at driving speeds (the
+// original 10s left the label stale for up to ~13s when crossing
+// town boundaries). 25m movement threshold still filters GPS jitter
+// (typical fix accuracy is 5-15m on iOS) while catching small moves
+// — at 60 km/h a driver covers 25m in 1.5 seconds, so each poll tick
+// reliably picks them up.
+//
+// Reverse-geocode results are cached server-side (Pi Cache, 7-day
+// TTL), so the higher tick rate doesn't blow up the Mapbox bill.
+// Weather refresh has its own separate threshold in WeatherContext
+// (currently 5nm); only the location LABEL is sped up here.
+const POLL_INTERVAL_MS = 3_000;
+const MIN_MOVEMENT_M = 25;
 
 /** Approximate great-circle distance in metres between two coords. */
 function distanceMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
