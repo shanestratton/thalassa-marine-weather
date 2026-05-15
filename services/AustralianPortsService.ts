@@ -74,6 +74,16 @@ async function loadAllPorts(): Promise<AustralianPort[]> {
             }
             const rows = (data ?? []) as AustralianPort[];
             log.warn(`[australian-ports] loaded ${rows.length} ports from Supabase`);
+            // Empty result is almost certainly a permissions misconfig
+            // (RLS still on, or GRANT SELECT not applied for anon) —
+            // don't cache it. Reset the promise so the next route
+            // attempt re-queries, which means an SQL fix lands on the
+            // very next Calculate tap rather than requiring an app
+            // relaunch. Real "no Aussie ports cover this region"
+            // doesn't happen — the table is 82 stable rows.
+            if (rows.length === 0) {
+                portsPromise = null;
+            }
             return rows;
         } catch (e) {
             log.warn(`[australian-ports] fetch threw — ${e instanceof Error ? e.message : String(e)}`);
