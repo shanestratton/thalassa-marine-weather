@@ -56,7 +56,7 @@ interface AppleMusicPluginInterface {
         error?: string;
     }>;
     playPlaylist(opts: { id: string }): Promise<{
-        status: 'playing' | 'not_found' | 'error';
+        status: 'playing' | 'not_found' | 'error' | 'superseded';
         playlist_name?: string;
         track_count?: number;
         first_track_title?: string;
@@ -307,6 +307,14 @@ export async function playPlaylist(id: string): Promise<{
                     ? { title: r.first_track_title, artist: r.first_track_artist ?? '' }
                     : undefined,
             };
+        }
+        // Rapid-tap case: this call was interrupted by a newer
+        // playPlaylist call (Apple Music's last-queue-wins behaviour).
+        // The newer tap is the one playing, so this stale result isn't
+        // a user-facing failure — return success and let the newer
+        // call's resolution drive the UI.
+        if (r.status === 'superseded') {
+            return { success: true };
         }
         return { success: false, error: r.error ?? r.status };
     } catch (err) {
