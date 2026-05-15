@@ -136,14 +136,19 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
 
                 {/* Compose body */}
                 <div className="flex-1 flex flex-col p-4 gap-3 min-h-0 overflow-auto no-scrollbar">
-                    {/* Title */}
+                    {/* Title — prefilled with today's date/time so the keyboard
+                        doesn't pop up; the skipper edits only if they tap in. */}
                     <input
                         type="text"
                         placeholder="Entry title (optional)"
                         value={title}
                         onChange={(e) => onSetTitle(e.target.value)}
-                        onFocus={scrollInputAboveKeyboard}
-                        autoFocus
+                        onFocus={(e) => {
+                            // First tap selects the prefilled text so a single
+                            // keystroke replaces it; otherwise editing in place works.
+                            e.currentTarget.select();
+                            scrollInputAboveKeyboard(e);
+                        }}
                         className="shrink-0 w-full bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 text-lg font-bold text-white placeholder-gray-500 outline-none focus:border-sky-500/30 transition-colors"
                     />
 
