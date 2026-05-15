@@ -1,7 +1,6 @@
 import React from 'react';
 import { MOOD, type VoyageLogEntry, type VoyageLogTelemetry } from '../voyageLogApi';
 import { TelemetryPanel } from './TelemetryPanel';
-import { useBandwidthMode } from '../bandwidthMode';
 
 interface DiarySidebarProps {
     entries: VoyageLogEntry[];
@@ -31,8 +30,6 @@ const EntryDetail: React.FC<{
     onPhotoClick: (entry: VoyageLogEntry, index: number) => void;
 }> = ({ entry, onBack, onPhotoClick }) => {
     const mood = MOOD[entry.mood];
-    const { mode } = useBandwidthMode();
-    const satlink = mode === 'satlink';
     return (
         <>
             <div className="shrink-0 px-4 py-3 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
@@ -49,7 +46,7 @@ const EntryDetail: React.FC<{
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                {/* Photos — actual thumbs on Starlink, placeholders on Sat-Link */}
+                {/* Photos */}
                 {entry.photos.length > 0 && (
                     <div className="grid grid-cols-2 gap-2">
                         {entry.photos.map((url, i) => (
@@ -62,21 +59,12 @@ const EntryDetail: React.FC<{
                                     entry.photos.length === 1 ? 'col-span-2 aspect-video' : 'aspect-square'
                                 }`}
                             >
-                                {satlink ? (
-                                    <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-slate-400 bg-slate-900/80">
-                                        <span className="text-2xl">📷</span>
-                                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                                            Tap to load
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <img
-                                        src={url}
-                                        alt=""
-                                        loading="lazy"
-                                        className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
-                                    />
-                                )}
+                                <img
+                                    src={url}
+                                    alt=""
+                                    loading="lazy"
+                                    className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+                                />
                             </button>
                         ))}
                     </div>
@@ -123,8 +111,6 @@ const EntryList: React.FC<{
     entries: VoyageLogEntry[];
     onSelectEntry: (entry: VoyageLogEntry) => void;
 }> = ({ entries, onSelectEntry }) => {
-    const { mode } = useBandwidthMode();
-    const satlink = mode === 'satlink';
     return (
         <>
             <div className="shrink-0 px-4 py-3 border-b border-slate-700 bg-slate-800/80 backdrop-blur-md">
@@ -170,19 +156,17 @@ const EntryList: React.FC<{
                                 )}
                                 {entry.photos.length > 0 && (
                                     <div className="flex items-center gap-1.5 mt-2">
-                                        {!satlink && (
-                                            <div className="flex -space-x-1.5">
-                                                {entry.photos.slice(0, 3).map((url, i) => (
-                                                    <img
-                                                        key={i}
-                                                        src={url}
-                                                        alt=""
-                                                        loading="lazy"
-                                                        className="w-7 h-7 rounded-md object-cover border border-slate-700 ring-1 ring-slate-900"
-                                                    />
-                                                ))}
-                                            </div>
-                                        )}
+                                        <div className="flex -space-x-1.5">
+                                            {entry.photos.slice(0, 3).map((url, i) => (
+                                                <img
+                                                    key={i}
+                                                    src={url}
+                                                    alt=""
+                                                    loading="lazy"
+                                                    className="w-7 h-7 rounded-md object-cover border border-slate-700 ring-1 ring-slate-900"
+                                                />
+                                            ))}
+                                        </div>
                                         <span className="text-[10px] font-bold text-slate-500">
                                             📷 {entry.photos.length}
                                         </span>
