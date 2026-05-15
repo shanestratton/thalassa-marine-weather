@@ -1,11 +1,10 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl, type MapRef } from 'react-map-gl/mapbox';
+import React, { useEffect, useMemo, useState } from 'react';
+import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { MAPBOX_TOKEN, MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
 import { nightPolygon } from '../geo';
-import { fetchWindGrid, type WindGrid } from '../wind';
-import { WindParticleLayer } from './WindParticleLayer';
+import { CompassRose } from './CompassRose';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
@@ -25,10 +24,6 @@ const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number;
 
 export default function MapContainer({ track, entries, onEntryClick }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
-    const mapRef = useRef<MapRef | null>(null);
-    const [mapReady, setMapReady] = useState(false);
-    const [showWind, setShowWind] = useState(true);
-    const [windGrid, setWindGrid] = useState<WindGrid | null>(null);
 
     // Tick once a minute so the day/night terminator drifts in real time.
     const [now, setNow] = useState<Date>(() => new Date());
@@ -54,41 +49,6 @@ export default function MapContainer({ track, entries, onEntryClick }: MapContai
         () => [...trackCoords, ...pinnedEntries.map((e) => [e.longitude, e.latitude] as [number, number])],
         [trackCoords, pinnedEntries],
     );
-
-    // Bounding box of the voyage track, with a few degrees of padding on
-    // each side — the wind grid is fetched for this once at mount. Stable
-    // enough that pan/zoom doesn't trigger refetches.
-    const windBounds = useMemo(() => {
-        if (trackCoords.length === 0) return null;
-        let minLat = Infinity;
-        let maxLat = -Infinity;
-        let minLon = Infinity;
-        let maxLon = -Infinity;
-        for (const [lon, lat] of trackCoords) {
-            if (lat < minLat) minLat = lat;
-            if (lat > maxLat) maxLat = lat;
-            if (lon < minLon) minLon = lon;
-            if (lon > maxLon) maxLon = lon;
-        }
-        const pad = 4;
-        return {
-            minLat: minLat - pad,
-            maxLat: maxLat + pad,
-            minLon: minLon - pad,
-            maxLon: maxLon + pad,
-        };
-    }, [trackCoords]);
-
-    useEffect(() => {
-        if (!windBounds) return;
-        let cancelled = false;
-        void fetchWindGrid(windBounds).then((g) => {
-            if (!cancelled) setWindGrid(g);
-        });
-        return () => {
-            cancelled = true;
-        };
-    }, [windBounds]);
 
     // Track line.
     const trackGeojson = useMemo<FeatureCollection<LineString>>(
@@ -165,12 +125,10 @@ export default function MapContainer({ track, entries, onEntryClick }: MapContai
     return (
         <div className="w-full h-full relative bg-slate-900">
             <Map
-                ref={mapRef}
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
                 projection="globe"
-                onLoad={() => setMapReady(true)}
             >
                 <NavigationControl position="top-left" showCompass={false} />
 
@@ -250,36 +208,25 @@ export default function MapContainer({ track, entries, onEntryClick }: MapContai
                 })}
             </Map>
 
-            {/* Wind particle overlay — drifts above the map */}
-            {mapReady && windGrid && showWind && <WindParticleLayer grid={windGrid} mapRef={mapRef} />}
+            {/* Basemap toggle */}
+            <div className="absolute top-3 right-3 flex rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider">
+                {(['dark', 'satellite'] as StyleMode[]).map((m) => (
+                    <button
+                        key={m}
+                        onClick={() => setStyleMode(m)}
+                        aria-label={`${m === 'dark' ? 'Chart' : 'Satellite'} basemap`}
+                        className={`px-3 py-1.5 transition-colors ${
+                            styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
+                        }`}
+                    >
+                        {m === 'dark' ? 'Chart' : 'Satellite'}
+                    </button>
+                ))}
+            </div>
 
-            {/* Map controls — basemap + wind toggle */}
-            <div className="absolute top-3 right-3 flex flex-col gap-2 items-end">
-                <div className="flex rounded-lg overflow-hidden border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider">
-                    {(['dark', 'satellite'] as StyleMode[]).map((m) => (
-                        <button
-                            key={m}
-                            onClick={() => setStyleMode(m)}
-                            aria-label={`${m === 'dark' ? 'Chart' : 'Satellite'} basemap`}
-                            className={`px-3 py-1.5 transition-colors ${
-                                styleMode === m ? 'bg-sky-600 text-white' : 'text-slate-300 hover:bg-white/10'
-                            }`}
-                        >
-                            {m === 'dark' ? 'Chart' : 'Satellite'}
-                        </button>
-                    ))}
-                </div>
-                <button
-                    onClick={() => setShowWind((v) => !v)}
-                    aria-label="Toggle wind overlay"
-                    aria-pressed={showWind}
-                    className={`flex items-center gap-1.5 rounded-lg border border-white/15 bg-slate-900/80 backdrop-blur-md shadow-lg px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-colors ${
-                        showWind ? 'text-sky-300 hover:bg-white/10' : 'text-slate-500 hover:bg-white/10'
-                    }`}
-                >
-                    <span aria-hidden="true">{showWind ? '💨' : '○'}</span>
-                    Wind
-                </button>
+            {/* Compass rose — chart-style decoration, bottom-left */}
+            <div className="absolute bottom-4 left-4 z-10">
+                <CompassRose />
             </div>
         </div>
     );
