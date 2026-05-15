@@ -11,6 +11,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { t } from '../theme';
+import { useAuthStore } from '../stores/authStore';
 import { ModalSheet } from './ui/ModalSheet';
 import { UndoToast } from './ui/UndoToast';
 
@@ -71,7 +72,15 @@ interface CrewManagementProps {
 }
 
 export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBack }) => {
-    const [isAuthed, setIsAuthed] = useState(false);
+    // Auth state comes from the global authStore — same source of truth
+    // as the AuthGate at app boot. Removed the local getSession() +
+    // onAuthStateChange duplicate that lived here previously: it raced
+    // with the global store's initial check on cold mount and could
+    // leave authChecked=false forever, which rendered the page as just
+    // a header with an empty body (the "blank Passage Planning" bug).
+    const authedUser = useAuthStore((s) => s.user);
+    const authChecked = useAuthStore((s) => s.authChecked);
+    const isAuthed = !!authedUser;
 
     // Captain state
     const [myCrew, setMyCrew] = useState<CrewMember[]>([]);
@@ -207,34 +216,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     //
     // The `authChecked` gate suppresses the sign-in prompt until we've
     // actually finished checking, so users with a valid session never
-    // see the prompt flash.
-    const [_userEmail, setUserEmail] = useState<string | null>(null);
-    const [authChecked, setAuthChecked] = useState(false);
-    useEffect(() => {
-        if (!supabase) {
-            setAuthChecked(true);
-            return;
-        }
-        let cancelled = false;
-        void supabase.auth.getSession().then(({ data }) => {
-            if (cancelled) return;
-            setIsAuthed(!!data.session?.user);
-            setUserEmail(data.session?.user?.email ?? null);
-            setAuthChecked(true);
-        });
-        const {
-            data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-            if (cancelled) return;
-            setIsAuthed(!!session?.user);
-            setUserEmail(session?.user?.email ?? null);
-            setAuthChecked(true);
-        });
-        return () => {
-            cancelled = true;
-            subscription.unsubscribe();
-        };
-    }, []);
+    // Local _userEmail is derived from the same authStore. Some
+    // callsites below still read user email synchronously and we keep
+    // the variable for them — no setter needed because the global
+    // store is the single writer.
+    const _userEmail = authedUser?.email ?? null;
+    void _userEmail; // referenced via authedUser in callers below
 
     // Load data
     const loadData = useCallback(async () => {
@@ -663,12 +650,11 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     isOpen={showAuth}
                     onClose={() => {
                         setShowAuth(false);
-                        if (supabase) {
-                            supabase.auth.getUser().then(({ data }) => {
-                                setIsAuthed(!!data.user);
-                                setUserEmail(data.user?.email || null);
-                            });
-                        }
+                        // No need to re-poll auth — the global authStore's
+                        // onAuthStateChange listener will fire when the
+                        // AuthModal completes the sign-in, and our isAuthed
+                        // is derived from that store so we re-render
+                        // automatically.
                     }}
                 />
             </div>
