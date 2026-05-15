@@ -10,6 +10,7 @@
 
 import { create } from 'zustand';
 import type { UserSettings } from '../types';
+import type { VesselProfile } from '../types/vessel';
 import { getSystemUnits } from '../utils';
 import { Preferences } from '@capacitor/preferences';
 import { Capacitor } from '@capacitor/core';
@@ -83,6 +84,94 @@ async function syncToCloud(userId: string, s: UserSettings) {
     await supabase.from('profiles').upsert({ id: userId, settings: s, updated_at: new Date().toISOString() });
 }
 
+/**
+ * Pull cloud preferences for the just-signed-in user and merge into
+ * local settings. Cloud values win for any key the cloud has set —
+ * the use case is "Shane reinstalls, signs in, his metric units +
+ * home port + vessel name come back automatically". Local-only keys
+ * (anything the cloud row doesn't carry) stay untouched.
+ *
+ * Also reads `vessel_identity` for vessel name/model/reg — those
+ * live in their own table because onboarding (and the new
+ * onboarding-after-auth flow) writes them there, and they are NOT
+ * mirrored into profiles.settings on the legacy path.
+ *
+ * Idempotent — running twice is harmless. Also tolerant of the
+ * profiles row not existing yet (fresh account).
+ */
+async function pullFromCloud(userId: string): Promise<void> {
+    if (!supabase) return;
+    try {
+        // 1. profiles.settings — the JSONB blob carrying everything
+        // the user has changed via updateSettings.
+        const { data: profile } = await supabase.from('profiles').select('settings').eq('id', userId).maybeSingle();
+
+        const cloudSettings = (profile?.settings ?? null) as Partial<UserSettings> | null;
+
+        // 2. vessel_identity — first-class name/type/model columns.
+        // The wider dimensions (draft, beam, length) live in
+        // profiles.settings.vessel because that's where onboarding
+        // writes them today.
+        const { data: vessel } = await supabase
+            .from('vessel_identity')
+            .select('vessel_name, vessel_type, model')
+            .eq('owner_id', userId)
+            .maybeSingle();
+
+        // Nothing to merge? Bail.
+        if (!cloudSettings && !vessel) return;
+
+        const current = useSettingsStore.getState().settings;
+
+        // Vessel merge needs care — VesselProfile.name is required,
+        // so we only construct a vessel object when we have at least
+        // one source AND can produce a usable name. Otherwise leave
+        // current.vessel alone (might be undefined for fresh users,
+        // and that's a state the rest of the app handles).
+        let mergedVessel = current.vessel;
+        const cloudVessel = cloudSettings?.vessel;
+        if (cloudVessel || vessel) {
+            const name = vessel?.vessel_name ?? cloudVessel?.name ?? current.vessel?.name;
+            const type =
+                (vessel?.vessel_type as VesselProfile['type'] | undefined) ?? cloudVessel?.type ?? current.vessel?.type;
+            if (name && type) {
+                mergedVessel = {
+                    ...(current.vessel ?? ({} as Partial<UserSettings['vessel']>)),
+                    ...(cloudVessel ?? {}),
+                    name,
+                    type,
+                    model: vessel?.model ?? cloudVessel?.model ?? current.vessel?.model,
+                } as UserSettings['vessel'];
+            }
+        }
+
+        const merged: UserSettings = {
+            ...current,
+            ...(cloudSettings ?? {}),
+            notifications: {
+                ...current.notifications,
+                ...(cloudSettings?.notifications ?? {}),
+            },
+            units: {
+                ...current.units,
+                ...(cloudSettings?.units ?? {}),
+            },
+            vessel: mergedVessel,
+            isPro: tierIsPro(cloudSettings?.subscriptionTier ?? current.subscriptionTier),
+        };
+
+        useSettingsStore.setState({ settings: merged, isPro: merged.isPro });
+
+        // Persist back to Capacitor Preferences so next cold boot is
+        // already correct without waiting for the cloud round-trip.
+        await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(merged) });
+        _addDebugLog('CLOUD PULL OK: settings merged from profiles + vessel_identity');
+        manageScreenEffects(merged);
+    } catch (err) {
+        _addDebugLog(`CLOUD PULL FAIL: ${getErrorMessage(err)}`);
+    }
+}
+
 async function manageScreenEffects(s: UserSettings) {
     if (!Capacitor.isNativePlatform()) return;
 
@@ -140,7 +229,17 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     quotaLimit: DAILY_STORMGLASS_LIMIT,
 
     _setUserId: (id) => {
+        const wasSignedOut = _userId === null;
         _userId = id;
+        // Cross-device sync: when a user signs in (transition from
+        // no-user → user), pull their saved settings + vessel info
+        // from cloud and merge into the local store. Solves the
+        // "reinstall, sign in, lose all my prefs" bug. Fires once
+        // per sign-in event; subsequent settings changes go through
+        // the normal updateSettings → syncToCloud path.
+        if (id && wasSignedOut) {
+            void pullFromCloud(id);
+        }
     },
 
     updateSettings: async (patch) => {
