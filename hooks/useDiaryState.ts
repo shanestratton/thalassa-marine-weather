@@ -9,6 +9,17 @@
 import { useReducer } from 'react';
 import { DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
 
+// Default title for a fresh compose: "Monday 14 January 2026 · 14:32".
+// The keyboard doesn't pop up on open — the skipper only edits the
+// title if they tap into the field.
+const formatEntryTitleDefault = (d: Date): string => {
+    const weekday = d.toLocaleDateString('en-AU', { weekday: 'long' });
+    const month = d.toLocaleDateString('en-AU', { month: 'long' });
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    return `${weekday} ${d.getDate()} ${month} ${d.getFullYear()} · ${hh}:${mm}`;
+};
+
 // ── State Shape ────────────────────────────────────────────────
 
 export interface DiaryState {
@@ -186,7 +197,7 @@ function diaryReducer(state: DiaryState, action: DiaryAction): DiaryState {
                 ...state,
                 showCompose: true,
                 editingId: null,
-                title: '',
+                title: formatEntryTitleDefault(new Date()),
                 body: '',
                 mood: 'good',
                 photos: [],

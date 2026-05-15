@@ -18,7 +18,6 @@ import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
-import { FirstRunHint } from './ui/FirstRunHint';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -899,27 +898,25 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     className="shrink-0 px-4"
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
-                    <FirstRunHint id="diary-compose" message="Slide to write your first log entry" position="top">
-                        <SlideToAction
-                            label="Slide to Write Entry"
-                            thumbIcon={
-                                <svg
-                                    className="w-5 h-5 text-white"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2.5}
-                                >
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                                </svg>
-                            }
-                            onConfirm={() => {
-                                triggerHaptic('medium');
-                                openCompose();
-                            }}
-                            theme="sky"
-                        />
-                    </FirstRunHint>
+                    <SlideToAction
+                        label="Slide to Write Entry"
+                        thumbIcon={
+                            <svg
+                                className="w-5 h-5 text-white"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={2.5}
+                            >
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                            </svg>
+                        }
+                        onConfirm={() => {
+                            triggerHaptic('medium');
+                            openCompose();
+                        }}
+                        theme="sky"
+                    />
                 </div>
             </div>
             {/* Undo toast (timeline view) */}
