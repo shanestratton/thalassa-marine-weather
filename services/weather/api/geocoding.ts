@@ -607,6 +607,31 @@ export const parseLocation = async (
             log.warn('[geocoding] personal port lookup failed:', e);
         }
 
+        // ── Third-pass: Australian seaports table ──
+        // 82 federally-curated seaport coordinates (DITRDCSA dataset)
+        // seeded into Supabase. Catches "Port of Brisbane", "Sydney",
+        // "Cairns", "Hobart" etc. without us hand-maintaining each in
+        // the MARINE_PORTS constant. Lazy-loaded on first call and
+        // cached for the session. Skipped silently if Supabase is
+        // unavailable (offline, no keys) — the Mapbox fallback below
+        // still runs.
+        try {
+            const { findAustralianPort } = await import('../../AustralianPortsService');
+            const aussiePort = await findAustralianPort(cleanedQuery);
+            if (aussiePort) {
+                log.info(
+                    `[geocoding] Australian seaport hit: "${aussiePort.name}" (${aussiePort.lat},${aussiePort.lon})`,
+                );
+                return {
+                    lat: aussiePort.lat,
+                    lon: aussiePort.lon,
+                    name: aussiePort.name,
+                };
+            }
+        } catch (e) {
+            log.warn('[geocoding] Australian port lookup failed:', e);
+        }
+
         // Detect ISO country from the cleaned query (drives `country=`
         // filter in the Mapbox URL — without it, Mapbox can return the
         // country centroid when no specific feature matches the query).
