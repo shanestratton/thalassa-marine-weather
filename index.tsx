@@ -130,6 +130,44 @@ console.error = (...args: unknown[]) => {
 // Service Worker Registration for PWA/Offline Support
 const registerServiceWorker = async () => {
     if ('serviceWorker' in navigator) {
+        // ── CAPACITOR NATIVE BYPASS ──
+        // The native iOS / Android app bundles every asset into the .app
+        // package and serves them from capacitor://localhost. There is
+        // no network round-trip to cache and no "offline" failure mode
+        // — the app IS the offline cache. The Service Worker's stale-
+        // while-revalidate path was actively HARMING us: after a code
+        // push + cap copy ios, WKWebView would load the SW first, the
+        // SW would serve cached chunks from the previous session, and
+        // the user would stay on stale JS even after Clean Build +
+        // delete-and-reinstall. (Diagnosed 2026-05-15.) Native is
+        // checked via the global Capacitor object rather than UA
+        // sniffing — works in both runtime + Vite dev preview.
+        try {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const cap = (globalThis as any).Capacitor;
+            if (cap?.isNativePlatform?.()) {
+                // Unregister any SW that may have been registered by a
+                // previous build before this bypass landed, so the user
+                // doesn't get stuck on the old SW serving stale chunks.
+                const regs = await navigator.serviceWorker.getRegistrations();
+                for (const reg of regs) {
+                    await reg.unregister();
+                    console.warn('[SW] native platform — unregistered SW so capacitor:// chunks load fresh');
+                }
+                // Also nuke any cache the previous SW left behind.
+                if ('caches' in window) {
+                    const keys = await caches.keys();
+                    for (const key of keys) {
+                        await caches.delete(key);
+                    }
+                    if (keys.length) console.warn(`[SW] native platform — purged ${keys.length} legacy cache(s)`);
+                }
+                return;
+            }
+        } catch {
+            // Fall through to web path if Capacitor check throws.
+        }
+
         // ── DEV MODE: Unregister stale SWs that intercept Vite HMR requests ──
         // A production SW cached in the browser will intercept localhost:3000
         // module requests and serve stale/failed responses, preventing code
