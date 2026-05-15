@@ -127,6 +127,7 @@ export default function ThalassaDashboard() {
                         entries={entries}
                         nearbyVessels={nearbyVessels ?? []}
                         onEntryClick={handleSelect}
+                        selectedEntryId={selectedEntry?.id}
                     />
                 </main>
 
