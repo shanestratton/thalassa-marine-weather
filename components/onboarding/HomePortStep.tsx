@@ -16,10 +16,14 @@ interface HomePortStepProps {
     onLocate: () => void;
     onMapSelect: (lat: number, lon: number, name?: string) => void;
     onConfirmMapSelection: () => void;
+    prefix: string;
+    onPrefixChange: (value: string) => void;
     firstName: string;
     onFirstNameChange: (value: string) => void;
     lastName: string;
     onLastNameChange: (value: string) => void;
+    nickname: string;
+    onNicknameChange: (value: string) => void;
     onNext: () => void;
 }
 
@@ -33,10 +37,14 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
     onLocate,
     onMapSelect,
     onConfirmMapSelection,
+    prefix,
+    onPrefixChange,
     firstName,
     onFirstNameChange,
     lastName,
     onLastNameChange,
+    nickname,
+    onNicknameChange,
     onNext,
 }) => (
     <>
@@ -121,19 +129,42 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
             </div>
 
             <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
+                {/* Name — Prefix (opt) · First (req) · Surname (req) · Nickname (opt).
+                    Four parts so two crew with the same first name can share a
+                    boat without colliding on the public voyage-log byline. */}
+                <div className="grid grid-cols-5 gap-3">
+                    <input
+                        type="text"
+                        value={prefix}
+                        onChange={(e) => onPrefixChange(e.target.value)}
+                        placeholder="Capt."
+                        aria-label="Title or prefix (optional)"
+                        className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                    />
                     <input
                         type="text"
                         value={firstName}
                         onChange={(e) => onFirstNameChange(e.target.value)}
-                        placeholder="First Name"
-                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                        placeholder="First Name *"
+                        aria-label="First name (required)"
+                        className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
                     />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
                     <input
                         type="text"
                         value={lastName}
                         onChange={(e) => onLastNameChange(e.target.value)}
-                        placeholder="Last Name"
+                        placeholder="Surname *"
+                        aria-label="Surname (required)"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
+                    />
+                    <input
+                        type="text"
+                        value={nickname}
+                        onChange={(e) => onNicknameChange(e.target.value)}
+                        placeholder="Nickname"
+                        aria-label="Nickname (optional)"
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3.5 text-white focus:border-sky-500 outline-none text-sm font-medium transition-colors placeholder:text-gray-500"
                     />
                 </div>
@@ -194,8 +225,12 @@ export const HomePortStep: React.FC<HomePortStepProps> = ({
             <button
                 aria-label="Proceed to next step"
                 onClick={onNext}
-                disabled={!homePort}
-                className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${homePort ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg' : 'bg-white/5 text-gray-400 cursor-not-allowed'}`}
+                disabled={!homePort.trim() || !firstName.trim() || !lastName.trim()}
+                className={`w-full mt-8 font-bold py-4 rounded-xl transition-all ${
+                    homePort.trim() && firstName.trim() && lastName.trim()
+                        ? 'bg-sky-500 hover:bg-sky-400 text-white shadow-lg'
+                        : 'bg-white/5 text-gray-400 cursor-not-allowed'
+                }`}
             >
                 Next
             </button>

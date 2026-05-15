@@ -59,8 +59,12 @@ export interface UserSettings {
     subscriptionTier: SubscriptionTier;
     /** ISO date when subscription expires (undefined = free tier) */
     subscriptionExpiry?: string;
+    /** Title/prefix (Capt., Dr., Skipper …). Optional. */
+    prefix?: string;
     firstName?: string;
     lastName?: string;
+    /** Nickname rendered between quotes on the voyage-log byline. Optional. */
+    nickname?: string;
     alwaysOn?: boolean;
     notifications: NotificationPreferences;
     units: UnitPreferences;
