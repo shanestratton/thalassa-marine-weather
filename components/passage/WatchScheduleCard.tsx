@@ -327,6 +327,112 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
         },
         [voyageId, assignSheetIndex, schedule.watches],
     );
+
+    // ── Pattern detection + auto-fill ──
+    // Once 3+ contiguous slots from index 0 are assigned, look for a
+    // repeating cycle (shortest length that's confirmed by at least
+    // one full repetition; falls back to "the whole contiguous block
+    // is one cycle" if nothing's repeated yet). If a pattern exists
+    // AND there are still unassigned slots, surface a banner offering
+    // to fill the rest. Saves the skipper a lot of tedium on a
+    // multi-week rotation.
+    const detectedPattern = useMemo(() => {
+        const total = schedule.watches.length;
+        if (total < 4) return null;
+        // Contiguous run of assigned slots starting at 0
+        let contiguous = 0;
+        while (assignments.has(contiguous) && assignments.get(contiguous)?.assigned_crew_email) {
+            contiguous += 1;
+        }
+        if (contiguous < 3 || contiguous >= total) return null;
+
+        // Find the shortest confirmed cycle (one full repetition demonstrated).
+        // Fall back to the whole contiguous block as a single cycle
+        // (3-watch assignment ABC → assume 3-cycle).
+        let cycleLength = contiguous;
+        for (let L = 2; L <= Math.floor(contiguous / 2); L += 1) {
+            let matches = true;
+            for (let i = L; i < contiguous; i += 1) {
+                if (assignments.get(i)?.assigned_crew_email !== assignments.get(i % L)?.assigned_crew_email) {
+                    matches = false;
+                    break;
+                }
+            }
+            if (matches) {
+                cycleLength = L;
+                break;
+            }
+        }
+
+        const cycle = Array.from({ length: cycleLength }, (_, i) => {
+            const a = assignments.get(i);
+            return {
+                email: a?.assigned_crew_email ?? null,
+                name: a?.assigned_crew_name ?? null,
+            };
+        });
+        return { cycleLength, cycle, remaining: total - contiguous, startFrom: contiguous };
+    }, [assignments, schedule.watches.length]);
+
+    // Per-voyage "user dismissed the auto-fill banner" flag — keyed in
+    // localStorage so a refresh doesn't bring it back, and per-voyage so
+    // a new passage gets its own chance.
+    const dismissKey = voyageId ? `thalassa_watch_autofill_dismissed_${voyageId}` : null;
+    const [autofillDismissed, setAutofillDismissed] = useState<boolean>(() => {
+        if (!dismissKey) return false;
+        try {
+            return localStorage.getItem(dismissKey) === '1';
+        } catch {
+            return false;
+        }
+    });
+    useEffect(() => {
+        if (!dismissKey) return;
+        try {
+            setAutofillDismissed(localStorage.getItem(dismissKey) === '1');
+        } catch {
+            setAutofillDismissed(false);
+        }
+    }, [dismissKey]);
+
+    const [autofilling, setAutofilling] = useState(false);
+    const handleAutofill = useCallback(async () => {
+        if (!voyageId || !detectedPattern) return;
+        setAutofilling(true);
+        try {
+            const next = new Map(assignments);
+            for (let i = detectedPattern.startFrom; i < schedule.watches.length; i += 1) {
+                const slot = schedule.watches[i];
+                if (!slot) continue;
+                const pick = detectedPattern.cycle[i % detectedPattern.cycleLength];
+                if (!pick.email) continue;
+                const updated = await WatchAssignmentService.assign(
+                    voyageId,
+                    i,
+                    slot.label,
+                    slot.time,
+                    pick.email,
+                    pick.name,
+                );
+                if (updated) next.set(i, updated);
+            }
+            setAssignments(next);
+            triggerHaptic('medium');
+        } finally {
+            setAutofilling(false);
+        }
+    }, [voyageId, detectedPattern, assignments, schedule.watches]);
+
+    const handleDismissAutofill = useCallback(() => {
+        if (dismissKey) {
+            try {
+                localStorage.setItem(dismissKey, '1');
+            } catch {
+                /* ignore */
+            }
+        }
+        setAutofillDismissed(true);
+    }, [dismissKey]);
     const allChecked = CHECKLIST_ITEMS.every((item) => checkedItems[item.key]);
     const checkedCount = CHECKLIST_ITEMS.filter((item) => checkedItems[item.key]).length;
 
@@ -432,6 +538,38 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                                 ))}
                             </select>
                         )}
+                    </div>
+                )}
+
+                {/* Auto-fill banner — surfaces once 3+ contiguous
+                    watches have been assigned and we've spotted a
+                    repeating pattern. Two taps to fill an entire
+                    multi-week rotation. Dismissed flag is per-voyage. */}
+                {detectedPattern && !autofillDismissed && (
+                    <div className="mb-2 rounded-xl border border-sky-500/25 bg-sky-500/[0.06] px-3 py-2.5 flex items-center gap-3">
+                        <span className="text-lg shrink-0">🔁</span>
+                        <p className="flex-1 text-[11px] text-sky-200 leading-tight">
+                            Detected a {detectedPattern.cycleLength}-watch rotation. Apply to the remaining{' '}
+                            <strong className="text-white">{detectedPattern.remaining}</strong> watch
+                            {detectedPattern.remaining === 1 ? '' : 'es'}?
+                        </p>
+                        <button
+                            type="button"
+                            onClick={() => void handleAutofill()}
+                            disabled={autofilling}
+                            className="shrink-0 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider bg-sky-600 text-white hover:bg-sky-500 active:scale-95 transition-all disabled:opacity-50"
+                        >
+                            {autofilling ? 'Applying…' : 'Apply'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleDismissAutofill}
+                            disabled={autofilling}
+                            className="shrink-0 px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider text-sky-300/70 hover:text-sky-200 active:scale-95 transition-all disabled:opacity-50"
+                            aria-label="Dismiss auto-fill suggestion for this passage"
+                        >
+                            Dismiss
+                        </button>
                     </div>
                 )}
 
