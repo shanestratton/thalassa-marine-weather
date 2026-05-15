@@ -8,7 +8,6 @@
 import React from 'react';
 import { type CrewMember, REGISTER_ICONS, REGISTER_LABELS } from '../../services/CrewService';
 import { SwipeableCrewCard } from './SwipeableCrewCard';
-import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 
 interface CrewRosterProps {
@@ -134,8 +133,14 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                 </div>
             )}
 
-            {/* ── MY CREW (Captain view) — swipe to remove ── */}
-            <div className="mb-6">
+            {/* ── MY CREW (Captain view) — swipe to remove ──
+                When there's no crew yet, we just show the header row
+                with the +Invite button and nothing else. The big "No
+                Crew Yet" EmptyState card used to sit here was eating
+                ~120px of vertical space — pure visual clutter for the
+                solo-skipper case (which is the common case until the
+                first invite goes out). */}
+            <div className="mb-3">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">My Crew</span>
@@ -154,13 +159,7 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                     </button>
                 </div>
 
-                {visibleCrew.length === 0 ? (
-                    <EmptyState
-                        icon="👥"
-                        title="No Crew Yet"
-                        description="Invite crew members to share Inventory, Equipment, R&M and Documents registers."
-                    />
-                ) : (
+                {visibleCrew.length > 0 && (
                     <div className="space-y-2 stagger-in">
                         {visibleCrew.map((member) => (
                             <SwipeableCrewCard

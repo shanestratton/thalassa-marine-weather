@@ -5,7 +5,7 @@
  * Each card is a <details> accordion with delegation badge + inner card.
  */
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { type CrewMember } from '../../services/CrewService';
 import { type VoyageRow } from '../CrewManagement';
 
@@ -275,7 +275,22 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // for a brand-new route, partial state for a half-ticked one) or
     // stays as the vessel-wide state it already had (Vessel
     // Readiness — same localStorage keys regardless of voyage).
+    //
+    // Controlled <details> state per group rather than just
+    // `<details open={hasPassage}>` — React + native <details> doesn't
+    // reliably re-close once the user has tapped the summary, so a
+    // user-overridden-open details stays open even after the passage
+    // is deselected. With explicit state we re-sync on every
+    // hasPassage transition.
     const hasPassage = Boolean(selectedPassageId);
+    const [piOpen, setPiOpen] = useState(false);
+    const [briefOpen, setBriefOpen] = useState(false);
+    const [vesselOpen, setVesselOpen] = useState(false);
+    useEffect(() => {
+        setPiOpen(hasPassage);
+        setBriefOpen(hasPassage);
+        setVesselOpen(hasPassage);
+    }, [hasPassage]);
 
     return (
         <>
@@ -337,7 +352,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 Renamed/narrowed 2026-05-15: Vessel Profile moved to the new
                 Vessel Readiness group at the bottom (it's vessel-wide,
                 not passage intelligence). */}
-            <details className="group mb-2" open={hasPassage}>
+            <details
+                className="group mb-2"
+                open={piOpen}
+                onToggle={(e) => setPiOpen((e.currentTarget as HTMLDetailsElement).open)}
+            >
                 <summary className="list-none cursor-pointer">
                     <GroupHeader label="Passage Intelligence" ready={piReadyCount} total={2} />
                 </summary>
@@ -383,7 +402,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             </details>
 
             {/* ═══ GROUP 2: DEPARTURE BRIEF — route-specific operational. */}
-            <details className="group mb-2" open={hasPassage}>
+            <details
+                className="group mb-2"
+                open={briefOpen}
+                onToggle={(e) => setBriefOpen((e.currentTarget as HTMLDetailsElement).open)}
+            >
                 <summary className="list-none cursor-pointer">
                     <GroupHeader label="Departure Brief" ready={briefReadyCount} total={4} />
                 </summary>
@@ -527,7 +550,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 Same cards also live in Settings → Vessel Readiness so the
                 skipper can tick them off without an active passage. State
                 is shared (localStorage + readiness_checks). */}
-            <details className="group mb-2" open={hasPassage}>
+            <details
+                className="group mb-2"
+                open={vesselOpen}
+                onToggle={(e) => setVesselOpen((e.currentTarget as HTMLDetailsElement).open)}
+            >
                 <summary className="list-none cursor-pointer">
                     <GroupHeader label="Vessel Readiness" ready={vesselReadyCount} total={5} />
                 </summary>
