@@ -2,18 +2,33 @@
  * SavedLocationsPicker — combined save / recall affordance for the
  * route planner's origin and destination inputs.
  *
- * A single ★ button next to each input opens a small popover that:
- *   • Saves whatever's currently in the input as a favourite (adds
- *     to settings.savedLocations + savedLocationCoords if the form
- *     value has embedded coords).
- *   • Lists the user's saved locations; tapping one fills the input
- *     using the planner's "Name (lat, lon)" string format so the
- *     routing engine uses precise coords (when known) instead of
- *     ambiguous name-only geocoding.
+ * Single ★ button per input, opens a portaled popover that:
+ *   • Saves whatever's currently in the input as a favourite (parses
+ *     embedded coords from the planner's "Name (lat, lon)" string).
+ *   • Lists the user's saved locations; tap to fill the input with
+ *     the same "Name (lat, lon)" format so routing gets precise coords.
  *
- * The popover closes on outside-click or Escape.
+ * Implementation notes (gotchas the first pass hit):
+ *
+ * 1. Renders the popover through createPortal into <body>. The
+ *    button's wrapper sits inside the input's nested layout with
+ *    several ancestor `relative` / overflow contexts; positioning
+ *    the popover absolutely from there left it behind sibling
+ *    elements on the destination input. Portaling escapes all of
+ *    that, and `position: fixed` lets us anchor it precisely to the
+ *    button's viewport rect.
+ *
+ * 2. No nested <button> elements. The first pass put the Remove
+ *    button inside the Pick button, which is invalid HTML — WKWebView
+ *    rewrote the DOM and the outer click handler stopped firing.
+ *    Each row is now a div wrapper with two sibling buttons.
+ *
+ * 3. Remove icon is always-visible, not hover-gated. iOS has no
+ *    hover state, so `group-hover:opacity-100` would have left the
+ *    icon permanently invisible on touch.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { MapPinIcon, TrashIcon } from '../Icons';
 import { useSettings } from '../../context/SettingsContext';
 import {
@@ -30,44 +45,79 @@ interface SavedLocationsPickerProps {
     value: string;
     /** Setter for the input value — wired to setOrigin / setDestination. */
     onPick: (plannerString: string) => void;
-    /** Whether this picker is for the departure or arrival side, for
-     *  the accent color + screen-reader label. */
+    /** Departure / arrival side — used for the accent color + a11y label. */
     target: 'origin' | 'destination';
 }
+
+const ACCENTS = {
+    origin: {
+        text: 'text-emerald-400',
+        fill: 'fill-emerald-400 text-emerald-400',
+        textHover: 'hover:text-emerald-400',
+    },
+    destination: {
+        text: 'text-purple-400',
+        fill: 'fill-purple-400 text-purple-400',
+        textHover: 'hover:text-purple-400',
+    },
+} as const;
 
 export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ value, onPick, target }) => {
     const { settings, updateSettings } = useSettings();
     const [open, setOpen] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
+    const popoverRef = useRef<HTMLDivElement>(null);
+    const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
 
     const savedList = useMemo(
         () => hydrateSavedLocations(settings.savedLocations, settings.savedLocationCoords),
         [settings.savedLocations, settings.savedLocationCoords],
     );
 
-    // Is the current input value already in the saved list? (case-
-    // insensitive name match — coord drift doesn't count as "not saved").
     const currentName = extractDisplayName(value);
     const alreadySaved = useMemo(
         () => currentName.length > 0 && savedList.some((s) => s.name.toLowerCase() === currentName.toLowerCase()),
         [currentName, savedList],
     );
 
-    // Close on outside-click / Escape.
+    // Anchor the popover to the button's viewport rect. Re-measure on
+    // open + on scroll/resize so the popover follows if the user
+    // scrolls or rotates while it's up.
+    useLayoutEffect(() => {
+        if (!open) return;
+        const measure = () => {
+            const rect = buttonRef.current?.getBoundingClientRect();
+            if (rect) setAnchorRect(rect);
+        };
+        measure();
+        window.addEventListener('scroll', measure, true);
+        window.addEventListener('resize', measure);
+        return () => {
+            window.removeEventListener('scroll', measure, true);
+            window.removeEventListener('resize', measure);
+        };
+    }, [open]);
+
+    // Close on outside-click / Escape. The popover lives in a portal
+    // so we check BOTH the button AND the popover for the click
+    // target — anything outside both is "outside".
     useEffect(() => {
         if (!open) return;
-        const handleClick = (e: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
+        const handleClick = (e: MouseEvent | TouchEvent) => {
+            const target = e.target as Node;
+            const inButton = buttonRef.current?.contains(target);
+            const inPopover = popoverRef.current?.contains(target);
+            if (!inButton && !inPopover) setOpen(false);
         };
         const handleKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') setOpen(false);
         };
         document.addEventListener('mousedown', handleClick);
+        document.addEventListener('touchstart', handleClick);
         document.addEventListener('keydown', handleKey);
         return () => {
             document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('touchstart', handleClick);
             document.removeEventListener('keydown', handleKey);
         };
     }, [open]);
@@ -96,26 +146,48 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
         setOpen(false);
     };
 
-    const handleRemove = (locName: string, e: React.MouseEvent) => {
-        e.stopPropagation();
+    const handleRemove = (locName: string) => {
         triggerHaptic('light');
         const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, locName);
         updateSettings(patch);
     };
 
-    const accentColor = target === 'origin' ? 'text-emerald-400' : 'text-purple-400';
-    const accentFill = target === 'origin' ? 'fill-emerald-400 text-emerald-400' : 'fill-purple-400 text-purple-400';
+    const accent = ACCENTS[target];
+
+    // Position the portaled popover relative to the button's rect.
+    // Anchor to the BUTTON'S right edge — popover extends left from
+    // there so it stays inside the viewport on the destination side.
+    // Cap to 8px from each viewport edge so we never bleed off-screen.
+    const POPOVER_WIDTH = 288;
+    const POPOVER_GAP = 8;
+    const popoverStyle: React.CSSProperties = anchorRect
+        ? (() => {
+              const viewportW = window.innerWidth;
+              const rightEdge = viewportW - anchorRect.right;
+              const minRight = 8;
+              const maxRight = Math.max(minRight, viewportW - POPOVER_WIDTH - 8);
+              return {
+                  position: 'fixed',
+                  top: anchorRect.bottom + POPOVER_GAP,
+                  right: Math.min(Math.max(rightEdge, minRight), maxRight),
+                  width: POPOVER_WIDTH,
+                  maxWidth: 'calc(100vw - 16px)',
+                  zIndex: 9999,
+              };
+          })()
+        : { display: 'none' };
 
     return (
-        <div ref={containerRef} className="relative">
+        <>
             <button
+                ref={buttonRef}
                 type="button"
                 onClick={() => {
                     triggerHaptic('light');
                     setOpen((v) => !v);
                 }}
                 className={`p-2 transition-colors hover:bg-white/10 rounded-lg ${
-                    alreadySaved ? accentFill : `text-gray-400 hover:${accentColor}`
+                    alreadySaved ? accent.fill : `text-gray-400 ${accent.textHover}`
                 }`}
                 title={`Save / recall ${target === 'origin' ? 'departure' : 'destination'}`}
                 aria-label={`Save or recall a saved ${target === 'origin' ? 'departure' : 'destination'} location`}
@@ -124,98 +196,109 @@ export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ valu
                 <StarIcon className="w-4 h-4" filled={alreadySaved} />
             </button>
 
-            {open && (
-                <div
-                    className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-32px)] z-50 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden"
-                    role="menu"
-                >
-                    {/* Save / unsave the current input value */}
-                    <div className="p-3 border-b border-white/10">
-                        {currentName ? (
-                            alreadySaved ? (
-                                <button
-                                    type="button"
-                                    onClick={handleUnsaveCurrent}
-                                    className="w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-red-500/10 transition-colors group"
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">
-                                            Already saved
-                                        </div>
-                                        <div className="text-sm font-medium text-white truncate">{currentName}</div>
-                                    </div>
-                                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 group-hover:text-red-400 transition-colors shrink-0">
-                                        Unsave
-                                    </span>
-                                </button>
-                            ) : (
-                                <button
-                                    type="button"
-                                    onClick={handleSaveCurrent}
-                                    className={`w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-white/5 transition-colors group ${accentColor}`}
-                                >
-                                    <div className="min-w-0 flex-1">
-                                        <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">
-                                            Save current
-                                        </div>
-                                        <div className="text-sm font-medium text-white truncate">{currentName}</div>
-                                    </div>
-                                    <StarIcon className="w-4 h-4 shrink-0" filled={false} />
-                                </button>
-                            )
-                        ) : (
-                            <div className="text-xs text-gray-500 italic px-1 py-2">
-                                Enter or pick a {target === 'origin' ? 'departure' : 'destination'} above to save it
-                                here.
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Saved locations list */}
-                    <div className="max-h-72 overflow-y-auto">
-                        {savedList.length === 0 ? (
-                            <div className="text-xs text-gray-500 italic p-4 text-center">
-                                No saved locations yet. Save a place from the route planner or your weather page to
-                                recall it here later.
-                            </div>
-                        ) : (
-                            <div className="py-1">
-                                <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold px-3 pt-2 pb-1">
-                                    Saved
-                                </div>
-                                {savedList.map((loc) => (
+            {open &&
+                createPortal(
+                    <div
+                        ref={popoverRef}
+                        style={popoverStyle}
+                        className="rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden text-white"
+                        role="menu"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {/* Save / unsave the current input value */}
+                        <div className="p-3 border-b border-white/10">
+                            {currentName ? (
+                                alreadySaved ? (
                                     <button
                                         type="button"
-                                        key={loc.name}
-                                        onClick={() => handlePick(loc.name)}
-                                        className="w-full flex items-center gap-2 text-left p-2 px-3 hover:bg-white/5 transition-colors group"
+                                        onClick={handleUnsaveCurrent}
+                                        className="w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-red-500/10 transition-colors"
                                     >
-                                        <MapPinIcon className={`w-4 h-4 shrink-0 ${accentColor}`} />
                                         <div className="min-w-0 flex-1">
-                                            <div className="text-sm font-medium text-white truncate">{loc.name}</div>
-                                            {typeof loc.lat === 'number' && typeof loc.lon === 'number' && (
-                                                <div className="text-[10px] font-mono text-sky-300/60 mt-0.5">
-                                                    {loc.lat.toFixed(2)}°{loc.lat >= 0 ? 'N' : 'S'} ·{' '}
-                                                    {loc.lon.toFixed(2)}°{loc.lon >= 0 ? 'E' : 'W'}
-                                                </div>
-                                            )}
+                                            <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">
+                                                Already saved
+                                            </div>
+                                            <div className="text-sm font-medium text-white truncate">{currentName}</div>
                                         </div>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => handleRemove(loc.name, e)}
-                                            className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                                            aria-label={`Remove ${loc.name}`}
-                                        >
-                                            <TrashIcon className="w-3.5 h-3.5" />
-                                        </button>
+                                        <span className="text-[10px] uppercase tracking-widest font-bold text-red-400 shrink-0">
+                                            Unsave
+                                        </span>
                                     </button>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
-        </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={handleSaveCurrent}
+                                        className={`w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-white/5 transition-colors ${accent.text}`}
+                                    >
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">
+                                                Save current
+                                            </div>
+                                            <div className="text-sm font-medium text-white truncate">{currentName}</div>
+                                        </div>
+                                        <StarIcon className="w-4 h-4 shrink-0" filled={false} />
+                                    </button>
+                                )
+                            ) : (
+                                <div className="text-xs text-gray-500 italic px-1 py-2">
+                                    Enter or pick a {target === 'origin' ? 'departure' : 'destination'} above to save it
+                                    here.
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Saved locations list */}
+                        <div className="max-h-72 overflow-y-auto">
+                            {savedList.length === 0 ? (
+                                <div className="text-xs text-gray-500 italic p-4 text-center">
+                                    No saved locations yet. Save a place from the route planner or your weather page to
+                                    recall it here later.
+                                </div>
+                            ) : (
+                                <div className="py-1">
+                                    <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold px-3 pt-2 pb-1">
+                                        Saved
+                                    </div>
+                                    {savedList.map((loc) => (
+                                        <div
+                                            key={loc.name}
+                                            className="flex items-center gap-2 px-3 hover:bg-white/5 transition-colors"
+                                        >
+                                            <button
+                                                type="button"
+                                                onClick={() => handlePick(loc.name)}
+                                                className="flex items-center gap-2 flex-1 min-w-0 text-left py-2"
+                                            >
+                                                <MapPinIcon className={`w-4 h-4 shrink-0 ${accent.text}`} />
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="text-sm font-medium text-white truncate">
+                                                        {loc.name}
+                                                    </div>
+                                                    {typeof loc.lat === 'number' && typeof loc.lon === 'number' && (
+                                                        <div className="text-[10px] font-mono text-sky-300/60 mt-0.5">
+                                                            {loc.lat.toFixed(2)}°{loc.lat >= 0 ? 'N' : 'S'} ·{' '}
+                                                            {loc.lon.toFixed(2)}°{loc.lon >= 0 ? 'E' : 'W'}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleRemove(loc.name)}
+                                                className="p-2 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                                                aria-label={`Remove ${loc.name}`}
+                                            >
+                                                <TrashIcon className="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </div>,
+                    document.body,
+                )}
+        </>
     );
 };
 
