@@ -1634,11 +1634,15 @@ public class AppleMusicPlugin: CAPPlugin {
             // hopping to MainActor. Swift 6 strict concurrency forbids
             // capturing `var` across an actor boundary because the
             // closure could observe a stale or partially-mutated value
-            // — String is Sendable, so a let copy crosses safely.
+            // — String/TimeInterval are Sendable, so let copies cross
+            // safely. `playbackTime` is already a let above; `duration`
+            // was the holdout that produced the Swift 6 warning at
+            // line 1652.
             let finalTitle = title
             let finalArtist = artist
             let finalAlbum = album
             let finalArtworkUrl = artworkUrl
+            let finalDuration = duration
 
             await MainActor.run {
                 call.resolve([
@@ -1649,7 +1653,7 @@ public class AppleMusicPlugin: CAPPlugin {
                     "album": finalAlbum,
                     "artwork_url": finalArtworkUrl,
                     "playback_time": playbackTime,
-                    "duration": duration,
+                    "duration": finalDuration,
                 ])
             }
         }

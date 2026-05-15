@@ -525,6 +525,31 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         if (!body.trim() && !title.trim() && !audioUrl) return;
         setSaving(true);
         triggerHaptic('medium');
+
+        // Last-chance GPS — openCompose fires grabGps async, but if the
+        // skipper opens the form, types a quick title, and hits save
+        // within a couple seconds, the async grab won't have landed yet
+        // and the entry would save with NULL lat/lon. The Voyage Log map
+        // filters entries by hasCoords, so those entries appear in the
+        // sidebar but never as pins on the public map. Block briefly here
+        // to fetch the current location if state is still empty — cheap
+        // (~200-800ms when the watchPosition stream has a recent fix) and
+        // guarantees the map gets every entry.
+        let finalLat: number | null = lat;
+        let finalLon: number | null = lon;
+        let finalLocationName = locationName;
+        if (!editingId && (finalLat === null || finalLon === null)) {
+            const loc = await DiaryService.getCurrentLocation();
+            if (loc) {
+                finalLat = loc.lat;
+                finalLon = loc.lon;
+                if (!finalLocationName) {
+                    const placeName = await DiaryService.reverseGeocode(loc.lat, loc.lon);
+                    if (placeName) finalLocationName = placeName;
+                }
+            }
+        }
+
         if (editingId) {
             const ok = await DiaryService.updateEntry(editingId, {
                 title: title.trim() || formatDate(new Date().toISOString()),
@@ -558,9 +583,9 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 mood,
                 photos,
                 audio_url: audioUrl,
-                latitude: lat,
-                longitude: lon,
-                location_name: locationName,
+                latitude: finalLat,
+                longitude: finalLon,
+                location_name: finalLocationName,
                 weather_summary: weatherSummary,
                 weather_data: state.weatherDataObj,
                 tags: [],
