@@ -39,7 +39,11 @@ const ALARM_LEAD_OPTIONS = [5, 10, 15, 30] as const;
 const STORAGE_KEY = 'thalassa_watch_schedule';
 
 /** Generate a watch rotation based on crew count */
-const generateWatchSchedule = (
+/**
+ * Per-day watch schedule. Multi-day passages get this template repeated
+ * once per day inside the wrapper below.
+ */
+const baseDaySchedule = (
     crewCount: number,
 ): { system: string; pattern: string; watches: { label: string; time: string; crew: string }[] } => {
     if (crewCount <= 1) {
@@ -92,6 +96,49 @@ const generateWatchSchedule = (
     };
 };
 
+/**
+ * Build the full schedule for a passage by repeating the per-day
+ * template once per day. Reasoning:
+ *
+ *   - Two-crew "Swedish" dog-watch system has 7 watches per 24h. Odd
+ *     count is deliberate — it means assigning A/B alternately
+ *     across all slots naturally inverts each day (Day 1 starts with
+ *     A, Day 2 starts with B), which is how the dog watch fairly
+ *     distributes the dreaded midnight–04 watch over time.
+ *   - The auto-fill banner detects an A·B 2-cycle from the first 3
+ *     assignments and applies it across every slot, which gives the
+ *     correct daily inversion for free.
+ *   - 3-watch (3-crew) similarly cycles ABC and lands correctly.
+ *   - Multi-crew port/starboard 4-watch days repeat cleanly.
+ *
+ * When passageDurationHours is unknown or ≤ 24, just one day is
+ * generated (the original behaviour). When it's longer, slots get
+ * "Day N · …" prefix so they're scannable.
+ */
+const generateWatchSchedule = (
+    crewCount: number,
+    passageDurationHours?: number,
+): { system: string; pattern: string; watches: { label: string; time: string; crew: string }[] } => {
+    const base = baseDaySchedule(crewCount);
+    const days = passageDurationHours && passageDurationHours > 24 ? Math.ceil(passageDurationHours / 24) : 1;
+    if (days <= 1) return base;
+    const watches: { label: string; time: string; crew: string }[] = [];
+    for (let d = 1; d <= days; d += 1) {
+        for (const w of base.watches) {
+            watches.push({
+                label: `Day ${d} · ${w.label}`,
+                time: w.time,
+                crew: w.crew,
+            });
+        }
+    }
+    return {
+        system: base.system,
+        pattern: `${base.pattern} · ${days} days`,
+        watches,
+    };
+};
+
 const CHECKLIST_ITEMS = [
     { key: 'schedule_briefed', icon: '📋', label: 'Watch schedule briefed to all crew' },
     { key: 'night_duties', icon: '🌙', label: 'Night watch duties & protocols explained' },
@@ -118,7 +165,10 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
 
     const { syncCheck } = useReadinessSync(voyageId, 'watch_schedule', checkedItems, setCheckedItems, STORAGE_KEY);
 
-    const schedule = useMemo(() => generateWatchSchedule(crewCount), [crewCount]);
+    const schedule = useMemo(
+        () => generateWatchSchedule(crewCount, passageDurationHours),
+        [crewCount, passageDurationHours],
+    );
 
     // ── Watch assignments ──
     // Each watch slot can be assigned to a specific crew member.
