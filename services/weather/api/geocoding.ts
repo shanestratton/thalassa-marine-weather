@@ -541,6 +541,81 @@ export const parseLocation = async (
         lat = parseFloat(coordMatch[1]);
         lon = parseFloat(coordMatch[3]);
 
+        // ── Name-prefix override (stale-saved-location fix) ────────
+        // RoutePlanner stores destinations as "Name (lat.dddd,
+        // lon.dddd)" once a calculate or map-pick has resolved them.
+        // Saved locations carry those strings forward — if a user
+        // saved "Port Of Brisbane" before the Australian-ports table
+        // existed, the embedded coords are whatever Mapbox returned
+        // that day (off-channel for many ports). The coord-match
+        // path above would happily reuse those stale coords forever,
+        // never consulting MARINE_PORTS or the AU ports table.
+        //
+        // Fix: extract the name-prefix and try the curated → AU port
+        // lookup with it. If a known port matches AND its curated
+        // coords are CLOSE to the embedded ones (within 5 km),
+        // prefer the curated — they're the authoritative version
+        // and the embedded are the stale geocode. If the lookup is
+        // far away (>5 km), the user deliberately picked a non-port
+        // spot near a named place; preserve their pick.
+        const namePrefix = location
+            .replace(/\s*\(\s*[-\d.,\s]+\s*\)\s*$/, '')
+            .replace(/^\d+\s*,\s*\d/, '')
+            .trim();
+        // Skip the override for waypoint-style names ("WP …") and
+        // for very short prefixes that wouldn't make a real lookup
+        // candidate.
+        const looksLikePlace = namePrefix.length >= 3 && !/^wp\b/i.test(namePrefix) && /[a-zA-Z]/.test(namePrefix);
+        if (looksLikePlace) {
+            const cleanedPrefix = sanitizeLocationQuery(namePrefix);
+
+            // Distance helper — quick haversine in km. Stays inline
+            // to avoid pulling in turf for what's a 4-line maths bit.
+            const kmBetween = (la1: number, lo1: number, la2: number, lo2: number): number => {
+                const R = 6371;
+                const toRad = (d: number) => (d * Math.PI) / 180;
+                const dLat = toRad(la2 - la1);
+                const dLon = toRad(lo2 - lo1);
+                const a =
+                    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(la1)) * Math.cos(toRad(la2)) * Math.sin(dLon / 2) ** 2;
+                return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            };
+            const OVERRIDE_MAX_KM = 5;
+
+            // a) MARINE_PORTS (hand-curated)
+            const curated = findCuratedPort(cleanedPrefix);
+            if (curated) {
+                const d = kmBetween(lat, lon, curated.lat, curated.lon);
+                if (d < OVERRIDE_MAX_KM) {
+                    log.info(
+                        `[geocoding] embedded coords overridden by curated port "${curated.canonicalName}" (was ${d.toFixed(1)} km off)`,
+                    );
+                    return { lat: curated.lat, lon: curated.lon, name: curated.canonicalName };
+                }
+            }
+
+            // b) Australian seaports (DITRDCSA-seeded Supabase table)
+            try {
+                const { findAustralianPort } = await import('../../AustralianPortsService');
+                const aussiePort = await findAustralianPort(cleanedPrefix);
+                if (aussiePort) {
+                    const d = kmBetween(lat, lon, aussiePort.lat, aussiePort.lon);
+                    if (d < OVERRIDE_MAX_KM) {
+                        log.info(
+                            `[geocoding] embedded coords overridden by Australian seaport "${aussiePort.name}" (was ${d.toFixed(1)} km off)`,
+                        );
+                        return { lat: aussiePort.lat, lon: aussiePort.lon, name: aussiePort.name };
+                    } else {
+                        log.info(
+                            `[geocoding] kept embedded coords — name "${aussiePort.name}" matched but ${d.toFixed(1)} km away (>${OVERRIDE_MAX_KM} km), assuming intentional pick`,
+                        );
+                    }
+                }
+            } catch (e) {
+                log.warn('[geocoding] AU port lookup failed during embed-override:', e);
+            }
+        }
+
         // OPTIMIZATION: Don't block on Reverse Geocode. Return coords immediately.
         // The WeatherContext will eventually correct the name if needed.
         // STOPPED: Formatting as "WP ..." prematurely.
