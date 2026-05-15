@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 // tz-lookup ships no types — declared in src/tz-lookup.d.ts.
 import tzlookup from 'tz-lookup';
+import { useBandwidthMode } from '../bandwidthMode';
 
 export interface PhotoLightboxMetadata {
     /** ISO timestamp the photo was captured at. */
@@ -57,6 +58,21 @@ const formatLocalCaptureTime = (capturedAt: string, lat: number | null, lon: num
 export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex = 0, caption, metadata, onClose }) => {
     const [index, setIndex] = useState(startIndex);
     const touchStartX = useRef<number | null>(null);
+
+    // Sat-Link mode: gate each photo behind an explicit "Tap to load" so
+    // viewers on Iridium GO! and similar pipes only spend data on what
+    // they actually want to see. The photo the user *opened* the lightbox
+    // on (startIndex) is treated as already-requested — their tap to open
+    // is the consent for that one.
+    const { mode } = useBandwidthMode();
+    const [requested, setRequested] = useState<Set<number>>(() => new Set([startIndex]));
+    const isLoaded = (i: number): boolean => mode === 'starlink' || requested.has(i);
+    const requestLoad = (i: number): void =>
+        setRequested((prev) => {
+            const next = new Set(prev);
+            next.add(i);
+            return next;
+        });
 
     const go = useCallback(
         (delta: number) => {
@@ -115,14 +131,38 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                 </button>
             </div>
 
-            {/* Image */}
+            {/* Image (or Sat-Link "Tap to load" gate) */}
             <div className="flex-1 flex items-center justify-center min-h-0 px-4 relative">
-                <img
-                    src={photos[index]}
-                    alt=""
-                    onClick={(e) => e.stopPropagation()}
-                    className="max-h-full max-w-full object-contain rounded-lg shadow-2xl select-none"
-                />
+                {isLoaded(index) ? (
+                    <img
+                        src={photos[index]}
+                        alt=""
+                        onClick={(e) => e.stopPropagation()}
+                        className="max-h-full max-w-full object-contain rounded-lg shadow-2xl select-none"
+                    />
+                ) : (
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex flex-col items-center gap-3 p-8 rounded-2xl bg-slate-900/70 border border-white/10 text-center"
+                    >
+                        <span className="text-5xl">📷</span>
+                        <p className="text-sm text-slate-300">
+                            Photo {index + 1} of {photos.length}
+                        </p>
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                requestLoad(index);
+                            }}
+                            aria-label="Load this photo"
+                            className="px-4 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold transition-colors"
+                        >
+                            Tap to load photo
+                        </button>
+                        <p className="text-[11px] text-slate-500">Preserves Sat-Link data</p>
+                    </div>
+                )}
 
                 {multi && (
                     <>
