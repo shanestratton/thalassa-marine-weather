@@ -128,7 +128,22 @@ export const useAppController = () => {
                         log.warn('boats cloud-check error:', error.message);
                     }
                     if (boat?.id) {
+                        // Backfill every "first-time user" flag we know
+                        // about. They all gate the various tutorial /
+                        // intro overlays via localStorage, which is
+                        // wiped per-install. Returning users have seen
+                        // these already; suppress them all so the
+                        // reinstall feels like a clean resume.
+                        // (Race caveat: useState initializers in these
+                        // overlays read the flags during the same React
+                        // render this effect mounts. The flags may not
+                        // be set before the overlay's initial render,
+                        // so they can flash briefly on first sign-in.
+                        // Worst case the user dismisses them once.)
                         localStorage.setItem('thalassa_v3_onboarded', 'true');
+                        localStorage.setItem('thalassa_tutorial_completed', 'true');
+                        localStorage.setItem('thalassa_onboarding_complete', 'true');
+                        localStorage.setItem('thalassa_glass_tutorial_seen', 'true');
                         // CRITICAL: explicitly hide the wizard. Without
                         // this, a previous render that set showOnboarding
                         // true (before auth resolved) leaves the wizard
@@ -136,6 +151,24 @@ export const useAppController = () => {
                         // boat. This was the "Apple sign-in but wizard
                         // ran anyway" bug.
                         if (!cancelled) setShowOnboarding(false);
+                        // Returning users skip onboarding's "Locate Me"
+                        // step, which means the iOS location-permission
+                        // prompt never fires — and the Glass page spins
+                        // forever waiting for a GPS fix that can't happen
+                        // until the user grants permission. Fire a
+                        // throwaway getCurrentPosition() now: iOS surfaces
+                        // its permission sheet on first call, BgGeoManager
+                        // initializes its CLLocationManager, and after the
+                        // user grants the weather flow's own GPS call
+                        // (later in the orchestrator) succeeds.
+                        // Fire-and-forget — the result is discarded.
+                        void GpsService.getCurrentPosition({
+                            staleLimitMs: 60_000,
+                            timeoutSec: 10,
+                        }).catch(() => {
+                            /* permission denied or timeout — ok, weather
+                               will fall back to its saved location */
+                        });
                         if (!weatherData && !loading && settings.defaultLocation) {
                             setPage('dashboard');
                             fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
