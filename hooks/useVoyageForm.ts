@@ -342,6 +342,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             const userLoc = LocationStore.getState();
             const userLocation =
                 userLoc.lat !== 0 || userLoc.lon !== 0 ? { lat: userLoc.lat, lon: userLoc.lon } : undefined;
+            // Loud trace just before computeVoyagePlan — confirms the
+            // EXACT strings being passed in. If parseLocation's own
+            // entry log doesn't fire after this, we know it's a stale-
+            // bundle issue (Xcode didn't deploy the latest JS) rather
+            // than a code-path issue. Both lines side-by-side make the
+            // diagnosis trivial.
+            console.warn(`[useVoyageForm] computeVoyagePlan input: origin="${fmtOrigin}" destination="${fmtDest}"`);
             const result = await computeVoyagePlan(
                 fmtOrigin,
                 fmtDest,
