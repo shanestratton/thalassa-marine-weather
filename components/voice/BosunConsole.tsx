@@ -606,6 +606,39 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
         };
     }, []);
 
+    /**
+     * Re-arm the prewarm pipeline after a recognizer session ends.
+     *
+     * Background: the mount-time prewarm (above) makes the FIRST tap fast.
+     * But the recognizer's teardown closes the AudioContext, stops the mic
+     * tracks, and closes the WebSocket — by design, so the iOS mic
+     * indicator goes off and resources free. The downside is every
+     * subsequent tap cold-starts (~200-500ms), and on iOS that's enough to
+     * eat the first few words of speech.
+     *
+     * Fix: kick the same prewarm chain again the moment a session ends, so
+     * by the time the user is ready to tap again everything is warm. Fire-
+     * and-forget; we don't block the response cycle on it. Each prewarm
+     * function is idempotent and safe to call when the slot is null
+     * (which it always is post-teardown, since consume + teardown null
+     * out prewarmedMicStream / prewarmedAudio / prewarmedWebSocket).
+     *
+     * Skips setPrewarmReady — already true from the mount-time prewarm.
+     * If a re-arm somehow fails we don't toggle it false; falling through
+     * to a cold getUserMedia/context build is still functional, just slower.
+     */
+    const rearmPrewarm = useCallback(() => {
+        void Promise.all([
+            prewarmDeepgram(),
+            prewarmMicStream().then(async (ok) => {
+                if (ok) await prewarmAudioContext();
+                return ok;
+            }),
+            prewarmWorkletAsset(),
+            prewarmDeepgramWebSocket().then((ok) => (ok ? true : prewarmWorkerConnection())),
+        ]);
+    }, []);
+
     // Auto-scroll on new content
     useEffect(() => {
         conversationEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -1380,6 +1413,13 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
                     setTimeout(() => setOneButton(which, 'idle'), 1500);
+                } finally {
+                    // Re-arm so the NEXT tap is as fast as the first.
+                    // The teardown above closed the AudioContext, stopped
+                    // the mic tracks, and consumed all prewarm slots —
+                    // without this every subsequent tap cold-starts and
+                    // eats the first few words of speech on iOS.
+                    rearmPrewarm();
                 }
             }
             // sending / awaiting: ignore.
