@@ -848,12 +848,31 @@ function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number, channelHalfWi
     const n = markers.length;
     const visited = new Uint8Array(n);
     const clusters: number[][] = [];
-    // Tried trailing-window PCA on 2026-05-15 to track curving
-    // channels better at Brisbane River. It regressed Newport — user
-    // "that broke the newport end". Reverted to global PCA (fit to
-    // the entire cluster's markers) which was the state when Newport
-    // weave-through-the-markers worked ("bingo"). Brisbane curving-
-    // channel coverage stays suboptimal as a known trade-off.
+    // TWO PCA fits, OR semantics on the perp-distance gate.
+    //
+    // Why: a GLOBAL PCA fit on the whole cluster is correct for short
+    // straight chains (Newport's 3 pairs, Scarborough's 5 pairs) and
+    // rejects the perpendicular cross-channel from being swept in.
+    // But on a long CURVING chain (Brisbane River shipping channel
+    // bending 60°+ from bay to river mouth), the global fit averages
+    // the curve into a diagonal — and markers at the curve's far ends
+    // fall outside the perp gate, truncating the chain. A trailing-
+    // window fit on the LAST 6 markers (the BFS edge) tracks the
+    // channel's local direction and accepts curving extremes.
+    //
+    // Solo, each fit has a failure mode: global truncates curves,
+    // trailing-window is locally noisy near chain extremes (a
+    // boundary marker can flip in/out depending on the last 6
+    // markers' PCA, even though globally it lies along the line).
+    //
+    // OR semantics — a candidate is accepted if it passes EITHER
+    // gate — gives the best of both: straight chains pass both fits
+    // (no change); curving chains pass via local where global fails;
+    // perpendicular cross channels fail BOTH (the cross is far perp
+    // of any line you fit through a single channel). Boundary noise
+    // is dampened because the candidate only needs one of the two
+    // fits to accept it.
+    const FIT_WINDOW = 6;
     for (let seed = 0; seed < n; seed++) {
         if (visited[seed]) continue;
         const cluster: number[] = [];
@@ -862,17 +881,23 @@ function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number, channelHalfWi
         while (queue.length) {
             const i = queue.shift()!;
             cluster.push(i);
-            // Re-fit the cluster's principal axis once it has enough
-            // markers for PCA to be meaningful. With <3 markers the
-            // direction is undefined (single marker) or only one
-            // perpendicular pair — we fall back to pure raw-distance.
-            const fit = cluster.length >= 3 ? clusterFitLine(cluster, markers) : null;
+            // fitGlobal: kicks in at cluster size ≥3.
+            // fitLocal: only kicks in once we have more markers than
+            // the window size — for ≤ FIT_WINDOW, the trailing window
+            // equals the full cluster, so it would duplicate fitGlobal.
+            const fitGlobal = cluster.length >= 3 ? clusterFitLine(cluster, markers) : null;
+            const fitLocal = cluster.length > FIT_WINDOW ? clusterFitLine(cluster.slice(-FIT_WINDOW), markers) : null;
             const mi = markers[i];
             for (let j = 0; j < n; j++) {
                 if (visited[j]) continue;
                 const mj = markers[j];
                 if (haversineMetres(mi.lat, mi.lon, mj.lat, mj.lon) > CLUSTER_LINK_M) continue;
-                if (fit && perpDistFromLineM(mj.lat, mj.lon, fit) > channelHalfWidthM) continue;
+                if (fitGlobal) {
+                    const perpG = perpDistFromLineM(mj.lat, mj.lon, fitGlobal);
+                    const perpL = fitLocal ? perpDistFromLineM(mj.lat, mj.lon, fitLocal) : perpG;
+                    // Reject only if BOTH gates reject. Either accepts → in.
+                    if (perpG > channelHalfWidthM && perpL > channelHalfWidthM) continue;
+                }
                 visited[j] = 1;
                 queue.push(j);
             }
