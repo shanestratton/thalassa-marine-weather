@@ -3,7 +3,6 @@
  * Shown once on first app open. Auto-dismissed, stored in localStorage.
  */
 import React, { useState, useCallback, useEffect } from 'react';
-import { useAuthStore } from '../../stores/authStore';
 
 const STORAGE_KEY = 'thalassa_onboarding_complete';
 
@@ -60,46 +59,39 @@ const slides = [
 ];
 
 export const OnboardingOverlay: React.FC = () => {
-    const [visible, setVisible] = useState(() => {
-        try {
-            return !localStorage.getItem(STORAGE_KEY);
-        } catch (e) {
-            console.warn('Suppressed:', e);
-            return true;
-        }
-    });
+    // Default to HIDDEN. Returning users on a fresh install hit a
+    // race where this overlay's useState initializer read
+    // localStorage before useAppController's boats-row check could
+    // back-fill the "I've seen this" flag — they'd see the intro
+    // slides flash for a second. Polling for the flag (previous
+    // attempt) helped but didn't eliminate the flash, especially
+    // now that pullFromCloud blocks on Geolocation permission
+    // (which holds the whole chain).
+    //
+    // New model: never show by default. The OnboardingWizard's
+    // handleOnboardingComplete dispatches `thalassa:show-intro-
+    // overlay` after a brand-new account finishes vessel setup —
+    // THAT's the only moment we show the intro slides. Returning
+    // users never trigger the wizard, never trigger the event,
+    // never see this. Subsequent launches: STORAGE_KEY is already
+    // set by previous dismiss, so even if the event somehow fires
+    // we stay hidden.
+    const [visible, setVisible] = useState(false);
     const [current, setCurrent] = useState(0);
 
-    // Returning-user race fix: useAppController sets STORAGE_KEY in its
-    // boats-row-found path right after sign-in, but THAT effect runs
-    // after this component's useState initializer already read
-    // localStorage as missing → visible=true → user sees the intro
-    // slides they don't need.
-    //
-    // Poll the flag every 100 ms for up to 3 s after auth lands so
-    // we catch the late-write before the user has perceived the
-    // flash. (300 ms fixed delay was too short — pullFromCloud
-    // can now block on Geolocation.requestPermissions waiting for
-    // the user to tap Allow, which delays the rest of the
-    // sign-in chain.)
-    const authedUser = useAuthStore((s) => s.user);
     useEffect(() => {
-        if (!authedUser) return;
-        const start = Date.now();
-        const id = window.setInterval(() => {
+        const handler = () => {
             try {
-                if (localStorage.getItem(STORAGE_KEY)) {
-                    setVisible(false);
-                    window.clearInterval(id);
-                    return;
-                }
+                if (localStorage.getItem(STORAGE_KEY)) return; // already seen
             } catch {
-                /* private mode, ok */
+                /* private mode — show anyway */
             }
-            if (Date.now() - start > 3000) window.clearInterval(id);
-        }, 100);
-        return () => window.clearInterval(id);
-    }, [authedUser]);
+            setVisible(true);
+            setCurrent(0);
+        };
+        window.addEventListener('thalassa:show-intro-overlay', handler);
+        return () => window.removeEventListener('thalassa:show-intro-overlay', handler);
+    }, []);
 
     const dismiss = useCallback(() => {
         try {
