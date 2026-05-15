@@ -22,6 +22,11 @@
                 border-left-color: rgb(15 23 42);
                 border-right-color: rgb(15 23 42);
             }
+            /* Lift the satellite basemap out of "goth" — affects only the
+               raster canvas, not markers/popups/labels (those are HTML). */
+            .voyage-log-sat-bright .mapboxgl-canvas {
+                filter: brightness(1.18) saturate(1.12) contrast(1.02);
+            }
         </style>
     </head>
     <body class="bg-slate-900">

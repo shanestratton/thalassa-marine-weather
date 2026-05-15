@@ -138,7 +138,9 @@ export default function MapContainer({ track, entries, nearbyVessels, onEntryCli
     }
 
     return (
-        <div className="w-full h-full relative bg-slate-900">
+        <div
+            className={`w-full h-full relative bg-slate-900 ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
+        >
             <Map
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
