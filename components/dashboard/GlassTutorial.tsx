@@ -69,22 +69,26 @@ export const GlassTutorial: React.FC = () => {
     });
     const [current, setCurrent] = useState(0);
 
-    // Returning-user race fix (mirrors OnboardingOverlay): useApp
-    // Controller sets STORAGE_KEY in the boats-row-found path after
-    // sign-in, but that happens after our useState initializer has
-    // already read localStorage. Re-check after auth lands so we
-    // don't show the gesture tutorial to returning users.
+    // Returning-user race fix (mirrors OnboardingOverlay): poll the
+    // flag for up to 3 s after auth lands so we catch the late
+    // useAppController write before the user perceives the flash.
     const authedUser = useAuthStore((s) => s.user);
     useEffect(() => {
         if (!authedUser) return;
-        const t = setTimeout(() => {
+        const start = Date.now();
+        const id = window.setInterval(() => {
             try {
-                if (localStorage.getItem(STORAGE_KEY)) setVisible(false);
+                if (localStorage.getItem(STORAGE_KEY)) {
+                    setVisible(false);
+                    window.clearInterval(id);
+                    return;
+                }
             } catch {
                 /* ok */
             }
-        }, 300);
-        return () => clearTimeout(t);
+            if (Date.now() - start > 3000) window.clearInterval(id);
+        }, 100);
+        return () => window.clearInterval(id);
     }, [authedUser]);
 
     const dismiss = useCallback(() => {

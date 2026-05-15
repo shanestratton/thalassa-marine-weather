@@ -20,6 +20,7 @@ import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
 import { tierIsPro } from '../services/SubscriptionService';
 import { createLogger } from '../utils/createLogger';
+import { Geolocation } from '@capacitor/geolocation';
 
 const log = createLogger('SettingsStore');
 
@@ -171,17 +172,34 @@ async function pullFromCloud(userId: string): Promise<void> {
 
         // Fallback: if neither cloud nor local has a defaultLocation
         // we'd hand the weather flow nothing to fetch, and the Glass
-        // page spins forever. Returning users whose profiles row was
-        // never populated (common after multiple reinstalls that
-        // bypass onboarding via the boats-row check) hit this.
-        // Default to 'Current Location' — we already requested GPS
-        // permission in the boats-found path, and the orchestrator's
-        // existing GPS branch picks it up. User can change later in
-        // Settings.
+        // page spins forever.
+        //
+        // Default to 'Current Location' — the orchestrator's existing
+        // GPS branch picks it up. But CRITICAL: await location
+        // permission FIRST. Without this wait, the orchestrator's
+        // GPS lookup fires immediately on the settings-restored
+        // event we're about to dispatch, before iOS has shown the
+        // user the location prompt; Transistorsoft's
+        // BackgroundGeolocation then fails with kCLErrorDomain
+        // Code=1 (denied) and the orchestrator gives up. By the
+        // time the user grants permission, no one re-tries.
+        // Awaiting requestPermissions here blocks pullFromCloud
+        // until the user has dismissed the iOS sheet, so the
+        // downstream GPS lookup happens with permission already
+        // granted. Denial returns the same shape with status='denied'
+        // — we still dispatch the event, the orchestrator's GPS
+        // call will fail, but at least it fails for a reason the
+        // user can fix in iOS Settings.
         if (!merged.defaultLocation) {
             log.warn(
-                '[pullFromCloud] No defaultLocation found locally or in cloud — defaulting to Current Location for GPS-based weather',
+                '[pullFromCloud] No defaultLocation found locally or in cloud — awaiting location permission before defaulting to Current Location',
             );
+            try {
+                const perm = await Geolocation.requestPermissions();
+                log.warn(`[pullFromCloud] Geolocation permission result: ${perm.location}`);
+            } catch (err) {
+                log.warn(`[pullFromCloud] Geolocation permission threw: ${getErrorMessage(err)}`);
+            }
             merged.defaultLocation = 'Current Location';
         }
 
