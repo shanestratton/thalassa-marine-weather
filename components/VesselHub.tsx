@@ -8,6 +8,7 @@
  *   (Diary now lives inside Quick Actions — see the 6-tile grid above.)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
+ *   Wardroom:            Music (Apple Music)
  *   Connect:             NMEA Gateway · Boat Network
  *   Account:             Settings + tier
  *
@@ -1045,6 +1046,43 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
+                {/* WARDROOM — onboard comfort: music, etc.     */}
+                {/* The wardroom is the officers' lounge on a   */}
+                {/* vessel — the social/comfort space. Sits     */}
+                {/* between Reference (tools) and Connect       */}
+                {/* (instruments) intentionally: music isn't a  */}
+                {/* tool you need to plan a passage, but it     */}
+                {/* should still be a one-Nav-Station hop away  */}
+                {/* rather than buried inside Calypso (which    */}
+                {/* is Skipper-tier only). Future "lifestyle"   */}
+                {/* features (ambient sounds for sleep, reading */}
+                {/* lists, podcasts) belong here too.           */}
+                {/* ═══════════════════════════════════════════ */}
+                <div className="mb-4">
+                    <SectionHeader
+                        color="#f472b6"
+                        label="Wardroom"
+                        id="wardroom"
+                        expanded={expanded.has('wardroom')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('wardroom')}>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<MusicNoteIcon color="#f472b6" />}
+                                label="Music"
+                                status="Apple Music"
+                                statusColor="#f472b6"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('music');
+                                }}
+                            />
+                        </div>
+                    </CollapsibleContent>
+                </div>
+
+                {/* ═══════════════════════════════════════════ */}
                 {/* CONNECT — instruments, AIS, charts          */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
@@ -2035,6 +2073,12 @@ const NoticeIcon: React.FC<{ color: string }> = ({ color }) => (
             strokeLinejoin="round"
             d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
         />
+    </svg>
+);
+
+const MusicNoteIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill={color} aria-hidden="true">
+        <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
     </svg>
 );
 
