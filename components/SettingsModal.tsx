@@ -11,6 +11,7 @@ import { GpsService } from '../services/GpsService';
 import { AlertsTab } from './settings/AlertsTab';
 import { AestheticsTab } from './settings/AestheticsTab';
 import { VesselTab } from './settings/VesselTab';
+import { VesselReadinessTab } from './settings/VesselReadinessTab';
 import { GeneralTab } from './settings/GeneralTab';
 import { AccountTab } from './settings/AccountTab';
 import { LocationsTab } from './settings/LocationsTab';
@@ -199,6 +200,7 @@ type SettingsTab =
     | 'general'
     | 'account'
     | 'vessel'
+    | 'vesselReadiness'
     | 'alerts'
     | 'scenery'
     | 'locations'
@@ -244,6 +246,27 @@ const MENU_ITEMS: {
         label: 'Vessel Profile',
         description: 'Boat specs, rig & safety gear',
         icon: (c) => <BoatIcon className={c} />,
+        iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10',
+        iconHoverBg: 'group-hover:bg-amber-500/25',
+    },
+    {
+        // Vessel Readiness — vessel-wide pre-departure checklists. The same
+        // four cards also render inside passage planning when a voyage is
+        // selected; this tab is a second access point so the skipper can
+        // tick them off without starting a passage.
+        id: 'vesselReadiness',
+        label: 'Vessel Readiness',
+        description: 'Reserves, pre-check, medical & comms',
+        // Clipboard-with-check icon — checklist semantics.
+        icon: (c) => (
+            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                />
+            </svg>
+        ),
         iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10',
         iconHoverBg: 'group-hover:bg-amber-500/25',
     },
@@ -573,6 +596,8 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         )}
 
                         {activeTab === 'vessel' && <VesselTab settings={settings} onSave={onSave} />}
+
+                        {activeTab === 'vesselReadiness' && <VesselReadinessTab settings={settings} onSave={onSave} />}
 
                         {activeTab === 'alerts' && <AlertsTab settings={settings} onSave={onSave} />}
 
