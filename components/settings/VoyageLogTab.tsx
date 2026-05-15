@@ -318,10 +318,77 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
 
     return (
         <div className="px-4 pb-8">
-            <p className="text-sm text-gray-400 mb-6">
-                Your public Voyage Log. Publish individual diary entries from the prompt that appears after you save one
-                — this tab controls the page itself.
-            </p>
+            {/* Hero — the punter's main "your log is live, here's the URL"
+                takeaway. Reads at a glance, big-tap copy + open buttons. */}
+            <div className="mb-5 rounded-2xl border border-sky-500/25 bg-gradient-to-br from-sky-500/10 to-cyan-500/[0.04] p-4">
+                <div className="flex items-center gap-2 mb-3">
+                    <span className="text-xl">🌐</span>
+                    <span className="text-[10px] font-black text-sky-300/80 uppercase tracking-[0.2em]">
+                        Your Voyage Log is live
+                    </span>
+                </div>
+                <div className="text-base font-mono font-bold text-white truncate" title={publicUrl}>
+                    {publicUrl}
+                </div>
+                <div className="flex gap-2 mt-3">
+                    <button
+                        onClick={() => void Browser.open({ url: publicUrl })}
+                        aria-label="Open your voyage log in browser"
+                        className="flex-1 text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
+                    >
+                        Open
+                    </button>
+                    <button
+                        onClick={() => void copy('url', publicUrl)}
+                        aria-label="Copy your voyage log share link"
+                        className="flex-1 text-xs font-bold text-sky-300 border border-sky-400/40 hover:bg-sky-500/10 active:scale-95 transition-all px-3 py-2 rounded-lg uppercase tracking-wider"
+                    >
+                        {copiedField === 'url' ? 'Copied!' : 'Copy link'}
+                    </button>
+                </div>
+            </div>
+
+            {/* What to do next — surface the not-obvious bits. The biggest
+                "wait, why don't I see my entries on the page?" moment for
+                new users is realising publish is opt-in per entry, so it
+                gets billing here. */}
+            <div className="mb-6 rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
+                <div className="text-[10px] font-black text-gray-300 uppercase tracking-[0.2em] mb-3">
+                    What to do next
+                </div>
+                <ol className="space-y-2.5 text-xs text-gray-300 leading-relaxed list-none">
+                    <li className="flex gap-3">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold flex items-center justify-center">
+                            1
+                        </span>
+                        <span>
+                            <strong className="text-white">Share the link</strong> above with the folks following along
+                            at home — they don&apos;t need an account or the app, just the URL.
+                        </span>
+                    </li>
+                    <li className="flex gap-3">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold flex items-center justify-center">
+                            2
+                        </span>
+                        <span>
+                            <strong className="text-white">Write a diary entry</strong> and tap{' '}
+                            <strong className="text-sky-300">Publish to Voyage Log</strong> in the prompt that appears
+                            after you save. Entries default to private — only the ones you publish appear on the public
+                            page.
+                        </span>
+                    </li>
+                    <li className="flex gap-3">
+                        <span className="shrink-0 w-5 h-5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 text-[10px] font-bold flex items-center justify-center">
+                            3
+                        </span>
+                        <span>
+                            <strong className="text-white">Track and telemetry sync automatically</strong> while
+                            you&apos;re sailing — position, speed, wind, barometer all show up on the public page in
+                            real time. No action needed.
+                        </span>
+                    </li>
+                </ol>
+            </div>
 
             <Section title="Voyage Log">
                 <Row>
@@ -343,23 +410,10 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
 
             <Section title="Your public page">
                 <Row>
-                    <div className="flex-1 min-w-0">
-                        <div className="text-sm text-white font-bold">Share link</div>
-                        <div className="text-xs font-mono text-sky-300 mt-1 truncate">{publicUrl}</div>
-                    </div>
-                    <button
-                        onClick={() => void copy('url', publicUrl)}
-                        aria-label="Copy your voyage log share link"
-                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
-                    >
-                        {copiedField === 'url' ? 'Copied' : 'Copy'}
-                    </button>
-                </Row>
-                <Row>
                     <div className="flex-1">
                         <div className="text-xs text-gray-500">
                             Vessel handle: <span className="text-gray-300 font-mono">{config.handle}</span> — derived
-                            from your vessel name.
+                            from your vessel name. The URL above uses this as the subdomain.
                         </div>
                     </div>
                 </Row>
