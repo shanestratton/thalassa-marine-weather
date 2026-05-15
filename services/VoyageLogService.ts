@@ -99,10 +99,73 @@ class VoyageLogServiceClass {
     }
 
     /**
+     * Get-or-create the user's owned boat. For users who completed
+     * onboarding before the multi-crew migration shipped, the migration
+     * backfilled a boats row for them. Fresh users have a vessel_identity
+     * row (from onboarding) but no boats row — nothing creates one
+     * automatically. This builds it from vessel_identity and registers
+     * the user as the owner boat_member at the same time so the
+     * combined log (which queries by boat_member) finds them.
+     */
+    private async getOrCreateOwnedBoat(userId: string): Promise<string | null> {
+        if (!supabase) return null;
+        const existing = await this.getOwnedBoatId(userId);
+        if (existing) return existing;
+
+        // Pull vessel info from onboarding's canonical store. Falls
+        // back to sensible defaults if vessel_identity is empty too
+        // (shouldn't happen post-onboarding, but defensive).
+        const { data: vessel } = await supabase
+            .from('vessel_identity')
+            .select('vessel_name, vessel_type, model')
+            .eq('owner_id', userId)
+            .maybeSingle();
+
+        const name = (vessel?.vessel_name ?? '').trim() || 'My Boat';
+
+        const { data: boat, error: boatErr } = await supabase
+            .from('boats')
+            .insert({
+                owner_id: userId,
+                name,
+                vessel_type: vessel?.vessel_type ?? 'sail',
+                model: vessel?.model ?? null,
+            })
+            .select('id')
+            .single();
+        if (boatErr || !boat?.id) {
+            log.warn('getOrCreateOwnedBoat failed:', boatErr?.message);
+            return null;
+        }
+
+        // Register the owner as the first boat_member so their entries
+        // appear on the combined log with a byline. First name comes
+        // from auth.users.raw_user_meta_data (onboarding writes it).
+        const { data: authData } = await supabase.auth.getUser();
+        const meta = authData.user?.user_metadata as
+            | { first_name?: string; last_name?: string; prefix?: string; nickname?: string }
+            | undefined;
+        await supabase.from('boat_members').insert({
+            boat_id: boat.id,
+            user_id: userId,
+            first_name: meta?.first_name ?? 'Crew',
+            last_name: meta?.last_name ?? null,
+            prefix: meta?.prefix ?? null,
+            nickname: meta?.nickname ?? null,
+            role: 'owner',
+        });
+        // Ignore PK-conflict errors (boat_member already exists for some
+        // reason) — the read path will pick up whatever's there.
+
+        return boat.id as string;
+    }
+
+    /**
      * Make sure the user has a combined-scope config row and that it's
-     * enabled. Creates the row on first call (handle + key are filled
-     * server-side by the voyage_log_set_handle trigger). Returns the live
-     * config, or null if offline / unauthenticated / no owned boat.
+     * enabled. Creates the boat row if needed (fresh users), then the
+     * config (handle + key filled server-side by voyage_log_set_handle
+     * trigger). Returns the live config, or null if offline /
+     * unauthenticated.
      */
     async ensureEnabled(): Promise<VoyageLogConfig | null> {
         if (!supabase) return null;
@@ -110,9 +173,9 @@ class VoyageLogServiceClass {
         const userId = userData.user?.id;
         if (!userId) return null;
 
-        const boatId = await this.getOwnedBoatId(userId);
+        const boatId = await this.getOrCreateOwnedBoat(userId);
         if (!boatId) {
-            log.warn('ensureEnabled: user does not own a boat — onboarding incomplete?');
+            log.warn('ensureEnabled: could not get or create boat');
             return null;
         }
 
