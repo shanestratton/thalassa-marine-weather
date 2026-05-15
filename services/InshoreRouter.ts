@@ -354,7 +354,9 @@ async function tryInshoreRouteInner(
     const t0 = Date.now();
     let result: ReturnType<typeof routeInshore> | null = null;
     let routedOnCloud = false;
-    if (piCache.isAvailable()) {
+    const piAvailable = piCache.isAvailable();
+    log.warn(`STAGE: cloud router gate — piCache.isAvailable()=${piAvailable} baseUrl=${piCache.baseUrl}`);
+    if (piAvailable) {
         try {
             const cloudT0 = Date.now();
             const res = await CapacitorHttp.post({
@@ -406,10 +408,33 @@ async function tryInshoreRouteInner(
                 log.warn(`cloud router HTTP ${res.status} — falling back to local`);
             }
         } catch (err) {
+            // CapacitorHttp surfaces both "connect timeout" and "read
+            // timeout" as the same generic "The request timed out."
+            // string, which doesn't tell us whether the Pi is
+            // unreachable or just slow. Heuristic from the configured
+            // 5s connect / 8s read above:
+            //   • elapsed ~5000 ms → connect timeout (Pi unreachable —
+            //     check piCache.isAvailable() liveness probe)
+            //   • elapsed ~8000 ms → read timeout (Pi reachable but
+            //     A* compute is slower than the budget — the Pi-side
+            //     buildNavGrid is probably hitting the same 37s wall
+            //     we just instrumented locally)
+            //   • elapsed < 1000 ms → DNS / network refused / no route
+            const cloudElapsed = Date.now() - t0;
+            const kind =
+                cloudElapsed < 1000
+                    ? 'network-refused'
+                    : cloudElapsed < 6000
+                      ? 'connect-timeout (Pi unreachable)'
+                      : cloudElapsed < 9000
+                        ? 'read-timeout (Pi reached but A* too slow)'
+                        : 'other';
             log.warn(
-                `cloud router request failed (${err instanceof Error ? err.message : String(err)}) — falling back to local`,
+                `cloud router request failed after ${cloudElapsed}ms — ${kind} — (${err instanceof Error ? err.message : String(err)}) — falling back to local`,
             );
         }
+    } else {
+        log.warn(`STAGE: cloud router skipped — piCache not available (probe failed or disabled in settings)`);
     }
 
     if (!result) {

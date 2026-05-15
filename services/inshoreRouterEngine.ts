@@ -394,6 +394,21 @@ function buildNavGrid(
     safetyM: number,
     obstructionBufferM: number,
 ): NavGrid {
+    // Per-pass timing — a single Newport→Brisbane build was clocked at
+    // 37.8 s and accounted for 97% of the route compute. Without per-
+    // pass numbers we can't tell which polygon scanner is the
+    // bottleneck (DEPARE has 1500+ polygons but small grids; LNDARE has
+    // 200 polygons but huge bboxes; OBSTRN is 500+ points; FAIRWY is
+    // moderate). The summary at the bottom of this function logs the
+    // breakdown so the optimisation target is data-driven.
+    const buildT0 = Date.now();
+    const passTimings: Record<string, number> = {};
+    const featureCounts: Record<string, number> = {};
+    const markPass = (label: string, start: number, featureCount: number): void => {
+        passTimings[label] = Date.now() - start;
+        featureCounts[label] = featureCount;
+    };
+
     const [minLon, minLat, maxLon, maxLat] = bbox;
     const midLat = (minLat + maxLat) / 2;
     const mPerLon = mPerDegLon(midLat);
@@ -423,6 +438,11 @@ function buildNavGrid(
     // override a hard-blocked cell (actual land / charted hazard).
     const hardBlocked = new Uint8Array(width * height);
     const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred };
+
+    // Capture grid-build setup time separately. Anything north of a
+    // few ms here points to wasted re-work (we already pay for this on
+    // each call — buildNavGridCached is a separate concern).
+    markPass('setup', buildT0, width * height);
 
     // Helper to convert a polygon bbox to grid coordinate range.
     const polyToCellRange = (
@@ -474,6 +494,7 @@ function buildNavGrid(
         );
     };
     const depare = layers.DEPARE?.features ?? [];
+    const tPassDepare = Date.now();
     for (const f of depare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
@@ -535,6 +556,8 @@ function buildNavGrid(
         }
     }
 
+    markPass('pass1-DEPARE', tPassDepare, depare.length);
+
     // ── Pass 2: LNDARE — block land cells, except authoritative water ─
     // Earlier conflict rule was "DEPARE > 0 beats LNDARE", which let
     // ANY DEPARE feature override LNDARE — including bathymetry-derived
@@ -556,6 +579,7 @@ function buildNavGrid(
     // long-term fix is OSM coastline as LNDARE so the land polygons
     // are accurate sub-10 m instead of 60 m-pixel chunky.
     const lndare = layers.LNDARE?.features ?? [];
+    const tPassLndare = Date.now();
     for (const f of lndare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
@@ -577,6 +601,8 @@ function buildNavGrid(
             }
         }
     }
+
+    markPass('pass2-LNDARE', tPassLndare, lndare.length);
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
@@ -622,9 +648,14 @@ function buildNavGrid(
         }
     };
 
-    for (const f of layers.OBSTRN?.features ?? []) handlePointFeature(f);
-    for (const f of layers.WRECKS?.features ?? []) handlePointFeature(f);
-    for (const f of layers.UWTROC?.features ?? []) handlePointFeature(f);
+    const tPassPoints = Date.now();
+    const obstrnFeatures = layers.OBSTRN?.features ?? [];
+    const wrecksFeatures = layers.WRECKS?.features ?? [];
+    const uwtrocFeatures = layers.UWTROC?.features ?? [];
+    for (const f of obstrnFeatures) handlePointFeature(f);
+    for (const f of wrecksFeatures) handlePointFeature(f);
+    for (const f of uwtrocFeatures) handlePointFeature(f);
+    markPass('pass3-points', tPassPoints, obstrnFeatures.length + wrecksFeatures.length + uwtrocFeatures.length);
 
     // ── Pass 4: FAIRWY + DRGARE — mark preferred channel cells ─────
     // We don't change the navigability of these cells (a navigable cell
@@ -669,8 +700,12 @@ function buildNavGrid(
             }
         }
     };
-    for (const f of layers.FAIRWY?.features ?? []) markChannelPreference(f);
-    for (const f of layers.DRGARE?.features ?? []) markChannelPreference(f);
+    const tPassFairwy = Date.now();
+    const fairwyFeatures = layers.FAIRWY?.features ?? [];
+    const drgareFeatures = layers.DRGARE?.features ?? [];
+    for (const f of fairwyFeatures) markChannelPreference(f);
+    for (const f of drgareFeatures) markChannelPreference(f);
+    markPass('pass4-FAIRWY+DRGARE', tPassFairwy, fairwyFeatures.length + drgareFeatures.length);
 
     // ── Pass 5: Lateral markers → preferred-cell radius ─────────────
     // When the iOS side pairs port+starboard markers and emits the
@@ -756,8 +791,23 @@ function buildNavGrid(
             }
         }
     };
-    for (const f of layers.BOYLAT?.features ?? []) markMarkerRadius(f);
-    for (const f of layers.BCNLAT?.features ?? []) markMarkerRadius(f);
+    const tPassMarkers = Date.now();
+    const boylatFeatures = layers.BOYLAT?.features ?? [];
+    const bcnlatFeatures = layers.BCNLAT?.features ?? [];
+    for (const f of boylatFeatures) markMarkerRadius(f);
+    for (const f of bcnlatFeatures) markMarkerRadius(f);
+    markPass('pass5-markers', tPassMarkers, boylatFeatures.length + bcnlatFeatures.length);
+
+    // Per-pass breakdown — surfaces which polygon scanner is the hot
+    // path. Format: pass=Nms(F features) so the eye can pair time
+    // against feature count at a glance.
+    const buildTotal = Date.now() - buildT0;
+    const breakdown = Object.entries(passTimings)
+        .map(([k, v]) => `${k}=${v}ms(${featureCounts[k]}f)`)
+        .join(' ');
+    console.warn(
+        `[inshoreEngine] buildNavGrid total=${buildTotal}ms grid=${width}x${height}(${(width * height).toLocaleString()}cells) — ${breakdown}`,
+    );
 
     return grid;
 }
