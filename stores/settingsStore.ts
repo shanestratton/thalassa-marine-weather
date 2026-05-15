@@ -19,6 +19,9 @@ import { KeepAwake } from '@capacitor-community/keep-awake';
 import { supabase } from '../services/supabase';
 import { getErrorMessage } from '../utils/logger';
 import { tierIsPro } from '../services/SubscriptionService';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('SettingsStore');
 
 const DAILY_STORMGLASS_LIMIT = 100;
 
@@ -100,11 +103,17 @@ async function syncToCloud(userId: string, s: UserSettings) {
  * profiles row not existing yet (fresh account).
  */
 async function pullFromCloud(userId: string): Promise<void> {
-    if (!supabase) return;
+    if (!supabase) {
+        log.warn(`[pullFromCloud] BAIL: supabase client is null for userId=${userId.slice(0, 8)}`);
+        return;
+    }
+    log.warn(`[pullFromCloud] STARTING for userId=${userId.slice(0, 8)}`);
     try {
         // 1. profiles.settings — the JSONB blob carrying everything
         // the user has changed via updateSettings.
+        log.warn('[pullFromCloud] querying profiles…');
         const { data: profile } = await supabase.from('profiles').select('settings').eq('id', userId).maybeSingle();
+        log.warn(`[pullFromCloud] profiles result: ${profile?.settings ? 'has-settings' : 'no-settings'}`);
 
         const cloudSettings = (profile?.settings ?? null) as Partial<UserSettings> | null;
 
@@ -179,6 +188,7 @@ async function pullFromCloud(userId: string): Promise<void> {
         // listens and triggers fetchWeather as soon as it sees a
         // location lands.
         if (typeof window !== 'undefined' && merged.defaultLocation) {
+            log.warn(`[pullFromCloud] dispatching settings-restored event: defaultLocation=${merged.defaultLocation}`);
             window.dispatchEvent(
                 new CustomEvent('thalassa:settings-restored', {
                     detail: {
@@ -187,8 +197,13 @@ async function pullFromCloud(userId: string): Promise<void> {
                     },
                 }),
             );
+        } else {
+            log.warn(
+                `[pullFromCloud] NO defaultLocation in merged settings — not dispatching event. cloudSettings=${cloudSettings ? 'present' : 'null'}`,
+            );
         }
     } catch (err) {
+        log.warn(`[pullFromCloud] EXCEPTION: ${getErrorMessage(err)}`);
         _addDebugLog(`CLOUD PULL FAIL: ${getErrorMessage(err)}`);
     }
 }

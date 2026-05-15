@@ -1,9 +1,21 @@
 // Sentry must be imported FIRST — before any other app code
 import { captureException } from './services/sentry';
 
+// JS BUILD-MARKER — landed via Preferences so it appears in Xcode
+// console (console.warn from WKWebView is invisible to Xcode's
+// native log stream). Pairs with [BUILD-MARKER-SWIFT] to confirm
+// both halves of the build are fresh after ⌘B. Look for
+// "[BUILD-MARKER-JS]" in Xcode at app boot — if it's missing or
+// stale, the dist files in ios/App/App/public are stale; re-run
+// `npx cap copy ios` and rebuild.
+
 // ── BOOT DIAGNOSTIC ── uses Capacitor Preferences (visible in Xcode as native bridge calls)
 // because console.error from WKWebView does NOT appear in Xcode's native console.
 import { Preferences } from '@capacitor/preferences';
+Preferences.set({
+    key: 'BUILD_MARKER_JS',
+    value: `[BUILD-MARKER-JS] thalassa ${new Date().toISOString()} (bundle freshness check)`,
+}).catch(() => {});
 Preferences.set({ key: 'BOOT_DIAG', value: `index.tsx loaded at ${new Date().toISOString()}` })
     .then(() => Preferences.get({ key: 'signalk_host' }))
     .then((r) => {

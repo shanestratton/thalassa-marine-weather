@@ -190,7 +190,7 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
     useEffect(() => {
         if (settingsLoading) return;
         if (!versionChecked) return;
-        log.info('[WeatherContext] Init starting (settings loaded, version checked)');
+        log.warn('[WeatherContext] Init starting (settingsLoading=false, versionChecked=true)');
         orchestrator.loadCacheAndInit();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settingsLoading, versionChecked]);
@@ -213,9 +213,12 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 }>
             ).detail;
             const loc = detail?.defaultLocation;
+            log.warn(
+                `[WeatherContext] settings-restored event received: loc=${loc ?? 'undefined'}, hasData=${!!weatherDataRef.current}`,
+            );
             if (!loc) return;
             if (weatherDataRef.current) return; // already have data, nothing to do
-            log.info(`[WeatherContext] settings-restored event → fetching weather for ${loc}`);
+            log.warn(`[WeatherContext] dispatching fetchWeather for ${loc}`);
             orchestrator.fetchWeather(loc, {
                 force: false,
                 coords: detail?.defaultLocationCoords,
