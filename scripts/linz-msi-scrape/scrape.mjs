@@ -42,28 +42,18 @@ const DEBUG_DIR = '/tmp/linz-debug';
 
 // ── Date / reference parsing ───────────────────────────────────────────
 //
-// Maritime NZ warnings come with a date column rendered as "12 May 2026"
-// or sometimes "12/05/2026". We normalise both to the same "DDHHMMZ MON
-// YYYY" shape the iOS-side parseIssueDate expects ("000000Z MAY 2026").
-// Time-of-day isn't published on the public page so we zero it.
+// Maritime NZ doesn't surface per-warning issue dates in the body — the
+// page has a single "Warnings In-Force at: NNNNNN UTC MON YY" timestamp
+// at the top that applies to every warning currently displayed. We use
+// that as the issueDate for every row so the iOS-side parseIssueDate
+// (which expects "DDHHMMZ MON YYYY") has something to chew on.
 
 const MONTHS = {
-    january: 'JAN',
-    february: 'FEB',
-    march: 'MAR',
-    april: 'APR',
-    may: 'MAY',
-    june: 'JUN',
-    july: 'JUL',
-    august: 'AUG',
-    september: 'SEP',
-    october: 'OCT',
-    november: 'NOV',
-    december: 'DEC',
     jan: 'JAN',
     feb: 'FEB',
     mar: 'MAR',
     apr: 'APR',
+    may: 'MAY',
     jun: 'JUN',
     jul: 'JUL',
     aug: 'AUG',
@@ -73,49 +63,35 @@ const MONTHS = {
     dec: 'DEC',
 };
 
-function normaliseDate(raw) {
-    if (!raw) return '';
-    const trimmed = raw.trim();
-    // "12 May 2026"
-    let m = trimmed.match(/^(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})$/);
-    if (m) {
-        const day = m[1].padStart(2, '0');
-        const mon = MONTHS[m[2].toLowerCase()];
-        if (mon) return `${day}0000Z ${mon} ${m[3]}`;
-    }
-    // "12/05/2026" (DD/MM/YYYY) — NZ convention
-    m = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) {
-        const day = m[1].padStart(2, '0');
-        const monthIdx = Number(m[2]) - 1;
-        const monNames = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
-        const mon = monNames[monthIdx];
-        if (mon) return `${day}0000Z ${mon} ${m[3]}`;
-    }
-    return '';
+// "Warnings In-Force at: 150500 UTC MAY 26"
+const INFORCE_RE = /Warnings\s+In-Force\s+at:\s*(\d{6})\s+UTC\s+([A-Za-z]{3,})\s+(\d{2,4})/i;
+
+function parseInforceDate(bodyText) {
+    const m = bodyText.match(INFORCE_RE);
+    if (!m) return '';
+    const ddhhmm = m[1];
+    const mon = MONTHS[m[2].slice(0, 3).toLowerCase()];
+    let year = Number(m[3]);
+    if (year < 100) year = 2000 + year;
+    if (!mon) return '';
+    // "150500Z MAY 2026" — matches the NGA / AMSA / UKHO shape that
+    // services/NoticeToMarinersService.ts::parseIssueDate understands.
+    return `${ddhhmm}Z ${mon} ${year}`;
 }
 
-// Reference parsing — Maritime NZ uses several patterns depending on
-// the warning class:
-//   "NAVAREA XIV 045/26"   — area XIV (South Pacific) warnings
-//   "NZ COASTAL 132/26"    — NZ coastal warnings (broadcasts on MF / VHF)
-//   "RNZN 12/26"           — naval exercise / sub note (rare)
-// Each maps to a stable navArea code we can filter on.
-function parseReference(ref) {
-    if (!ref) return null;
-    const navarea = ref.match(/NAVAREA\s+XIV\s+(\d+)\/(\d+)/i);
-    if (navarea) {
-        let year = Number(navarea[2]);
-        if (year < 100) year = 2000 + year;
-        return { navArea: 'XIV', msgNumber: Number(navarea[1]), msgYear: year };
-    }
-    const coastal = ref.match(/NZ\s+COASTAL\s+(\d+)\/(\d+)/i);
-    if (coastal) {
-        let year = Number(coastal[2]);
-        if (year < 100) year = 2000 + year;
-        return { navArea: 'NZC', msgNumber: Number(coastal[1]), msgYear: year };
-    }
-    return null;
+// Reference parsing — Maritime NZ uses two header formats:
+//   "NAVAREA XIV WARNING 130/26"             — area XIV (S Pacific)
+//   "NEW ZEALAND COASTAL NAVIGATION WARNING  — NZ coastal warnings
+//                                     136/26"  (broadcast on MF / VHF)
+// Each maps to a stable navArea code we can filter on client-side.
+function parseReferenceMatch(match) {
+    const kind = match[1].toUpperCase();
+    const msgNumber = Number(match[2]);
+    let msgYear = Number(match[3]);
+    if (msgYear < 100) msgYear = 2000 + msgYear;
+    if (!Number.isFinite(msgNumber) || !Number.isFinite(msgYear)) return null;
+    const navArea = kind.includes('COASTAL') ? 'NZC' : 'XIV';
+    return { navArea, msgNumber, msgYear };
 }
 
 // ── Browser scraping ───────────────────────────────────────────────────
@@ -177,13 +153,10 @@ async function scrape() {
         // warnings via XHR after domcontentloaded.
         await page.goto(LINZ_URL, { waitUntil: 'networkidle', timeout: CHALLENGE_TIMEOUT_MS });
 
-        // After network is idle, scan the body for any warning-like
-        // reference. We're forgiving on format — Maritime NZ uses
-        // several patterns (NAVAREA XIV, NZ COASTAL, sometimes just
-        // "warning NNN/YY") so accept anything that looks like a ref
-        // number alongside the word "warning" or "navarea" or "coastal".
-        const FOUND_RE =
-            /(NAVAREA\s+XIV|NZ\s+COASTAL|NAVAREA\s+I|coastal\s+warning|navigational\s+warning)\s*[#:]?\s*\d+/i;
+        // After network is idle, scan the body for any "WARNING NNN/YY"
+        // — matches both "NAVAREA XIV WARNING 130/26" and
+        // "NEW ZEALAND COASTAL NAVIGATION WARNING 136/26" formats.
+        const FOUND_RE = /WARNING\s+\d+\/\d{2,4}/i;
         await page
             .waitForFunction((re) => new RegExp(re, 'i').test(document.body.innerText), FOUND_RE.source, {
                 timeout: CHALLENGE_TIMEOUT_MS,
@@ -214,35 +187,46 @@ async function scrape() {
 // ── Text → warning blocks ──────────────────────────────────────────────
 //
 // Splits the whole-page text on each reference header occurrence. Each
-// block starts at a "NAVAREA XIV NNN/YY" (or "NZ COASTAL …") line and
-// runs until the next reference header or end of text. We then look
-// for a date inside the block (first thing matching a known date
-// shape) and use the rest as the body.
+// block starts at a "NAVAREA XIV WARNING NNN/YY" or "NEW ZEALAND
+// COASTAL NAVIGATION WARNING NNN/YY" line and runs until the next
+// reference header (or end of text). Trailing "NNNN" terminators are
+// stripped — that's a broadcast marker, not part of the warning text.
 
-const REF_RE = /(?:NAVAREA\s+XIV|NZ\s+COASTAL)\s+\d+\/\d+/gi;
-const DATE_RE =
-    /\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|\d{1,2}\/\d{1,2}\/\d{4})\b/i;
+const REF_RE = /(NAVAREA\s+XIV|NEW\s+ZEALAND\s+COASTAL\s+NAVIGATION)\s+WARNING\s+(\d+)\/(\d+)/gi;
 
 function splitWarnings(bodyText) {
+    // First pass: filter out cancel sub-references. A line like
+    //   "3. CANCEL NAVAREA XIV WARNING 119/26"
+    // appears inside the body of warning 125 and would otherwise
+    // be parsed as a separate (empty-bodied) warning 119. The cancel
+    // keyword always precedes such references — peek at the 20 chars
+    // before each match and drop it if "CANCEL " is the suffix.
+    const matches = [...bodyText.matchAll(REF_RE)].filter((m) => {
+        const prefix = bodyText.slice(Math.max(0, m.index - 20), m.index);
+        return !/CANCEL\s+$/i.test(prefix);
+    });
+
     const blocks = [];
-    const matches = [...bodyText.matchAll(REF_RE)];
     for (let i = 0; i < matches.length; i++) {
         const start = matches[i].index;
         const end = i + 1 < matches.length ? matches[i + 1].index : bodyText.length;
-        const block = bodyText.slice(start, end).trim();
-        const ref = matches[i][0];
-        const dateMatch = block.match(DATE_RE);
-        const issueDate = dateMatch ? normaliseDate(dateMatch[1]) : '';
-        // Body: keep the reference header as the first line so the iOS
+        let block = bodyText.slice(start, end).trim();
+        // Strip the broadcast terminator (and anything after it — the
+        // page renders an "accordion-header" number like "129/26" on
+        // its own line just before the next warning, which we don't
+        // want in this warning's body).
+        const nnIdx = block.search(/\bNNNN\b/);
+        if (nnIdx >= 0) block = block.slice(0, nnIdx).trim();
+        // Keep the reference header as the first line so the iOS
         // title-extractor reads the reference number first (matches
         // the AMSA / UKHO proxy convention).
-        blocks.push({ ref, issueDate, body: block });
+        blocks.push({ match: matches[i], body: block });
     }
     return blocks;
 }
 
-function buildWarning(block) {
-    const parsed = parseReference(block.ref);
+function buildWarning(block, issueDate) {
+    const parsed = parseReferenceMatch(block.match);
     if (!parsed) return null;
     const id = `${parsed.navArea}-${parsed.msgYear}/${parsed.msgNumber}`;
     return {
@@ -253,7 +237,7 @@ function buildWarning(block) {
         subregion: '',
         text: block.body,
         status: 'A',
-        issue_date: block.issueDate,
+        issue_date: issueDate,
         authority: 'MARITIME NZ',
         fetched_at: new Date().toISOString(),
     };
@@ -299,13 +283,15 @@ async function persist(warnings) {
 
 async function main() {
     const bodyText = await scrape();
+    const issueDate = parseInforceDate(bodyText);
+    console.log(`[linz-msi] page in-force timestamp: ${issueDate || '(not found)'}`);
     const blocks = splitWarnings(bodyText);
     console.log(`[linz-msi] parsed ${blocks.length} warning block(s) from page text`);
 
     const warnings = [];
     const seen = new Set();
     for (const block of blocks) {
-        const w = buildWarning(block);
+        const w = buildWarning(block, issueDate);
         if (!w) continue;
         if (seen.has(w.id)) continue;
         seen.add(w.id);
