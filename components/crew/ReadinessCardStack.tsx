@@ -283,14 +283,17 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // is deselected. With explicit state we re-sync on every
     // hasPassage transition.
     const hasPassage = Boolean(selectedPassageId);
+    // Groups always start CLOSED on mount, regardless of whether a
+    // passage is selected. Previous behaviour auto-opened them via a
+    // useEffect synced to hasPassage — but selectedPassageId is
+    // restored from PassagePlanService persistence across app opens,
+    // so users who'd previously selected a passage saw all three
+    // groups auto-expanded on every launch ("the 3 card headings are
+    // still completely expanded"). User taps a header to expand when
+    // they want to see its cards.
     const [piOpen, setPiOpen] = useState(false);
     const [briefOpen, setBriefOpen] = useState(false);
     const [vesselOpen, setVesselOpen] = useState(false);
-    useEffect(() => {
-        setPiOpen(hasPassage);
-        setBriefOpen(hasPassage);
-        setVesselOpen(hasPassage);
-    }, [hasPassage]);
 
     return (
         <>
