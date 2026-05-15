@@ -263,8 +263,32 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
         }
     }, [isDomestic, customsCleared, onCustomsChange]);
 
+    // Rollup behaviour: when no passage is selected, the three group
+    // headers stay visible but their cards collapse out. Gives the
+    // skipper a hint of what's coming once they pick a passage,
+    // without filling the page with placeholders. Once a passage IS
+    // selected, every card mounts and either re-hydrates per-voyage
+    // state from readiness_checks (PI + Departure Brief — fresh slate
+    // for a brand-new route, partial state for a half-ticked one) or
+    // stays as the vessel-wide state it already had (Vessel
+    // Readiness — same localStorage keys regardless of voyage).
+    const hasPassage = Boolean(selectedPassageId);
+
     return (
         <>
+            {/* When no passage is picked, a single hint sits above the
+                rolled-up group headers so the user knows why the cards
+                are absent. */}
+            {!hasPassage && (
+                <div className="mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-center">
+                    <p className="text-sm text-gray-400">
+                        {draftVoyages.length === 0
+                            ? 'Plan a route to start ticking off your passage readiness.'
+                            : 'Pick an active passage above to start ticking off your readiness checks.'}
+                    </p>
+                </div>
+            )}
+
             {/* 1. PASSAGE SUMMARY */}
             {activeVoyage && (
                 <div className="mb-4">
@@ -313,183 +337,193 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             <div className="mb-2">
                 <GroupHeader label="Passage Intelligence" ready={piReadyCount} total={2} />
 
-                {/* PI-1: WEATHER WINDOWS */}
-                <CardAccordion
-                    isReady={weatherWindowReady}
-                    emoji="🌊"
-                    title="Weather Windows"
-                    subtitle="When should I leave?"
-                    readySubtitle="✅ Departure window accepted"
-                    cardKey="weather_windows"
-                    {...delegationProps}
-                >
-                    <WeatherWindowCard
-                        voyageId={selectedPassageId}
-                        activeVoyage={activeVoyage}
-                        departure={activeVoyage?.departureCoords}
-                        destination={activeVoyage?.arrivalCoords}
-                        departureTime={activeVoyage?.departure_time}
-                        onReviewedChange={onWeatherWindowChange}
-                    />
-                </CardAccordion>
+                {hasPassage && (
+                    <>
+                        {/* PI-1: WEATHER WINDOWS */}
+                        <CardAccordion
+                            isReady={weatherWindowReady}
+                            emoji="🌊"
+                            title="Weather Windows"
+                            subtitle="When should I leave?"
+                            readySubtitle="✅ Departure window accepted"
+                            cardKey="weather_windows"
+                            {...delegationProps}
+                        >
+                            <WeatherWindowCard
+                                voyageId={selectedPassageId}
+                                activeVoyage={activeVoyage}
+                                departure={activeVoyage?.departureCoords}
+                                destination={activeVoyage?.arrivalCoords}
+                                departureTime={activeVoyage?.departure_time}
+                                onReviewedChange={onWeatherWindowChange}
+                            />
+                        </CardAccordion>
 
-                {/* PI-2: OCEAN CURRENTS */}
-                <CardAccordion
-                    isReady={currentsBriefed}
-                    emoji="🌀"
-                    title="Ocean Currents"
-                    subtitle="Surface current briefing"
-                    readySubtitle="✅ Current briefing acknowledged"
-                    cardKey="ocean_currents"
-                    {...delegationProps}
-                >
-                    <OceanCurrentsCard
-                        voyageId={selectedPassageId}
-                        activeVoyage={activeVoyage}
-                        departure={activeVoyage?.departureCoords}
-                        destination={activeVoyage?.arrivalCoords}
-                        onReviewedChange={onCurrentsChange}
-                    />
-                </CardAccordion>
+                        {/* PI-2: OCEAN CURRENTS */}
+                        <CardAccordion
+                            isReady={currentsBriefed}
+                            emoji="🌀"
+                            title="Ocean Currents"
+                            subtitle="Surface current briefing"
+                            readySubtitle="✅ Current briefing acknowledged"
+                            cardKey="ocean_currents"
+                            {...delegationProps}
+                        >
+                            <OceanCurrentsCard
+                                voyageId={selectedPassageId}
+                                activeVoyage={activeVoyage}
+                                departure={activeVoyage?.departureCoords}
+                                destination={activeVoyage?.arrivalCoords}
+                                onReviewedChange={onCurrentsChange}
+                            />
+                        </CardAccordion>
+                    </>
+                )}
             </div>
 
             {/* ═══ GROUP 2: DEPARTURE BRIEF — route-specific operational. */}
             <div className="mb-2">
                 <GroupHeader label="Departure Brief" ready={briefReadyCount} total={4} />
 
-                {/* DB-1: PRE-DEPARTURE WEATHER */}
-                <CardAccordion
-                    isReady={weatherReviewed}
-                    emoji="🌤️"
-                    title="Pre-Departure Weather"
-                    subtitle="Review models & forecast for departure"
-                    readySubtitle="✅ Departure forecast reviewed"
-                    cardKey="weather_briefing"
-                    {...delegationProps}
-                >
-                    <WeatherBriefingCard
-                        voyageId={selectedPassageId}
-                        departPort={departPort || undefined}
-                        destPort={destPort || undefined}
-                        departureCoords={activeVoyage?.departureCoords}
-                        departureTime={activeVoyage?.departure_time || null}
-                        eta={activeVoyage?.eta || null}
-                        onReviewedChange={onWeatherChange}
-                    />
-                </CardAccordion>
+                {hasPassage && (
+                    <>
+                        {/* DB-1: PRE-DEPARTURE WEATHER */}
+                        <CardAccordion
+                            isReady={weatherReviewed}
+                            emoji="🌤️"
+                            title="Pre-Departure Weather"
+                            subtitle="Review models & forecast for departure"
+                            readySubtitle="✅ Departure forecast reviewed"
+                            cardKey="weather_briefing"
+                            {...delegationProps}
+                        >
+                            <WeatherBriefingCard
+                                voyageId={selectedPassageId}
+                                departPort={departPort || undefined}
+                                destPort={destPort || undefined}
+                                departureCoords={activeVoyage?.departureCoords}
+                                departureTime={activeVoyage?.departure_time || null}
+                                eta={activeVoyage?.eta || null}
+                                onReviewedChange={onWeatherChange}
+                            />
+                        </CardAccordion>
 
-                {/* DB-2: VOYAGE PROVISIONING — no CardAccordion wrapper, the
+                        {/* DB-2: VOYAGE PROVISIONING — no CardAccordion wrapper, the
                     Galley widget has its own card chrome and no boolean
                     "reviewed" signal, so it's not counted in briefReadyCount. */}
-                <div className="mb-4">
-                    <GalleyCard
-                        className=""
-                        registeredCrewCount={visibleCrew.length}
-                        cardDelegations={cardDelegations}
-                        delegationMenuOpen={delegationMenuOpen}
-                        onDelegationMenuToggle={onDelegationMenuToggle}
-                        onAssignCard={onAssignCard}
-                        crewList={visibleCrew}
-                    />
-                </div>
+                        <div className="mb-4">
+                            <GalleyCard
+                                className=""
+                                registeredCrewCount={visibleCrew.length}
+                                cardDelegations={cardDelegations}
+                                delegationMenuOpen={delegationMenuOpen}
+                                onDelegationMenuToggle={onDelegationMenuToggle}
+                                onAssignCard={onAssignCard}
+                                crewList={visibleCrew}
+                            />
+                        </div>
 
-                {/* DB-3: WATCH SCHEDULE */}
-                <CardAccordion
-                    isReady={watchBriefed}
-                    emoji="⏰"
-                    title="Watch Schedule"
-                    subtitle={`${planCrewCount} crew · Set watch rotation`}
-                    readySubtitle="✅ Watch rotation briefed to crew"
-                    cardKey="watch_schedule"
-                    {...delegationProps}
-                >
-                    <WatchScheduleCard
-                        voyageId={selectedPassageId}
-                        crewCount={planCrewCount}
-                        departureTimeIso={activeVoyage?.departure_time || null}
-                        passageDurationHours={activeVoyage?.durationHours}
-                        voyageName={activeVoyage?.voyage_name || null}
-                        onReviewedChange={onWatchChange}
-                    />
-                </CardAccordion>
+                        {/* DB-3: WATCH SCHEDULE */}
+                        <CardAccordion
+                            isReady={watchBriefed}
+                            emoji="⏰"
+                            title="Watch Schedule"
+                            subtitle={`${planCrewCount} crew · Set watch rotation`}
+                            readySubtitle="✅ Watch rotation briefed to crew"
+                            cardKey="watch_schedule"
+                            {...delegationProps}
+                        >
+                            <WatchScheduleCard
+                                voyageId={selectedPassageId}
+                                crewCount={planCrewCount}
+                                departureTimeIso={activeVoyage?.departure_time || null}
+                                passageDurationHours={activeVoyage?.durationHours}
+                                voyageName={activeVoyage?.voyage_name || null}
+                                onReviewedChange={onWatchChange}
+                            />
+                        </CardAccordion>
 
-                {/* DB-4: CUSTOMS & IMMIGRATION (conditional) */}
-                {departPort &&
-                    destPort &&
-                    (() => {
-                        if (isDomestic) {
-                            return (
-                                <CardAccordion
-                                    isReady={true}
-                                    emoji="🛂"
-                                    title="Customs & Immigration"
-                                    subtitle={`${departPort} → ${destPort}`}
-                                    readySubtitle="✅ Domestic route — no clearance required"
-                                    cardKey="customs_clearance"
-                                    {...delegationProps}
-                                >
-                                    <div className="p-4 text-center">
-                                        <p className="text-2xl mb-2">🏠</p>
-                                        <p className="text-sm font-bold text-emerald-400 mb-1">No Customs Required</p>
-                                        <p className="text-xs text-gray-400 leading-relaxed max-w-xs mx-auto">
-                                            Both ports are in the same country. No international clearance, immigration,
-                                            or customs procedures are needed for this passage.
-                                        </p>
-                                    </div>
-                                </CardAccordion>
-                            );
-                        }
-
-                        const minimalPlan = {
-                            customs: {
-                                required: true,
-                                departingCountry: departPort,
-                                destinationCountry: destPort,
-                            },
-                        };
-                        return (
-                            <CardAccordion
-                                isReady={customsCleared}
-                                emoji="🛂"
-                                title="Customs & Immigration"
-                                subtitle={
-                                    customsProgress.total > 0
-                                        ? `${customsProgress.checked}/${customsProgress.total} documents · ${departPort} → ${destPort}`
-                                        : `${departPort} → ${destPort}`
+                        {/* DB-4: CUSTOMS & IMMIGRATION (conditional) */}
+                        {departPort &&
+                            destPort &&
+                            (() => {
+                                if (isDomestic) {
+                                    return (
+                                        <CardAccordion
+                                            isReady={true}
+                                            emoji="🛂"
+                                            title="Customs & Immigration"
+                                            subtitle={`${departPort} → ${destPort}`}
+                                            readySubtitle="✅ Domestic route — no clearance required"
+                                            cardKey="customs_clearance"
+                                            {...delegationProps}
+                                        >
+                                            <div className="p-4 text-center">
+                                                <p className="text-2xl mb-2">🏠</p>
+                                                <p className="text-sm font-bold text-emerald-400 mb-1">
+                                                    No Customs Required
+                                                </p>
+                                                <p className="text-xs text-gray-400 leading-relaxed max-w-xs mx-auto">
+                                                    Both ports are in the same country. No international clearance,
+                                                    immigration, or customs procedures are needed for this passage.
+                                                </p>
+                                            </div>
+                                        </CardAccordion>
+                                    );
                                 }
-                                readySubtitle="✅ All documents cleared"
-                                cardKey="customs_clearance"
-                                {...delegationProps}
-                            >
-                                <CustomsClearanceCard
-                                    voyageId={selectedPassageId}
-                                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                    voyagePlan={minimalPlan as any}
-                                    onCheckedChange={onCustomsChange}
-                                />
-                            </CardAccordion>
-                        );
-                    })()}
 
-                {/* DB-5: AID TO NAVIGATION — final pre-cast-off gate. */}
-                <CardAccordion
-                    isReady={navAcknowledged}
-                    isAmber={!navAcknowledged}
-                    emoji="⚓"
-                    title="Aid to Navigation"
-                    subtitle="Legal disclaimers · Skipper's acknowledgment"
-                    readySubtitle="✅ All acknowledgments accepted"
-                    cardKey="aid_to_navigation"
-                    {...delegationProps}
-                >
-                    <AidToNavigationCard
-                        voyageId={selectedPassageId}
-                        onAcknowledgedChange={onNavChange}
-                        allOtherCardsReady={
-                            customsCleared && weatherReviewed && reservesReady && watchBriefed && commsReady
-                        }
-                    />
-                </CardAccordion>
+                                const minimalPlan = {
+                                    customs: {
+                                        required: true,
+                                        departingCountry: departPort,
+                                        destinationCountry: destPort,
+                                    },
+                                };
+                                return (
+                                    <CardAccordion
+                                        isReady={customsCleared}
+                                        emoji="🛂"
+                                        title="Customs & Immigration"
+                                        subtitle={
+                                            customsProgress.total > 0
+                                                ? `${customsProgress.checked}/${customsProgress.total} documents · ${departPort} → ${destPort}`
+                                                : `${departPort} → ${destPort}`
+                                        }
+                                        readySubtitle="✅ All documents cleared"
+                                        cardKey="customs_clearance"
+                                        {...delegationProps}
+                                    >
+                                        <CustomsClearanceCard
+                                            voyageId={selectedPassageId}
+                                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                                            voyagePlan={minimalPlan as any}
+                                            onCheckedChange={onCustomsChange}
+                                        />
+                                    </CardAccordion>
+                                );
+                            })()}
+
+                        {/* DB-5: AID TO NAVIGATION — final pre-cast-off gate. */}
+                        <CardAccordion
+                            isReady={navAcknowledged}
+                            isAmber={!navAcknowledged}
+                            emoji="⚓"
+                            title="Aid to Navigation"
+                            subtitle="Legal disclaimers · Skipper's acknowledgment"
+                            readySubtitle="✅ All acknowledgments accepted"
+                            cardKey="aid_to_navigation"
+                            {...delegationProps}
+                        >
+                            <AidToNavigationCard
+                                voyageId={selectedPassageId}
+                                onAcknowledgedChange={onNavChange}
+                                allOtherCardsReady={
+                                    customsCleared && weatherReviewed && reservesReady && watchBriefed && commsReady
+                                }
+                            />
+                        </CardAccordion>
+                    </>
+                )}
             </div>
 
             {/* ═══ GROUP 3: VESSEL READINESS — vessel-wide checks, last.
@@ -499,71 +533,75 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             <div className="mb-2">
                 <GroupHeader label="Vessel Readiness" ready={vesselReadyCount} total={5} />
 
-                {/* VR-1: VESSEL PROFILE — read-only summary, canonical
+                {hasPassage && (
+                    <>
+                        {/* VR-1: VESSEL PROFILE — read-only summary, canonical
                     source is settings.vessel from onboarding. */}
-                <CardAccordion
-                    isReady={vesselProfileReady}
-                    emoji="⚓"
-                    title="Vessel Profile"
-                    subtitle="Confirm active boat for routing"
-                    readySubtitle="✅ Vessel ready for routing"
-                    cardKey="vessel_profile"
-                    {...delegationProps}
-                >
-                    <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
-                </CardAccordion>
+                        <CardAccordion
+                            isReady={vesselProfileReady}
+                            emoji="⚓"
+                            title="Vessel Profile"
+                            subtitle="Confirm active boat for routing"
+                            readySubtitle="✅ Vessel ready for routing"
+                            cardKey="vessel_profile"
+                            {...delegationProps}
+                        >
+                            <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
+                        </CardAccordion>
 
-                {/* VR-2: ESSENTIAL RESERVES */}
-                <CardAccordion
-                    isReady={reservesReady}
-                    emoji="⛽"
-                    title="Essential Reserves"
-                    subtitle="Fuel · Water · Gas · Safety"
-                    readySubtitle="✅ All critical reserves confirmed"
-                    cardKey="essential_reserves"
-                    {...delegationProps}
-                >
-                    <EssentialReservesCard voyageId={selectedPassageId} onReviewedChange={onReservesChange} />
-                </CardAccordion>
+                        {/* VR-2: ESSENTIAL RESERVES */}
+                        <CardAccordion
+                            isReady={reservesReady}
+                            emoji="⛽"
+                            title="Essential Reserves"
+                            subtitle="Fuel · Water · Gas · Safety"
+                            readySubtitle="✅ All critical reserves confirmed"
+                            cardKey="essential_reserves"
+                            {...delegationProps}
+                        >
+                            <EssentialReservesCard voyageId={selectedPassageId} onReviewedChange={onReservesChange} />
+                        </CardAccordion>
 
-                {/* VR-3: VESSEL PRE-CHECK */}
-                <CardAccordion
-                    isReady={vesselChecked}
-                    emoji="🔧"
-                    title="Vessel Pre-Check"
-                    subtitle="Engine · Electrical · Hull · Safety"
-                    readySubtitle="✅ All vessel systems verified"
-                    cardKey="vessel_check"
-                    {...delegationProps}
-                >
-                    <VesselCheckCard voyageId={selectedPassageId} onReviewedChange={onVesselCheckChange} />
-                </CardAccordion>
+                        {/* VR-3: VESSEL PRE-CHECK */}
+                        <CardAccordion
+                            isReady={vesselChecked}
+                            emoji="🔧"
+                            title="Vessel Pre-Check"
+                            subtitle="Engine · Electrical · Hull · Safety"
+                            readySubtitle="✅ All vessel systems verified"
+                            cardKey="vessel_check"
+                            {...delegationProps}
+                        >
+                            <VesselCheckCard voyageId={selectedPassageId} onReviewedChange={onVesselCheckChange} />
+                        </CardAccordion>
 
-                {/* VR-4: MEDICAL & FIRST AID */}
-                <CardAccordion
-                    isReady={medicalReady}
-                    emoji="🏥"
-                    title="Medical & First Aid"
-                    subtitle="Allergies · Emergency contacts · First aid kit"
-                    readySubtitle="✅ Crew medical info recorded · Kit verified"
-                    cardKey="medical"
-                    {...delegationProps}
-                >
-                    <MedicalFirstAidCard voyageId={selectedPassageId} onReviewedChange={onMedicalChange} />
-                </CardAccordion>
+                        {/* VR-4: MEDICAL & FIRST AID */}
+                        <CardAccordion
+                            isReady={medicalReady}
+                            emoji="🏥"
+                            title="Medical & First Aid"
+                            subtitle="Allergies · Emergency contacts · First aid kit"
+                            readySubtitle="✅ Crew medical info recorded · Kit verified"
+                            cardKey="medical"
+                            {...delegationProps}
+                        >
+                            <MedicalFirstAidCard voyageId={selectedPassageId} onReviewedChange={onMedicalChange} />
+                        </CardAccordion>
 
-                {/* VR-5: COMMUNICATIONS PLAN */}
-                <CardAccordion
-                    isReady={commsReady}
-                    emoji="📡"
-                    title="Communications Plan"
-                    subtitle="Radio · Position reports · Shore contact"
-                    readySubtitle="✅ Comms plan confirmed · Shore contact set"
-                    cardKey="comms_plan"
-                    {...delegationProps}
-                >
-                    <CommsPlanCard voyageId={selectedPassageId} onReviewedChange={onCommsChange} />
-                </CardAccordion>
+                        {/* VR-5: COMMUNICATIONS PLAN */}
+                        <CardAccordion
+                            isReady={commsReady}
+                            emoji="📡"
+                            title="Communications Plan"
+                            subtitle="Radio · Position reports · Shore contact"
+                            readySubtitle="✅ Comms plan confirmed · Shore contact set"
+                            cardKey="comms_plan"
+                            {...delegationProps}
+                        >
+                            <CommsPlanCard voyageId={selectedPassageId} onReviewedChange={onCommsChange} />
+                        </CardAccordion>
+                    </>
+                )}
             </div>
         </>
     );
