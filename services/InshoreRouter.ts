@@ -1099,29 +1099,34 @@ async function fetchRegionalMarkers(
         // capped in Step 5 below) and get dropped automatically.
         // The hazard half-circles defend the peninsula approach
         // regardless of whether a bridging chain forms.
-        // CLUSTER_LINK_M = 900 m: bumped from 700 m so the Newport
-        // northern channel pairs link into a continuous chain.
-        // Newport's marked exit channel has 3 pairs at ~720 m and
-        // ~880 m apart (chains 153↔154↔192). At 700 m they didn't
-        // link — each was its own single-midpoint chain with zero
-        // FAIRWY segments, so A* saw sparse FAIRWY dots instead of
-        // a continuous channel ribbon and routed straight through
-        // the markers rather than weaving the channel. 2026-05-15:
-        // user "if we can just get it to weave through the markers
-        // we are gold". Bumping to 900 m links the 720/880 m gaps.
+        // CLUSTER_LINK_M = 700 m: bumped from 350 m so Brisbane River
+        // shipping-channel pairs (~500 m apart longitudinally) link
+        // transitively into a single chain. At 350 m, pairs along
+        // the channel didn't link — each pair was its own cluster
+        // with one midpoint and zero FAIRWY segments, so A* had no
+        // ribbon preference along the channel and routed wherever
+        // bathymetry was cheapest (often on the bank side of green
+        // markers — user 2026-05-13).
         //
-        // History:
-        //  • 350 m — too tight, missed Brisbane River shipping-channel
-        //    pairs ~500 m apart.
-        //  • 700 m — fixed Brisbane River but missed Newport's
-        //    720/880 m channel.
+        // Tried 900 m on 2026-05-15 to also link Newport's northern
+        // channel pairs (720/880 m gaps). It linked them, but it
+        // ALSO swept up the perpendicular Scarborough channel
+        // markers ~900 m east into the same cluster — Newport (N-S
+        // at lon 153.093) and Scarborough (N-S at lon 153.103) form
+        // a cross, and the PCA chain-ordering produced a zigzag
+        // sequence jumping between the two channels. SEGMENT_MAX_M
+        // then dropped the long zigzag legs, leaving fewer FAIRWY
+        // segments than 700 m had. Reverted. Properly linking
+        // Newport's northern channel needs orientation-aware
+        // clustering (only extend a chain along its existing
+        // principal axis), which is a bigger refactor.
         //
-        // Safe at 900 m because the LNDARE-between-pair check
-        // (`pointInLandare` on each candidate midpoint) rejects any
-        // pair whose channel midpoint lands on solid ground, and
-        // SEGMENT_MAX_M=1200 m caps any over-long FAIRWY segment that
-        // PCA chain ordering might produce.
-        const CLUSTER_LINK_M = 900;
+        // Safe at 700 m because the LNDARE-between-pair check
+        // (`pointInLandare` on each candidate midpoint) rejects
+        // any pair whose channel midpoint lands on solid ground.
+        // SEGMENT_MAX_M=1200 m additionally caps any over-long
+        // FAIRWY segment that PCA chain ordering might produce.
+        const CLUSTER_LINK_M = 700;
         const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
 
         // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
