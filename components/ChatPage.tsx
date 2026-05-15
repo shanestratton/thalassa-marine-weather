@@ -18,6 +18,7 @@
 import React, { useState, useRef, useEffect, useCallback, Suspense as _Suspense } from 'react';
 import { createLogger } from '../utils/createLogger';
 import { lazyRetry } from '../utils/lazyRetry';
+import { useAuthStore } from '../stores/authStore';
 import { PaywallGate } from './PaywallGate';
 
 const log = createLogger('ChatPage');
@@ -251,14 +252,14 @@ export const ChatPage: React.FC = React.memo(() => {
     const [chatAuthBanner, setChatAuthBanner] = useState(() => {
         return !localStorage.getItem('thalassa_chat_auth_dismissed');
     });
-    const [chatIsAuthed, setChatIsAuthed] = useState(true); // assume true until checked
+    // Auth state from the global authStore — same source as the AuthGate
+    // at app boot. Previously this page kept its own local chatIsAuthed
+    // with an inline getUser() check, which raced with the global store
+    // on mount and could flash the "Sign in required" banner for
+    // already-signed-in users. Same race we killed in CrewManagement.
+    const chatAuthedUser = useAuthStore((s) => s.user);
+    const chatIsAuthed = !!chatAuthedUser;
     const [showChatAuth, setShowChatAuth] = useState(false);
-    useEffect(() => {
-        if (!supabase) return;
-        supabase.auth.getUser().then(({ data }) => {
-            setChatIsAuthed(!!data.user);
-        });
-    }, []);
 
     // Pull-to-refresh — actual message reload
     const pullRefresh = usePullToRefresh(async () => {
@@ -1040,11 +1041,9 @@ export const ChatPage: React.FC = React.memo(() => {
                 isOpen={showChatAuth}
                 onClose={() => {
                     setShowChatAuth(false);
-                    if (supabase) {
-                        supabase.auth.getUser().then(({ data }) => {
-                            setChatIsAuthed(!!data.user);
-                        });
-                    }
+                    // Global authStore listens to onAuthStateChange and
+                    // updates automatically when the AuthModal signs in.
+                    // No manual re-poll needed.
                 }}
             />
         </div>
