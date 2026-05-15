@@ -97,6 +97,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Edit permissions modal
     const [editTarget, setEditTarget] = useState<CrewMember | null>(null);
     const [editRegisters, setEditRegisters] = useState<SharedRegister[]>([]);
+    // Byline parts (boat_members) — only meaningful once a crew member has
+    // accepted; for pending invites the inputs render but are gated.
+    const [editPrefix, setEditPrefix] = useState('');
+    const [editFirstName, setEditFirstName] = useState('');
+    const [editLastName, setEditLastName] = useState('');
+    const [editNickname, setEditNickname] = useState('');
+    const [editBoatMemberLoaded, setEditBoatMemberLoaded] = useState(false);
 
     // Loading
     const [loading, setLoading] = useState(true);
@@ -525,6 +532,41 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const handleSavePermissions = async () => {
         if (!editTarget) return;
         const ok = await updateCrewPermissions(editTarget.id, editRegisters);
+
+        // Mirror byline edits to boat_members if the modal had loaded one
+        // (i.e. accepted invite, crew member is on the boat). UNIQUE
+        // constraint catches collisions; we surface that as a toast and
+        // keep the modal open so the owner can pick a different byline.
+        let bylineErr: string | null = null;
+        if (ok && editBoatMemberLoaded && supabase && editTarget.crew_user_id) {
+            const { data: authData } = await supabase.auth.getUser();
+            const myId = authData.user?.id;
+            if (myId) {
+                const { data: boat } = await supabase.from('boats').select('id').eq('owner_id', myId).maybeSingle();
+                if (boat?.id) {
+                    const { error } = await supabase
+                        .from('boat_members')
+                        .update({
+                            prefix: editPrefix.trim() || null,
+                            first_name: editFirstName.trim() || 'Crew',
+                            last_name: editLastName.trim() || null,
+                            nickname: editNickname.trim() || null,
+                        })
+                        .match({ boat_id: boat.id, user_id: editTarget.crew_user_id });
+                    if (error) {
+                        bylineErr =
+                            error.code === '23505'
+                                ? 'That byline is already taken on this boat — try a nickname or surname.'
+                                : 'Could not save byline.';
+                    }
+                }
+            }
+        }
+
+        if (bylineErr) {
+            toast.error(bylineErr);
+            return; // Keep the modal open so the owner can retry.
+        }
         if (ok) {
             setEditTarget(null);
             toast.success('Permissions updated');
@@ -903,9 +945,44 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     loading={loading}
                     onSoftDeleteCaptain={(m) => handleSoftDelete(m, 'captain')}
                     onSoftDeleteCrew={(m) => handleSoftDelete(m, 'crew')}
-                    onEditMember={(m) => {
+                    onEditMember={async (m) => {
                         setEditTarget(m);
                         setEditRegisters([...m.shared_registers]);
+                        // Reset byline state until we know whether boat_members exists.
+                        setEditPrefix('');
+                        setEditFirstName('');
+                        setEditLastName('');
+                        setEditNickname('');
+                        setEditBoatMemberLoaded(false);
+                        // Look up the crew's boat_members row on the captain's boat.
+                        // Only valid for accepted invites (the bridge trigger creates
+                        // boat_members on status='accepted').
+                        if (supabase && m.crew_user_id && m.status === 'accepted') {
+                            const { data: authData } = await supabase.auth.getUser();
+                            const myId = authData.user?.id;
+                            if (myId) {
+                                const { data: boat } = await supabase
+                                    .from('boats')
+                                    .select('id')
+                                    .eq('owner_id', myId)
+                                    .maybeSingle();
+                                if (boat?.id) {
+                                    const { data: bm } = await supabase
+                                        .from('boat_members')
+                                        .select('prefix, first_name, last_name, nickname')
+                                        .eq('boat_id', boat.id)
+                                        .eq('user_id', m.crew_user_id)
+                                        .maybeSingle();
+                                    if (bm) {
+                                        setEditPrefix(bm.prefix ?? '');
+                                        setEditFirstName(bm.first_name ?? '');
+                                        setEditLastName(bm.last_name ?? '');
+                                        setEditNickname(bm.nickname ?? '');
+                                        setEditBoatMemberLoaded(true);
+                                    }
+                                }
+                            }
+                        }
                     }}
                     onAcceptInvite={handleAccept}
                     onDeclineInvite={handleDecline}
@@ -986,6 +1063,70 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 title={`Edit Access — ${editTarget?.crew_email || ''}`}
             >
                 <div className="p-6 space-y-5">
+                    {/* Byline parts — shown only once the crew member has
+                        accepted (boat_members row exists). Drives the
+                        "by Emma" chip on the public voyage log. */}
+                    {editBoatMemberLoaded ? (
+                        <div>
+                            <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
+                                Byline on the Voyage Log
+                            </label>
+                            <div className="grid grid-cols-5 gap-2">
+                                <input
+                                    type="text"
+                                    value={editPrefix}
+                                    onChange={(e) => setEditPrefix(e.target.value)}
+                                    placeholder="Capt."
+                                    aria-label="Title prefix (optional)"
+                                    className="col-span-2 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                />
+                                <input
+                                    type="text"
+                                    value={editFirstName}
+                                    onChange={(e) => setEditFirstName(e.target.value)}
+                                    placeholder="First *"
+                                    aria-label="First name"
+                                    className="col-span-3 w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-2">
+                                <input
+                                    type="text"
+                                    value={editLastName}
+                                    onChange={(e) => setEditLastName(e.target.value)}
+                                    placeholder="Surname"
+                                    aria-label="Surname"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                />
+                                <input
+                                    type="text"
+                                    value={editNickname}
+                                    onChange={(e) => setEditNickname(e.target.value)}
+                                    placeholder="Nickname"
+                                    aria-label="Nickname"
+                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white focus:border-sky-500 outline-none text-sm placeholder:text-gray-500"
+                                />
+                            </div>
+                            <p className="text-[10px] text-gray-500 mt-1.5 ml-1">
+                                Renders as:{' '}
+                                <span className="text-sky-300 font-bold">
+                                    {[
+                                        editPrefix.trim(),
+                                        editFirstName.trim(),
+                                        editNickname.trim() && `"${editNickname.trim()}"`,
+                                        editLastName.trim(),
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' ') || '—'}
+                                </span>
+                            </p>
+                        </div>
+                    ) : editTarget?.status === 'pending' ? (
+                        <div className="bg-amber-500/5 border border-amber-500/15 rounded-xl p-3 text-[11px] text-amber-300/90">
+                            Byline editing unlocks once this crew member accepts the invite.
+                        </div>
+                    ) : null}
+
                     <div>
                         <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
                             Shared Registers
