@@ -817,15 +817,34 @@ type Midpoint = { lat: number; lon: number; pairDistM: number; chainId: number; 
 /**
  * Group markers into channel-chain clusters by spatial proximity.
  *
- * Flood-fill clustering: any two markers within CLUSTER_LINK_M of each
- * other are in the same cluster. The threshold is tuned so that:
- * - Markers along a single chain (typical spacing 100-300 m) link
- * - Markers in *different* channels stay in separate clusters
+ * Flood-fill clustering with an ORIENTATION GATE.
+ *
+ * Two markers within CLUSTER_LINK_M of each other join the same
+ * cluster, BUT once the cluster has ≥3 markers we also require new
+ * candidates to lie within `channelHalfWidthM` perpendicular distance
+ * of the cluster's PCA-fitted principal axis. This stops two
+ * perpendicular channels from being swept into one cluster just
+ * because their markers happen to be within `CLUSTER_LINK_M` of each
+ * other (Newport-Scarborough cross at the 720/880 m mark, 2026-05-15).
+ *
+ * Without orientation awareness, bumping CLUSTER_LINK_M to cover
+ * sparser chains (Newport's 880 m gap) also linked perpendicular
+ * channels — the PCA chain-ordering then produced a zigzag sequence
+ * jumping between the two, FAIRWY segments got dropped by
+ * SEGMENT_MAX_M, and the route got worse, not better.
+ *
+ * With this gate at channelHalfWidthM=100 m: Newport's 3 pairs (all
+ * at lon ~153.093) form one chain even at CLUSTER_LINK_M=900 m,
+ * while Scarborough's pairs ~1 km perpendicular off that line stay
+ * a separate chain. Real channels are typically 20-50 m wide with
+ * markers within 30 m of the centerline — 100 m is generous enough
+ * for buoy-placement wobble and pair-width spread, narrow enough to
+ * exclude the perpendicular neighbour.
  *
  * Output: array of clusters, each cluster is an array of marker
  * indices into the input array.
  */
-function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number): number[][] {
+function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number, channelHalfWidthM = 100): number[][] {
     const n = markers.length;
     const visited = new Uint8Array(n);
     const clusters: number[][] = [];
@@ -837,19 +856,104 @@ function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number): number[][] {
         while (queue.length) {
             const i = queue.shift()!;
             cluster.push(i);
+            // Re-fit the cluster's principal axis once it has enough
+            // markers for PCA to be meaningful. With <3 markers the
+            // direction is undefined (single marker) or only one
+            // perpendicular pair — we fall back to pure raw-distance.
+            const fit = cluster.length >= 3 ? clusterFitLine(cluster, markers) : null;
             const mi = markers[i];
             for (let j = 0; j < n; j++) {
                 if (visited[j]) continue;
                 const mj = markers[j];
-                if (haversineMetres(mi.lat, mi.lon, mj.lat, mj.lon) <= CLUSTER_LINK_M) {
-                    visited[j] = 1;
-                    queue.push(j);
-                }
+                if (haversineMetres(mi.lat, mi.lon, mj.lat, mj.lon) > CLUSTER_LINK_M) continue;
+                if (fit && perpDistFromLineM(mj.lat, mj.lon, fit) > channelHalfWidthM) continue;
+                visited[j] = 1;
+                queue.push(j);
             }
         }
         clusters.push(cluster);
     }
     return clusters;
+}
+
+/**
+ * 2D PCA on a cluster of markers. Returns the cluster's principal
+ * axis as a unit vector in METER space relative to the centroid
+ * latitude, plus the centroid itself. Used to gate cluster growth by
+ * perpendicular distance to the fitted line — see clusterMarkers().
+ *
+ * Returns null when the cluster is degenerate (all markers stacked at
+ * one point, or fewer than 2 markers).
+ */
+function clusterFitLine(
+    indices: number[],
+    markers: Marker[],
+): { latC: number; lonC: number; mPerLon: number; dirLatM: number; dirLonM: number } | null {
+    const n = indices.length;
+    if (n < 2) return null;
+    let latSum = 0;
+    let lonSum = 0;
+    for (const i of indices) {
+        latSum += markers[i].lat;
+        lonSum += markers[i].lon;
+    }
+    const latC = latSum / n;
+    const lonC = lonSum / n;
+    const mPerLat = 111_320;
+    const mPerLon = 111_320 * Math.cos((latC * Math.PI) / 180);
+    let Cxx = 0;
+    let Cyy = 0;
+    let Cxy = 0;
+    for (const i of indices) {
+        const dx = (markers[i].lon - lonC) * mPerLon;
+        const dy = (markers[i].lat - latC) * mPerLat;
+        Cxx += dx * dx;
+        Cyy += dy * dy;
+        Cxy += dx * dy;
+    }
+    Cxx /= n;
+    Cyy /= n;
+    Cxy /= n;
+    const trace = Cxx + Cyy;
+    const det = Cxx * Cyy - Cxy * Cxy;
+    const disc = Math.max(0, (trace * trace) / 4 - det);
+    const lambdaMax = trace / 2 + Math.sqrt(disc);
+    let dirX: number;
+    let dirY: number;
+    if (Math.abs(Cxy) > 1e-12) {
+        dirX = Cxy;
+        dirY = lambdaMax - Cxx;
+    } else if (Cxx >= Cyy) {
+        dirX = 1;
+        dirY = 0;
+    } else {
+        dirX = 0;
+        dirY = 1;
+    }
+    const mag = Math.sqrt(dirX * dirX + dirY * dirY);
+    if (mag < 1e-12) return null;
+    return {
+        latC,
+        lonC,
+        mPerLon,
+        dirLatM: dirY / mag,
+        dirLonM: dirX / mag,
+    };
+}
+
+/**
+ * Perpendicular distance in METERS from (lat, lon) to the fitted
+ * line. Uses the 2D cross-product magnitude with the unit-vector
+ * direction.
+ */
+function perpDistFromLineM(
+    lat: number,
+    lon: number,
+    fit: { latC: number; lonC: number; mPerLon: number; dirLatM: number; dirLonM: number },
+): number {
+    const dx = (lon - fit.lonC) * fit.mPerLon;
+    const dy = (lat - fit.latC) * 111_320;
+    return Math.abs(dx * fit.dirLatM - dy * fit.dirLonM);
 }
 
 /**
@@ -1099,34 +1203,35 @@ async function fetchRegionalMarkers(
         // capped in Step 5 below) and get dropped automatically.
         // The hazard half-circles defend the peninsula approach
         // regardless of whether a bridging chain forms.
-        // CLUSTER_LINK_M = 700 m: bumped from 350 m so Brisbane River
-        // shipping-channel pairs (~500 m apart longitudinally) link
-        // transitively into a single chain. At 350 m, pairs along
-        // the channel didn't link — each pair was its own cluster
-        // with one midpoint and zero FAIRWY segments, so A* had no
-        // ribbon preference along the channel and routed wherever
-        // bathymetry was cheapest (often on the bank side of green
-        // markers — user 2026-05-13).
+        // CLUSTER_LINK_M = 900 m. Generous enough to link sparser
+        // channel pairs (Brisbane River ~500 m, Newport's northern
+        // exit ~720-880 m), made SAFE by the orientation-aware
+        // gate in clusterMarkers — perpendicular channels stay in
+        // separate clusters because new candidates must lie within
+        // 100 m of the cluster's PCA-fitted principal axis.
         //
-        // Tried 900 m on 2026-05-15 to also link Newport's northern
-        // channel pairs (720/880 m gaps). It linked them, but it
-        // ALSO swept up the perpendicular Scarborough channel
-        // markers ~900 m east into the same cluster — Newport (N-S
-        // at lon 153.093) and Scarborough (N-S at lon 153.103) form
-        // a cross, and the PCA chain-ordering produced a zigzag
-        // sequence jumping between the two channels. SEGMENT_MAX_M
-        // then dropped the long zigzag legs, leaving fewer FAIRWY
-        // segments than 700 m had. Reverted. Properly linking
-        // Newport's northern channel needs orientation-aware
-        // clustering (only extend a chain along its existing
-        // principal axis), which is a bigger refactor.
+        // History:
+        //  • 350 m — too tight, missed Brisbane River pairs ~500 m
+        //    apart. Channel pairs each became their own cluster
+        //    with one midpoint and zero FAIRWY segments.
+        //  • 700 m — fixed Brisbane River.
+        //  • 900 m + raw-distance only (2026-05-15) — linked Newport
+        //    but ALSO swept up the perpendicular Scarborough channel
+        //    into the same cluster (a cross). The PCA chain ordering
+        //    produced a zigzag sequence jumping between the two
+        //    channels, SEGMENT_MAX_M dropped the long zigzag legs,
+        //    and the route got worse. Reverted that day.
+        //  • 900 m + orientation gate (today) — same generous link
+        //    distance, but the orientation gate keeps perpendicular
+        //    channels separate. Newport's 3 pairs at lon ~153.093
+        //    link into one chain; Scarborough's pairs ~1 km east of
+        //    the Newport line stay a separate chain.
         //
-        // Safe at 700 m because the LNDARE-between-pair check
-        // (`pointInLandare` on each candidate midpoint) rejects
-        // any pair whose channel midpoint lands on solid ground.
-        // SEGMENT_MAX_M=1200 m additionally caps any over-long
-        // FAIRWY segment that PCA chain ordering might produce.
-        const CLUSTER_LINK_M = 700;
+        // Safe also because the LNDARE-between-pair check
+        // (`pointInLandare` on each candidate midpoint) rejects any
+        // pair whose channel midpoint lands on solid ground, and
+        // SEGMENT_MAX_M=1200 m caps any over-long FAIRWY segment.
+        const CLUSTER_LINK_M = 900;
         const clusters = clusterMarkers(markers, CLUSTER_LINK_M);
 
         // ── Step 3: Per-cluster, pair port↔starboard in chain order ─
