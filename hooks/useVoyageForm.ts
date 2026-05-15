@@ -251,6 +251,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     ) => {
         if (e) e.preventDefault();
 
+        // ⚠️ BUILD-MARKER — unmissable sentinel. If you don't see this
+        // line in Xcode console when you hit Calculate, the iOS app is
+        // running an older JS bundle than the one on disk. Update the
+        // datestamp every commit you push so it's easy to tell which
+        // build is actually loaded.
+        console.warn('[BUILD-MARKER] thalassa 2026-05-15T22:35 handleCalculate fired');
+
         // PAYWALL INTERCEPTION
         if (!isPro) {
             onTriggerUpgrade();
