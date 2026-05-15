@@ -134,12 +134,11 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
             )}
 
             {/* ── MY CREW (Captain view) — swipe to remove ──
-                When there's no crew yet, we just show the header row
-                with the +Invite button and nothing else. The big "No
-                Crew Yet" EmptyState card used to sit here was eating
-                ~120px of vertical space — pure visual clutter for the
-                solo-skipper case (which is the common case until the
-                first invite goes out). */}
+                Empty state is a compact one-liner card (~50px) — half
+                the height of the original EmptyState component (~120px),
+                but with enough presence to make it feel intentional
+                rather than missing UI. Once there's actual crew, the
+                hint disappears in favour of the card list. */}
             <div className="mb-3">
                 <div className="flex items-center gap-2 mb-3">
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
@@ -159,7 +158,7 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                     </button>
                 </div>
 
-                {visibleCrew.length > 0 && (
+                {visibleCrew.length > 0 ? (
                     <div className="space-y-2 stagger-in">
                         {visibleCrew.map((member) => (
                             <SwipeableCrewCard
@@ -170,6 +169,14 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                                 onEdit={member.status !== 'declined' ? () => onEditMember(member) : undefined}
                             />
                         ))}
+                    </div>
+                ) : (
+                    <div className="rounded-xl border border-dashed border-white/[0.08] bg-white/[0.02] px-3 py-2.5 flex items-center gap-2.5">
+                        <span className="text-base">👥</span>
+                        <p className="text-[11px] text-gray-400 leading-tight">
+                            No crew yet. Tap <strong className="text-sky-400">+ Invite Crew</strong> to share registers
+                            + readiness with your crew.
+                        </p>
                     </div>
                 )}
 
