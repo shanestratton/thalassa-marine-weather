@@ -223,14 +223,40 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     const _userEmail = authedUser?.email ?? null;
     void _userEmail; // referenced via authedUser in callers below
 
-    // Load data
+    // Load data.
+    //
+    // On a fresh-install first launch, one or more of these service
+    // calls can hang on `supabase.auth.getUser()` — that method makes
+    // a network round-trip to verify the JWT, and on the very first
+    // boot after sign-in the auth client hasn't fully cached the
+    // session yet. Promise.all never resolves → setLoading(false)
+    // never fires → ReadinessCardStack (gated on !loading) never
+    // renders, leaving Shane staring at just the Plan-a-Route
+    // button and Active Passage selector. Restart fixed it because
+    // the session was cached by then.
+    //
+    // Defense: Promise.allSettled so one slow/hanging service can't
+    // hold the others hostage, finally{ setLoading(false) } so the
+    // UI gate ALWAYS clears, and a 6 s timeout race so even a true
+    // hang surrenders instead of leaving the page partially-rendered
+    // forever.
     const loadData = useCallback(async () => {
         setLoading(true);
-        const [crew, invites, ships] = await Promise.all([getMyCrew(), getMyInvites(), getMyMemberships()]);
-        setMyCrew(crew);
-        setPendingInvites(invites);
-        setMemberships(ships);
-        setLoading(false);
+        const timeout = new Promise<'timeout'>((resolve) => window.setTimeout(() => resolve('timeout'), 6000));
+        const work = Promise.allSettled([getMyCrew(), getMyInvites(), getMyMemberships()]);
+        try {
+            const result = await Promise.race([work, timeout]);
+            if (result === 'timeout') {
+                console.warn('[CrewManagement] loadData: timed out after 6s — leaving lists empty for now');
+            } else {
+                const [crewRes, invitesRes, shipsRes] = result;
+                if (crewRes.status === 'fulfilled') setMyCrew(crewRes.value);
+                if (invitesRes.status === 'fulfilled') setPendingInvites(invitesRes.value);
+                if (shipsRes.status === 'fulfilled') setMemberships(shipsRes.value);
+            }
+        } finally {
+            setLoading(false);
+        }
     }, []);
 
     useEffect(() => {
