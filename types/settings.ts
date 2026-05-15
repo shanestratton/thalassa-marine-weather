@@ -52,6 +52,35 @@ export interface ComfortParams {
  */
 export type SubscriptionTier = 'free' | 'crew' | 'owner';
 
+/**
+ * Diary "polish" presets — discrete styles surfaced as a dropdown in
+ * the New Entry form. Each maps to an intensity value (0-100) used by
+ * the Gemini-backed enhancer in DiaryService.enhanceWithGemini.
+ *
+ *   clean      — fix grammar/spelling only, no creative additions
+ *   tidy       — light cleanup, keep author's voice
+ *   polished   — moderate flow improvements (default)
+ *   literary   — flowing prose, descriptive language
+ *   poetic     — maximum literary flourish, evocative imagery
+ */
+export type PolishStyle = 'clean' | 'tidy' | 'polished' | 'literary' | 'poetic';
+
+export const POLISH_INTENSITY: Record<PolishStyle, number> = {
+    clean: 0,
+    tidy: 25,
+    polished: 50,
+    literary: 75,
+    poetic: 100,
+};
+
+export const POLISH_LABEL: Record<PolishStyle, string> = {
+    clean: 'Clean — grammar only',
+    tidy: 'Tidy — keep my voice',
+    polished: 'Polished — smooth flow',
+    literary: 'Literary — flowing prose',
+    poetic: 'Poetic — evocative imagery',
+};
+
 export interface UserSettings {
     /** @deprecated Use `subscriptionTier` instead. Kept for migration only. */
     isPro?: boolean;
@@ -65,6 +94,10 @@ export interface UserSettings {
     lastName?: string;
     /** Nickname rendered between quotes on the voyage-log byline. Optional. */
     nickname?: string;
+    /** Diary "polish" preset — controls how much the Gemini-backed
+     *  enhancer rewrites the entry. Persists across sessions and devices
+     *  (via profiles.settings sync). */
+    polishStyle?: PolishStyle;
     alwaysOn?: boolean;
     notifications: NotificationPreferences;
     units: UnitPreferences;

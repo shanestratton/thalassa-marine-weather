@@ -18,6 +18,7 @@ import { DiaryPublishModal } from './diary/DiaryPublishModal';
 import { useDiaryState } from '../hooks/useDiaryState';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
+import { POLISH_INTENSITY, type PolishStyle } from '../types/settings';
 interface DiaryPageProps {
     onBack: () => void;
 }
@@ -197,12 +198,20 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         [dispatch],
     );
     const setIsPlaying = useCallback((v: boolean) => dispatch({ type: 'SET_PLAYING', playing: v }), [dispatch]);
-    const [polishIntensity, _setPolishIntensity] = useState(30); // 0=clean grammar, 100=shakespearean
+    // Polish style — read from settings (persists across sessions + devices).
+    // Default 'polished' (middle option) on first run.
     // Publish-to-Voyage-Log prompt — holds the just-saved entry while the modal is open
     const [publishPromptEntry, setPublishPromptEntry] = useState<DiaryEntry | null>(null);
     // Weather context
     const { weatherData } = useWeather();
-    const { settings } = useSettings();
+    const { settings, updateSettings } = useSettings();
+    const polishStyle: PolishStyle = settings.polishStyle ?? 'polished';
+    const setPolishStyle = useCallback(
+        (next: PolishStyle) => {
+            void updateSettings({ polishStyle: next });
+        },
+        [updateSettings],
+    );
     const deletedIdRef = useRef<string | null>(null);
     const menuRef = useRef<HTMLDivElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -506,7 +515,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         const enhanced = await DiaryService.enhanceWithGemini(body, {
             mood,
             location: locationName,
-            intensity: polishIntensity,
+            intensity: POLISH_INTENSITY[polishStyle],
         });
         if (enhanced) setBody(enhanced);
         setPolishing(false);
@@ -699,10 +708,12 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 recordingTime={recordingTime}
                 transcribing={transcribing}
                 isPlaying={isPlaying}
+                polishStyle={polishStyle}
                 onSetTitle={setTitle}
                 onSetBody={setBody}
                 onSetMood={setMood}
                 onSetLocationName={setLocationName}
+                onSetPolishStyle={setPolishStyle}
                 onSave={handleSave}
                 onCancel={() => {
                     setShowCompose(false);
