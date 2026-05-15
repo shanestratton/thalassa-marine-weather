@@ -22,7 +22,7 @@ interface NoticesPageProps {
     onBack: () => void;
 }
 
-type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A' | 'X';
+type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A' | 'X' | 'I' | 'WZ';
 
 /** "Near me" radius in nautical miles. NotM coordinates outside this
  *  distance from the vessel's current position are hidden when the
@@ -60,6 +60,8 @@ const FILTERS: Array<{ id: AreaFilter; label: string; short: string; color: stri
     { id: 'P', label: 'HYDROPAC', short: 'PAC', color: '#f59e0b' },
     { id: 'A', label: 'HYDROARC', short: 'ARC', color: '#14b8a6' },
     { id: 'X', label: 'NAVAREA X', short: 'X', color: '#fbbf24' }, // AHO / JRCC AUSTRALIA
+    { id: 'I', label: 'NAVAREA I', short: 'I', color: '#60a5fa' }, // UKHO
+    { id: 'WZ', label: 'UK Coastal', short: 'WZ', color: '#60a5fa' }, // UKHO Warning Zones
 ];
 
 function formatIssued(d: Date | null): string {
@@ -268,8 +270,8 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                             error
                                 ? error
                                 : nearMe && vesselPos
-                                  ? `Currently sourced from NGA MSI (NAVAREA IV/XII + HYDROLANT/PAC/ARC) and AMSA (NAVAREA X, Australia). UK (UKHO), NZ (LINZ) and other national hydrographic offices aren’t included yet — coming soon. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
-                                  : 'Sources: NGA (US-managed waters), AMSA (NAVAREA X). National hydrographic offices for other regions will be added in future updates.'
+                                  ? `Currently sourced from NGA MSI (NAVAREA IV/XII + HYDROLANT/PAC/ARC), AMSA (NAVAREA X, Australia) and UKHO (NAVAREA I + UK Coastal). NZ (Maritime NZ / LINZ) and other national hydrographic offices aren’t included yet — Maritime NZ’s page is behind a Cloudflare JS challenge that needs a different fetch strategy. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
+                                  : 'Sources: NGA (US-managed waters), AMSA (NAVAREA X), UKHO (NAVAREA I + UK Coastal). National hydrographic offices for other regions will be added in future updates.'
                         }
                         actionLabel={error ? 'Retry' : undefined}
                         onAction={error ? () => load(true) : undefined}

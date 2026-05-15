@@ -12,9 +12,12 @@
  *                                 (US-coordinated SafetyNET areas).
  *   • AMSA MSI bulletin scrape — NAVAREA X (AHO / JRCC AUSTRALIA),
  *                                 via the proxy-amsa-msi edge function.
+ *   • UKHO MSI scrape          — NAVAREA I (NE Atlantic) + UK Coastal WZ,
+ *                                 via the proxy-ukho-msi edge function.
  *
- * Coming soon: UKHO (I), LINZ (XIV), and other national offices behind
- * the same shape.
+ * Coming soon: LINZ / Maritime NZ (XIV — blocked by Cloudflare JS challenge,
+ * needs headless-browser approach) and other national offices behind the
+ * same shape.
  */
 import { createLogger } from '../utils/createLogger';
 
@@ -23,10 +26,11 @@ const log = createLogger('NoticeToMariners');
 // ── Types ─────────────────────────────────────────────────────────────────
 
 /** NAVAREA / HYDRO region code as returned by the API.
- *  NGA publishes 4 / 12 / A / C / P.
- *  AMSA publishes X (NAVAREA X — Australian-coordinated SafetyNET).
- *  Future sources (UKHO=I, LINZ=XIV, etc.) drop in as additional codes. */
-export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | 'X' | string;
+ *  NGA  publishes 4 / 12 / A / C / P.
+ *  AMSA publishes X    — NAVAREA X (Australian-coordinated SafetyNET).
+ *  UKHO publishes I, WZ — NAVAREA I (NE Atlantic) + UK Coastal Warnings.
+ *  Future sources (LINZ=XIV, etc.) drop in as additional codes. */
+export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | 'X' | 'I' | 'WZ' | string;
 
 export interface Notice {
     /** Stable id — `${navArea}-${msgYear}/${msgNumber}` (NGA cross-lists the same message across areas). */
@@ -72,11 +76,10 @@ function endpoint(): string {
         : '/api/nga-msi/broadcast-warn?output=json';
 }
 
-// AMSA NAVAREA X proxy — goes through a Supabase edge function that
-// scrapes https://www.operations.amsa.gov.au/AMSA.Web.MSIPublication/Home
-// and returns the warnings in the same RawBroadcastWarn shape NGA does.
-// Has its own 1h edge cache so calling it cheaply is fine.
-function amsaEndpoint(): { url: string; headers: Record<string, string> } | null {
+// Edge-function endpoint resolver shared by every NHO source we scrape
+// server-side. Returns null when no Supabase project is configured so
+// each source's fetcher can no-op silently rather than throwing.
+function edgeFunctionEndpoint(name: string): { url: string; headers: Record<string, string> } | null {
     const supabaseUrl =
         (typeof import.meta !== 'undefined' &&
             (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL) ||
@@ -87,12 +90,21 @@ function amsaEndpoint(): { url: string; headers: Record<string, string> } | null
         '';
     if (!supabaseUrl || !supabaseAnonKey) return null;
     return {
-        url: `${supabaseUrl}/functions/v1/proxy-amsa-msi`,
+        url: `${supabaseUrl}/functions/v1/${name}`,
         headers: {
             Authorization: `Bearer ${supabaseAnonKey}`,
             apikey: supabaseAnonKey,
         },
     };
+}
+
+// AMSA NAVAREA X proxy — scrapes the AMSA bulletin board.
+function amsaEndpoint() {
+    return edgeFunctionEndpoint('proxy-amsa-msi');
+}
+// UKHO NAVAREA I + UK Coastal WZ proxy — scrapes msi.admiralty.co.uk.
+function ukhoEndpoint() {
+    return edgeFunctionEndpoint('proxy-ukho-msi');
 }
 
 // ── Area labels ───────────────────────────────────────────────────────────
@@ -104,6 +116,8 @@ const AREA_LABELS: Record<string, string> = {
     P: 'HYDROPAC',
     A: 'HYDROARC',
     X: 'NAVAREA X',
+    I: 'NAVAREA I',
+    WZ: 'UK Coastal',
 };
 
 export function labelFor(code: string): string {
@@ -121,6 +135,8 @@ const AREA_BOUNDS: Record<string, [number, number, number, number]> = {
     P: [120, -60, -80 + 360, 60], // HYDROPAC — Pacific (wraps dateline)
     A: [-180, 60, 180, 90], // HYDROARC — Arctic
     X: [80, -55, 175, 12], // NAVAREA X — AHO/JRCC AUSTRALIA (IO E + W Pacific + AU EEZ)
+    I: [-35, 30, 30, 90], // NAVAREA I — NE Atlantic, UKHO coordinator
+    WZ: [-10, 49, 5, 62], // UK Coastal — UKHO Warning Zones
 };
 
 export function isAreaCoveringPoint(code: string, lat: number, lon: number): boolean {
@@ -302,6 +318,15 @@ async function fetchAmsa(): Promise<RawBroadcastWarn[]> {
     return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
 }
 
+async function fetchUkho(): Promise<RawBroadcastWarn[]> {
+    const ep = ukhoEndpoint();
+    if (!ep) return [];
+    const res = await fetch(ep.url, { headers: ep.headers });
+    if (!res.ok) throw new Error(`UKHO MSI returned ${res.status}`);
+    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
+    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+}
+
 // ── Service ───────────────────────────────────────────────────────────────
 
 type ChangeCallback = (notices: Notice[]) => void;
@@ -342,7 +367,7 @@ class NoticeToMarinersServiceClass {
                 // Fetch all sources in parallel. Each source is independent —
                 // if one fails (network blip, scraping breakage), the others
                 // still contribute. Promise.allSettled lets us partial-merge.
-                const sources = await Promise.allSettled([fetchNga(), fetchAmsa()]);
+                const sources = await Promise.allSettled([fetchNga(), fetchAmsa(), fetchUkho()]);
                 const list: RawBroadcastWarn[] = [];
                 let anySucceeded = false;
                 for (const result of sources) {
