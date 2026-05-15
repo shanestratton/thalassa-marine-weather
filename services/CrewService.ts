@@ -40,6 +40,22 @@ export const PASSAGE_REGISTERS: SharedRegister[] = [
     'passage_checklist',
 ];
 
+/**
+ * Registers offered in the "+ Invite Crew" modal — five shareable
+ * access levels surfaced at invite time. Galley deliberately omitted:
+ * meal-planning crew assignment happens per-passage via the Voyage
+ * Provisioning card in the Departure Brief group, not as a blanket
+ * vessel-wide grant. Checklist added so crew can be granted access to
+ * the passage readiness checks at invite time.
+ */
+export const INVITE_REGISTERS: SharedRegister[] = [
+    'stores',
+    'equipment',
+    'maintenance',
+    'documents',
+    'passage_checklist',
+];
+
 /** All registers combined */
 export const ALL_REGISTERS: SharedRegister[] = [...VESSEL_REGISTERS, ...PASSAGE_REGISTERS];
 
