@@ -14,10 +14,16 @@
  *                                 via the proxy-amsa-msi edge function.
  *   • UKHO MSI scrape          — NAVAREA I (NE Atlantic) + UK Coastal WZ,
  *                                 via the proxy-ukho-msi edge function.
+ *   • LINZ / Maritime NZ       — NAVAREA XIV (South Pacific) + NZ coastal,
+ *                                 via proxy-linz-msi. Maritime NZ sits
+ *                                 behind a Cloudflare JS challenge that
+ *                                 Deno fetch can't solve, so a GitHub
+ *                                 Actions cron runs Playwright every 6h
+ *                                 to populate the linz_warnings table —
+ *                                 see scripts/linz-msi-scrape/.
  *
- * Coming soon: LINZ / Maritime NZ (XIV — blocked by Cloudflare JS challenge,
- * needs headless-browser approach) and other national offices behind the
- * same shape.
+ * Coming soon: other national hydrographic offices (II France, III Spain,
+ * V Brazil, …) behind the same shape.
  */
 import { createLogger } from '../utils/createLogger';
 
@@ -29,8 +35,9 @@ const log = createLogger('NoticeToMariners');
  *  NGA  publishes 4 / 12 / A / C / P.
  *  AMSA publishes X    — NAVAREA X (Australian-coordinated SafetyNET).
  *  UKHO publishes I, WZ — NAVAREA I (NE Atlantic) + UK Coastal Warnings.
- *  Future sources (LINZ=XIV, etc.) drop in as additional codes. */
-export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | 'X' | 'I' | 'WZ' | string;
+ *  LINZ publishes XIV, NZC — NAVAREA XIV (South Pacific) + NZ Coastal.
+ *  Future sources drop in as additional codes. */
+export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | 'X' | 'I' | 'WZ' | 'XIV' | 'NZC' | string;
 
 export interface Notice {
     /** Stable id — `${navArea}-${msgYear}/${msgNumber}` (NGA cross-lists the same message across areas). */
@@ -106,6 +113,11 @@ function amsaEndpoint() {
 function ukhoEndpoint() {
     return edgeFunctionEndpoint('proxy-ukho-msi');
 }
+// LINZ NAVAREA XIV + NZ Coastal — reads the linz_warnings table that
+// the GitHub Actions Playwright cron populates (Cloudflare workaround).
+function linzEndpoint() {
+    return edgeFunctionEndpoint('proxy-linz-msi');
+}
 
 // ── Area labels ───────────────────────────────────────────────────────────
 
@@ -118,6 +130,8 @@ const AREA_LABELS: Record<string, string> = {
     X: 'NAVAREA X',
     I: 'NAVAREA I',
     WZ: 'UK Coastal',
+    XIV: 'NAVAREA XIV',
+    NZC: 'NZ Coastal',
 };
 
 export function labelFor(code: string): string {
@@ -137,6 +151,8 @@ const AREA_BOUNDS: Record<string, [number, number, number, number]> = {
     X: [80, -55, 175, 12], // NAVAREA X — AHO/JRCC AUSTRALIA (IO E + W Pacific + AU EEZ)
     I: [-35, 30, 30, 90], // NAVAREA I — NE Atlantic, UKHO coordinator
     WZ: [-10, 49, 5, 62], // UK Coastal — UKHO Warning Zones
+    XIV: [140, -60, -120 + 360, 0], // NAVAREA XIV — Maritime NZ (S Pacific, wraps dateline)
+    NZC: [160, -55, 180, -30], // NZ Coastal — Maritime NZ inshore (broadcasts on MF/VHF)
 };
 
 export function isAreaCoveringPoint(code: string, lat: number, lon: number): boolean {
@@ -327,6 +343,15 @@ async function fetchUkho(): Promise<RawBroadcastWarn[]> {
     return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
 }
 
+async function fetchLinz(): Promise<RawBroadcastWarn[]> {
+    const ep = linzEndpoint();
+    if (!ep) return [];
+    const res = await fetch(ep.url, { headers: ep.headers });
+    if (!res.ok) throw new Error(`LINZ MSI returned ${res.status}`);
+    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
+    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+}
+
 // ── Service ───────────────────────────────────────────────────────────────
 
 type ChangeCallback = (notices: Notice[]) => void;
@@ -367,7 +392,7 @@ class NoticeToMarinersServiceClass {
                 // Fetch all sources in parallel. Each source is independent —
                 // if one fails (network blip, scraping breakage), the others
                 // still contribute. Promise.allSettled lets us partial-merge.
-                const sources = await Promise.allSettled([fetchNga(), fetchAmsa(), fetchUkho()]);
+                const sources = await Promise.allSettled([fetchNga(), fetchAmsa(), fetchUkho(), fetchLinz()]);
                 const list: RawBroadcastWarn[] = [];
                 let anySucceeded = false;
                 for (const result of sources) {

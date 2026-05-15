@@ -6,9 +6,10 @@
  * expandable full-text view per notice. Results are cached for 6 hours
  * in localStorage so repeat opens are instant.
  *
- * Scope: MVP surfaces NGA-issued warnings only. National hydrographic
- * offices (UKHO, AHS, LINZ, CHS, etc.) will be added as additional
- * sources behind the same list.
+ * Sources today: NGA (NAVAREA IV/XII + HYDROLANT/PAC/ARC), AMSA
+ * (NAVAREA X), UKHO (NAVAREA I + UK Coastal), Maritime NZ (NAVAREA XIV
+ * + NZ Coastal). Other national hydrographic offices drop in behind
+ * the same Notice shape — see services/NoticeToMarinersService.ts.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../ui/PageHeader';
@@ -22,7 +23,7 @@ interface NoticesPageProps {
     onBack: () => void;
 }
 
-type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A' | 'X' | 'I' | 'WZ';
+type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A' | 'X' | 'I' | 'WZ' | 'XIV' | 'NZC';
 
 /** "Near me" radius in nautical miles. NotM coordinates outside this
  *  distance from the vessel's current position are hidden when the
@@ -62,6 +63,8 @@ const FILTERS: Array<{ id: AreaFilter; label: string; short: string; color: stri
     { id: 'X', label: 'NAVAREA X', short: 'X', color: '#fbbf24' }, // AHO / JRCC AUSTRALIA
     { id: 'I', label: 'NAVAREA I', short: 'I', color: '#60a5fa' }, // UKHO
     { id: 'WZ', label: 'UK Coastal', short: 'WZ', color: '#60a5fa' }, // UKHO Warning Zones
+    { id: 'XIV', label: 'NAVAREA XIV', short: 'XIV', color: '#34d399' }, // LINZ / Maritime NZ
+    { id: 'NZC', label: 'NZ Coastal', short: 'NZC', color: '#34d399' }, // LINZ / Maritime NZ inshore
 ];
 
 function formatIssued(d: Date | null): string {
@@ -270,8 +273,8 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                             error
                                 ? error
                                 : nearMe && vesselPos
-                                  ? `Currently sourced from NGA MSI (NAVAREA IV/XII + HYDROLANT/PAC/ARC), AMSA (NAVAREA X, Australia) and UKHO (NAVAREA I + UK Coastal). NZ (Maritime NZ / LINZ) and other national hydrographic offices aren’t included yet — Maritime NZ’s page is behind a Cloudflare JS challenge that needs a different fetch strategy. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
-                                  : 'Sources: NGA (US-managed waters), AMSA (NAVAREA X), UKHO (NAVAREA I + UK Coastal). National hydrographic offices for other regions will be added in future updates.'
+                                  ? `Currently sourced from NGA MSI (NAVAREA IV/XII + HYDROLANT/PAC/ARC), AMSA (NAVAREA X, Australia), UKHO (NAVAREA I + UK Coastal) and Maritime NZ (NAVAREA XIV + NZ Coastal). Other national hydrographic offices will be added behind the same shape. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
+                                  : 'Sources: NGA (US-managed waters), AMSA (NAVAREA X), UKHO (NAVAREA I + UK Coastal) and Maritime NZ (NAVAREA XIV + NZ Coastal). National hydrographic offices for other regions will be added in future updates.'
                         }
                         actionLabel={error ? 'Retry' : undefined}
                         onAction={error ? () => load(true) : undefined}
@@ -292,7 +295,7 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                             />
                         ))}
                         <div className="pt-3 pb-4 text-center text-[10px] text-gray-500 uppercase tracking-widest">
-                            Source: NGA Maritime Safety Information
+                            Sources: NGA · AMSA · UKHO · Maritime NZ
                         </div>
                     </div>
                 )}
@@ -315,6 +318,11 @@ const AREA_COLORS: Record<string, string> = {
     C: '#a855f7',
     P: '#f59e0b',
     A: '#14b8a6',
+    X: '#fbbf24',
+    I: '#60a5fa',
+    WZ: '#60a5fa',
+    XIV: '#34d399',
+    NZC: '#34d399',
 };
 
 const NoticeCard: React.FC<NoticeCardProps> = ({ notice, expanded, onToggle }) => {
