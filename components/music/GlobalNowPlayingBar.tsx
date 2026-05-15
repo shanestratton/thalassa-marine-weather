@@ -28,6 +28,7 @@ import {
     pauseMusic,
     resumeMusic,
     stopMusic,
+    getAuthorizationStatus,
     type NowPlaying,
 } from '../../services/voice/integrations/appleMusic';
 import { useUI } from '../../context/UIContext';
@@ -50,15 +51,45 @@ export const GlobalNowPlayingBar: React.FC = () => {
     const [busy, setBusy] = useState(false);
     const [imageFailed, setImageFailed] = useState(false);
 
-    // Poll once per 2 s. Slower than MusicPage's 1 s poll because
-    // we don't need to drive a smooth progress bar here — just keep
-    // the track title roughly current.
+    // Poll once per 2 s WHEN MusicKit is authorized.
+    //
+    // First-launch trap: accessing ApplicationMusicPlayer.shared on
+    // the Swift side surfaces the iOS MusicKit authorization prompt
+    // ("Allow Thalassa to use Apple Music?") even when we're just
+    // reading queue status. That triggered at boot on every fresh
+    // install simply because this bar mounts with the app and
+    // started polling.
+    //
+    // Fix: read auth status FIRST (currentStatus is a synchronous
+    // property that does not prompt). Only start polling if the
+    // user has previously granted MusicKit access (e.g. by opening
+    // the Music page and tapping play). For users who never use
+    // music, the bar stays silent forever, which is correct —
+    // there's nothing to surface.
+    //
+    // We re-check every 5 s in case the user grants auth via the
+    // Music page later in the session; the bar will then start
+    // polling without requiring an app restart.
+    const [authorized, setAuthorized] = useState(false);
     useEffect(() => {
+        let cancelled = false;
+        const check = async () => {
+            const a = await getAuthorizationStatus();
+            if (!cancelled) setAuthorized(a.granted);
+        };
+        void check();
+        const id = window.setInterval(() => void check(), 5000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(id);
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!authorized) return;
         let cancelled = false;
         const poll = async () => {
             const np = await getNowPlaying();
-            // getNowPlaying returns null when the plugin isn't
-            // available (web build / older iOS) — keep empty state.
             if (!cancelled) setNowPlaying(np ?? EMPTY_NOW_PLAYING);
         };
         void poll();
@@ -67,7 +98,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
             cancelled = true;
             window.clearInterval(id);
         };
-    }, []);
+    }, [authorized]);
 
     // Reset image-error state when the track changes so a stale
     // failed-image flag doesn't suppress artwork for the next track.
