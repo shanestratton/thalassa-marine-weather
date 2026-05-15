@@ -696,14 +696,11 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 mood={mood}
                 photos={photos}
                 audioUrl={audioUrl}
-                lat={lat}
-                lon={lon}
                 locationName={locationName}
                 keyboardHeight={keyboardHeight}
                 saving={saving}
                 uploading={uploading}
                 polishing={polishing}
-                gpsLoading={gpsLoading}
                 isRecording={isRecording}
                 recordingTime={recordingTime}
                 transcribing={transcribing}
@@ -719,7 +716,6 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                     setShowCompose(false);
                     setEditingId(null);
                 }}
-                onGrabGps={grabGps}
                 onStartRecording={startRecording}
                 onStopRecording={stopRecording}
                 onRemoveAudio={removeAudio}
