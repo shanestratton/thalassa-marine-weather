@@ -1599,6 +1599,17 @@ interface NowPlayingBarProps {
     onPrevious: () => void;
 }
 
+/** Format seconds as M:SS / H:MM:SS. NaN/Infinity → "0:00". */
+function formatPlaybackTime(seconds: number): string {
+    if (!Number.isFinite(seconds) || seconds < 0) return '0:00';
+    const total = Math.floor(seconds);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
 const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onResume, onNext, onPrevious }) => {
     const [imageFailed, setImageFailed] = useState(false);
     const showRemote = !!nowPlaying.artworkUrl && !imageFailed;
@@ -1608,6 +1619,40 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
     useEffect(() => {
         setImageFailed(false);
     }, [trackKey]);
+
+    // ── Smoothed playback time ─────────────────────────────────────
+    // The parent polls native `nowPlaying` once a second, so the
+    // raw `nowPlaying.playbackTime` only updates at 1Hz. That makes
+    // the progress bar jump in 1-second steps — visible enough to
+    // feel like the UI is lagging. We interpolate locally between
+    // polls: tick a local clock at ~10Hz while playing, snap back
+    // to the authoritative value every time a new poll lands.
+    const { playbackTime: pollTime, duration, isPlaying } = nowPlaying;
+    const [smoothTime, setSmoothTime] = useState(pollTime);
+    const lastPollRef = useRef({ value: pollTime, at: Date.now() });
+
+    // Re-anchor whenever the poll value or play state changes.
+    useEffect(() => {
+        lastPollRef.current = { value: pollTime, at: Date.now() };
+        setSmoothTime(pollTime);
+    }, [pollTime, isPlaying]);
+
+    // Tick the interpolator while playing.
+    useEffect(() => {
+        if (!isPlaying || duration <= 0) return;
+        const id = window.setInterval(() => {
+            const elapsed = (Date.now() - lastPollRef.current.at) / 1000;
+            const next = Math.min(duration, lastPollRef.current.value + elapsed);
+            setSmoothTime(next);
+        }, 100);
+        return () => window.clearInterval(id);
+    }, [isPlaying, duration]);
+
+    const showProgress = duration > 0;
+    const clamped = showProgress ? Math.min(Math.max(smoothTime, 0), duration) : 0;
+    const remaining = Math.max(0, duration - clamped);
+    const pct = showProgress ? (clamped / duration) * 100 : 0;
+
     return (
         <div className="p-3">
             <div className="flex items-center gap-3">
@@ -1663,6 +1708,26 @@ const NowPlayingBar: React.FC<NowPlayingBarProps> = ({ nowPlaying, onPause, onRe
                     </button>
                 </div>
             </div>
+
+            {showProgress && (
+                <div
+                    className="mt-2 flex items-center gap-2 text-[10px] font-mono text-white/50 tabular-nums"
+                    role="progressbar"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.round(duration)}
+                    aria-valuenow={Math.round(clamped)}
+                    aria-label={`Playback progress — ${formatPlaybackTime(clamped)} of ${formatPlaybackTime(duration)}`}
+                >
+                    <span className="w-8 text-right">{formatPlaybackTime(clamped)}</span>
+                    <div className="flex-1 h-1 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                            className="h-full bg-white/70 rounded-full transition-[width] duration-150 ease-linear"
+                            style={{ width: `${pct}%` }}
+                        />
+                    </div>
+                    <span className="w-10 text-left">-{formatPlaybackTime(remaining)}</span>
+                </div>
+            )}
         </div>
     );
 };
