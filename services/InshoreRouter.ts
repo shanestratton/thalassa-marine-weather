@@ -848,16 +848,12 @@ function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number, channelHalfWi
     const n = markers.length;
     const visited = new Uint8Array(n);
     const clusters: number[][] = [];
-    // TRAILING window for the PCA fit — track the cluster's LOCAL
-    // direction at the BFS edge, not the cluster's global principal
-    // axis. A global fit averages a curving channel (e.g. the
-    // Brisbane River shipping channel bending 60°+ from bay to river),
-    // and markers at the curve's far ends then fall outside the
-    // channelHalfWidthM perp gate and get rejected — truncating the
-    // chain. With a trailing window, the gate tracks the channel as
-    // it bends, accepting curving chains while still rejecting
-    // perpendicular cross-channels (like Newport-Scarborough).
-    const FIT_WINDOW = 6;
+    // Tried trailing-window PCA on 2026-05-15 to track curving
+    // channels better at Brisbane River. It regressed Newport — user
+    // "that broke the newport end". Reverted to global PCA (fit to
+    // the entire cluster's markers) which was the state when Newport
+    // weave-through-the-markers worked ("bingo"). Brisbane curving-
+    // channel coverage stays suboptimal as a known trade-off.
     for (let seed = 0; seed < n; seed++) {
         if (visited[seed]) continue;
         const cluster: number[] = [];
@@ -866,10 +862,11 @@ function clusterMarkers(markers: Marker[], CLUSTER_LINK_M: number, channelHalfWi
         while (queue.length) {
             const i = queue.shift()!;
             cluster.push(i);
-            // Fit the principal axis to the last FIT_WINDOW markers
-            // added to the cluster (its trailing edge) once we have
-            // ≥3 markers. With <3 the direction is undefined.
-            const fit = cluster.length >= 3 ? clusterFitLine(cluster.slice(-FIT_WINDOW), markers) : null;
+            // Re-fit the cluster's principal axis once it has enough
+            // markers for PCA to be meaningful. With <3 markers the
+            // direction is undefined (single marker) or only one
+            // perpendicular pair — we fall back to pure raw-distance.
+            const fit = cluster.length >= 3 ? clusterFitLine(cluster, markers) : null;
             const mi = markers[i];
             for (let j = 0; j < n; j++) {
                 if (visited[j]) continue;

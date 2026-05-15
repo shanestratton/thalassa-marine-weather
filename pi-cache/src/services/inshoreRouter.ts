@@ -969,16 +969,17 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     // gradient makes the channel route win even at 60% coverage.
     if (depth >= 10) return 5.0;
     if (depth >= 5) return 6.0;
-    // depth ∈ (0, 5) — shallow but technically passes the
-    // draft+safety cutoff. 18× — 3× the cost of "real deep" 5m+
-    // water (6×), so A* prefers a deep alternative up to ~3× longer
-    // than the shallow shortcut. Was 8× — too gentle, A* would clip
-    // 3 m bathymetry rather than detour 0.5 NM east into 5-8 m
-    // water (user: "we will need to get out and push", 2026-05-15).
-    // Keeps Newport's authoritative canal cells (DRVAL1=3.0)
-    // navigable — they're still the only path out of the canal
-    // estate, so A* uses them regardless of cost.
-    if (depth > 0) return 18.0;
+    // depth ∈ (0, 5) — shallow but passes the draft+safety cutoff.
+    // Tried 18× on 2026-05-15 to push A* harder toward deep water at
+    // Brisbane (user: "we will need to get out and push"). Combined
+    // with the trailing-window PCA change, the result regressed
+    // Newport — user "that broke the newport end". Back to 8×. The
+    // Brisbane "favours shallow over deep" issue is more likely a
+    // data-coverage problem (the 3 m bathymetry around the river
+    // mouth is what the 30 m AusBathyTopo actually reads; the deep
+    // shipping channel needs FAIRWY coverage to win) than a cost-
+    // tuning one — pushing cost further amplifies routing artefacts.
+    if (depth > 0) return 8.0;
     // CAUTION (depth < 0, the -1 sentinel) — soft-blocked: too shallow
     // for this vessel per our coarse bathymetry, but not land/hazard.
     // 40× — A* strongly prefers real water (5× the worst real-water
