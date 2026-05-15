@@ -45,6 +45,14 @@ export function voyageLogApiUrl(handle: string, _apiKey?: string): string {
 
 class VoyageLogServiceClass {
     /**
+     * Last DB error from any mutating call, surfaced to the UI so a failed
+     * Setup tap can show *why* (RLS, missing table, network) instead of
+     * silently flashing the button back. Cleared at the start of each
+     * ensureEnabled() / setEnabled() call.
+     */
+    public lastError: string | null = null;
+
+    /**
      * The owned boat's ID for the current user, or null if they don't own
      * a boat. Shared lookup used by every method below — the owner-facing
      * Voyage Log surface always operates against the user's owned boat.
@@ -54,6 +62,7 @@ class VoyageLogServiceClass {
         const { data, error } = await supabase.from('boats').select('id').eq('owner_id', userId).maybeSingle();
         if (error) {
             log.warn('getOwnedBoatId failed:', error.message);
+            this.lastError = `Boat lookup failed: ${error.message}`;
             return null;
         }
         return (data?.id as string) ?? null;
@@ -135,6 +144,7 @@ class VoyageLogServiceClass {
             .single();
         if (boatErr || !boat?.id) {
             log.warn('getOrCreateOwnedBoat failed:', boatErr?.message);
+            this.lastError = `Couldn't create your boat row: ${boatErr?.message ?? 'no id returned'}`;
             return null;
         }
 
@@ -145,7 +155,7 @@ class VoyageLogServiceClass {
         const meta = authData.user?.user_metadata as
             | { first_name?: string; last_name?: string; prefix?: string; nickname?: string }
             | undefined;
-        await supabase.from('boat_members').insert({
+        const { error: memberErr } = await supabase.from('boat_members').insert({
             boat_id: boat.id,
             user_id: userId,
             first_name: meta?.first_name ?? 'Crew',
@@ -154,6 +164,14 @@ class VoyageLogServiceClass {
             nickname: meta?.nickname ?? null,
             role: 'owner',
         });
+        if (memberErr) {
+            // PK conflict is fine — read path will pick up whatever's there.
+            // Other errors (RLS, missing column) are worth surfacing.
+            if (!/duplicate key|unique/i.test(memberErr.message)) {
+                log.warn('boat_members insert failed:', memberErr.message);
+                this.lastError = `Couldn't register you as crew: ${memberErr.message}`;
+            }
+        }
         // Ignore PK-conflict errors (boat_member already exists for some
         // reason) — the read path will pick up whatever's there.
 
@@ -168,14 +186,22 @@ class VoyageLogServiceClass {
      * unauthenticated.
      */
     async ensureEnabled(): Promise<VoyageLogConfig | null> {
-        if (!supabase) return null;
+        this.lastError = null;
+        if (!supabase) {
+            this.lastError = 'Offline — Supabase client unavailable.';
+            return null;
+        }
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData.user?.id;
-        if (!userId) return null;
+        if (!userId) {
+            this.lastError = 'You need to sign in before setting up Voyage Log.';
+            return null;
+        }
 
         const boatId = await this.getOrCreateOwnedBoat(userId);
         if (!boatId) {
             log.warn('ensureEnabled: could not get or create boat');
+            if (!this.lastError) this.lastError = 'Could not get or create your boat record.';
             return null;
         }
 
@@ -193,6 +219,7 @@ class VoyageLogServiceClass {
 
         if (error) {
             log.warn('ensureEnabled insert failed:', error.message);
+            this.lastError = `Couldn't create Voyage Log config: ${error.message}`;
             return null;
         }
         return data as VoyageLogConfig;
@@ -200,6 +227,7 @@ class VoyageLogServiceClass {
 
     /** Flip the master switch on the combined config. Returns the updated config, or null on failure. */
     async setEnabled(enabled: boolean): Promise<VoyageLogConfig | null> {
+        this.lastError = null;
         if (!supabase) return null;
         const { data: userData } = await supabase.auth.getUser();
         const userId = userData.user?.id;
@@ -218,6 +246,7 @@ class VoyageLogServiceClass {
 
         if (error) {
             log.warn('setEnabled failed:', error.message);
+            this.lastError = `Couldn't update Voyage Log: ${error.message}`;
             return null;
         }
         return data as VoyageLogConfig;
