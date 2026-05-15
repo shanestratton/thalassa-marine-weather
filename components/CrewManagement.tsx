@@ -631,26 +631,74 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            <PageHeader
-                title="Passage Planning"
-                onBack={onBack}
-                action={
-                    <button
-                        aria-label="Invite crew member"
-                        onClick={() => {
-                            setShowInviteModal(true);
-                            setInviteError(null);
-                            setInviteSuccess(false);
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-sky-600 hover:bg-sky-500 transition-colors"
-                    >
-                        + Invite Crew
-                    </button>
-                }
-            />
+            <PageHeader title="Passage Planning" onBack={onBack} />
+            {/* The "+ Invite Crew" action lives inside the My Crew section
+                header below — it was crowding the page title in the
+                PageHeader's action slot. */}
 
             {/* Content */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-24" style={{ WebkitOverflowScrolling: 'touch' }}>
+                {/* ── CREW ROSTER — pinned to the top so My Crew is the
+                    first thing the skipper sees when opening this page.
+                    The "+ Invite Crew" button lives inside the section
+                    header (passed via onInviteClick) so it doesn't fight
+                    the page title for space. */}
+                <CrewRoster
+                    visibleCrew={visibleCrew}
+                    pendingInvites={pendingInvites}
+                    memberships={memberships}
+                    loading={loading}
+                    onSoftDeleteCaptain={(m) => handleSoftDelete(m, 'captain')}
+                    onSoftDeleteCrew={(m) => handleSoftDelete(m, 'crew')}
+                    onEditMember={async (m) => {
+                        setEditTarget(m);
+                        setEditRegisters([...m.shared_registers]);
+                        // Reset byline state until we know whether boat_members exists.
+                        setEditPrefix('');
+                        setEditFirstName('');
+                        setEditLastName('');
+                        setEditNickname('');
+                        setEditBoatMemberLoaded(false);
+                        // Look up the crew's boat_members row on the captain's boat.
+                        // Only valid for accepted invites (the bridge trigger creates
+                        // boat_members on status='accepted').
+                        if (supabase && m.crew_user_id && m.status === 'accepted') {
+                            const { data: authData } = await supabase.auth.getUser();
+                            const myId = authData.user?.id;
+                            if (myId) {
+                                const { data: boat } = await supabase
+                                    .from('boats')
+                                    .select('id')
+                                    .eq('owner_id', myId)
+                                    .maybeSingle();
+                                if (boat?.id) {
+                                    const { data: bm } = await supabase
+                                        .from('boat_members')
+                                        .select('prefix, first_name, last_name, nickname')
+                                        .eq('boat_id', boat.id)
+                                        .eq('user_id', m.crew_user_id)
+                                        .maybeSingle();
+                                    if (bm) {
+                                        setEditPrefix(bm.prefix ?? '');
+                                        setEditFirstName(bm.first_name ?? '');
+                                        setEditLastName(bm.last_name ?? '');
+                                        setEditNickname(bm.nickname ?? '');
+                                        setEditBoatMemberLoaded(true);
+                                    }
+                                }
+                            }
+                        }
+                    }}
+                    onAcceptInvite={handleAccept}
+                    onDeclineInvite={handleDecline}
+                    onDisbandClick={() => setShowDisbandConfirm(true)}
+                    onInviteClick={() => {
+                        setShowInviteModal(true);
+                        setInviteError(null);
+                        setInviteSuccess(false);
+                    }}
+                />
+
                 {/* ── PLAN A ROUTE — primary CTA into the standalone
                     Route Planner page. Used to be an inline accordion
                     embedding the full form, which was visually
@@ -937,57 +985,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     </div>
                 )}
 
-                {/* ── CREW ROSTER ── */}
-                <CrewRoster
-                    visibleCrew={visibleCrew}
-                    pendingInvites={pendingInvites}
-                    memberships={memberships}
-                    loading={loading}
-                    onSoftDeleteCaptain={(m) => handleSoftDelete(m, 'captain')}
-                    onSoftDeleteCrew={(m) => handleSoftDelete(m, 'crew')}
-                    onEditMember={async (m) => {
-                        setEditTarget(m);
-                        setEditRegisters([...m.shared_registers]);
-                        // Reset byline state until we know whether boat_members exists.
-                        setEditPrefix('');
-                        setEditFirstName('');
-                        setEditLastName('');
-                        setEditNickname('');
-                        setEditBoatMemberLoaded(false);
-                        // Look up the crew's boat_members row on the captain's boat.
-                        // Only valid for accepted invites (the bridge trigger creates
-                        // boat_members on status='accepted').
-                        if (supabase && m.crew_user_id && m.status === 'accepted') {
-                            const { data: authData } = await supabase.auth.getUser();
-                            const myId = authData.user?.id;
-                            if (myId) {
-                                const { data: boat } = await supabase
-                                    .from('boats')
-                                    .select('id')
-                                    .eq('owner_id', myId)
-                                    .maybeSingle();
-                                if (boat?.id) {
-                                    const { data: bm } = await supabase
-                                        .from('boat_members')
-                                        .select('prefix, first_name, last_name, nickname')
-                                        .eq('boat_id', boat.id)
-                                        .eq('user_id', m.crew_user_id)
-                                        .maybeSingle();
-                                    if (bm) {
-                                        setEditPrefix(bm.prefix ?? '');
-                                        setEditFirstName(bm.first_name ?? '');
-                                        setEditLastName(bm.last_name ?? '');
-                                        setEditNickname(bm.nickname ?? '');
-                                        setEditBoatMemberLoaded(true);
-                                    }
-                                }
-                            }
-                        }
-                    }}
-                    onAcceptInvite={handleAccept}
-                    onDeclineInvite={handleDecline}
-                    onDisbandClick={() => setShowDisbandConfirm(true)}
-                />
+                {/* CrewRoster moved to the top of the scroll content. */}
 
                 {/* ── READINESS CARDS ── */}
                 {!loading && (

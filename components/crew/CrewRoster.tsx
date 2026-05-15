@@ -22,6 +22,10 @@ interface CrewRosterProps {
     onAcceptInvite: (invite: CrewMember) => void;
     onDeclineInvite: (invite: CrewMember) => void;
     onDisbandClick: () => void;
+    /** Opens the captain's invite-crew modal. Rendered inline in the
+     *  "My Crew" section header so the action lives with the list it
+     *  affects, rather than competing with the page title. */
+    onInviteClick: () => void;
 }
 
 export const CrewRoster: React.FC<CrewRosterProps> = ({
@@ -35,6 +39,7 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
     onAcceptInvite,
     onDeclineInvite,
     onDisbandClick,
+    onInviteClick,
 }) => {
     if (loading) {
         return (
@@ -135,10 +140,18 @@ export const CrewRoster: React.FC<CrewRosterProps> = ({
                     <div className="w-1 h-4 rounded-full bg-sky-500" />
                     <span className="text-[11px] font-black text-sky-400 uppercase tracking-[0.2em]">My Crew</span>
                     {visibleCrew.length > 0 && (
-                        <span className="ml-auto px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
+                        <span className="px-2 py-0.5 bg-sky-500/20 text-sky-400 text-[11px] font-bold rounded-full">
                             {visibleCrew.length}
                         </span>
                     )}
+                    <button
+                        type="button"
+                        aria-label="Invite crew member"
+                        onClick={onInviteClick}
+                        className="ml-auto px-3 py-1.5 rounded-lg text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-500 active:scale-95 transition-all"
+                    >
+                        + Invite Crew
+                    </button>
                 </div>
 
                 {visibleCrew.length === 0 ? (
