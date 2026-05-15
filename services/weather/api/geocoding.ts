@@ -511,6 +511,13 @@ export const parseLocation = async (
 ): Promise<{ lat: number; lon: number; name: string; timezone?: string }> => {
     if (!location || typeof location !== 'string') return { lat: 0, lon: 0, name: 'Invalid Location' };
 
+    // Loud entry trace — keep at warn so it survives prod minification.
+    // We need to know what string parseLocation actually received to
+    // diagnose the "Brisbane override didn't fire" case.
+    log.warn(
+        `[geocoding] parseLocation("${location}") proximity=${proximity ? `${proximity.lat.toFixed(3)},${proximity.lon.toFixed(3)}` : 'none'}`,
+    );
+
     const searchStr = location.toLowerCase().trim();
 
     // 1. EXACT MATCH on Buoy ID or Name (Priority)
@@ -582,12 +589,16 @@ export const parseLocation = async (
             };
             const OVERRIDE_MAX_KM = 5;
 
+            log.warn(
+                `[geocoding] coord-match branch — namePrefix="${namePrefix}" cleanedPrefix="${cleanedPrefix}" embedded=${lat.toFixed(4)},${lon.toFixed(4)} — checking curated + AU ports`,
+            );
+
             // a) MARINE_PORTS (hand-curated)
             const curated = findCuratedPort(cleanedPrefix);
             if (curated) {
                 const d = kmBetween(lat, lon, curated.lat, curated.lon);
                 if (d < OVERRIDE_MAX_KM) {
-                    log.info(
+                    log.warn(
                         `[geocoding] embedded coords overridden by curated port "${curated.canonicalName}" (was ${d.toFixed(1)} km off)`,
                     );
                     return { lat: curated.lat, lon: curated.lon, name: curated.canonicalName };
@@ -601,19 +612,27 @@ export const parseLocation = async (
                 if (aussiePort) {
                     const d = kmBetween(lat, lon, aussiePort.lat, aussiePort.lon);
                     if (d < OVERRIDE_MAX_KM) {
-                        log.info(
+                        log.warn(
                             `[geocoding] embedded coords overridden by Australian seaport "${aussiePort.name}" (was ${d.toFixed(1)} km off)`,
                         );
                         return { lat: aussiePort.lat, lon: aussiePort.lon, name: aussiePort.name };
                     } else {
-                        log.info(
+                        log.warn(
                             `[geocoding] kept embedded coords — name "${aussiePort.name}" matched but ${d.toFixed(1)} km away (>${OVERRIDE_MAX_KM} km), assuming intentional pick`,
                         );
                     }
+                } else {
+                    log.warn(
+                        `[geocoding] coord-match override: no Australian port matched "${cleanedPrefix}" — keeping embedded coords`,
+                    );
                 }
             } catch (e) {
                 log.warn('[geocoding] AU port lookup failed during embed-override:', e);
             }
+        } else {
+            log.warn(
+                `[geocoding] coord-match branch — namePrefix="${namePrefix}" failed looksLikePlace test (len=${namePrefix.length}, /^wp\\b/=${/^wp\b/i.test(namePrefix)}, hasLetters=${/[a-zA-Z]/.test(namePrefix)})`,
+            );
         }
 
         // OPTIMIZATION: Don't block on Reverse Geocode. Return coords immediately.
@@ -645,14 +664,12 @@ export const parseLocation = async (
         //          like marinas over admin regions like whole islands)
         //        - proximity=<userGps> (soft bias toward user)
         const cleanedQuery = sanitizeLocationQuery(location);
-        if (cleanedQuery !== location) {
-            log.info(`[geocoding] sanitised "${location}" → "${cleanedQuery}"`);
-        }
+        log.warn(`[geocoding] regular-flow — sanitised "${location}" → "${cleanedQuery}"`);
 
         // ── First-pass: curated marine ports lookup ──
         const curated = findCuratedPort(cleanedQuery);
         if (curated) {
-            log.info(`[geocoding] curated marine port: "${curated.canonicalName}"`);
+            log.warn(`[geocoding] curated marine port hit: "${curated.canonicalName}"`);
             return { lat: curated.lat, lon: curated.lon, name: curated.canonicalName };
         }
 
@@ -670,7 +687,9 @@ export const parseLocation = async (
             const { findPersonalPort } = await import('../../PersonalPortDirectory');
             const personal = findPersonalPort(cleanedQuery);
             if (personal) {
-                log.info(`[geocoding] personal port hit: "${personal.canonicalName}"`);
+                log.warn(
+                    `[geocoding] personal port hit: "${personal.canonicalName}" (${personal.lat},${personal.lon})`,
+                );
                 return {
                     lat: personal.lat,
                     lon: personal.lon,
@@ -694,7 +713,7 @@ export const parseLocation = async (
             const { findAustralianPort } = await import('../../AustralianPortsService');
             const aussiePort = await findAustralianPort(cleanedQuery);
             if (aussiePort) {
-                log.info(
+                log.warn(
                     `[geocoding] Australian seaport hit: "${aussiePort.name}" (${aussiePort.lat},${aussiePort.lon})`,
                 );
                 return {
