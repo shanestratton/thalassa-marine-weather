@@ -225,7 +225,7 @@ function splitWarnings(bodyText) {
     return blocks;
 }
 
-function buildWarning(block, issueDate) {
+function buildWarning(block, issueDate, runTimestamp) {
     const parsed = parseReferenceMatch(block.match);
     if (!parsed) return null;
     const id = `${parsed.navArea}-${parsed.msgYear}/${parsed.msgNumber}`;
@@ -239,7 +239,11 @@ function buildWarning(block, issueDate) {
         status: 'A',
         issue_date: issueDate,
         authority: 'MARITIME NZ',
-        fetched_at: new Date().toISOString(),
+        // Stamped with the run's canonical timestamp so the post-upsert
+        // cleanup can use the same value as its `< cutoff` deletion
+        // threshold without race conditions between row-build-time and
+        // persist-time. See persist() for the matching cutoff.
+        fetched_at: runTimestamp,
     };
 }
 
@@ -249,7 +253,7 @@ function buildWarning(block, issueDate) {
 // row whose fetched_at didn't get touched this run — that's how a
 // withdrawn / cancelled warning disappears from the served list.
 
-async function persist(warnings) {
+async function persist(warnings, runTimestamp) {
     const supabaseUrl = process.env.SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!supabaseUrl || !serviceKey) {
@@ -259,8 +263,6 @@ async function persist(warnings) {
         auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const cutoff = new Date().toISOString();
-
     const { error: upsertError } = await client
         .from('linz_warnings')
         .upsert(warnings, { onConflict: 'id', ignoreDuplicates: false });
@@ -268,11 +270,15 @@ async function persist(warnings) {
         throw new Error(`upsert failed: ${upsertError.message}`);
     }
 
-    // Anything not refreshed this run is stale → delete.
+    // Anything with fetched_at strictly less than the run's canonical
+    // timestamp belongs to a previous run and wasn't refreshed this
+    // pass — that's a cancelled / withdrawn warning, so delete it.
+    // The strict `<` means the rows we just upserted (whose fetched_at
+    // equals runTimestamp) are safe.
     const { error: deleteError, count } = await client
         .from('linz_warnings')
         .delete({ count: 'exact' })
-        .lt('fetched_at', cutoff);
+        .lt('fetched_at', runTimestamp);
     if (deleteError) {
         throw new Error(`stale cleanup failed: ${deleteError.message}`);
     }
@@ -282,6 +288,10 @@ async function persist(warnings) {
 // ── Main ───────────────────────────────────────────────────────────────
 
 async function main() {
+    // Canonical timestamp for this run. Used as both the rows'
+    // fetched_at AND the cleanup cutoff — see persist() for why.
+    const runTimestamp = new Date().toISOString();
+
     const bodyText = await scrape();
     const issueDate = parseInforceDate(bodyText);
     console.log(`[linz-msi] page in-force timestamp: ${issueDate || '(not found)'}`);
@@ -291,7 +301,7 @@ async function main() {
     const warnings = [];
     const seen = new Set();
     for (const block of blocks) {
-        const w = buildWarning(block, issueDate);
+        const w = buildWarning(block, issueDate, runTimestamp);
         if (!w) continue;
         if (seen.has(w.id)) continue;
         seen.add(w.id);
@@ -312,7 +322,7 @@ async function main() {
         throw new Error('parsed zero warnings — selector drift or page change?');
     }
 
-    const { upserted, deleted } = await persist(warnings);
+    const { upserted, deleted } = await persist(warnings, runTimestamp);
     console.log(`[linz-msi] upserted=${upserted} deleted=${deleted}`);
 }
 
