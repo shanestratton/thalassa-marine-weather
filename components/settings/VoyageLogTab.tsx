@@ -49,6 +49,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
     const [copiedField, setCopiedField] = useState<string | null>(null);
     const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
     const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
+    const [setupError, setSetupError] = useState<string | null>(null);
 
     const loadCrewBoats = useCallback(async () => {
         if (!supabase) return;
@@ -125,8 +126,15 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
 
     const handleSetUp = useCallback(async () => {
         setBusy(true);
+        setSetupError(null);
         const c = await VoyageLogService.ensureEnabled();
         setConfig(c);
+        if (!c) {
+            // Surface the actual reason — RLS, missing table, no auth, etc.
+            // Without this the button just flashes and the punter has no
+            // idea what went wrong.
+            setSetupError(VoyageLogService.lastError ?? 'Setup failed for an unknown reason.');
+        }
         setBusy(false);
         triggerHaptic('medium');
     }, []);
@@ -307,6 +315,18 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
                         </button>
                     </Row>
                 </Section>
+                {setupError && (
+                    <div className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4">
+                        <div className="text-[10px] font-black text-red-300 uppercase tracking-[0.2em] mb-2">
+                            Setup failed
+                        </div>
+                        <div className="text-xs text-red-100 leading-relaxed font-mono break-words">{setupError}</div>
+                        <div className="text-[11px] text-red-200/70 mt-2">
+                            Screenshot this and send to Shane — it&apos;s the actual reason the database refused the
+                            write.
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
