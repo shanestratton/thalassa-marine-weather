@@ -21,13 +21,14 @@
  * are identifiers. Only the .p8 file is sensitive.
  */
 
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+import fs from 'node:fs';
+import path from 'node:path';
+import crypto from 'node:crypto';
+import os from 'node:os';
 
 // ── Apple identifiers (not secrets — checked into git) ─────────
-const TEAM_ID = 'D4TW8A23QZ';            // top-right of developer.apple.com
-const KEY_ID = 'CPLT5FAXQZ';             // 10-char ID shown after creating the Sign in with Apple key
+const TEAM_ID = 'D4TW8A23QZ'; // top-right of developer.apple.com
+const KEY_ID = 'CPLT5FAXQZ'; // 10-char ID shown after creating the Sign in with Apple key
 const CLIENT_ID = 'com.thalassa.weather'; // iOS bundle ID
 
 // ── Arg parsing ────────────────────────────────────────────────
@@ -39,7 +40,7 @@ if (!keyPath) {
     process.exit(1);
 }
 
-const resolved = path.resolve(keyPath.replace(/^~/, process.env.HOME || ''));
+const resolved = path.resolve(keyPath.replace(/^~/, os.homedir()));
 if (!fs.existsSync(resolved)) {
     console.error(`\nFile not found: ${resolved}\n`);
     process.exit(1);
@@ -71,9 +72,7 @@ const signingInput = `${b64url(header)}.${b64url(payload)}`;
 const signer = crypto.createSign('SHA256');
 signer.update(signingInput);
 signer.end();
-const signature = signer
-    .sign({ key: privateKey, dsaEncoding: 'ieee-p1363' })
-    .toString('base64url');
+const signature = signer.sign({ key: privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
 
 const jwt = `${signingInput}.${signature}`;
 
