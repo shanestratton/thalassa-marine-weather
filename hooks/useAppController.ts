@@ -51,6 +51,7 @@ export const useAppController = () => {
     const { settings, updateSettings } = useSettings();
     const { setPage, isOffline, currentView } = useUI();
     const authedUser = useAuthStore((s) => s.user);
+    const authChecked = useAuthStore((s) => s.authChecked);
 
     const [query, setQuery] = useState('');
     const [bgImage, setBgImage] = useState(DEFAULT_BACKGROUNDS.default);
@@ -84,10 +85,20 @@ export const useAppController = () => {
         let cancelled = false;
 
         (async () => {
+            // Auth still resolving on cold boot — wait. Setting
+            // showOnboarding(true) prematurely here causes a race
+            // where the wizard pops up before the cloud boats check
+            // can decide "no, you have a boat, skip it" — and once
+            // the wizard is rendered, the cloud-check's no-op
+            // success path never clears it again. So we wait for
+            // authChecked to flip true before making any decision.
+            if (!authChecked) return;
+
             const flag = localStorage.getItem('thalassa_v3_onboarded');
 
             if (flag) {
                 // Fast path — flag means we've done this dance before.
+                if (!cancelled) setShowOnboarding(false);
                 if (!weatherData && !loading && settings.defaultLocation) {
                     setPage('dashboard');
                     // Pass the saved coords if we have them — prevents
@@ -104,14 +115,27 @@ export const useAppController = () => {
             // user — back-fill flag, skip onboarding.
             if (authedUser && supabase) {
                 try {
-                    const { data: boat } = await supabase
+                    const { data: boat, error } = await supabase
                         .from('boats')
                         .select('id')
                         .eq('owner_id', authedUser.id)
                         .maybeSingle();
                     if (cancelled) return;
+                    if (error) {
+                        // Don't swallow this silently — RLS, network,
+                        // or a typo in a policy will all surface here
+                        // and we want to know about it in Xcode logs.
+                        log.warn('boats cloud-check error:', error.message);
+                    }
                     if (boat?.id) {
                         localStorage.setItem('thalassa_v3_onboarded', 'true');
+                        // CRITICAL: explicitly hide the wizard. Without
+                        // this, a previous render that set showOnboarding
+                        // true (before auth resolved) leaves the wizard
+                        // on screen even though we now know they have a
+                        // boat. This was the "Apple sign-in but wizard
+                        // ran anyway" bug.
+                        if (!cancelled) setShowOnboarding(false);
                         if (!weatherData && !loading && settings.defaultLocation) {
                             setPage('dashboard');
                             fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
@@ -123,7 +147,10 @@ export const useAppController = () => {
                 }
             }
 
-            // Genuinely new account (or offline + no flag). Show onboarding.
+            // Genuinely new account (or offline + no flag). Show
+            // onboarding. We only get here after authChecked=true,
+            // so we know auth has resolved and we're making an
+            // informed decision.
             if (!cancelled) setShowOnboarding(true);
         })();
 
@@ -131,7 +158,7 @@ export const useAppController = () => {
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settings.defaultLocation, authedUser]);
+    }, [settings.defaultLocation, authedUser, authChecked]);
 
     // 1b. GPS Auto-Locate — update weather ONLY if the current weather is the
     // user's home port AND they've moved away from it. If the cached weather
