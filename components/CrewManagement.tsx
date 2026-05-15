@@ -194,14 +194,46 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // Planning panel state
     const [planDeparture, setPlanDeparture] = useState('');
 
-    // Auth check
+    // Auth check — read once from the cached session (sync-ish, no
+    // round-trip) AND subscribe to onAuthStateChange so we react to a
+    // sign-in / sign-out that happened on another screen. Previous
+    // version used `getUser()` (a network round-trip) and skipped the
+    // subscription, so:
+    //   1. On every navigation back to this page, the initial render
+    //      saw isAuthed=false (default), painting the "Sign In Required"
+    //      empty state for a few hundred ms before the await resolved.
+    //   2. If you signed in via the Settings page while this component
+    //      was already mounted (rare but possible), it never noticed.
+    //
+    // The `authChecked` gate suppresses the sign-in prompt until we've
+    // actually finished checking, so users with a valid session never
+    // see the prompt flash.
     const [_userEmail, setUserEmail] = useState<string | null>(null);
+    const [authChecked, setAuthChecked] = useState(false);
     useEffect(() => {
-        if (!supabase) return;
-        supabase.auth.getUser().then(({ data }) => {
-            setIsAuthed(!!data.user);
-            setUserEmail(data.user?.email || null);
+        if (!supabase) {
+            setAuthChecked(true);
+            return;
+        }
+        let cancelled = false;
+        void supabase.auth.getSession().then(({ data }) => {
+            if (cancelled) return;
+            setIsAuthed(!!data.session?.user);
+            setUserEmail(data.session?.user?.email ?? null);
+            setAuthChecked(true);
         });
+        const {
+            data: { subscription },
+        } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (cancelled) return;
+            setIsAuthed(!!session?.user);
+            setUserEmail(session?.user?.email ?? null);
+            setAuthChecked(true);
+        });
+        return () => {
+            cancelled = true;
+            subscription.unsubscribe();
+        };
     }, []);
 
     // Load data
@@ -592,6 +624,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         const declinedAge = Date.now() - new Date(m.updated_at).getTime();
         return declinedAge < 7 * 24 * 60 * 60 * 1000;
     });
+
+    // ── Auth check in flight ──
+    // Don't paint anything until we've actually checked the session.
+    // Otherwise the (default-false) isAuthed would flash the "Sign In
+    // Required" empty state every time the page mounts, even for
+    // already-signed-in users.
+    if (!authChecked) {
+        return (
+            <div className={`h-full ${t.colors.bg.base} flex flex-col`}>
+                <PageHeader title="Passage Planning" onBack={onBack} />
+                <div className="flex-1" />
+            </div>
+        );
+    }
 
     // ── Not authenticated ──
     if (!isAuthed) {
