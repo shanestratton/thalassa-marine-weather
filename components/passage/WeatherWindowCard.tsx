@@ -15,6 +15,7 @@ import {
 } from '../../services/WeatherWindowService';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
+import { useSingleCheckSync } from '../../hooks/useReadinessSync';
 
 interface WeatherWindowCardProps {
     voyageId?: string;
@@ -91,11 +92,25 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
     const [result, setResult] = useState<WeatherWindowResult | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // Acceptance is voyage-scoped (different routes have different
+    // departure windows, so the skipper accepts one per voyage). Original
+    // storage was a single { voyageId, index } object — accepting voyage
+    // B silently un-accepted voyage A. Same bug pattern that bit
+    // OceanCurrentsCard until commit b34c2c7. Storing as
+    // Record<voyageId, index> here, with the legacy single-object shape
+    // honoured for back-compat.
     const [acceptedIndex, setAcceptedIndex] = useState<number | null>(() => {
+        if (!voyageId) return null;
         try {
             const stored = localStorage.getItem(STORAGE_KEY);
             if (stored) {
                 const data = JSON.parse(stored);
+                // New map format: { [voyageId]: index }
+                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
+                    const v = data[voyageId];
+                    return typeof v === 'number' ? v : null;
+                }
+                // Legacy single-object format: { voyageId, index }
                 if (data.voyageId === voyageId) return data.index;
             }
         } catch {
@@ -122,6 +137,78 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
         courseBearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
     }
+
+    // Re-read acceptance when voyageId changes (e.g. switching active
+    // passage). useState initialiser only runs once on mount; without this,
+    // switching to a voyage that's already been accepted shows red.
+    useEffect(() => {
+        if (!voyageId) {
+            setAcceptedIndex(null);
+            return;
+        }
+        try {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const data = JSON.parse(stored);
+                if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
+                    const v = data[voyageId];
+                    setAcceptedIndex(typeof v === 'number' ? v : null);
+                    return;
+                }
+                if (data.voyageId === voyageId) {
+                    setAcceptedIndex(typeof data.index === 'number' ? data.index : null);
+                    return;
+                }
+            }
+        } catch {
+            /* ignore */
+        }
+        setAcceptedIndex(null);
+    }, [voyageId]);
+
+    // Supabase sync — acceptance is per-voyage so this is a single-check
+    // sync (one row per voyage). On voyageId change, load from server and
+    // mark accepted if the server says so. Without this, accepting on
+    // iPhone wouldn't show on iPad and vice versa.
+    const { syncSingleCheck, loadSingleCheck } = useSingleCheckSync(voyageId, 'weather_window', 'accepted');
+    useEffect(() => {
+        if (!voyageId) return;
+        let cancelled = false;
+        void loadSingleCheck().then(async () => {
+            if (cancelled) return;
+            // The single-check service returns a bool; the actual window
+            // index is in the metadata column. Fetch it directly to
+            // recover which window was accepted.
+            try {
+                const { ReadinessCheckService } = await import('../../services/ReadinessCheckService');
+                const checks = await ReadinessCheckService.loadCardChecks(voyageId, 'weather_window');
+                const acceptedCheck = checks['accepted'];
+                if (cancelled || !acceptedCheck?.checked) return;
+                const idx = (acceptedCheck.metadata as { index?: number } | undefined)?.index;
+                if (typeof idx !== 'number') return;
+                setAcceptedIndex(idx);
+                // Mirror into localStorage so a future offline session
+                // sees the server-confirmed state without a round-trip.
+                try {
+                    const stored = localStorage.getItem(STORAGE_KEY);
+                    const map: Record<string, number> =
+                        stored && typeof JSON.parse(stored) === 'object' && !('voyageId' in JSON.parse(stored))
+                            ? JSON.parse(stored)
+                            : {};
+                    map[voyageId] = idx;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+                } catch {
+                    /* ignore */
+                }
+            } catch {
+                /* offline / no Supabase — localStorage path already
+                   populated by the useState initialiser. */
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [voyageId, loadSingleCheck]);
 
     // Notify parent
     useEffect(() => {
@@ -153,10 +240,30 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
         (index: number) => {
             setAcceptedIndex(index);
             triggerHaptic('medium');
-            try {
-                localStorage.setItem(STORAGE_KEY, JSON.stringify({ voyageId, index }));
-            } catch {
-                /* ignore */
+            if (voyageId) {
+                try {
+                    // Read existing map (or migrate from legacy
+                    // single-voyage shape), set this voyage's index,
+                    // write back.
+                    const stored = localStorage.getItem(STORAGE_KEY);
+                    let map: Record<string, number> = {};
+                    if (stored) {
+                        const data = JSON.parse(stored);
+                        if (typeof data === 'object' && data !== null && !('voyageId' in data)) {
+                            map = data;
+                        } else if (typeof data?.voyageId === 'string' && typeof data?.index === 'number') {
+                            map = { [data.voyageId]: data.index };
+                        }
+                    }
+                    map[voyageId] = index;
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+                } catch {
+                    /* ignore */
+                }
+                // Mirror to Supabase so the acceptance follows the
+                // skipper to other devices. Index is carried in
+                // metadata; the boolean state is "accepted: true".
+                syncSingleCheck(true, { index, accepted_at: Date.now() });
             }
 
             // ── Sync the accepted window's departure time into the
@@ -238,7 +345,7 @@ export const WeatherWindowCard: React.FC<WeatherWindowCardProps> = ({
                 }
             }
         },
-        [voyageId, result, _activeVoyage],
+        [voyageId, result, _activeVoyage, syncSingleCheck],
     );
 
     // Determine windows to show.
