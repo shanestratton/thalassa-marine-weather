@@ -2,7 +2,8 @@
  * OnboardingOverlay — 3-screen first-time user walkthrough.
  * Shown once on first app open. Auto-dismissed, stored in localStorage.
  */
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useAuthStore } from '../../stores/authStore';
 
 const STORAGE_KEY = 'thalassa_onboarding_complete';
 
@@ -68,6 +69,26 @@ export const OnboardingOverlay: React.FC = () => {
         }
     });
     const [current, setCurrent] = useState(0);
+
+    // Returning-user race fix: useAppController sets STORAGE_KEY in its
+    // boats-row-found path right after sign-in, but THAT effect runs
+    // after this component's useState initializer has already read
+    // localStorage as missing → visible=true → user sees the intro
+    // slides they don't need. Re-check the flag on every authStore
+    // change with a short delay, to give the useAppController side
+    // time to set it.
+    const authedUser = useAuthStore((s) => s.user);
+    useEffect(() => {
+        if (!authedUser) return;
+        const t = setTimeout(() => {
+            try {
+                if (localStorage.getItem(STORAGE_KEY)) setVisible(false);
+            } catch {
+                /* private mode, ok */
+            }
+        }, 300);
+        return () => clearTimeout(t);
+    }, [authedUser]);
 
     const dismiss = useCallback(() => {
         try {

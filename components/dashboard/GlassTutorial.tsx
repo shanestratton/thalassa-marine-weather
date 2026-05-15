@@ -17,7 +17,8 @@
  * native web platforms (where the launch experience differs).
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
+import { useAuthStore } from '../../stores/authStore';
 
 const STORAGE_KEY = 'thalassa_glass_tutorial_seen';
 
@@ -67,6 +68,24 @@ export const GlassTutorial: React.FC = () => {
         }
     });
     const [current, setCurrent] = useState(0);
+
+    // Returning-user race fix (mirrors OnboardingOverlay): useApp
+    // Controller sets STORAGE_KEY in the boats-row-found path after
+    // sign-in, but that happens after our useState initializer has
+    // already read localStorage. Re-check after auth lands so we
+    // don't show the gesture tutorial to returning users.
+    const authedUser = useAuthStore((s) => s.user);
+    useEffect(() => {
+        if (!authedUser) return;
+        const t = setTimeout(() => {
+            try {
+                if (localStorage.getItem(STORAGE_KEY)) setVisible(false);
+            } catch {
+                /* ok */
+            }
+        }, 300);
+        return () => clearTimeout(t);
+    }, [authedUser]);
 
     const dismiss = useCallback(() => {
         try {

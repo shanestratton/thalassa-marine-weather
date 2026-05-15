@@ -169,7 +169,18 @@ export const useAppController = () => {
                             /* permission denied or timeout — ok, weather
                                will fall back to its saved location */
                         });
-                        if (!weatherData && !loading && settings.defaultLocation) {
+                        // Drop the !loading guard. On first launch after
+                        // a fresh install + sign-in, the orchestrator's
+                        // init has already run and set loading=false
+                        // (no defaultLocation yet at that point). By the
+                        // time this effect re-fires with the cloud-
+                        // restored defaultLocation, loading might be
+                        // true or false depending on the race — and the
+                        // !loading guard occasionally blocked the
+                        // refetch. The orchestrator's internal
+                        // isFetching guard prevents duplicate concurrent
+                        // calls, so dropping !loading here is safe.
+                        if (!weatherData && settings.defaultLocation) {
                             setPage('dashboard');
                             fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
                         }
