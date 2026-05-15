@@ -27,13 +27,18 @@
 
 import { chromium } from 'playwright';
 import { createClient } from '@supabase/supabase-js';
+import { writeFile, mkdir } from 'node:fs/promises';
 
 const LINZ_URL = 'https://www.maritimenz.govt.nz/navigational-warnings/';
 
-// Cloudflare's challenge usually clears within ~5 seconds. 30s is the
-// upper bound; if we haven't seen the warnings DOM by then something
-// genuinely changed (selector drift, layout rewrite, CF tightened).
-const CHALLENGE_TIMEOUT_MS = 30_000;
+// Cloudflare's challenge usually clears within ~5 seconds. 60s upper
+// bound accounts for occasional CF tightening + the CMS rendering the
+// warning list via async XHR after domcontentloaded fires.
+const CHALLENGE_TIMEOUT_MS = 60_000;
+
+// On failure, dump page state here so the GH Actions step can upload
+// it as an artifact for diagnosis (screenshot + raw HTML + body text).
+const DEBUG_DIR = '/tmp/linz-debug';
 
 // ── Date / reference parsing ───────────────────────────────────────────
 //
@@ -122,6 +127,22 @@ function parseReference(ref) {
 // treated as the start of a warning, and the surrounding text block is
 // the body. Date is picked up from a sibling element when present.
 
+async function dumpDebug(page, label) {
+    try {
+        await mkdir(DEBUG_DIR, { recursive: true });
+        await page.screenshot({ path: `${DEBUG_DIR}/${label}.png`, fullPage: true }).catch(() => {});
+        const html = await page.content().catch(() => '');
+        await writeFile(`${DEBUG_DIR}/${label}.html`, html);
+        const bodyText = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+        await writeFile(`${DEBUG_DIR}/${label}.txt`, bodyText);
+        const url = page.url();
+        await writeFile(`${DEBUG_DIR}/${label}.url.txt`, url);
+        console.log(`[linz-msi] dumped page state to ${DEBUG_DIR}/${label}.* (final url: ${url})`);
+    } catch (e) {
+        console.warn(`[linz-msi] debug dump failed: ${e.message}`);
+    }
+}
+
 async function scrape() {
     const browser = await chromium.launch({
         // GitHub-hosted runners ship with the necessary deps; locally
@@ -129,6 +150,7 @@ async function scrape() {
         headless: true,
         args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
     });
+    let page;
     try {
         const ctx = await browser.newContext({
             userAgent:
@@ -137,7 +159,7 @@ async function scrape() {
             locale: 'en-NZ',
             timezoneId: 'Pacific/Auckland',
         });
-        const page = await ctx.newPage();
+        page = await ctx.newPage();
 
         // Block heavy assets — the warnings page is text-only data;
         // images / fonts / videos just slow the run down.
@@ -150,22 +172,40 @@ async function scrape() {
         });
 
         console.log(`[linz-msi] navigating to ${LINZ_URL}`);
-        await page.goto(LINZ_URL, { waitUntil: 'domcontentloaded', timeout: CHALLENGE_TIMEOUT_MS });
+        // networkidle waits until there's been ≤ 2 concurrent requests
+        // for 500ms — this catches CMS-rendered pages that hydrate
+        // warnings via XHR after domcontentloaded.
+        await page.goto(LINZ_URL, { waitUntil: 'networkidle', timeout: CHALLENGE_TIMEOUT_MS });
 
-        // Cloudflare interstitial may inject before the real DOM
-        // resolves. Wait for the actual warnings content to appear —
-        // we look for any text matching the reference pattern.
-        await page.waitForFunction(
-            () => /NAVAREA\s+XIV\s+\d+\/\d+|NZ\s+COASTAL\s+\d+\/\d+/i.test(document.body.innerText),
-            null,
-            { timeout: CHALLENGE_TIMEOUT_MS },
-        );
+        // After network is idle, scan the body for any warning-like
+        // reference. We're forgiving on format — Maritime NZ uses
+        // several patterns (NAVAREA XIV, NZ COASTAL, sometimes just
+        // "warning NNN/YY") so accept anything that looks like a ref
+        // number alongside the word "warning" or "navarea" or "coastal".
+        const FOUND_RE =
+            /(NAVAREA\s+XIV|NZ\s+COASTAL|NAVAREA\s+I|coastal\s+warning|navigational\s+warning)\s*[#:]?\s*\d+/i;
+        await page
+            .waitForFunction((re) => new RegExp(re, 'i').test(document.body.innerText), FOUND_RE.source, {
+                timeout: CHALLENGE_TIMEOUT_MS,
+            })
+            .catch(async (err) => {
+                await dumpDebug(page, 'waitfn-timeout');
+                throw err;
+            });
+
+        // Always snapshot a "success" dump too — useful when parsing
+        // returns zero warnings, we can inspect what the page looked
+        // like at that point and adjust the parser regex.
+        await dumpDebug(page, 'success');
 
         // Pull the whole body text — easier than chasing CMS selectors
         // that drift. We split it into warning blocks downstream using
         // the reference headers as anchors.
         const bodyText = await page.evaluate(() => document.body.innerText);
         return bodyText;
+    } catch (err) {
+        if (page) await dumpDebug(page, 'final-error');
+        throw err;
     } finally {
         await browser.close();
     }
