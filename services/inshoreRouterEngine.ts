@@ -254,6 +254,112 @@ function geometryBbox(geom: Polygon | MultiPolygon): [number, number, number, nu
     return [minLon, minLat, maxLon, maxLat];
 }
 
+/**
+ * Scanline polygon rasterizer — visit every grid cell strictly inside
+ * a Polygon or MultiPolygon, calling `callback(x, y)` per cell.
+ *
+ * Why this exists
+ * ───────────────
+ * Pass 1 (DEPARE) was 97% of buildNavGrid in the wild (36.88 s of
+ * 38.27 s on a Newport → Brisbane route, May 2026). The previous
+ * implementation did one `pointInGeometry()` per cell × per polygon
+ * — for a 50-vertex DEPARE polygon covering a 50×50 cell range that's
+ * 125,000 ray-cast vertex ops. A scanline fill instead does ~edges
+ * per row + cells per row = ~5,000 ops on the same input. The bigger
+ * the polygon (more cells, more vertices), the bigger the win.
+ *
+ * Algorithm
+ * ─────────
+ * Classic even-odd scanline fill with hole support:
+ *   1. For each scanline row y, sweep ALL ring edges (outer + holes)
+ *      and collect x-coordinates where the edge crosses lat(y).
+ *   2. Sort the crossings ascending. Even-odd parity — between
+ *      [0,1], [2,3], [4,5]… is inside; in between is outside.
+ *   3. For each "inside" range, snap to cell columns and call the
+ *      visitor for each cell whose centre falls inside.
+ *
+ * Holes work naturally with parity: a hole edge contributes a
+ * crossing that flips the inside flag back to outside for that span.
+ *
+ * Vertex-exactly-on-scanline handling is the strict-greater test
+ * `(yi > lat) !== (yj > lat)` — same convention as the existing
+ * pointInRing, so the two paths agree on edge cases (cells whose
+ * centre lies on a polygon boundary).
+ *
+ * Cost vs old per-cell pointInGeometry:
+ *   • E vertices, R rows, W cells/row, polygon covers ~R×W cells
+ *   • Old: R × W × E ray-cast vertex ops
+ *   • New: R × E (edge scan) + R × W (fill) ≈ R × (E + W)
+ *   • Speedup ≈ W × E / (E + W). For W=E=50: 25×.
+ */
+function rasterizePolygonCells(
+    grid: { width: number; height: number; minLon: number; minLat: number; dLon: number; dLat: number },
+    geom: Polygon | MultiPolygon,
+    callback: (x: number, y: number) => void,
+): void {
+    const polygons: Position[][][] = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    const { width, height, minLon, minLat, dLon, dLat } = grid;
+
+    for (const poly of polygons) {
+        // Per-polygon row range from the outer ring's lat extent.
+        // Inner rings (holes) live entirely inside the outer, so they
+        // can't extend the row range.
+        const outer = poly[0];
+        let minLatPoly = Infinity;
+        let maxLatPoly = -Infinity;
+        for (let i = 0; i < outer.length; i++) {
+            const lat = outer[i][1];
+            if (lat < minLatPoly) minLatPoly = lat;
+            if (lat > maxLatPoly) maxLatPoly = lat;
+        }
+        const y0 = Math.max(0, Math.floor((minLatPoly - minLat) / dLat));
+        const y1 = Math.min(height - 1, Math.ceil((maxLatPoly - minLat) / dLat));
+        if (y1 < y0) continue;
+
+        // Reuse one scratch array per polygon to avoid per-row GC churn.
+        const crossings: number[] = [];
+
+        for (let y = y0; y <= y1; y++) {
+            const lat = minLat + (y + 0.5) * dLat;
+            crossings.length = 0;
+
+            // Collect crossings from outer + holes alike. Even-odd
+            // parity below handles hole subtraction without needing
+            // an explicit "skip" pass.
+            for (const ring of poly) {
+                for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                    const yi = ring[i][1];
+                    const yj = ring[j][1];
+                    if (yi > lat !== yj > lat) {
+                        const xi = ring[i][0];
+                        const xj = ring[j][0];
+                        const x = ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+                        crossings.push(x);
+                    }
+                }
+            }
+            if (crossings.length < 2) continue;
+            crossings.sort((a, b) => a - b);
+
+            // Pair-fill: [0..1], [2..3], … are inside spans (even-odd).
+            for (let k = 0; k + 1 < crossings.length; k += 2) {
+                const lonStart = crossings[k];
+                const lonEnd = crossings[k + 1];
+                // First column whose cell-centre is ≥ lonStart, last
+                // whose centre is ≤ lonEnd. The centre-test is what
+                // matches the old per-cell pointInGeometry semantics
+                // exactly — we still classify by cell centre, just
+                // without paying the ray-cast on each one.
+                const xStart = Math.max(0, Math.ceil((lonStart - minLon) / dLon - 0.5));
+                const xEnd = Math.min(width - 1, Math.floor((lonEnd - minLon) / dLon - 0.5));
+                for (let x = xStart; x <= xEnd; x++) {
+                    callback(x, y);
+                }
+            }
+        }
+    }
+}
+
 // ── Grid ────────────────────────────────────────────────────────────
 
 /**
@@ -502,58 +608,51 @@ function buildNavGrid(
         const drval1 = props?.['DRVAL1'];
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
+        if (drval1Num == null) continue; // no depth → nothing to do
         const authoritative = isAuthoritativeDepare(props);
+        const shallow = drval1Num < draftM + safetyM;
 
-        const pBbox = geometryBbox(g);
-        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-        if (x0 > x1 || y0 > y1) continue;
+        // Scanline-rasterize the polygon and apply cell updates inside
+        // the per-cell callback. ~25× faster than the old "per cell,
+        // pointInGeometry" loop on real DEPARE shapes (50+ vertex
+        // bathymetry contours covering 50×50+ cell ranges).
+        rasterizePolygonCells(grid, g, (x, y) => {
+            const idx = y * width + x;
 
-        for (let y = y0; y <= y1; y++) {
-            const lat = minLat + (y + 0.5) * dLat;
-            for (let x = x0; x <= x1; x++) {
-                const lon = minLon + (x + 0.5) * dLon;
-                if (!pointInGeometry(lon, lat, g)) continue;
-                const idx = y * width + x;
-
-                if (drval1Num == null) {
-                    // No depth value — keep "open unknown" unless already set deeper.
-                    continue;
+            if (shallow) {
+                // Shallow water — mark CAUTION (soft-block) UNLESS an
+                // authoritative engineered-water DEPARE already
+                // claimed this cell. Coarse public bathymetry (30 m
+                // AusBathyTopo) can't resolve dredged marina basins /
+                // canals or shallow tidal approaches: it reads them
+                // at the shallow surrounding-terrain depth. CAUTION
+                // keeps the cell *navigable* (A* may route through it
+                // at a steep cost, the renderer draws it red) instead
+                // of hard-BLOCKED — so canal estates and shallow
+                // approaches route end-to-end with an honest "verify
+                // depth" flag rather than the route snapping
+                // kilometres to the nearest surveyed-deep water.
+                // protectedCells guard keeps the outcome order-
+                // independent: once authoritative water claims a
+                // cell, no shallow band downgrades it.
+                if (protectedCells[idx] !== 1) {
+                    cells[idx] = CAUTION;
                 }
-                if (drval1Num < draftM + safetyM) {
-                    // Shallow water — mark CAUTION (soft-block) UNLESS an
-                    // authoritative engineered-water DEPARE already
-                    // claimed this cell. Coarse public bathymetry (30 m
-                    // AusBathyTopo) can't resolve dredged marina basins /
-                    // canals or shallow tidal approaches: it reads them
-                    // at the shallow surrounding-terrain depth. CAUTION
-                    // keeps the cell *navigable* (A* may route through it
-                    // at a steep cost, the renderer draws it red) instead
-                    // of hard-BLOCKED — so canal estates and shallow
-                    // approaches route end-to-end with an honest "verify
-                    // depth" flag rather than the route snapping
-                    // kilometres to the nearest surveyed-deep water.
-                    // protectedCells guard keeps the outcome order-
-                    // independent: once authoritative water claims a
-                    // cell, no shallow band downgrades it.
-                    if (protectedCells[idx] !== 1) {
-                        cells[idx] = CAUTION;
-                    }
-                } else {
-                    // Deep enough for this vessel.
-                    const prior = cells[idx];
-                    if (Number.isNaN(prior)) {
-                        // Cell hard-blocked by an earlier pass — only an
-                        // authoritative DEPARE un-blocks it.
-                        if (authoritative) cells[idx] = drval1Num;
-                    } else if (prior === UNKNOWN_OPEN || prior === CAUTION || drval1Num < prior) {
-                        // Upgrade an unknown / caution cell to real depth,
-                        // or track the shallowest known real depth.
-                        cells[idx] = drval1Num;
-                    }
-                    if (authoritative) protectedCells[idx] = 1;
+            } else {
+                // Deep enough for this vessel.
+                const prior = cells[idx];
+                if (Number.isNaN(prior)) {
+                    // Cell hard-blocked by an earlier pass — only an
+                    // authoritative DEPARE un-blocks it.
+                    if (authoritative) cells[idx] = drval1Num;
+                } else if (prior === UNKNOWN_OPEN || prior === CAUTION || drval1Num < prior) {
+                    // Upgrade an unknown / caution cell to real depth,
+                    // or track the shallowest known real depth.
+                    cells[idx] = drval1Num;
                 }
+                if (authoritative) protectedCells[idx] = 1;
             }
-        }
+        });
     }
 
     markPass('pass1-DEPARE', tPassDepare, depare.length);
@@ -583,23 +682,13 @@ function buildNavGrid(
     for (const f of lndare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
-        const pBbox = geometryBbox(g);
-        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-        if (x0 > x1 || y0 > y1) continue;
-
-        for (let y = y0; y <= y1; y++) {
-            const lat = minLat + (y + 0.5) * dLat;
-            for (let x = x0; x <= x1; x++) {
-                const lon = minLon + (x + 0.5) * dLon;
-                if (pointInGeometry(lon, lat, g)) {
-                    const idx = y * width + x;
-                    if (!protectedCells[idx]) {
-                        cells[idx] = BLOCKED;
-                        hardBlocked[idx] = 1;
-                    }
-                }
+        rasterizePolygonCells(grid, g, (x, y) => {
+            const idx = y * width + x;
+            if (!protectedCells[idx]) {
+                cells[idx] = BLOCKED;
+                hardBlocked[idx] = 1;
             }
-        }
+        });
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
@@ -632,19 +721,11 @@ function buildNavGrid(
             blockPointBuffer(lat, lon);
         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
             // For polygon obstructions, treat the polygon area itself as blocked.
-            const g = f.geometry as Polygon | MultiPolygon;
-            const pBbox = geometryBbox(g);
-            const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-            for (let y = y0; y <= y1; y++) {
-                const lat = minLat + (y + 0.5) * dLat;
-                for (let x = x0; x <= x1; x++) {
-                    const lon = minLon + (x + 0.5) * dLon;
-                    if (pointInGeometry(lon, lat, g)) {
-                        cells[y * width + x] = BLOCKED;
-                        hardBlocked[y * width + x] = 1;
-                    }
-                }
-            }
+            rasterizePolygonCells(grid, f.geometry as Polygon | MultiPolygon, (x, y) => {
+                const idx = y * width + x;
+                cells[idx] = BLOCKED;
+                hardBlocked[idx] = 1;
+            });
         }
     };
 
@@ -667,38 +748,28 @@ function buildNavGrid(
     const markChannelPreference = (f: Feature): void => {
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
         const g = f.geometry as Polygon | MultiPolygon;
-        const pBbox = geometryBbox(g);
-        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-        if (x0 > x1 || y0 > y1) return;
-        for (let y = y0; y <= y1; y++) {
-            const lat = minLat + (y + 0.5) * dLat;
-            for (let x = x0; x <= x1; x++) {
-                const lon = minLon + (x + 0.5) * dLon;
-                if (pointInGeometry(lon, lat, g)) {
-                    const idx = y * width + x;
-                    preferred[idx] = 1;
-                    // Rescue: a marked fairway / dredged area is
-                    // navigable water by definition. If coarse public
-                    // bathymetry blocked this cell with a shallow
-                    // DEPARE band, un-block it — the channel markers
-                    // (placed by the harbour authority) are the
-                    // authoritative "navigable" signal, not the 30 m
-                    // raster. Never override a hard-blocked cell
-                    // (LNDARE / obstruction). (2026-05-14: Newport —
-                    // the marked exit channel was preferred-but-
-                    // blocked, so it couldn't connect the canal to
-                    // open water and the route snapped ~2 km across
-                    // the peninsula.)
-                    if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
-                        // Rescue a hard-blocked OR caution-marked cell to
-                        // real navigable depth — the marked channel is
-                        // authoritative over both a shallow bathymetry
-                        // reading and a coastline-buffer over-reach.
-                        cells[idx] = Math.max(draftM + safetyM, 5.0);
-                    }
-                }
+        const rescueDepth = Math.max(draftM + safetyM, 5.0);
+        rasterizePolygonCells(grid, g, (x, y) => {
+            const idx = y * width + x;
+            preferred[idx] = 1;
+            // Rescue: a marked fairway / dredged area is navigable
+            // water by definition. If coarse public bathymetry
+            // blocked this cell with a shallow DEPARE band, un-block
+            // it — the channel markers (placed by the harbour
+            // authority) are the authoritative "navigable" signal,
+            // not the 30 m raster. Never override a hard-blocked cell
+            // (LNDARE / obstruction). (2026-05-14: Newport — the
+            // marked exit channel was preferred-but-blocked, so it
+            // couldn't connect the canal to open water and the route
+            // snapped ~2 km across the peninsula.)
+            if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
+                // Rescue a hard-blocked OR caution-marked cell to
+                // real navigable depth — the marked channel is
+                // authoritative over both a shallow bathymetry
+                // reading and a coastline-buffer over-reach.
+                cells[idx] = rescueDepth;
             }
-        }
+        });
     };
     const tPassFairwy = Date.now();
     const fairwyFeatures = layers.FAIRWY?.features ?? [];
