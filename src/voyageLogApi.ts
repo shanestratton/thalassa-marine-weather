@@ -92,12 +92,31 @@ export interface VoyageLogDestination {
     lon: number;
 }
 
+export interface NearbyVessel {
+    mmsi: string;
+    name: string | null;
+    lat: number;
+    lon: number;
+    /** Course over ground, degrees true. */
+    cog: number | null;
+    /** Speed over ground, knots. */
+    sog: number | null;
+    heading: number | null;
+    /** Human-readable ship type (cargo / tanker / passenger / fishing / …). */
+    ship_type: string | null;
+    call_sign: string | null;
+    destination: string | null;
+    nav_status: string | null;
+    updated_at: string | null;
+}
+
 export interface VoyageLogData {
     vessel: { name: string; type: string; model: string | null };
     destination: VoyageLogDestination | null;
     entries: VoyageLogEntry[];
     track: VoyageLogTrackPoint[];
     telemetry: VoyageLogTelemetry | null;
+    nearby_vessels: NearbyVessel[];
     generated_at: string;
 }
 

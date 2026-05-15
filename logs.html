@@ -7,6 +7,22 @@
         <meta name="description" content="Live voyage log — follow the passage at sea." />
         <title>Voyage Log — Thalassa</title>
         <link rel="stylesheet" href="/index.css" />
+        <style>
+            /* AIS popup — strip Mapbox's default white shell so the dark
+               glass card inside is what shows. */
+            .voyage-log-ais-popup .mapboxgl-popup-content {
+                background: transparent;
+                padding: 0;
+                border-radius: 0;
+                box-shadow: none;
+            }
+            .voyage-log-ais-popup .mapboxgl-popup-tip {
+                border-top-color: rgb(15 23 42);
+                border-bottom-color: rgb(15 23 42);
+                border-left-color: rgb(15 23 42);
+                border-right-color: rgb(15 23 42);
+            }
+        </style>
     </head>
     <body class="bg-slate-900">
         <div id="root"></div>
