@@ -17,8 +17,29 @@ import {
     voyageLogPublicUrl,
     type VoyageLogConfig,
 } from '../../services/VoyageLogService';
+import { supabase } from '../../services/supabase';
+import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+
+// Crew-on-someone-else's-boat surface: each entry represents a boat the
+// current user is crew on (NOT the owner), plus their personal voyage-log
+// config on that boat if one exists.
+interface CrewBoatLog {
+    boatId: string;
+    boatName: string;
+    firstName: string | null;
+    config: { handle: string; enabled: boolean } | null;
+}
+
+const slugify = (s: string) =>
+    s
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/(^-|-$)/g, '');
+
+const publicUrlForHandle = (handle: string) => `https://${handle}.thalassawx.app`;
 
 export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
     const [config, setConfig] = useState<VoyageLogConfig | null>(null);
@@ -26,6 +47,56 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
     const [busy, setBusy] = useState(false);
     const [keyRevealed, setKeyRevealed] = useState(false);
     const [copiedField, setCopiedField] = useState<string | null>(null);
+    const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
+    const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
+
+    const loadCrewBoats = useCallback(async () => {
+        if (!supabase) return;
+        const { data: authData } = await supabase.auth.getUser();
+        const myId = authData.user?.id;
+        if (!myId) return;
+
+        // Boats I'm a member of where I'm not the owner.
+        const { data: memberships } = await supabase
+            .from('boat_members')
+            .select('boat_id, first_name, boats!inner(id, name, owner_id)')
+            .eq('user_id', myId);
+
+        const crewRows = (memberships ?? []).filter(
+            (m: unknown) => (m as { boats: { owner_id: string } }).boats.owner_id !== myId,
+        );
+        if (crewRows.length === 0) {
+            setCrewBoats([]);
+            return;
+        }
+
+        // My personal voyage-log configs across those boats.
+        const boatIds = crewRows.map((r: unknown) => (r as { boat_id: string }).boat_id);
+        const { data: configs } = await supabase
+            .from('voyage_log_configs')
+            .select('boat_id, handle, enabled')
+            .eq('owner_id', myId)
+            .eq('scope', 'personal')
+            .in('boat_id', boatIds);
+        const byBoat = new Map(
+            (configs ?? []).map((c: unknown) => [
+                (c as { boat_id: string }).boat_id,
+                c as { handle: string; enabled: boolean },
+            ]),
+        );
+
+        setCrewBoats(
+            crewRows.map((m: unknown) => {
+                const row = m as { boat_id: string; first_name: string | null; boats: { name: string } };
+                return {
+                    boatId: row.boat_id,
+                    boatName: row.boats.name,
+                    firstName: row.first_name,
+                    config: byBoat.get(row.boat_id) ?? null,
+                };
+            }),
+        );
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -35,10 +106,11 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
                 setLoading(false);
             }
         });
+        void loadCrewBoats();
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [loadCrewBoats]);
 
     const copy = useCallback(async (field: string, value: string) => {
         try {
@@ -67,6 +139,77 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
         triggerHaptic('light');
     }, []);
 
+    // Create a personal voyage-log for a boat I'm crew on. Picks a sensible
+    // default handle (<first>-on-<boat-slug>) and auto-suffixes on collision.
+    const handleCreateCrewLog = useCallback(
+        async (boat: CrewBoatLog) => {
+            if (!supabase) return;
+            setCrewBusyBoatId(boat.boatId);
+            const { data: authData } = await supabase.auth.getUser();
+            const myId = authData.user?.id;
+            if (!myId) {
+                setCrewBusyBoatId(null);
+                return;
+            }
+            const base = slugify(`${boat.firstName ?? 'crew'}-on-${boat.boatName}`);
+            let candidate = base;
+            let attempt = 1;
+            while (attempt < 20) {
+                const { error } = await supabase.from('voyage_log_configs').insert({
+                    owner_id: myId,
+                    boat_id: boat.boatId,
+                    handle: candidate,
+                    scope: 'personal',
+                    enabled: true,
+                });
+                if (!error) {
+                    triggerHaptic('medium');
+                    toast.success(`Live at ${candidate}.thalassawx.app`);
+                    await loadCrewBoats();
+                    setCrewBusyBoatId(null);
+                    return;
+                }
+                if (error.code !== '23505') {
+                    toast.error('Could not create personal log.');
+                    setCrewBusyBoatId(null);
+                    return;
+                }
+                attempt += 1;
+                candidate = `${base}-${attempt}`;
+            }
+            toast.error('Could not pick a unique handle — edit your name in Crew Management and retry.');
+            setCrewBusyBoatId(null);
+        },
+        [loadCrewBoats],
+    );
+
+    const handleToggleCrewLog = useCallback(
+        async (boat: CrewBoatLog, next: boolean) => {
+            if (!supabase || !boat.config) return;
+            setCrewBusyBoatId(boat.boatId);
+            const { data: authData } = await supabase.auth.getUser();
+            const myId = authData.user?.id;
+            if (!myId) {
+                setCrewBusyBoatId(null);
+                return;
+            }
+            const { error } = await supabase
+                .from('voyage_log_configs')
+                .update({ enabled: next })
+                .eq('owner_id', myId)
+                .eq('boat_id', boat.boatId)
+                .eq('scope', 'personal');
+            if (error) {
+                toast.error('Could not toggle.');
+            } else {
+                await loadCrewBoats();
+                triggerHaptic('light');
+            }
+            setCrewBusyBoatId(null);
+        },
+        [loadCrewBoats],
+    );
+
     if (loading) {
         return (
             <div className="px-4 pb-8">
@@ -74,6 +217,67 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
             </div>
         );
     }
+
+    // Per-boat crew section, re-used in both the no-own-config and have-own-
+    // config branches below.
+    const renderCrewSection = () =>
+        crewBoats.length === 0 ? null : (
+            <Section title="Boats you're crew on">
+                {crewBoats.map((boat) => {
+                    const handle = boat.config?.handle;
+                    const isBusy = crewBusyBoatId === boat.boatId;
+                    return (
+                        <React.Fragment key={boat.boatId}>
+                            <Row>
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm text-white font-bold truncate">{boat.boatName}</div>
+                                    <div className="text-xs text-gray-400 mt-1">
+                                        {handle
+                                            ? boat.config?.enabled
+                                                ? 'Your personal page on this boat is live.'
+                                                : 'Your personal page on this boat is switched off.'
+                                            : 'You can publish your own log on this boat. Diary entries you mark public will appear on the combined log too, with your byline.'}
+                                    </div>
+                                </div>
+                                {handle ? (
+                                    <Toggle
+                                        checked={!!boat.config?.enabled}
+                                        onChange={(v) => void handleToggleCrewLog(boat, v)}
+                                        label={`Toggle personal log for ${boat.boatName}`}
+                                    />
+                                ) : (
+                                    <button
+                                        onClick={() => void handleCreateCrewLog(boat)}
+                                        disabled={isBusy}
+                                        aria-label={`Create personal voyage log on ${boat.boatName}`}
+                                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider disabled:opacity-50"
+                                    >
+                                        {isBusy ? 'Creating…' : 'Create page'}
+                                    </button>
+                                )}
+                            </Row>
+                            {handle && (
+                                <Row>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="text-xs text-gray-500">Share link</div>
+                                        <div className="text-xs font-mono text-sky-300 mt-1 truncate">
+                                            {publicUrlForHandle(handle)}
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => void copy(`crew-${boat.boatId}`, publicUrlForHandle(handle))}
+                                        aria-label="Copy crew log share link"
+                                        className="shrink-0 text-xs font-bold text-sky-400 hover:text-sky-300 px-2.5 py-1 rounded border border-sky-400/40 hover:border-sky-300/60 transition-colors uppercase tracking-wider"
+                                    >
+                                        {copiedField === `crew-${boat.boatId}` ? 'Copied' : 'Copy'}
+                                    </button>
+                                </Row>
+                            )}
+                        </React.Fragment>
+                    );
+                })}
+            </Section>
+        );
 
     // ── Not set up yet ─────────────────────────────────────────────
     if (!config) {
@@ -83,10 +287,11 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
                     Your Voyage Log is a public page where the folks at home can follow your passage — your published
                     diary entries, your track on a map, and your latest position and barometer reading.
                 </p>
+                {renderCrewSection()}
                 <Section title="Get started">
                     <Row>
                         <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Set up your Voyage Log</div>
+                            <div className="text-sm text-white font-bold">Set up your own Voyage Log</div>
                             <div className="text-xs text-gray-400 mt-1">
                                 Creates your public page and a shareable link. Nothing goes public until you publish an
                                 entry — your diary stays private by default.
@@ -222,6 +427,8 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
                     </button>
                 </Row>
             </Section>
+
+            {renderCrewSection()}
         </div>
     );
 };
