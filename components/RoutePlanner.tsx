@@ -19,6 +19,7 @@ import { MapHub } from './map/MapHub';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
 import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
 import { LegPickerDropdown } from './passage/LegPickerDropdown';
+import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
@@ -266,7 +267,7 @@ export const RoutePlanner: React.FC<{
                             onFocus={handleInputFocus}
                             placeholder="Type departure port or tap map…"
                             aria-label="Departure port or location"
-                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
+                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-32 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
                         />
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                             <button
@@ -287,6 +288,7 @@ export const RoutePlanner: React.FC<{
                             >
                                 <CrosshairIcon className="w-4 h-4" />
                             </button>
+                            <SavedLocationsPicker value={origin} onPick={setOrigin} target="origin" />
                         </div>
                     </div>
 
@@ -302,9 +304,9 @@ export const RoutePlanner: React.FC<{
                             onFocus={handleInputFocus}
                             placeholder="Type destination or tap map…"
                             aria-label="Destination port or location"
-                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-14 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
+                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
                         />
-                        <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
                             <button
                                 type="button"
                                 onClick={() => openMap('destination')}
@@ -314,6 +316,7 @@ export const RoutePlanner: React.FC<{
                             >
                                 <MapIcon className="w-4 h-4" />
                             </button>
+                            <SavedLocationsPicker value={destination} onPick={setDestination} target="destination" />
                         </div>
                     </div>
 

@@ -109,6 +109,12 @@ export interface UserSettings {
      *  compatibility with older settings payloads. */
     defaultLocationCoords?: { lat: number; lon: number };
     savedLocations: string[];
+    /** Per-name coordinates for entries in `savedLocations`. Populated
+     *  when the user saved the location via the map/GPS/route planner
+     *  (which embeds exact coords); name-only entries (from text-only
+     *  favouriting) are simply absent from this map. Optional for
+     *  backwards compatibility with older settings payloads. */
+    savedLocationCoords?: Record<string, { lat: number; lon: number }>;
     vessel?: VesselProfile;
     vesselUnits?: VesselDimensionUnits;
     timeDisplay: 'location' | 'device';

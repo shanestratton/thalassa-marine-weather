@@ -1,0 +1,239 @@
+/**
+ * SavedLocationsPicker — combined save / recall affordance for the
+ * route planner's origin and destination inputs.
+ *
+ * A single ★ button next to each input opens a small popover that:
+ *   • Saves whatever's currently in the input as a favourite (adds
+ *     to settings.savedLocations + savedLocationCoords if the form
+ *     value has embedded coords).
+ *   • Lists the user's saved locations; tapping one fills the input
+ *     using the planner's "Name (lat, lon)" string format so the
+ *     routing engine uses precise coords (when known) instead of
+ *     ambiguous name-only geocoding.
+ *
+ * The popover closes on outside-click or Escape.
+ */
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { MapPinIcon, TrashIcon } from '../Icons';
+import { useSettings } from '../../context/SettingsContext';
+import {
+    buildRemoveLocationPatch,
+    buildSaveLocationPatch,
+    extractDisplayName,
+    hydrateSavedLocations,
+    toPlannerString,
+} from '../../utils/savedLocations';
+import { triggerHaptic } from '../../utils/system';
+
+interface SavedLocationsPickerProps {
+    /** Current input value (the planner's "Name (lat, lon)" format). */
+    value: string;
+    /** Setter for the input value — wired to setOrigin / setDestination. */
+    onPick: (plannerString: string) => void;
+    /** Whether this picker is for the departure or arrival side, for
+     *  the accent color + screen-reader label. */
+    target: 'origin' | 'destination';
+}
+
+export const SavedLocationsPicker: React.FC<SavedLocationsPickerProps> = ({ value, onPick, target }) => {
+    const { settings, updateSettings } = useSettings();
+    const [open, setOpen] = useState(false);
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    const savedList = useMemo(
+        () => hydrateSavedLocations(settings.savedLocations, settings.savedLocationCoords),
+        [settings.savedLocations, settings.savedLocationCoords],
+    );
+
+    // Is the current input value already in the saved list? (case-
+    // insensitive name match — coord drift doesn't count as "not saved").
+    const currentName = extractDisplayName(value);
+    const alreadySaved = useMemo(
+        () => currentName.length > 0 && savedList.some((s) => s.name.toLowerCase() === currentName.toLowerCase()),
+        [currentName, savedList],
+    );
+
+    // Close on outside-click / Escape.
+    useEffect(() => {
+        if (!open) return;
+        const handleClick = (e: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+                setOpen(false);
+            }
+        };
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setOpen(false);
+        };
+        document.addEventListener('mousedown', handleClick);
+        document.addEventListener('keydown', handleKey);
+        return () => {
+            document.removeEventListener('mousedown', handleClick);
+            document.removeEventListener('keydown', handleKey);
+        };
+    }, [open]);
+
+    const handleSaveCurrent = () => {
+        if (!currentName) return;
+        triggerHaptic('light');
+        const patch = buildSaveLocationPatch(settings.savedLocations, settings.savedLocationCoords, value);
+        if (patch) updateSettings(patch);
+        setOpen(false);
+    };
+
+    const handleUnsaveCurrent = () => {
+        if (!currentName) return;
+        triggerHaptic('light');
+        const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, currentName);
+        updateSettings(patch);
+        setOpen(false);
+    };
+
+    const handlePick = (locName: string) => {
+        const loc = savedList.find((s) => s.name === locName);
+        if (!loc) return;
+        triggerHaptic('light');
+        onPick(toPlannerString(loc));
+        setOpen(false);
+    };
+
+    const handleRemove = (locName: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        triggerHaptic('light');
+        const patch = buildRemoveLocationPatch(settings.savedLocations, settings.savedLocationCoords, locName);
+        updateSettings(patch);
+    };
+
+    const accentColor = target === 'origin' ? 'text-emerald-400' : 'text-purple-400';
+    const accentFill = target === 'origin' ? 'fill-emerald-400 text-emerald-400' : 'fill-purple-400 text-purple-400';
+
+    return (
+        <div ref={containerRef} className="relative">
+            <button
+                type="button"
+                onClick={() => {
+                    triggerHaptic('light');
+                    setOpen((v) => !v);
+                }}
+                className={`p-2 transition-colors hover:bg-white/10 rounded-lg ${
+                    alreadySaved ? accentFill : `text-gray-400 hover:${accentColor}`
+                }`}
+                title={`Save / recall ${target === 'origin' ? 'departure' : 'destination'}`}
+                aria-label={`Save or recall a saved ${target === 'origin' ? 'departure' : 'destination'} location`}
+                aria-expanded={open}
+            >
+                <StarIcon className="w-4 h-4" filled={alreadySaved} />
+            </button>
+
+            {open && (
+                <div
+                    className="absolute right-0 top-full mt-2 w-72 max-w-[calc(100vw-32px)] z-50 rounded-xl border border-white/10 bg-slate-900/95 backdrop-blur-xl shadow-2xl overflow-hidden"
+                    role="menu"
+                >
+                    {/* Save / unsave the current input value */}
+                    <div className="p-3 border-b border-white/10">
+                        {currentName ? (
+                            alreadySaved ? (
+                                <button
+                                    type="button"
+                                    onClick={handleUnsaveCurrent}
+                                    className="w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-red-500/10 transition-colors group"
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">
+                                            Already saved
+                                        </div>
+                                        <div className="text-sm font-medium text-white truncate">{currentName}</div>
+                                    </div>
+                                    <span className="text-[10px] uppercase tracking-widest font-bold text-gray-500 group-hover:text-red-400 transition-colors shrink-0">
+                                        Unsave
+                                    </span>
+                                </button>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={handleSaveCurrent}
+                                    className={`w-full flex items-center justify-between gap-2 text-left p-2 rounded-lg hover:bg-white/5 transition-colors group ${accentColor}`}
+                                >
+                                    <div className="min-w-0 flex-1">
+                                        <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold mb-0.5">
+                                            Save current
+                                        </div>
+                                        <div className="text-sm font-medium text-white truncate">{currentName}</div>
+                                    </div>
+                                    <StarIcon className="w-4 h-4 shrink-0" filled={false} />
+                                </button>
+                            )
+                        ) : (
+                            <div className="text-xs text-gray-500 italic px-1 py-2">
+                                Enter or pick a {target === 'origin' ? 'departure' : 'destination'} above to save it
+                                here.
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Saved locations list */}
+                    <div className="max-h-72 overflow-y-auto">
+                        {savedList.length === 0 ? (
+                            <div className="text-xs text-gray-500 italic p-4 text-center">
+                                No saved locations yet. Save a place from the route planner or your weather page to
+                                recall it here later.
+                            </div>
+                        ) : (
+                            <div className="py-1">
+                                <div className="text-[10px] uppercase tracking-widest text-gray-500 font-bold px-3 pt-2 pb-1">
+                                    Saved
+                                </div>
+                                {savedList.map((loc) => (
+                                    <button
+                                        type="button"
+                                        key={loc.name}
+                                        onClick={() => handlePick(loc.name)}
+                                        className="w-full flex items-center gap-2 text-left p-2 px-3 hover:bg-white/5 transition-colors group"
+                                    >
+                                        <MapPinIcon className={`w-4 h-4 shrink-0 ${accentColor}`} />
+                                        <div className="min-w-0 flex-1">
+                                            <div className="text-sm font-medium text-white truncate">{loc.name}</div>
+                                            {typeof loc.lat === 'number' && typeof loc.lon === 'number' && (
+                                                <div className="text-[10px] font-mono text-sky-300/60 mt-0.5">
+                                                    {loc.lat.toFixed(2)}°{loc.lat >= 0 ? 'N' : 'S'} ·{' '}
+                                                    {loc.lon.toFixed(2)}°{loc.lon >= 0 ? 'E' : 'W'}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => handleRemove(loc.name, e)}
+                                            className="p-1.5 rounded-md text-gray-500 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                            aria-label={`Remove ${loc.name}`}
+                                        >
+                                            <TrashIcon className="w-3.5 h-3.5" />
+                                        </button>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+// Inline star icon — matches the visual weight of the existing
+// MapIcon / CrosshairIcon in the right-edge button group. Using a
+// local SVG instead of pulling another Icons.tsx export so the
+// fill/outline switch is trivial.
+const StarIcon: React.FC<{ className?: string; filled: boolean }> = ({ className, filled }) => (
+    <svg
+        className={className}
+        viewBox="0 0 24 24"
+        fill={filled ? 'currentColor' : 'none'}
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+    >
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+);
