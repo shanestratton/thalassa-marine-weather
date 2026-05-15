@@ -84,7 +84,7 @@ const EntryDetail: React.FC<{
                     <p className="text-[11px] font-mono text-blue-400 uppercase tracking-wider">
                         {formatFullDate(entry.created_at)}
                     </p>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-base">{mood?.emoji ?? '📍'}</span>
                         {mood && (
                             <span className={`text-xs font-bold uppercase tracking-wider ${mood.color}`}>
@@ -93,6 +93,11 @@ const EntryDetail: React.FC<{
                         )}
                         {entry.location_name && (
                             <span className="text-xs text-slate-500 truncate">· {entry.location_name}</span>
+                        )}
+                        {entry.author && (
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300/90 bg-amber-400/10 border border-amber-400/20 rounded-full px-2 py-0.5">
+                                by {entry.author.display_name}
+                            </span>
                         )}
                     </div>
                 </div>
@@ -159,6 +164,11 @@ const EntryList: React.FC<{
                                     <h3 className="text-sm font-bold text-white truncate">
                                         {entry.title || 'Untitled'}
                                     </h3>
+                                    {entry.author && (
+                                        <span className="ml-auto shrink-0 text-[9px] font-bold uppercase tracking-wider text-amber-300/90 bg-amber-400/10 border border-amber-400/20 rounded-full px-1.5 py-0.5">
+                                            {entry.author.display_name}
+                                        </span>
+                                    )}
                                 </div>
                                 {entry.body && (
                                     <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{entry.body}</p>

@@ -6,32 +6,31 @@
  * the public product surface — punters point their own front-end at it,
  * and the default renderer at thalassawx.app/logs consumes the same thing.
  *
- * Public, read-only. Gated by a per-vessel publishable key (an identifier
- * for rate-limiting / revocation, not a secret — the data is public by
- * publication).
+ * Public, read-only. No API key — the data is public by publication, and
+ * revocation is the per-config `enabled` flag.
  *
- *   GET /functions/v1/voyage-log?handle=<handle>&key=<api_key>
+ *   GET /functions/v1/voyage-log?handle=<handle>
+ *
+ * Scope handling:
+ *   • scope = 'personal'  → entries from the config's owner only.
+ *   • scope = 'combined'  → entries from every member of the boat,
+ *                           each tagged with author { user_id, display_name }.
+ * Track + telemetry are always per-boat (one boat → one track).
  *
  * Response 200:
  *   {
  *     vessel:      { name, type, model },
- *     destination: { name, lat, lon } | null,   // drives DTG / ETA / progress HUD
+ *     scope:       'personal' | 'combined',
+ *     destination: { name, lat, lon } | null,
  *     entries:   [{ id, title, body, mood, photos[], location_name,
  *                   latitude, longitude, weather_summary, weather_data,
- *                   tags[], created_at }],
- *     track:     [{ lat, lon, timestamp, speed_kts, course_deg, heading_deg,
- *                   pressure, wind_speed_apparent, wind_angle_apparent,
- *                   wind_speed_true, wind_direction_true, depth_m,
- *                   air_temp, water_temp, wave_height }],
- *     telemetry: { sog, cog, heading, baro, baro_trend, aws, awa, tws, twd,
- *                   depth, air_temp, water_temp, wave_height,
- *                   lat, lon, updated_at } | null,
- *     nearby_vessels: [{ mmsi, name, lat, lon, cog, sog, heading, ship_type,
- *                         call_sign, destination, nav_status, updated_at }],
+ *                   tags[], created_at,
+ *                   author: { user_id, display_name } | null }],
+ *     track:     [...], telemetry: {...} | null, nearby_vessels: [...],
  *     generated_at: <ISO string>
  *   }
  *
- * Errors: 400 missing params · 401 bad key · 403 disabled · 404 unknown handle.
+ * Errors: 400 missing handle · 403 disabled · 404 unknown handle.
  *
  * Deploy with JWT verification OFF (public function), same as vessels-nearby.
  */
@@ -80,10 +79,9 @@ Deno.serve(async (req: Request) => {
     try {
         const url = new URL(req.url);
         const handle = (url.searchParams.get('handle') || '').trim().toLowerCase();
-        const key = (url.searchParams.get('key') || '').trim();
 
-        if (!handle || !key) {
-            return json({ error: 'handle and key are required query parameters' }, 400);
+        if (!handle) {
+            return json({ error: 'handle is required' }, 400);
         }
 
         const supabase = createClient(
@@ -91,10 +89,13 @@ Deno.serve(async (req: Request) => {
             Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
         );
 
-        // ── Resolve + authenticate the vessel ──────────────────────
+        // ── Resolve the config (boat + scope) ──────────────────────
         const { data: config, error: configErr } = await supabase
             .from('voyage_log_configs')
-            .select('owner_id, api_key, enabled, track_days, destination_name, destination_lat, destination_lon')
+            .select(
+                'owner_id, boat_id, scope, enabled, track_days, ' +
+                    'destination_name, destination_lat, destination_lon',
+            )
             .eq('handle', handle)
             .maybeSingle();
 
@@ -105,44 +106,65 @@ Deno.serve(async (req: Request) => {
         if (!config) {
             return json({ error: 'Unknown voyage log handle' }, 404);
         }
-        if (config.api_key !== key) {
-            return json({ error: 'Invalid API key' }, 401);
-        }
         if (!config.enabled) {
             return json({ error: 'This voyage log is not currently public' }, 403);
         }
 
         const ownerId = config.owner_id as string;
+        const boatId = config.boat_id as string | null;
+        const scope = (config.scope as 'personal' | 'combined') ?? 'personal';
         const trackDays = (config.track_days as number) ?? 30;
         const trackSince = new Date(Date.now() - trackDays * 86400_000).toISOString();
 
-        // ── Fetch vessel identity, published entries, track ────────
+        // Combined scope → which users feed this log? (boat crew, with bylines)
+        let combinedAuthors: Map<string, string> | null = null;
+        if (scope === 'combined' && boatId) {
+            const { data: members } = await supabase
+                .from('boat_members')
+                .select('user_id, display_name')
+                .eq('boat_id', boatId);
+            combinedAuthors = new Map(
+                (members ?? []).map((m) => [m.user_id as string, (m.display_name as string) || 'Crew']),
+            );
+        }
+
+        // ── Build the entries query — personal = owner only, combined = all members ─
+        const entryUserIds: string[] =
+            scope === 'combined' && combinedAuthors ? Array.from(combinedAuthors.keys()) : [ownerId];
+
+        // ── Fetch vessel info, entries, track ──────────────────────
+        // Track keyed by boat_id when present; falls back to user_id for
+        // pre-migration rows where boat_id isn't backfilled yet.
+        const trackQuery = supabase
+            .from('ship_log')
+            .select(
+                'latitude, longitude, timestamp, speed_kts, course_deg, heading_deg, pressure, ' +
+                    'wind_speed_apparent, wind_angle_apparent, wind_speed_true, wind_direction_true, ' +
+                    'depth_m, air_temp, water_temp, wave_height',
+            )
+            .gte('timestamp', trackSince)
+            .order('timestamp', { ascending: true })
+            .limit(MAX_TRACK_POINTS);
+
         const [vesselRes, entriesRes, trackRes] = await Promise.all([
-            supabase
-                .from('vessel_identity')
-                .select('vessel_name, vessel_type, model')
-                .eq('owner_id', ownerId)
-                .maybeSingle(),
+            boatId
+                ? supabase.from('boats').select('name, vessel_type, model').eq('id', boatId).maybeSingle()
+                : supabase
+                      .from('vessel_identity')
+                      .select('vessel_name, vessel_type, model')
+                      .eq('owner_id', ownerId)
+                      .maybeSingle(),
             supabase
                 .from('diary_entries')
                 .select(
-                    'id, title, body, mood, photos, location_name, latitude, longitude, weather_summary, weather_data, tags, created_at',
+                    'id, user_id, title, body, mood, photos, location_name, latitude, longitude, ' +
+                        'weather_summary, weather_data, tags, created_at',
                 )
-                .eq('user_id', ownerId)
+                .in('user_id', entryUserIds)
                 .eq('is_public', true)
                 .order('created_at', { ascending: false })
                 .limit(MAX_ENTRIES),
-            supabase
-                .from('ship_log')
-                .select(
-                    'latitude, longitude, timestamp, speed_kts, course_deg, heading_deg, pressure, ' +
-                        'wind_speed_apparent, wind_angle_apparent, wind_speed_true, wind_direction_true, ' +
-                        'depth_m, air_temp, water_temp, wave_height',
-                )
-                .eq('user_id', ownerId)
-                .gte('timestamp', trackSince)
-                .order('timestamp', { ascending: true })
-                .limit(MAX_TRACK_POINTS),
+            boatId ? trackQuery.eq('boat_id', boatId) : trackQuery.eq('user_id', ownerId),
         ]);
 
         if (vesselRes.error || entriesRes.error || trackRes.error) {
@@ -154,10 +176,13 @@ Deno.serve(async (req: Request) => {
             return json({ error: 'Internal server error' }, 500);
         }
 
+        // boats has columns (name, vessel_type, model); vessel_identity has
+        // (vessel_name, vessel_type, model). Normalise to the same shape.
+        const vData = vesselRes.data as Record<string, unknown> | null;
         const vessel = {
-            name: vesselRes.data?.vessel_name ?? 'Unnamed Vessel',
-            type: vesselRes.data?.vessel_type ?? 'sail',
-            model: vesselRes.data?.model ?? null,
+            name: (vData?.name as string) ?? (vData?.vessel_name as string) ?? 'Unnamed Vessel',
+            type: (vData?.vessel_type as string) ?? 'sail',
+            model: (vData?.model as string) ?? null,
         };
 
         // Destination — null if the skipper hasn't set one. Drives the
@@ -184,6 +209,12 @@ Deno.serve(async (req: Request) => {
             weather_data: e.weather_data ?? null,
             tags: Array.isArray(e.tags) ? e.tags : [],
             created_at: e.created_at,
+            // Byline only in combined scope. Personal scope omits it
+            // (renderer hides the chip — single voice, no need to attribute).
+            author:
+                combinedAuthors && combinedAuthors.has(e.user_id as string)
+                    ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
+                    : null,
         }));
 
         const track = (trackRes.data || []).map((p) => ({
@@ -266,6 +297,7 @@ Deno.serve(async (req: Request) => {
         return json(
             {
                 vessel,
+                scope,
                 destination,
                 entries,
                 track,

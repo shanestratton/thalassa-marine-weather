@@ -34,6 +34,11 @@ export interface VoyageLogWeather {
     rain?: number;
 }
 
+export interface VoyageLogAuthor {
+    user_id: string;
+    display_name: string;
+}
+
 export interface VoyageLogEntry {
     id: string;
     title: string;
@@ -47,6 +52,8 @@ export interface VoyageLogEntry {
     weather_data: VoyageLogWeather | null;
     tags: string[];
     created_at: string;
+    /** Byline. Present only on combined-scope logs; null on personal logs. */
+    author: VoyageLogAuthor | null;
 }
 
 export interface VoyageLogTrackPoint {
@@ -112,6 +119,8 @@ export interface NearbyVessel {
 
 export interface VoyageLogData {
     vessel: { name: string; type: string; model: string | null };
+    /** 'personal' = one author, no bylines. 'combined' = boat-wide, entries carry author. */
+    scope: 'personal' | 'combined';
     destination: VoyageLogDestination | null;
     entries: VoyageLogEntry[];
     track: VoyageLogTrackPoint[];
@@ -130,13 +139,11 @@ export class VoyageLogError extends Error {
 }
 
 /** Fetch a vessel's published voyage log. Throws VoyageLogError on failure. */
-export async function fetchVoyageLog(handle: string, key: string): Promise<VoyageLogData> {
+export async function fetchVoyageLog(handle: string): Promise<VoyageLogData> {
     if (!SUPABASE_URL) {
         throw new VoyageLogError(0, 'Voyage Log API URL is not configured for this build.');
     }
-    const url =
-        `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/voyage-log` +
-        `?handle=${encodeURIComponent(handle)}&key=${encodeURIComponent(key)}`;
+    const url = `${SUPABASE_URL.replace(/\/$/, '')}/functions/v1/voyage-log` + `?handle=${encodeURIComponent(handle)}`;
 
     let res: Response;
     try {
@@ -159,11 +166,21 @@ export async function fetchVoyageLog(handle: string, key: string): Promise<Voyag
     return (await res.json()) as VoyageLogData;
 }
 
-/** Pull handle + key out of the page URL: /logs/<handle>?k=<key> */
-export function parseVoyageLogParams(): { handle: string; key: string } {
+/**
+ * Pull the handle out of the page URL. Accepts either:
+ *   1. <handle>.thalassawx.app (subdomain — production)
+ *   2. /logs/<handle>           (path — fallback, local dev, share-by-path)
+ */
+export function parseVoyageLogParams(): { handle: string } {
+    // Subdomain form: serene-summer.thalassawx.app → "serene-summer".
+    const host = window.location.hostname;
+    const hostParts = host.split('.');
+    // Anything with a sub-label that isn't www/apex is treated as the handle.
+    if (hostParts.length >= 3 && hostParts[0] !== 'www' && host !== 'thalassawx.app') {
+        return { handle: hostParts[0] };
+    }
+    // Path form: /logs/<handle>
     const path = window.location.pathname.replace(/\/+$/, '');
     const m = path.match(/\/logs\/([^/]+)/);
-    const handle = m ? decodeURIComponent(m[1]) : '';
-    const key = new URLSearchParams(window.location.search).get('k') || '';
-    return { handle, key };
+    return { handle: m ? decodeURIComponent(m[1]) : '' };
 }
