@@ -2,6 +2,13 @@ import UIKit
 import Capacitor
 import AVFoundation
 
+// BUILD-MARKER 2026-05-15T22:55Z — touching this comment forces Xcode
+// to recompile the Swift target, which forces a re-link and a fresh
+// Resources copy phase (including the JS bundle in public/). Without
+// this, incremental builds were silently skipping the public/ copy
+// and the device kept running stale JS chunks. See related fix in
+// public/sw.js + index.tsx (Service Worker bypass on native).
+
 /**
  * ThalassaBridgeViewController — the app's CAPBridgeViewController subclass,
  * used as the root view controller in Main.storyboard.
@@ -37,6 +44,15 @@ import AVFoundation
 public class ThalassaBridgeViewController: CAPBridgeViewController {
 
     public override func capacitorDidLoad() {
+        // ⚠️ BUILD-MARKER — unmissable native-side proof that THIS
+        // .app bundle was just built and deployed. If you don't see
+        // this line in Xcode console at app launch, the device is
+        // running an older .app than the one Xcode just built (i.e.
+        // Xcode reported success but didn't actually push). Update
+        // the timestamp every time you push a new build so it's
+        // trivial to confirm which build is running.
+        NSLog("[BUILD-MARKER-SWIFT] thalassa 2026-05-15T22:55Z capacitorDidLoad")
+
         // ── Audio session: set category, do NOT activate at launch ──
         // Set our session category to .playback + .mixWithOthers so
         // any audio we play (TTS, alarms via AlarmAudioPlugin, etc.)
@@ -73,6 +89,7 @@ public class ThalassaBridgeViewController: CAPBridgeViewController {
         bridge?.registerPluginInstance(DataScannerPlugin())
         bridge?.registerPluginInstance(LightningPlugin())
         bridge?.registerPluginInstance(AppleMusicPlugin())
+        bridge?.registerPluginInstance(MdnsBrowserPlugin())
         // SshClientPlugin + WatchConnectivityPlugin not added yet:
         // their .swift/.m files exist on disk but aren't in the
         // pbxproj build graph yet (separate fix).
