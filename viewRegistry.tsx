@@ -208,7 +208,13 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
         // Skipper-tier gate kept consistent with Apple Music being a
         // premium feature; non-Skipper users see the upgrade card.
         gatedFeature: 'calypsoMusic',
-        getProps: (ctx) => ({ onBack: () => ctx.setPage('voice') }),
+        // Default back-target is Nav Station (Vessel Hub) since the
+        // Wardroom card there is now the most-trafficked entry point.
+        // Calypso users opening from the BosunConsole header have
+        // their own dismiss flow and the BosunConsole portal sits on
+        // top of whatever page was active — they're not relying on
+        // Music's back button to return there.
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
 
     // ── Vessel hub ───────────────────────────────────────────────────────
