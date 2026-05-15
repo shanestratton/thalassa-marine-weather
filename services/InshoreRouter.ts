@@ -644,14 +644,20 @@ function orientHazardsTowardLand(
     const DIRECT_HAZARD_RADIUS_MAX_M = 300; // cardinals/dangers — compact
     const LATERAL_RADIUS_MAX_M = 800; // solo laterals near shore — extend to reach reef
     const LATERAL_REEF_GATE_M = 800; // solo laterals further out → treat as compact
-    // `isolated` markers are intentionally used to flag reef-edge
-    // beacons that sit far offshore — Scarborough Reef beacon has
-    // shoreDistM = 1942 m, with a reef strip extending all the way
-    // back to shore. The disc needs to span that strip end-to-end
-    // for A* to actually be pushed seaward. Cap at 2500 m is roomy
-    // enough for any plausible Australian/coastal reef while still
-    // bounded against a runaway shoreDistance reading.
-    const ISOLATED_RADIUS_MAX_M = 2500;
+    // `isolated` markers flag reef-edge beacons. Originally the disc
+    // tried to span the entire reef strip from beacon back to shore
+    // — that broke for far-offshore beacons (Scarborough Reef sits
+    // 1942 m out, which produced a ~1972 m radius half-disc and a
+    // 3.9 km chord on the seaward side that pushed coastal routes
+    // 9 NM out of their way). The bathymetry data (DEPARE/LNDARE)
+    // already blocks the reef itself, so the marker disc only
+    // needs to add a clearance buffer around the beacon's own
+    // position — 400 m is a couple of cables, comfortable for a
+    // 55 ft yacht passing seaward of the beacon. For close-in
+    // reef-edge markers (< 400 m from shore) the formula's
+    // shoreDistM + 30 still wins via Math.min, so they get the
+    // tighter natural radius they need.
+    const ISOLATED_RADIUS_MAX_M = 400;
     const MAX_SHORE_DISTANCE_M = 5000; // beyond this, orientation is unreliable; keep as Point
     const ARC_SEGMENTS = 18; // 18 segments × 10° = 180° half-circle
 
