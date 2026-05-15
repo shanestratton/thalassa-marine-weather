@@ -26,6 +26,8 @@
  *     telemetry: { sog, cog, heading, baro, baro_trend, aws, awa, tws, twd,
  *                   depth, air_temp, water_temp, wave_height,
  *                   lat, lon, updated_at } | null,
+ *     nearby_vessels: [{ mmsi, name, lat, lon, cog, sog, heading, ship_type,
+ *                         call_sign, destination, nav_status, updated_at }],
  *     generated_at: <ISO string>
  *   }
  *
@@ -202,8 +204,40 @@ Deno.serve(async (req: Request) => {
             wave_height: p.wave_height ?? null,
         }));
 
-        // ── Latest telemetry = most recent track point ─────────────
+        // ── Nearby AIS contacts (60 nm around the latest fix) ──────
+        // Uses the same `vessels_nearby` RPC the iOS app calls. Returns
+        // an empty list if no data, no current position, or the RPC
+        // errors — never blocks the rest of the response.
         const last = track[track.length - 1] ?? null;
+        let nearbyVessels: unknown[] = [];
+        if (last) {
+            const { data: aisData, error: aisErr } = await supabase.rpc('vessels_nearby', {
+                query_lat: last.lat,
+                query_lon: last.lon,
+                radius_m: 60 * 1852, // 60 nm
+                max_results: 60,
+            });
+            if (aisErr) {
+                console.warn('voyage-log: AIS lookup failed:', aisErr.message);
+            } else if (Array.isArray(aisData)) {
+                nearbyVessels = aisData.map((v) => ({
+                    mmsi: String((v as { mmsi: unknown }).mmsi ?? ''),
+                    name: (v as { name?: string | null }).name ?? null,
+                    lat: (v as { lat: number }).lat,
+                    lon: (v as { lon: number }).lon,
+                    cog: (v as { cog?: number | null }).cog ?? null,
+                    sog: (v as { sog?: number | null }).sog ?? null,
+                    heading: (v as { heading?: number | null }).heading ?? null,
+                    ship_type: (v as { ship_type?: string | null }).ship_type ?? null,
+                    call_sign: (v as { call_sign?: string | null }).call_sign ?? null,
+                    destination: (v as { destination?: string | null }).destination ?? null,
+                    nav_status: (v as { nav_status?: string | null }).nav_status ?? null,
+                    updated_at: (v as { updated_at?: string | null }).updated_at ?? null,
+                }));
+            }
+        }
+
+        // ── Latest telemetry = most recent track point ─────────────
         const telemetry = last
             ? {
                   sog: last.speed_kts,
@@ -232,6 +266,7 @@ Deno.serve(async (req: Request) => {
                 entries,
                 track,
                 telemetry,
+                nearby_vessels: nearbyVessels,
                 generated_at: new Date().toISOString(),
             },
             200,

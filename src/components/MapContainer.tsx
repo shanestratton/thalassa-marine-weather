@@ -1,16 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapbox';
+import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MAPBOX_TOKEN, MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
+import { MAPBOX_TOKEN, MOOD, type NearbyVessel, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
 import { nightPolygon } from '../geo';
 import { CompassRose } from './CompassRose';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
     entries: VoyageLogEntry[];
+    /** Nearby AIS contacts to plot. */
+    nearbyVessels: NearbyVessel[];
     /** A map marker was tapped. */
     onEntryClick: (entry: VoyageLogEntry) => void;
+}
+
+/** Hex fill for an AIS contact's triangle, by ship-type substring. */
+function vesselColor(shipType: string | null | undefined): string {
+    const t = (shipType ?? '').toLowerCase();
+    if (t.includes('tanker')) return '#f87171'; // red
+    if (t.includes('cargo')) return '#fbbf24'; // amber
+    if (t.includes('passenger')) return '#38bdf8'; // sky
+    if (t.includes('fishing')) return '#34d399'; // emerald
+    if (t.includes('sailing') || t.includes('pleasure') || t.includes('yacht')) return '#a78bfa'; // violet
+    if (t.includes('tug') || t.includes('pilot') || t.includes('sar') || t.includes('law')) return '#fb923c'; // orange
+    return '#94a3b8'; // slate
 }
 
 const STYLES = {
@@ -22,8 +36,9 @@ type StyleMode = keyof typeof STYLES;
 const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number; longitude: number } =>
     e.latitude != null && e.longitude != null;
 
-export default function MapContainer({ track, entries, onEntryClick }: MapContainerProps) {
+export default function MapContainer({ track, entries, nearbyVessels, onEntryClick }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
+    const [selectedVessel, setSelectedVessel] = useState<NearbyVessel | null>(null);
 
     // Tick once a minute so the day/night terminator drifts in real time.
     const [now, setNow] = useState<Date>(() => new Date());
@@ -206,6 +221,98 @@ export default function MapContainer({ track, entries, onEntryClick }: MapContai
                         </Marker>
                     );
                 })}
+
+                {/* AIS — nearby ships. Triangle points along COG (or heading). */}
+                {nearbyVessels.map((v) => {
+                    const bearing = v.cog ?? v.heading ?? 0;
+                    const fill = vesselColor(v.ship_type);
+                    return (
+                        <Marker key={v.mmsi} longitude={v.lon} latitude={v.lat} anchor="center" rotation={bearing}>
+                            <button
+                                type="button"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedVessel(v);
+                                }}
+                                aria-label={`AIS contact ${v.name || v.mmsi}`}
+                                className="cursor-pointer transition-transform hover:scale-125"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                                    <polygon
+                                        points="8,1 13,14 8,11 3,14"
+                                        fill={fill}
+                                        stroke="rgba(15,23,42,0.85)"
+                                        strokeWidth="1"
+                                        strokeLinejoin="round"
+                                    />
+                                </svg>
+                            </button>
+                        </Marker>
+                    );
+                })}
+
+                {/* AIS detail popup */}
+                {selectedVessel && (
+                    <Popup
+                        longitude={selectedVessel.lon}
+                        latitude={selectedVessel.lat}
+                        anchor="bottom"
+                        offset={14}
+                        closeButton={false}
+                        closeOnClick
+                        onClose={() => setSelectedVessel(null)}
+                        className="voyage-log-ais-popup"
+                    >
+                        <div className="min-w-[180px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-slate-100 shadow-2xl">
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span
+                                    className="w-2 h-2 rounded-full shrink-0"
+                                    style={{ backgroundColor: vesselColor(selectedVessel.ship_type) }}
+                                />
+                                <p className="text-sm font-bold truncate">
+                                    {selectedVessel.name || `MMSI ${selectedVessel.mmsi}`}
+                                </p>
+                            </div>
+                            {selectedVessel.ship_type && (
+                                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5">
+                                    {selectedVessel.ship_type}
+                                </p>
+                            )}
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] font-mono">
+                                {selectedVessel.sog != null && (
+                                    <>
+                                        <span className="text-slate-500">SOG</span>
+                                        <span className="text-emerald-400 text-right">
+                                            {selectedVessel.sog.toFixed(1)} kt
+                                        </span>
+                                    </>
+                                )}
+                                {selectedVessel.cog != null && (
+                                    <>
+                                        <span className="text-slate-500">COG</span>
+                                        <span className="text-amber-400 text-right">
+                                            {Math.round(selectedVessel.cog)}°
+                                        </span>
+                                    </>
+                                )}
+                                {selectedVessel.destination && (
+                                    <>
+                                        <span className="text-slate-500">To</span>
+                                        <span className="text-slate-200 text-right truncate">
+                                            {selectedVessel.destination}
+                                        </span>
+                                    </>
+                                )}
+                                {selectedVessel.call_sign && (
+                                    <>
+                                        <span className="text-slate-500">Call</span>
+                                        <span className="text-slate-200 text-right">{selectedVessel.call_sign}</span>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    </Popup>
+                )}
             </Map>
 
             {/* Basemap toggle */}
