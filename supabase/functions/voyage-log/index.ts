@@ -14,7 +14,8 @@
  *
  * Response 200:
  *   {
- *     vessel:    { name, type, model },
+ *     vessel:      { name, type, model },
+ *     destination: { name, lat, lon } | null,   // drives DTG / ETA / progress HUD
  *     entries:   [{ id, title, body, mood, photos[], location_name,
  *                   latitude, longitude, weather_summary, weather_data,
  *                   tags[], created_at }],
@@ -91,7 +92,7 @@ Deno.serve(async (req: Request) => {
         // ── Resolve + authenticate the vessel ──────────────────────
         const { data: config, error: configErr } = await supabase
             .from('voyage_log_configs')
-            .select('owner_id, api_key, enabled, track_days')
+            .select('owner_id, api_key, enabled, track_days, destination_name, destination_lat, destination_lon')
             .eq('handle', handle)
             .maybeSingle();
 
@@ -157,6 +158,17 @@ Deno.serve(async (req: Request) => {
             model: vesselRes.data?.model ?? null,
         };
 
+        // Destination — null if the skipper hasn't set one. Drives the
+        // public progress HUD (DTG / ETA / Newport → here → there).
+        const destination =
+            config.destination_lat != null && config.destination_lon != null
+                ? {
+                      name: (config.destination_name as string | null) ?? null,
+                      lat: config.destination_lat as number,
+                      lon: config.destination_lon as number,
+                  }
+                : null;
+
         const entries = (entriesRes.data || []).map((e) => ({
             id: e.id,
             title: e.title,
@@ -216,6 +228,7 @@ Deno.serve(async (req: Request) => {
         return json(
             {
                 vessel,
+                destination,
                 entries,
                 track,
                 telemetry,

@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import { MAPBOX_TOKEN, MOOD, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
+import { nightPolygon } from '../geo';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
@@ -22,6 +23,21 @@ const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number;
 
 export default function MapContainer({ track, entries, onEntryClick }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
+
+    // Tick once a minute so the day/night terminator drifts in real time.
+    const [now, setNow] = useState<Date>(() => new Date());
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 60_000);
+        return () => clearInterval(id);
+    }, []);
+    const nightFeature = useMemo(() => nightPolygon(now), [now]);
+    const nightGeojson = useMemo(
+        () =>
+            nightFeature
+                ? { type: 'FeatureCollection' as const, features: [nightFeature] }
+                : { type: 'FeatureCollection' as const, features: [] },
+        [nightFeature],
+    );
 
     const trackCoords = useMemo<[number, number][]>(
         () => track.map((p) => [p.lon, p.lat] as [number, number]),
@@ -114,6 +130,11 @@ export default function MapContainer({ track, entries, onEntryClick }: MapContai
                 projection="globe"
             >
                 <NavigationControl position="top-left" showCompass={false} />
+
+                {/* Day/night terminator — translucent shadow over the night side */}
+                <Source id="night-side" type="geojson" data={nightGeojson}>
+                    <Layer id="night-fill" type="fill" paint={{ 'fill-color': '#000814', 'fill-opacity': 0.32 }} />
+                </Source>
 
                 {/* Voyage track — glow underlay + crisp line */}
                 <Source id="voyage-track" type="geojson" data={trackGeojson}>
