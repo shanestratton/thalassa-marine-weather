@@ -12,6 +12,7 @@ import { OceanCurrentService, type CurrentBriefing } from '../../services/OceanC
 import { useSettings } from '../../context/SettingsContext';
 import { type Voyage } from '../../services/VoyageService';
 import { triggerHaptic } from '../../utils/system';
+import { useSingleCheckSync } from '../../hooks/useReadinessSync';
 
 interface OceanCurrentsCardProps {
     voyageId?: string;
@@ -122,6 +123,40 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         setAcknowledged(false);
     }, [voyageId]);
 
+    // Supabase sync — the ack is per-voyage so this is a single-check
+    // sync (one row per voyage). On voyageId change, load from server
+    // and mark ack'd if the server says so (server is the source of
+    // truth across devices; localStorage is just a fast local cache).
+    // Without this, ticking ack on iPhone wouldn't show on iPad and
+    // vice versa.
+    const { syncSingleCheck, loadSingleCheck } = useSingleCheckSync(voyageId, 'ocean_currents', 'acknowledged');
+    useEffect(() => {
+        if (!voyageId) return;
+        let cancelled = false;
+        void loadSingleCheck().then((serverChecked) => {
+            if (cancelled) return;
+            if (serverChecked) {
+                setAcknowledged(true);
+                // Mirror into localStorage so a future offline session
+                // sees the server-confirmed state without a round-trip.
+                try {
+                    const stored = localStorage.getItem(STORAGE_KEY);
+                    const map: Record<string, number> =
+                        stored && typeof JSON.parse(stored) === 'object' && !('voyageId' in JSON.parse(stored))
+                            ? JSON.parse(stored)
+                            : {};
+                    map[voyageId] = Date.now();
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+                } catch {
+                    /* ignore */
+                }
+            }
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [voyageId, loadSingleCheck]);
+
     useEffect(() => {
         onReviewedChange?.(acknowledged);
     }, [acknowledged, onReviewedChange]);
@@ -159,6 +194,7 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
         if (!voyageId) return;
         setAcknowledged(true);
         triggerHaptic('medium');
+        const ackedAt = Date.now();
         try {
             // Read existing map (or migrate from legacy single-voyage
             // shape), set this voyage's timestamp, write back.
@@ -172,12 +208,17 @@ export const OceanCurrentsCard: React.FC<OceanCurrentsCardProps> = ({
                     map = { [data.voyageId]: data.time || Date.now() };
                 }
             }
-            map[voyageId] = Date.now();
+            map[voyageId] = ackedAt;
             localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
         } catch {
             /* ignore */
         }
-    }, [voyageId]);
+        // Mirror to Supabase so the ack follows the skipper to other
+        // devices. Fire-and-forget — the UI has already advanced; if
+        // the server write fails the next session re-syncs from
+        // localStorage on this device.
+        syncSingleCheck(true, { acked_at: ackedAt });
+    }, [voyageId, syncSingleCheck]);
 
     const segmentIcon = (type: string) => {
         switch (type) {
