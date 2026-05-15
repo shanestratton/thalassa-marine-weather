@@ -12,6 +12,7 @@ import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
 import { useAuthStore } from '../stores/authStore';
 import { supabase } from '../services/supabase';
+import { Geolocation } from '@capacitor/geolocation';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -152,22 +153,27 @@ export const useAppController = () => {
                         // ran anyway" bug.
                         if (!cancelled) setShowOnboarding(false);
                         // Returning users skip onboarding's "Locate Me"
-                        // step, which means the iOS location-permission
-                        // prompt never fires — and the Glass page spins
-                        // forever waiting for a GPS fix that can't happen
-                        // until the user grants permission. Fire a
-                        // throwaway getCurrentPosition() now: iOS surfaces
-                        // its permission sheet on first call, BgGeoManager
-                        // initializes its CLLocationManager, and after the
-                        // user grants the weather flow's own GPS call
-                        // (later in the orchestrator) succeeds.
-                        // Fire-and-forget — the result is discarded.
-                        void GpsService.getCurrentPosition({
-                            staleLimitMs: 60_000,
-                            timeoutSec: 10,
-                        }).catch(() => {
-                            /* permission denied or timeout — ok, weather
-                               will fall back to its saved location */
+                        // step, so iOS never sees a location request
+                        // until something happens to need GPS — leaves
+                        // The Glass page spinning. Trigger the prompt
+                        // now via Capacitor's own Geolocation plugin
+                        // rather than GpsService, because GpsService
+                        // routes through BgGeoManager which would ALSO
+                        // initialize Transistorsoft's
+                        // BackgroundGeolocation and triggers a Motion
+                        // permission prompt on top of Location — three
+                        // prompts on first launch is overload. Capacitor
+                        // Geolocation requests just Location and stays
+                        // out of the motion / background-tracking
+                        // permission domain. BgGeoManager will init
+                        // later, when the user navigates to a feature
+                        // that actually needs background tracking
+                        // (Map, Anchor Watch, Voyage), and Motion will
+                        // get prompted then — at point-of-need, not
+                        // boot. Fire-and-forget.
+                        void Geolocation.requestPermissions().catch(() => {
+                            /* denied or unavailable — weather will fall
+                               back to the user's saved port location */
                         });
                         // Drop the !loading guard. On first launch after
                         // a fresh install + sign-in, the orchestrator's

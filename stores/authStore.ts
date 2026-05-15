@@ -46,7 +46,14 @@ function initAuth() {
         useAuthStore.setState({ user: u, authChecked: true });
         if (u) {
             PushNotificationService.setUser(u.id);
-            PushNotificationService.requestPermissionAndRegister();
+            // No auto requestPermissionAndRegister() at boot — that
+            // was the second iOS prompt sailors saw on first launch
+            // ("Thalassa would like to send you notifications"). Push
+            // is now deferred to point-of-need: AnchorWatchSyncService
+            // calls requestPermissionAndRegister() the first time the
+            // user starts anchor watch with cloud sync, and any other
+            // feature that needs push can do the same. Sign-in does
+            // not need the prompt.
             setSentryUser({ id: u.id, email: u.email });
         }
     });
@@ -56,7 +63,6 @@ function initAuth() {
         useAuthStore.setState({ user: u });
         if (u) {
             PushNotificationService.setUser(u.id);
-            PushNotificationService.requestPermissionAndRegister();
             setSentryUser({ id: u.id, email: u.email });
         } else {
             PushNotificationService.clearUser();
