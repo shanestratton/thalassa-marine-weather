@@ -442,11 +442,23 @@ if [[ ! -f "$SEAMARKS_CACHE" ]]; then
     # channel), and the route then weaves toward shore. The iOS-side regional
     # nav_markers.geojson fetch handles pairing — leave individual markers
     # to that path, and only pull channel POLYGONS / LINES here.
+    # navigation_line included alongside fairway / dredged_area /
+    # recommended_track because Australian coastal OSM coverage uses
+    # leading-line geometry (linestring along the bearing from a
+    # leading-light pair through the channel) rather than full
+    # fairway polygons. Verified 2026-05-16: Brisbane bbox returns 36
+    # `seamark:type=navigation_line` features but ZERO
+    # `seamark:type=fairway` / `recommended_track` / `dredged_area`.
+    # The marker-derived synthesis on iOS does cover narrow channels
+    # well, but the long buoy-paired Bramble-Bay approach was
+    # producing scattered midpoints; buffered leading lines fill
+    # the gaps and force A* to follow the marked route.
     OVERPASS_QUERY="[out:json][timeout:60];
 (
   nwr[\"seamark:type\"=\"fairway\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   nwr[\"seamark:type\"=\"dredged_area\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
   nwr[\"seamark:type\"=\"recommended_track\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
+  nwr[\"seamark:type\"=\"navigation_line\"](${BBOX_LAT_MIN},${BBOX_LON_MIN},${BBOX_LAT_MAX},${BBOX_LON_MAX});
 );
 out geom;"
     if curl -fsSL --max-time 120 \
@@ -487,6 +499,7 @@ if [[ -f "$SEAMARKS_CACHE" ]]; then
         if .tags."seamark:type" == "fairway" then "FAIRWY"
         elif .tags."seamark:type" == "dredged_area" then "DRGARE"
         elif .tags."seamark:type" == "recommended_track" then "RECTRC"
+        elif .tags."seamark:type" == "navigation_line" then "NAVLNE"
         elif .tags."seamark:type" == "buoy_lateral" then "BOYLAT"
         elif .tags."seamark:type" == "beacon_lateral" then "BCNLAT"
         else null end;
@@ -528,6 +541,127 @@ if [[ -f "$SEAMARKS_CACHE" ]]; then
         mv "$MERGED" "$DEPARE_GEOJSON"
     else
         echo -e "${YELLOW}  ⚠ No seamarks parsed — Overpass returned no matching features${NC}"
+    fi
+fi
+
+# ── OSM linear seamark channels → buffered FAIRWY ribbons ───────────
+# Shipping channels through bays and rivers (e.g. Brisbane's main
+# approach channel through Moreton Bay) are tagged in OSM as
+# `seamark:type=fairway` or `seamark:type=recommended_track` —
+# almost always as OPEN ways (centreline linestrings), not closed
+# polygons. The seamark parser above keeps closed ways as Polygon
+# FAIRWY, but open ways become LineString features which the
+# inshoreRouterEngine's Pass 4 (markChannelPreference) silently
+# drops — it only processes Polygon / MultiPolygon geometry.
+#
+# Diagnosed 2026-05-16: Brisbane → Port of Brisbane routes cut
+# straight across Bramble Bay instead of following the marked
+# shipping channel up the bay, because the channel centreline was
+# present in the pack but as a LineString that A* never saw.
+#
+# Fix: same pattern as the linear waterway=canal buffering below.
+# Pull open-way fairway / recommended_track centrelines from the
+# seamarks cache, buffer each by ±100 m (≈200 m ribbon — Brisbane
+# port channel is maintained at ~200 m dredged width), and emit as
+# FAIRWY polygons. The engine's Pass 4 + Pass 5 rescue then marks
+# those cells as preferred (cost 1.0×) and unblocks any shallow-
+# bathymetry CAUTION cells inside the channel ribbon, so A*
+# decisively follows the marked route through the bay.
+#
+# Width: ±100 m chosen to comfortably exceed the engine's 50 m grid
+# resolution (so cell-centre sampling reliably hits the ribbon) and
+# match the real maintained channel width. Narrower would leave
+# sampling gaps; wider would leak past the marker line and into
+# adjacent shoals.
+if [[ -f "$SEAMARKS_CACHE" ]]; then
+    CHANNEL_LINES="data/brisbane-channel-lines.geojson"
+    CHANNEL_BUFFER_GEOJSON="data/brisbane-channel-buffer.geojson"
+
+    # Extract LINEAR (open-way) seamark channel centrelines —
+    # `fairway`, `recommended_track`, and `navigation_line` (leading
+    # lines). Closed ways are already captured as Polygon FAIRWY
+    # above — don't double-count. navigation_line is the workhorse
+    # in Australian OSM coverage (Brisbane has 36 of them and zero
+    # fairway polygons), so its inclusion is essential here.
+    jq '
+      {
+        type: "FeatureCollection",
+        features: (
+          .elements
+          | map(select(
+              .type == "way"
+              and (.tags."seamark:type" == "fairway"
+                   or .tags."seamark:type" == "recommended_track"
+                   or .tags."seamark:type" == "navigation_line")
+              and (.geometry | length >= 2)
+              and ((.geometry[0].lat != .geometry[-1].lat)
+                   or (.geometry[0].lon != .geometry[-1].lon))
+            ))
+          | map({
+              type: "Feature",
+              properties: {
+                _osm_id: .id,
+                _seamark_type: .tags."seamark:type"
+              },
+              geometry: { type: "LineString", coordinates: [.geometry[] | [.lon, .lat]] }
+            })
+        )
+      }
+    ' "$SEAMARKS_CACHE" > "$CHANNEL_LINES"
+
+    CHANNEL_LINE_COUNT=$(jq '.features | length' "$CHANNEL_LINES")
+    if [[ "$CHANNEL_LINE_COUNT" -gt 0 ]]; then
+        echo -e "  Buffering ${CHANNEL_LINE_COUNT} linear seamark fairway/track centrelines..."
+        rm -f "$CHANNEL_BUFFER_GEOJSON"
+        # ~100 m buffer ≈ 0.001° at -27° latitude → ~200 m ribbon.
+        # See header comment for sizing rationale.
+        CHANNEL_BUFFER_DEG=0.001
+        CHANNEL_OGR_LOG="/tmp/channel-ogr2ogr-$$.log"
+        if ogr2ogr -q \
+            -f GeoJSON \
+            -dialect SQLite \
+            -sql "SELECT ST_Buffer(geometry, ${CHANNEL_BUFFER_DEG}) AS geometry, _seamark_type FROM 'brisbane-channel-lines'" \
+            -nln "brisbane-channel-lines" \
+            "$CHANNEL_BUFFER_GEOJSON" \
+            "$CHANNEL_LINES" 2>"$CHANNEL_OGR_LOG"; then
+            # Tag the resulting polygons as FAIRWY so the inshore
+            # engine's Pass 4 picks them up. Same FAIRWY semantics as
+            # the closed-way fairway polygons above.
+            jq '
+              {
+                type: "FeatureCollection",
+                features: (.features
+                  | map(.properties += {
+                      "_layer": "FAIRWY",
+                      "_class": "seamark-centreline-buffered",
+                      "_source": "OpenStreetMap seamark fairway/recommended_track (buffered)",
+                      "_license": "ODbL",
+                      "_grade": "D"
+                    })
+                )
+              }' "$CHANNEL_BUFFER_GEOJSON" > "${CHANNEL_BUFFER_GEOJSON}.tagged"
+            mv "${CHANNEL_BUFFER_GEOJSON}.tagged" "$CHANNEL_BUFFER_GEOJSON"
+
+            CHANNEL_BUF_COUNT=$(jq '.features | length' "$CHANNEL_BUFFER_GEOJSON")
+            echo -e "  ${GREEN}✓${NC} Buffered ${CHANNEL_BUF_COUNT} seamark centrelines → FAIRWY ribbons"
+            MERGED=$(mktemp -u --suffix=.geojson 2>/dev/null || echo "/tmp/brisbane-chanmerge-$$.geojson")
+            jq -s '
+              {
+                type: "FeatureCollection",
+                features: ((.[0].features) + (.[1].features))
+              }
+            ' "$DEPARE_GEOJSON" "$CHANNEL_BUFFER_GEOJSON" > "$MERGED"
+            mv "$MERGED" "$DEPARE_GEOJSON"
+            rm -f "$CHANNEL_OGR_LOG"
+        else
+            echo -e "${YELLOW}  ⚠ ogr2ogr channel buffer failed — linear seamark fairways skipped${NC}"
+            echo -e "      stderr:"
+            head -c 500 "$CHANNEL_OGR_LOG" | sed 's/^/        /'
+            echo
+            rm -f "$CHANNEL_OGR_LOG"
+        fi
+    else
+        echo -e "${YELLOW}  ⚠ No linear seamark fairway/recommended_track ways in seamarks cache${NC}"
     fi
 fi
 
