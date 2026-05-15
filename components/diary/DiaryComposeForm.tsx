@@ -4,13 +4,14 @@
  * Extracted from DiaryPage to reduce component size.
  */
 
-import React, { useRef, useState } from 'react';
+import React, { useRef } from 'react';
 import { DiaryMood, MOOD_CONFIG } from '../../services/DiaryService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { triggerHaptic } from '../../utils/system';
 import { AudioWidget } from './AudioWidget';
 import { DiaryPhoto } from './DiaryPhoto';
 import { OfflineBadge } from '../ui/OfflineBadge';
+import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
 
 // ── Helpers ──
 const formatCoord = (lat: number, lon: number): string => {
@@ -45,11 +46,13 @@ interface DiaryComposeFormProps {
     recordingTime: number;
     transcribing: boolean;
     isPlaying: boolean;
+    polishStyle: PolishStyle;
     // Setters
     onSetTitle: (v: string) => void;
     onSetBody: (v: string | ((prev: string) => string)) => void;
     onSetMood: (v: DiaryMood) => void;
     onSetLocationName: (v: string) => void;
+    onSetPolishStyle: (v: PolishStyle) => void;
     // Actions
     onSave: () => void;
     onCancel: () => void;
@@ -84,10 +87,12 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         recordingTime,
         transcribing,
         isPlaying,
+        polishStyle,
         onSetTitle,
         onSetBody,
         onSetMood,
         onSetLocationName,
+        onSetPolishStyle,
         onSave,
         onCancel,
         onGrabGps,
@@ -101,7 +106,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         onPhotoRemove,
     }) => {
         const fileRef = useRef<HTMLInputElement>(null);
-        const [polishIntensity, setPolishIntensity] = useState(30);
 
         const bottomPad = keyboardHeight > 0 ? `${keyboardHeight}px` : 'calc(4rem + env(safe-area-inset-bottom) + 8px)';
 
@@ -292,23 +296,39 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                             </button>
                         </div>
 
-                        {/* Polish intensity slider */}
+                        {/* Polish style — preset dropdown. Replaced the
+                            clean→literary slider so the row fits in the
+                            cramped New Entry sheet without scrolling. The
+                            chosen style persists across sessions and
+                            devices via settings.polishStyle. */}
                         <div className="flex items-center gap-2 px-1">
-                            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider shrink-0 w-10">
-                                Clean
+                            <span className="text-[11px] font-bold text-purple-300/70 uppercase tracking-wider shrink-0">
+                                ✨ Polish
                             </span>
-                            <input
-                                type="range"
-                                min={0}
-                                max={100}
-                                step={5}
-                                value={polishIntensity}
-                                onChange={(e) => setPolishIntensity(Number(e.target.value))}
-                                className="flex-1 h-1.5 appearance-none bg-gradient-to-r from-gray-600 via-purple-500 to-amber-500 rounded-full outline-none [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer"
-                            />
-                            <span className="text-[11px] font-bold text-amber-400/70 uppercase tracking-wider shrink-0 w-12 text-right">
-                                Literary
-                            </span>
+                            <div className="relative flex-1">
+                                <select
+                                    value={polishStyle}
+                                    onChange={(e) => onSetPolishStyle(e.target.value as PolishStyle)}
+                                    aria-label="Polish style"
+                                    className="w-full appearance-none bg-purple-500/[0.08] border border-purple-500/25 rounded-lg pl-3 pr-8 py-1.5 text-[11px] text-purple-100 font-bold outline-none focus:border-purple-400/60 hover:bg-purple-500/[0.12] transition-colors cursor-pointer [color-scheme:dark]"
+                                >
+                                    {(Object.entries(POLISH_LABEL) as [PolishStyle, string][]).map(([value, label]) => (
+                                        <option key={value} value={value} className="bg-slate-900 text-purple-100">
+                                            {label}
+                                        </option>
+                                    ))}
+                                </select>
+                                <svg
+                                    className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-purple-300/70"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                    aria-hidden="true"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </div>
                         </div>
 
                         {/* Location name input — overrides the auto-detected
