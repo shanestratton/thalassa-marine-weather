@@ -89,11 +89,11 @@ function endpoint(): string {
 function edgeFunctionEndpoint(name: string): { url: string; headers: Record<string, string> } | null {
     const supabaseUrl =
         (typeof import.meta !== 'undefined' &&
-            (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL) ||
+            (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL) ||
         '';
     const supabaseAnonKey =
         (typeof import.meta !== 'undefined' &&
-            (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY) ||
+            (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY) ||
         '';
     if (!supabaseUrl || !supabaseAnonKey) return null;
     return {
