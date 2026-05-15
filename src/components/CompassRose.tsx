@@ -7,14 +7,17 @@ import React from 'react';
  * view, not just a map.
  */
 export const CompassRose: React.FC = () => {
-    // Geometry: viewBox 100×100, centred on (50,50).
+    // Geometry: viewBox 100×100, centred on (50,50). Radii shrunk so the
+    // N/E/S/W labels sit comfortably inside the viewBox at fontSize 9 —
+    // SVGs clip at the viewBox boundary by default, so anything past 50
+    // from centre gets eaten.
     const cx = 50;
     const cy = 50;
-    const outer = 44; // outer ring radius
-    const inner = 14; // inner ring radius
-    const spokeOut = 41; // long spoke tip
-    const spokeOutShort = 26; // intercardinal spoke tip
-    const labelR = 49; // cardinal label radius
+    const outer = 36; // outer ring radius
+    const inner = 11; // inner ring radius
+    const spokeOut = 33; // long spoke tip
+    const spokeOutShort = 21; // intercardinal spoke tip
+    const labelR = 43; // cardinal label radius (outside the rose, inside the viewBox)
 
     // Cardinal spokes are alternating-fill triangles (a "wind rose" star).
     // For each cardinal angle a, draw a long triangle pointing outward.
