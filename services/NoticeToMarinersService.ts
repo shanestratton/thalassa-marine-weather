@@ -1,14 +1,20 @@
 /**
- * NoticeToMarinersService — NGA Maritime Safety Information broadcast warnings.
+ * NoticeToMarinersService — multi-source navigational warning aggregator.
  *
- * Fetches active in-force warnings from the NGA MSI broadcast-warn endpoint
- * (NAVAREA IV + XII, HYDROLANT, HYDROPAC, HYDROARC), parses embedded
- * coordinates out of the free-text body, and caches the result in
- * localStorage so the browse view is instant on subsequent opens.
+ * Fetches active in-force warnings from each available national hydrographic
+ * office, normalises every warning into the same `Notice` shape (parses
+ * embedded coordinates out of the free-text body), and caches the merged
+ * result in localStorage so the browse view is instant on subsequent opens.
  *
- * The NGA publishes for US-assigned areas; warnings in other NAVAREAs come
- * from each country's own hydrographic office and are not included here.
- * Future sources (UKHO, AHS, LINZ, CHS) can be merged into the same shape.
+ * Sources (each contributes independently — one failing doesn't break the
+ * others, see Promise.allSettled in refresh()):
+ *   • NGA MSI broadcast-warn   — NAVAREA IV + XII, HYDROLANT/PAC/ARC
+ *                                 (US-coordinated SafetyNET areas).
+ *   • AMSA MSI bulletin scrape — NAVAREA X (AHO / JRCC AUSTRALIA),
+ *                                 via the proxy-amsa-msi edge function.
+ *
+ * Coming soon: UKHO (I), LINZ (XIV), and other national offices behind
+ * the same shape.
  */
 import { createLogger } from '../utils/createLogger';
 
@@ -16,8 +22,11 @@ const log = createLogger('NoticeToMariners');
 
 // ── Types ─────────────────────────────────────────────────────────────────
 
-/** NGA-issued NAVAREA/HYDRO region code as returned by the API. */
-export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | string;
+/** NAVAREA / HYDRO region code as returned by the API.
+ *  NGA publishes 4 / 12 / A / C / P.
+ *  AMSA publishes X (NAVAREA X — Australian-coordinated SafetyNET).
+ *  Future sources (UKHO=I, LINZ=XIV, etc.) drop in as additional codes. */
+export type NgaAreaCode = '4' | '12' | 'A' | 'C' | 'P' | 'X' | string;
 
 export interface Notice {
     /** Stable id — `${navArea}-${msgYear}/${msgNumber}` (NGA cross-lists the same message across areas). */
@@ -63,6 +72,29 @@ function endpoint(): string {
         : '/api/nga-msi/broadcast-warn?output=json';
 }
 
+// AMSA NAVAREA X proxy — goes through a Supabase edge function that
+// scrapes https://www.operations.amsa.gov.au/AMSA.Web.MSIPublication/Home
+// and returns the warnings in the same RawBroadcastWarn shape NGA does.
+// Has its own 1h edge cache so calling it cheaply is fine.
+function amsaEndpoint(): { url: string; headers: Record<string, string> } | null {
+    const supabaseUrl =
+        (typeof import.meta !== 'undefined' &&
+            (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_URL) ||
+        '';
+    const supabaseAnonKey =
+        (typeof import.meta !== 'undefined' &&
+            (import.meta as { env?: Record<string, string> }).env?.VITE_SUPABASE_ANON_KEY) ||
+        '';
+    if (!supabaseUrl || !supabaseAnonKey) return null;
+    return {
+        url: `${supabaseUrl}/functions/v1/proxy-amsa-msi`,
+        headers: {
+            Authorization: `Bearer ${supabaseAnonKey}`,
+            apikey: supabaseAnonKey,
+        },
+    };
+}
+
 // ── Area labels ───────────────────────────────────────────────────────────
 
 const AREA_LABELS: Record<string, string> = {
@@ -71,6 +103,7 @@ const AREA_LABELS: Record<string, string> = {
     C: 'HYDROLANT',
     P: 'HYDROPAC',
     A: 'HYDROARC',
+    X: 'NAVAREA X',
 };
 
 export function labelFor(code: string): string {
@@ -87,6 +120,7 @@ const AREA_BOUNDS: Record<string, [number, number, number, number]> = {
     C: [-80, 7, 20, 85], // HYDROLANT — W/N Atlantic open ocean
     P: [120, -60, -80 + 360, 60], // HYDROPAC — Pacific (wraps dateline)
     A: [-180, 60, 180, 90], // HYDROARC — Arctic
+    X: [80, -55, 175, 12], // NAVAREA X — AHO/JRCC AUSTRALIA (IO E + W Pacific + AU EEZ)
 };
 
 export function isAreaCoveringPoint(code: string, lat: number, lon: number): boolean {
@@ -246,6 +280,28 @@ function saveCache(payload: CachePayload): void {
     }
 }
 
+// ── Source fetchers ───────────────────────────────────────────────────────
+
+async function fetchNga(): Promise<RawBroadcastWarn[]> {
+    const res = await fetch(endpoint());
+    if (!res.ok) throw new Error(`NGA MSI returned ${res.status}`);
+    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
+    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+}
+
+async function fetchAmsa(): Promise<RawBroadcastWarn[]> {
+    const ep = amsaEndpoint();
+    if (!ep) {
+        // No Supabase URL configured — skip silently. The page still
+        // works on NGA-only; AMSA is purely additive.
+        return [];
+    }
+    const res = await fetch(ep.url, { headers: ep.headers });
+    if (!res.ok) throw new Error(`AMSA MSI returned ${res.status}`);
+    const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
+    return Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+}
+
 // ── Service ───────────────────────────────────────────────────────────────
 
 type ChangeCallback = (notices: Notice[]) => void;
@@ -283,16 +339,28 @@ class NoticeToMarinersServiceClass {
 
         this.inflight = (async () => {
             try {
-                const res = await fetch(endpoint());
-                if (!res.ok) {
-                    throw new Error(`NGA MSI returned ${res.status}`);
+                // Fetch all sources in parallel. Each source is independent —
+                // if one fails (network blip, scraping breakage), the others
+                // still contribute. Promise.allSettled lets us partial-merge.
+                const sources = await Promise.allSettled([fetchNga(), fetchAmsa()]);
+                const list: RawBroadcastWarn[] = [];
+                let anySucceeded = false;
+                for (const result of sources) {
+                    if (result.status === 'fulfilled') {
+                        list.push(...result.value);
+                        anySucceeded = true;
+                    } else {
+                        log.warn(`Notice source failed: ${result.reason}`);
+                    }
                 }
-                const body = (await res.json()) as { 'broadcast-warn': RawBroadcastWarn[] };
-                const list = Array.isArray(body['broadcast-warn']) ? body['broadcast-warn'] : [];
+                if (!anySucceeded) {
+                    throw new Error('All notice sources failed');
+                }
                 const seen = new Set<string>();
                 const notices = list
                     .map(normalise)
-                    // NGA occasionally returns the same notice twice — dedupe by id.
+                    // Sources may overlap or each occasionally double-publish
+                    // — dedupe by (navArea, msgYear, msgNumber) id.
                     .filter((n) => (seen.has(n.id) ? false : (seen.add(n.id), true)))
                     // Newest first by msgYear/msgNumber
                     .sort((a, b) => b.msgYear - a.msgYear || b.msgNumber - a.msgNumber);
@@ -301,10 +369,12 @@ class NoticeToMarinersServiceClass {
                 this.lastFetchAt = Date.now();
                 saveCache({ fetchedAt: this.lastFetchAt, notices });
                 this.emit();
-                log.info(`Fetched ${notices.length} notices from NGA MSI`);
+                log.info(
+                    `Fetched ${notices.length} notices across ${sources.filter((s) => s.status === 'fulfilled').length} source(s)`,
+                );
                 return notices;
             } catch (e) {
-                log.warn('Failed to fetch NGA MSI — falling back to cache', e);
+                log.warn('Failed to fetch notices — falling back to cache', e);
                 throw e;
             } finally {
                 this.inflight = null;

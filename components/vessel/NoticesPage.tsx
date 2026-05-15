@@ -22,7 +22,7 @@ interface NoticesPageProps {
     onBack: () => void;
 }
 
-type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A';
+type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A' | 'X';
 
 /** "Near me" radius in nautical miles. NotM coordinates outside this
  *  distance from the vessel's current position are hidden when the
@@ -59,6 +59,7 @@ const FILTERS: Array<{ id: AreaFilter; label: string; short: string; color: stri
     { id: 'C', label: 'HYDROLANT', short: 'LANT', color: '#a855f7' },
     { id: 'P', label: 'HYDROPAC', short: 'PAC', color: '#f59e0b' },
     { id: 'A', label: 'HYDROARC', short: 'ARC', color: '#14b8a6' },
+    { id: 'X', label: 'NAVAREA X', short: 'X', color: '#fbbf24' }, // AHO / JRCC AUSTRALIA
 ];
 
 function formatIssued(d: Date | null): string {
@@ -267,8 +268,8 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                             error
                                 ? error
                                 : nearMe && vesselPos
-                                  ? `We currently source from NGA only (US-managed waters: NAVAREA IV/XII, HYDROLANT/PAC/ARC). Australian (AHS), UK (UKHO), NZ (LINZ) and other national hydrographic offices aren’t included yet — coming soon. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
-                                  : 'NGA publishes broadcast warnings for US waters, the Atlantic, Pacific and Arctic. National hydrographic offices for other regions will be added in future updates.'
+                                  ? `Currently sourced from NGA MSI (NAVAREA IV/XII + HYDROLANT/PAC/ARC) and AMSA (NAVAREA X, Australia). UK (UKHO), NZ (LINZ) and other national hydrographic offices aren’t included yet — coming soon. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
+                                  : 'Sources: NGA (US-managed waters), AMSA (NAVAREA X). National hydrographic offices for other regions will be added in future updates.'
                         }
                         actionLabel={error ? 'Retry' : undefined}
                         onAction={error ? () => load(true) : undefined}
