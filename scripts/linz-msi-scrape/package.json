@@ -1,0 +1,16 @@
+{
+    "name": "linz-msi-scrape",
+    "version": "1.0.0",
+    "private": true,
+    "type": "module",
+    "description": "Headless-browser scraper for Maritime NZ / LINZ NAVAREA XIV warnings. Workaround for the Cloudflare JS challenge that blocks Deno fetch — runs on GitHub Actions and pushes parsed warnings to the linz_warnings Supabase table.",
+    "main": "scrape.mjs",
+    "scripts": {
+        "scrape": "node scrape.mjs",
+        "scrape:dry": "DRY_RUN=1 node scrape.mjs"
+    },
+    "dependencies": {
+        "@supabase/supabase-js": "^2.39.0",
+        "playwright": "^1.43.0"
+    }
+}
