@@ -126,6 +126,93 @@ public class AppleMusicPlugin: CAPPlugin {
         } catch {
             NSLog("[AppleMusic] prepareAudioSession failed (continuing): \(error)")
         }
+        // Belt-and-braces: if load() didn't fire for some reason, this
+        // makes sure the remote commands get wired up the first time
+        // we attempt playback. configureRemoteCommands() is idempotent.
+        configureRemoteCommands()
+    }
+
+    // ── Remote command center ─────────────────────────────────────
+    // Without explicit MPRemoteCommandCenter wiring, the iOS Control
+    // Center / lockscreen / AirPods pause button SILENTLY DOES NOTHING
+    // when ApplicationMusicPlayer is the playback path. Documentation
+    // suggests it's automatic — in practice it isn't, the system
+    // routes commands to whichever app has registered the handlers,
+    // and if no one has, the command no-ops or falls back to the
+    // system Music app (so you tap pause and Apple Music opens
+    // instead). We register handlers once on plugin load and
+    // forward to ApplicationMusicPlayer manually.
+    //
+    // This pairs with the `audio` entry in Info.plist's
+    // UIBackgroundModes — without that, the OS suspends our audio
+    // when the screen locks and remote commands never get delivered
+    // anyway. Both pieces are required.
+    private var remoteCommandsConfigured = false
+    private func configureRemoteCommands() {
+        if remoteCommandsConfigured { return }
+        remoteCommandsConfigured = true
+
+        let center = MPRemoteCommandCenter.shared()
+
+        center.playCommand.isEnabled = true
+        center.playCommand.addTarget { [weak self] _ in
+            guard #available(iOS 15.0, *) else { return .commandFailed }
+            // Audio session needs re-asserting before play in case TTS
+            // or another plugin nudged it. Re-fired from a Task so we
+            // can return synchronously.
+            Task { @MainActor in
+                self?.prepareAudioSession()
+                try? await ApplicationMusicPlayer.shared.play()
+            }
+            return .success
+        }
+
+        center.pauseCommand.isEnabled = true
+        center.pauseCommand.addTarget { _ in
+            guard #available(iOS 15.0, *) else { return .commandFailed }
+            Task { @MainActor in ApplicationMusicPlayer.shared.pause() }
+            return .success
+        }
+
+        center.togglePlayPauseCommand.isEnabled = true
+        center.togglePlayPauseCommand.addTarget { [weak self] _ in
+            guard #available(iOS 15.0, *) else { return .commandFailed }
+            Task { @MainActor in
+                let player = ApplicationMusicPlayer.shared
+                if player.state.playbackStatus == .playing {
+                    player.pause()
+                } else {
+                    self?.prepareAudioSession()
+                    try? await player.play()
+                }
+            }
+            return .success
+        }
+
+        center.nextTrackCommand.isEnabled = true
+        center.nextTrackCommand.addTarget { _ in
+            guard #available(iOS 15.0, *) else { return .commandFailed }
+            Task { @MainActor in
+                try? await ApplicationMusicPlayer.shared.skipToNextEntry()
+            }
+            return .success
+        }
+
+        center.previousTrackCommand.isEnabled = true
+        center.previousTrackCommand.addTarget { _ in
+            guard #available(iOS 15.0, *) else { return .commandFailed }
+            Task { @MainActor in
+                try? await ApplicationMusicPlayer.shared.skipToPreviousEntry()
+            }
+            return .success
+        }
+
+        NSLog("[AppleMusic] MPRemoteCommandCenter handlers registered — Control Center / lockscreen / AirPods can now pause and resume")
+    }
+
+    override public func load() {
+        super.load()
+        configureRemoteCommands()
     }
 
     // ── Pre-warm artwork for upcoming tracks ────────────────────────
@@ -1398,6 +1485,22 @@ public class AppleMusicPlugin: CAPPlugin {
     @objc func pause(_ call: CAPPluginCall) {
         ApplicationMusicPlayer.shared.pause()
         call.resolve(["status": "paused"])
+    }
+
+    @available(iOS 15.0, *)
+    @objc func stop(_ call: CAPPluginCall) {
+        // "Stop" = pause + clear the queue, so the now-playing bar
+        // disappears and there's nothing to resume into. Backs the X
+        // (dismiss) button on the global now-playing bar.
+        Task { @MainActor in
+            let player = ApplicationMusicPlayer.shared
+            player.pause()
+            // Replacing .queue with an empty Queue() drops every
+            // entry. This is the closest MusicKit gives us to a
+            // hard stop — there's no player.stop() in the API.
+            player.queue = ApplicationMusicPlayer.Queue()
+            call.resolve(["status": "stopped"])
+        }
     }
 
     @available(iOS 15.0, *)

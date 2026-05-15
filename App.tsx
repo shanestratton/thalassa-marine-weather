@@ -55,6 +55,14 @@ const SignInScreen = lazyRetry(
     () => import('./components/SignInScreen').then((m) => ({ default: m.SignInScreen })),
     'SignInScreen',
 );
+// Global now-playing bar — floats above the bottom nav on every
+// page while music is playing. Lazy because the vast majority of
+// app time has nothing in the queue and the bar's polling shouldn't
+// even start on the dashboard.
+const GlobalNowPlayingBar = lazyRetry(
+    () => import('./components/music/GlobalNowPlayingBar').then((m) => ({ default: m.GlobalNowPlayingBar })),
+    'GlobalNowPlayingBar',
+);
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -812,6 +820,15 @@ const App: React.FC = () => {
                             if (sheetData) fetchWeather(sheetData.locationName);
                         }}
                     />
+                </Suspense>
+
+                {/* Global now-playing bar — floats above the bottom nav
+                    on every page when music is queued, so the punter can
+                    pause/dismiss without going back to the Music page.
+                    Auto-hides on the music page itself (in-page bar
+                    handles it) and when nothing's queued. */}
+                <Suspense fallback={null}>
+                    <GlobalNowPlayingBar />
                 </Suspense>
 
                 {!isMobileLandscape && (
