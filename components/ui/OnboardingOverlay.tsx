@@ -72,22 +72,33 @@ export const OnboardingOverlay: React.FC = () => {
 
     // Returning-user race fix: useAppController sets STORAGE_KEY in its
     // boats-row-found path right after sign-in, but THAT effect runs
-    // after this component's useState initializer has already read
+    // after this component's useState initializer already read
     // localStorage as missing → visible=true → user sees the intro
-    // slides they don't need. Re-check the flag on every authStore
-    // change with a short delay, to give the useAppController side
-    // time to set it.
+    // slides they don't need.
+    //
+    // Poll the flag every 100 ms for up to 3 s after auth lands so
+    // we catch the late-write before the user has perceived the
+    // flash. (300 ms fixed delay was too short — pullFromCloud
+    // can now block on Geolocation.requestPermissions waiting for
+    // the user to tap Allow, which delays the rest of the
+    // sign-in chain.)
     const authedUser = useAuthStore((s) => s.user);
     useEffect(() => {
         if (!authedUser) return;
-        const t = setTimeout(() => {
+        const start = Date.now();
+        const id = window.setInterval(() => {
             try {
-                if (localStorage.getItem(STORAGE_KEY)) setVisible(false);
+                if (localStorage.getItem(STORAGE_KEY)) {
+                    setVisible(false);
+                    window.clearInterval(id);
+                    return;
+                }
             } catch {
                 /* private mode, ok */
             }
-        }, 300);
-        return () => clearTimeout(t);
+            if (Date.now() - start > 3000) window.clearInterval(id);
+        }, 100);
+        return () => window.clearInterval(id);
     }, [authedUser]);
 
     const dismiss = useCallback(() => {
