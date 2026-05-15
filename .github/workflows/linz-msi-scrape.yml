@@ -34,7 +34,10 @@ jobs:
             - name: Set up Node
               uses: actions/setup-node@v4
               with:
-                  node-version: '20'
+                  # Node 22+ for the native WebSocket implementation —
+                  # supabase-js v2 initialises its Realtime transport on
+                  # createClient() and errors out on Node 20 without it.
+                  node-version: '22'
                   cache: 'npm'
                   cache-dependency-path: scripts/linz-msi-scrape/package.json
 
