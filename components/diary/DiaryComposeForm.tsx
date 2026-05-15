@@ -158,22 +158,24 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         })}
                     </div>
 
-                    {/* ═══ VOICE | POLISH ═══
-                        Position auto-acquires on compose open and is saved
-                        with the entry silently — no UI surface, the user
-                        doesn't need to think about it. For back-dated
-                        entries the "Location" input below overrides the
-                        displayed place name. */}
+                    {/* ═══ VOICE · POLISH · STYLE — single 44px row ═══
+                        Was three lines of UI (voice/polish row + label + dropdown
+                        row + filler); now one row of two icon-only buttons plus
+                        the style picker. Position auto-acquires silently; the
+                        editable "Location" input below handles back-dated
+                        overrides. */}
                     <div className="shrink-0 space-y-2">
-                        <div className="flex gap-2">
-                            {/* Voice */}
+                        <div className="flex gap-2 items-stretch">
+                            {/* Voice — icon-only, mic turns red + pulses while
+                                recording so the label is redundant. */}
                             <button
-                                aria-label="Start voice recording"
+                                aria-label={isRecording ? 'Stop recording' : 'Start voice recording'}
+                                type="button"
                                 onClick={isRecording ? onStopRecording : onStartRecording}
-                                className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border transition-all active:scale-[0.95] ${
+                                className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] ${
                                     isRecording
                                         ? 'bg-red-500/20 border-red-500/30 animate-pulse'
-                                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-emerald-500/10 hover:border-emerald-500/15'
+                                        : 'bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20'
                                 }`}
                             >
                                 <svg
@@ -181,7 +183,8 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                     fill={isRecording ? 'currentColor' : 'none'}
                                     viewBox="0 0 24 24"
                                     stroke="currentColor"
-                                    strokeWidth={1.5}
+                                    strokeWidth={1.7}
+                                    aria-hidden="true"
                                 >
                                     {isRecording ? (
                                         <rect x="6" y="6" width="12" height="12" rx="2" />
@@ -193,48 +196,37 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                                         />
                                     )}
                                 </svg>
-                                <span
-                                    className={`text-[11px] font-bold uppercase tracking-wider leading-none ${isRecording ? 'text-red-400' : 'text-emerald-400/70'}`}
-                                >
-                                    {isRecording ? 'Stop' : 'Voice'}
-                                </span>
                             </button>
 
-                            {/* Polish */}
+                            {/* Polish — icon-only, dimmed until body has enough
+                                text to polish. The style chip on the right tells
+                                the user what style this button will apply. */}
                             <button
                                 aria-label="Polish entry text"
+                                type="button"
                                 onClick={onPolish}
                                 disabled={polishing || body.trim().length < 10}
-                                className={`flex-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border transition-all active:scale-[0.95] ${
+                                className={`w-11 h-11 shrink-0 flex items-center justify-center rounded-xl border transition-all active:scale-[0.95] text-lg ${
                                     polishing
                                         ? 'bg-purple-500/30 border-purple-500/30 animate-pulse'
                                         : body.trim().length >= 10
-                                          ? 'bg-purple-500/20 border-purple-500/30 hover:bg-purple-500/30'
+                                          ? 'bg-purple-500/15 border-purple-500/25 hover:bg-purple-500/25'
                                           : 'bg-white/[0.03] border-white/[0.06] opacity-30 cursor-default'
                                 }`}
                             >
-                                <span className="text-lg">{polishing ? '⏳' : '✨'}</span>
-                                <span className="text-[11px] font-bold text-purple-300/70 uppercase tracking-wider leading-none">
-                                    Polish
-                                </span>
+                                <span aria-hidden="true">{polishing ? '⏳' : '✨'}</span>
                             </button>
-                        </div>
 
-                        {/* Polish style — preset dropdown. Replaced the
-                            clean→literary slider so the row fits in the
-                            cramped New Entry sheet without scrolling. The
-                            chosen style persists across sessions and
-                            devices via settings.polishStyle. */}
-                        <div className="flex items-center gap-2 px-1">
-                            <span className="text-[11px] font-bold text-purple-300/70 uppercase tracking-wider shrink-0">
-                                ✨ Polish
-                            </span>
-                            <div className="relative flex-1">
+                            {/* Polish style — preset dropdown, fills the rest
+                                of the row. Chip + chevron makes it obvious this
+                                is interactive. Choice persists via
+                                settings.polishStyle. */}
+                            <div className="relative flex-1 min-w-0">
                                 <select
                                     value={polishStyle}
                                     onChange={(e) => onSetPolishStyle(e.target.value as PolishStyle)}
                                     aria-label="Polish style"
-                                    className="w-full appearance-none bg-purple-500/[0.08] border border-purple-500/25 rounded-lg pl-3 pr-8 py-1.5 text-[11px] text-purple-100 font-bold outline-none focus:border-purple-400/60 hover:bg-purple-500/[0.12] transition-colors cursor-pointer [color-scheme:dark]"
+                                    className="w-full h-11 appearance-none bg-purple-500/[0.08] border border-purple-500/25 rounded-xl pl-3 pr-8 text-[11px] text-purple-100 font-bold outline-none focus:border-purple-400/60 hover:bg-purple-500/[0.12] transition-colors cursor-pointer [color-scheme:dark]"
                                 >
                                     {(Object.entries(POLISH_LABEL) as [PolishStyle, string][]).map(([value, label]) => (
                                         <option key={value} value={value} className="bg-slate-900 text-purple-100">
