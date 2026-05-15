@@ -33,6 +33,7 @@ import { saveLargeDataImmediate, DATA_CACHE_KEY } from '../services/nativeStorag
 import { getSystemUnits } from '../utils';
 import { GpsService } from '../services/GpsService';
 import { Capacitor } from '@capacitor/core';
+import { supabase } from '../services/supabase';
 import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
 
@@ -119,9 +120,13 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     const [showMap, setShowMap] = useState(false);
     const [tempLocation, setTempLocation] = useState<{ lat: number; lon: number; name: string } | null>(null);
 
-    // User Name (collected in step 3 alongside home port)
+    // User Name — four parts so two crew with the same first name can share a
+    // boat without colliding on the public voyage-log byline. First + surname
+    // required; prefix (Capt., Dr., …) + nickname optional.
+    const [prefix, setPrefix] = useState('');
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
+    const [nickname, setNickname] = useState('');
 
     // Core Vessel Data
     const [vesselType, setVesselType] = useState<'sail' | 'power' | 'observer'>('sail');
@@ -191,7 +196,8 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
     };
 
     const handleNext = () => {
-        if (step === 2 && !homePort.trim()) return; // Require location
+        // Step 2 requires home port + first name + surname before progress.
+        if (step === 2 && (!homePort.trim() || !firstName.trim() || !lastName.trim())) return;
 
         // If leaving step 2 with a manually-typed location (no coords yet), geocode + prefetch
         if (step === 2 && !prefetchRef.current && homePort.trim()) {
@@ -492,8 +498,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         };
 
         const settings: Partial<UserSettings> = {
+            prefix: sanitizeText(prefix) || undefined,
             firstName: sanitizeText(firstName) || undefined,
             lastName: sanitizeText(lastName) || undefined,
+            nickname: sanitizeText(nickname) || undefined,
             defaultLocation: homePort,
             // Save the actual coords too, not just the name string.
             // Without this, the weather fetcher re-geocodes "Newport"
@@ -538,6 +546,24 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         localStorage.setItem('thalassa_v3_onboarded', 'true');
         localStorage.setItem('thalassa_tutorial_completed', 'true'); // Tips now shown during onboarding
         localStorage.setItem('thalassa_crew_count', String(crewCount ? parseInt(crewCount) || 2 : 2));
+
+        // Mirror the four name parts into auth.users.raw_user_meta_data so the
+        // voyage-log SQL helper (user_name_parts) can compose the byline
+        // server-side. Fire-and-forget — local Capacitor Preferences is still
+        // the canonical settings store, this is just for the boat-member sync.
+        if (supabase) {
+            void supabase.auth
+                .updateUser({
+                    data: {
+                        prefix: sanitizeText(prefix) || null,
+                        first_name: sanitizeText(firstName) || null,
+                        last_name: sanitizeText(lastName) || null,
+                        nickname: sanitizeText(nickname) || null,
+                    },
+                })
+                .catch((err) => log.warn('auth.updateUser failed (non-fatal):', err));
+        }
+
         onComplete({
             ...settings,
             subscriptionTier,
@@ -600,10 +626,14 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
                         onLocate={handleLocate}
                         onMapSelect={handleMapSelect}
                         onConfirmMapSelection={confirmMapSelection}
+                        prefix={prefix}
+                        onPrefixChange={setPrefix}
                         firstName={firstName}
                         onFirstNameChange={setFirstName}
                         lastName={lastName}
                         onLastNameChange={setLastName}
+                        nickname={nickname}
+                        onNicknameChange={setNickname}
                         onNext={handleNext}
                     />
                 )}
