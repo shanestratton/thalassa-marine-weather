@@ -1026,6 +1026,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     // WS (don't wait for the final flush since we're
                     // bypassing it) and ship the text directly.
                     await dgHandle.cancel();
+                    rearmPrewarm(); // overlap re-arm with the API call below
                     setActiveTarget(null);
                     setActiveRecognizerKind(null);
                     setLiveTranscript('');
@@ -1034,6 +1035,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 } else if (srHandle) {
                     // Apple SR fallback path — same flow, different recognizer.
                     await srHandle.cancel();
+                    rearmPrewarm();
                     setActiveTarget(null);
                     setActiveRecognizerKind(null);
                     setLiveTranscript('');
@@ -1041,6 +1043,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     await sendVoiceQuery(new Blob([], { type: 'audio/mp4' }), target, cleanedText);
                 } else if (handle) {
                     const blob = await handle.stop();
+                    rearmPrewarm();
                     setActiveTarget(null);
                     setActiveRecognizerKind(null);
                     setLiveTranscript('');
@@ -1051,9 +1054,12 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                 setErrorMessage((err as Error).message);
                 setOneButton(target, 'error');
                 setTimeout(() => setOneButton(target, 'idle'), 1500);
+                // Even on error, re-arm so the next tap isn't worse than it
+                // would be without this whole fix.
+                rearmPrewarm();
             }
         },
-        [sendVoiceQuery, setOneButton],
+        [rearmPrewarm, sendVoiceQuery, setOneButton],
     );
 
     // ── Tap handlers ────────────────────────────────────────────────────
@@ -1332,6 +1338,11 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         // ever travels over our edge function — the audio
                         // already streamed to Deepgram directly.
                         const dg = await dgHandle.stop();
+                        // Re-arm the prewarm pipeline NOW so it overlaps with
+                        // the API call below. By the time the user has heard
+                        // Calypso's response and is ready to tap again, the
+                        // mic / context / worklet / WebSocket are all warm.
+                        rearmPrewarm();
                         setActiveTarget(null);
                         setActiveRecognizerKind(null);
                         setLiveTranscript('');
@@ -1367,6 +1378,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         // on-device transcript, hit Haiku directly with
                         // text. No audio blob.
                         const sr = await srHandle.stop();
+                        rearmPrewarm();
                         setActiveTarget(null);
                         setActiveRecognizerKind(null);
                         setLiveTranscript('');
@@ -1403,6 +1415,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                         // MediaRecorder fallback path: stop, send blob to
                         // Scribe-backed edge function for STT.
                         const blob = await handle.stop();
+                        rearmPrewarm();
                         setActiveTarget(null);
                         setActiveRecognizerKind(null);
                         setLiveTranscript('');
@@ -1413,12 +1426,6 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
                     setErrorMessage((err as Error).message);
                     setOneButton(which, 'error');
                     setTimeout(() => setOneButton(which, 'idle'), 1500);
-                } finally {
-                    // Re-arm so the NEXT tap is as fast as the first.
-                    // The teardown above closed the AudioContext, stopped
-                    // the mic tracks, and consumed all prewarm slots —
-                    // without this every subsequent tap cold-starts and
-                    // eats the first few words of speech on iOS.
                     rearmPrewarm();
                 }
             }
@@ -1432,6 +1439,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
             stopAudio,
             unlockAudio,
             handleOverGesture,
+            rearmPrewarm,
             srActive,
             // CRITICAL: status states must be in deps. Without them the
             // callback closes over the initial 'unknown' values, so even
