@@ -9,7 +9,7 @@
  * saving an entry — this tab is the account-level control surface.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Browser } from '@capacitor/browser';
 import {
     VoyageLogService,
@@ -50,6 +50,11 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
     const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
     const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
     const [setupError, setSetupError] = useState<string | null>(null);
+
+    // Ref for the hero URL element — used by the auto-fit effect below
+    // to grow/shrink the font so the whole link fits on one line. Must
+    // live above the early-returns so hooks order is stable.
+    const urlRef = useRef<HTMLDivElement>(null);
 
     const loadCrewBoats = useCallback(async () => {
         if (!supabase) return;
@@ -112,6 +117,30 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
             cancelled = true;
         };
     }, [loadCrewBoats]);
+
+    // Auto-fit the public URL hero text to its container — start at
+    // 22px and shrink one px at a time until the whole link fits on
+    // one line. Re-runs whenever the handle changes OR the container
+    // resizes (rotation, settings sheet resize, etc.). Long handles
+    // get smaller, short ones stay big.
+    useEffect(() => {
+        const el = urlRef.current;
+        const parent = el?.parentElement;
+        if (!el || !parent) return;
+        const fit = () => {
+            const max = parent.clientWidth;
+            let size = 22;
+            el.style.fontSize = `${size}px`;
+            while (el.scrollWidth > max && size > 9) {
+                size -= 1;
+                el.style.fontSize = `${size}px`;
+            }
+        };
+        fit();
+        const ro = new ResizeObserver(fit);
+        ro.observe(parent);
+        return () => ro.disconnect();
+    }, [config?.handle]);
 
     const copy = useCallback(async (field: string, value: string) => {
         try {
@@ -347,7 +376,11 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
                         Your Voyage Log is live
                     </span>
                 </div>
-                <div className="text-base font-mono font-bold text-white truncate" title={publicUrl}>
+                <div
+                    ref={urlRef}
+                    className="font-mono font-bold text-white whitespace-nowrap overflow-hidden"
+                    title={publicUrl}
+                >
                     {publicUrl}
                 </div>
                 <div className="flex gap-2 mt-3">
