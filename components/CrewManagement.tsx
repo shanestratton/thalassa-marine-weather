@@ -827,8 +827,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     ) : (
                         <div className="bg-white/[0.03] border border-dashed border-white/[0.08] rounded-lg p-3 text-center">
                             <p className="text-[11px] text-gray-400">
-                                No draft passages yet. Plan a route from the <strong>Route Planner</strong> to create
-                                one.
+                                No draft passages yet. Tap <strong>Plan a route</strong> above to create one.
                             </p>
                         </div>
                     )}
