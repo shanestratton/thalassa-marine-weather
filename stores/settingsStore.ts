@@ -169,6 +169,22 @@ async function pullFromCloud(userId: string): Promise<void> {
             isPro: tierIsPro(cloudSettings?.subscriptionTier ?? current.subscriptionTier),
         };
 
+        // Fallback: if neither cloud nor local has a defaultLocation
+        // we'd hand the weather flow nothing to fetch, and the Glass
+        // page spins forever. Returning users whose profiles row was
+        // never populated (common after multiple reinstalls that
+        // bypass onboarding via the boats-row check) hit this.
+        // Default to 'Current Location' — we already requested GPS
+        // permission in the boats-found path, and the orchestrator's
+        // existing GPS branch picks it up. User can change later in
+        // Settings.
+        if (!merged.defaultLocation) {
+            log.warn(
+                '[pullFromCloud] No defaultLocation found locally or in cloud — defaulting to Current Location for GPS-based weather',
+            );
+            merged.defaultLocation = 'Current Location';
+        }
+
         useSettingsStore.setState({ settings: merged, isPro: merged.isPro });
 
         // Persist back to Capacitor Preferences so next cold boot is
