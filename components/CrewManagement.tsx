@@ -987,15 +987,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                 {/* CrewRoster moved to the top of the scroll content. */}
 
-                {/* ── READINESS CARDS ── only shown once a passage is
-                    selected. Without a passage they have no route /
-                    ETA / weather window to compute against, and
-                    showing them with zeros + placeholders is just
-                    noise. Vessel-wide checks (Reserves, Pre-Check,
-                    Medical, Comms) will get their own Vessel Readiness
-                    home in a follow-up so they're accessible without
-                    a passage. */}
-                {!loading && selectedPassageId ? (
+                {/* ── READINESS CARDS ── always render the stack so the
+                    three group headers stay visible. The cards inside each
+                    group are gated on selectedPassageId by the stack
+                    itself — when no passage is picked, just the headers
+                    show (rolled up) with a hint above pointing the user
+                    at the passage selector. */}
+                {!loading && (
                     <ReadinessCardStack
                         selectedPassageId={selectedPassageId}
                         draftVoyages={draftVoyages}
@@ -1034,17 +1032,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         onWeatherWindowChange={setWeatherWindowReady}
                         onCurrentsChange={setCurrentsBriefed}
                     />
-                ) : !loading && draftVoyages.length === 0 ? (
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-5 text-center">
-                        <p className="text-sm text-gray-400">Plan a route to see your passage readiness checks.</p>
-                    </div>
-                ) : !loading ? (
-                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-5 text-center">
-                        <p className="text-sm text-gray-400">
-                            Pick an active passage above to see your readiness checks.
-                        </p>
-                    </div>
-                ) : null}
+                )}
             </div>
 
             {/* ── INVITE MODAL ── */}
