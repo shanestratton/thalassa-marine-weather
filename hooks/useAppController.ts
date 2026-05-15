@@ -10,6 +10,8 @@ import { formatLocationInput, getSunTimes, formatCoordinate } from '../utils';
 import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
+import { useAuthStore } from '../stores/authStore';
+import { supabase } from '../services/supabase';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -48,6 +50,7 @@ export const useAppController = () => {
     const { weatherData, loading, fetchWeather, selectLocation } = useWeather();
     const { settings, updateSettings } = useSettings();
     const { setPage, isOffline, currentView } = useUI();
+    const authedUser = useAuthStore((s) => s.user);
 
     const [query, setQuery] = useState('');
     const [bgImage, setBgImage] = useState(DEFAULT_BACKGROUNDS.default);
@@ -63,21 +66,72 @@ export const useAppController = () => {
     const gpsBootRan = React.useRef(false);
 
     // 1. Initial Load
+    //
+    // Onboarding gate logic:
+    //   - localStorage flag present → user has onboarded before on
+    //     THIS install, skip.
+    //   - flag absent + signed-in user has a boats row in cloud →
+    //     they onboarded on another device. Back-fill the flag so
+    //     future boots are fast-path, then skip.
+    //   - flag absent + no boats row → genuinely new account, show
+    //     onboarding.
+    //
+    // This is the fix for the "reinstall mints duplicate vessel"
+    // bug — pre-refactor, every reinstall ran onboarding because
+    // localStorage is sandboxed per-install, even when the cloud
+    // identity already had a boat.
     useEffect(() => {
-        const onboarded = localStorage.getItem('thalassa_v3_onboarded');
-        if (!onboarded) {
-            setShowOnboarding(true);
-        } else if (!weatherData && !loading && settings.defaultLocation) {
-            setPage('dashboard');
-            // Pass the saved coords if we have them — prevents the
-            // weather orchestrator from forward-geocoding the name
-            // string and picking a wrong match (e.g. Mapbox prefers
-            // Newport, Monmouthshire UK over Newport, QLD AU for a
-            // query of 'Newport, QLD, AU').
-            fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
-        }
+        let cancelled = false;
+
+        (async () => {
+            const flag = localStorage.getItem('thalassa_v3_onboarded');
+
+            if (flag) {
+                // Fast path — flag means we've done this dance before.
+                if (!weatherData && !loading && settings.defaultLocation) {
+                    setPage('dashboard');
+                    // Pass the saved coords if we have them — prevents
+                    // the weather orchestrator from forward-geocoding
+                    // and picking a wrong match (e.g. Mapbox prefers
+                    // Newport, Monmouthshire UK over Newport, QLD AU).
+                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                }
+                return;
+            }
+
+            // No local flag. Are we authed AND do we have a cloud
+            // boat row? If yes, this is a re-install of an existing
+            // user — back-fill flag, skip onboarding.
+            if (authedUser && supabase) {
+                try {
+                    const { data: boat } = await supabase
+                        .from('boats')
+                        .select('id')
+                        .eq('owner_id', authedUser.id)
+                        .maybeSingle();
+                    if (cancelled) return;
+                    if (boat?.id) {
+                        localStorage.setItem('thalassa_v3_onboarded', 'true');
+                        if (!weatherData && !loading && settings.defaultLocation) {
+                            setPage('dashboard');
+                            fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                        }
+                        return;
+                    }
+                } catch (err) {
+                    log.warn('boats cloud-check failed; falling through to onboarding:', err);
+                }
+            }
+
+            // Genuinely new account (or offline + no flag). Show onboarding.
+            if (!cancelled) setShowOnboarding(true);
+        })();
+
+        return () => {
+            cancelled = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [settings.defaultLocation]);
+    }, [settings.defaultLocation, authedUser]);
 
     // 1b. GPS Auto-Locate — update weather ONLY if the current weather is the
     // user's home port AND they've moved away from it. If the cached weather

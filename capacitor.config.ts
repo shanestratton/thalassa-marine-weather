@@ -29,6 +29,17 @@ const config: CapacitorConfig = {
             resize: KeyboardResize.None, // Keyboard overlays — doesn't push content up
             resizeOnFullScreen: false,
         },
+        // Google native sign-in. The clientId here MUST be the iOS
+        // OAuth client ID from Google Cloud Console (the one whose
+        // reversed form lives in ios/App/App/Info.plist as a URL
+        // scheme). The .apps.googleusercontent.com suffix is required.
+        // Scopes kept minimal — email + profile is all we need to
+        // mint a Supabase user.
+        GoogleAuth: {
+            clientId: '717700927804-t644h587eb4kaklh3cb495k2ec7q8q6v.apps.googleusercontent.com',
+            scopes: ['profile', 'email'],
+            forceCodeForRefreshToken: false,
+        },
     },
     ios: {
         allowsLinkPreview: false,

@@ -3,6 +3,7 @@ import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useLocationStore } from './stores/LocationStore';
+import { useAuthStore } from './stores/authStore';
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
@@ -47,6 +48,13 @@ const OnboardingOverlay = lazyRetry(
     () => import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
     'OnboardingOverlay',
 );
+// Auth gate — boot-time hard sign-in. Lazy-loaded because the
+// vast majority of cold boots are returning users who already have
+// a session in Capacitor Preferences and never see SignInScreen.
+const SignInScreen = lazyRetry(
+    () => import('./components/SignInScreen').then((m) => ({ default: m.SignInScreen })),
+    'SignInScreen',
+);
 
 const App: React.FC = () => {
     // 1. DATA STATE
@@ -61,6 +69,13 @@ const App: React.FC = () => {
 
     // --- LEGAL DISCLAIMER GATE ---
     const [disclaimerAccepted, setDisclaimerAccepted] = useState(() => checkDisclaimerAccepted());
+
+    // --- AUTH GATE: read from authStore. authChecked starts false on
+    // cold boot and flips true after supabase.auth.getSession resolves;
+    // authedUser is non-null only when there's a live session. The
+    // gate itself is rendered below the disclaimer return. ---
+    const authedUser = useAuthStore((s) => s.user);
+    const authChecked = useAuthStore((s) => s.authChecked);
 
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
@@ -240,6 +255,26 @@ const App: React.FC = () => {
     // --- DISCLAIMER GATE: block app until accepted ---
     if (!disclaimerAccepted) {
         return <DisclaimerOverlay onAccepted={() => setDisclaimerAccepted(true)} />;
+    }
+
+    // --- AUTH GATE: must be signed in before any feature loads ---
+    // Hard gate: no anonymous use, no skip. Solves the "fresh install
+    // mints duplicate vessel" bug at its root — identity is known
+    // BEFORE any handle gets minted in voyage_log_configs.
+    //
+    // The store starts with `authChecked=false` until
+    // supabase.auth.getSession() resolves on cold boot; we render a
+    // brief blank during that window rather than flashing SignInScreen
+    // for a frame and then unmounting it.
+    if (!authChecked) {
+        return <div className="fixed inset-0 bg-slate-950" />;
+    }
+    if (!authedUser) {
+        return (
+            <Suspense fallback={<div className="fixed inset-0 bg-slate-950" />}>
+                <SignInScreen />
+            </Suspense>
+        );
     }
 
     return (
