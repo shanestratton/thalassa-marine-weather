@@ -86,8 +86,15 @@ export interface VoyageLogTelemetry {
     updated_at: string;
 }
 
+export interface VoyageLogDestination {
+    name: string | null;
+    lat: number;
+    lon: number;
+}
+
 export interface VoyageLogData {
     vessel: { name: string; type: string; model: string | null };
+    destination: VoyageLogDestination | null;
     entries: VoyageLogEntry[];
     track: VoyageLogTrackPoint[];
     telemetry: VoyageLogTelemetry | null;

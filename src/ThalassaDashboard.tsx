@@ -3,7 +3,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import TopNav from './components/TopNav';
 import MapContainer from './components/MapContainer';
 import DiarySidebar from './components/DiarySidebar';
-import { PhotoLightbox } from './components/PhotoLightbox';
+import { PhotoLightbox, type PhotoLightboxMetadata } from './components/PhotoLightbox';
+import { VoyageProgressBar } from './components/VoyageProgressBar';
 import {
     fetchVoyageLog,
     parseVoyageLogParams,
@@ -25,10 +26,23 @@ interface LightboxState {
     photos: string[];
     index: number;
     caption: string;
+    metadata: PhotoLightboxMetadata;
 }
 
 const entryCaption = (e: VoyageLogEntry): string =>
     [e.title || 'Untitled', e.location_name].filter(Boolean).join(' · ');
+
+const entryLightbox = (entry: VoyageLogEntry, index: number): LightboxState => ({
+    photos: entry.photos,
+    index,
+    caption: entryCaption(entry),
+    metadata: {
+        capturedAt: entry.created_at,
+        lat: entry.latitude,
+        lon: entry.longitude,
+        locationName: entry.location_name,
+    },
+});
 
 export default function ThalassaDashboard() {
     const [state, setState] = useState<LoadState>({ status: 'loading' });
@@ -74,7 +88,7 @@ export default function ThalassaDashboard() {
     // A photo tap: focus the entry (so the box shows its story) + open fullscreen.
     const handlePhoto = useCallback((entry: VoyageLogEntry, index: number) => {
         setSelectedEntry(entry);
-        setLightbox({ photos: entry.photos, index, caption: entryCaption(entry) });
+        setLightbox(entryLightbox(entry, index));
     }, []);
 
     // ── Loading ───────────────────────────────────────────────────
@@ -99,11 +113,12 @@ export default function ThalassaDashboard() {
     }
 
     // ── Ready ─────────────────────────────────────────────────────
-    const { vessel, entries, track, telemetry } = state.data;
+    const { vessel, destination, entries, track, telemetry } = state.data;
 
     return (
         <div className="flex flex-col h-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
             <TopNav vessel={vessel} telemetry={telemetry} entryCount={entries.length} />
+            <VoyageProgressBar track={track} destination={destination} />
 
             <div className="flex flex-1 overflow-hidden relative flex-col md:flex-row">
                 <main className="flex-1 bg-slate-950 relative min-h-[45vh]">
@@ -127,6 +142,7 @@ export default function ThalassaDashboard() {
                     photos={lightbox.photos}
                     startIndex={lightbox.index}
                     caption={lightbox.caption}
+                    metadata={lightbox.metadata}
                     onClose={() => setLightbox(null)}
                 />
             )}

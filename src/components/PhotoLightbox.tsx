@@ -1,15 +1,60 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+// tz-lookup ships no types — declared in src/tz-lookup.d.ts.
+import tzlookup from 'tz-lookup';
+
+export interface PhotoLightboxMetadata {
+    /** ISO timestamp the photo was captured at. */
+    capturedAt: string;
+    /** Capture-location latitude (decimal degrees), if known. */
+    lat: number | null;
+    /** Capture-location longitude (decimal degrees), if known. */
+    lon: number | null;
+    /** Optional human label — e.g. "Coral Sea passage". */
+    locationName?: string;
+}
 
 interface PhotoLightboxProps {
     photos: string[];
     startIndex?: number;
     /** Shown along the bottom — e.g. entry title · location. */
     caption?: string;
+    /** Capture-context metadata: local time at the capture point + GPS. */
+    metadata?: PhotoLightboxMetadata;
     onClose: () => void;
 }
 
+const formatCoord = (lat: number, lon: number): string => {
+    const latDir = lat >= 0 ? 'N' : 'S';
+    const lonDir = lon >= 0 ? 'E' : 'W';
+    return `${Math.abs(lat).toFixed(2)}°${latDir} · ${Math.abs(lon).toFixed(2)}°${lonDir}`;
+};
+
+const formatLocalCaptureTime = (capturedAt: string, lat: number | null, lon: number | null): string | null => {
+    let tz: string | undefined;
+    if (lat != null && lon != null) {
+        try {
+            tz = tzlookup(lat, lon);
+        } catch {
+            tz = undefined;
+        }
+    }
+    try {
+        return new Date(capturedAt).toLocaleString(undefined, {
+            timeZone: tz,
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZoneName: 'short',
+        });
+    } catch {
+        return null;
+    }
+};
+
 /** Fullscreen, swipeable photo viewer for the Voyage Log. */
-export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex = 0, caption, onClose }) => {
+export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex = 0, caption, metadata, onClose }) => {
     const [index, setIndex] = useState(startIndex);
     const touchStartX = useRef<number | null>(null);
 
@@ -40,6 +85,10 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
         touchStartX.current = null;
         if (Math.abs(delta) > 50) go(delta < 0 ? 1 : -1);
     };
+
+    const localTime = metadata ? formatLocalCaptureTime(metadata.capturedAt, metadata.lat, metadata.lon) : null;
+    const coordStr =
+        metadata && metadata.lat != null && metadata.lon != null ? formatCoord(metadata.lat, metadata.lon) : null;
 
     return (
         <div
@@ -117,11 +166,17 @@ export const PhotoLightbox: React.FC<PhotoLightboxProps> = ({ photos, startIndex
                 )}
             </div>
 
-            {/* Caption + dots */}
-            <div className="shrink-0 px-5 py-4 text-center space-y-2">
+            {/* Caption + metadata + dots */}
+            <div className="shrink-0 px-5 py-4 text-center space-y-1.5">
                 {caption && <p className="text-sm text-slate-300">{caption}</p>}
+                {(localTime || coordStr) && (
+                    <p className="text-[11px] font-mono text-slate-500 flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5">
+                        {localTime && <span>{localTime}</span>}
+                        {coordStr && <span className="text-slate-400">{coordStr}</span>}
+                    </p>
+                )}
                 {multi && (
-                    <div className="flex items-center justify-center gap-1.5">
+                    <div className="flex items-center justify-center gap-1.5 pt-1">
                         {photos.map((_, i) => (
                             <button
                                 key={i}
