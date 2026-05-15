@@ -6,7 +6,7 @@
  */
 import React from 'react';
 import { t } from '../../theme';
-import { type SharedRegister, VESSEL_REGISTERS } from '../../services/CrewService';
+import { type SharedRegister, INVITE_REGISTERS } from '../../services/CrewService';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { RegisterButton } from './RegisterButton';
 
@@ -76,10 +76,10 @@ export const InviteCrewModal: React.FC<InviteCrewModalProps> = ({
                 {/* Vessel Registers */}
                 <div>
                     <label className="text-[11px] uppercase font-bold text-gray-400 mb-2 ml-1 block tracking-wide">
-                        Vessel Registers
+                        Share Access
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                        {VESSEL_REGISTERS.map((reg) => (
+                        {INVITE_REGISTERS.map((reg) => (
                             <RegisterButton
                                 key={reg}
                                 reg={reg}
