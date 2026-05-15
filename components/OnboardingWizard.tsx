@@ -547,6 +547,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         localStorage.setItem('thalassa_tutorial_completed', 'true'); // Tips now shown during onboarding
         localStorage.setItem('thalassa_crew_count', String(crewCount ? parseInt(crewCount) || 2 : 2));
 
+        // Trigger the intro overlay + glass gesture tutorial. Default
+        // hidden on mount (see OnboardingOverlay and GlassTutorial)
+        // to stop them from flashing for returning users whose
+        // boats-row check sets their suppression flags slightly
+        // later than the overlays mount. This event is the ONLY
+        // moment we show them — exclusively for brand-new accounts
+        // that just finished the wizard.
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('thalassa:show-intro-overlay'));
+            window.dispatchEvent(new CustomEvent('thalassa:show-glass-tutorial'));
+        }
+
         // Mirror the four name parts into auth.users.raw_user_meta_data so the
         // voyage-log SQL helper (user_name_parts) can compose the byline
         // server-side. Fire-and-forget — local Capacitor Preferences is still

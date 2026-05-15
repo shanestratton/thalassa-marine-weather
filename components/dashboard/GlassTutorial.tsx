@@ -18,7 +18,6 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { useAuthStore } from '../../stores/authStore';
 
 const STORAGE_KEY = 'thalassa_glass_tutorial_seen';
 
@@ -60,36 +59,27 @@ const SLIDES: Slide[] = [
 ];
 
 export const GlassTutorial: React.FC = () => {
-    const [visible, setVisible] = useState(() => {
-        try {
-            return !localStorage.getItem(STORAGE_KEY);
-        } catch {
-            return true;
-        }
-    });
+    // Default HIDDEN. Same model as OnboardingOverlay: the wizard
+    // dispatches `thalassa:show-glass-tutorial` after a brand-new
+    // account finishes vessel setup. Returning users on a fresh
+    // install never trigger the wizard → never see this →
+    // no flash.
+    const [visible, setVisible] = useState(false);
     const [current, setCurrent] = useState(0);
 
-    // Returning-user race fix (mirrors OnboardingOverlay): poll the
-    // flag for up to 3 s after auth lands so we catch the late
-    // useAppController write before the user perceives the flash.
-    const authedUser = useAuthStore((s) => s.user);
     useEffect(() => {
-        if (!authedUser) return;
-        const start = Date.now();
-        const id = window.setInterval(() => {
+        const handler = () => {
             try {
-                if (localStorage.getItem(STORAGE_KEY)) {
-                    setVisible(false);
-                    window.clearInterval(id);
-                    return;
-                }
+                if (localStorage.getItem(STORAGE_KEY)) return; // already seen
             } catch {
                 /* ok */
             }
-            if (Date.now() - start > 3000) window.clearInterval(id);
-        }, 100);
-        return () => window.clearInterval(id);
-    }, [authedUser]);
+            setVisible(true);
+            setCurrent(0);
+        };
+        window.addEventListener('thalassa:show-glass-tutorial', handler);
+        return () => window.removeEventListener('thalassa:show-glass-tutorial', handler);
+    }, []);
 
     const dismiss = useCallback(() => {
         try {
