@@ -987,8 +987,15 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                 {/* CrewRoster moved to the top of the scroll content. */}
 
-                {/* ── READINESS CARDS ── */}
-                {!loading && (
+                {/* ── READINESS CARDS ── only shown once a passage is
+                    selected. Without a passage they have no route /
+                    ETA / weather window to compute against, and
+                    showing them with zeros + placeholders is just
+                    noise. Vessel-wide checks (Reserves, Pre-Check,
+                    Medical, Comms) will get their own Vessel Readiness
+                    home in a follow-up so they're accessible without
+                    a passage. */}
+                {!loading && selectedPassageId ? (
                     <ReadinessCardStack
                         selectedPassageId={selectedPassageId}
                         draftVoyages={draftVoyages}
@@ -1027,7 +1034,17 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         onWeatherWindowChange={setWeatherWindowReady}
                         onCurrentsChange={setCurrentsBriefed}
                     />
-                )}
+                ) : !loading && draftVoyages.length === 0 ? (
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-5 text-center">
+                        <p className="text-sm text-gray-400">Plan a route to see your passage readiness checks.</p>
+                    </div>
+                ) : !loading ? (
+                    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-5 text-center">
+                        <p className="text-sm text-gray-400">
+                            Pick an active passage above to see your readiness checks.
+                        </p>
+                    </div>
+                ) : null}
             </div>
 
             {/* ── INVITE MODAL ── */}
