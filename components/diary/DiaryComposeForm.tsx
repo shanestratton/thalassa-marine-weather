@@ -14,12 +14,6 @@ import { OfflineBadge } from '../ui/OfflineBadge';
 import { POLISH_LABEL, type PolishStyle } from '../../types/settings';
 
 // ── Helpers ──
-const formatCoord = (lat: number, lon: number): string => {
-    const latDir = lat >= 0 ? 'N' : 'S';
-    const lonDir = lon >= 0 ? 'E' : 'W';
-    return `${Math.abs(lat).toFixed(4)}°${latDir}, ${Math.abs(lon).toFixed(4)}°${lonDir}`;
-};
-
 const formatDuration = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
@@ -34,14 +28,11 @@ interface DiaryComposeFormProps {
     mood: DiaryMood;
     photos: string[];
     audioUrl: string | null;
-    lat: number | null;
-    lon: number | null;
     locationName: string;
     keyboardHeight: number;
     saving: boolean;
     uploading: boolean;
     polishing: boolean;
-    gpsLoading: boolean;
     isRecording: boolean;
     recordingTime: number;
     transcribing: boolean;
@@ -56,7 +47,6 @@ interface DiaryComposeFormProps {
     // Actions
     onSave: () => void;
     onCancel: () => void;
-    onGrabGps: () => void;
     onStartRecording: () => void;
     onStopRecording: () => void;
     onRemoveAudio: () => void;
@@ -75,14 +65,11 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         mood,
         photos,
         audioUrl,
-        lat,
-        lon,
         locationName,
         keyboardHeight,
         saving,
         uploading,
         polishing,
-        gpsLoading,
         isRecording,
         recordingTime,
         transcribing,
@@ -95,7 +82,6 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
         onSetPolishStyle,
         onSave,
         onCancel,
-        onGrabGps,
         onStartRecording,
         onStopRecording,
         onRemoveAudio,
@@ -181,66 +167,13 @@ export const DiaryComposeForm: React.FC<DiaryComposeFormProps> = React.memo(
                         })}
                     </div>
 
-                    {/* ═══ POSITION (auto, compact) | VOICE | POLISH ═══
-                        Position auto-acquires on compose open — no big "Add
-                        Position" button anymore. This row shows the acquired
-                        coords as a read-only status with a refresh icon for
-                        the rare case GPS was slow / wrong first time. For
-                        back-dated entries (writing about yesterday's
-                        anchorage) the editable "Location" input below
-                        overrides the displayed place name. */}
+                    {/* ═══ VOICE | POLISH ═══
+                        Position auto-acquires on compose open and is saved
+                        with the entry silently — no UI surface, the user
+                        doesn't need to think about it. For back-dated
+                        entries the "Location" input below overrides the
+                        displayed place name. */}
                     <div className="shrink-0 space-y-2">
-                        <div className="flex items-center gap-2 px-1 text-[11px]">
-                            <svg
-                                className={`w-3.5 h-3.5 shrink-0 ${gpsLoading ? 'text-sky-400 animate-pulse' : 'text-sky-400'}`}
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                stroke="currentColor"
-                                strokeWidth={1.8}
-                                aria-hidden="true"
-                            >
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                />
-                                <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                />
-                            </svg>
-                            <span className="font-mono text-gray-300 truncate min-w-0 flex-1">
-                                {gpsLoading
-                                    ? 'Acquiring GPS…'
-                                    : lat != null && lon != null
-                                      ? formatCoord(lat, lon)
-                                      : 'Position unavailable — edit location below'}
-                            </span>
-                            <button
-                                type="button"
-                                aria-label="Refresh GPS position"
-                                onClick={onGrabGps}
-                                disabled={gpsLoading}
-                                className="shrink-0 p-1 rounded-md hover:bg-white/5 active:scale-95 transition-all disabled:opacity-50"
-                            >
-                                <svg
-                                    className={`w-3.5 h-3.5 text-sky-400 ${gpsLoading ? 'animate-spin' : ''}`}
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={2}
-                                    aria-hidden="true"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
-                                    />
-                                </svg>
-                            </button>
-                        </div>
-
                         <div className="flex gap-2">
                             {/* Voice */}
                             <button
