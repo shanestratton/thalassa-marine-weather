@@ -267,6 +267,51 @@ export const useAppController = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // 1c. Reverse-geocode "Current Location" to a friendly place name
+    //
+    // When pullFromCloud falls back to 'Current Location' (returning
+    // user with an empty profiles row — see settingsStore.pullFromCloud),
+    // the location box reads "Current Location" — useful for the
+    // weather flow but ugly in the UI. Once weather has actually
+    // loaded and we have coords, reverse-geocode them to something
+    // like "Newport, QLD" and promote that to settings.defaultLocation,
+    // so the Query Sync effect below updates the location box and
+    // future cold boots pick up the friendly name instead.
+    //
+    // Guards: only fires when defaultLocation is the literal
+    // 'Current Location' string AND we have a fresh fix from the
+    // weather payload. Refires only when those change — won't
+    // clobber a user's manual port selection.
+    const reverseGeocodeRanRef = React.useRef(false);
+    useEffect(() => {
+        if (reverseGeocodeRanRef.current) return;
+        if (settings.defaultLocation !== 'Current Location') return;
+        const coords = weatherData?.coordinates;
+        if (!coords || (coords.lat === 0 && coords.lon === 0)) return;
+
+        reverseGeocodeRanRef.current = true;
+        (async () => {
+            try {
+                const name = await reverseGeocode(coords.lat, coords.lon);
+                if (!name) return;
+                log.info(`Reverse-geocoded Current Location → ${name}`);
+                // Promote the friendly name to settings so the
+                // location box, future boots, and cloud-sync all
+                // pick it up. Also update Mapbox-style coords.
+                updateSettings({
+                    defaultLocation: name,
+                    defaultLocationCoords: { lat: coords.lat, lon: coords.lon },
+                });
+                setQuery(name);
+            } catch (err) {
+                log.warn('reverseGeocode failed:', err);
+                // Reset the ref so a future weatherData update can retry.
+                reverseGeocodeRanRef.current = false;
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [settings.defaultLocation, weatherData?.coordinates?.lat, weatherData?.coordinates?.lon]);
+
     // 2. Background Image Sync
     useEffect(() => {
         if (weatherData) {
