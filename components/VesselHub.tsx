@@ -686,17 +686,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('gpx-import');
                                 }}
                             />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<NoticeIcon color="#ef4444" />}
-                                label="Notices to Mariners"
-                                status="NAVAREA • HYDRO"
-                                statusColor="#ef4444"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('notices');
-                                }}
-                            />
                         </div>
                     </CollapsibleContent>
                 </div>
@@ -1039,6 +1028,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 }}
                                 badge={expiringDocsCount > 0 ? expiringDocsCount : undefined}
                                 badgeUrgent={expiringDocsCount > 0}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<NoticeIcon color="#ef4444" />}
+                                label="Notices to Mariners"
+                                status="NAVAREA • HYDRO"
+                                statusColor="#ef4444"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('notices');
+                                }}
                             />
                         </div>
                     </CollapsibleContent>

@@ -16,12 +16,41 @@ import { EmptyState } from '../ui/EmptyState';
 import { ShimmerBlock } from '../ui/ShimmerBlock';
 import { triggerHaptic } from '../../utils/system';
 import { NoticeToMarinersService, labelFor, type Notice } from '../../services/NoticeToMarinersService';
+import { GpsService } from '../../services/GpsService';
 
 interface NoticesPageProps {
     onBack: () => void;
 }
 
 type AreaFilter = 'all' | '4' | '12' | 'C' | 'P' | 'A';
+
+/** "Near me" radius in nautical miles. NotM coordinates outside this
+ *  distance from the vessel's current position are hidden when the
+ *  Near-me filter is on. 500 NM covers ~1 week of cruising at 5 kt —
+ *  generous for awareness without flooding the list with irrelevance. */
+const NEAR_ME_RADIUS_NM = 500;
+
+function distanceNM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R_NM = 3440.065;
+    const toRad = (d: number) => (d * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+    return R_NM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/** Minimum distance (NM) from `pos` to any coordinate parsed out of
+ *  the notice's body. Returns Infinity when the notice has no parsed
+ *  coordinates — those notices are excluded by Near-me. */
+function minNoticeDistanceNM(notice: Notice, pos: { lat: number; lon: number }): number {
+    if (notice.coordinates.length === 0) return Infinity;
+    let min = Infinity;
+    for (const c of notice.coordinates) {
+        const d = distanceNM(c.lat, c.lon, pos.lat, pos.lon);
+        if (d < min) min = d;
+    }
+    return min;
+}
 
 const FILTERS: Array<{ id: AreaFilter; label: string; short: string; color: string }> = [
     { id: 'all', label: 'All', short: 'All', color: '#22d3ee' },
@@ -45,6 +74,22 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
     const [filter, setFilter] = useState<AreaFilter>('all');
     const [expanded, setExpanded] = useState<Set<string>>(new Set());
     const [fetchedAt, setFetchedAt] = useState<number>(() => NoticeToMarinersService.getCached().fetchedAt);
+    // Near-me filter — on by default. NGA publishes for US-assigned
+    // areas, so without this the list is a global firehose with 300+
+    // notices that have nothing to do with the user's actual cruising
+    // area. The filter applies only once we have a vessel position;
+    // until then we show everything.
+    const [nearMe, setNearMe] = useState(true);
+    const [vesselPos, setVesselPos] = useState<{ lat: number; lon: number } | null>(null);
+    useEffect(() => {
+        GpsService.getCurrentPosition({ staleLimitMs: 5 * 60_000, timeoutSec: 8 })
+            .then((pos) => {
+                if (pos) setVesselPos({ lat: pos.latitude, lon: pos.longitude });
+            })
+            .catch(() => {
+                // No position available — Near-me will be a no-op.
+            });
+    }, []);
 
     const load = useCallback(async (force: boolean) => {
         if (force) setRefreshing(true);
@@ -93,15 +138,26 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
 
     // ── Filtering ──
     const filtered = useMemo(() => {
-        if (filter === 'all') return notices;
-        return notices.filter((n) => n.navArea === filter);
-    }, [notices, filter]);
+        let list = filter === 'all' ? notices : notices.filter((n) => n.navArea === filter);
+        if (nearMe && vesselPos) {
+            list = list.filter((n) => minNoticeDistanceNM(n, vesselPos) <= NEAR_ME_RADIUS_NM);
+        }
+        return list;
+    }, [notices, filter, nearMe, vesselPos]);
 
     const countsByArea = useMemo(() => {
         const c: Record<string, number> = {};
         for (const n of notices) c[n.navArea] = (c[n.navArea] || 0) + 1;
         return c;
     }, [notices]);
+
+    // Count for the Near-me chip — how many of the area-filtered set
+    // are within the radius. Shown as the chip's count badge.
+    const nearMeCount = useMemo(() => {
+        if (!vesselPos) return 0;
+        const areaFiltered = filter === 'all' ? notices : notices.filter((n) => n.navArea === filter);
+        return areaFiltered.filter((n) => minNoticeDistanceNM(n, vesselPos) <= NEAR_ME_RADIUS_NM).length;
+    }, [notices, filter, vesselPos]);
 
     return (
         <div
@@ -146,6 +202,24 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
             {/* ── Filter chips ── */}
             <div className="shrink-0 px-4 pb-2 overflow-x-auto no-scrollbar">
                 <div className="flex gap-2">
+                    {/* Near-me toggle — first chip so it's the primary
+                        affordance. Disabled until we have a GPS fix. */}
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            setNearMe((v) => !v);
+                        }}
+                        disabled={!vesselPos}
+                        title={!vesselPos ? 'Waiting for GPS fix…' : `Within ${NEAR_ME_RADIUS_NM} NM of your position`}
+                        className="shrink-0 px-3 py-1.5 rounded-full text-[11px] font-black uppercase tracking-widest transition-all disabled:opacity-40"
+                        style={{
+                            background: nearMe && vesselPos ? '#10b98124' : 'rgba(255,255,255,0.04)',
+                            border: `1px solid ${nearMe && vesselPos ? '#10b98166' : 'rgba(255,255,255,0.08)'}`,
+                            color: nearMe && vesselPos ? '#10b981' : '#9ca3af',
+                        }}
+                    >
+                        📍 Near me <span className="opacity-60 ml-1">{vesselPos ? nearMeCount : '…'}</span>
+                    </button>
                     {FILTERS.map((f) => {
                         const active = filter === f.id;
                         const count = f.id === 'all' ? notices.length : countsByArea[f.id] || 0;
@@ -183,13 +257,18 @@ export const NoticesPage: React.FC<NoticesPageProps> = ({ onBack }) => {
                         title={
                             error
                                 ? 'Could not load notices'
-                                : filter === 'all'
-                                  ? 'No active notices'
-                                  : `No active ${labelFor(filter)} notices`
+                                : nearMe && vesselPos
+                                  ? `No active notices within ${NEAR_ME_RADIUS_NM} NM`
+                                  : filter === 'all'
+                                    ? 'No active notices'
+                                    : `No active ${labelFor(filter)} notices`
                         }
                         description={
-                            error ||
-                            'NGA publishes broadcast warnings for US waters, the Atlantic, Pacific and Arctic. National hydrographic offices for other regions will be added in future updates.'
+                            error
+                                ? error
+                                : nearMe && vesselPos
+                                  ? `We currently source from NGA only (US-managed waters: NAVAREA IV/XII, HYDROLANT/PAC/ARC). Australian (AHS), UK (UKHO), NZ (LINZ) and other national hydrographic offices aren’t included yet — coming soon. Tap “📍 Near me” to turn the radius filter off and see everything we have.`
+                                  : 'NGA publishes broadcast warnings for US waters, the Atlantic, Pacific and Arctic. National hydrographic offices for other regions will be added in future updates.'
                         }
                         actionLabel={error ? 'Retry' : undefined}
                         onAction={error ? () => load(true) : undefined}
