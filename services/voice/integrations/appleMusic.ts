@@ -139,6 +139,7 @@ interface AppleMusicPluginInterface {
 
     // Playback control
     pause(): Promise<{ status: string }>;
+    stop(): Promise<{ status: string }>;
     resume(): Promise<{ status: string; error?: string }>;
     next(): Promise<{ status: string }>;
     previous(): Promise<{ status: string }>;
@@ -844,6 +845,26 @@ export async function pauseMusic(): Promise<{ content: string; isError: boolean 
         return { content: JSON.stringify({ status: 'paused' }), isError: false };
     } catch (err) {
         return { content: `ERROR: pause failed — ${(err as Error).message}`, isError: true };
+    }
+}
+
+/**
+ * Stop = pause + clear the queue. Use this when the user wants to
+ * fully dismiss the now-playing state, not just pause it. Tapping
+ * the X on the global now-playing bar takes this path; the
+ * standard pause button takes pauseMusic() above. After stop()
+ * the bar disappears (no track in queue), and any subsequent
+ * resume would no-op with `no_queue` status.
+ */
+export async function stopMusic(): Promise<{ content: string; isError: boolean }> {
+    if (!nativeAvailable()) {
+        return { content: JSON.stringify({ status: 'unsupported' }), isError: false };
+    }
+    try {
+        await AppleMusicNative.stop();
+        return { content: JSON.stringify({ status: 'stopped' }), isError: false };
+    } catch (err) {
+        return { content: `ERROR: stop failed — ${(err as Error).message}`, isError: true };
     }
 }
 
