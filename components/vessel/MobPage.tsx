@@ -300,29 +300,34 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                 }
             />
 
-            {/* Headline bearing + distance */}
-            <div className="shrink-0 px-5 py-6 text-center">
-                <div className="text-[10px] font-extrabold tracking-[0.25em] uppercase text-red-300/70 mb-1">
+            {/* Headline bearing + distance — Shane wanted this whole
+                red-coloured zone smaller so the clear-MOB button is
+                easier to reach without scrolling. Was: py-6, 68px
+                bearing, 28px stats, py-4 stat boxes. Now: py-3, 52px
+                bearing, 22px stats, py-2.5 stat boxes. Same content,
+                ~30% less vertical real estate. */}
+            <div className="shrink-0 px-5 py-3 text-center">
+                <div className="text-[10px] font-extrabold tracking-[0.25em] uppercase text-red-300/70 mb-0.5">
                     Bearing to MOB
                 </div>
-                <div className="text-[68px] font-black text-white leading-none font-mono tracking-tight">
+                <div className="text-[52px] font-black text-white leading-none font-mono tracking-tight">
                     {bearingDeg !== null ? `${Math.round(bearingDeg).toString().padStart(3, '0')}°` : '—'}
                 </div>
-                <div className="text-[10px] font-bold tracking-widest uppercase text-red-300/70 mt-1">True</div>
+                <div className="text-[10px] font-bold tracking-widest uppercase text-red-300/70 mt-0.5">True</div>
             </div>
 
             <div className="shrink-0 mx-5 rounded-2xl border border-red-400/20 bg-red-950/30 backdrop-blur-sm grid grid-cols-2 divide-x divide-red-400/15">
-                <div className="px-4 py-4 text-center">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-1">
+                <div className="px-3 py-2.5 text-center">
+                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
                         Distance
                     </div>
-                    <div className="text-[28px] font-black text-white font-mono">{formatDistance(distanceMeters)}</div>
+                    <div className="text-[22px] font-black text-white font-mono">{formatDistance(distanceMeters)}</div>
                 </div>
-                <div className="px-4 py-4 text-center">
-                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-1">
+                <div className="px-3 py-2.5 text-center">
+                    <div className="text-[10px] font-extrabold tracking-[0.2em] uppercase text-red-300/70 mb-0.5">
                         Elapsed
                     </div>
-                    <div className="text-[28px] font-black text-white font-mono tracking-wider">
+                    <div className="text-[22px] font-black text-white font-mono tracking-wider">
                         {formatElapsed(elapsedSec)}
                     </div>
                 </div>
@@ -416,8 +421,22 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
                     onPointerUp={cancelClearHold}
                     onPointerLeave={cancelClearHold}
                     onPointerCancel={cancelClearHold}
+                    onContextMenu={(e) => e.preventDefault()}
                     aria-label="Hold to clear MOB"
-                    className="relative w-full py-3.5 rounded-xl border border-white/10 bg-white/[0.03] text-[11px] font-extrabold uppercase tracking-widest text-slate-400 overflow-hidden"
+                    className="relative w-full py-3.5 rounded-xl border border-white/10 bg-white/[0.03] text-[11px] font-extrabold uppercase tracking-widest text-slate-400 overflow-hidden select-none"
+                    style={{
+                        // iOS long-press defaults — magnifier loupe, text
+                        // selection, Copy/Look-Up context sheet — were
+                        // hijacking the 3 s hold-to-clear gesture. Belt-
+                        // and-braces: -webkit-touch-callout disables the
+                        // context menu; user-select stops the loupe;
+                        // touch-action: manipulation stops 350 ms
+                        // double-tap-to-zoom delay.
+                        WebkitTouchCallout: 'none',
+                        WebkitUserSelect: 'none',
+                        userSelect: 'none',
+                        touchAction: 'manipulation',
+                    }}
                 >
                     <span
                         className="absolute inset-y-0 left-0 bg-red-500/30 transition-[width] duration-75"
