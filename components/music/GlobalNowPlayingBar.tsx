@@ -68,11 +68,15 @@ export const GlobalNowPlayingBar: React.FC = () => {
         return subscribeMusicEngagement(setEngaged);
     }, []);
 
-    // Auth status check, gated on engagement. Re-checks every 5 s
-    // in case auth lands later (user grants via Music page).
+    // Auth status check, gated on engagement. Polls every 5 s
+    // UNTIL auth is granted — once `authorized` flips true we
+    // tear the interval down (the effect's [authorized] dep
+    // triggers cleanup → the next render's early-return below
+    // skips the setup). Auth revocation between sessions is
+    // rare enough that picking it up on the next launch is fine.
     const [authorized, setAuthorized] = useState(false);
     useEffect(() => {
-        if (!engaged) return;
+        if (!engaged || authorized) return;
         let cancelled = false;
         const check = async () => {
             const a = await getAuthorizationStatus();
@@ -84,21 +88,41 @@ export const GlobalNowPlayingBar: React.FC = () => {
             cancelled = true;
             window.clearInterval(id);
         };
-    }, [engaged]);
+    }, [engaged, authorized]);
 
     // nowPlaying poll — only when engaged AND authorized.
+    //
+    // Adaptive cadence based on playback state (Shane bug report
+    // 2026-05-17: a single play→pause was generating 30+ bridge
+    // calls because TWO pollers ran simultaneously — this bar at
+    // 2 s + MusicPage at 1 s — and the cadence didn't slow when
+    // nothing was changing. Both now use the adaptive ladder
+    // below):
+    //
+    //   playing            →  2 s   (playback time needs to scrub)
+    //   paused with track  →  8 s   (rare external change via lock screen)
+    //   no track queued    → 30 s   (nothing should be changing)
+    //
+    // setTimeout chain (not setInterval) so each tick can pick a
+    // fresh delay from the current state, not the state at mount.
     useEffect(() => {
         if (!engaged || !authorized) return;
         let cancelled = false;
+        let timer: number | undefined;
+
         const poll = async () => {
             const np = await getNowPlaying();
-            if (!cancelled) setNowPlaying(np ?? EMPTY_NOW_PLAYING);
+            if (cancelled) return;
+            const resolved = np ?? EMPTY_NOW_PLAYING;
+            setNowPlaying(resolved);
+            const delay = resolved.isPlaying ? 2000 : resolved.title ? 8000 : 30000;
+            timer = window.setTimeout(() => void poll(), delay);
         };
         void poll();
-        const id = window.setInterval(() => void poll(), 2000);
+
         return () => {
             cancelled = true;
-            window.clearInterval(id);
+            if (timer !== undefined) window.clearTimeout(timer);
         };
     }, [engaged, authorized]);
 
