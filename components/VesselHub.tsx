@@ -658,7 +658,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#8b5cf6"
+                        color="#67E8F9"
                         label="Passage Planning"
                         id="passage"
                         expanded={expanded.has('passage')}
@@ -667,7 +667,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <CollapsibleContent open={expanded.has('passage')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<CrewIcon color="#8b5cf6" />}
+                                icon={<CrewIcon color="#cbd5e1" />}
                                 label="Passage Planning"
                                 status={
                                     passageCrewCount > 0
@@ -676,7 +676,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                           ? `${pendingCrewInvites} Pending`
                                           : 'Plan Your Voyage'
                                 }
-                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#8b5cf6'}
+                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('crew');
@@ -684,10 +684,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
                             />
                             <OfficeRow
-                                icon={<GpxIcon color="#10b981" />}
+                                icon={<GpxIcon color="#cbd5e1" />}
                                 label="Import GPX"
                                 status="OpenCPN • Navionics"
-                                statusColor="#10b981"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('gpx-import');
@@ -702,7 +702,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#ef4444"
+                        color="#67E8F9"
                         label="Quick Actions"
                         id="quick"
                         expanded={expanded.has('quick')}
@@ -723,9 +723,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <div className="flex items-center gap-3">
                                     <div
                                         className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(14, 165, 233, 0.12)' }}
+                                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
                                     >
-                                        <BookIcon color="#0ea5e9" />
+                                        <BookIcon color="#67E8F9" />
                                     </div>
                                     {/* Log Book shows both counts on one line:
                                                   N PLAN  = saved suggested routes (not yet sailed)
@@ -740,7 +740,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                         <h4 className="text-[13px] font-black text-white tracking-wide truncate">
                                             Log Book
                                         </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-wide text-sky-400 mt-0.5 tabular-nums truncate">
+                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-0.5 tabular-nums truncate">
                                             {(() => {
                                                 const r = routeCount ?? 0;
                                                 const t = trackCount ?? 0;
@@ -777,15 +777,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <div className="flex items-center gap-3">
                                     <div
                                         className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(14, 165, 233, 0.12)' }}
+                                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
                                     >
-                                        <PenIcon color="#0ea5e9" />
+                                        <PenIcon color="#67E8F9" />
                                     </div>
                                     <div className="min-w-0 flex-1">
                                         <h4 className="text-[13px] font-black text-white tracking-wide truncate">
                                             Diary
                                         </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-sky-400">
+                                        <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-slate-400">
                                             Daily Notes
                                         </p>
                                     </div>
@@ -907,15 +907,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 <div className="flex items-center gap-3">
                                     <div
                                         className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(245, 158, 11, 0.12)' }}
+                                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
                                     >
-                                        <SignalIcon color="#f59e0b" />
+                                        <SignalIcon color="#67E8F9" />
                                     </div>
                                     <div>
                                         <h4 className="text-[13px] font-black text-white tracking-wide">
                                             Radio Report
                                         </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest text-amber-400 mt-0.5">
+                                        <p className="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">
                                             Position Broadcast
                                         </p>
                                     </div>
@@ -940,7 +940,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#f59e0b"
+                        color="#67E8F9"
                         label="Inventory & Maintenance"
                         id="inventory"
                         expanded={expanded.has('inventory')}
@@ -949,10 +949,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <CollapsibleContent open={expanded.has('inventory')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<BoxIcon color="#f59e0b" />}
+                                icon={<BoxIcon color="#cbd5e1" />}
                                 label="Ship's Stores"
                                 status="Provisions & Spares"
-                                statusColor="#f59e0b"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('inventory');
@@ -960,10 +960,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<ClipboardIcon color="#ef4444" />}
+                                icon={<ClipboardIcon color="#cbd5e1" />}
                                 label="Equipment"
                                 status={expiringEquipCount > 0 ? `${expiringEquipCount} Warranty Soon` : 'Register'}
-                                statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#ef4444'}
+                                statusColor={expiringEquipCount > 0 ? '#f59e0b' : '#94a3b8'}
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('equipment');
@@ -972,10 +972,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#0ea5e9'} />}
+                                icon={<WrenchIcon color={overdueCount > 0 ? '#ef4444' : '#cbd5e1'} />}
                                 label="Repairs & Maintenance"
                                 status={overdueCount > 0 ? `${overdueCount} Overdue` : 'Tasks & Expiry'}
-                                statusColor={overdueCount > 0 ? '#ef4444' : '#0ea5e9'}
+                                statusColor={overdueCount > 0 ? '#ef4444' : '#94a3b8'}
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('maintenance');
@@ -992,7 +992,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#22d3ee"
+                        color="#67E8F9"
                         label="Reference"
                         id="reference"
                         expanded={expanded.has('reference')}
@@ -1001,10 +1001,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <CollapsibleContent open={expanded.has('reference')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<ChecklistIcon color="#22d3ee" />}
+                                icon={<ChecklistIcon color="#cbd5e1" />}
                                 label="Checklists"
                                 status="Safety & Passage"
-                                statusColor="#22d3ee"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('checklists');
@@ -1012,10 +1012,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<ChartIcon color="#22d3ee" />}
+                                icon={<ChartIcon color="#cbd5e1" />}
                                 label="Polars"
                                 status={isObserver ? 'Vessel Required' : 'Tuning'}
-                                statusColor={isObserver ? '#6b7280' : '#22d3ee'}
+                                statusColor={isObserver ? '#6b7280' : '#94a3b8'}
                                 onClick={() => {
                                     if (isObserver) return;
                                     triggerHaptic('light');
@@ -1025,10 +1025,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#0ea5e9'} />}
+                                icon={<DocShieldIcon color={expiringDocsCount > 0 ? '#ef4444' : '#cbd5e1'} />}
                                 label="Documents"
                                 status={expiringDocsCount > 0 ? `${expiringDocsCount} Expiring` : 'Legal'}
-                                statusColor={expiringDocsCount > 0 ? '#ef4444' : '#0ea5e9'}
+                                statusColor={expiringDocsCount > 0 ? '#ef4444' : '#94a3b8'}
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('documents');
@@ -1038,10 +1038,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<NoticeIcon color="#ef4444" />}
+                                icon={<NoticeIcon color="#f59e0b" />}
                                 label="Notices to Mariners"
                                 status="NAVAREA • HYDRO"
-                                statusColor="#ef4444"
+                                statusColor="#f59e0b"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('notices');
@@ -1066,7 +1066,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#f472b6"
+                        color="#67E8F9"
                         label="Wardroom"
                         id="wardroom"
                         expanded={expanded.has('wardroom')}
@@ -1083,10 +1083,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 top-level chatUnread badge now surfaces on
                                 the Vessel nav tab. */}
                             <OfficeRow
-                                icon={<ChatBubbleIcon color="#f472b6" />}
+                                icon={<ChatBubbleIcon color="#cbd5e1" />}
                                 label="Scuttlebutt"
                                 status="Community · DMs · Chandlery"
-                                statusColor="#f472b6"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('chat');
@@ -1094,10 +1094,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<MusicNoteIcon color="#f472b6" />}
+                                icon={<MusicNoteIcon color="#cbd5e1" />}
                                 label="Music"
                                 status="Apple Music"
-                                statusColor="#f472b6"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('music');
@@ -1112,7 +1112,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
-                        color="#a855f7"
+                        color="#67E8F9"
                         label="Connect"
                         id="connect"
                         expanded={expanded.has('connect')}
@@ -1121,10 +1121,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <CollapsibleContent open={expanded.has('connect')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<SignalIcon color="#a855f7" />}
+                                icon={<SignalIcon color="#cbd5e1" />}
                                 label="NMEA Gateway"
                                 status="Instruments & AIS"
-                                statusColor="#a855f7"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('nmea');
@@ -1132,10 +1132,10 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
-                                icon={<MapChartIcon color="#22d3ee" />}
+                                icon={<MapChartIcon color="#cbd5e1" />}
                                 label="Boat Network"
                                 status="Pi & Charts"
-                                statusColor="#22d3ee"
+                                statusColor="#94a3b8"
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('avnav');
@@ -1150,7 +1150,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-6">
                     <SectionHeader
-                        color="#9ca3af"
+                        color="#67E8F9"
                         label="Account"
                         id="account"
                         expanded={expanded.has('account')}
@@ -1159,7 +1159,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     <CollapsibleContent open={expanded.has('account')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
-                                icon={<UserIcon color="#9ca3af" />}
+                                icon={<UserIcon color="#cbd5e1" />}
                                 label="Account & Settings"
                                 status={(() => {
                                     const tier = (settings as Record<string, unknown>).subscriptionTier as string;
@@ -1168,10 +1168,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     return 'Free Plan';
                                 })()}
                                 statusColor={(() => {
+                                    // Tier badge stays its own colour —
+                                    // owner=amber (premium), crew=cyan,
+                                    // free=grey. This is a deliberate
+                                    // status signal, not chromatic
+                                    // noise like the section-accent rainbow.
                                     const tier = (settings as Record<string, unknown>).subscriptionTier as string;
                                     if (tier === 'owner') return '#f59e0b';
-                                    if (tier === 'crew') return '#22d3ee';
-                                    return '#9ca3af';
+                                    if (tier === 'crew') return '#67E8F9';
+                                    return '#94a3b8';
                                 })()}
                                 onClick={() => {
                                     triggerHaptic('light');
