@@ -1643,15 +1643,40 @@ const NavStationHero: React.FC<{
                 <button
                     type="button"
                     onClick={handleVesselTap}
-                    aria-label={vesselNameSet ? 'Open vessel settings' : 'Set vessel name'}
+                    aria-label={vesselNameSet ? 'Open vessel settings' : 'Set up your vessel'}
                     className="flex-1 min-w-0 active:opacity-70 transition-opacity text-left"
                 >
                     {vesselNameSet ? (
                         <h2 className="text-lg font-black text-white tracking-tight truncate">{vesselName}</h2>
                     ) : (
-                        <h2 className="text-lg font-black text-white/50 tracking-tight truncate italic">
-                            Tap to name your vessel
-                        </h2>
+                        // Empty-state vessel header — was: a barely-
+                        // visible italic 50%-white placeholder that
+                        // most fresh-install users would scroll past
+                        // without noticing. Now: cyan-tinted setup
+                        // CTA with chevron affordance + a sub-line
+                        // that explains the value ("personalise
+                        // routing") so the user understands WHY they
+                        // might tap. No force — DEFAULT_VESSEL still
+                        // lets them plan without configuring; this
+                        // is just an invitation.
+                        <div className="flex flex-col gap-0.5">
+                            <h2 className="text-lg font-black text-sky-300 tracking-tight truncate flex items-center gap-1">
+                                <span>Set up your vessel</span>
+                                <svg
+                                    className="w-4 h-4 text-sky-400/80 shrink-0"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                    aria-hidden="true"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </h2>
+                            <p className="text-[11px] font-medium text-slate-400 truncate">
+                                Personalise routing for your boat
+                            </p>
+                        </div>
                     )}
                 </button>
                 {showSwing ? (
