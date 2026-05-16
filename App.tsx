@@ -912,7 +912,11 @@ const App: React.FC = () => {
                                 restructure (Week 2) replaces the social
                                 tab with the dedicated route planner.
                                 Scuttlebutt is reachable from the Vessel
-                                hub's Wardroom section. */}
+                                hub's Wardroom section. Icon `color` set
+                                inline to #67E8F9 (cyan-300) so the
+                                SVG's currentColor stroke matches the
+                                cyan hue baked into the PNG nav icons
+                                (Glass, Charts, Vessel). */}
                             <NavButton
                                 icon={
                                     <div
@@ -920,6 +924,7 @@ const App: React.FC = () => {
                                         style={{
                                             WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                             maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            color: '#67E8F9',
                                         }}
                                     >
                                         <RouteIcon className="w-7 h-7" />
@@ -934,7 +939,9 @@ const App: React.FC = () => {
                                 top-level tab in the Week 2 restructure.
                                 Plan → Sail → Share → Hear → Trust order
                                 means Log sits directly between Plan and
-                                Vessel in the nav. */}
+                                Vessel in the nav. Same #67E8F9 cyan as
+                                Plan so the two new SVG tabs visually
+                                pair with the PNG nav icons. */}
                             <NavButton
                                 icon={
                                     <div
@@ -942,6 +949,7 @@ const App: React.FC = () => {
                                         style={{
                                             WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                             maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            color: '#67E8F9',
                                         }}
                                     >
                                         <ClipboardIcon className="w-7 h-7" />
