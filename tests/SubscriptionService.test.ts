@@ -57,8 +57,17 @@ describe('SubscriptionService', () => {
             expect(canAccess('crew', 'shipLog')).toBe(false);
             expect(canAccess('crew', 'vesselProfile')).toBe(false);
             expect(canAccess('crew', 'galley')).toBe(false);
-            expect(canAccess('crew', 'crewFinderCaptain')).toBe(false);
             expect(canAccess('crew', 'polars')).toBe(false);
+        });
+
+        it('crewFinderCaptain is free tier (network-effect parity with Chandlery B-pivot)', () => {
+            // Was 'owner' historically. Dropped to 'free' alongside
+            // the Chandlery B-pivot (marketplace + chandleryPost) so
+            // the entire crew-finder network is open to all tiers —
+            // listing density depends on free participation.
+            expect(canAccess('free', 'crewFinderCaptain')).toBe(true);
+            expect(canAccess('crew', 'crewFinderCaptain')).toBe(true);
+            expect(canAccess('owner', 'crewFinderCaptain')).toBe(true);
         });
 
         it('owner tier can access everything', () => {
@@ -68,7 +77,6 @@ describe('SubscriptionService', () => {
             expect(canAccess('owner', 'shipLog')).toBe(true);
             expect(canAccess('owner', 'vesselProfile')).toBe(true);
             expect(canAccess('owner', 'galley')).toBe(true);
-            expect(canAccess('owner', 'crewFinderCaptain')).toBe(true);
             expect(canAccess('owner', 'polars')).toBe(true);
             expect(canAccess('owner', 'weatherFull')).toBe(true);
             expect(canAccess('owner', 'gpsTracking')).toBe(true);
