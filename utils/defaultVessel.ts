@@ -5,10 +5,10 @@
 // ----------------
 // Before this, tapping "Slide to Calculate Route" without a saved
 // vessel threw "Vessel profile missing. Please configure in
-// settings." That killed the Featured Passage demo flow: a fresh
-// install user could tap "Try: Sydney → Pittwater" and immediately
-// hit a brick wall asking them to fill out a 12-field form before
-// they could see the product work.
+// settings." A fresh-install user wanting to plan their first
+// route hit a brick wall asking them to fill out a 12-field form
+// before they could see the product work — friction at exactly
+// the moment they were trying to use the app's core feature.
 //
 // The fix is the same shape as the deferred-sign-in flow (PR1):
 // move the friction from BEFORE-the-action to AS-LATE-AS-NEEDED.
