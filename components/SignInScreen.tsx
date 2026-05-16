@@ -33,8 +33,25 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { signInWithApple, signInWithGoogle } from '../services/auth/SocialAuthService';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
-import { AnchorIcon, XIcon } from './Icons';
+import { XIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
+
+// ─── Brand palette (2026-05-17 logo direction) ────────────────────
+// Distinct from the cyan UI palette used elsewhere in the app — this
+// is the BRAND palette, used only on the conversion-moment surfaces
+// (SignInScreen for now; future: favicon, app icon, splash).
+//   primary  — deep sea green   (the wordmark + brand-container glow)
+//   accent   — safety orange    (destination terminator on the mark)
+//   stroke   — sea-foam teal    (the continuous line itself — chosen
+//              brighter than the primary so it reads on a dark slate
+//              background without losing the "sea green" lineage)
+// Concept 2 mark + Concept 3 palette per Shane's direction.
+const BRAND = {
+    primary: '#0F766E', //   teal-700 — deep sea green (glow + shadow)
+    primarySoft: '#5EEAD4', // teal-300 — line stroke on dark background
+    accent: '#FB923C', //    orange-400 — safety terminator
+    accentDeep: '#F97316', // orange-500 — accent on light surfaces
+} as const;
 
 interface SignInScreenProps {
     /**
@@ -167,25 +184,85 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 </button>
             )}
 
-            {/* Brand mark — anchor in a glowing disc. The pulse is a
-                3 s sin-wave glow so it feels like a beacon, not a
-                ping. Subtle enough on a static screenshot that it
-                doesn't read as "loading," strong enough in motion
-                that the screen feels alive. */}
+            {/* ─── Brand mark — Concept 2 direction ─────────────
+                A single continuous-line stroke that starts as an
+                ocean swell at bottom-left, rises into a rhumb-line
+                arc, and terminates at a safety-orange destination
+                dot. Mimics the sweeping orbit of a weather
+                satellite or a great-circle bearing curving across
+                a globe. Sits inside a soft brand-coloured glow
+                disc; 3 s pulse animation makes the disc breathe
+                like a beacon. */}
             <div className="relative z-10 mb-8 text-center">
                 <div className="mb-5 flex items-center justify-center">
                     <div
-                        className="relative w-24 h-24 rounded-full bg-sky-500/10 border border-sky-400/25 flex items-center justify-center shadow-2xl shadow-sky-500/20"
-                        style={{ animation: 'signInPulse 3s ease-in-out infinite' }}
+                        className="relative w-24 h-24 rounded-full flex items-center justify-center shadow-2xl"
+                        style={{
+                            backgroundColor: 'rgba(15, 118, 110, 0.10)', // teal-700 @ 10%
+                            border: '1px solid rgba(94, 234, 212, 0.25)', // teal-300 @ 25%
+                            boxShadow: '0 25px 50px -12px rgba(15, 118, 110, 0.25)',
+                            animation: 'signInPulse 3s ease-in-out infinite',
+                        }}
                     >
-                        <AnchorIcon className="w-12 h-12 text-sky-300" />
+                        <svg viewBox="0 0 64 64" className="w-14 h-14" fill="none" aria-hidden="true">
+                            {/* Single continuous-line stroke. Begins as a
+                                swell trough at bottom-left, crests, then
+                                glides into a rhumb-line arc heading top-
+                                right. Three quadratic segments give it
+                                fluid motion without feeling cartoony. */}
+                            <path
+                                d="M 8 48 Q 16 52, 24 40 Q 34 26, 44 26 Q 52 26, 56 16"
+                                stroke={BRAND.primarySoft}
+                                strokeWidth="3"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            />
+                            {/* Safety-orange destination terminator —
+                                the arrival point on the great-circle. */}
+                            <circle cx="56" cy="16" r="3.2" fill={BRAND.accent} />
+                        </svg>
                     </div>
                 </div>
-                <h1 className="text-4xl font-black text-white tracking-tight" style={{ letterSpacing: '0.02em' }}>
+                {/*
+                    Wordmark — modern geometric serif (Concept 2
+                    direction). System font stack ordered for the best
+                    available marine-grade serif on each OS:
+                      Cochin  — macOS / iOS, refined classical bones
+                      Optima  — macOS / iOS fallback, humanist-serif
+                      Athelas — macOS modern serif
+                      Iowan Old Style — iOS / macOS bookish fallback
+                      Georgia — Windows / Android baseline
+                    Light tracking + 600 weight gives it luxury-brand
+                    presence without resorting to a Google Font.
+                */}
+                <h1
+                    className="text-4xl text-white"
+                    style={{
+                        fontFamily: '"Cochin", "Optima", "Athelas", "Iowan Old Style", Georgia, serif',
+                        fontWeight: 600,
+                        letterSpacing: '0.10em',
+                    }}
+                >
                     THALASSA
                 </h1>
-                <p className="mt-2 text-[13px] font-semibold text-sky-300/90 tracking-wider">
-                    Plan it · Sail it · Share it
+                {/*
+                    Tagline middot accents tinted safety-orange to
+                    echo the mark's destination terminator. Subtle —
+                    a punter who's seen the mark will register the
+                    colour callback subconsciously. The rest of the
+                    tagline stays sky-300 to bridge brand palette
+                    (teal/orange) and UI palette (sky/cyan).
+                */}
+                <p className="mt-2 text-[13px] font-semibold tracking-wider text-sky-300/90">
+                    <span>Plan it</span>
+                    <span className="mx-1.5" style={{ color: BRAND.accent }}>
+                        ·
+                    </span>
+                    <span>Sail it</span>
+                    <span className="mx-1.5" style={{ color: BRAND.accent }}>
+                        ·
+                    </span>
+                    <span>Share it</span>
                 </p>
             </div>
 
@@ -293,15 +370,16 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 </p>
             </div>
 
-            {/* Pulse keyframe injected inline so it's scoped to this
-                screen — no global CSS file pollution. */}
+            {/* Pulse keyframe — teal hues to match the new brand
+                palette (Concept 3 deep sea green). Scoped to this
+                screen via inline <style>; no global CSS pollution. */}
             <style>{`
                 @keyframes signInPulse {
                     0%, 100% {
-                        box-shadow: 0 0 0 0 rgba(103, 232, 249, 0.0), 0 25px 50px -12px rgba(14, 165, 233, 0.25);
+                        box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.0), 0 25px 50px -12px rgba(15, 118, 110, 0.25);
                     }
                     50% {
-                        box-shadow: 0 0 0 18px rgba(103, 232, 249, 0.0), 0 0 40px 4px rgba(103, 232, 249, 0.35), 0 25px 50px -12px rgba(14, 165, 233, 0.35);
+                        box-shadow: 0 0 0 18px rgba(94, 234, 212, 0.0), 0 0 40px 4px rgba(94, 234, 212, 0.30), 0 25px 50px -12px rgba(15, 118, 110, 0.35);
                     }
                 }
             `}</style>
