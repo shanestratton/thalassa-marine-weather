@@ -9,7 +9,6 @@ import React, { useEffect, useState } from 'react';
 import { type CrewMember } from '../../services/CrewService';
 import { type VoyageRow } from '../CrewManagement';
 
-import { WeatherBriefingCard } from '../passage/WeatherBriefingCard';
 import { EssentialReservesCard } from '../passage/EssentialReservesCard';
 import { PassageSummaryCard } from '../passage/PassageSummaryCard';
 import { AidToNavigationCard } from '../passage/AidToNavigationCard';
@@ -24,6 +23,13 @@ import { DelegationBadge } from './DelegationBadge';
 import { VesselProfileSummary } from '../passage/VesselProfileSummary';
 import { WeatherWindowCard } from '../passage/WeatherWindowCard';
 import { OceanCurrentsCard } from '../passage/OceanCurrentsCard';
+// WeatherBriefingCard ("Pre-Departure Weather") removed 2026-05-17.
+// Its 6-item checklist + day-by-day forecast duplicated what
+// Weather Windows above it already shows (wind/sea per scored
+// 6 h window). Accepting a departure window in WeatherWindowCard
+// is now the canonical weather-readiness gate. Model cross-
+// referencing moved off this surface — users compare models on
+// The Glass via ModelComparisonCard.
 
 interface ReadinessCardStackProps {
     selectedPassageId: string;
@@ -31,7 +37,6 @@ interface ReadinessCardStackProps {
     visibleCrew: CrewMember[];
     planCrewCount: number;
     // Card states
-    weatherReviewed: boolean;
     reservesReady: boolean;
     vesselChecked: boolean;
     medicalReady: boolean;
@@ -41,7 +46,6 @@ interface ReadinessCardStackProps {
     navAcknowledged: boolean;
     customsProgress: { total: number; checked: number };
     // Card state setters
-    onWeatherChange: (v: boolean) => void;
     onReservesChange: (v: boolean) => void;
     onVesselCheckChange: (v: boolean) => void;
     onMedicalChange: (v: boolean) => void;
@@ -202,7 +206,6 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     draftVoyages,
     visibleCrew,
     planCrewCount,
-    weatherReviewed,
     reservesReady,
     vesselChecked,
     medicalReady,
@@ -211,7 +214,6 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     customsCleared,
     navAcknowledged,
     customsProgress,
-    onWeatherChange,
     onReservesChange,
     onVesselCheckChange,
     onMedicalChange,
@@ -253,7 +255,11 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // specific operational cards live under "Departure Brief", and
     // vessel-wide checks sit at the bottom in their own group.
     const piReadyCount = [weatherWindowReady, currentsBriefed].filter(Boolean).length;
-    const briefReadyCount = [weatherReviewed, watchBriefed, customsCleared, navAcknowledged].filter(Boolean).length;
+    // Pre-Departure Weather card removed 2026-05-17 — Weather Windows
+    // (PI-1) now serves as the canonical weather-readiness gate via
+    // window acceptance. briefReadyCount denominator dropped from 4
+    // to 3 (watchBriefed + customsCleared + navAcknowledged).
+    const briefReadyCount = [watchBriefed, customsCleared, navAcknowledged].filter(Boolean).length;
     const vesselReadyCount = [vesselProfileReady, reservesReady, vesselChecked, medicalReady, commsReady].filter(
         Boolean,
     ).length;
@@ -434,7 +440,7 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             {/* ═══ GROUP 2: DEPARTURE BRIEF — route-specific operational. */}
             {!hasPassage ? (
                 <div className="mb-2">
-                    <GroupHeader label="Departure Brief" ready={briefReadyCount} total={4} />
+                    <GroupHeader label="Departure Brief" ready={briefReadyCount} total={3} />
                 </div>
             ) : (
                 <details
@@ -449,29 +455,13 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                     }}
                 >
                     <summary className="list-none cursor-pointer">
-                        <GroupHeader label="Departure Brief" ready={briefReadyCount} total={4} />
+                        <GroupHeader label="Departure Brief" ready={briefReadyCount} total={3} />
                     </summary>
 
-                    {/* DB-1: PRE-DEPARTURE WEATHER */}
-                    <CardAccordion
-                        isReady={weatherReviewed}
-                        emoji="🌤️"
-                        title="Pre-Departure Weather"
-                        subtitle="Review models & forecast for departure"
-                        readySubtitle="✅ Departure forecast reviewed"
-                        cardKey="weather_briefing"
-                        {...delegationProps}
-                    >
-                        <WeatherBriefingCard
-                            voyageId={selectedPassageId}
-                            departPort={departPort || undefined}
-                            destPort={destPort || undefined}
-                            departureCoords={activeVoyage?.departureCoords}
-                            departureTime={activeVoyage?.departure_time || null}
-                            eta={activeVoyage?.eta || null}
-                            onReviewedChange={onWeatherChange}
-                        />
-                    </CardAccordion>
+                    {/* DB-1 (Pre-Departure Weather) was here. Removed
+                        2026-05-17 — duplicated Weather Windows above.
+                        Window acceptance in PI-1 is now the canonical
+                        weather-readiness gate. */}
 
                     {/* DB-2: VOYAGE PROVISIONING — no CardAccordion wrapper, the
                     Galley widget has its own card chrome and no boolean
@@ -583,7 +573,15 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                             voyageId={selectedPassageId}
                             onAcknowledgedChange={onNavChange}
                             allOtherCardsReady={
-                                customsCleared && weatherReviewed && reservesReady && watchBriefed && commsReady
+                                // weatherReviewed removed 2026-05-17;
+                                // window acceptance (PI-1) now gates
+                                // weather-readiness — use that as the
+                                // pre-condition for nav acknowledgment.
+                                customsCleared &&
+                                (weatherWindowReady ?? false) &&
+                                reservesReady &&
+                                watchBriefed &&
+                                commsReady
                             }
                         />
                     </CardAccordion>
