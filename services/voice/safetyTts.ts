@@ -39,7 +39,7 @@
  *   Decision happens before any audio plays, so overlap is impossible.
  */
 
-import { synthesise } from './ttsClient';
+import { synthesise, type VoiceSettingsOverride } from './ttsClient';
 
 /** Hard cap on how long we wait for Calypso TTS before falling back
  *  to native. Set short because safety messages must not stall. */
@@ -58,6 +58,18 @@ export interface SafetyUtteranceOptions {
     /** Native-voice pitch (0 - 2). Default 0.9 — slightly lower for
      *  authority. */
     nativePitch?: number;
+    /**
+     * ElevenLabs voice-settings override. Emergency comms (MOB,
+     * Mayday, DSC) pass slower/calmer settings here so Calypso
+     * sounds deliberate and professional, not hyped. The default
+     * tone from the edge function is already tuned slower than
+     * casual chat after Shane's "less Taylor Swift" feedback;
+     * this is for cases that want EXTRA deliberate pacing.
+     *
+     *   speak with default tone: omit
+     *   speak slower (emergency): { speed: 0.85, stability: 0.8 }
+     */
+    voiceSettings?: VoiceSettingsOverride;
 }
 
 export interface SafetyUtteranceHandle {
@@ -190,7 +202,9 @@ export function speakSafetyMessage(text: string, opts: SafetyUtteranceOptions = 
         // OR the timeout fires, we go native. The race never hands
         // back a "Calypso is playing — sort of" intermediate state,
         // so we can't double-fire.
-        const synthPromise: Promise<string | null> = synthesise(trimmed);
+        const synthPromise: Promise<string | null> = synthesise(trimmed, {
+            voiceSettings: opts.voiceSettings,
+        });
         const timeoutPromise = new Promise<null>((resolve) => {
             setTimeout(() => resolve(null), SAFETY_TTS_BUDGET_MS);
         });

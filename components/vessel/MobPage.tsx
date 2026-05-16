@@ -181,6 +181,14 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
         const handle = speakSafetyMessage(maydayText, {
             nativeRate: 0.8,
             nativePitch: 0.95,
+            // Calypso voice override for emergency comms — slower
+            // and more stable than casual chat. Shane: "don't sound
+            // like introducing Taylor Swift to a concert full of
+            // prepubescent teens." Speed 0.85 = comfortable VHF
+            // cadence; stability 0.8 = measured, low emotional
+            // variation. Falls back to native iOS speech (rate 0.8,
+            // pitch 0.95 above) if ElevenLabs fails.
+            voiceSettings: { speed: 0.85, stability: 0.8 },
             onPlaybackStart: (engine) => {
                 setSpeaking(true);
                 setLastVoiceEngine(engine);
