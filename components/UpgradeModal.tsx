@@ -26,7 +26,10 @@ const FIRST_MATE_FEATURES: { label: string; feature: string }[] = [
     { label: 'Direct Messages & Pin Drop', feature: 'directMessages' },
     { label: "Skipper's AI Advice", feature: 'aiAdvice' },
     { label: 'Anchor Watch', feature: 'anchorWatch' },
-    { label: 'Chandlery Posting', feature: 'chandleryPost' },
+    // Removed "Chandlery Posting" from this list — it's gated 'free'
+    // in FEATURE_GATES (Chandlery B-pivot, WD #11), so advertising
+    // it as a First Mate benefit is misleading. Posting to the
+    // Chandlery is available to every tier.
     { label: 'Community Track Downloads', feature: 'communityDownload' },
 ];
 
@@ -38,7 +41,9 @@ const SKIPPER_FEATURES: { label: string; feature: string }[] = [
     { label: 'Vessel Profile & Management', feature: 'vesselProfile' },
     { label: 'Cast Off / Voyage Control', feature: 'castOff' },
     { label: 'Galley & Meal Planning', feature: 'galley' },
-    { label: 'Crew Finder (as Skipper)', feature: 'crewFinderCaptain' },
+    // Removed "Crew Finder (as Skipper)" — crewFinderCaptain is
+    // now 'free' (WD #11 network-effect parity with the Chandlery
+    // B-pivot) and was never enforced in code anyway.
     { label: 'Polar Diagrams & Smart Polars', feature: 'polars' },
     { label: 'Community Track Sharing', feature: 'communityShare' },
 ];

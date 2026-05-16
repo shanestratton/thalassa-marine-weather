@@ -120,7 +120,14 @@ const FEATURE_GATES: Record<Feature, SubscriptionTier> = {
     gpsTracking: 'crew',
     crewTalkWrite: 'crew',
     chandleryPost: 'free', // Open to all — see roadmap Chandlery B-pivot
-    crewFinderCaptain: 'owner',
+    // crewFinderCaptain: free — same logic as the Chandlery B-pivot
+    // (#11 on the WD roadmap). Network-effect features need EVERY
+    // tier able to participate, otherwise the listing density never
+    // reaches usefulness. The owner-tier gate was advertised in the
+    // UpgradeModal but never actually enforced anywhere in code, so
+    // this also closes a "phantom paywall" — users were being told
+    // they'd unlock a feature that wasn't gated to begin with.
+    crewFinderCaptain: 'free',
     directMessages: 'crew',
     communityDownload: 'crew',
     communityShare: 'owner',
