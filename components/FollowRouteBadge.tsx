@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback } from 'react';
 import { useFollowRoute } from '../context/FollowRouteContext';
-import { RouteIcon } from './Icons';
+import { RouteIcon, XIcon, AlertTriangleIcon, RefreshIcon, CompassIcon } from './Icons';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -132,9 +132,9 @@ const RouteChangePanel: React.FC<{
                     <button
                         aria-label="Dismiss route update"
                         onClick={onDismiss}
-                        className="py-2.5 px-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-bold hover:bg-white/10 transition-all active:scale-[0.97]"
+                        className="py-2.5 px-3 rounded-xl bg-white/5 border border-white/10 text-gray-400 text-xs font-bold hover:bg-white/10 transition-all active:scale-[0.97] inline-flex items-center justify-center"
                     >
-                        ✕
+                        <XIcon className="w-3.5 h-3.5" />
                     </button>
                 </div>
             </div>
@@ -234,13 +234,24 @@ ${gpxWaypoints.map((wp) => `      <trkpt lat="${wp.lat}" lon="${wp.lon}"><name>$
                         >
                             <div className="flex items-center gap-1.5">
                                 <span
-                                    className={`text-[11px] font-bold uppercase tracking-widest ${routeChanged ? 'text-amber-400' : 'text-sky-400'}`}
+                                    className={`text-[11px] font-bold uppercase tracking-widest inline-flex items-center gap-1 ${routeChanged ? 'text-amber-400' : 'text-sky-400'}`}
                                 >
-                                    {routeChanged
-                                        ? '⚠ Route Updated'
-                                        : isRefreshing
-                                          ? '↻ Refreshing...'
-                                          : '🧭 Following'}
+                                    {routeChanged ? (
+                                        <>
+                                            <AlertTriangleIcon className="w-3 h-3" />
+                                            <span>Route Updated</span>
+                                        </>
+                                    ) : isRefreshing ? (
+                                        <>
+                                            <RefreshIcon className="w-3 h-3 animate-spin" />
+                                            <span>Refreshing...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <CompassIcon className="w-3 h-3" rotation={0} />
+                                            <span>Following</span>
+                                        </>
+                                    )}
                                 </span>
                             </div>
                             <div className="text-xs text-white/80 font-medium truncate mt-0.5">

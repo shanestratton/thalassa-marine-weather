@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { useFocusTrap } from '../hooks/useAccessibility';
+import { TrashIcon } from './Icons';
 
 interface DeleteVoyageModalProps {
     isOpen: boolean;
@@ -46,7 +47,9 @@ export const DeleteVoyageModal: React.FC<DeleteVoyageModalProps> = ({
             <div className="relative bg-slate-900 border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
                 {/* Header */}
                 <div className="bg-red-600/20 border-b border-red-500/30 p-4 text-center">
-                    <div className="text-3xl mb-2">🗑️</div>
+                    <div className="flex justify-center mb-2 text-red-300">
+                        <TrashIcon className="w-7 h-7" />
+                    </div>
                     <h2 id="delete-voyage-title" className="text-xl font-bold text-white">
                         Delete Voyage?
                     </h2>

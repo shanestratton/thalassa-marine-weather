@@ -15,6 +15,16 @@
  */
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { triggerHaptic } from '../utils/system';
+import {
+    SosIcon,
+    AlertTriangleIcon,
+    AnchorIcon,
+    FlagIcon,
+    ChatIcon,
+    ThunderstormIcon,
+    BellIcon,
+    RadioTowerIcon,
+} from './Icons';
 
 interface ToastItem {
     id: string;
@@ -36,26 +46,69 @@ const CRITICAL_DISMISS_MS = 8000;
 
 const CRITICAL_TYPES = ['anchor_alarm', 'bolo_alert', 'suspicious_alert', 'drag_warning', 'geofence_alert'];
 
-function getToastStyle(type: string) {
+/** Map a notification type to its visual style. Icon is a React node
+ *  so each toast type gets a properly-styled SVG (migrated from emoji
+ *  during the 2026-05 visual uplift). */
+function getToastStyle(type: string): {
+    icon: React.ReactNode;
+    gradient: string;
+    border: string;
+} {
     switch (type) {
         case 'bolo_alert':
-            return { icon: '🚨', gradient: 'from-red-600/95 to-red-700/95', border: 'border-red-400/30' };
+            return {
+                icon: <SosIcon className="w-6 h-6" />,
+                gradient: 'from-red-600/95 to-red-700/95',
+                border: 'border-red-400/30',
+            };
         case 'suspicious_alert':
-            return { icon: '⚠️', gradient: 'from-amber-600/95 to-amber-700/95', border: 'border-amber-400/30' };
+            return {
+                icon: <AlertTriangleIcon className="w-6 h-6" />,
+                gradient: 'from-amber-600/95 to-amber-700/95',
+                border: 'border-amber-400/30',
+            };
         case 'anchor_alarm':
-            return { icon: '⚓', gradient: 'from-orange-600/95 to-orange-700/95', border: 'border-orange-400/30' };
+            return {
+                icon: <AnchorIcon className="w-6 h-6" />,
+                gradient: 'from-orange-600/95 to-orange-700/95',
+                border: 'border-orange-400/30',
+            };
         case 'drag_warning':
-            return { icon: '⚓', gradient: 'from-orange-500/95 to-red-600/95', border: 'border-orange-400/30' };
+            return {
+                icon: <AnchorIcon className="w-6 h-6" />,
+                gradient: 'from-orange-500/95 to-red-600/95',
+                border: 'border-orange-400/30',
+            };
         case 'geofence_alert':
-            return { icon: '🏠', gradient: 'from-purple-600/95 to-purple-700/95', border: 'border-purple-400/30' };
+            return {
+                icon: <BellIcon className="w-6 h-6" />,
+                gradient: 'from-purple-600/95 to-purple-700/95',
+                border: 'border-purple-400/30',
+            };
         case 'weather_alert':
-            return { icon: '⛈️', gradient: 'from-sky-600/95 to-sky-700/95', border: 'border-sky-400/30' };
+            return {
+                icon: <ThunderstormIcon className="w-6 h-6" />,
+                gradient: 'from-sky-600/95 to-sky-700/95',
+                border: 'border-sky-400/30',
+            };
         case 'hail':
-            return { icon: '🏴‍☠️', gradient: 'from-emerald-600/95 to-emerald-700/95', border: 'border-emerald-400/30' };
+            return {
+                icon: <FlagIcon className="w-6 h-6" />,
+                gradient: 'from-emerald-600/95 to-emerald-700/95',
+                border: 'border-emerald-400/30',
+            };
         case 'dm':
-            return { icon: '💬', gradient: 'from-blue-600/95 to-blue-700/95', border: 'border-blue-400/30' };
+            return {
+                icon: <ChatIcon className="w-6 h-6" />,
+                gradient: 'from-blue-600/95 to-blue-700/95',
+                border: 'border-blue-400/30',
+            };
         default:
-            return { icon: '📡', gradient: 'from-slate-700/95 to-slate-800/95', border: 'border-white/10' };
+            return {
+                icon: <RadioTowerIcon className="w-6 h-6" />,
+                gradient: 'from-slate-700/95 to-slate-800/95',
+                border: 'border-white/10',
+            };
     }
 }
 
@@ -168,7 +221,7 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
                             }}
                         >
                             <div className="flex items-start gap-3 p-3.5">
-                                <span className="text-xl shrink-0 mt-0.5">{style.icon}</span>
+                                <span className="shrink-0 mt-0.5 text-white">{style.icon}</span>
                                 <div className="flex-1 min-w-0">
                                     <div className="text-[11px] font-black text-white/90 uppercase tracking-wider truncate">
                                         {toast.title}

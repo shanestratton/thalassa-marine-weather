@@ -3,55 +3,75 @@
  * Shown once on first app open. Auto-dismissed, stored in localStorage.
  */
 import React, { useState, useCallback, useEffect } from 'react';
+import {
+    WaveIcon,
+    MapIcon,
+    ChatIcon,
+    SailBoatIcon,
+    PartlyCloudyIcon,
+    DiamondIcon,
+    WindIcon,
+    AnchorIcon,
+    PowerBoatIcon,
+} from '../Icons';
 
 const STORAGE_KEY = 'thalassa_onboarding_complete';
 
-const slides = [
+interface OnboardingSlide {
+    Icon: React.FC<{ className?: string }>;
+    title: string;
+    subtitle: string;
+    features: { Icon?: React.FC<{ className?: string }>; text: string }[];
+    accent: string;
+    tab: string;
+}
+
+const slides: OnboardingSlide[] = [
     {
-        icon: '🌊',
+        Icon: WaveIcon,
         title: 'Your Weather',
         subtitle: 'Real-time marine forecasts at your fingertips',
         features: [
-            '🌤️ Multi-model forecasts offshore',
-            '🌊 Tide charts, wave height, and swell periods',
-            '🧠 AI-generated tactical advice for your vessel',
+            { Icon: PartlyCloudyIcon, text: 'Multi-model forecasts offshore' },
+            { Icon: WaveIcon, text: 'Tide charts, wave height, and swell periods' },
+            { Icon: DiamondIcon, text: 'AI-generated tactical advice for your vessel' },
         ],
         accent: 'from-sky-500/20 to-cyan-500/10',
         tab: 'The Glass',
     },
     {
-        icon: '🗺️',
+        Icon: MapIcon,
         title: 'Your Charts',
         subtitle: 'Wind, waves, and weather right on the map',
         features: [
-            '💨 Real-time wind particle overlay (NOAA GFS)',
-            '🌊 Ocean currents, waves, SST, and sea state',
-            '⛵ Track your vessel live with GPS',
+            { Icon: WindIcon, text: 'Real-time wind particle overlay (NOAA GFS)' },
+            { Icon: WaveIcon, text: 'Ocean currents, waves, SST, and sea state' },
+            { Icon: SailBoatIcon, text: 'Track your vessel live with GPS' },
         ],
         accent: 'from-emerald-500/20 to-teal-500/10',
         tab: 'Charts',
     },
     {
-        icon: '💬',
+        Icon: ChatIcon,
         title: 'The Scuttlebutt',
         subtitle: 'Where sailors gather, share, and swap tales',
         features: [
-            'Channels and DMs with sailors worldwide',
-            'Drop pins to share anchorages, POIs, and tracks',
-            'Crew Chat — private group for your invited crew',
+            { text: 'Channels and DMs with sailors worldwide' },
+            { text: 'Drop pins to share anchorages, POIs, and tracks' },
+            { text: 'Crew Chat — private group for your invited crew' },
         ],
         accent: 'from-indigo-500/20 to-violet-500/10',
         tab: 'Scuttlebutt',
     },
     {
-        icon: '⛵',
+        Icon: SailBoatIcon,
         title: 'Your Vessel',
         subtitle: 'Everything about your boat in one place',
         features: [
-            'Logbook, diary, and voyage tracking',
-            "Maintenance, equipment, and ship's stores",
-            'Meal planning + community recipe library',
-            'Anchor watch + MOB safety systems',
+            { text: 'Logbook, diary, and voyage tracking' },
+            { Icon: PowerBoatIcon, text: "Maintenance, equipment, and ship's stores" },
+            { text: 'Meal planning + community recipe library' },
+            { Icon: AnchorIcon, text: 'Anchor watch + MOB safety systems' },
         ],
         accent: 'from-amber-500/20 to-orange-500/10',
         tab: 'Nav Station',
@@ -123,8 +143,8 @@ export const OnboardingOverlay: React.FC = () => {
                 <div className="bg-slate-900 border border-white/10 rounded-3xl overflow-hidden shadow-2xl">
                     {/* Hero gradient */}
                     <div className={`relative h-48 bg-gradient-to-br ${slide.accent} flex items-center justify-center`}>
-                        <span className="text-7xl" style={{ filter: 'drop-shadow(0 4px 20px rgba(0,0,0,0.3))' }}>
-                            {slide.icon}
+                        <span className="text-white/90" style={{ filter: 'drop-shadow(0 4px 20px rgba(0,0,0,0.3))' }}>
+                            <slide.Icon className="w-20 h-20" />
                         </span>
                         {/* Tab badge */}
                         <div className="absolute top-4 right-4 px-3 py-1 rounded-full bg-white/10 border border-white/10 text-[11px] font-bold text-white/60 uppercase tracking-widest">
@@ -140,7 +160,12 @@ export const OnboardingOverlay: React.FC = () => {
                         <div className="space-y-3">
                             {slide.features.map((f, i) => (
                                 <div key={i} className="flex items-start gap-2.5">
-                                    <span className="text-sm leading-relaxed text-white/70">{f}</span>
+                                    {f.Icon && (
+                                        <span className="shrink-0 mt-0.5 text-sky-300/70">
+                                            <f.Icon className="w-4 h-4" />
+                                        </span>
+                                    )}
+                                    <span className="text-sm leading-relaxed text-white/70">{f.text}</span>
                                 </div>
                             ))}
                         </div>
