@@ -141,10 +141,59 @@ function prepareForTTS(text: string): string {
     );
 }
 
+interface VoiceSettingsOverride {
+    stability?: number;
+    similarity_boost?: number;
+    style?: number;
+    speed?: number;
+    use_speaker_boost?: boolean;
+}
+
 interface AskBody {
     text?: string;
     voice_id?: string;
+    /**
+     * Optional per-call voice-settings override. Merged on top of
+     * DEFAULT_VOICE_SETTINGS below. Use for emergency comms (MOB,
+     * Mayday, DSC) that want slower + more deliberate delivery:
+     *   { speed: 0.85, stability: 0.8 }
+     * Casual chat omits this and gets the default cadence.
+     */
+    voice_settings?: VoiceSettingsOverride;
 }
+
+/**
+ * Default ElevenLabs voice settings.
+ *
+ * Tuned 2026-05-16 after Shane reported Calypso sounding like
+ * "introducing Taylor Swift to a concert full of prepubescent
+ * teens" — i.e. too fast, too hype. Previous settings were
+ * { stability: 0.5, similarity_boost: 0.75, style: 0.0, speed: 1.1 }.
+ *
+ * Changes:
+ *  - speed 1.1 → 0.95   slightly slower than normal; matches radio
+ *                       cadence; comfortable for marine reports.
+ *  - stability 0.5 → 0.7  calmer, less emotive variation. Closer
+ *                         to a measured professional than a hyped
+ *                         announcer. 0.7 is the ElevenLabs sweet
+ *                         spot for "natural but composed".
+ *  - style 0.0          unchanged — already not exaggerated.
+ *  - use_speaker_boost true  clarity bump for emergency comms;
+ *                            barely noticeable for normal speech
+ *                            but makes a difference when the
+ *                            phone speaker is competing with
+ *                            engine noise.
+ *
+ * Callers (e.g. MOB Speak Mayday) can override via the body's
+ * voice_settings field for even more deliberate delivery.
+ */
+const DEFAULT_VOICE_SETTINGS = {
+    stability: 0.7,
+    similarity_boost: 0.75,
+    style: 0.0,
+    speed: 0.95,
+    use_speaker_boost: true,
+};
 
 Deno.serve(async (req: Request) => {
     if (req.method === 'OPTIONS') {
@@ -184,6 +233,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const voiceId = body.voice_id || Deno.env.get('ELEVENLABS_VOICE_ID') || DEFAULT_VOICE_ID;
+    const voiceSettings = { ...DEFAULT_VOICE_SETTINGS, ...(body.voice_settings ?? {}) };
 
     const t0 = Date.now();
     const upstream = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
@@ -196,7 +246,7 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({
             text: prepareForTTS(text),
             model_id: 'eleven_flash_v2_5',
-            voice_settings: { stability: 0.5, similarity_boost: 0.75, style: 0.0, speed: 1.1 },
+            voice_settings: voiceSettings,
         }),
     });
 

@@ -68,7 +68,29 @@ export function consumeTtsClientError(): string | null {
  * can pass raw text like "Battery 11.4 volts" and the synth will
  * pronounce it as "Battery eleven point four volts".
  */
-export async function synthesise(text: string, opts?: { voiceId?: string }): Promise<string | null> {
+/**
+ * Optional per-call ElevenLabs voice-settings override. Mirrors the
+ * edge function's VoiceSettingsOverride shape. Use for emergency
+ * comms (MOB, Mayday, DSC) that want slower + calmer delivery:
+ *
+ *   speak(text, { voiceSettings: { speed: 0.85, stability: 0.8 } });
+ *
+ * Casual chat omits this and gets the edge function's defaults
+ * (already tuned slower + calmer than the prior hype-cadence after
+ * Shane's "less Taylor Swift" feedback).
+ */
+export interface VoiceSettingsOverride {
+    stability?: number;
+    similarity_boost?: number;
+    style?: number;
+    speed?: number;
+    use_speaker_boost?: boolean;
+}
+
+export async function synthesise(
+    text: string,
+    opts?: { voiceId?: string; voiceSettings?: VoiceSettingsOverride },
+): Promise<string | null> {
     if (!SUPABASE_URL || !SUPABASE_KEY) return null;
     const trimmed = (text || '').trim();
     if (!trimmed) return null;
@@ -82,6 +104,11 @@ export async function synthesise(text: string, opts?: { voiceId?: string }): Pro
         // any later TTS call after the skipper picks a new voice picks
         // up the change without restarting the app.
         const voice_id = opts?.voiceId ?? activeVoiceId();
+        const body: { text: string; voice_id: string; voice_settings?: VoiceSettingsOverride } = {
+            text: trimmed,
+            voice_id,
+        };
+        if (opts?.voiceSettings) body.voice_settings = opts.voiceSettings;
         const r = await fetch(url, {
             method: 'POST',
             headers: {
@@ -89,7 +116,7 @@ export async function synthesise(text: string, opts?: { voiceId?: string }): Pro
                 Authorization: `Bearer ${SUPABASE_KEY}`,
                 apikey: SUPABASE_KEY,
             },
-            body: JSON.stringify({ text: trimmed, voice_id }),
+            body: JSON.stringify(body),
             signal: ctrl.signal,
         });
         if (!r.ok) {
@@ -161,7 +188,7 @@ export interface SpokenHandle {
  *     with MusicKit's ApplicationMusicPlayer)
  *   - Web / non-iOS: HTML5 Audio fallback
  */
-export function speak(text: string, opts?: { voiceId?: string }): SpokenHandle {
+export function speak(text: string, opts?: { voiceId?: string; voiceSettings?: VoiceSettingsOverride }): SpokenHandle {
     let cancelled = false;
     let audio: HTMLAudioElement | null = null;
     let objectUrl: string | null = null;

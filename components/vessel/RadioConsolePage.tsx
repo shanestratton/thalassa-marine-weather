@@ -325,6 +325,12 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
         const handle = speakSafetyMessage(currentTranscript, {
             nativeRate: dscMode === 'distress' ? 0.75 : 0.85,
             nativePitch: 0.9,
+            // Calypso override: distress = extra-deliberate (slower
+            // + most stable), routine = slightly slower than default
+            // but still natural. Distress matches the MOB cadence
+            // so a listener at the other end gets the same calm
+            // measured delivery regardless of which surface fired.
+            voiceSettings: dscMode === 'distress' ? { speed: 0.85, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
             onPlaybackStart: (engine) => {
                 setIsSpeaking(true);
                 setLastVoiceEngine(engine);
