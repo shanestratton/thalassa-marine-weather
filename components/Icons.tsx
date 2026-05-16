@@ -15,6 +15,10 @@ export {
     SunriseIcon,
     SunsetIcon,
     WaterIcon,
+    ThunderstormIcon,
+    PartlyCloudyIcon,
+    CycloneIcon,
+    LightningBoltIcon,
 } from './icons/WeatherIcons';
 
 export {
@@ -50,6 +54,23 @@ export {
     BugIcon,
     PhoneIcon,
     GripIcon,
+    CheckCircleIcon,
+    CartIcon,
+    PackageIcon,
+    WrenchIcon,
+    RefreshIcon,
+    MuteIcon,
+    EditIcon,
+    SendIcon,
+    DownloadIcon,
+    ClipboardIcon,
+    ProhibitedIcon,
+    RadioIcon,
+    SosIcon,
+    SparklesIcon,
+    CarIcon,
+    WalkIcon,
+    CalendarGridIcon,
 } from './icons/UIIcons';
 
 export {

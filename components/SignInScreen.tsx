@@ -18,6 +18,7 @@ import React, { useCallback, useState } from 'react';
 import { signInWithApple, signInWithGoogle } from '../services/auth/SocialAuthService';
 import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
+import { AnchorIcon } from './Icons';
 
 export const SignInScreen: React.FC = () => {
     const [busy, setBusy] = useState<'apple' | 'google' | null>(null);
@@ -68,9 +69,16 @@ export const SignInScreen: React.FC = () => {
             <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-950 to-sky-950/30 pointer-events-none" />
             <div className="absolute inset-x-0 top-0 h-64 bg-gradient-to-b from-sky-500/10 to-transparent pointer-events-none" />
 
-            {/* Brand */}
+            {/* Brand — anchor mark in a soft glow, sized to give the
+                sign-in screen the same calm-marine signature as the
+                rest of the app. Replaced the emoji anchor with the
+                SVG icon during the 2026-05 visual uplift. */}
             <div className="relative z-10 mb-10 text-center">
-                <div className="text-6xl mb-4">⚓</div>
+                <div className="mb-4 flex items-center justify-center">
+                    <div className="w-20 h-20 rounded-full bg-sky-500/10 border border-sky-400/20 flex items-center justify-center shadow-lg shadow-sky-500/10">
+                        <AnchorIcon className="w-10 h-10 text-sky-300" />
+                    </div>
+                </div>
                 <h1 className="text-3xl font-black text-white tracking-tight">Thalassa</h1>
                 <p className="mt-2 text-sm text-slate-400">Marine Weather &amp; Voyage Log</p>
             </div>

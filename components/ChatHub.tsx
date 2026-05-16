@@ -16,6 +16,7 @@ import { triggerHaptic } from '../utils/system';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { EmptyState } from './ui/EmptyState';
 import { timeAgo } from './chat/chatUtils';
+import { ChatIcon } from './Icons';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -199,7 +200,7 @@ export const ChatHub: React.FC = () => {
                             </div>
                         ) : conversations.length === 0 ? (
                             <EmptyState
-                                icon="💬"
+                                icon={<ChatIcon className="w-10 h-10 text-sky-400/60" />}
                                 title="No Active Negotiations"
                                 description="Message a seller from the Chandlery to start a conversation."
                             />

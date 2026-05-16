@@ -33,6 +33,7 @@ import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { AisStreamService } from '../services/AisStreamService';
 import { PageHeader } from './ui/PageHeader';
+import { AnchorIcon, AlertTriangleIcon, MuteIcon, CheckIcon, PhoneIcon, PowerBoatIcon } from './Icons';
 
 import {
     navStatusColorSimple,
@@ -581,10 +582,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                     <div className="text-xs text-slate-300 font-bold truncate group-hover:text-white transition-colors">
                                         {wxRecommendation.label} · {wxRecommendation.wind.toFixed(0)}kts
                                     </div>
-                                    <div className="text-[11px] text-slate-400 group-hover:text-slate-400 transition-colors">
-                                        {rodeLength === wxRecommendation.rode
-                                            ? `✓ ${wxRecommendation.scope}:1 set`
-                                            : `Tap → ${wxRecommendation.rode}m`}
+                                    <div className="text-[11px] text-slate-400 group-hover:text-slate-400 transition-colors inline-flex items-center gap-1">
+                                        {rodeLength === wxRecommendation.rode ? (
+                                            <>
+                                                <CheckIcon className="w-3 h-3" />
+                                                <span>{`${wxRecommendation.scope}:1 set`}</span>
+                                            </>
+                                        ) : (
+                                            `Tap → ${wxRecommendation.rode}m`
+                                        )}
                                     </div>
                                 </div>
                             </button>
@@ -715,7 +721,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                                 : 'transform 0.3s ease, background 0.3s, box-shadow 0.3s',
                                         }}
                                     >
-                                        <span className="text-lg">{slideCommitted ? '✓' : '⚓'}</span>
+                                        {slideCommitted ? (
+                                            <CheckIcon className="w-5 h-5 text-white" />
+                                        ) : (
+                                            <AnchorIcon className="w-5 h-5 text-white" />
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -786,11 +796,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 {!syncState?.peerConnected && (
                     <div className="shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 bg-red-500/[0.08] border border-red-500/25 rounded-xl">
                         <span className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
-                        <span className="text-sm text-red-400 font-bold flex-1">
-                            ⚠️ Vessel connection lost
-                            {syncState?.peerDisconnectedAt
-                                ? ` · ${formatElapsed(syncState.peerDisconnectedAt)} ago`
-                                : ''}
+                        <span className="text-sm text-red-400 font-bold flex-1 inline-flex items-center gap-1.5">
+                            <AlertTriangleIcon className="w-4 h-4" />
+                            <span>
+                                Vessel connection lost
+                                {syncState?.peerDisconnectedAt
+                                    ? ` · ${formatElapsed(syncState.peerDisconnectedAt)} ago`
+                                    : ''}
+                            </span>
                         </span>
                         <span className="text-xs text-red-500/50 animate-pulse">Reconnecting...</span>
                     </div>
@@ -857,7 +870,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         boxShadow: '0 6px 24px rgba(220, 38, 38, 0.4)',
                                     }}
                                 >
-                                    🔇 Silence Alarm
+                                    <span className="inline-flex items-center gap-2 justify-center">
+                                        <MuteIcon className="w-4 h-4" />
+                                        <span>Silence Alarm</span>
+                                    </span>
                                 </button>
                             )}
 
@@ -977,7 +993,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                         className="flex-1 py-3 bg-sky-500/[0.08] border border-sky-500/20 rounded-xl text-sm text-sky-400 font-bold transition-all active:scale-[0.97] hover:bg-sky-500/[0.12]"
                         aria-label="Create Session"
                     >
-                        📱 Shore Share
+                        <span className="inline-flex items-center gap-2 justify-center">
+                            <PhoneIcon className="w-4 h-4" />
+                            <span>Shore Share</span>
+                        </span>
                     </button>
                 )}
                 <button
@@ -999,7 +1018,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     }`}
                     aria-label={showAisOnRadar ? 'Hide AIS targets' : 'Show AIS targets'}
                 >
-                    🚢
+                    <PowerBoatIcon className="w-5 h-5 mx-auto" />
                 </button>
                 <button
                     onClick={handleStopWatch}
@@ -1014,11 +1033,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             {syncState?.connected && !syncState.peerConnected && syncState.sessionCode && (
                 <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/[0.08] border border-amber-500/25 rounded-xl animate-pulse">
                     <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0" />
-                    <span className="text-xs text-amber-400 font-bold flex-1">
-                        ⚠️ Shore device disconnected
-                        {syncState.peerDisconnectedAt
-                            ? ` · Lost ${formatElapsed(syncState.peerDisconnectedAt)} ago`
-                            : ''}
+                    <span className="text-xs text-amber-400 font-bold flex-1 inline-flex items-center gap-1.5">
+                        <AlertTriangleIcon className="w-3.5 h-3.5" />
+                        <span>
+                            Shore device disconnected
+                            {syncState.peerDisconnectedAt
+                                ? ` · Lost ${formatElapsed(syncState.peerDisconnectedAt)} ago`
+                                : ''}
+                        </span>
                     </span>
                     <span className="text-xs text-amber-500/60">Waiting...</span>
                 </div>
