@@ -111,7 +111,7 @@ const App: React.FC = () => {
         handleMapTargetSelect,
         handleMapStaySelect,
         effectiveMode,
-        isSampleLocation,
+        sampleLocation,
         sheetOpen,
         setSheetOpen,
         sheetData,
@@ -490,16 +490,17 @@ const App: React.FC = () => {
 
                         {/* Sample-mode chip — visible when the user has
                             no `defaultLocation` set and the Glass is
-                            currently painting SAMPLE_LOCATION (Sydney
-                            Harbour) instead of their own port. Sits
-                            BETWEEN the logo row and the search bar so
-                            it's the first thing they read after the
-                            location pill. Tapping opens the map picker
-                            (same path as the search-bar map button) so
-                            they can pin their actual home port. Once
+                            currently painting a regional sample (Sydney
+                            for AU, Newport for US East, the Solent for
+                            UK, etc. — see utils/locale.ts). Sits BETWEEN
+                            the logo row and the search bar so it's the
+                            first thing they read after the location
+                            pill. Tapping opens the map picker (same
+                            path as the search-bar map button) so they
+                            can pin their actual home port. Once
                             `selectLocation` writes defaultLocation, the
                             chip auto-disappears. */}
-                        {!activeViewConfig && currentView !== 'map' && isSampleLocation && (
+                        {!activeViewConfig && currentView !== 'map' && sampleLocation && (
                             <button
                                 type="button"
                                 onClick={() => {
@@ -508,10 +509,10 @@ const App: React.FC = () => {
                                     setPage('map');
                                 }}
                                 className="self-start mt-1 px-3 py-1.5 rounded-full text-xs bg-sky-500/10 border border-sky-500/30 text-sky-200 hover:bg-sky-500/20 transition-colors pointer-events-auto flex items-center gap-1.5 shadow-lg backdrop-blur-md"
-                                aria-label="Sample location — tap to choose your home port"
+                                aria-label={`Sample location: ${sampleLocation.shortLabel} — tap to choose your home port`}
                             >
                                 <span className="opacity-70">Sample:</span>
-                                <span className="font-semibold">Sydney Harbour</span>
+                                <span className="font-semibold">{sampleLocation.shortLabel}</span>
                                 <span className="opacity-40">·</span>
                                 <span className="text-sky-100">Tap to set yours →</span>
                             </button>

@@ -13,7 +13,7 @@ import { GpsService } from '../services/GpsService';
 import { useAuthStore } from '../stores/authStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
-import { SAMPLE_LOCATION } from '../utils/sampleLocation';
+import { SAMPLE_LOCATION, getSampleLocation, type SampleLocation } from '../utils/sampleLocation';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -609,15 +609,20 @@ export const useAppController = () => {
     const handleTabMap = useCallback(() => setPage('map'), [setPage]);
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
 
-    // Sample-mode derived flag: weather is loaded but the user
-    // hasn't claimed a home port yet, which means useAppController
-    // (or the existing onboarding flow) painted SAMPLE_LOCATION for
-    // them. The chip on The Glass watches this to decide whether to
-    // render "Sample: Sydney Harbour · Tap to set yours →". Note we
-    // gate on `weatherData` being present too — at boot there's a
-    // brief moment where both `defaultLocation` and `weatherData`
-    // are empty, and we don't want the chip flashing in that gap.
-    const isSampleLocation = !!weatherData && !settings.defaultLocation;
+    // Sample-mode derived value: when weather is loaded but the
+    // user hasn't claimed a home port yet, this resolves to the
+    // region-appropriate SampleLocation object (Sydney for AU,
+    // Newport for US East, etc.). The chip on The Glass reads
+    // `sampleLocation.shortLabel` to render "Sample: <city> · Tap
+    // to set yours →". We gate on `weatherData` being present too —
+    // at boot there's a brief moment where both `defaultLocation`
+    // and `weatherData` are empty, and we don't want the chip
+    // flashing in that gap.
+    //
+    // getSampleLocation() is memoised in utils/sampleLocation, so
+    // repeated reads during render are free.
+    const sampleLocation: SampleLocation | null =
+        !!weatherData && !settings.defaultLocation ? getSampleLocation() : null;
 
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
@@ -649,7 +654,7 @@ export const useAppController = () => {
         handleSearchSubmit,
         handleLocate,
         effectiveMode,
-        isSampleLocation,
+        sampleLocation,
 
         // Extracted Handlers & State
         toggleFavorite,
