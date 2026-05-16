@@ -650,13 +650,6 @@ export const useAppController = () => {
     const handleTabMap = useCallback(() => setPage('map'), [setPage]);
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
 
-    // Featured Passage now lives inside the RoutePlanner's empty
-    // state (it reads getFeaturedPassage() there directly). The
-    // App header no longer surfaces a "Try this passage" CTA — the
-    // pair of chips on the dashboard looked cluttered and pushed
-    // the weather content down. See RoutePlanner.tsx for the new
-    // home.
-
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
     if (settings.displayMode === 'auto') {
