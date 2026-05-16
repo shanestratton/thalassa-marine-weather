@@ -5,33 +5,49 @@
 import React from 'react';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { DisplayMode, ScreenOrientationType } from '../../types';
+import { SunIcon, MoonIcon, RefreshIcon, PhoneIcon } from '../Icons';
 
-const DISPLAY_MODES: { value: DisplayMode; label: string; icon: string; desc: string; gradient: string }[] = [
+// Small inline icon for "Night mode" — a red-tint moon.
+const RedMoonIcon = ({ className }: { className?: string }) => <MoonIcon className={className} />;
+// Inline icon for landscape orientation — phone rotated 90°.
+const LandscapeIcon = ({ className }: { className?: string }) => (
+    <span className="inline-flex rotate-90">
+        <PhoneIcon className={className} />
+    </span>
+);
+
+const DISPLAY_MODES: {
+    value: DisplayMode;
+    label: string;
+    Icon: React.FC<{ className?: string }>;
+    desc: string;
+    gradient: string;
+}[] = [
     {
         value: 'light',
         label: 'Light',
-        icon: '☀️',
+        Icon: SunIcon,
         desc: 'Daytime use',
         gradient: 'from-amber-500/20 to-amber-600/20 border-amber-500/40 shadow-amber-500/20',
     },
     {
         value: 'dark',
         label: 'Dark',
-        icon: '🌙',
+        Icon: MoonIcon,
         desc: 'Default',
         gradient: 'from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-sky-500/20',
     },
     {
         value: 'night',
         label: 'Night',
-        icon: '🔴',
+        Icon: RedMoonIcon,
         desc: 'Red tint',
         gradient: 'from-red-500/20 to-red-600/20 border-red-500/40 shadow-red-500/20',
     },
     {
         value: 'auto',
         label: 'Auto',
-        icon: '🔄',
+        Icon: RefreshIcon,
         desc: 'Sunrise/sunset',
         gradient: 'from-violet-500/20 to-violet-600/20 border-violet-500/40 shadow-violet-500/20',
     },
@@ -40,7 +56,7 @@ const DISPLAY_MODES: { value: DisplayMode; label: string; icon: string; desc: st
 const ORIENTATION_OPTIONS: {
     value: ScreenOrientationType;
     label: string;
-    icon: string;
+    Icon: React.FC<{ className?: string }>;
     desc: string;
     gradient: string;
     recommended?: boolean;
@@ -48,14 +64,14 @@ const ORIENTATION_OPTIONS: {
     {
         value: 'auto',
         label: 'Auto',
-        icon: '🔄',
+        Icon: RefreshIcon,
         desc: 'Rotates freely',
         gradient: 'from-sky-500/20 to-sky-600/20 border-sky-500/40 shadow-sky-500/20',
     },
     {
         value: 'portrait',
         label: 'Portrait',
-        icon: '📱',
+        Icon: PhoneIcon,
         desc: 'Recommended',
         gradient: 'from-emerald-500/20 to-emerald-600/20 border-emerald-500/40 shadow-emerald-500/20',
         recommended: true,
@@ -63,7 +79,7 @@ const ORIENTATION_OPTIONS: {
     {
         value: 'landscape',
         label: 'Landscape',
-        icon: '🖥️',
+        Icon: LandscapeIcon,
         desc: 'Wide view',
         gradient: 'from-amber-500/20 to-amber-600/20 border-amber-500/40 shadow-amber-500/20',
     },
@@ -94,7 +110,9 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                             : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
                                     }`}
                                 >
-                                    <span className="text-xl">{opt.icon}</span>
+                                    <span className={`inline-flex ${isActive ? 'text-white' : 'text-gray-300'}`}>
+                                        <opt.Icon className="w-5 h-5" />
+                                    </span>
                                     <span
                                         className={`text-[11px] font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}
                                     >
@@ -141,7 +159,9 @@ export const AestheticsTab: React.FC<SettingsTabProps> = ({ settings, onSave }) 
                                             : 'bg-white/5 border-transparent hover:bg-white/10 hover:border-white/10'
                                     }`}
                                 >
-                                    <span className="text-2xl">{opt.icon}</span>
+                                    <span className={`inline-flex ${isActive ? 'text-white' : 'text-gray-300'}`}>
+                                        <opt.Icon className="w-6 h-6" />
+                                    </span>
                                     <span
                                         className={`text-xs font-black uppercase tracking-wider ${isActive ? 'text-white' : 'text-gray-400'}`}
                                     >

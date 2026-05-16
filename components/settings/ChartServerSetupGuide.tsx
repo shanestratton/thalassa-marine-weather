@@ -5,6 +5,7 @@
  * Covers both Path A (free government charts) and Path B (encrypted o-charts).
  */
 import React, { useState } from 'react';
+import { ClipboardIcon, LockIcon, CheckIcon, AnchorIcon } from '../Icons';
 
 type GuidePath = 'free' | 'ocharts';
 
@@ -19,7 +20,7 @@ export const ChartServerSetupGuide: React.FC = () => {
                 className="w-full rounded-2xl bg-gradient-to-br from-emerald-500/10 to-sky-500/10 border border-emerald-500/20 p-4 text-left transition-all hover:border-emerald-500/40 active:scale-[0.99]"
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-lg">📖</span>
+                    <ClipboardIcon className="w-5 h-5 text-emerald-300" />
                     <span className="text-sm font-bold text-emerald-300 flex-1">Pi Setup Guide</span>
                     <span className="text-[11px] text-gray-500 uppercase tracking-wider">Tap to expand</span>
                     <svg
@@ -101,7 +102,9 @@ export const ChartServerSetupGuide: React.FC = () => {
                                     : 'bg-white/[0.03] border-white/[0.06] text-gray-400 hover:bg-white/[0.06]'
                             }`}
                         >
-                            <span className="block text-sm mb-0.5">🔐</span>
+                            <span className="block mb-0.5">
+                                <LockIcon className="w-4 h-4 mx-auto" />
+                            </span>
                             o-charts (Paid)
                             <span className="block text-[11px] font-normal mt-0.5 text-gray-500">AHO · UKHO · BSH</span>
                         </button>
@@ -314,8 +317,9 @@ npm install signalk-charts-provider-simple
 
                 {/* Offshore Backup Strategy */}
                 <div className="border-t border-white/[0.06] pt-3">
-                    <h4 className="text-[11px] font-black text-white/70 uppercase tracking-[0.15em] mb-2">
-                        ⚓ Offshore Backup Strategy
+                    <h4 className="text-[11px] font-black text-white/70 uppercase tracking-[0.15em] mb-2 flex items-center gap-1.5">
+                        <AnchorIcon className="w-3 h-3" />
+                        <span>Offshore Backup Strategy</span>
                     </h4>
                     <p className="text-[11px] text-gray-400 mb-3">
                         o-charts are locked to a hardware fingerprint (CPU serial + MAC address). Every Pi is unique —
@@ -380,7 +384,10 @@ npm install signalk-charts-provider-simple
                     </div>
 
                     <div className="mt-3 rounded-xl bg-gradient-to-r from-red-500/10 to-amber-500/10 border border-red-500/20 px-3 py-2.5">
-                        <p className="text-[11px] text-red-300 font-bold mb-1">🔖 Pre-Departure Checklist</p>
+                        <p className="text-[11px] text-red-300 font-bold mb-1 inline-flex items-center gap-1.5">
+                            <ClipboardIcon className="w-3 h-3" />
+                            <span>Pre-Departure Checklist</span>
+                        </p>
                         <div className="space-y-1">
                             <CheckItem text="Buy o-charts USB dongle (€19) — assign chart license to it" />
                             <CheckItem text="Register laptop as 2nd system on o-charts.org" />
@@ -432,7 +439,9 @@ const Code: React.FC<{ children: string }> = ({ children }) => (
 
 const CheckItem: React.FC<{ text: string }> = ({ text }) => (
     <div className="flex items-start gap-2">
-        <span className="text-emerald-400 text-[11px] mt-0.5 shrink-0">✓</span>
+        <span className="text-emerald-400 mt-0.5 shrink-0">
+            <CheckIcon className="w-3 h-3" />
+        </span>
         <span className="text-[11px] text-gray-300">{text}</span>
     </div>
 );

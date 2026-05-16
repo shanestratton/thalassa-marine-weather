@@ -44,38 +44,6 @@ const ChevronIcon: React.FC<{ className?: string }> = ({ className }) => (
     </svg>
 );
 
-/** Condition-to-icon emoji (lightweight, no extra SVG assets needed) */
-const getConditionIcon = (condition: string): string => {
-    switch (condition) {
-        case 'Sunny':
-            return '☀️';
-        case 'Clear':
-            return '🌙';
-        case 'Cloudy':
-            return '☁️';
-        case 'Partly':
-            return '⛅';
-        case 'Overcast':
-            return '🌥️';
-        case 'Rain':
-            return '🌧️';
-        case 'Pouring':
-            return '🌊';
-        case 'Storm':
-            return '⛈️';
-        case 'Snow':
-            return '❄️';
-        case 'Fog':
-            return '🌫️';
-        case 'Haze':
-            return '🌫️';
-        case 'Windy':
-            return '💨';
-        default:
-            return '☁️';
-    }
-};
-
 interface HeroHeaderProps {
     data: WeatherMetrics;
     units: UnitPreferences;
@@ -123,27 +91,11 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
         }
     }, [isLive, sources]);
 
-    // Map weather condition to category for icon selection
-    const conditionCategory = useMemo(() => {
-        const c = (data.condition || '').toLowerCase();
-        if (c.includes('thunder') || c.includes('storm')) return 'Storm';
-        if (c.includes('pour') || c.includes('heavy rain')) return 'Pouring';
-        if (c.includes('rain') || c.includes('shower') || c.includes('drizzle')) return 'Rain';
-        if (c.includes('snow') || c.includes('sleet') || c.includes('ice')) return 'Snow';
-        if (c.includes('fog') || c.includes('mist')) return 'Fog';
-        if (c.includes('haze')) return 'Haze';
-        if (c.includes('overcast')) return 'Overcast';
-        if (c.includes('cloud') || c.includes('mostly cloudy')) return 'Cloudy';
-        if (c.includes('partly') || c.includes('scattered')) return 'Partly';
-        if (!isDay && (c.includes('clear') || c.includes('sunny') || c === '')) return 'Clear';
-        if (c.includes('clear') || c.includes('sunny') || c === '') return 'Sunny';
-        if (c.includes('wind')) return 'Windy';
-        return 'Cloudy';
-    }, [data.condition, isDay]);
-
-    // Use exact WeatherKit condition text for display, icon from category
+    // The previous getConditionIcon emoji-mapping helper + its
+    // conditionCategory memo were removed during the 2026-05 visual
+    // uplift — neither was rendered (the condition string itself is
+    // shown as text, no icon overlay). Kept the text-only display.
     const displayCondition = data.condition || 'Cloudy';
-    const _conditionIcon = getConditionIcon(conditionCategory);
 
     // ── PINNED METRIC STATE ──────────────────────────────────────────
     // When `heroMetric` !== 'temp', the LEFT partition renders the pinned

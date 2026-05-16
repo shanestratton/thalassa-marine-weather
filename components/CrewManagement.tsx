@@ -40,6 +40,7 @@ import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
 import { AuthModal } from './AuthModal';
 import { lazyRetry } from '../utils/lazyRetry';
+import { UsersIcon, CompassIcon, CalendarGridIcon, AnchorIcon, AlertTriangleIcon, SosIcon } from './Icons';
 
 // ── Extracted sub-components ──
 import { InviteCrewModal } from './crew/InviteCrewModal';
@@ -659,7 +660,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                 <PageHeader title="Passage Planning" onBack={onBack} />
                 <div className="flex-1 flex items-center justify-center p-8">
                     <div className="text-center">
-                        <div className="text-4xl mb-4">👥</div>
+                        <div className="mb-4 flex justify-center text-sky-300/70">
+                            <UsersIcon className="w-12 h-12" />
+                        </div>
                         <h2 className="text-lg font-bold text-white mb-2">Sign In Required</h2>
                         <p className="text-sm text-gray-400 max-w-xs mb-6">
                             Sign in to share your vessel registers with crew members.
@@ -774,7 +777,7 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     className="w-full mb-4 flex items-center justify-between gap-2 px-4 py-3.5 rounded-xl bg-gradient-to-r from-sky-500/15 to-cyan-500/10 border border-sky-500/25 hover:from-sky-500/25 hover:to-cyan-500/20 active:scale-[0.98] transition-all"
                 >
                     <span className="flex items-center gap-3 min-w-0">
-                        <span className="text-base">🧭</span>
+                        <CompassIcon className="w-5 h-5 text-sky-300" rotation={0} />
                         <span className="flex flex-col items-start min-w-0">
                             <span className="text-sm font-bold text-sky-200 tracking-wide">Plan a route</span>
                             <span className="text-[11px] text-sky-300/70">Origin · destination · departure</span>
@@ -796,8 +799,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
                 {/* ── ACTIVE PASSAGE SELECTOR ── */}
                 <div className="mb-4">
-                    <label className="text-[11px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 block">
-                        🧭 Active Passage
+                    <label className="text-[11px] uppercase font-bold text-violet-400/60 tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <CompassIcon className="w-3 h-3" rotation={0} />
+                        <span>Active Passage</span>
                     </label>
                     {draftVoyages.length > 0 ? (
                         <select
@@ -955,8 +959,9 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                     <div className="mb-4 flex items-end gap-2">
                         {/* Departure date — date only, time decided later */}
                         <div className="flex-1 min-w-0">
-                            <label className="text-[11px] uppercase font-bold text-slate-500 tracking-widest mb-1 block">
-                                📅 Departure Date
+                            <label className="text-[11px] uppercase font-bold text-slate-500 tracking-widest mb-1 flex items-center gap-1.5">
+                                <CalendarGridIcon className="w-3 h-3" />
+                                <span>Departure Date</span>
                             </label>
                             <input
                                 type="date"
@@ -1035,9 +1040,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                                 allCardsReady
                                     ? 'bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border-emerald-500/20 text-emerald-300 hover:from-emerald-500/20 hover:to-teal-500/20'
                                     : 'bg-white/[0.03] border-white/[0.08] text-gray-500'
-                            }`}
+                            } inline-flex items-center justify-center gap-2`}
                         >
-                            ⚓ Cast Off
+                            <AnchorIcon className="w-4 h-4" />
+                            <span>Cast Off</span>
                         </button>
                     </div>
                 )}
@@ -1273,7 +1279,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
             >
                 <div className="space-y-4">
                     <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
-                        <p className="text-sm text-red-300 font-bold mb-2">⚠️ This action cannot be undone</p>
+                        <p className="text-sm text-red-300 font-bold mb-2 inline-flex items-center gap-1.5">
+                            <AlertTriangleIcon className="w-4 h-4" />
+                            <span>This action cannot be undone</span>
+                        </p>
                         <p className="text-[11px] text-red-300/70 leading-relaxed">
                             This will permanently remove{' '}
                             <strong>
@@ -1299,13 +1308,20 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         aria-label="Confirm Disband"
                         onClick={handleDisbandGroup}
                         disabled={disbandConfirmText !== 'DISBAND' || disbanding}
-                        className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 ${
+                        className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all active:scale-95 inline-flex items-center justify-center gap-2 ${
                             disbandConfirmText === 'DISBAND' && !disbanding
                                 ? 'bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-500/20'
                                 : 'bg-white/[0.04] text-gray-500 cursor-not-allowed'
                         }`}
                     >
-                        {disbanding ? 'Disbanding…' : '🚨 Disband Entire Group'}
+                        {disbanding ? (
+                            'Disbanding…'
+                        ) : (
+                            <>
+                                <SosIcon className="w-4 h-4" />
+                                <span>Disband Entire Group</span>
+                            </>
+                        )}
                     </button>
                 </div>
             </ModalSheet>

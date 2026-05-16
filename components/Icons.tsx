@@ -71,6 +71,9 @@ export {
     CarIcon,
     WalkIcon,
     CalendarGridIcon,
+    UsersIcon,
+    LifeBuoyIcon,
+    DeviceIcon,
 } from './icons/UIIcons';
 
 export {

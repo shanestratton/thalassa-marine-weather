@@ -23,6 +23,18 @@ import {
 import { triggerHaptic } from '../utils/system';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
+import {
+    SosIcon,
+    AlertTriangleIcon,
+    AnchorIcon,
+    ThunderstormIcon,
+    BellIcon,
+    FlagIcon,
+    RadioTowerIcon,
+    LockIcon,
+    SailBoatIcon,
+    XIcon,
+} from './Icons';
 
 interface GuardianPageProps {
     onBack: () => void;
@@ -208,27 +220,59 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
     }, []);
 
     // ── Alert type styling ──
-    const alertStyle = (type: string) => {
+    // Icon is a ReactNode so each alert type gets a real SVG (migrated
+    // from emoji during the 2026-05 visual uplift).
+    const alertStyle = (type: string): { icon: React.ReactNode; color: string; bg: string; border: string } => {
         switch (type) {
             case 'bolo':
-                return { icon: '🚨', color: 'text-red-400', bg: 'bg-red-500/15', border: 'border-red-500/30' };
+                return {
+                    icon: <SosIcon className="w-5 h-5" />,
+                    color: 'text-red-400',
+                    bg: 'bg-red-500/15',
+                    border: 'border-red-500/30',
+                };
             case 'suspicious':
-                return { icon: '⚠️', color: 'text-amber-400', bg: 'bg-amber-500/15', border: 'border-amber-500/30' };
+                return {
+                    icon: <AlertTriangleIcon className="w-5 h-5" />,
+                    color: 'text-amber-400',
+                    bg: 'bg-amber-500/15',
+                    border: 'border-amber-500/30',
+                };
             case 'drag_warning':
-                return { icon: '⚓', color: 'text-orange-400', bg: 'bg-orange-500/15', border: 'border-orange-500/30' };
+                return {
+                    icon: <AnchorIcon className="w-5 h-5" />,
+                    color: 'text-orange-400',
+                    bg: 'bg-orange-500/15',
+                    border: 'border-orange-500/30',
+                };
             case 'weather_spike':
-                return { icon: '⛈️', color: 'text-sky-400', bg: 'bg-sky-500/15', border: 'border-sky-500/30' };
+                return {
+                    icon: <ThunderstormIcon className="w-5 h-5" />,
+                    color: 'text-sky-400',
+                    bg: 'bg-sky-500/15',
+                    border: 'border-sky-500/30',
+                };
             case 'geofence_breach':
-                return { icon: '🏠', color: 'text-purple-400', bg: 'bg-purple-500/15', border: 'border-purple-500/30' };
+                return {
+                    icon: <BellIcon className="w-5 h-5" />,
+                    color: 'text-purple-400',
+                    bg: 'bg-purple-500/15',
+                    border: 'border-purple-500/30',
+                };
             case 'hail':
                 return {
-                    icon: '🏴‍☠️',
+                    icon: <FlagIcon className="w-5 h-5" />,
                     color: 'text-emerald-400',
                     bg: 'bg-emerald-500/15',
                     border: 'border-emerald-500/30',
                 };
             default:
-                return { icon: '📡', color: 'text-gray-400', bg: 'bg-white/5', border: 'border-white/10' };
+                return {
+                    icon: <RadioTowerIcon className="w-5 h-5" />,
+                    color: 'text-gray-400',
+                    bg: 'bg-white/5',
+                    border: 'border-white/10',
+                };
         }
     };
 
@@ -366,13 +410,18 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                             className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-opacity ${isDragging ? 'opacity-30' : 'opacity-100'}`}
                         >
                             <span
-                                className={`text-sm font-black uppercase tracking-[0.2em] ${armed ? 'text-red-400' : 'text-gray-400'}`}
+                                className={`text-sm font-black uppercase tracking-[0.2em] inline-flex items-center gap-1.5 ${armed ? 'text-red-400' : 'text-gray-400'}`}
                             >
-                                {arming
-                                    ? 'Processing...'
-                                    : armed
-                                      ? '🛡️ ARMED — Slide to Disarm'
-                                      : 'Slide to ARM Vessel'}
+                                {arming ? (
+                                    'Processing...'
+                                ) : armed ? (
+                                    <>
+                                        <LockIcon className="w-4 h-4" />
+                                        <span>ARMED — Slide to Disarm</span>
+                                    </>
+                                ) : (
+                                    'Slide to ARM Vessel'
+                                )}
                             </span>
                         </div>
                         {/* Thumb */}
@@ -428,7 +477,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         }}
                         className="bg-gradient-to-br from-red-500/15 to-red-500/10 border border-red-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
-                        <div className="text-xl mb-1.5">🚨</div>
+                        <div className="mb-1.5 text-red-300">
+                            <SosIcon className="w-5 h-5" />
+                        </div>
                         <div className="text-[11px] font-black text-white tracking-wide">Report</div>
                         <div className="text-[11px] text-red-400 font-bold uppercase tracking-widest">Suspicious</div>
                     </button>
@@ -442,7 +493,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         }}
                         className="bg-gradient-to-br from-sky-500/15 to-sky-500/10 border border-sky-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
-                        <div className="text-xl mb-1.5">⛈️</div>
+                        <div className="mb-1.5 text-sky-300">
+                            <ThunderstormIcon className="w-5 h-5" />
+                        </div>
                         <div className="text-[11px] font-black text-white tracking-wide">Weather</div>
                         <div className="text-[11px] text-sky-400 font-bold uppercase tracking-widest">Alert</div>
                     </button>
@@ -467,7 +520,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         }}
                         className="bg-gradient-to-br from-purple-500/15 to-purple-500/10 border border-purple-500/20 rounded-xl p-3 text-left group hover:scale-[1.02] transition-all active:scale-[0.97]"
                     >
-                        <div className="text-xl mb-1.5">🏠</div>
+                        <div className="mb-1.5 text-purple-300">
+                            <BellIcon className="w-5 h-5" />
+                        </div>
                         <div className="text-[11px] font-black text-white tracking-wide">Tripwire</div>
                         <div className="text-[11px] text-purple-400 font-bold uppercase tracking-widest">Set Home</div>
                     </button>
@@ -518,8 +573,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                             )}
                                         </div>
                                         {user.armed && (
-                                            <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5">
-                                                🛡️ Armed
+                                            <div className="text-[11px] text-red-400 font-bold uppercase tracking-wider mt-0.5 inline-flex items-center gap-1">
+                                                <LockIcon className="w-3 h-3" />
+                                                <span>Armed</span>
                                             </div>
                                         )}
                                     </div>
@@ -555,7 +611,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                     </div>
                     {alerts.length === 0 ? (
                         <div className="bg-white/[0.02] border border-white/[0.05] rounded-xl p-6 text-center">
-                            <div className="text-2xl mb-2">🛟</div>
+                            <div className="mb-2 flex justify-center text-emerald-400/60">
+                                <SailBoatIcon className="w-7 h-7" />
+                            </div>
                             <div className="text-xs text-gray-400">No alerts in your area</div>
                             <div className="text-[11px] text-gray-500 mt-1">All quiet on the waterfront</div>
                         </div>
@@ -569,7 +627,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                         className={`${style.bg} border ${style.border} rounded-xl p-3 transition-all`}
                                     >
                                         <div className="flex items-start gap-2">
-                                            <span className="text-lg shrink-0">{style.icon}</span>
+                                            <span className={`shrink-0 ${style.color}`}>{style.icon}</span>
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center justify-between">
                                                     <span className={`text-xs font-bold ${style.color}`}>
@@ -614,7 +672,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 aria-label="Close profile setup"
                                 className="p-2 hover:bg-white/5 rounded-xl text-gray-400"
                             >
-                                ✕
+                                <XIcon className="w-4 h-4" />
                             </button>
                         </div>
 
@@ -709,7 +767,10 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 </svg>
                             </button>
                             <div className="flex-1">
-                                <h2 className="text-lg font-black text-red-400">🚨 Report Suspicious Activity</h2>
+                                <h2 className="text-lg font-black text-red-400 inline-flex items-center gap-2">
+                                    <SosIcon className="w-5 h-5" />
+                                    <span>Report Suspicious Activity</span>
+                                </h2>
                                 <p className="text-xs text-gray-400">Broadcast to all Thalassa users within 5 NM</p>
                             </div>
                         </div>
@@ -771,7 +832,10 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 </svg>
                             </button>
                             <div className="flex-1">
-                                <h2 className="text-lg font-black text-sky-400">⛈️ Weather Alert</h2>
+                                <h2 className="text-lg font-black text-sky-400 inline-flex items-center gap-2">
+                                    <ThunderstormIcon className="w-5 h-5" />
+                                    <span>Weather Alert</span>
+                                </h2>
                                 <p className="text-xs text-gray-400">
                                     Broadcast a weather warning to boats within 5 NM
                                 </p>
@@ -805,8 +869,9 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
             {showHail && (
                 <div className="fixed inset-0 z-[999] bg-black/80 backdrop-blur-sm flex items-end justify-center animate-in fade-in duration-200">
                     <div className="w-full max-w-lg bg-slate-900 border-t border-emerald-500/20 rounded-t-3xl p-6 animate-in slide-in-from-bottom duration-300">
-                        <h2 className="text-lg font-black text-emerald-400 mb-1">
-                            🏴‍☠️ Hail {showHail.vessel_name || 'Vessel'}
+                        <h2 className="text-lg font-black text-emerald-400 mb-1 inline-flex items-center gap-2">
+                            <FlagIcon className="w-5 h-5" />
+                            <span>Hail {showHail.vessel_name || 'Vessel'}</span>
                         </h2>
                         <p className="text-xs text-gray-400 mb-4">
                             Send a quick message to {showHail.owner_name || 'the crew'}

@@ -12,7 +12,16 @@
  */
 import React, { useState, useCallback, useEffect } from 'react';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
-import { LockIcon } from '../Icons';
+import {
+    LockIcon,
+    RadioTowerIcon,
+    SearchIcon,
+    PackageIcon,
+    CheckCircleIcon,
+    GearIcon,
+    SparklesIcon,
+    XIcon,
+} from '../Icons';
 import { piCache, type PiCacheStatus } from '../../services/PiCacheService';
 import { canAccess } from '../../services/SubscriptionService';
 import { LocationStore } from '../../stores/LocationStore';
@@ -32,15 +41,15 @@ const OPEN_METEO_KEY = (typeof import.meta !== 'undefined' && import.meta.env?.V
 
 // ── Phase display config ──────────────────────────────────────
 
-const PHASE_DISPLAY: Record<ProvisionPhase, { icon: string; color: string }> = {
-    idle: { icon: '', color: '' },
-    connecting: { icon: '🔌', color: 'text-sky-300' },
-    checking: { icon: '🔍', color: 'text-sky-300' },
-    installing: { icon: '📦', color: 'text-amber-300' },
-    verifying: { icon: '✅', color: 'text-emerald-300' },
-    configuring: { icon: '⚙️', color: 'text-sky-300' },
-    done: { icon: '🎉', color: 'text-emerald-300' },
-    error: { icon: '❌', color: 'text-red-300' },
+const PHASE_DISPLAY: Record<ProvisionPhase, { Icon: React.FC<{ className?: string }> | null; color: string }> = {
+    idle: { Icon: null, color: '' },
+    connecting: { Icon: RadioTowerIcon, color: 'text-sky-300' },
+    checking: { Icon: SearchIcon, color: 'text-sky-300' },
+    installing: { Icon: PackageIcon, color: 'text-amber-300' },
+    verifying: { Icon: CheckCircleIcon, color: 'text-emerald-300' },
+    configuring: { Icon: GearIcon, color: 'text-sky-300' },
+    done: { Icon: SparklesIcon, color: 'text-emerald-300' },
+    error: { Icon: XIcon, color: 'text-red-300' },
 };
 
 // ── Component ─────────────────────────────────────────────────
@@ -497,9 +506,18 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                         {provisionProgress.phase !== 'done' && provisionProgress.phase !== 'error' && (
                                             <div className="w-4 h-4 border-2 border-sky-400 border-t-transparent rounded-full animate-spin shrink-0" />
                                         )}
-                                        <span className={PHASE_DISPLAY[provisionProgress.phase]?.icon ? 'text-sm' : ''}>
-                                            {PHASE_DISPLAY[provisionProgress.phase]?.icon}
-                                        </span>
+                                        {(() => {
+                                            const Icon = PHASE_DISPLAY[provisionProgress.phase]?.Icon;
+                                            return Icon ? (
+                                                <span
+                                                    className={
+                                                        PHASE_DISPLAY[provisionProgress.phase]?.color || 'text-gray-300'
+                                                    }
+                                                >
+                                                    <Icon className="w-4 h-4" />
+                                                </span>
+                                            ) : null;
+                                        })()}
                                         <span
                                             className={`text-xs font-medium ${PHASE_DISPLAY[provisionProgress.phase]?.color || 'text-gray-300'}`}
                                         >
@@ -539,7 +557,13 @@ export const PiCacheTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
                                 }`}
                             >
                                 <div className="flex items-start gap-2">
-                                    <span className="text-lg">{provisionDone.success ? '🎉' : '❌'}</span>
+                                    <span className={provisionDone.success ? 'text-emerald-300' : 'text-red-300'}>
+                                        {provisionDone.success ? (
+                                            <SparklesIcon className="w-5 h-5" />
+                                        ) : (
+                                            <XIcon className="w-5 h-5" />
+                                        )}
+                                    </span>
                                     <div>
                                         <p
                                             className={`text-sm font-bold ${provisionDone.success ? 'text-emerald-300' : 'text-red-300'}`}

@@ -14,6 +14,7 @@ import { type AvNavConnectionStatus } from '../../services/AvNavService';
 import { type ChartSource, type ChartSourceId } from '../../services/ChartCatalogService';
 import { type OpenChart } from '../../services/MBTilesService';
 import { triggerHaptic } from '../../utils/system';
+import { MapPinIcon, MapIcon, CycloneIcon, PartlyCloudyIcon, WaveIcon, XIcon } from '../Icons';
 import { AnchorIcon, LocalChartIcon, iconForChartSource } from './ChartSourceIcons';
 
 // ── Resolve truncated ATCF storm names (10-char limit) ──
@@ -95,16 +96,18 @@ export const PointInput: React.FC<{
         <button
             aria-label="Use Current"
             onClick={onUseCurrent}
-            className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10"
+            className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10 inline-flex items-center gap-1"
         >
-            📍 Here
+            <MapPinIcon className="w-3 h-3" />
+            <span>Here</span>
         </button>
         <button
             aria-label="Set location from map"
             onClick={onSet}
-            className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 hover:bg-white/5'}`}
+            className={`text-[11px] font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg inline-flex items-center gap-1 ${isActive ? 'text-amber-400 bg-amber-500/10' : 'text-gray-400 hover:bg-white/5'}`}
         >
-            🗺️ Map
+            <MapIcon className="w-3 h-3" />
+            <span>Map</span>
         </button>
     </div>
 );
@@ -586,7 +589,7 @@ export const LayerFABMenu: React.FC<{
                                 cycloneVisible ? 'bg-red-500/10 text-red-400' : 'text-gray-400 hover:bg-white/5'
                             }`}
                         >
-                            <span className="text-lg">🌀</span>
+                            <CycloneIcon className="w-5 h-5" />
                             <span className="text-[13px] font-bold flex-1">Severe Warnings</span>
                             {cycloneVisible ? (
                                 <span className="flex items-center gap-1.5">
@@ -717,7 +720,7 @@ export const LayerFABMenu: React.FC<{
                                 weatherInspectMode ? 'bg-amber-500/10 text-amber-400' : 'text-gray-400 hover:bg-white/5'
                             }`}
                         >
-                            <span className="text-lg">🌤️</span>
+                            <PartlyCloudyIcon className="w-5 h-5" />
                             <span className="text-[13px] font-bold flex-1">Weather Here</span>
                             {weatherInspectMode ? (
                                 <span className="flex items-center gap-1">
@@ -883,7 +886,7 @@ export const LayerFABMenu: React.FC<{
                                     : 'text-gray-400 hover:bg-white/5'
                             }`}
                         >
-                            <span className="text-lg">📍</span>
+                            <MapPinIcon className="w-5 h-5" />
                             <span className="text-[13px] font-bold flex-1">My Vessel</span>
                             {vesselTrackingVisible ? (
                                 <span className="flex items-center gap-1">
@@ -944,7 +947,7 @@ export const LayerFABMenu: React.FC<{
                                     : 'text-gray-400 hover:bg-white/5'
                             }`}
                         >
-                            <span className="text-lg">🌊</span>
+                            <WaveIcon className="w-5 h-5" />
                             <span className="text-[13px] font-bold flex-1">Tide Stations</span>
                             {tideStationsVisible ? (
                                 <span className="flex items-center gap-1">
@@ -1537,7 +1540,7 @@ export const LayerFABMenu: React.FC<{
                                 }}
                                 className="w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors text-red-400 hover:bg-red-500/10"
                             >
-                                <span className="text-lg">✕</span>
+                                <XIcon className="w-5 h-5" />
                                 <span className="text-[13px] font-bold flex-1">Clear All Layers</span>
                                 <span className="text-[10px] text-red-400/60 font-mono">{totalActive}</span>
                             </button>
