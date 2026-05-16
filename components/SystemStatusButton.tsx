@@ -626,6 +626,25 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
     }, []);
 
     // ── Poll all system states ──
+    //
+    // Cadence: 5 s (was 1 s). This effect is always mounted because
+    // SystemStatusButton lives in the App header on every page. At
+    // the old 1 Hz cadence it was firing 9 setState calls per
+    // second (gpsTracking, isMoving, nmeaStatus, nmeaGpsActive,
+    // precisionActive, satellites, hdop, avgAccuracy, qualityLabel)
+    // = 540/min, plus React reconciliation overhead. All of the
+    // values being read are synchronous in-memory state, so the
+    // poll itself is cheap — but the React work isn't free, and
+    // the data being polled (GPS lock state, NMEA bus status,
+    // satellite count) changes at minute-timescales for marine
+    // use, not millisecond. 5 s is plenty.
+    //
+    // AnchorWatchService + NmeaListenerService both have proper
+    // subscribe channels (lines 630-631) that push immediate
+    // updates when their state actually changes — they're not
+    // dependent on this poll. The poll is just for the values
+    // that don't have a subscription channel yet (mostly GPS
+    // precision metrics).
     useEffect(() => {
         const unsub = AnchorWatchService.subscribe(setAnchorSnapshot);
         const nmeaUnsub = NmeaListenerService.onStatusChange((s) => setNmeaStatus(s));
@@ -660,7 +679,7 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                 setSatellites(null);
                 setHdop(null);
             }
-        }, 1000);
+        }, 5_000);
 
         return () => {
             unsub();
