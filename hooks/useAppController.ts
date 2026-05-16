@@ -13,6 +13,7 @@ import { GpsService } from '../services/GpsService';
 import { useAuthStore } from '../stores/authStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
+import { SAMPLE_LOCATION } from '../utils/sampleLocation';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -100,13 +101,27 @@ export const useAppController = () => {
             if (flag) {
                 // Fast path — flag means we've done this dance before.
                 if (!cancelled) setShowOnboarding(false);
-                if (!weatherData && !loading && settings.defaultLocation) {
+                if (!weatherData && !loading) {
                     setPage('dashboard');
-                    // Pass the saved coords if we have them — prevents
-                    // the weather orchestrator from forward-geocoding
-                    // and picking a wrong match (e.g. Mapbox prefers
-                    // Newport, Monmouthshire UK over Newport, QLD AU).
-                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                    if (settings.defaultLocation) {
+                        // Pass the saved coords if we have them —
+                        // prevents the weather orchestrator from
+                        // forward-geocoding and picking a wrong match
+                        // (e.g. Mapbox prefers Newport, Monmouthshire
+                        // UK over Newport, QLD AU).
+                        fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
+                    } else {
+                        // Onboarded but no home port (rare — settings
+                        // wiped, or un-authed user who set the
+                        // localStorage flag manually). Paint the
+                        // sample so the Glass isn't empty.
+                        // `fetchWeather` (not `selectLocation`) does
+                        // NOT write to settings.defaultLocation, so
+                        // the sample stays clearly demo-only and the
+                        // "Tap to set yours →" chip on the dashboard
+                        // remains until the user picks a real port.
+                        fetchWeather(SAMPLE_LOCATION.name, false, SAMPLE_LOCATION.coords);
+                    }
                 }
                 return;
             }
@@ -205,7 +220,20 @@ export const useAppController = () => {
             // the user signs in at a save point and we land back here
             // with authedUser populated. (Deferred-sign-in flow,
             // 2026-05-17.)
-            if (!cancelled && authedUser) setShowOnboarding(true);
+            if (!cancelled && authedUser) {
+                setShowOnboarding(true);
+            } else if (!cancelled && !weatherData && !loading) {
+                // Un-authed user, no flag, no defaultLocation. The
+                // hard path: a stranger has just installed the app
+                // and we haven't shown them anything yet. Paint the
+                // sample Glass so they see real conditions on first
+                // contact, with a chip nudging them to pick their own
+                // port. fetchWeather (not selectLocation) keeps the
+                // sample out of settings.defaultLocation — important
+                // for the chip's visibility rule.
+                setPage('dashboard');
+                fetchWeather(SAMPLE_LOCATION.name, false, SAMPLE_LOCATION.coords);
+            }
         })();
 
         return () => {
@@ -581,6 +609,16 @@ export const useAppController = () => {
     const handleTabMap = useCallback(() => setPage('map'), [setPage]);
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
 
+    // Sample-mode derived flag: weather is loaded but the user
+    // hasn't claimed a home port yet, which means useAppController
+    // (or the existing onboarding flow) painted SAMPLE_LOCATION for
+    // them. The chip on The Glass watches this to decide whether to
+    // render "Sample: Sydney Harbour · Tap to set yours →". Note we
+    // gate on `weatherData` being present too — at boot there's a
+    // brief moment where both `defaultLocation` and `weatherData`
+    // are empty, and we don't want the chip flashing in that gap.
+    const isSampleLocation = !!weatherData && !settings.defaultLocation;
+
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
     if (settings.displayMode === 'auto') {
@@ -611,6 +649,7 @@ export const useAppController = () => {
         handleSearchSubmit,
         handleLocate,
         effectiveMode,
+        isSampleLocation,
 
         // Extracted Handlers & State
         toggleFavorite,
