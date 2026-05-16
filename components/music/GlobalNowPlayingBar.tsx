@@ -154,6 +154,17 @@ export const GlobalNowPlayingBar: React.FC = () => {
         [busy, nowPlaying.isPlaying],
     );
 
+    // Tracks the title the user has explicitly dismissed via the X
+    // button. iOS persists the last-played track in
+    // MPNowPlayingInfoCenter even after our stopMusic() call, so
+    // each poll's getNowPlaying() returns the same title back and
+    // the bar reappears. Holding the dismissed title in state lets
+    // us suppress the bar for THIS track until either:
+    //   - a different track starts playing (effect below clears it), or
+    //   - the user explicitly opens the Music page (effect below
+    //     clears it — they're back in music context intentionally).
+    const [dismissedTitle, setDismissedTitle] = useState<string | null>(null);
+
     const handleDismiss = useCallback(
         async (e: React.MouseEvent) => {
             e.stopPropagation();
@@ -162,16 +173,41 @@ export const GlobalNowPlayingBar: React.FC = () => {
             triggerHaptic('medium');
             try {
                 await stopMusic();
-                // Stop clears the queue server-side — wipe local state too
-                // so the bar disappears immediately without waiting for
-                // the next 2 s poll tick.
+                // Remember which track was dismissed so subsequent
+                // polls returning the same title don't re-show the
+                // bar. Set this BEFORE the local-state wipe so the
+                // suppression takes effect even if the next poll
+                // races before the EMPTY render lands.
+                setDismissedTitle(nowPlaying.title || null);
+                // Optimistic UI — wipe local state so the bar
+                // disappears in the current render, not after the
+                // next 2 s poll tick.
                 setNowPlaying(EMPTY_NOW_PLAYING);
             } finally {
                 setBusy(false);
             }
         },
-        [busy],
+        [busy, nowPlaying.title],
     );
+
+    // Reset the dismissal whenever a DIFFERENT track starts playing
+    // — the user pressed X on "Kryptonite", but if "Black Hole Sun"
+    // comes on next, that's a new event and the bar should show.
+    useEffect(() => {
+        if (dismissedTitle !== null && nowPlaying.title && nowPlaying.title !== dismissedTitle) {
+            setDismissedTitle(null);
+        }
+    }, [nowPlaying.title, dismissedTitle]);
+
+    // Reset the dismissal when the user explicitly opens the Music
+    // page. Going there means "I'm thinking about music again" —
+    // so the bar should be allowed to reappear next time they
+    // navigate away with a track active.
+    useEffect(() => {
+        if (currentView === 'music' && dismissedTitle !== null) {
+            setDismissedTitle(null);
+        }
+    }, [currentView, dismissedTitle]);
 
     const handleBarTap = useCallback(() => {
         triggerHaptic('light');
@@ -180,12 +216,16 @@ export const GlobalNowPlayingBar: React.FC = () => {
 
     // Hide conditions:
     //  - No track in queue (empty title) → nothing to surface
+    //  - User dismissed THIS track via the X button (track persists
+    //    in iOS now-playing info center after stopMusic; without
+    //    this guard the next poll re-shows it within 8 s).
     //  - Already on the Music page → in-page bar handles it; second
     //    bar would be duplicate visual noise
     //  - On the map / dashboard / certain full-screen views where
     //    the bottom nav itself is hidden (keep simple: just check
     //    title for now, extend if needed)
     if (!nowPlaying.title) return null;
+    if (dismissedTitle !== null && nowPlaying.title === dismissedTitle) return null;
     if (currentView === 'music') return null;
 
     const artwork = nowPlaying.artworkUrl && !imageFailed ? nowPlaying.artworkUrl : null;
