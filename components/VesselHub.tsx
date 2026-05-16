@@ -72,7 +72,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick', 'passage']));
+    // Initial expanded set: only Quick Actions. The 4-bucket IA
+    // (2026-05-17) collapses the old 7 sections into:
+    //   - Quick Actions (always-expanded, daily ops grid)
+    //   - Boat Binder  (collapsed: Passage / Inventory / Reference rows)
+    //   - Wardroom     (collapsed: Scuttlebutt + Music)
+    //   - Settings & Connect (collapsed: NMEA + Boat Network + Account)
+    // Section IDs renamed: 'passage' + 'inventory' + 'reference' →
+    // 'binder', 'connect' + 'account' → 'setup'. Any old persisted
+    // expanded-state from localStorage referencing the old IDs is
+    // harmless; the Set just won't match any current section.
+    const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick']));
     const [_isAdmin, setIsAdmin] = useState(false);
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
@@ -652,55 +662,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     onNavigate={onNavigate}
                 />
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* PASSAGE PLANNING — promoted to top of hub   */}
-                {/* (was beneath Quick Actions, swapped with    */}
-                {/*  the search bar to make it the primary       */}
-                {/*  entry point on Nav Station.)                */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Passage Planning"
-                        id="passage"
-                        expanded={expanded.has('passage')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('passage')}>
-                        <div style={GLASS.listContainer}>
-                            <OfficeRow
-                                icon={<CrewIcon color="#cbd5e1" />}
-                                label="Passage Planning"
-                                status={
-                                    passageCrewCount > 0
-                                        ? `${passageCrewCount} crew`
-                                        : pendingCrewInvites > 0
-                                          ? `${pendingCrewInvites} Pending`
-                                          : 'Plan Your Voyage'
-                                }
-                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('crew');
-                                }}
-                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
-                            />
-                            <OfficeRow
-                                icon={<GpxIcon color="#cbd5e1" />}
-                                label="Import GPX"
-                                status="OpenCPN • Navionics"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('gpx-import');
-                                }}
-                            />
-                        </div>
-                    </CollapsibleContent>
-                </div>
+                {/* The 4-bucket IA (2026-05-17) reordered the
+                    sections so Quick Actions (daily ops) sits at the
+                    top of the hub, followed by Boat Binder (passage
+                    prep + binder material), Wardroom (social/comfort),
+                    and Settings & Connect (config). The old standalone
+                    "Passage Planning" section's two rows moved into
+                    the Passage subgroup of Boat Binder below. */}
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* SECTIONS                                    */}
+                {/* QUICK ACTIONS — daily ops (always expanded) */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
@@ -938,17 +909,58 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             "open daily"). */}
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* INVENTORY & MAINTENANCE                     */}
+                {/* BOAT BINDER — passage / inventory / reference   */}
+                {/* (4-bucket IA, 2026-05-17). Sailor's mental    */}
+                {/* model: the physical binder every cruiser keeps */}
+                {/* with vessel docs, equipment registry, log,    */}
+                {/* polars, notices. ONE collapse reveals 9 rows  */}
+                {/* organised into 3 subgroups via small labels — */}
+                {/* no nested section chevrons.                   */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
                         color="#67E8F9"
-                        label="Inventory & Maintenance"
-                        id="inventory"
-                        expanded={expanded.has('inventory')}
+                        label="Boat Binder"
+                        id="binder"
+                        expanded={expanded.has('binder')}
                         onToggle={toggleSection}
                     />
-                    <CollapsibleContent open={expanded.has('inventory')}>
+                    <CollapsibleContent open={expanded.has('binder')}>
+                        {/* — Passage subgroup — */}
+                        <BinderSubLabel>Passage</BinderSubLabel>
+                        <div style={GLASS.listContainer}>
+                            <OfficeRow
+                                icon={<CrewIcon color="#cbd5e1" />}
+                                label="Passage Planning"
+                                status={
+                                    passageCrewCount > 0
+                                        ? `${passageCrewCount} crew`
+                                        : pendingCrewInvites > 0
+                                          ? `${pendingCrewInvites} Pending`
+                                          : 'Plan Your Voyage'
+                                }
+                                statusColor={pendingCrewInvites > 0 ? '#f59e0b' : '#94a3b8'}
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('crew');
+                                }}
+                                badge={pendingCrewInvites > 0 ? pendingCrewInvites : undefined}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<GpxIcon color="#cbd5e1" />}
+                                label="Import GPX"
+                                status="OpenCPN • Navionics"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('gpx-import');
+                                }}
+                            />
+                        </div>
+
+                        {/* — Inventory & Stores subgroup — */}
+                        <BinderSubLabel>Inventory &amp; Stores</BinderSubLabel>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<BoxIcon color="#cbd5e1" />}
@@ -986,21 +998,9 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 badgeUrgent={overdueCount > 0}
                             />
                         </div>
-                    </CollapsibleContent>
-                </div>
 
-                {/* ═══════════════════════════════════════════ */}
-                {/* REFERENCE                                   */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Reference"
-                        id="reference"
-                        expanded={expanded.has('reference')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('reference')}>
+                        {/* — Reference subgroup — */}
+                        <BinderSubLabel>Reference</BinderSubLabel>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<ChecklistIcon color="#cbd5e1" />}
@@ -1110,17 +1110,22 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* CONNECT — instruments, AIS, charts          */}
+                {/* SETTINGS & CONNECT                          */}
+                {/* (4-bucket IA, 2026-05-17). Merged the old   */}
+                {/* Connect (NMEA + Boat Network) and Account   */}
+                {/* sections — both are "configuration" surfaces*/}
+                {/* the punter visits rarely, so they don't     */}
+                {/* deserve two separate cognitive buckets.     */}
                 {/* ═══════════════════════════════════════════ */}
-                <div className="mb-4">
+                <div className="mb-6">
                     <SectionHeader
                         color="#67E8F9"
-                        label="Connect"
-                        id="connect"
-                        expanded={expanded.has('connect')}
+                        label="Settings & Connect"
+                        id="setup"
+                        expanded={expanded.has('setup')}
                         onToggle={toggleSection}
                     />
-                    <CollapsibleContent open={expanded.has('connect')}>
+                    <CollapsibleContent open={expanded.has('setup')}>
                         <div style={GLASS.listContainer}>
                             <OfficeRow
                                 icon={<SignalIcon color="#cbd5e1" />}
@@ -1143,23 +1148,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     onNavigate('avnav');
                                 }}
                             />
-                        </div>
-                    </CollapsibleContent>
-                </div>
-
-                {/* ═══════════════════════════════════════════ */}
-                {/* SECTION D: ACCOUNT — Settings only         */}
-                {/* ═══════════════════════════════════════════ */}
-                <div className="mb-6">
-                    <SectionHeader
-                        color="#67E8F9"
-                        label="Account"
-                        id="account"
-                        expanded={expanded.has('account')}
-                        onToggle={toggleSection}
-                    />
-                    <CollapsibleContent open={expanded.has('account')}>
-                        <div style={GLASS.listContainer}>
+                            <ListDivider />
                             <OfficeRow
                                 icon={<UserIcon color="#cbd5e1" />}
                                 label="Account & Settings"
@@ -1173,8 +1162,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                     // Tier badge stays its own colour —
                                     // owner=amber (premium), crew=cyan,
                                     // free=grey. This is a deliberate
-                                    // status signal, not chromatic
-                                    // noise like the section-accent rainbow.
+                                    // status signal, not chromatic noise.
                                     const tier = (settings as Record<string, unknown>).subscriptionTier as string;
                                     if (tier === 'owner') return '#f59e0b';
                                     if (tier === 'crew') return '#67E8F9';
@@ -1987,6 +1975,20 @@ const CollapsibleContent: React.FC<{ open: boolean; children: React.ReactNode }>
 
 /** Divider between list rows */
 const ListDivider: React.FC = () => <div className="mx-4" style={{ borderTop: '1px solid rgba(255,255,255,0.04)' }} />;
+
+/**
+ * BinderSubLabel — small uppercase label used inside the Boat
+ * Binder collapsible to divide its 9 rows into three logical
+ * subgroups (Passage / Inventory & Stores / Reference). Sits
+ * between two listContainer cards. Smaller and quieter than a
+ * SectionHeader — it's a sub-heading, not a toggle. Slate tone so
+ * it doesn't compete with the cyan section header above it.
+ */
+const BinderSubLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <div className="px-1 pt-3 pb-1.5">
+        <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">{children}</span>
+    </div>
+);
 
 /** Ship's Office list row.
  *  When `badgeUrgent` is true, the badge renders red (overdue / needs
