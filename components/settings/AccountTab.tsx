@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { Section, Row, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { CloudIcon, GearIcon, MapIcon, CompassIcon, LockIcon } from '../Icons';
-import { AuthModal } from '../AuthModal';
+import { SignInScreen } from '../SignInScreen';
 import { useThalassa } from '../../context/ThalassaContext';
 import { checkStormglassStatus, isStormglassKeyPresent, getOpenMeteoKey } from '../../services/weather/keys';
 import { isGeminiConfigured } from '../../services/geminiService';
@@ -115,7 +115,11 @@ export const AccountTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => 
 
     return (
         <div className="max-w-2xl mx-auto animate-in fade-in slide-in-from-right-4 duration-300">
-            <AuthModal isOpen={authOpen} onClose={() => setAuthOpen(false)} />
+            <SignInScreen
+                isOpen={authOpen}
+                onClose={() => setAuthOpen(false)}
+                prompt="Sign in to sync your vessel, voyages, and crew across devices."
+            />
 
             {/* Account Connection Hero */}
             <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-6 mb-8 shadow-2xl relative overflow-hidden">
