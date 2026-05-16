@@ -350,6 +350,21 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     ({ settings, onSave, onLocationSelect, onBack }) => {
         const { resetSettings } = useThalassa();
         const [activeTab, setActiveTab] = useState<SettingsTab | null>(() => {
+            // Deep-link from outside: callers (e.g. the "Set up your
+            // vessel" CTA in VesselHub, the "Personalise →" link in
+            // RoutePlanner's Active Vessel indicator) write the
+            // target tab to localStorage right before setPage('settings').
+            // Pick it up here on mount, then clear the key so a
+            // subsequent normal entry shows the default tab. Same
+            // shape as the existing `thalassa_settings_return_to`
+            // hint used by the back-button logic.
+            if (typeof window !== 'undefined') {
+                const deepLink = localStorage.getItem('thalassa_settings_initial_tab') as SettingsTab | null;
+                if (deepLink) {
+                    localStorage.removeItem('thalassa_settings_initial_tab');
+                    return deepLink;
+                }
+            }
             // Desktop (md breakpoint): default to 'general' so content area isn't empty
             // Mobile: default to null to show the vertical menu screen
             if (typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches) {
