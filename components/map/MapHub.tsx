@@ -39,7 +39,6 @@ import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
 import { MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
-import { toast } from '../Toast';
 
 import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
@@ -920,16 +919,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                 centerLat: weatherCoords.lat,
                 centerLon: weatherCoords.lon,
                 signal: ctrl.signal,
-                onProgress: (p) => {
-                    if (p.phase === 'downloading' && p.current === 0) {
-                        toast.info('Auto-caching 1000 NM around you to the Pi…', 4000);
-                    }
-                },
+                // Toast progress callback removed — Shane found the
+                // "Auto-caching 1000 NM…" + "Pi cached N tiles…"
+                // toasts unannounced/distracting on the Charts page.
+                // The cache fills silently in the background; if the
+                // user wants to verify, the Pi cache status badge in
+                // settings shows tile counts.
+                onProgress: () => {},
             });
             if (cancelled) return;
-            if (outcome.status === 'done') {
-                toast.success(`Pi cached ${outcome.tilesCached.toLocaleString()} tiles — the map stays live offline.`);
-            } else if (outcome.status === 'error') {
+            if (outcome.status === 'error') {
                 // Reset the guard so a later weatherCoords change can retry.
                 autoCacheRanRef.current = false;
                 log.warn('Auto-cache failed:', outcome.message);
