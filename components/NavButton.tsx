@@ -47,8 +47,20 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
         <div
             className="relative flex items-center justify-center"
             style={{
-                filter: active ? 'brightness(1.2) drop-shadow(0 0 6px rgba(0, 230, 118, 0.5))' : 'none',
-                transform: active ? 'scale(1.1)' : 'none',
+                // Active-state treatment dialled down 2026-05-17.
+                // Was: brightness(1.2) + sea-foam green drop-shadow
+                //      with 6 px radius @ 0.5 alpha + scale(1.1)
+                //      = three competing signals (lift + glow + glow
+                //      colour) shouting at the same time.
+                // Now: subtle brightness lift + smaller cyan glow
+                //      that matches the brand palette + smaller
+                //      scale. Reads as "this tab is active" without
+                //      yelling about it. The white dot under the
+                //      label (line below) already does most of the
+                //      heavy lifting — the icon treatment just
+                //      reinforces it.
+                filter: active ? 'brightness(1.08) drop-shadow(0 0 3px rgba(103, 232, 249, 0.35))' : 'none',
+                transform: active ? 'scale(1.04)' : 'none',
                 transition: 'all 0.2s ease-in-out',
                 willChange: 'transform, filter',
                 width: 32,
