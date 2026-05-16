@@ -28,6 +28,8 @@ import { lazyRetry } from '../utils/lazyRetry';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 import { AlertTriangleIcon, WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
+import { useAuthStore } from '../stores/authStore';
+import { SignInScreen } from './SignInScreen';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -1641,6 +1643,25 @@ const NavStationHero: React.FC<{
         onNavigate('compass');
     };
 
+    // Sign-in CTA state. The empty-state vessel header (when the
+    // punter hasn't named their vessel yet) shows a small
+    // "Already have an account? Sign in →" link below the "Set up
+    // your vessel" CTA — ONLY when the user is un-authed. Authed
+    // users with no vessel have nothing to restore from the cloud,
+    // so the link is suppressed for them. SignInScreen is the
+    // canonical sign-in surface — Apple + Google + email.
+    const authedUser = useAuthStore((s) => s.user);
+    const [signInOpen, setSignInOpen] = useState(false);
+    const handleSignInTap = (e: React.MouseEvent) => {
+        // Stop the parent button from also firing (it would route
+        // to Settings → Vessel, which is the OPPOSITE of what the
+        // link is offering — the link is for users who already
+        // have details in the cloud).
+        e.stopPropagation();
+        triggerHaptic('light');
+        setSignInOpen(true);
+    };
+
     return (
         <div
             className={`mb-4 overflow-hidden ${anchorStatus === 'alarm' ? 'nav-hero-alarm' : ''}`}
@@ -1689,6 +1710,37 @@ const NavStationHero: React.FC<{
                             <p className="text-[11px] font-medium text-slate-400 truncate">
                                 Personalise routing for your boat
                             </p>
+                            {/* Sign-in restore link — only for un-authed
+                                users. The "Set up your vessel" CTA above
+                                is for fresh starts; this one is for
+                                returning users who already have a vessel
+                                in their Thalassa account and want to
+                                pull it back rather than fill the form
+                                again. Tapping opens the canonical
+                                SignInScreen with the appropriate
+                                contextual prompt — Apple + Google + email
+                                — and authStore's onAuthStateChange does
+                                the rest (cloud-restore path in
+                                useAppController kicks in on sign-in,
+                                back-fills vessel + boat metadata). */}
+                            {!authedUser && (
+                                <span
+                                    role="button"
+                                    tabIndex={0}
+                                    onClick={handleSignInTap}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            handleSignInTap(e as unknown as React.MouseEvent);
+                                        }
+                                    }}
+                                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-200/80 hover:text-cyan-100 transition-colors w-fit cursor-pointer"
+                                    aria-label="Already have a Thalassa account? Sign in to restore your saved vessel"
+                                >
+                                    <span>Already have a Thalassa account?</span>
+                                    <span className="text-cyan-300 underline underline-offset-2">Sign in →</span>
+                                </span>
+                            )}
                         </div>
                     )}
                 </button>
@@ -1904,6 +1956,17 @@ const NavStationHero: React.FC<{
                             : null,
                     ] as (MetricChipData | null)[]
                 ).filter((c): c is MetricChipData => c !== null)}
+            />
+
+            {/* Canonical sign-in surface — opens from the "Already
+                have a Thalassa account? Sign in →" link above when
+                the user has no vessel set up yet. Apple + Google +
+                email options, auto-dismisses on auth success via
+                SignInScreen's authStore subscription. */}
+            <SignInScreen
+                isOpen={signInOpen}
+                onClose={() => setSignInOpen(false)}
+                prompt="Sign in to restore your saved vessel details."
             />
         </div>
     );
