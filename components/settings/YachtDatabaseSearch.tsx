@@ -9,6 +9,7 @@
  */
 import React, { useState } from 'react';
 import { POLAR_DATABASE, searchPolarDatabase, type PolarDatabaseEntry } from '../../data/polarDatabase';
+import { CheckIcon, SailBoatIcon } from '../Icons';
 
 interface YachtDatabaseSearchProps {
     /** Currently selected model name */
@@ -47,8 +48,9 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                 <div className="w-1 h-4 rounded-full bg-sky-500" />
                 <span className="text-xs font-bold text-sky-400 uppercase tracking-widest">Select Your Yacht</span>
                 {localSelected && (
-                    <span className="ml-auto text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg">
-                        ✓ {localSelected}
+                    <span className="ml-auto text-[11px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
+                        <CheckIcon className="w-3 h-3" />
+                        <span>{localSelected}</span>
                     </span>
                 )}
             </div>
@@ -101,8 +103,11 @@ export const YachtDatabaseSearch: React.FC<YachtDatabaseSearchProps> = ({
                                         }`}
                                     >
                                         <div className="flex items-center gap-3">
-                                            <span className="text-lg">
-                                                {entry.category === 'multihull' ? '🐈' : '⛵'}
+                                            <span className="text-sky-300 inline-flex">
+                                                {/* Both monohulls and multihulls render as SailBoat — the
+                                                    multihull cat-emoji was decorative only. The category
+                                                    label below already differentiates the type. */}
+                                                <SailBoatIcon className="w-5 h-5" />
                                             </span>
                                             <div>
                                                 <p className="text-sm font-bold">{entry.model}</p>

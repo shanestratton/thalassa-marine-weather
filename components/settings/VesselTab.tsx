@@ -9,6 +9,7 @@ import { YachtDatabaseSearch } from './YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { Capacitor } from '@capacitor/core';
 import { saveIdentity } from '../../services/VesselIdentityService';
+import { EyeIcon, CheckIcon } from '../Icons';
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
@@ -250,7 +251,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
             {isObserver && (
                 <div className="mx-4 mb-4 bg-sky-500/[0.06] border border-sky-500/15 rounded-2xl p-4 animate-in fade-in slide-in-from-top-2">
                     <div className="flex items-start gap-3">
-                        <span className="text-2xl">🔭</span>
+                        <EyeIcon className="w-6 h-6 text-sky-300 shrink-0" />
                         <div>
                             <h4 className="text-sm font-bold text-sky-300 mb-1">Crew Member Mode Active</h4>
                             <p className="text-[11px] text-gray-400 leading-relaxed">
@@ -803,7 +804,14 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                                 : 'bg-gradient-to-r from-sky-600 to-sky-600 text-white shadow-lg shadow-sky-500/20 hover:from-sky-500 hover:to-sky-500'
                         }`}
                     >
-                        {saved ? '✓ Profile Saved' : 'Save Vessel Profile'}
+                        {saved ? (
+                            <span className="inline-flex items-center gap-1.5 justify-center">
+                                <CheckIcon className="w-4 h-4" />
+                                <span>Profile Saved</span>
+                            </span>
+                        ) : (
+                            'Save Vessel Profile'
+                        )}
                     </button>
                 </div>
             </div>

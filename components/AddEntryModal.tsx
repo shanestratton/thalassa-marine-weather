@@ -14,6 +14,16 @@ import { LocalMaintenanceService } from '../services/vessel/LocalMaintenanceServ
 import { GpsService } from '../services/GpsService';
 import { toast } from './Toast';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
+import {
+    EyeIcon,
+    CompassIcon,
+    PartlyCloudyIcon,
+    AnchorIcon,
+    PowerBoatIcon,
+    WrenchIcon,
+    UsersIcon,
+    LifeBuoyIcon,
+} from './Icons';
 
 // Event category type for type safety
 type EventCategory =
@@ -26,16 +36,21 @@ type EventCategory =
     | 'safety'
     | 'observation';
 
-// Event categories with icons and descriptions
-const EVENT_CATEGORIES: { value: EventCategory; label: string; icon: string }[] = [
-    { value: 'observation', label: 'General', icon: '👁️' },
-    { value: 'navigation', label: 'Navigation', icon: '🧭' },
-    { value: 'weather', label: 'Weather', icon: '🌤️' },
-    { value: 'arrival', label: 'Arrival', icon: '⚓' },
-    { value: 'departure', label: 'Departure', icon: '🚢' },
-    { value: 'equipment', label: 'Repair', icon: '🔧' },
-    { value: 'crew', label: 'Crew', icon: '👥' },
-    { value: 'safety', label: 'Safety', icon: '🛟' },
+// Event categories — icon is a component so each category renders a
+// proper SVG (migrated from emoji during the 2026-05 visual uplift).
+const EVENT_CATEGORIES: {
+    value: EventCategory;
+    label: string;
+    Icon: React.FC<{ className?: string }>;
+}[] = [
+    { value: 'observation', label: 'General', Icon: EyeIcon },
+    { value: 'navigation', label: 'Navigation', Icon: (p) => <CompassIcon {...p} rotation={0} /> },
+    { value: 'weather', label: 'Weather', Icon: PartlyCloudyIcon },
+    { value: 'arrival', label: 'Arrival', Icon: AnchorIcon },
+    { value: 'departure', label: 'Departure', Icon: PowerBoatIcon },
+    { value: 'equipment', label: 'Repair', Icon: WrenchIcon },
+    { value: 'crew', label: 'Crew', Icon: UsersIcon },
+    { value: 'safety', label: 'Safety', Icon: LifeBuoyIcon },
 ];
 
 interface AddEntryModalProps {
@@ -184,7 +199,9 @@ export const AddEntryModal: React.FC<AddEntryModalProps> = ({ isOpen, onClose, o
                                             : 'bg-slate-800 border-white/10 text-slate-400 hover:border-white/20'
                                     }`}
                                 >
-                                    <div className="text-lg">{cat.icon}</div>
+                                    <div className="flex justify-center mb-0.5">
+                                        <cat.Icon className="w-5 h-5" />
+                                    </div>
                                     <div className="text-[11px] mt-0.5 truncate">{cat.label}</div>
                                 </button>
                             ))}

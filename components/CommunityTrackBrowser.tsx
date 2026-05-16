@@ -12,6 +12,7 @@ import { importGPXToEntries } from '../services/gpxService';
 import { getErrorMessage } from '../utils/logger';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
+import { AlertTriangleIcon, MapIcon, MapPinIcon } from './Icons';
 
 import { createLogger } from '../utils/createLogger';
 
@@ -362,7 +363,9 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
             {/* Safety Disclaimer Banner */}
             <div className="mx-4 mt-3 bg-amber-900/20 border border-amber-500/20 rounded-lg px-3 py-2.5">
                 <div className="flex items-start gap-2">
-                    <span className="text-amber-400 text-sm mt-0.5">⚠️</span>
+                    <span className="text-amber-400 mt-0.5">
+                        <AlertTriangleIcon className="w-4 h-4" />
+                    </span>
                     <div>
                         <p className="text-sm font-bold text-amber-300">Navigation Disclaimer</p>
                         <p className="text-sm text-amber-400/70 leading-relaxed mt-0.5">
@@ -386,7 +389,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         </div>
                     ) : myTracks.length === 0 ? (
                         <EmptyState
-                            icon="🌐"
+                            icon={<MapIcon className="w-10 h-10 text-sky-400/60" />}
                             title="No Shared Tracks"
                             description="Tracks you share will appear here for management."
                         />
@@ -420,7 +423,7 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                     </div>
                 ) : tracks.length === 0 ? (
                     <EmptyState
-                        icon="🗺️"
+                        icon={<MapIcon className="w-10 h-10 text-sky-400/60" />}
                         title="No Tracks Found"
                         description="Be the first to share a track with the community!"
                     />
@@ -496,7 +499,12 @@ const TrackCard: React.FC<{
             {/* Stats row */}
             <div className="flex items-center gap-3 text-sm text-slate-400">
                 <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
-                {track.region && <span className="truncate">📍 {track.region}</span>}
+                {track.region && (
+                    <span className="truncate inline-flex items-center gap-1">
+                        <MapPinIcon className="w-3 h-3" />
+                        <span>{track.region}</span>
+                    </span>
+                )}
                 <span>{track.distance_nm.toFixed(1)} NM</span>
                 <span>{track.point_count} pts</span>
                 <span className="ml-auto shrink-0">{dateStr}</span>
@@ -602,7 +610,12 @@ const MyTrackCard: React.FC<{
             {/* Stats row */}
             <div className="flex items-center gap-3 text-sm text-slate-400">
                 <span className="bg-slate-800/60 px-2 py-0.5 rounded text-slate-400 font-bold">{categoryLabel}</span>
-                {track.region && <span className="truncate">📍 {track.region}</span>}
+                {track.region && (
+                    <span className="truncate inline-flex items-center gap-1">
+                        <MapPinIcon className="w-3 h-3" />
+                        <span>{track.region}</span>
+                    </span>
+                )}
                 <span>{track.distance_nm.toFixed(1)} NM</span>
                 <span>{track.point_count} pts</span>
                 <span className="ml-auto shrink-0">{dateStr}</span>

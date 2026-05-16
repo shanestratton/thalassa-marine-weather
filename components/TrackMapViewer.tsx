@@ -21,6 +21,7 @@ import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
+import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, DeviceIcon, WindIcon } from './Icons';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -750,8 +751,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                             {/* Notes */}
                             {currentEntry.notes && (
                                 <div className="mt-1.5 pt-1.5 border-t border-white/5">
-                                    <p className="text-[11px] text-slate-400 leading-relaxed truncate">
-                                        📝 {currentEntry.notes}
+                                    <p className="text-[11px] text-slate-400 leading-relaxed truncate inline-flex items-center gap-1.5">
+                                        <EditIcon className="w-3 h-3 shrink-0" />
+                                        <span className="truncate">{currentEntry.notes}</span>
                                     </p>
                                 </div>
                             )}
@@ -764,7 +766,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                 style={{ boxShadow: '0 4px 20px rgba(245,158,11,0.2)' }}
                             >
                                 <div className="flex items-start gap-2">
-                                    <span className="text-base mt-0.5">📍</span>
+                                    <span className="text-amber-300 mt-0.5">
+                                        <MapPinIcon className="w-4 h-4" />
+                                    </span>
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2">
                                             <span className="text-xs font-black text-amber-300 uppercase tracking-wider">
@@ -789,22 +793,26 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                         <div className="flex flex-wrap gap-1.5 mt-1.5">
                                             {activeWaypoint.speedKts != null && activeWaypoint.speedKts > 0 && (
                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
-                                                    ⛵ {activeWaypoint.speedKts.toFixed(1)} kts
+                                                    <SailBoatIcon className="w-3 h-3" />
+                                                    {activeWaypoint.speedKts.toFixed(1)} kts
                                                 </span>
                                             )}
                                             {activeWaypoint.courseDeg != null && (
                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
-                                                    🧭 {activeWaypoint.courseDeg}°
+                                                    <CompassIcon className="w-3 h-3" rotation={0} />
+                                                    {activeWaypoint.courseDeg}°
                                                 </span>
                                             )}
                                             {activeWaypoint.distanceNM != null && activeWaypoint.distanceNM > 0 && (
                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/20 text-[11px] font-bold text-amber-200">
-                                                    📟 {activeWaypoint.distanceNM.toFixed(1)} NM
+                                                    <DeviceIcon className="w-3 h-3" />
+                                                    {activeWaypoint.distanceNM.toFixed(1)} NM
                                                 </span>
                                             )}
                                             {activeWaypoint.windSpeed != null && activeWaypoint.windSpeed > 0 && (
                                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-sky-500/20 text-[11px] font-bold text-sky-200">
-                                                    🌬️ {activeWaypoint.windSpeed} kts {activeWaypoint.windDir || ''}
+                                                    <WindIcon className="w-3 h-3" />
+                                                    {activeWaypoint.windSpeed} kts {activeWaypoint.windDir || ''}
                                                 </span>
                                             )}
                                         </div>

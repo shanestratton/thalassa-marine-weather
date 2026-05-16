@@ -13,6 +13,7 @@ import {
 } from '../../services/AvNavService';
 import { Section, Row } from './SettingsPrimitives';
 import { ChartServerSetupGuide } from './ChartServerSetupGuide';
+import { AnchorIcon, RadioTowerIcon, SailBoatIcon, MapIcon } from '../Icons';
 
 export const ChartServerTab: React.FC = () => {
     const [host, setHost] = useState(AvNavService.getHost());
@@ -99,8 +100,8 @@ export const ChartServerTab: React.FC = () => {
         <div className="space-y-6">
             {/* Header */}
             <div className="flex items-center gap-3 mb-2">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center">
-                    <span className="text-lg">⚓</span>
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/15 flex items-center justify-center text-emerald-300">
+                    <AnchorIcon className="w-5 h-5" />
                 </div>
                 <div>
                     <h3 className="text-lg font-black text-white tracking-wide">Chart Server</h3>
@@ -177,7 +178,7 @@ export const ChartServerTab: React.FC = () => {
                 <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-4">
                     <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2">
-                            <span className="text-lg">📡</span>
+                            <RadioTowerIcon className="w-5 h-5 text-sky-300" />
                             <div>
                                 <p className="text-sm font-bold text-white">Find My Server</p>
                                 <p className="text-[11px] text-gray-500">Scan WiFi for AvNav / Signal K</p>
@@ -220,8 +221,12 @@ export const ChartServerTab: React.FC = () => {
                                     onClick={() => handleSelectServer(server)}
                                     className="w-full flex items-center gap-3 px-3 py-3 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 hover:bg-emerald-500/15 transition-all active:scale-[0.98] text-left"
                                 >
-                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-                                        <span className="text-sm">{server.serverType === 'avnav' ? '⛵' : '🔌'}</span>
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center flex-shrink-0 text-emerald-300">
+                                        {server.serverType === 'avnav' ? (
+                                            <SailBoatIcon className="w-4 h-4" />
+                                        ) : (
+                                            <RadioTowerIcon className="w-4 h-4" />
+                                        )}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-bold text-white truncate">
@@ -351,7 +356,9 @@ export const ChartServerTab: React.FC = () => {
             <Section title="Nautical Charts">
                 {charts.length === 0 ? (
                     <div className="px-4 py-6 text-center">
-                        <span className="text-2xl mb-2 block">🗺️</span>
+                        <span className="mb-2 inline-flex justify-center text-slate-400">
+                            <MapIcon className="w-7 h-7" />
+                        </span>
                         {isConnected ? (
                             <>
                                 <p className="text-sm text-gray-400 font-bold">No charts available</p>
@@ -376,7 +383,7 @@ export const ChartServerTab: React.FC = () => {
                                 key={chart.id}
                                 className="flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.02] border border-white/[0.04]"
                             >
-                                <span className="text-lg">🗺️</span>
+                                <MapIcon className="w-5 h-5 text-emerald-300 shrink-0" />
                                 <div className="flex-1 min-w-0">
                                     <p className="text-sm font-bold text-white truncate">{chart.name}</p>
                                     {chart.description && (
