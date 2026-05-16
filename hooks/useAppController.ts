@@ -13,12 +13,13 @@ import { GpsService } from '../services/GpsService';
 import { useAuthStore } from '../stores/authStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
-import { SAMPLE_LOCATION, getSampleLocation, type SampleLocation } from '../utils/sampleLocation';
-// Featured Passage is no longer surfaced from the App header — that
-// concept moved into the Plan tab's empty state (RoutePlanner reads
-// `getFeaturedPassage()` directly when origin + destination are
-// both empty). Keeping the import + state here just exposed an
-// extra callback no caller consumes.
+// Sample/dummy location data removed 2026-05-17 — painting Sydney
+// weather for a Brisbane user (or Newport for a Boston user) is
+// actively misleading on a marine app, where mistaking demo
+// conditions for real ones could affect a passage decision. The
+// new pattern: trust the OS GPS flow + show an empty state when
+// no location is set, just like Apple Weather. See App.tsx
+// dashboard branch for the empty state's two-CTA card.
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -106,28 +107,18 @@ export const useAppController = () => {
             if (flag) {
                 // Fast path — flag means we've done this dance before.
                 if (!cancelled) setShowOnboarding(false);
-                if (!weatherData && !loading) {
+                if (!weatherData && !loading && settings.defaultLocation) {
                     setPage('dashboard');
-                    if (settings.defaultLocation) {
-                        // Pass the saved coords if we have them —
-                        // prevents the weather orchestrator from
-                        // forward-geocoding and picking a wrong match
-                        // (e.g. Mapbox prefers Newport, Monmouthshire
-                        // UK over Newport, QLD AU).
-                        fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
-                    } else {
-                        // Onboarded but no home port (rare — settings
-                        // wiped, or un-authed user who set the
-                        // localStorage flag manually). Paint the
-                        // sample so the Glass isn't empty.
-                        // `fetchWeather` (not `selectLocation`) does
-                        // NOT write to settings.defaultLocation, so
-                        // the sample stays clearly demo-only and the
-                        // "Tap to set yours →" chip on the dashboard
-                        // remains until the user picks a real port.
-                        fetchWeather(SAMPLE_LOCATION.name, false, SAMPLE_LOCATION.coords);
-                    }
+                    // Pass the saved coords if we have them —
+                    // prevents the weather orchestrator from
+                    // forward-geocoding and picking a wrong match
+                    // (e.g. Mapbox prefers Newport, Monmouthshire
+                    // UK over Newport, QLD AU).
+                    fetchWeather(settings.defaultLocation, false, settings.defaultLocationCoords);
                 }
+                // No defaultLocation → leave weatherData null. The
+                // Dashboard branch in App.tsx renders an empty-state
+                // card with "Use my location" + "Choose a port" CTAs.
                 return;
             }
 
@@ -227,18 +218,12 @@ export const useAppController = () => {
             // 2026-05-17.)
             if (!cancelled && authedUser) {
                 setShowOnboarding(true);
-            } else if (!cancelled && !weatherData && !loading) {
-                // Un-authed user, no flag, no defaultLocation. The
-                // hard path: a stranger has just installed the app
-                // and we haven't shown them anything yet. Paint the
-                // sample Glass so they see real conditions on first
-                // contact, with a chip nudging them to pick their own
-                // port. fetchWeather (not selectLocation) keeps the
-                // sample out of settings.defaultLocation — important
-                // for the chip's visibility rule.
-                setPage('dashboard');
-                fetchWeather(SAMPLE_LOCATION.name, false, SAMPLE_LOCATION.coords);
             }
+            // Un-authed user, no flag, no defaultLocation: fall
+            // through to the Dashboard's empty state (handled in
+            // App.tsx). No fake data — they get a clean "Use my
+            // location" / "Choose a port" card just like every other
+            // weather app on iOS.
         })();
 
         return () => {
@@ -614,21 +599,6 @@ export const useAppController = () => {
     const handleTabMap = useCallback(() => setPage('map'), [setPage]);
     const handleTabSettings = useCallback(() => setPage('settings'), [setPage]);
 
-    // Sample-mode derived value: when weather is loaded but the
-    // user hasn't claimed a home port yet, this resolves to the
-    // region-appropriate SampleLocation object (Sydney for AU,
-    // Newport for US East, etc.). The chip on The Glass reads
-    // `sampleLocation.shortLabel` to render "Sample: <city> · Tap
-    // to set yours →". We gate on `weatherData` being present too —
-    // at boot there's a brief moment where both `defaultLocation`
-    // and `weatherData` are empty, and we don't want the chip
-    // flashing in that gap.
-    //
-    // getSampleLocation() is memoised in utils/sampleLocation, so
-    // repeated reads during render are free.
-    const sampleLocation: SampleLocation | null =
-        !!weatherData && !settings.defaultLocation ? getSampleLocation() : null;
-
     // Featured Passage now lives inside the RoutePlanner's empty
     // state (it reads getFeaturedPassage() there directly). The
     // App header no longer surfaces a "Try this passage" CTA — the
@@ -666,7 +636,6 @@ export const useAppController = () => {
         handleSearchSubmit,
         handleLocate,
         effectiveMode,
-        sampleLocation,
 
         // Extracted Handlers & State
         toggleFavorite,
