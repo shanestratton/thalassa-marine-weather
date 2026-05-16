@@ -116,8 +116,6 @@ const App: React.FC = () => {
         handleMapStaySelect,
         effectiveMode,
         sampleLocation,
-        featuredPassage,
-        openFeaturedPassage,
         sheetOpen,
         setSheetOpen,
         sheetData,
@@ -494,68 +492,6 @@ const App: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Sample-mode chip — visible when the user has
-                            no `defaultLocation` set and the Glass is
-                            currently painting a regional sample (Sydney
-                            for AU, Newport for US East, the Solent for
-                            UK, etc. — see utils/locale.ts). Sits BETWEEN
-                            the logo row and the search bar so it's the
-                            first thing they read after the location
-                            pill. Tapping opens the map picker (same
-                            path as the search-bar map button) so they
-                            can pin their actual home port. Once
-                            `selectLocation` writes defaultLocation, the
-                            chip auto-disappears. */}
-                        {!activeViewConfig && currentView !== 'map' && sampleLocation && (
-                            <div className="flex flex-col gap-1.5 items-start pointer-events-auto">
-                                <button
-                                    type="button"
-                                    onClick={() => {
-                                        mapFromWxRef.current = true;
-                                        setMapPickerActive(true);
-                                        setPage('map');
-                                    }}
-                                    className="self-start mt-1 px-3 py-1.5 rounded-full text-xs bg-sky-500/10 border border-sky-500/30 text-sky-200 hover:bg-sky-500/20 transition-colors flex items-center gap-1.5 shadow-lg backdrop-blur-md"
-                                    aria-label={`Sample location: ${sampleLocation.shortLabel} — tap to choose your home port`}
-                                >
-                                    <span className="opacity-70">Sample:</span>
-                                    <span className="font-semibold">{sampleLocation.shortLabel}</span>
-                                    <span className="opacity-40">·</span>
-                                    <span className="text-sky-100">Tap to set yours →</span>
-                                </button>
-
-                                {/* Featured Passage chip — sibling to the
-                                    Sample chip. Pair reads as:
-                                      "Where you are" + "Where you could go".
-                                    Tap writes a sessionStorage prefill hint
-                                    and routes to the voyage planner; the
-                                    planner's useVoyageForm picks it up on
-                                    mount and seeds origin/destination. */}
-                                {featuredPassage && (
-                                    <button
-                                        type="button"
-                                        onClick={openFeaturedPassage}
-                                        className="self-start px-3 py-1.5 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/20 transition-colors flex items-center gap-1.5 shadow-lg backdrop-blur-md"
-                                        title={featuredPassage.story}
-                                        aria-label={`Featured passage: ${featuredPassage.origin.name} to ${featuredPassage.destination.name}, ${featuredPassage.distanceNm} nautical miles — tap to plan`}
-                                    >
-                                        <span aria-hidden="true">⛵</span>
-                                        <span className="opacity-70">Try:</span>
-                                        <span className="font-semibold">
-                                            {/* Short labels are derived from the full name
-                                                by trimming the trailing ", REGION, COUNTRY"
-                                                — we keep them tight on a single line. */}
-                                            {featuredPassage.origin.name.split(',')[0]}
-                                            <span className="opacity-50 mx-1">→</span>
-                                            {featuredPassage.destination.name.split(',')[0]}
-                                        </span>
-                                        <span className="opacity-40">·</span>
-                                        <span className="text-emerald-100">{featuredPassage.distanceNm} nm →</span>
-                                    </button>
-                                )}
-                            </div>
-                        )}
-
                         {/* Search bar — only shown on dashboard (non-registered views without explicit flag) */}
                         {!activeViewConfig && currentView !== 'map' && (
                             <div
@@ -582,9 +518,15 @@ const App: React.FC = () => {
                                                 setPage('map');
                                             }}
                                         />
-                                        {/* Left adornment: swap between the usual search icon
-                                            and a wifi-off glyph when offline. Keeps the layout
-                                            stable (same slot) while giving a clear visual cue. */}
+                                        {/* Left adornment — three states, mutually exclusive:
+                                             1. Offline → amber wifi-slash glyph
+                                             2. Sample location active → tiny "SAMPLE" pill
+                                                (un-authed user, no home port set; the search
+                                                bar already opens the map picker on tap so
+                                                the user can claim a port).
+                                             3. Default → search-magnifier icon
+                                            Keeps the layout slot stable across states so the
+                                            input value doesn't shift horizontally. */}
                                         {isOffline ? (
                                             <div
                                                 className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 bg-amber-500/15 p-1 rounded-md"
@@ -609,6 +551,16 @@ const App: React.FC = () => {
                                                     <path d="M8.53 16.11a6 6 0 016.95 0" />
                                                     <line x1="12" y1="20" x2="12.01" y2="20" />
                                                 </svg>
+                                            </div>
+                                        ) : sampleLocation ? (
+                                            <div
+                                                className="absolute left-3 top-1/2 -translate-y-1/2"
+                                                title={`Sample location — tap to set your own home port`}
+                                                aria-label={`Sample location: ${sampleLocation.shortLabel}`}
+                                            >
+                                                <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-sky-500/20 border border-sky-500/40 text-sky-300">
+                                                    Sample
+                                                </span>
                                             </div>
                                         ) : (
                                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">

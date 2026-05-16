@@ -30,6 +30,7 @@ import { useUI } from '../context/UIContext';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
+import { getFeaturedPassage } from '../utils/featuredPassages';
 
 export const RoutePlanner: React.FC<{
     onTriggerUpgrade: () => void;
@@ -237,6 +238,26 @@ export const RoutePlanner: React.FC<{
             {/* ═══ FORM INPUTS — always visible at top ═══ */}
             <div className="shrink-0 px-4 pb-3">
                 <div className="max-w-xl mx-auto w-full space-y-2.5">
+                    {/* Featured Passage starter card — visible only when
+                        the planner is in a true empty state: no origin,
+                        no destination, no active or saved voyagePlan.
+                        Picks the region-appropriate passage (Sydney →
+                        Pittwater for AU, Newport → Block Island for US
+                        East, etc.). Tap fills both inputs in one go;
+                        the card then auto-disappears on the next render
+                        because `origin` is no longer empty. Replaces
+                        the dashboard Featured Passage chip — same data,
+                        better home (the user is already in the planner
+                        thinking about routes). */}
+                    {!origin && !destination && !voyagePlan && (
+                        <FeaturedPassageStarter
+                            onPick={(o, d) => {
+                                setOrigin(o);
+                                setDestination(d);
+                            }}
+                        />
+                    )}
+
                     {/* Comfort thresholds — collapsible accordion at the top
                         of the form. Sets settings.comfortParams (canonical
                         store) which the isochrone router reads at compute
@@ -624,5 +645,57 @@ export const RoutePlanner: React.FC<{
                 destination={voyagePlan?.destination || destination}
             />
         </div>
+    );
+};
+
+// ─── Featured Passage starter card ───────────────────────────────
+// Shown above the form when the planner is in a true empty state
+// (no origin, no destination, no voyagePlan). Picks the region-
+// appropriate passage from utils/featuredPassages and offers it as
+// a one-tap starter. Tap fills both inputs; the card then auto-
+// disappears because `origin` is no longer empty.
+//
+// Visual design: clean glass card, generous padding, the passage
+// story as the readable lede, distance pulled out as a metric
+// pill, single primary action. Looks like a real product card —
+// not a chip clutter.
+const FeaturedPassageStarter: React.FC<{
+    onPick: (origin: string, destination: string) => void;
+}> = ({ onPick }) => {
+    const passage = React.useMemo(() => getFeaturedPassage(), []);
+    const originShort = passage.origin.name.split(',')[0];
+    const destShort = passage.destination.name.split(',')[0];
+
+    return (
+        <button
+            type="button"
+            onClick={() => onPick(passage.origin.name, passage.destination.name)}
+            className="w-full text-left rounded-xl border border-sky-500/25 bg-gradient-to-br from-sky-500/10 via-slate-900/30 to-emerald-500/10 backdrop-blur-md hover:from-sky-500/15 hover:to-emerald-500/15 transition-colors shadow-lg p-4 group"
+            aria-label={`Featured passage: ${originShort} to ${destShort}, ${passage.distanceNm} nautical miles. Tap to load into the planner.`}
+        >
+            <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="flex items-center gap-2">
+                    <span aria-hidden="true" className="text-base">
+                        ⛵
+                    </span>
+                    <span className="text-[10px] uppercase tracking-widest font-bold text-sky-300/80">
+                        Featured Passage
+                    </span>
+                </div>
+                <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-sky-500/15 border border-sky-500/30 text-sky-200">
+                    {passage.distanceNm} nm
+                </span>
+            </div>
+            <div className="text-base font-bold text-white leading-snug">
+                {originShort}
+                <span className="mx-2 text-sky-400 font-normal">→</span>
+                {destShort}
+            </div>
+            <p className="text-[12px] leading-relaxed text-slate-300/80 mt-1.5">{passage.story}</p>
+            <div className="mt-3 flex items-center gap-1.5 text-[12px] font-semibold text-sky-300 group-hover:text-sky-200 transition-colors">
+                <span>Load into planner</span>
+                <span aria-hidden="true">→</span>
+            </div>
+        </button>
     );
 };
