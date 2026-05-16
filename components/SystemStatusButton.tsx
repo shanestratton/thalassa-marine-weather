@@ -15,6 +15,7 @@ import { createPortal } from 'react-dom';
 import { ShipLogService } from '../services/ShipLogService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
 import { AnchorWatchService, type AnchorWatchSnapshot } from '../services/AnchorWatchService';
+import { SailBoatIcon, AnchorIcon } from './Icons';
 import { NmeaListenerService } from '../services/NmeaListenerService';
 import { NmeaGpsProvider } from '../services/NmeaGpsProvider';
 import { NmeaStore } from '../services/NmeaStore';
@@ -185,7 +186,7 @@ const SystemStatusModal: React.FC<{
                         voyage from the passage planner. */}
                     {state.activeVoyageMode.active && (
                         <SystemRow
-                            icon={<span className="text-sm leading-none">⛵</span>}
+                            icon={<SailBoatIcon className="w-4 h-4" />}
                             label="Active Voyage Mode"
                             active={state.activeVoyageMode.active}
                             detail={state.activeVoyageMode.route || 'Underway'}
@@ -212,7 +213,7 @@ const SystemStatusModal: React.FC<{
                         active={state.gpsTracking.active}
                         detail={
                             state.gpsTracking.active
-                                ? `${state.gpsTracking.isMoving ? '🟢 Moving' : '🔴 Stationary'} · ${formatIntervalLabel(state.gpsTracking.isRapidMode ? 5000 : state.gpsTracking.intervalMs || 900_000)} interval${state.gpsTracking.isRapidMode ? ' · RAPID' : ''}`
+                                ? `${state.gpsTracking.isMoving ? 'Moving' : 'Stationary'} · ${formatIntervalLabel(state.gpsTracking.isRapidMode ? 5000 : state.gpsTracking.intervalMs || 900_000)} interval${state.gpsTracking.isRapidMode ? ' · RAPID' : ''}`
                                 : 'Not tracking'
                         }
                         dotColor={
@@ -227,12 +228,12 @@ const SystemStatusModal: React.FC<{
 
                     {/* ── Anchor Watch ── */}
                     <SystemRow
-                        icon={<span className="text-sm leading-none">⚓</span>}
+                        icon={<AnchorIcon className="w-4 h-4" />}
                         label="Anchor Watch"
                         active={state.anchorWatch.active}
                         detail={
                             state.anchorWatch.active
-                                ? `${state.anchorWatch.state === 'alarm' ? '🚨 ALARM' : state.anchorWatch.state === 'drifting' ? '⚠️ Drifting' : '✅ Holding'} · ${Math.round(state.anchorWatch.distance)}m / ${Math.round(state.anchorWatch.swingRadius)}m radius`
+                                ? `${state.anchorWatch.state === 'alarm' ? 'ALARM' : state.anchorWatch.state === 'drifting' ? 'Drifting' : 'Holding'} · ${Math.round(state.anchorWatch.distance)}m / ${Math.round(state.anchorWatch.swingRadius)}m radius`
                                 : 'Not deployed'
                         }
                         dotColor={
@@ -342,7 +343,7 @@ const SystemStatusModal: React.FC<{
                         active={state.followRoute.active}
                         detail={
                             state.followRoute.active
-                                ? `${state.followRoute.origin} → ${state.followRoute.destination}${state.followRoute.routeChanged ? ' · ⚠ Updated' : state.followRoute.isRefreshing ? ' · Refreshing...' : ''}`
+                                ? `${state.followRoute.origin} → ${state.followRoute.destination}${state.followRoute.routeChanged ? ' · Updated' : state.followRoute.isRefreshing ? ' · Refreshing...' : ''}`
                                 : 'No active route'
                         }
                         dotColor={

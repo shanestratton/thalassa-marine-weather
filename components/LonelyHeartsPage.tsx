@@ -14,6 +14,7 @@ import { CrewDetailView } from './crew-finder/CrewDetailView';
 import { CrewMatchesList } from './crew-finder/CrewMatchesList';
 import { CrewModals } from './crew-finder/CrewModals';
 import { toast } from './Toast';
+import { EditIcon, SearchIcon, ChatIcon } from './Icons';
 
 interface LonelyHeartsPageProps {
     onOpenDM: (userId: string, name: string) => void;
@@ -81,11 +82,12 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
             <div className="flex-shrink-0 sticky top-0 z-10 flex border-b border-white/[0.04] bg-slate-950">
                 {(
                     [
-                        { key: 'my_profile' as FCView, label: '📝 My Listing' },
-                        { key: 'board' as FCView, label: '🔍 Browse' },
+                        { key: 'my_profile' as FCView, label: 'My Listing', Icon: EditIcon },
+                        { key: 'board' as FCView, label: 'Browse', Icon: SearchIcon },
                         {
                             key: 'matches' as FCView,
-                            label: `🤝 Connections${matches.length > 0 ? ` (${matches.length})` : ''}`,
+                            label: `Connections${matches.length > 0 ? ` (${matches.length})` : ''}`,
+                            Icon: ChatIcon,
                         },
                     ] as const
                 ).map((tab) => (
@@ -112,9 +114,10 @@ export const LonelyHeartsPage: React.FC<LonelyHeartsPageProps> = ({ onOpenDM }) 
                                 setFilterAgeRanges([]);
                             }
                         }}
-                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative ${view === tab.key ? 'text-emerald-400' : 'text-white/60 hover:text-white/60'}`}
+                        className={`flex-1 py-3 text-sm font-semibold transition-colors relative inline-flex items-center justify-center gap-1.5 ${view === tab.key ? 'text-emerald-400' : 'text-white/60 hover:text-white/60'}`}
                     >
-                        {tab.label}
+                        <tab.Icon className="w-4 h-4" />
+                        <span>{tab.label}</span>
                         {view === tab.key && (
                             <div className="absolute bottom-0 left-1/4 right-1/4 h-0.5 bg-gradient-to-r from-emerald-500 to-sky-500 rounded-full" />
                         )}

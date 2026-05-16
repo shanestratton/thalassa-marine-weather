@@ -13,13 +13,16 @@
  *   />
  */
 import React from 'react';
+import { AlertTriangleIcon } from '../Icons';
 
 interface RetryCardProps {
     title?: string;
     description?: string;
     onRetry?: () => void;
     retrying?: boolean;
-    icon?: string;
+    /** Optional override for the centred icon (ReactNode so callers
+     *  can pass any SVG component). Defaults to AlertTriangleIcon. */
+    icon?: React.ReactNode;
 }
 
 export const RetryCard: React.FC<RetryCardProps> = ({
@@ -27,12 +30,12 @@ export const RetryCard: React.FC<RetryCardProps> = ({
     description = 'Check your connection and try again',
     onRetry,
     retrying = false,
-    icon = '⚠️',
+    icon = <AlertTriangleIcon className="w-7 h-7 text-amber-400" />,
 }) => {
     return (
         <div className="flex flex-col items-center justify-center py-12 px-6 animate-in fade-in duration-300">
-            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center mb-4">
-                <span className="text-2xl">{icon}</span>
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 border border-amber-500/15 flex items-center justify-center mb-4 text-amber-400">
+                {icon}
             </div>
             <p className="text-sm font-bold text-white mb-1 text-center">{title}</p>
             <p className="text-xs text-white/50 text-center max-w-[240px] mb-5">{description}</p>
