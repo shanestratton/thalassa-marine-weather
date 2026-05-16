@@ -120,7 +120,7 @@ vi.mock('../services/MealPlanService', () => ({
     },
 }));
 
-vi.mock('../components/AuthModal', () => ({ AuthModal: () => null }));
+vi.mock('../components/SignInScreen', () => ({ SignInScreen: () => null }));
 vi.mock('../components/chat/ChatErrorBoundary', () => ({
     ChatErrorBoundary: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

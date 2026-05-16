@@ -58,7 +58,7 @@ import { type PassageStatus, getPassageStatus, getPassageStatusSync } from '../s
 import { WelcomeBanner } from './chat/WelcomeBanner';
 import { AuthBanner } from './chat/AuthBanner';
 import { triggerHaptic } from '../utils/system';
-import { AuthModal } from './AuthModal';
+import { SignInScreen } from './SignInScreen';
 import { supabase } from '../services/supabase';
 import { TypingIndicator } from './chat/TypingIndicator';
 import { usePullToRefresh } from '../hooks/usePullToRefresh';
@@ -1042,15 +1042,17 @@ export const ChatPage: React.FC = React.memo(() => {
                 onCancel={() => setConfirmAction(null)}
             />
 
-            {/* Auth modal for chat sign-in banner */}
-            <AuthModal
+            {/* Sign-in surface for the chat sign-in banner — same
+                SignInScreen used everywhere else in the app. */}
+            <SignInScreen
                 isOpen={showChatAuth}
                 onClose={() => {
                     setShowChatAuth(false);
                     // Global authStore listens to onAuthStateChange and
-                    // updates automatically when the AuthModal signs in.
+                    // updates automatically when sign-in completes.
                     // No manual re-poll needed.
                 }}
+                prompt="Sign in to message other sailors and access Scuttlebutt."
             />
         </div>
     );

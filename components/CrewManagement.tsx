@@ -38,7 +38,7 @@ import { toast } from './Toast';
 import { createVoyage, getDraftVoyages, updateVoyage, type Voyage } from '../services/VoyageService';
 import { fetchRoutesAndTracks } from '../services/shiplog/RoutesAndTracks';
 import { setActivePassage, getActivePassageId } from '../services/PassagePlanService';
-import { AuthModal } from './AuthModal';
+import { SignInScreen } from './SignInScreen';
 import { lazyRetry } from '../utils/lazyRetry';
 import { UsersIcon, CompassIcon, CalendarGridIcon, AnchorIcon, AlertTriangleIcon, SosIcon } from './Icons';
 
@@ -675,16 +675,16 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         </button>
                     </div>
                 </div>
-                <AuthModal
+                <SignInScreen
                     isOpen={showAuth}
                     onClose={() => {
                         setShowAuth(false);
                         // No need to re-poll auth — the global authStore's
-                        // onAuthStateChange listener will fire when the
-                        // AuthModal completes the sign-in, and our isAuthed
-                        // is derived from that store so we re-render
-                        // automatically.
+                        // onAuthStateChange listener fires when sign-in
+                        // completes, and our isAuthed is derived from
+                        // that store so we re-render automatically.
                     }}
+                    prompt="Sign in to plan passages with crew and sync across devices."
                 />
             </div>
         );

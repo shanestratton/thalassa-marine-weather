@@ -54,8 +54,8 @@ vi.mock('../utils/lazyRetry', () => ({
 vi.mock('../components/Toast', () => ({
     toast: { success: vi.fn(), error: vi.fn() },
 }));
-vi.mock('../components/AuthModal', () => ({
-    AuthModal: () => null,
+vi.mock('../components/SignInScreen', () => ({
+    SignInScreen: () => null,
 }));
 vi.mock('../components/crew/SwipeableCrewCard', () => ({
     SwipeableCrewCard: () => <div data-testid="crew-card">Crew Card</div>,
