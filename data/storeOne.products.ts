@@ -14,6 +14,13 @@ export interface StoreOneProduct {
     description: string;
     specs: string[];
     /**
+     * Category + subcategory IDs reference data/chandleryCategories.ts.
+     * Drives the navigation: top-level menu → subcategory menu →
+     * one-item-per-page detail view.
+     */
+    categoryId: string;
+    subcategoryId: string;
+    /**
      * True if the product needs vessel 12V (or NMEA 2000 bus) power.
      * Drives the "Will this fit your boat?" vessel-aware filter.
      */
@@ -41,6 +48,8 @@ export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
             'Compatible with Raspberry Pi 3B+ / 4 / 5',
             'SocketCAN driver — Linux-native, no proprietary blob',
         ],
+        categoryId: 'technology',
+        subcategoryId: 'pi-accessories',
         requires_12v: true,
         imageUrl: '/images/storeOne/pican-m.png',
     },
@@ -57,6 +66,8 @@ export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
             '12–24 VDC input, 5–18 W typical draw',
             'Bracket + flush-mount kit included',
         ],
+        categoryId: 'technology',
+        subcategoryId: 'screens',
         requires_12v: true,
         imageUrl: '/images/storeOne/xenarc-703wp.jpg',
     },
@@ -73,7 +84,19 @@ export const STORE_ONE_PRODUCTS: StoreOneProduct[] = [
             'No moving parts — saltwater-grade IP66',
             'Mast-clip mount, removable for portable use',
         ],
+        categoryId: 'technology',
+        subcategoryId: 'sensors',
         requires_12v: false,
         imageUrl: '/images/storeOne/calypso-mini.jpg',
     },
 ];
+
+/** All products within a category. */
+export function productsForCategory(categoryId: string): StoreOneProduct[] {
+    return STORE_ONE_PRODUCTS.filter((p) => p.categoryId === categoryId);
+}
+
+/** All products within a subcategory. */
+export function productsForSubcategory(categoryId: string, subcategoryId: string): StoreOneProduct[] {
+    return STORE_ONE_PRODUCTS.filter((p) => p.categoryId === categoryId && p.subcategoryId === subcategoryId);
+}
