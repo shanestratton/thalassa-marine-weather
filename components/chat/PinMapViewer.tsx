@@ -6,6 +6,7 @@
  * but NO FABs, NO scrubber, NO wind/rain layers.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import mapboxgl from 'mapbox-gl';
 import { createGradientPinMarker } from '../../utils/createMarkerEl';
 import { exportPinAsGPX } from './chatUtils';
@@ -172,7 +173,15 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
     const formattedLat = `${Math.abs(lat).toFixed(4)}°${lat < 0 ? 'S' : 'N'}`;
     const formattedLng = `${Math.abs(lng).toFixed(4)}°${lng < 0 ? 'W' : 'E'}`;
 
-    return (
+    // Portal to document.body so ancestor transforms / overflow
+    // (PageTransition wrappers, chat scroll containers, animation
+    // classes, etc) can't trap this fullscreen modal inside the
+    // chat content area. Without the portal, the Get Directions
+    // button at the bottom could land BEHIND the bottom nav — which
+    // is what Shane saw ("the how to get there is not showing.
+    // maybe it is below the menu bar"). Same pattern used by the
+    // RoutePlanner's map modal.
+    return createPortal(
         <div className="fixed inset-0 z-[9999] bg-black/95 flex flex-col">
             {/* Header */}
             <div className="relative z-10 flex items-center justify-between px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
@@ -249,7 +258,8 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     )}
                 </button>
             </div>
-        </div>
+        </div>,
+        document.body,
     );
 });
 
