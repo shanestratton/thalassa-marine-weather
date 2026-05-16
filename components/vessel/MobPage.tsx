@@ -68,14 +68,23 @@ function buildMaydayText(
     const lonDir = fixLon >= 0 ? 'East' : 'West';
     const utc = new Date(activatedAt).toISOString().slice(11, 16) + ' UTC';
 
+    // Spell the degree integers out digit-by-digit so TTS can't elide
+    // the leading digit on triple-digit longitudes. ElevenLabs has been
+    // observed reading "153 degrees" as "53 degrees" when racing through
+    // emergency comms — fatal for a position report. "one five three"
+    // is unambiguous and the same trick we already use for callsign +
+    // MMSI a few lines down.
+    const latDegSpoken = String(latDeg).split('').join(' ');
+    const lonDegSpoken = String(lonDeg).split('').join(' ');
+
     let out = 'Mayday, Mayday, Mayday. ';
     out += `This is sailing vessel ${vesselName}, ${vesselName}, ${vesselName}. `;
     if (callSign) out += `Call sign ${callSign.split('').join(' ')}. `;
     if (mmsi) out += `MMSI ${mmsi.split('').join(' ')}. `;
     out += 'Mayday. ';
     out += `This is sailing vessel ${vesselName}. `;
-    out += `Position ${latDeg} degrees ${latMin} minutes ${latDir}, `;
-    out += `${lonDeg} degrees ${lonMin} minutes ${lonDir}. `;
+    out += `Position ${latDegSpoken} degrees ${latMin} minutes ${latDir}, `;
+    out += `${lonDegSpoken} degrees ${lonMin} minutes ${lonDir}. `;
     out += 'Nature of distress: Man Overboard. ';
     out += `MOB at ${utc}. `;
     if (pob !== undefined) out += `${pob} persons on board. `;
@@ -184,11 +193,13 @@ export const MobPage: React.FC<MobPageProps> = ({ onBack, onNavigate }) => {
             // Calypso voice override for emergency comms — slower
             // and more stable than casual chat. Shane: "don't sound
             // like introducing Taylor Swift to a concert full of
-            // prepubescent teens." Speed 0.85 = comfortable VHF
-            // cadence; stability 0.8 = measured, low emotional
-            // variation. Falls back to native iOS speech (rate 0.8,
-            // pitch 0.95 above) if ElevenLabs fails.
-            voiceSettings: { speed: 0.85, stability: 0.8 },
+            // prepubescent teens." Speed 0.875 = a touch quicker
+            // than the 0.85 first pass (Shane wanted slightly faster
+            // delivery without losing the calm VHF cadence);
+            // stability 0.8 = measured, low emotional variation.
+            // Falls back to native iOS speech (rate 0.8, pitch 0.95
+            // above) if ElevenLabs fails.
+            voiceSettings: { speed: 0.875, stability: 0.8 },
             onPlaybackStart: (engine) => {
                 setSpeaking(true);
                 setLastVoiceEngine(engine);

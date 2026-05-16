@@ -1374,28 +1374,14 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* Pin bounce + location pulse animations moved to index.css */}
 
-                {/* ═══ PIN VIEW BACK BUTTON ═══ */}
-                {isPinView && (
-                    <button
-                        onClick={() => {
-                            delete window.__thalassaPinView;
-                            setIsPinView(false);
-                            setPage(previousView || 'chat');
-                        }}
-                        className="absolute top-[56px] left-4 z-[700] w-12 h-12 bg-slate-900/90 border border-white/[0.12] rounded-2xl flex items-center justify-center shadow-2xl hover:bg-slate-800/90 transition-all active:scale-90"
-                        aria-label="Navigate back from map"
-                    >
-                        <svg
-                            className="w-5 h-5 text-white"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={2.5}
-                        >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
-                        </svg>
-                    </button>
-                )}
+                {/* PIN VIEW BACK BUTTON removed — there's already a
+                    middle-left back chevron in the global chrome, no
+                    need for a second one in the top-left slot fighting
+                    the zoom pill. Exit paths now: tap the existing
+                    middle-left chevron, tap Get Directions (which
+                    auto-exits on success), or use the bottom nav to
+                    leave Charts. Shane: "there is already a chevron
+                    middle left claude." */}
 
                 {/* ═══ PIN VIEW · GET DIRECTIONS CTA ═══
                     Bottom-anchored emerald button so the punter can
@@ -1438,11 +1424,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* ═══ ZOOM-LEVEL FAB ═══
                     Top-left pill showing current map zoom. Mirrors the
                     Bosun mic FAB top-right position (top:56px right:16px
-                    in App.tsx). Hidden in pin-view to avoid overlapping
-                    the back chevron in the same slot. Mapbox zoom is a
-                    float 0-22; we show one decimal so wheel/pinch
-                    increments are visible. */}
-                {!isPinView && zoomLevel !== null && (
+                    in App.tsx). Visible in pin-view too — the back
+                    chevron now sits at middle-left so the top-left slot
+                    is free. Mapbox zoom is a float 0-22; we show one
+                    decimal so wheel/pinch increments are visible. */}
+                {zoomLevel !== null && (
                     <div
                         className="absolute top-[56px] left-4 z-[700] h-11 px-2.5 min-w-[3rem] rounded-full bg-slate-900/85 border border-white/[0.10] flex items-center justify-center backdrop-blur-md shadow-lg pointer-events-none select-none"
                         aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}

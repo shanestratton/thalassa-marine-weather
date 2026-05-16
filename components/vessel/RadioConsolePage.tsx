@@ -96,7 +96,12 @@ function formatSpokenPosition(lat: number, lon: number): string {
     const lonDeg = Math.floor(absLon);
     const lonMin = ((absLon - lonDeg) * 60).toFixed(1);
     const lonDir = lon >= 0 ? 'East' : 'West';
-    return `${latDeg} degrees ${latMin} minutes ${latDir}, ${lonDeg} degrees ${lonMin} minutes ${lonDir}`;
+    // Spell the degree integer digit-by-digit so TTS can't elide the
+    // leading digit on triple-digit longitudes (e.g. 153 → "53").
+    // Same approach used in MobPage.buildMaydayText.
+    const latDegSpoken = String(latDeg).split('').join(' ');
+    const lonDegSpoken = String(lonDeg).split('').join(' ');
+    return `${latDegSpoken} degrees ${latMin} minutes ${latDir}, ${lonDegSpoken} degrees ${lonMin} minutes ${lonDir}`;
 }
 
 /** Routine position readback (standard VHF position report). */
@@ -330,7 +335,7 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
             // but still natural. Distress matches the MOB cadence
             // so a listener at the other end gets the same calm
             // measured delivery regardless of which surface fired.
-            voiceSettings: dscMode === 'distress' ? { speed: 0.85, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
+            voiceSettings: dscMode === 'distress' ? { speed: 0.875, stability: 0.8 } : { speed: 0.92, stability: 0.7 },
             onPlaybackStart: (engine) => {
                 setIsSpeaking(true);
                 setLastVoiceEngine(engine);
