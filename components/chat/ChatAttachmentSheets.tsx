@@ -228,59 +228,128 @@ export interface PoiPickerSheetProps {
     poiMapRef: React.RefObject<HTMLDivElement>;
     onSendPoi: () => void;
     onClose: () => void;
+    /** Snap the marker back to the user's live GPS position. */
+    onRecenterToMyLocation?: () => void;
+    /** Geocode a place name and pan the map there. */
+    onSearch?: (query: string) => void;
+    /** Whether a geocoding search is currently in flight. */
+    searching?: boolean;
 }
 
 export const PoiPickerSheet: React.FC<PoiPickerSheetProps> = React.memo(
-    ({ pinLat, pinLng, pinCaption, setPinCaption, pinLoading, poiMapRef, onSendPoi, onClose }) => (
-        <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3">
-            <div className="flex items-center justify-between mb-2">
-                <h3 className="text-sm font-bold text-white/80">Share Point of Interest</h3>
-                <button
-                    onClick={onClose}
-                    className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
-                    aria-label="Close attachment sheet"
-                >
-                    ✕
-                </button>
-            </div>
-            {pinLoading ? (
-                <div className="flex items-center justify-center py-6">
-                    <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
-                    <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
+    ({
+        pinLat,
+        pinLng,
+        pinCaption,
+        setPinCaption,
+        pinLoading,
+        poiMapRef,
+        onSendPoi,
+        onClose,
+        onRecenterToMyLocation,
+        onSearch,
+        searching = false,
+    }) => {
+        const [search, setSearch] = React.useState('');
+        const handleSearch = () => {
+            const q = search.trim();
+            if (!q || !onSearch) return;
+            onSearch(q);
+        };
+        return (
+            <div className="flex-shrink-0 border-t border-white/[0.06] bg-slate-900 px-4 py-3 max-h-[68vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-sm font-bold text-white/80">Drop a POI</h3>
+                    <button
+                        onClick={onClose}
+                        className="text-white/60 hover:text-white/80 text-lg transition-colors px-2"
+                        aria-label="Close attachment sheet"
+                    >
+                        ✕
+                    </button>
                 </div>
-            ) : (
-                <>
-                    <div
-                        ref={poiMapRef as React.RefObject<HTMLDivElement>}
-                        className="w-full h-[200px] rounded-xl overflow-hidden border border-white/[0.08] mb-2"
-                    />
-                    <p className="text-[11px] text-white/40 mb-2 text-center tabular-nums">
-                        📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°
-                        {pinLng < 0 ? 'W' : 'E'}
-                        <span className="ml-2 text-white/40">• Tap or drag to set location</span>
-                    </p>
-                    <div className="flex items-center gap-2">
-                        <input
-                            type="text"
-                            value={pinCaption}
-                            onChange={(e) => setPinCaption(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && onSendPoi()}
-                            placeholder="Describe this spot..."
-                            className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
-                            maxLength={120}
-                        />
-                        <button
-                            aria-label="Send attachment"
-                            onClick={onSendPoi}
-                            className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
-                        >
-                            Share
-                        </button>
+                {pinLoading ? (
+                    <div className="flex items-center justify-center py-6">
+                        <div className="w-5 h-5 border-2 border-sky-500/30 rounded-full border-t-sky-500 animate-spin" />
+                        <span className="ml-3 text-sm text-white/60">Getting GPS...</span>
                     </div>
-                </>
-            )}
-        </div>
-    ),
+                ) : (
+                    <>
+                        {/* Search bar — type a place name (chandlery, customs
+                            office, suburb) and we pan the map there. Much
+                            faster than dragging the marker to a far spot. */}
+                        {onSearch && (
+                            <div className="flex items-center gap-2 mb-2">
+                                <input
+                                    type="text"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                                    placeholder="Search a place… (e.g. Whitworths Chandlery)"
+                                    className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleSearch}
+                                    disabled={searching}
+                                    aria-label="Search for a place"
+                                    className="px-3 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 text-white/80 disabled:opacity-50"
+                                >
+                                    {searching ? '…' : '🔎'}
+                                </button>
+                            </div>
+                        )}
+                        {/* Bigger map for easier tap/drag targeting. Was
+                            200 px — too cramped for any motion bigger
+                            than a kerb. 320 px gives enough room to drag
+                            across a marina. */}
+                        <div
+                            ref={poiMapRef as React.RefObject<HTMLDivElement>}
+                            className="relative w-full h-[320px] rounded-xl overflow-hidden border border-white/[0.08] mb-2"
+                        >
+                            {/* Floating "snap to my location" button —
+                                overlays the map so the user always has a
+                                one-tap way back to their actual GPS
+                                position when they've dragged around. */}
+                            {onRecenterToMyLocation && (
+                                <button
+                                    type="button"
+                                    onClick={onRecenterToMyLocation}
+                                    aria-label="Recenter to my location"
+                                    className="absolute bottom-3 right-3 z-10 w-10 h-10 rounded-full bg-slate-900/90 border border-white/15 backdrop-blur active:scale-90 transition-transform flex items-center justify-center shadow-lg"
+                                >
+                                    <span className="text-base">📍</span>
+                                </button>
+                            )}
+                        </div>
+                        <p className="text-[11px] text-white/40 mb-2 text-center tabular-nums">
+                            📍 {Math.abs(pinLat).toFixed(4)}°{pinLat < 0 ? 'S' : 'N'}, {Math.abs(pinLng).toFixed(4)}°
+                            {pinLng < 0 ? 'W' : 'E'}
+                            <span className="ml-2 text-white/40">· Tap or drag to set</span>
+                        </p>
+                        <div className="flex items-center gap-2">
+                            <input
+                                type="text"
+                                value={pinCaption}
+                                onChange={(e) => setPinCaption(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && onSendPoi()}
+                                placeholder="Describe this spot..."
+                                className="flex-1 bg-white/[0.04] border border-white/[0.06] rounded-xl px-3 py-2.5 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-sky-500/30 transition-colors"
+                                maxLength={120}
+                            />
+                            <button
+                                aria-label="Send attachment"
+                                onClick={onSendPoi}
+                                className="px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-sm text-white/80 font-bold transition-all active:scale-95 whitespace-nowrap"
+                            >
+                                Share
+                            </button>
+                        </div>
+                    </>
+                )}
+            </div>
+        );
+    },
 );
 PoiPickerSheet.displayName = 'PoiPickerSheet';
 
