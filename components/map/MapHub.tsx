@@ -335,7 +335,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
 
     const location = useLocationStore();
-    const { weatherData } = useWeather();
+    const { weatherData, saveVoyagePlan } = useWeather();
     const weatherCoords = weatherData?.coordinates;
     const [mapReady, setMapReady] = useState(false);
     const deviceMode = useDeviceMode();
@@ -1277,6 +1277,88 @@ export const MapHub: React.FC<MapHubProps> = ({
         map.flyTo({ center: [pv.lng, pv.lat], zoom: 7, duration: 1200 });
     }, [isPinView, mapReady]);
 
+    // ── Pin View: temporarily clear weather overlays for a clean map ──
+    // Shane: "when the punter does click the pin, we need to ensure
+    // there are no other layers showing. at the moment, all the layers
+    // that where on stay there." Solution: snapshot the user's active
+    // weather layers + cyclone/squall toggles when entering pin view,
+    // turn them off, restore on exit. The user's chart-catalog
+    // selection (their chosen vector charts) stays — that's
+    // legitimate context for navigating to a pin.
+    const savedLayersRef = useRef<{
+        weather: Set<WeatherLayer> | null;
+        cyclone: boolean;
+        squall: boolean;
+    } | null>(null);
+    useEffect(() => {
+        if (!isPinView) return;
+        // Snapshot
+        savedLayersRef.current = {
+            weather: new Set(weather.activeLayers),
+            cyclone: cycloneVisible,
+            squall: squallVisible,
+        };
+        // Clear
+        weather.setActiveLayer('none');
+        setCycloneVisible(false);
+        setSquallVisible(false);
+        return () => {
+            // Restore on exit
+            const saved = savedLayersRef.current;
+            if (!saved) return;
+            // Restore weather layers one by one (toggleLayer preserves
+            // cross-group selections, which is how the user had them).
+            saved.weather?.forEach((layer) => {
+                if (!weather.activeLayers.has(layer)) weather.toggleLayer(layer);
+            });
+            setCycloneVisible(saved.cyclone);
+            setSquallVisible(saved.squall);
+            savedLayersRef.current = null;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isPinView]);
+
+    // ── Pin View: Get Directions handler ──
+    // Builds a Mapbox driving route from current GPS to the pin and
+    // saves it as a VoyagePlan. Exits pin view on success so the
+    // user's normal layers come back along with the route, ready to
+    // navigate.
+    const [pinDirectionsBusy, setPinDirectionsBusy] = useState(false);
+    const [pinDirectionsError, setPinDirectionsError] = useState<string | null>(null);
+    const handlePinDirections = useCallback(async () => {
+        const pv = window.__thalassaPinView as { lat: number; lng: number } | undefined;
+        if (!pv || pinDirectionsBusy) return;
+        setPinDirectionsBusy(true);
+        setPinDirectionsError(null);
+        try {
+            const { GpsService } = await import('../../services/GpsService');
+            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
+            if (!pos) {
+                setPinDirectionsError('Could not get your GPS position.');
+                return;
+            }
+            const { buildDirectionsVoyagePlan } = await import('../../services/MapboxDirectionsService');
+            const plan = await buildDirectionsVoyagePlan(
+                { lat: pos.latitude, lon: pos.longitude, name: 'My Location' },
+                { lat: pv.lat, lon: pv.lng, name: 'Pin' },
+                'driving',
+            );
+            if (!plan) {
+                setPinDirectionsError('No driving route found.');
+                return;
+            }
+            saveVoyagePlan(plan);
+            // Exit pin view so layers/route are visible normally.
+            delete window.__thalassaPinView;
+            setIsPinView(false);
+        } catch (e) {
+            setPinDirectionsError(e instanceof Error ? e.message : 'Directions failed.');
+        } finally {
+            setPinDirectionsBusy(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [pinDirectionsBusy]);
+
     // Determine if tablet split-screen is active
     const isHelmSplit = deviceMode === 'helm' && passage.showPassage && !embedded;
 
@@ -1313,6 +1395,44 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                         </svg>
                     </button>
+                )}
+
+                {/* ═══ PIN VIEW · GET DIRECTIONS CTA ═══
+                    Bottom-anchored emerald button so the punter can
+                    immediately ask "how do I get there?" after a pin
+                    tap from Scuttlebutt. Sits above the bottom nav
+                    (88px reserve) with safe-area padding so it never
+                    lands behind the tab bar — the earlier complaint
+                    that drove the PinMapViewer portal fix (since
+                    discovered to be dead code). z-[700] matches the
+                    back-button stacking, well above the map but below
+                    full-screen modals. */}
+                {isPinView && (
+                    <div className="absolute left-4 right-4 bottom-[calc(env(safe-area-inset-bottom)+88px)] z-[700] space-y-2 pointer-events-none">
+                        {pinDirectionsError && (
+                            <div className="rounded-xl border border-red-500/30 bg-red-500/90 backdrop-blur-md px-3 py-2 text-xs text-white shadow-lg pointer-events-auto">
+                                {pinDirectionsError}
+                            </div>
+                        )}
+                        <button
+                            onClick={() => void handlePinDirections()}
+                            disabled={pinDirectionsBusy}
+                            aria-label="Get driving directions to pin"
+                            className="pointer-events-auto w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] transition-all text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50 shadow-2xl"
+                        >
+                            {pinDirectionsBusy ? (
+                                <>
+                                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    <span>Routing…</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span>🧭</span>
+                                    <span>Get Directions</span>
+                                </>
+                            )}
+                        </button>
+                    </div>
                 )}
 
                 {/* ═══ ZOOM-LEVEL FAB ═══
