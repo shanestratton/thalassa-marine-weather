@@ -2,6 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── iOS WKWebView long-press hygiene ────────────────────────────
+   Without these, iOS hijacks long-press anywhere on the page with
+   its own magnifier-loupe + "Copy / Look Up / Translate" context
+   menu. Hold-to-confirm patterns (MOB clear, Slide-to-Action) get
+   randomly broken because the system gesture takes over before
+   our handler completes.
+
+   Strategy: disable globally on the page surface, RE-ENABLE for
+   real text-entry elements (input, textarea, contenteditable) and
+   anywhere a component opts in by setting .allow-text-select.
+─────────────────────────────────────────────────────────────────── */
+html,
+body {
+    -webkit-touch-callout: none; /* no Copy/Look-Up sheet on long press */
+    -webkit-user-select: none; /* no text selection / loupe */
+    user-select: none;
+    -webkit-tap-highlight-color: transparent; /* no grey flash on tap */
+}
+input,
+textarea,
+[contenteditable='true'],
+.allow-text-select {
+    -webkit-touch-callout: default;
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 /* ── Dual Theme System: CSS Custom Property Overrides ───────────
    When .theme-onshore is on the root element, all slate colors
    automatically shift to warm stone/zinc tones. This gives full
