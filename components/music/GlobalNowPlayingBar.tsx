@@ -31,6 +31,7 @@ import {
     getAuthorizationStatus,
     type NowPlaying,
 } from '../../services/voice/integrations/appleMusic';
+import { isMusicEngaged, subscribeMusicEngagement } from '../../services/musicEngagement';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 
@@ -51,27 +52,27 @@ export const GlobalNowPlayingBar: React.FC = () => {
     const [busy, setBusy] = useState(false);
     const [imageFailed, setImageFailed] = useState(false);
 
-    // Poll once per 2 s WHEN MusicKit is authorized.
+    // Engagement gate — do absolutely nothing until the user has
+    // shown intent to use music this session (opened the Music page
+    // OR triggered a play action). Reset on every cold boot.
     //
-    // First-launch trap: accessing ApplicationMusicPlayer.shared on
-    // the Swift side surfaces the iOS MusicKit authorization prompt
-    // ("Allow Thalassa to use Apple Music?") even when we're just
-    // reading queue status. That triggered at boot on every fresh
-    // install simply because this bar mounts with the app and
-    // started polling.
-    //
-    // Fix: read auth status FIRST (currentStatus is a synchronous
-    // property that does not prompt). Only start polling if the
-    // user has previously granted MusicKit access (e.g. by opening
-    // the Music page and tapping play). For users who never use
-    // music, the bar stays silent forever, which is correct —
-    // there's nothing to surface.
-    //
-    // We re-check every 5 s in case the user grants auth via the
-    // Music page later in the session; the bar will then start
-    // polling without requiring an app restart.
+    // Shane's bug report: on a fresh app boot with MusicKit already
+    // authorized, the bar was polling getMusicKitAuthorizationStatus
+    // every 5s and nowPlaying every 2s even though no music was
+    // playing and the user hadn't asked for any. Logs showed dozens
+    // of bridge calls per minute on a silent app. With this gate,
+    // the bar literally does nothing until the user navigates to
+    // the Music page (which flips the engagement flag).
+    const [engaged, setEngaged] = useState(() => isMusicEngaged());
+    useEffect(() => {
+        return subscribeMusicEngagement(setEngaged);
+    }, []);
+
+    // Auth status check, gated on engagement. Re-checks every 5 s
+    // in case auth lands later (user grants via Music page).
     const [authorized, setAuthorized] = useState(false);
     useEffect(() => {
+        if (!engaged) return;
         let cancelled = false;
         const check = async () => {
             const a = await getAuthorizationStatus();
@@ -83,10 +84,11 @@ export const GlobalNowPlayingBar: React.FC = () => {
             cancelled = true;
             window.clearInterval(id);
         };
-    }, []);
+    }, [engaged]);
 
+    // nowPlaying poll — only when engaged AND authorized.
     useEffect(() => {
-        if (!authorized) return;
+        if (!engaged || !authorized) return;
         let cancelled = false;
         const poll = async () => {
             const np = await getNowPlaying();
@@ -98,7 +100,7 @@ export const GlobalNowPlayingBar: React.FC = () => {
             cancelled = true;
             window.clearInterval(id);
         };
-    }, [authorized]);
+    }, [engaged, authorized]);
 
     // Reset image-error state when the track changes so a stale
     // failed-image flag doesn't suppress artwork for the next track.

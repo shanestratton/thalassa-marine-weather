@@ -376,11 +376,12 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                 </span>
                             )}
 
-                            {/* Wind */}
+                            {/* Wind — round to 1 decimal to match The Glass display
+                                (raw stream from NMEA / weather can be 12+ decimals) */}
                             {entry.windSpeed != null && (
                                 <span className="text-xs flex items-center gap-0.5">
                                     <WindIcon className="w-3 h-3 text-slate-400" />
-                                    <span className="text-white font-bold">{entry.windSpeed}</span>
+                                    <span className="text-white font-bold">{entry.windSpeed.toFixed(1)}</span>
                                     {entry.beaufortScale != null && (
                                         <span className={`${getBfColor(entry.beaufortScale)}`}>
                                             F{entry.beaufortScale}
@@ -462,7 +463,9 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                                     {entry.windSpeed != null && (
                                         <span className="flex items-center gap-1">
                                             <WindIcon className="w-3 h-3" />
-                                            <span className="text-white font-bold">{entry.windSpeed}kts</span>
+                                            <span className="text-white font-bold">
+                                                {entry.windSpeed.toFixed(1)}kts
+                                            </span>
                                             {entry.windDirection}
                                             {entry.beaufortScale != null && (
                                                 <span className={getBfColor(entry.beaufortScale)}>

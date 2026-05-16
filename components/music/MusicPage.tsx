@@ -42,12 +42,21 @@ import {
     type CatalogSongResult,
 } from '../../services/voice/integrations/appleMusic';
 import { triggerHaptic } from '../../utils/system';
+import { markMusicEngaged } from '../../services/musicEngagement';
 
 interface MusicPageProps {
     onBack: () => void;
 }
 
 export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
+    // Flag the session as "music engaged" the moment this page
+    // mounts. GlobalNowPlayingBar gates ALL its polling on this
+    // flag, so before the user has shown intent to use music, the
+    // app makes zero AppleMusic bridge calls. Idempotent.
+    useEffect(() => {
+        markMusicEngaged();
+    }, []);
+
     const [authGranted, setAuthGranted] = useState<boolean | null>(null);
     const [authStatus, setAuthStatus] = useState<string>('');
     const [playlists, setPlaylists] = useState<UserPlaylist[]>([]);
