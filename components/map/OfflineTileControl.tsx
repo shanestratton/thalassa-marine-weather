@@ -11,7 +11,6 @@
 
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { toast } from '../Toast';
 
 // leaflet.offline extends L.TileLayer — import for side effects
 import 'leaflet.offline';
@@ -35,15 +34,17 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
             zoomlevels: [3, 4, 5, 6, 7, 8, 9, 10],
             position: 'topright',
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            confirm(layer: any, successCallback: () => void) {
-                const tileCount = layer._tilesforSave?.length || 0;
-                toast.info(`Downloading ${tileCount} tiles for offline use…`);
+            confirm(_layer: any, successCallback: () => void) {
+                // Toast removed — Shane found map-screen toasts
+                // distracting. The user just tapped Save Tiles so
+                // they already know it started; if they want to
+                // verify counts, the cache badge in settings shows
+                // tile totals.
                 successCallback();
             },
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             confirmRemoval(_layer: any, successCallback: () => void) {
                 successCallback();
-                toast.success('Cached tiles removed');
             },
             saveText: '💾 Save Tiles',
             rmText: '🗑️ Clear Cache',
@@ -64,9 +65,8 @@ export const OfflineTileControl: React.FC<OfflineTileControlProps> = ({ map, til
 
         tileLayer.on('savetileend', () => {
             savedTiles++;
-            if (savedTiles === totalTiles) {
-                toast.success(`${savedTiles} tiles saved for offline use`);
-            }
+            // Save-complete toast removed — see comment in confirm()
+            // above. Tile count visible in settings cache badge.
         });
 
         tileLayer.on('loadend', () => {});
