@@ -9,6 +9,7 @@ import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/logger';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
+import { resolveEffectiveVessel } from '../utils/defaultVessel';
 
 export const LOADING_PHASES = [
     'Querying Hydrographic Data...',
@@ -30,7 +31,19 @@ export const LOADING_PHASES = [
 export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const { settings } = useSettings();
     const { weatherData, voyagePlan, saveVoyagePlan } = useWeather();
-    const { vessel, vesselUnits, units: generalUnits, isPro, mapboxToken } = settings;
+    const { vessel: configuredVessel, vesselUnits, units: generalUnits, isPro, mapboxToken } = settings;
+    // Routing pipeline always sees a vessel — either the user's
+    // configured one or DEFAULT_VESSEL (generic 35ft sloop). This
+    // lets a fresh-install punter run the Featured Passage demo
+    // without first filling out a 12-field vessel form. Personal
+    // vessel setup in Settings → Vessel takes precedence whenever
+    // it's present, so this is a fallback, not a stomp.
+    const vessel = resolveEffectiveVessel(configuredVessel);
+    /** True when routing is running on DEFAULT_VESSEL. RoutePlanner
+     *  surfaces a small "Default profile · Personalise →" hint
+     *  next to the Active Vessel indicator so the user knows they
+     *  CAN configure their own boat for personalised polars/ETAs. */
+    const usingDefaultVessel = !configuredVessel;
 
     // Form State
     const [origin, setOrigin] = useState('');
@@ -285,11 +298,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
         if (!effOrigin || !effDest) return;
 
-        // SAFEGUARD: Ensure vessel profile exists before calculation
-        if (!vessel) {
-            setError('Vessel profile missing. Please configure in settings.');
-            return;
-        }
+        // No `!vessel` guard needed any more — resolveEffectiveVessel
+        // above always returns a value (user's configured profile, or
+        // DEFAULT_VESSEL as fallback). See utils/defaultVessel.
 
         // Auto-Format inputs before submission
         const fmtOrigin = formatLocationInput(effOrigin);
@@ -737,10 +748,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             onTriggerUpgrade();
             return;
         }
-        if (!origin || !destination || !vessel) {
-            setError('Origin, destination, and vessel profile required.');
+        if (!origin || !destination) {
+            setError('Origin and destination required.');
             return;
         }
+        // No `!vessel` guard — DEFAULT_VESSEL is used when the user
+        // hasn't configured a personal vessel yet.
 
         const fmtOrigin = formatLocationInput(origin);
         const fmtDest = formatLocationInput(destination);
@@ -954,7 +967,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     }, []);
 
     const handleDeepAnalysis = async () => {
-        if (!voyagePlan || !vessel) return;
+        // `vessel` always resolves (configured or DEFAULT) so just
+        // need a voyagePlan to analyse.
+        if (!voyagePlan) return;
         setAnalyzingDeep(true);
         try {
             const { fetchDeepVoyageAnalysis } = await import('../services/geminiService');
@@ -1127,6 +1142,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // Context
         voyagePlan,
         vessel,
+        usingDefaultVessel,
         isPro,
         mapboxToken,
         hourlyForecasts: useMemo(() => weatherData?.hourly || [], [weatherData?.hourly]),

@@ -74,6 +74,7 @@ export const RoutePlanner: React.FC<{
 
         voyagePlan,
         vessel,
+        usingDefaultVessel,
         isPro,
         mapboxToken,
     } = useVoyageForm(onTriggerUpgrade);
@@ -543,7 +544,15 @@ export const RoutePlanner: React.FC<{
                     style={{ paddingBottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px)' }}
                 >
                     <div className="max-w-xl mx-auto w-full pointer-events-auto">
-                        {/* Active vessel indicator */}
+                        {/* Active vessel indicator. `vessel` always
+                            resolves now (configured or DEFAULT_VESSEL)
+                            so the condition is effectively always
+                            true — kept for resilience against future
+                            null cases. When on DEFAULT, surface a
+                            tiny "Personalise" hint that deep-links to
+                            Settings → Vessel so the user can refine
+                            for personalised polars/ETAs without
+                            blocking the demo. */}
                         {vessel && (
                             <div className="flex items-center justify-center gap-2 mb-2 opacity-60">
                                 {vessel.type === 'power' ? (
@@ -554,6 +563,16 @@ export const RoutePlanner: React.FC<{
                                 <span className="text-[11px] font-mono text-slate-400 tracking-wide">
                                     Active Vessel: {vessel.name}
                                 </span>
+                                {usingDefaultVessel && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setPage('settings')}
+                                        className="text-[11px] font-mono text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
+                                        aria-label="Personalise vessel profile in Settings"
+                                    >
+                                        Personalise →
+                                    </button>
+                                )}
                             </div>
                         )}
                         {!isPro ? (

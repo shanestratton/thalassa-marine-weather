@@ -115,7 +115,7 @@ const App: React.FC = () => {
         handleMapTargetSelect,
         handleMapStaySelect,
         effectiveMode,
-        sampleLocation,
+        handleLocate,
         sheetOpen,
         setSheetOpen,
         sheetData,
@@ -518,15 +518,9 @@ const App: React.FC = () => {
                                                 setPage('map');
                                             }}
                                         />
-                                        {/* Left adornment — three states, mutually exclusive:
-                                             1. Offline → amber wifi-slash glyph
-                                             2. Sample location active → tiny "SAMPLE" pill
-                                                (un-authed user, no home port set; the search
-                                                bar already opens the map picker on tap so
-                                                the user can claim a port).
-                                             3. Default → search-magnifier icon
-                                            Keeps the layout slot stable across states so the
-                                            input value doesn't shift horizontally. */}
+                                        {/* Left adornment: swap between the usual search icon
+                                            and a wifi-off glyph when offline. Keeps the layout
+                                            stable (same slot) while giving a clear visual cue. */}
                                         {isOffline ? (
                                             <div
                                                 className="absolute left-4 top-1/2 -translate-y-1/2 text-amber-400 bg-amber-500/15 p-1 rounded-md"
@@ -551,16 +545,6 @@ const App: React.FC = () => {
                                                     <path d="M8.53 16.11a6 6 0 016.95 0" />
                                                     <line x1="12" y1="20" x2="12.01" y2="20" />
                                                 </svg>
-                                            </div>
-                                        ) : sampleLocation ? (
-                                            <div
-                                                className="absolute left-3 top-1/2 -translate-y-1/2"
-                                                title={`Sample location — tap to set your own home port`}
-                                                aria-label={`Sample location: ${sampleLocation.shortLabel}`}
-                                            >
-                                                <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-sky-500/20 border border-sky-500/40 text-sky-300">
-                                                    Sample
-                                                </span>
                                             </div>
                                         ) : (
                                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-sky-400 bg-sky-500/10 p-1 rounded-md">
@@ -642,6 +626,76 @@ const App: React.FC = () => {
                                                                 >
                                                                     Retry
                                                                 </button>
+                                                            </div>
+                                                        ) : !weatherData && !loading && !settings.defaultLocation ? (
+                                                            // True empty state — no location set, nothing
+                                                            // loading. Trust the OS GPS flow (one-tap
+                                                            // "Use my location" → iOS permission prompt
+                                                            // → reverse-geocode → live local weather) and
+                                                            // give a manual "Choose a port" fallback. No
+                                                            // dummy data, no Sydney conditions painted
+                                                            // for a Brisbane user. This matches what
+                                                            // Apple Weather / Windy / Predict Wind / Yr.no
+                                                            // all do — empty-state-with-intent beats fake
+                                                            // data every time.
+                                                            <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center px-6">
+                                                                <div className="max-w-sm w-full">
+                                                                    <div className="text-center mb-8">
+                                                                        <div
+                                                                            className="text-5xl mb-3"
+                                                                            aria-hidden="true"
+                                                                        >
+                                                                            ⛵
+                                                                        </div>
+                                                                        <h2 className="text-xl font-bold text-white mb-2">
+                                                                            Welcome aboard
+                                                                        </h2>
+                                                                        <p className="text-sm text-slate-400 leading-relaxed">
+                                                                            Set your location to see live marine
+                                                                            conditions — wind, tide, swell, weather.
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="space-y-3">
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={handleLocate}
+                                                                            disabled={isOffline}
+                                                                            className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
+                                                                        >
+                                                                            <svg
+                                                                                className="w-4 h-4"
+                                                                                viewBox="0 0 24 24"
+                                                                                fill="none"
+                                                                                stroke="currentColor"
+                                                                                strokeWidth={2}
+                                                                                strokeLinecap="round"
+                                                                                strokeLinejoin="round"
+                                                                            >
+                                                                                <circle cx="12" cy="12" r="3" />
+                                                                                <path d="M12 1v6m0 6v6M1 12h6m6 0h6" />
+                                                                            </svg>
+                                                                            {isOffline
+                                                                                ? 'Offline — needs network'
+                                                                                : 'Use my location'}
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => {
+                                                                                mapFromWxRef.current = true;
+                                                                                setMapPickerActive(true);
+                                                                                setPage('map');
+                                                                            }}
+                                                                            className="w-full h-12 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-white font-semibold text-sm transition-colors border border-white/10 flex items-center justify-center gap-2"
+                                                                        >
+                                                                            <MapIcon className="w-4 h-4 text-emerald-400" />
+                                                                            Choose a port on the map
+                                                                        </button>
+                                                                    </div>
+                                                                    <p className="text-[11px] text-center text-slate-500 mt-4 leading-relaxed">
+                                                                        Your location stays on this device until you
+                                                                        sign in to sync it across boats.
+                                                                    </p>
+                                                                </div>
                                                             </div>
                                                         ) : !weatherData ? (
                                                             <div className="flex-1 w-full h-full bg-slate-950 flex items-center justify-center">
