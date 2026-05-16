@@ -152,3 +152,54 @@ export function directionsToGeoJSON(polyline: Array<[number, number]>): GeoJSON.
         },
     };
 }
+
+/**
+ * One-shot helper: directions coords in, complete VoyagePlan out.
+ * Lets any component with origin + destination coords hand off
+ * straight to saveVoyagePlan() + navigate to the map. Used by:
+ *   - useVoyageForm.handleRoadDirections (text-input route planner)
+ *   - PinMapViewer (Scuttlebutt POI → Get Directions)
+ *
+ * Returns null on no-route / token-missing. Caller decides UI.
+ */
+export async function buildDirectionsVoyagePlan(
+    origin: { lat: number; lon: number; name?: string },
+    destination: { lat: number; lon: number; name?: string },
+    profile: DirectionsProfile = 'driving',
+): Promise<import('../types').VoyagePlan | null> {
+    const result = await getDirections(origin, destination, { profile });
+    if (!result) return null;
+
+    const distanceKm = result.distanceMeters / 1000;
+    const distanceNM = distanceKm * 0.539957;
+    const durationMin = Math.round(result.durationSeconds / 60);
+    const durationStr =
+        durationMin < 60 ? `${durationMin} min` : `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`;
+    const transportLabel = profile === 'walking' ? 'Walking' : profile === 'cycling' ? 'Cycling' : 'Driving';
+
+    const originLabel = origin.name || `${origin.lat.toFixed(4)}, ${origin.lon.toFixed(4)}`;
+    const destLabel = destination.name || `${destination.lat.toFixed(4)}, ${destination.lon.toFixed(4)}`;
+
+    return {
+        origin: originLabel,
+        destination: destLabel,
+        departureDate: new Date().toISOString(),
+        originCoordinates: { lat: origin.lat, lon: origin.lon },
+        destinationCoordinates: { lat: destination.lat, lon: destination.lon },
+        distanceApprox: `${distanceKm.toFixed(1)} km · ${distanceNM.toFixed(1)} NM`,
+        durationApprox: durationStr,
+        overview: `${transportLabel} directions via Mapbox.`,
+        waypoints: [
+            { name: originLabel, coordinates: { lat: origin.lat, lon: origin.lon } },
+            ...result.waypoints.map((w, i) => ({
+                name: `Turn ${i + 1}`,
+                coordinates: { lat: w.lat, lon: w.lon },
+            })),
+            { name: destLabel, coordinates: { lat: destination.lat, lon: destination.lon } },
+        ],
+        routeGeoJSON: directionsToGeoJSON(result.polyline),
+        routeReasoning: `${transportLabel} route from Mapbox Directions, ${result.waypoints.length} auto-waypoint${
+            result.waypoints.length === 1 ? '' : 's'
+        } at significant turns.`,
+    };
+}

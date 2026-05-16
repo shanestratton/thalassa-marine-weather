@@ -5,11 +5,16 @@
  * Clean map view: GEBCO bathymetry + OpenSeaMap sea marks + coastline,
  * but NO FABs, NO scrubber, NO wind/rain layers.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { createGradientPinMarker } from '../../utils/createMarkerEl';
 import { exportPinAsGPX } from './chatUtils';
 import { piCache } from '../../services/PiCacheService';
+import { GpsService } from '../../services/GpsService';
+import { buildDirectionsVoyagePlan } from '../../services/MapboxDirectionsService';
+import { useWeather } from '../../context/WeatherContext';
+import { useUI } from '../../context/UIContext';
+import { triggerHaptic } from '../../utils/system';
 
 interface PinMapViewerProps {
     lat: number;
@@ -22,6 +27,45 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
     const mapContainer = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const [mapReady, setMapReady] = useState(false);
+    const { saveVoyagePlan } = useWeather();
+    const { setPage } = useUI();
+    const [routing, setRouting] = useState(false);
+    const [routeError, setRouteError] = useState<string | null>(null);
+
+    // "Get Directions" — current GPS → this pin via Mapbox Directions.
+    // Drops a road-following polyline + auto-turn waypoints on the
+    // main map and navigates to it. Closes the viewer when ready.
+    const handleDirections = useCallback(async () => {
+        if (routing) return;
+        setRouting(true);
+        setRouteError(null);
+        triggerHaptic('medium');
+        try {
+            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 10 });
+            if (!pos) {
+                setRouteError('Could not get your GPS position.');
+                return;
+            }
+            const plan = await buildDirectionsVoyagePlan(
+                { lat: pos.latitude, lon: pos.longitude, name: 'My Location' },
+                { lat, lon: lng, name: caption },
+                'driving',
+            );
+            if (!plan) {
+                setRouteError('No driving route found.');
+                return;
+            }
+            saveVoyagePlan(plan);
+            // Hand off to the main map view. The route renderer there
+            // picks up VoyagePlan.routeGeoJSON automatically.
+            setPage('map');
+            onClose();
+        } catch (e) {
+            setRouteError(e instanceof Error ? e.message : 'Directions failed.');
+        } finally {
+            setRouting(false);
+        }
+    }, [routing, lat, lng, caption, saveVoyagePlan, setPage, onClose]);
 
     useEffect(() => {
         if (!mapContainer.current) return;
@@ -163,11 +207,16 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                 <div ref={mapContainer} className="absolute inset-0" />
             </div>
 
-            {/* Footer with coords + GPX export */}
-            <div className="relative z-10 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+            {/* Footer — coords, Directions CTA, GPX export */}
+            <div className="relative z-10 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 space-y-2">
+                {routeError && (
+                    <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200">
+                        {routeError}
+                    </div>
+                )}
                 <div className="flex items-center justify-between bg-white/[0.04] border border-white/[0.06] rounded-2xl px-4 py-3">
-                    <div>
-                        <p className="text-xs font-semibold text-white/70">{caption}</p>
+                    <div className="min-w-0 flex-1 pr-2">
+                        <p className="text-xs font-semibold text-white/70 truncate">{caption}</p>
                         <p className="text-[11px] text-white/30 tabular-nums mt-0.5">
                             📍 {formattedLat}, {formattedLng}
                         </p>
@@ -175,12 +224,30 @@ export const PinMapViewer: React.FC<PinMapViewerProps> = React.memo(({ lat, lng,
                     <button
                         aria-label="Export pin as GPX"
                         onClick={() => exportPinAsGPX(lat, lng, caption)}
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 active:scale-95 transition-transform"
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/20 active:scale-95 transition-transform"
                     >
                         <span className="text-sm">📥</span>
                         <span className="text-[11px] font-bold text-sky-300 uppercase tracking-wider">GPX</span>
                     </button>
                 </div>
+                <button
+                    aria-label={`Get driving directions to ${caption}`}
+                    onClick={() => void handleDirections()}
+                    disabled={routing}
+                    className="w-full h-12 rounded-xl bg-emerald-500 hover:bg-emerald-400 active:scale-[0.98] transition-all text-white font-bold flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                    {routing ? (
+                        <>
+                            <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                            <span>Routing…</span>
+                        </>
+                    ) : (
+                        <>
+                            <span>🧭</span>
+                            <span>Get Directions</span>
+                        </>
+                    )}
+                </button>
             </div>
         </div>
     );

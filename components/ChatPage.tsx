@@ -373,6 +373,9 @@ export const ChatPage: React.FC = React.memo(() => {
         sendPin,
         openPoiPicker,
         sendPoi,
+        recenterPoiToMyLocation,
+        searchPoiLocation,
+        searchingPoi,
     } = pinDrop;
 
     const trackSharingHook = useTrackSharing({ activeChannel, setMessages, messageEndRef, setShowAttachMenu });
@@ -946,6 +949,9 @@ export const ChatPage: React.FC = React.memo(() => {
                     poiMapRef={poiMapRef}
                     onSendPoi={sendPoi}
                     onClose={() => setShowPoiSheet(false)}
+                    onRecenterToMyLocation={recenterPoiToMyLocation}
+                    onSearch={searchPoiLocation}
+                    searching={searchingPoi}
                 />
             )}
 

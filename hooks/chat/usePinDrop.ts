@@ -31,6 +31,7 @@ export function usePinDrop(options: UsePinDropOptions) {
     const [pinCaption, setPinCaption] = useState('');
     const [pinLoading, setPinLoading] = useState(false);
     const [savedPins, setSavedPins] = useState<SavedPin[]>([]);
+    const [searchingPoi, setSearchingPoi] = useState(false);
 
     // POI map refs
     const poiMapRef = useRef<HTMLDivElement>(null);
@@ -39,6 +40,49 @@ export function usePinDrop(options: UsePinDropOptions) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const poiMarkerRef = useRef<any>(null);
     const poiMapInitialized = useRef(false);
+
+    // Snap the marker back to the user's current GPS position.
+    // Bound from the floating "📍" button on the POI sheet.
+    const recenterPoiToMyLocation = useCallback(async () => {
+        try {
+            const pos = await GpsService.getCurrentPosition({ staleLimitMs: 30_000, timeoutSec: 8 });
+            if (!pos) return;
+            setPinLat(pos.latitude);
+            setPinLng(pos.longitude);
+            if (poiMarkerRef.current && poiMapInstance.current) {
+                poiMarkerRef.current.setLngLat([pos.longitude, pos.latitude]);
+                poiMapInstance.current.flyTo({ center: [pos.longitude, pos.latitude], zoom: 14 });
+            }
+        } catch (e) {
+            log.warn('recenter to my location failed:', e);
+        }
+    }, []);
+
+    // Forward-geocode a place name and pan the map there. Mapbox
+    // Geocoding (the same one parseLocation uses) returns multiple
+    // candidates; we take the first.
+    const searchPoiLocation = useCallback(async (query: string) => {
+        if (!query.trim()) return;
+        setSearchingPoi(true);
+        try {
+            const { parseLocation } = await import('../../services/weather/api/geocoding');
+            const result = await parseLocation(query.trim());
+            if (result.lat === 0 && result.lon === 0) {
+                log.info(`no geocode result for "${query}"`);
+                return;
+            }
+            setPinLat(result.lat);
+            setPinLng(result.lon);
+            if (poiMarkerRef.current && poiMapInstance.current) {
+                poiMarkerRef.current.setLngLat([result.lon, result.lat]);
+                poiMapInstance.current.flyTo({ center: [result.lon, result.lat], zoom: 14 });
+            }
+        } catch (e) {
+            log.warn('search failed:', e);
+        } finally {
+            setSearchingPoi(false);
+        }
+    }, []);
 
     // --- Pin Drop ---
     const openPinDrop = useCallback(async () => {
@@ -234,11 +278,14 @@ export function usePinDrop(options: UsePinDropOptions) {
         pinLoading,
         savedPins,
         poiMapRef,
+        searchingPoi,
 
         // Actions
         openPinDrop,
         sendPin,
         openPoiPicker,
         sendPoi,
+        recenterPoiToMyLocation,
+        searchPoiLocation,
     };
 }
