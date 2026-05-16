@@ -141,7 +141,10 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         total: 0,
         checked: 0,
     });
-    const [weatherReviewed, setWeatherReviewed] = useState(false);
+    // weatherReviewed state removed 2026-05-17 — the Pre-Departure
+    // Weather card was deleted (duplicated Weather Windows above).
+    // Window acceptance in PI-1 is now the canonical weather-
+    // readiness gate via `weatherWindowReady`.
     const [reservesReady, setReservesReady] = useState(false);
     const [navAcknowledged, setNavAcknowledged] = useState(false);
     const [watchBriefed, setWatchBriefed] = useState(false);
@@ -185,10 +188,12 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
         setDelegationMenuOpen(null);
     }, []);
 
-    // All readiness cards green → Cast Off unlocked
+    // All readiness cards green → Cast Off unlocked.
+    // weatherReviewed removed 2026-05-17; weatherWindowReady (window
+    // acceptance from PI-1) is the canonical weather gate now.
     const allCardsReady =
         customsCleared &&
-        weatherReviewed &&
+        weatherWindowReady &&
         reservesReady &&
         navAcknowledged &&
         watchBriefed &&
@@ -1062,7 +1067,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         draftVoyages={draftVoyages}
                         visibleCrew={visibleCrew}
                         planCrewCount={Math.max(visibleCrew.length + 1, 2)}
-                        weatherReviewed={weatherReviewed}
                         reservesReady={reservesReady}
                         vesselChecked={vesselChecked}
                         medicalReady={medicalReady}
@@ -1071,7 +1075,6 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
                         customsCleared={customsCleared}
                         navAcknowledged={navAcknowledged}
                         customsProgress={customsProgress}
-                        onWeatherChange={setWeatherReviewed}
                         onReservesChange={setReservesReady}
                         onVesselCheckChange={setVesselChecked}
                         onMedicalChange={setMedicalReady}
