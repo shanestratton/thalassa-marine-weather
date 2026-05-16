@@ -455,6 +455,57 @@ export const useAppController = () => {
         });
     };
 
+    /**
+     * "Lite" one-shot location handler for first-touch surfaces
+     * (e.g. The Glass empty-state's "Use my location" button).
+     *
+     * Routes through Capacitor's basic Geolocation plugin instead
+     * of `GpsService` → `BgGeoManager` (Transistorsoft). The
+     * reason matters: BgGeoManager initialises the background-
+     * tracking engine the first time it's called, which prompts
+     * for the iOS **Motion & Fitness** permission on top of
+     * **Location** — two prompts back-to-back on first tap is
+     * jarring and confusing. Capacitor Geolocation prompts only
+     * for Location.
+     *
+     * BgGeoManager + the Motion prompt are deferred to when the
+     * user actually opens a feature that needs background tracking
+     * (Map, Anchor Watch, Voyage). Point-of-need permissions,
+     * not boot-time overload.
+     */
+    const handleLocateLite = useCallback(async () => {
+        if (isOffline) {
+            toast.error('GPS requires network.');
+            return;
+        }
+        try {
+            const perms = await Geolocation.requestPermissions();
+            if (perms.location !== 'granted' && perms.coarseLocation !== 'granted') {
+                toast.error('Location denied. Try the map picker instead.');
+                return;
+            }
+            const pos = await Geolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 12_000,
+                maximumAge: 30_000,
+            });
+            const { latitude, longitude } = pos.coords;
+            let searchTarget = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
+            try {
+                const name = await reverseGeocode(latitude, longitude);
+                if (name) searchTarget = name;
+            } catch {
+                // Silent — the coord string fallback is fine
+            }
+            setQuery(searchTarget);
+            setPage('dashboard');
+            selectLocation(searchTarget, { lat: latitude, lon: longitude });
+        } catch (e) {
+            log.warn('handleLocateLite failed:', e);
+            toast.error("Couldn't get your location. Try the map picker instead.");
+        }
+    }, [isOffline, selectLocation, setPage]);
+
     const handleOnboardingComplete = (newSettings: Partial<UserSettings>) => {
         updateSettings(newSettings);
         setShowOnboarding(false);
@@ -635,6 +686,7 @@ export const useAppController = () => {
         showToast,
         handleSearchSubmit,
         handleLocate,
+        handleLocateLite,
         effectiveMode,
 
         // Extracted Handlers & State

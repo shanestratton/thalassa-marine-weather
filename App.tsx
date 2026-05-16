@@ -115,7 +115,7 @@ const App: React.FC = () => {
         handleMapTargetSelect,
         handleMapStaySelect,
         effectiveMode,
-        handleLocate,
+        handleLocateLite,
         sheetOpen,
         setSheetOpen,
         sheetData,
@@ -658,7 +658,7 @@ const App: React.FC = () => {
                                                                     <div className="space-y-3">
                                                                         <button
                                                                             type="button"
-                                                                            onClick={handleLocate}
+                                                                            onClick={handleLocateLite}
                                                                             disabled={isOffline}
                                                                             className="w-full h-12 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-700 disabled:text-slate-500 text-white font-semibold text-sm transition-colors shadow-lg flex items-center justify-center gap-2"
                                                                         >
