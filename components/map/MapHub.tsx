@@ -164,6 +164,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [showOfflineArea, setShowOfflineArea] = useState(false);
     const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
     const [weatherInspectMode, setWeatherInspectMode] = useState(false);
+    // Current map zoom level — surfaced in a small FAB top-left so
+    // the skipper has at-a-glance idea of detail vs overview. Mirror
+    // position of the mic FAB in App.tsx (top: 56px, right: 16px).
+    const [zoomLevel, setZoomLevel] = useState<number | null>(null);
     const isOnline = useOnlineStatus();
     const containerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<mapboxgl.Map | null>(null);
@@ -633,6 +637,32 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.off('zoomend', onZoomEnd);
         };
     }, [cycloneVisible, closestStorm, mapReady, mapRef]);
+
+    // Live zoom-level subscription — drives the top-left zoom FAB.
+    // Mapbox fires 'zoom' continuously during pinch / wheel; we
+    // throttle to next animation frame so we update at display rate,
+    // not 60+ times per second. Falls back to zoomend in case the
+    // continuous events get coalesced on slower devices.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        setZoomLevel(map.getZoom());
+        let frameQueued = false;
+        const onZoom = () => {
+            if (frameQueued) return;
+            frameQueued = true;
+            requestAnimationFrame(() => {
+                frameQueued = false;
+                if (mapRef.current) setZoomLevel(mapRef.current.getZoom());
+            });
+        };
+        map.on('zoom', onZoom);
+        map.on('zoomend', onZoom);
+        return () => {
+            map.off('zoom', onZoom);
+            map.off('zoomend', onZoom);
+        };
+    }, [mapReady]);
 
     // Clear isochrone progress when route completes
     useEffect(() => {
@@ -1283,6 +1313,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" />
                         </svg>
                     </button>
+                )}
+
+                {/* ═══ ZOOM-LEVEL FAB ═══
+                    Top-left pill showing current map zoom. Mirrors the
+                    Bosun mic FAB top-right position (top:56px right:16px
+                    in App.tsx). Hidden in pin-view to avoid overlapping
+                    the back chevron in the same slot. Mapbox zoom is a
+                    float 0-22; we show one decimal so wheel/pinch
+                    increments are visible. */}
+                {!isPinView && zoomLevel !== null && (
+                    <div
+                        className="absolute top-[56px] left-4 z-[700] h-11 px-2.5 min-w-[3rem] rounded-full bg-slate-900/85 border border-white/[0.10] flex items-center justify-center backdrop-blur-md shadow-lg pointer-events-none select-none"
+                        aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}
+                        title="Map zoom level"
+                    >
+                        <span className="text-[10px] font-bold text-sky-400/70 uppercase tracking-wider mr-1">Z</span>
+                        <span className="text-sm font-mono font-bold text-white tabular-nums">
+                            {zoomLevel.toFixed(1)}
+                        </span>
+                    </div>
                 )}
 
                 {/* ═══ VELOCITY WIND OVERLAY ═══ */}
