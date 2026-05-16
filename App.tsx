@@ -112,6 +112,8 @@ const App: React.FC = () => {
         handleMapStaySelect,
         effectiveMode,
         sampleLocation,
+        featuredPassage,
+        openFeaturedPassage,
         sheetOpen,
         setSheetOpen,
         sheetData,
@@ -501,21 +503,53 @@ const App: React.FC = () => {
                             `selectLocation` writes defaultLocation, the
                             chip auto-disappears. */}
                         {!activeViewConfig && currentView !== 'map' && sampleLocation && (
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    mapFromWxRef.current = true;
-                                    setMapPickerActive(true);
-                                    setPage('map');
-                                }}
-                                className="self-start mt-1 px-3 py-1.5 rounded-full text-xs bg-sky-500/10 border border-sky-500/30 text-sky-200 hover:bg-sky-500/20 transition-colors pointer-events-auto flex items-center gap-1.5 shadow-lg backdrop-blur-md"
-                                aria-label={`Sample location: ${sampleLocation.shortLabel} — tap to choose your home port`}
-                            >
-                                <span className="opacity-70">Sample:</span>
-                                <span className="font-semibold">{sampleLocation.shortLabel}</span>
-                                <span className="opacity-40">·</span>
-                                <span className="text-sky-100">Tap to set yours →</span>
-                            </button>
+                            <div className="flex flex-col gap-1.5 items-start pointer-events-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        mapFromWxRef.current = true;
+                                        setMapPickerActive(true);
+                                        setPage('map');
+                                    }}
+                                    className="self-start mt-1 px-3 py-1.5 rounded-full text-xs bg-sky-500/10 border border-sky-500/30 text-sky-200 hover:bg-sky-500/20 transition-colors flex items-center gap-1.5 shadow-lg backdrop-blur-md"
+                                    aria-label={`Sample location: ${sampleLocation.shortLabel} — tap to choose your home port`}
+                                >
+                                    <span className="opacity-70">Sample:</span>
+                                    <span className="font-semibold">{sampleLocation.shortLabel}</span>
+                                    <span className="opacity-40">·</span>
+                                    <span className="text-sky-100">Tap to set yours →</span>
+                                </button>
+
+                                {/* Featured Passage chip — sibling to the
+                                    Sample chip. Pair reads as:
+                                      "Where you are" + "Where you could go".
+                                    Tap writes a sessionStorage prefill hint
+                                    and routes to the voyage planner; the
+                                    planner's useVoyageForm picks it up on
+                                    mount and seeds origin/destination. */}
+                                {featuredPassage && (
+                                    <button
+                                        type="button"
+                                        onClick={openFeaturedPassage}
+                                        className="self-start px-3 py-1.5 rounded-full text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/20 transition-colors flex items-center gap-1.5 shadow-lg backdrop-blur-md"
+                                        title={featuredPassage.story}
+                                        aria-label={`Featured passage: ${featuredPassage.origin.name} to ${featuredPassage.destination.name}, ${featuredPassage.distanceNm} nautical miles — tap to plan`}
+                                    >
+                                        <span aria-hidden="true">⛵</span>
+                                        <span className="opacity-70">Try:</span>
+                                        <span className="font-semibold">
+                                            {/* Short labels are derived from the full name
+                                                by trimming the trailing ", REGION, COUNTRY"
+                                                — we keep them tight on a single line. */}
+                                            {featuredPassage.origin.name.split(',')[0]}
+                                            <span className="opacity-50 mx-1">→</span>
+                                            {featuredPassage.destination.name.split(',')[0]}
+                                        </span>
+                                        <span className="opacity-40">·</span>
+                                        <span className="text-emerald-100">{featuredPassage.distanceNm} nm →</span>
+                                    </button>
+                                )}
+                            </div>
                         )}
 
                         {/* Search bar — only shown on dashboard (non-registered views without explicit flag) */}

@@ -14,6 +14,7 @@ import { useAuthStore } from '../stores/authStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
 import { SAMPLE_LOCATION, getSampleLocation, type SampleLocation } from '../utils/sampleLocation';
+import { getFeaturedPassage, setFeaturedPassagePrefill, type FeaturedPassage } from '../utils/featuredPassages';
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -624,6 +625,21 @@ export const useAppController = () => {
     const sampleLocation: SampleLocation | null =
         !!weatherData && !settings.defaultLocation ? getSampleLocation() : null;
 
+    // Featured Passage — the locale-rotated "Try this passage"
+    // chip shown next to the Sample chip on first-launch Glass.
+    // Visible under the same conditions as `sampleLocation` (un-
+    // authed first-paint user) so the two chips read as a pair:
+    //   "Sample: <home harbour> · Tap to set yours →"
+    //   "Try: <origin> → <destination> · <nm> nm →"
+    // The handler writes the prefill hint and navigates — the
+    // RoutePlanner consumes it on mount via useVoyageForm.
+    const featuredPassage: FeaturedPassage | null = sampleLocation ? getFeaturedPassage() : null;
+    const openFeaturedPassage = useCallback(() => {
+        if (!featuredPassage) return;
+        setFeaturedPassagePrefill(featuredPassage);
+        setPage('voyage');
+    }, [featuredPassage, setPage]);
+
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
     if (settings.displayMode === 'auto') {
@@ -655,6 +671,8 @@ export const useAppController = () => {
         handleLocate,
         effectiveMode,
         sampleLocation,
+        featuredPassage,
+        openFeaturedPassage,
 
         // Extracted Handlers & State
         toggleFavorite,
