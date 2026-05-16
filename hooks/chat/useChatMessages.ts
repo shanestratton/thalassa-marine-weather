@@ -100,7 +100,19 @@ export function useChatMessages(options: UseChatMessagesOptions) {
                 });
             });
 
-            setTimeout(() => messageEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+            // Jump to the latest message when entering a channel.
+            // Use `behavior: 'auto'` (instant) — smooth animates from
+            // the top of the list to the bottom which is visually
+            // jarring when the user expects to LAND at the latest
+            // line. Triple-tap with growing delays so we still hit
+            // the bottom after async re-renders (avatar loads, image
+            // attachment layout shifts).
+            const jumpToBottom = () => {
+                messageEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+            };
+            requestAnimationFrame(jumpToBottom);
+            setTimeout(jumpToBottom, 150);
+            setTimeout(jumpToBottom, 500);
         },
         [setView, setNavDirection, setLoading],
     );
