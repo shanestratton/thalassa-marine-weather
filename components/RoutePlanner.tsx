@@ -566,7 +566,19 @@ export const RoutePlanner: React.FC<{
                                 {usingDefaultVessel && (
                                     <button
                                         type="button"
-                                        onClick={() => setPage('settings')}
+                                        onClick={() => {
+                                            // Deep-link to the Vessel Profile tab inside
+                                            // Settings, same pattern as VesselHub's
+                                            // "Set up your vessel" CTA. SettingsModal's
+                                            // activeTab initialiser reads this key and
+                                            // clears it on mount.
+                                            try {
+                                                localStorage.setItem('thalassa_settings_initial_tab', 'vessel');
+                                            } catch {
+                                                /* private-mode / quota — fall through */
+                                            }
+                                            setPage('settings');
+                                        }}
                                         className="text-[11px] font-mono text-sky-400 hover:text-sky-300 underline underline-offset-2 transition-colors"
                                         aria-label="Personalise vessel profile in Settings"
                                     >

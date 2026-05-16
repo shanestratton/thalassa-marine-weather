@@ -1613,6 +1613,14 @@ const NavStationHero: React.FC<{
 
     const handleVesselTap = () => {
         triggerHaptic('light');
+        // Deep-link to the Vessel Profile tab inside Settings — see
+        // SettingsModal's activeTab initialiser. Avoids the user
+        // landing on the General tab and hunting for vessel config.
+        try {
+            localStorage.setItem('thalassa_settings_initial_tab', 'vessel');
+        } catch {
+            /* private-mode / quota — fall through, lands on default tab */
+        }
         onNavigate('settings');
     };
     const handleVoyageTap = () => {
