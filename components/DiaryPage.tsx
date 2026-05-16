@@ -900,7 +900,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                                         </span>
                                         <div className="flex-1 h-px bg-white/5" />
                                     </div>
-                                    <div className="space-y-3">
+                                    <div className="space-y-2">
                                         {dayEntries.map((entry) => (
                                             <SwipeableDiaryCard
                                                 key={entry.id}
