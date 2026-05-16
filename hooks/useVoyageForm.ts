@@ -245,6 +245,109 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
     // HANDLERS
 
+    /**
+     * Land routing — road / footpath-following directions.
+     *
+     * Different beast from the marine voyage pipeline. Skips the
+     * isochrone/bathymetric/polar machinery entirely; just calls
+     * Mapbox Directions for a smooth polyline that hugs roads, and
+     * auto-places waypoints at significant turns via the existing
+     * detectBends helper. Used for "directions to the chandlery /
+     * customs office / fuel dock" — the kind of thing a punter
+     * needs once they're tied up at a marina and need to walk or
+     * drive somewhere.
+     *
+     * Output shape matches the marine VoyagePlan so the same map
+     * renderer (routeGeoJSON LineString) and waypoint UI work
+     * without modification.
+     */
+    const handleRoadDirections = async (profile: 'driving' | 'walking' | 'cycling' = 'driving') => {
+        if (!isPro) {
+            onTriggerUpgrade();
+            return;
+        }
+        setLoading(true);
+        setError(null);
+        try {
+            const fmtOrigin = formatLocationInput(origin);
+            const fmtDest = formatLocationInput(destination);
+            if (!fmtOrigin || !fmtDest) {
+                setError('Please enter both an origin and a destination.');
+                return;
+            }
+
+            const { parseLocation } = await import('../services/weather/api/geocoding');
+            const proximity = weatherData?.coordinates;
+            const [originCoords, destCoords] = await Promise.all([
+                parseLocation(fmtOrigin, proximity),
+                parseLocation(fmtDest, proximity),
+            ]);
+            if (originCoords.lat === 0 && originCoords.lon === 0) {
+                setError(`Couldn't find "${fmtOrigin}".`);
+                return;
+            }
+            if (destCoords.lat === 0 && destCoords.lon === 0) {
+                setError(`Couldn't find "${fmtDest}".`);
+                return;
+            }
+
+            const { getDirections, directionsToGeoJSON } = await import('../services/MapboxDirectionsService');
+            const result = await getDirections(
+                { lat: originCoords.lat, lon: originCoords.lon },
+                { lat: destCoords.lat, lon: destCoords.lon },
+                { profile },
+            );
+            if (!result) {
+                setError(`No ${profile} route found between those points.`);
+                return;
+            }
+
+            // Build a minimal VoyagePlan that the existing map renderer
+            // can consume. We deliberately don't populate the marine-
+            // specific fields (suitability, hazards, bestDepartureWindow)
+            // — they don't apply to land routing.
+            const distanceKm = result.distanceMeters / 1000;
+            const distanceNM = distanceKm * 0.539957;
+            const durationMin = Math.round(result.durationSeconds / 60);
+            const durationStr =
+                durationMin < 60 ? `${durationMin} min` : `${Math.floor(durationMin / 60)}h ${durationMin % 60}m`;
+
+            const plan: import('../types').VoyagePlan = {
+                origin: originCoords.name || fmtOrigin,
+                destination: destCoords.name || fmtDest,
+                departureDate: departureDate || new Date().toISOString(),
+                originCoordinates: { lat: originCoords.lat, lon: originCoords.lon },
+                destinationCoordinates: { lat: destCoords.lat, lon: destCoords.lon },
+                distanceApprox: `${distanceKm.toFixed(1)} km · ${distanceNM.toFixed(1)} NM`,
+                durationApprox: durationStr,
+                overview: `${profile === 'walking' ? 'Walking' : profile === 'cycling' ? 'Cycling' : 'Driving'} directions via Mapbox.`,
+                waypoints: [
+                    {
+                        name: originCoords.name || fmtOrigin,
+                        coordinates: { lat: originCoords.lat, lon: originCoords.lon },
+                    },
+                    ...result.waypoints.map((w, i) => ({
+                        name: `Turn ${i + 1}`,
+                        coordinates: { lat: w.lat, lon: w.lon },
+                    })),
+                    {
+                        name: destCoords.name || fmtDest,
+                        coordinates: { lat: destCoords.lat, lon: destCoords.lon },
+                    },
+                ],
+                routeGeoJSON: directionsToGeoJSON(result.polyline),
+                routeReasoning: `${profile === 'walking' ? 'Walking' : profile === 'cycling' ? 'Cycling' : 'Driving'} route from Mapbox Directions, ${result.waypoints.length} auto-waypoint${result.waypoints.length === 1 ? '' : 's'} placed at significant turns.`,
+            };
+            saveVoyagePlan(plan);
+        } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn('[useVoyageForm] handleRoadDirections failed:', msg);
+            setError('Could not fetch directions. Try again or use water routing.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const handleCalculate = async (
         e?: React.FormEvent,
         overrides?: { origin?: string; destination?: string; via?: string },
@@ -1094,6 +1197,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
 
         // Handlers
         handleCalculate,
+        handleRoadDirections,
         handleDeepAnalysis,
         handlePlanWindow,
         acceptWindowScenario,

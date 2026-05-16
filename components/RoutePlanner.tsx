@@ -54,6 +54,7 @@ export const RoutePlanner: React.FC<{
         minDate,
 
         handleCalculate,
+        handleRoadDirections,
         handlePlanWindow,
         acceptWindowScenario,
         clearVoyagePlan,
@@ -91,6 +92,12 @@ export const RoutePlanner: React.FC<{
 
     const [_tempMapSelection, setTempMapSelection] = useState<{ lat: number; lon: number; name: string } | null>(null);
     const { setPage } = useUI();
+
+    // Transport mode — 'sail' uses the marine voyage pipeline
+    // (handleCalculate), 'drive'/'walk' uses Mapbox Directions
+    // (handleRoadDirections) for road / footpath routing. The slide-
+    // to-action below branches based on this state.
+    const [transportMode, setTransportMode] = useState<'sail' | 'drive' | 'walk'>('sail');
 
     // ── Reset on every mount ──
     // Each visit starts fresh — wipes any leftover voyagePlan from a
@@ -531,16 +538,58 @@ export const RoutePlanner: React.FC<{
                                 Unlock Route Planning
                             </button>
                         ) : (
-                            <SlideToAction
-                                label="Slide to Calculate Route"
-                                thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
-                                onConfirm={() => {
-                                    handleCalculate();
-                                }}
-                                loading={loading}
-                                loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
-                                theme="emerald"
-                            />
+                            <>
+                                {/* Transport mode chips — pick the pipeline.
+                                    sail → marine voyage planner (isochrone,
+                                    bathymetric, etc). drive/walk → road-
+                                    following directions via Mapbox, with
+                                    auto-placed turn waypoints. */}
+                                <div className="mb-2 flex gap-2">
+                                    {[
+                                        { id: 'sail' as const, label: 'Sail / Power', icon: '⛵' },
+                                        { id: 'drive' as const, label: 'Drive', icon: '🚗' },
+                                        { id: 'walk' as const, label: 'Walk', icon: '🚶' },
+                                    ].map((m) => {
+                                        const active = transportMode === m.id;
+                                        return (
+                                            <button
+                                                key={m.id}
+                                                type="button"
+                                                onClick={() => setTransportMode(m.id)}
+                                                className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                                    active
+                                                        ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                                                        : 'bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.06]'
+                                                }`}
+                                                aria-label={`${m.label} routing`}
+                                            >
+                                                <span className="mr-1">{m.icon}</span>
+                                                {m.label}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <SlideToAction
+                                    label={
+                                        transportMode === 'sail'
+                                            ? 'Slide to Calculate Route'
+                                            : transportMode === 'drive'
+                                              ? 'Slide for Driving Directions'
+                                              : 'Slide for Walking Directions'
+                                    }
+                                    thumbIcon={<CompassIcon className="w-5 h-5 text-white" rotation={0} />}
+                                    onConfirm={() => {
+                                        if (transportMode === 'sail') {
+                                            handleCalculate();
+                                        } else {
+                                            handleRoadDirections(transportMode === 'drive' ? 'driving' : 'walking');
+                                        }
+                                    }}
+                                    loading={loading}
+                                    loadingText={LOADING_PHASES[loadingStep] || 'Calculating…'}
+                                    theme="emerald"
+                                />
+                            </>
                         )}
                     </div>
                 </div>
