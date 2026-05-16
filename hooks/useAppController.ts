@@ -14,7 +14,11 @@ import { useAuthStore } from '../stores/authStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
 import { SAMPLE_LOCATION, getSampleLocation, type SampleLocation } from '../utils/sampleLocation';
-import { getFeaturedPassage, setFeaturedPassagePrefill, type FeaturedPassage } from '../utils/featuredPassages';
+// Featured Passage is no longer surfaced from the App header — that
+// concept moved into the Plan tab's empty state (RoutePlanner reads
+// `getFeaturedPassage()` directly when origin + destination are
+// both empty). Keeping the import + state here just exposed an
+// extra callback no caller consumes.
 
 const DEFAULT_BACKGROUNDS = {
     sunny: 'https://images.unsplash.com/photo-1566371486490-560ded23b5e4?q=80&w=1080&fm=jpg&fit=crop',
@@ -625,20 +629,12 @@ export const useAppController = () => {
     const sampleLocation: SampleLocation | null =
         !!weatherData && !settings.defaultLocation ? getSampleLocation() : null;
 
-    // Featured Passage — the locale-rotated "Try this passage"
-    // chip shown next to the Sample chip on first-launch Glass.
-    // Visible under the same conditions as `sampleLocation` (un-
-    // authed first-paint user) so the two chips read as a pair:
-    //   "Sample: <home harbour> · Tap to set yours →"
-    //   "Try: <origin> → <destination> · <nm> nm →"
-    // The handler writes the prefill hint and navigates — the
-    // RoutePlanner consumes it on mount via useVoyageForm.
-    const featuredPassage: FeaturedPassage | null = sampleLocation ? getFeaturedPassage() : null;
-    const openFeaturedPassage = useCallback(() => {
-        if (!featuredPassage) return;
-        setFeaturedPassagePrefill(featuredPassage);
-        setPage('voyage');
-    }, [featuredPassage, setPage]);
+    // Featured Passage now lives inside the RoutePlanner's empty
+    // state (it reads getFeaturedPassage() there directly). The
+    // App header no longer surfaces a "Try this passage" CTA — the
+    // pair of chips on the dashboard looked cluttered and pushed
+    // the weather content down. See RoutePlanner.tsx for the new
+    // home.
 
     // Calculate Display Mode
     let effectiveMode: DisplayMode = settings.displayMode;
@@ -671,8 +667,6 @@ export const useAppController = () => {
         handleLocate,
         effectiveMode,
         sampleLocation,
-        featuredPassage,
-        openFeaturedPassage,
 
         // Extracted Handlers & State
         toggleFavorite,

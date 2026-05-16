@@ -1,5 +1,6 @@
 // Featured Passages — one signature route per marine region,
-// surfaced to un-authed (and freshly-onboarded) users on The Glass.
+// surfaced to un-authed (and freshly-onboarded) users in the Plan
+// tab's empty state.
 //
 // Why this exists
 // ----------------
@@ -7,11 +8,12 @@
 // 1a) get a visitor to a live weather panel within seconds of
 // install. That answers "what's the weather here?" — but the app's
 // real value is "Plan it, sail it, share it." The Featured Passage
-// chip is the smallest possible nudge towards that value: a single
+// is the smallest possible nudge towards that value: a single
 // real-world passage from the region's most iconic harbour to its
-// closest must-see anchorage, with mileage. Tap → planner opens
-// pre-filled with origin + destination → the visitor sees the
-// product in motion.
+// closest must-see anchorage, with mileage. When the user lands
+// on the Plan tab with no origin/destination filled in, the
+// RoutePlanner offers this as a starter card. Tap → form pre-fills
+// → the visitor sees the product in motion.
 //
 // Routes
 // ------
@@ -27,16 +29,6 @@
 //                the Coastal Pacific shake-down classic.
 //   DEFAULT  → Falls back to AU (Sydney's passage) since AU is the
 //                PR2 baseline sample.
-//
-// Pre-fill protocol
-// -----------------
-// The chip writes a small JSON blob to sessionStorage keyed by
-// FEATURED_PASSAGE_PREFILL_KEY, then setPage('voyage'). The
-// RoutePlanner controller (useVoyageForm) reads + clears the key
-// on mount and seeds origin/destination from it. sessionStorage
-// (not localStorage) so the hint dies with the app process — a
-// returning user who didn't follow through doesn't get their next
-// planner visit polluted weeks later.
 
 import { detectRegion, type Region } from './locale';
 
@@ -48,11 +40,9 @@ export type FeaturedPassage = {
     /** Approximate rhumb-line distance. The planner will recompute
      *  the real great-circle distance once the user actually plans. */
     distanceNm: number;
-    /** One-line story shown on the chip's hover/aria-label. */
+    /** One-line story shown on the starter card. */
     story: string;
 };
-
-export const FEATURED_PASSAGE_PREFILL_KEY = 'thalassa_featured_passage_prefill';
 
 const PASSAGES: Record<Region, FeaturedPassage> = {
     AU: {
@@ -96,7 +86,7 @@ const PASSAGES: Record<Region, FeaturedPassage> = {
         story: 'Out the Gate at slack, south down the coast in NW swell — the Pacific shake-down classic.',
     },
     DEFAULT: {
-        // Mirror AU — keeps the chip non-empty for unmapped regions.
+        // Mirror AU — keeps the card non-empty for unmapped regions.
         id: 'default-sydney-pittwater',
         region: 'DEFAULT',
         origin: { name: 'Sydney Harbour, NSW, AU', coords: { lat: -33.8568, lon: 151.2153 } },
@@ -118,40 +108,4 @@ export function getFeaturedPassage(): FeaturedPassage {
 /** Test-only — clears the memoisation cache. */
 export function _resetFeaturedPassageCacheForTests(): void {
     cached = null;
-}
-
-/** Write the prefill hint that RoutePlanner picks up on next mount. */
-export function setFeaturedPassagePrefill(passage: FeaturedPassage): void {
-    try {
-        sessionStorage.setItem(
-            FEATURED_PASSAGE_PREFILL_KEY,
-            JSON.stringify({
-                origin: passage.origin.name,
-                destination: passage.destination.name,
-                passageId: passage.id,
-            }),
-        );
-    } catch {
-        // sessionStorage disabled (private mode, etc.) — silently drop
-        // the prefill. The user will still land on the planner; they'll
-        // just type the origin/destination themselves.
-    }
-}
-
-/** Read + clear the prefill hint. Returns null if absent or malformed. */
-export function consumeFeaturedPassagePrefill(): { origin: string; destination: string; passageId: string } | null {
-    try {
-        const raw = sessionStorage.getItem(FEATURED_PASSAGE_PREFILL_KEY);
-        if (!raw) return null;
-        sessionStorage.removeItem(FEATURED_PASSAGE_PREFILL_KEY);
-        const parsed = JSON.parse(raw);
-        if (typeof parsed?.origin !== 'string' || typeof parsed?.destination !== 'string') return null;
-        return {
-            origin: parsed.origin,
-            destination: parsed.destination,
-            passageId: typeof parsed.passageId === 'string' ? parsed.passageId : 'unknown',
-        };
-    } catch {
-        return null;
-    }
 }

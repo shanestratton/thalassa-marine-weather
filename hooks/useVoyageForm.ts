@@ -9,7 +9,6 @@ import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/logger';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
-import { consumeFeaturedPassagePrefill } from '../utils/featuredPassages';
 
 export const LOADING_PHASES = [
     'Querying Hydrographic Data...',
@@ -40,28 +39,6 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [departureDate, setDepartureDate] = useState(
         voyagePlan?.departureDate || new Date().toLocaleDateString('en-CA'),
     );
-
-    // Featured Passage prefill — one-shot read of a sessionStorage
-    // hint written by the Featured Passage chip on The Glass. Lets
-    // a fresh visitor tap "Try: Newport → Block Island" and land on
-    // the planner with both endpoints already filled in. The
-    // consume helper clears the key after reading so a returning
-    // user who didn't follow through doesn't get stale prefill on
-    // their next planner visit. sessionStorage (not localStorage)
-    // means the hint also dies on app force-quit — by design.
-    //
-    // We only apply the prefill if the form is still in its empty
-    // initial state. If the user has already typed an origin (or
-    // we're resuming a prior plan via voyagePlan), the prefill is
-    // dropped — never stomp the user's own work.
-    useEffect(() => {
-        if (origin || destination) return;
-        const prefill = consumeFeaturedPassagePrefill();
-        if (!prefill) return;
-        setOrigin(prefill.origin);
-        setDestination(prefill.destination);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
 
     // UI State
     const [isMapOpen, setIsMapOpen] = useState(false);
