@@ -197,6 +197,25 @@ export const RouteTrackPicker: React.FC<RouteTrackPickerProps> = ({
                                             }}
                                         >
                                             {item.label}
+                                            {/* "LOCAL" pill — visible when this route
+                                                exists only in the offline queue (no
+                                                cloud copy yet). Nudges un-authed
+                                                users to sign in to sync. Auto-
+                                                disappears on the next fetch after
+                                                syncOfflineQueue() runs. */}
+                                            {item.isLocal && (
+                                                <span
+                                                    className="ml-2 inline-block align-middle px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider"
+                                                    style={{
+                                                        backgroundColor: 'rgba(245, 158, 11, 0.18)',
+                                                        border: '1px solid rgba(245, 158, 11, 0.42)',
+                                                        color: 'rgb(252, 211, 77)',
+                                                    }}
+                                                    title="Saved on this device only — sign in to sync"
+                                                >
+                                                    Local
+                                                </span>
+                                            )}
                                         </span>
                                         <span
                                             className="block opacity-70 truncate"

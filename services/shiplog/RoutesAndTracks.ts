@@ -20,6 +20,7 @@
  * back-to-back. Refresh forces a re-fetch.
  */
 import { getLogEntries } from './EntryCrud';
+import { getOfflineEntries } from './OfflineQueue';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import type { ShipLogEntry } from '../../types/navigation';
 
@@ -48,6 +49,15 @@ export interface RouteOrTrack {
      * Undefined for tracks (where the spread is real elapsed time).
      */
     durationHours?: number;
+    /**
+     * True if this route/track exists only in the local offline queue
+     * (Capacitor Preferences) and has not yet been synced to Supabase.
+     * The picker renders a small "LOCAL" pill next to these so the
+     * user knows the plan is single-device. After the user signs in
+     * (or comes back online) and `syncOfflineQueue()` runs, the next
+     * fetch sees the entries in the cloud and flips this to false.
+     */
+    isLocal: boolean;
 }
 
 export interface RoutesAndTracksResult {
@@ -119,8 +129,18 @@ function recoverRouteGeometry(firstEntryNotes: string | null | undefined): Array
     }
 }
 
-/** Group entries by voyageId, building a RouteOrTrack per group. */
-function groupByVoyage(entries: ShipLogEntry[]): RouteOrTrack[] {
+/**
+ * Group entries by voyageId, building a RouteOrTrack per group.
+ *
+ * @param entries          Merged cloud + offline-queue entries.
+ * @param cloudVoyageIds   Set of voyageIds that exist in the cloud.
+ *                         Any voyageId NOT in this set is local-only.
+ *
+ * Exported for tests. Production callers should use
+ * `fetchRoutesAndTracks()` so cloud + offline merging is handled
+ * consistently.
+ */
+export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<string>): RouteOrTrack[] {
     const groups = new Map<string, ShipLogEntry[]>();
     for (const e of entries) {
         const id = e.voyageId || 'misc';
@@ -172,7 +192,8 @@ function groupByVoyage(entries: ShipLogEntry[]): RouteOrTrack[] {
             ? `Planned · ${distanceNm > 0 ? distanceNm.toFixed(0) + ' NM' : `${points.length} points`}`
             : `${fmtDate(ts)} · ${distanceNm > 0 ? distanceNm.toFixed(0) + ' NM' : `${points.length} points`}`;
 
-        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm, durationHours });
+        const isLocal = !cloudVoyageIds.has(id);
+        items.push({ id, label, sublabel, points, bbox, timestamp: ts, distanceNm, durationHours, isLocal });
     }
 
     // Most recent first.
@@ -187,9 +208,27 @@ export async function fetchRoutesAndTracks(force = false): Promise<RoutesAndTrac
 
     inflight = (async () => {
         try {
-            // Pull a generous slice — 10k entries covers years of cruising.
-            const entries = await getLogEntries(10_000);
-            const all = groupByVoyage(entries);
+            // Pull cloud and offline queue in parallel — cloud covers
+            // years of cruising (10k cap), offline queue is whatever
+            // hasn't synced yet (un-authed user's plans, or anything
+            // saved while the device had no network).
+            const [cloudEntries, offlineEntries] = await Promise.all([getLogEntries(10_000), getOfflineEntries()]);
+
+            // Track which voyageIds exist in the cloud so groupByVoyage
+            // can tag local-only entries with `isLocal: true`. Once the
+            // offline queue syncs (post-sign-in or back-online),
+            // syncOfflineQueue() clears the queue and the same voyageIds
+            // start appearing in `cloudEntries` — the flag flips false
+            // on the next fetch.
+            const cloudVoyageIds = new Set<string>();
+            for (const e of cloudEntries) {
+                if (e.voyageId) cloudVoyageIds.add(e.voyageId);
+            }
+
+            // Merge cloud + offline. groupByVoyage de-dupes by voyageId
+            // and sorts internally, so concat order doesn't matter.
+            const merged = [...cloudEntries, ...offlineEntries];
+            const all = groupByVoyage(merged, cloudVoyageIds);
             const data: RoutesAndTracksResult = {
                 routes: all.filter((g) => isPlanned(g.id)),
                 tracks: all.filter((g) => !isPlanned(g.id)),
