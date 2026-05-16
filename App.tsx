@@ -9,14 +9,18 @@ import { useLocationStore } from './stores/LocationStore';
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, MapIcon, StarIcon } from './components/Icons';
+import { SearchIcon, MapIcon, StarIcon, RouteIcon, ClipboardIcon } from './components/Icons';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
 import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
-import { NAV_ICON_MAP, NAV_ICON_CHAT, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
+// NAV_ICON_CHAT no longer imported — Scuttlebutt was demoted off the
+// bottom nav in the Week 2 5-tab restructure. Chat is still
+// reachable via the Vessel hub's Wardroom section and any
+// setPage('chat') call sites (push notification tap-target, etc).
+import { NAV_ICON_MAP, NAV_ICON_VESSEL } from './components/icons/NavIconAssets';
 import { StormGlassNavIcon } from './components/icons/StormGlassNavIcon';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { SystemStatusButton } from './components/SystemStatusButton';
@@ -952,23 +956,48 @@ const App: React.FC = () => {
                                     handleTabMap();
                                 }}
                             />
+                            {/* Plan — was: Scuttlebutt (chat). The 5-tab
+                                restructure (Week 2) replaces the social
+                                tab with the dedicated route planner.
+                                Scuttlebutt is reachable from the Vessel
+                                hub's Wardroom section. */}
                             <NavButton
                                 icon={
-                                    <img
-                                        src={NAV_ICON_CHAT}
-                                        alt=""
-                                        draggable={false}
-                                        className="w-full h-full object-contain"
+                                    <div
+                                        className="w-full h-full flex items-center justify-center"
                                         style={{
                                             WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                             maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
                                         }}
-                                    />
+                                    >
+                                        <RouteIcon className="w-7 h-7" />
+                                    </div>
                                 }
-                                label="Scuttlebutt"
-                                active={currentView === 'chat'}
-                                onClick={() => setPage('chat')}
-                                badge={chatUnread > 0 ? chatUnread : undefined}
+                                label="Plan"
+                                active={currentView === 'voyage'}
+                                onClick={() => setPage('voyage')}
+                            />
+                            {/* Log — promoted from a Vessel sub-page (was
+                                reached via Nav Station → Log Book) to a
+                                top-level tab in the Week 2 restructure.
+                                Plan → Sail → Share → Hear → Trust order
+                                means Log sits directly between Plan and
+                                Vessel in the nav. */}
+                            <NavButton
+                                icon={
+                                    <div
+                                        className="w-full h-full flex items-center justify-center"
+                                        style={{
+                                            WebkitMaskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                            maskImage: 'radial-gradient(circle, black 55%, transparent 75%)',
+                                        }}
+                                    >
+                                        <ClipboardIcon className="w-7 h-7" />
+                                    </div>
+                                }
+                                label="Log"
+                                active={currentView === 'details'}
+                                onClick={() => setPage('details')}
                             />
                             <NavButton
                                 icon={
@@ -983,9 +1012,16 @@ const App: React.FC = () => {
                                         }}
                                     />
                                 }
-                                label="Nav Station"
-                                active={isVesselView}
+                                label="Vessel"
+                                active={isVesselView || currentView === 'chat'}
                                 onClick={() => setPage('vessel')}
+                                // chatUnread badge moves to Vessel — chat
+                                // now lives under Vessel → Wardroom →
+                                // Scuttlebutt. Showing the unread count
+                                // on Vessel surfaces new DMs / community
+                                // activity at the same visibility as
+                                // before, just one nav layer deeper.
+                                badge={chatUnread > 0 ? chatUnread : undefined}
                             />
                         </div>
                     </nav>
