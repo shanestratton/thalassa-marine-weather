@@ -27,6 +27,7 @@ import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { lazyRetry } from '../utils/lazyRetry';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
+import { AlertTriangleIcon, WindIcon, WaveIcon, ThermometerIcon, DropletIcon, EyeIcon } from './Icons';
 const AdminPanel = lazyRetry(
     () => import('./AdminPanel').then((m) => ({ default: m.AdminPanel })),
     'AdminPanel_Vessel',
@@ -597,12 +598,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // via Math.sqrt(rodeLength² - waterDepth²) * sensor-type factor —
     // i.e. naturally a long float. Clamp to 1 decimal so the nav-station
     // card reads "Armed — 50.0m" instead of "Armed — 50.000000000004m".
-    const anchorLabel =
-        anchorStatus === 'alarm'
-            ? '⚠️ DRAG ALARM'
-            : anchorStatus === 'armed'
-              ? `Armed — ${anchorRadius.toFixed(1)}m`
-              : 'Disarmed';
+    const anchorLabel: React.ReactNode =
+        anchorStatus === 'alarm' ? (
+            <span className="inline-flex items-center gap-1">
+                <AlertTriangleIcon className="w-3 h-3" />
+                <span>DRAG ALARM</span>
+            </span>
+        ) : anchorStatus === 'armed' ? (
+            `Armed — ${anchorRadius.toFixed(1)}m`
+        ) : (
+            'Disarmed'
+        );
     const anchorColor = anchorStatus === 'alarm' ? '#ef4444' : anchorStatus === 'armed' ? '#22d3ee' : '#9ca3af';
 
     return (
@@ -1330,7 +1336,9 @@ function pressureTrendIndicator(trend: 'rising' | 'falling' | 'steady' | null): 
  *  (BAR ↑, TIDE ↓ — trend indicators with no numeric value). */
 interface MetricChipData {
     key: string;
-    icon?: string;
+    /** Optional leading SVG icon. ReactNode so callers can pass any
+     *  Icons-barrel component (WindIcon, WaveIcon, etc) sized to fit. */
+    icon?: React.ReactNode;
     label?: string;
     value: string;
     unit?: string;
@@ -1349,7 +1357,11 @@ const MetricChip: React.FC<MetricChipData> = ({ icon, label, value, unit, suffix
         aria-label={ariaLabel}
         title={ariaLabel}
     >
-        {icon && <span className="text-[12px] leading-none">{icon}</span>}
+        {icon && (
+            <span className="inline-flex items-center justify-center w-3 h-3 text-white/70 [&_svg]:w-3 [&_svg]:h-3">
+                {icon}
+            </span>
+        )}
         {label && <span className="text-[10px] uppercase tracking-wider text-white/40">{label}</span>}
         <span className={color ? 'font-bold text-base leading-none' : 'text-white/85'}>{value}</span>
         {unit && <span className="text-[10px] text-white/40">{unit}</span>}
@@ -1780,25 +1792,25 @@ const NavStationHero: React.FC<{
                         showWind
                             ? {
                                   key: 'wind',
-                                  icon: '💨',
+                                  icon: <WindIcon />,
                                   value: String(windKt),
                                   unit: 'kt',
                                   suffix: windDir || undefined,
                               }
                             : null,
                         waveHeight !== null
-                            ? { key: 'wave', icon: '🌊', value: waveHeight.toFixed(1), unit: waveUnit }
+                            ? { key: 'wave', icon: <WaveIcon />, value: waveHeight.toFixed(1), unit: waveUnit }
                             : null,
                         airTemp !== null
-                            ? { key: 'air', icon: '🌡', value: `${Math.round(airTemp)}`, unit: '°' }
+                            ? { key: 'air', icon: <ThermometerIcon />, value: `${Math.round(airTemp)}`, unit: '°' }
                             : null,
                         seaTemp !== null
-                            ? { key: 'sea', icon: '💧', value: `${Math.round(seaTemp)}`, unit: '°' }
+                            ? { key: 'sea', icon: <DropletIcon />, value: `${Math.round(seaTemp)}`, unit: '°' }
                             : null,
                         visibility !== null
                             ? {
                                   key: 'vis',
-                                  icon: '👁',
+                                  icon: <EyeIcon />,
                                   // weatherData.current.visibility is already
                                   // in KILOMETRES — openmeteo.ts converts
                                   // metres → km at fetch time. To display

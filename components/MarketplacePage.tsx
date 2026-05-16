@@ -28,6 +28,7 @@ import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { triggerHaptic } from '../utils/system';
 import { formatPrice } from './marketplace/helpers';
+import { AnchorIcon } from './Icons';
 
 // --- CSS ANIMATIONS ---
 const STYLE_ID = 'marketplace-animations';
@@ -247,7 +248,7 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
                     </div>
                 ) : listings.length === 0 ? (
                     <EmptyState
-                        icon="⚓"
+                        icon={<AnchorIcon className="w-10 h-10 text-sky-400/60" />}
                         title="No Gear Listed Yet"
                         description="Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps you float, it belongs here."
                     />

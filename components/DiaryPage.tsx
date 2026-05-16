@@ -9,6 +9,7 @@ import { AnchorWatchService } from '../services/AnchorWatchService';
 import { useWeather } from '../context/WeatherContext';
 import { useSettings } from '../context/SettingsContext';
 import { PageHeader } from './ui/PageHeader';
+import { CompassIcon, CheckIcon } from './Icons';
 import { UndoToast } from './ui/UndoToast';
 import { SwipeableDiaryCard } from './diary/SwipeableDiaryCard';
 import { toast } from './Toast';
@@ -767,7 +768,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         <p className="text-label text-gray-400 font-bold uppercase tracking-widest">
                             {entries.length} {entries.length === 1 ? 'Entry' : 'Entries'}
                             {selectedIds.size > 0 && (
-                                <span className="text-sky-400 ml-2">✓ {selectedIds.size} selected</span>
+                                <span className="text-sky-400 ml-2 inline-flex items-center gap-1">
+                                    <CheckIcon className="w-3 h-3" />
+                                    <span>{selectedIds.size} selected</span>
+                                </span>
                             )}
                         </p>
                     }
@@ -885,7 +889,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                         </div>
                     ) : entries.length === 0 ? (
                         <EmptyState
-                            icon="🧭"
+                            icon={<CompassIcon className="w-10 h-10 text-sky-400/60" rotation={0} />}
                             title="Your Story Starts Here"
                             description="Slide below to write your first journal entry. Add photos, voice memos, and GPS coordinates."
                         />

@@ -13,6 +13,11 @@ import {
     CalendarIcon,
     SailBoatIcon,
     PowerBoatIcon,
+    AlertTriangleIcon,
+    ClockIcon,
+    CalendarGridIcon,
+    CarIcon,
+    WalkIcon,
 } from './Icons';
 import { SlideToAction } from './ui/SlideToAction';
 import { MapHub } from './map/MapHub';
@@ -381,7 +386,7 @@ export const RoutePlanner: React.FC<{
             {error && (
                 <div className="shrink-0 px-4 pb-2">
                     <div className="max-w-xl mx-auto bg-red-500/10 border border-red-500/20 p-3 rounded-xl flex items-center gap-3 text-red-200 animate-in fade-in">
-                        <span className="text-base">⚠️</span>
+                        <AlertTriangleIcon className="w-4 h-4 shrink-0" />
                         <p className="text-xs flex-1">{error}</p>
                     </div>
                 </div>
@@ -435,11 +440,16 @@ export const RoutePlanner: React.FC<{
                                 <button
                                     onClick={() => handlePlanWindow()}
                                     disabled={planningWindow}
-                                    className="px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-[11px] font-bold border border-violet-500/20 transition-colors disabled:opacity-50"
+                                    className="px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-[11px] font-bold border border-violet-500/20 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
                                     aria-label="Plan optimal departure window"
                                     title="Find best departure time"
                                 >
-                                    {planningWindow ? '⏳ Window' : '🗓️ Window'}
+                                    {planningWindow ? (
+                                        <ClockIcon className="w-3 h-3" />
+                                    ) : (
+                                        <CalendarGridIcon className="w-3 h-3" />
+                                    )}
+                                    <span>Window</span>
                                 </button>
                                 {/* View on main map */}
                                 <button
@@ -545,26 +555,28 @@ export const RoutePlanner: React.FC<{
                                     following directions via Mapbox, with
                                     auto-placed turn waypoints. */}
                                 <div className="mb-2 flex gap-2">
-                                    {[
-                                        { id: 'sail' as const, label: 'Sail / Power', icon: '⛵' },
-                                        { id: 'drive' as const, label: 'Drive', icon: '🚗' },
-                                        { id: 'walk' as const, label: 'Walk', icon: '🚶' },
-                                    ].map((m) => {
+                                    {(
+                                        [
+                                            { id: 'sail', label: 'Sail / Power', Icon: SailBoatIcon },
+                                            { id: 'drive', label: 'Drive', Icon: CarIcon },
+                                            { id: 'walk', label: 'Walk', Icon: WalkIcon },
+                                        ] as const
+                                    ).map((m) => {
                                         const active = transportMode === m.id;
                                         return (
                                             <button
                                                 key={m.id}
                                                 type="button"
                                                 onClick={() => setTransportMode(m.id)}
-                                                className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                                className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-bold transition-all border inline-flex items-center justify-center gap-1.5 ${
                                                     active
                                                         ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
                                                         : 'bg-white/[0.03] border-white/10 text-slate-400 hover:bg-white/[0.06]'
                                                 }`}
                                                 aria-label={`${m.label} routing`}
                                             >
-                                                <span className="mr-1">{m.icon}</span>
-                                                {m.label}
+                                                <m.Icon className="w-3.5 h-3.5" />
+                                                <span>{m.label}</span>
                                             </button>
                                         );
                                     })}

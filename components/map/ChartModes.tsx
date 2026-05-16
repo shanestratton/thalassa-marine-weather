@@ -7,14 +7,13 @@
  * Modes chip flips that on its head: tap once → curated preset.
  *
  * Modes:
- *   🌅 Day Sail        — wind, AIS, marks, tides (coastal cruising)
- *   🧭 Offshore Passage — wind, waves, currents, pressure, AIS
- *                        (passage planning, weather-aware)
- *   ⛈️ Storm Watch     — lightning, squall, pressure
- *                        (weather threat focus)
- *   🗺️ Charts Only     — marks, AIS, tides, no weather
- *   ✨ Clear All        — everything off
- *   ⚙️ Custom           — user has manually deviated from any preset
+ *   Day Sail        — wind, AIS, marks, tides (coastal cruising)
+ *   Offshore Passage — wind, waves, currents, pressure, AIS
+ *                      (passage planning, weather-aware)
+ *   Storm Watch     — lightning, squall, pressure (weather threat focus)
+ *   Charts Only     — marks, AIS, tides, no weather
+ *   Clear All       — everything off
+ *   Custom          — user has manually deviated from any preset
  *
  * The chip lives at top-center, always visible while on Charts. Tap
  * shows a vertical dropdown of all six modes. Selection persists in
@@ -23,16 +22,20 @@
  * "Custom" automatically becomes the active mode if the user manually
  * toggles a layer that doesn't match the current preset — so the chip
  * is always honest about what's on screen.
+ *
+ * Icons migrated from emoji to SVG components 2026-05-16 — visual
+ * uplift pass after the 68/100 UX score audit.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
+import { SunriseIcon, CompassIcon, ThunderstormIcon, MapIcon, SparklesIcon, GearIcon, CheckIcon } from '../Icons';
 
 export type ChartMode = 'day-sail' | 'offshore' | 'storm-watch' | 'charts-only' | 'clear' | 'custom';
 
 interface ModeSpec {
     id: ChartMode;
-    icon: string;
+    Icon: React.FC<{ className?: string }>;
     label: string;
     summary: string;
     /** Layers to enable (any not listed are forced off). */
@@ -54,7 +57,7 @@ interface ModeSpec {
 export const MODE_SPECS: ModeSpec[] = [
     {
         id: 'day-sail',
-        icon: '🌅',
+        Icon: SunriseIcon,
         label: 'Day Sail',
         summary: 'Wind, AIS, marks, tides',
         sky: ['wind'],
@@ -62,7 +65,7 @@ export const MODE_SPECS: ModeSpec[] = [
     },
     {
         id: 'offshore',
-        icon: '🧭',
+        Icon: (props) => <CompassIcon {...props} rotation={0} />,
         label: 'Offshore',
         summary: 'Wind, waves, currents, pressure',
         sky: ['wind', 'waves', 'currents', 'pressure'],
@@ -70,7 +73,7 @@ export const MODE_SPECS: ModeSpec[] = [
     },
     {
         id: 'storm-watch',
-        icon: '⛈️',
+        Icon: ThunderstormIcon,
         label: 'Storm Watch',
         summary: 'Lightning, squall, pressure',
         sky: ['pressure'],
@@ -78,7 +81,7 @@ export const MODE_SPECS: ModeSpec[] = [
     },
     {
         id: 'charts-only',
-        icon: '🗺️',
+        Icon: MapIcon,
         label: 'Charts Only',
         summary: 'Marks, AIS, tides — no weather',
         sky: [],
@@ -86,7 +89,7 @@ export const MODE_SPECS: ModeSpec[] = [
     },
     {
         id: 'clear',
-        icon: '✨',
+        Icon: SparklesIcon,
         label: 'Clear All',
         summary: 'Turn everything off',
         sky: [],
@@ -315,7 +318,9 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                     }}
                     aria-label="Open chart mode picker"
                 >
-                    <span aria-hidden>{currentSpec?.icon ?? '⚙️'}</span>
+                    <span aria-hidden className="inline-flex items-center justify-center w-4 h-4">
+                        {currentSpec ? <currentSpec.Icon className="w-4 h-4" /> : <GearIcon className="w-4 h-4" />}
+                    </span>
                     <span>{currentSpec?.label ?? 'Custom'}</span>
                     <span className="opacity-50" style={{ fontSize: chipFontSize - 2 }}>
                         {open ? '▴' : '▾'}
@@ -352,7 +357,7 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                             }}
                             aria-label="Layer opacity settings"
                         >
-                            ⚙
+                            <GearIcon className="w-4 h-4" />
                         </button>
                     </>
                 )}
@@ -389,8 +394,12 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                     border: active ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
                                 }}
                             >
-                                <span style={{ fontSize: 18 }} aria-hidden>
-                                    {spec.icon}
+                                <span
+                                    aria-hidden
+                                    className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                    style={{ color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)' }}
+                                >
+                                    <spec.Icon className="w-[18px] h-[18px]" />
                                 </span>
                                 <span className="flex-1 min-w-0">
                                     <span
@@ -414,15 +423,8 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                     </span>
                                 </span>
                                 {active && (
-                                    <span
-                                        aria-hidden
-                                        style={{
-                                            color: '#38bdf8',
-                                            fontSize: 14,
-                                            fontWeight: 700,
-                                        }}
-                                    >
-                                        ✓
+                                    <span aria-hidden className="inline-flex items-center text-sky-400">
+                                        <CheckIcon className="w-4 h-4" />
                                     </span>
                                 )}
                             </button>
@@ -430,13 +432,14 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                     })}
                     {currentMode === 'custom' && (
                         <div
-                            className="px-2 py-1.5 mt-1 text-[10px] opacity-70"
+                            className="px-2 py-1.5 mt-1 text-[10px] opacity-70 flex items-center gap-1.5"
                             style={{
                                 color: 'rgba(255,255,255,0.6)',
                                 borderTop: '1px solid rgba(255,255,255,0.06)',
                             }}
                         >
-                            ⚙️ Custom — pick any preset to reset
+                            <GearIcon className="w-3 h-3" />
+                            <span>Custom — pick any preset to reset</span>
                         </div>
                     )}
                 </div>

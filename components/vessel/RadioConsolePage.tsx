@@ -16,6 +16,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { triggerHaptic } from '../../utils/system';
 import { PageHeader } from '../ui/PageHeader';
 import { speakSafetyMessage, type SafetyUtteranceHandle } from '../../services/voice/safetyTts';
+import { GearIcon } from '../Icons';
 
 interface RadioConsolePageProps {
     onBack: () => void;
@@ -441,9 +442,10 @@ export const RadioConsolePage: React.FC<RadioConsolePageProps> = ({ onBack, onNa
                                 localStorage.setItem('thalassa_settings_return_to', 'radio');
                                 onNavigate?.('settings');
                             }}
-                            className="px-2.5 py-1 rounded-md bg-white/[0.02] border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors"
+                            className="px-2.5 py-1 rounded-md bg-white/[0.02] border border-dashed border-white/10 text-[11px] font-bold text-slate-500 hover:text-slate-400 hover:border-white/20 transition-colors inline-flex items-center gap-1.5"
                         >
-                            ⚙️ Set identity in Vessel Settings →
+                            <GearIcon className="w-3 h-3" />
+                            <span>Set identity in Vessel Settings →</span>
                         </button>
                     )}
                 </div>
