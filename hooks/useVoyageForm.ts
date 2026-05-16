@@ -34,10 +34,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const { vessel: configuredVessel, vesselUnits, units: generalUnits, isPro, mapboxToken } = settings;
     // Routing pipeline always sees a vessel — either the user's
     // configured one or DEFAULT_VESSEL (generic 35ft sloop). This
-    // lets a fresh-install punter run the Featured Passage demo
-    // without first filling out a 12-field vessel form. Personal
-    // vessel setup in Settings → Vessel takes precedence whenever
-    // it's present, so this is a fallback, not a stomp.
+    // lets a fresh-install punter plan their first route without
+    // first filling out a 12-field vessel form. Personal vessel
+    // setup in Settings → Vessel takes precedence whenever it's
+    // present, so this is a fallback, not a stomp.
     const vessel = resolveEffectiveVessel(configuredVessel);
     /** True when routing is running on DEFAULT_VESSEL. RoutePlanner
      *  surfaces a small "Default profile · Personalise →" hint
