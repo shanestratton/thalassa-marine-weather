@@ -135,23 +135,37 @@ export const MusicPage: React.FC<MusicPageProps> = ({ onBack }) => {
         };
     }, [loadPlaylists]);
 
-    /** Poll now-playing every 1s while page is mounted. iOS doesn't
-     *  give us a push notification for state changes, so we poll.
-     *  1s feels close to "instant" for track-change UI without thrashing
-     *  the bridge — each call is a cache hit on the Swift side after
-     *  the catalog search resolves. */
+    /** Poll now-playing adaptively while the page is mounted. iOS
+     *  doesn't push state changes back to JS, so we poll — but the
+     *  rate shifts with state to keep the bridge quiet when nothing
+     *  is happening (Shane bug report 2026-05-17: paused track was
+     *  generating ~60 polls/min between this page and the global
+     *  bar). Cadence ladder:
+     *
+     *    playing            →  1 s   (playback time scrubs visibly here,
+     *                                  faster than the global bar's 2 s
+     *                                  because the user is actively watching)
+     *    paused with track  →  5 s   (rare external change via lock screen)
+     *    no track queued    → 30 s   (virtually nothing should change)
+     *
+     *  setTimeout chain (not setInterval) so each tick picks a fresh
+     *  delay from the just-fetched state. */
     useEffect(() => {
         let cancelled = false;
-        let interval: ReturnType<typeof setInterval> | undefined;
+        let timer: number | undefined;
+
         const poll = async () => {
             const np = await getNowPlaying();
-            if (!cancelled) setNowPlaying(np);
+            if (cancelled) return;
+            setNowPlaying(np);
+            const delay = np?.isPlaying ? 1000 : np?.title ? 5000 : 30000;
+            timer = window.setTimeout(() => void poll(), delay);
         };
         void poll();
-        interval = setInterval(() => void poll(), 1000);
+
         return () => {
             cancelled = true;
-            if (interval) clearInterval(interval);
+            if (timer !== undefined) window.clearTimeout(timer);
         };
     }, []);
 
