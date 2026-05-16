@@ -3,7 +3,9 @@ import { useWeather } from './context/WeatherContext';
 import { useSettings } from './context/SettingsContext';
 import { useUI } from './context/UIContext';
 import { useLocationStore } from './stores/LocationStore';
-import { useAuthStore } from './stores/authStore';
+// authStore is no longer imported here — App.tsx is browse-free, no
+// boot-time auth check. Save-point sheets and the Settings → Account
+// entry import useAuthStore + SignInScreen directly where they need it.
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
@@ -48,13 +50,9 @@ const OnboardingOverlay = lazyRetry(
     () => import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
     'OnboardingOverlay',
 );
-// Auth gate — boot-time hard sign-in. Lazy-loaded because the
-// vast majority of cold boots are returning users who already have
-// a session in Capacitor Preferences and never see SignInScreen.
-const SignInScreen = lazyRetry(
-    () => import('./components/SignInScreen').then((m) => ({ default: m.SignInScreen })),
-    'SignInScreen',
-);
+// SignInScreen is no longer lazy-imported here — it's rendered by
+// the save-point sheets and the Settings → Account entry in their
+// own modules where each can lazy-load it on demand.
 // Global now-playing bar — floats above the bottom nav on every
 // page while music is playing. Lazy because the vast majority of
 // app time has nothing in the queue and the bar's polling shouldn't
@@ -78,12 +76,13 @@ const App: React.FC = () => {
     // --- LEGAL DISCLAIMER GATE ---
     const [disclaimerAccepted, setDisclaimerAccepted] = useState(() => checkDisclaimerAccepted());
 
-    // --- AUTH GATE: read from authStore. authChecked starts false on
-    // cold boot and flips true after supabase.auth.getSession resolves;
-    // authedUser is non-null only when there's a live session. The
-    // gate itself is rendered below the disclaimer return. ---
-    const authedUser = useAuthStore((s) => s.user);
-    const authChecked = useAuthStore((s) => s.authChecked);
+    // --- AUTH: deferred to save-time, not boot-time. ---
+    // authStore is consumed wherever identity matters (SignInScreen at
+    // save points, useAppController's onboarding gate, the voyage log
+    // publish flow, etc.). App.tsx itself no longer reads the auth
+    // state — browsing is free, sign-in is the user's deliberate
+    // choice when they hit an action that needs identity. See the
+    // longer note above the JSX return below.
 
     // Track if map was opened from WX page (auto-return) vs tab bar (stay on map)
     const mapFromWxRef = useRef(false);
@@ -265,25 +264,32 @@ const App: React.FC = () => {
         return <DisclaimerOverlay onAccepted={() => setDisclaimerAccepted(true)} />;
     }
 
-    // --- AUTH GATE: must be signed in before any feature loads ---
-    // Hard gate: no anonymous use, no skip. Solves the "fresh install
-    // mints duplicate vessel" bug at its root — identity is known
-    // BEFORE any handle gets minted in voyage_log_configs.
+    // --- AUTH: deferred to action-time, NOT boot-time ---
+    // The previous hard gate (boot → SignInScreen) traded a real UX cost
+    // (a stranger downloads the app, sees an auth wall, bounces) for a
+    // real engineering benefit (no duplicate-vessel race on fresh
+    // install). The engineering side now lives at the SAVE moment —
+    // saving a passage plan, posting a voyage log, starting a shared
+    // anchor watch — where identity actually has product meaning.
     //
-    // The store starts with `authChecked=false` until
-    // supabase.auth.getSession() resolves on cold boot; we render a
-    // brief blank during that window rather than flashing SignInScreen
-    // for a frame and then unmounting it.
-    if (!authChecked) {
-        return <div className="fixed inset-0 bg-slate-950" />;
-    }
-    if (!authedUser) {
-        return (
-            <Suspense fallback={<div className="fixed inset-0 bg-slate-950" />}>
-                <SignInScreen />
-            </Suspense>
-        );
-    }
+    // Browsing is free. The Glass, Charts, planning a passage, looking
+    // at notices — none of those require an account. Sign-in becomes a
+    // contextual sheet the FIRST time the user commits to something
+    // identity-bearing. See SignInScreen consumers and the
+    // useAppController onboarding gate (which still requires authedUser
+    // before showing the wizard — un-authed users have no cloud
+    // account to attach a vessel to, so the wizard would dead-end).
+    //
+    // Note we DON'T render anything during the brief !authChecked
+    // window any more either. The session probe is async (≤200ms in
+    // practice), so blocking the entire first paint for it makes the
+    // app feel slower than it is. Once the session resolves, settings/
+    // boat/vessel data flows in via the existing useEffect chain.
+    // authedUser is still consumed elsewhere; downstream code already
+    // handles null gracefully (it's a normal React subscribe pattern).
+    // SignInScreen is intentionally NOT removed from this file's
+    // imports — it'll be rendered inline by save-point sheets and the
+    // Settings → Account entry in subsequent PRs.
 
     return (
         <div
