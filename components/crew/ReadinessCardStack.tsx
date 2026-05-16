@@ -283,17 +283,26 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
     // is deselected. With explicit state we re-sync on every
     // hasPassage transition.
     const hasPassage = Boolean(selectedPassageId);
-    // Groups always start CLOSED on mount, regardless of whether a
-    // passage is selected. Previous behaviour auto-opened them via a
-    // useEffect synced to hasPassage — but selectedPassageId is
-    // restored from PassagePlanService persistence across app opens,
-    // so users who'd previously selected a passage saw all three
-    // groups auto-expanded on every launch ("the 3 card headings are
-    // still completely expanded"). User taps a header to expand when
-    // they want to see its cards.
-    const [piOpen, setPiOpen] = useState(false);
-    const [briefOpen, setBriefOpen] = useState(false);
-    const [vesselOpen, setVesselOpen] = useState(false);
+    // Accordion behaviour (2026-05-17): only ONE group can be open
+    // at a time. Tapping a closed group's header opens it AND
+    // closes whichever group was previously open. Tapping the
+    // currently-open group's header collapses it (back to null).
+    //
+    // Replaces three independent boolean states (piOpen / briefOpen
+    // / vesselOpen). Previously a user could expand all three at
+    // once, which on a phone meant the readiness stack would scroll
+    // for screens. Accordion limit means at most one group's cards
+    // are visible at a time — the readiness flow becomes a sequence
+    // (PI → Brief → Vessel) you walk through, not a wall.
+    //
+    // Starts at null so all three groups are collapsed on first
+    // render, regardless of whether a passage is selected. The
+    // previous useEffect-driven auto-open caused users with a
+    // restored selectedPassageId to land on a wall of open cards
+    // every launch.
+    type GroupKey = 'pi' | 'brief' | 'vessel';
+    const [openGroup, setOpenGroup] = useState<GroupKey | null>(null);
+    const toggleGroup = (g: GroupKey) => setOpenGroup((prev) => (prev === g ? null : g));
 
     return (
         <>
@@ -364,8 +373,18 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             ) : (
                 <details
                     className="group mb-2"
-                    open={piOpen}
-                    onToggle={(e) => setPiOpen((e.currentTarget as HTMLDetailsElement).open)}
+                    open={openGroup === 'pi'}
+                    onToggle={(e) => {
+                        // Accordion: opening this group closes others.
+                        // Closing this group sets state to null (no
+                        // group open). We rely on the native onToggle
+                        // event firing on user click.
+                        if ((e.currentTarget as HTMLDetailsElement).open) {
+                            if (openGroup !== 'pi') toggleGroup('pi');
+                        } else if (openGroup === 'pi') {
+                            setOpenGroup(null);
+                        }
+                    }}
                 >
                     <summary className="list-none cursor-pointer">
                         <GroupHeader label="Passage Intelligence" ready={piReadyCount} total={2} />
@@ -420,8 +439,14 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
             ) : (
                 <details
                     className="group mb-2"
-                    open={briefOpen}
-                    onToggle={(e) => setBriefOpen((e.currentTarget as HTMLDetailsElement).open)}
+                    open={openGroup === 'brief'}
+                    onToggle={(e) => {
+                        if ((e.currentTarget as HTMLDetailsElement).open) {
+                            if (openGroup !== 'brief') toggleGroup('brief');
+                        } else if (openGroup === 'brief') {
+                            setOpenGroup(null);
+                        }
+                    }}
                 >
                     <summary className="list-none cursor-pointer">
                         <GroupHeader label="Departure Brief" ready={briefReadyCount} total={4} />
@@ -565,91 +590,101 @@ export const ReadinessCardStack: React.FC<ReadinessCardStackProps> = ({
                 </details>
             )}
 
-            {/* ═══ GROUP 3: VESSEL READINESS — vessel-wide checks, last.
-                Same cards also live in Settings → Vessel Readiness so the
-                skipper can tick them off without an active passage. State
-                is shared (localStorage + readiness_checks). */}
-            {!hasPassage ? (
-                <div className="mb-2">
+            {/* ═══ GROUP 3: VESSEL READINESS — vessel-wide checks.
+                These cards are vessel-scoped, NOT passage-scoped — the
+                same cards live in Settings → Vessel Readiness and run
+                fine without a voyageId (useReadinessSync no-ops when
+                voyageId is undefined, falling back to local-only
+                storage). So unlike Passage Intelligence + Departure
+                Brief, this group is openable whether or not a passage
+                is selected. Pass `voyageId` only when one IS selected
+                so the cards' sync targets the active passage; pass
+                undefined when not, so they run vessel-wide just like
+                in the Settings tab. */}
+            <details
+                className="group mb-2"
+                open={openGroup === 'vessel'}
+                onToggle={(e) => {
+                    if ((e.currentTarget as HTMLDetailsElement).open) {
+                        if (openGroup !== 'vessel') toggleGroup('vessel');
+                    } else if (openGroup === 'vessel') {
+                        setOpenGroup(null);
+                    }
+                }}
+            >
+                <summary className="list-none cursor-pointer">
                     <GroupHeader label="Vessel Readiness" ready={vesselReadyCount} total={5} />
-                </div>
-            ) : (
-                <details
-                    className="group mb-2"
-                    open={vesselOpen}
-                    onToggle={(e) => setVesselOpen((e.currentTarget as HTMLDetailsElement).open)}
+                </summary>
+
+                {/* VR-1: VESSEL PROFILE — read-only summary, canonical
+                source is settings.vessel from onboarding. */}
+                <CardAccordion
+                    isReady={vesselProfileReady}
+                    emoji="⚓"
+                    title="Vessel Profile"
+                    subtitle="Confirm active boat for routing"
+                    readySubtitle="✅ Vessel ready for routing"
+                    cardKey="vessel_profile"
+                    {...delegationProps}
                 >
-                    <summary className="list-none cursor-pointer">
-                        <GroupHeader label="Vessel Readiness" ready={vesselReadyCount} total={5} />
-                    </summary>
+                    <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
+                </CardAccordion>
 
-                    {/* VR-1: VESSEL PROFILE — read-only summary, canonical
-                    source is settings.vessel from onboarding. */}
-                    <CardAccordion
-                        isReady={vesselProfileReady}
-                        emoji="⚓"
-                        title="Vessel Profile"
-                        subtitle="Confirm active boat for routing"
-                        readySubtitle="✅ Vessel ready for routing"
-                        cardKey="vessel_profile"
-                        {...delegationProps}
-                    >
-                        <VesselProfileSummary onReviewedChange={onVesselProfileChange} />
-                    </CardAccordion>
+                {/* VR-2: ESSENTIAL RESERVES */}
+                <CardAccordion
+                    isReady={reservesReady}
+                    emoji="⛽"
+                    title="Essential Reserves"
+                    subtitle="Fuel · Water · Gas · Safety"
+                    readySubtitle="✅ All critical reserves confirmed"
+                    cardKey="essential_reserves"
+                    {...delegationProps}
+                >
+                    <EssentialReservesCard
+                        voyageId={selectedPassageId || undefined}
+                        onReviewedChange={onReservesChange}
+                    />
+                </CardAccordion>
 
-                    {/* VR-2: ESSENTIAL RESERVES */}
-                    <CardAccordion
-                        isReady={reservesReady}
-                        emoji="⛽"
-                        title="Essential Reserves"
-                        subtitle="Fuel · Water · Gas · Safety"
-                        readySubtitle="✅ All critical reserves confirmed"
-                        cardKey="essential_reserves"
-                        {...delegationProps}
-                    >
-                        <EssentialReservesCard voyageId={selectedPassageId} onReviewedChange={onReservesChange} />
-                    </CardAccordion>
+                {/* VR-3: VESSEL PRE-CHECK */}
+                <CardAccordion
+                    isReady={vesselChecked}
+                    emoji="🔧"
+                    title="Vessel Pre-Check"
+                    subtitle="Engine · Electrical · Hull · Safety"
+                    readySubtitle="✅ All vessel systems verified"
+                    cardKey="vessel_check"
+                    {...delegationProps}
+                >
+                    <VesselCheckCard voyageId={selectedPassageId || undefined} onReviewedChange={onVesselCheckChange} />
+                </CardAccordion>
 
-                    {/* VR-3: VESSEL PRE-CHECK */}
-                    <CardAccordion
-                        isReady={vesselChecked}
-                        emoji="🔧"
-                        title="Vessel Pre-Check"
-                        subtitle="Engine · Electrical · Hull · Safety"
-                        readySubtitle="✅ All vessel systems verified"
-                        cardKey="vessel_check"
-                        {...delegationProps}
-                    >
-                        <VesselCheckCard voyageId={selectedPassageId} onReviewedChange={onVesselCheckChange} />
-                    </CardAccordion>
+                {/* VR-4: MEDICAL & FIRST AID */}
+                <CardAccordion
+                    isReady={medicalReady}
+                    emoji="🏥"
+                    title="Medical & First Aid"
+                    subtitle="Allergies · Emergency contacts · First aid kit"
+                    readySubtitle="✅ Crew medical info recorded · Kit verified"
+                    cardKey="medical"
+                    {...delegationProps}
+                >
+                    <MedicalFirstAidCard voyageId={selectedPassageId || undefined} onReviewedChange={onMedicalChange} />
+                </CardAccordion>
 
-                    {/* VR-4: MEDICAL & FIRST AID */}
-                    <CardAccordion
-                        isReady={medicalReady}
-                        emoji="🏥"
-                        title="Medical & First Aid"
-                        subtitle="Allergies · Emergency contacts · First aid kit"
-                        readySubtitle="✅ Crew medical info recorded · Kit verified"
-                        cardKey="medical"
-                        {...delegationProps}
-                    >
-                        <MedicalFirstAidCard voyageId={selectedPassageId} onReviewedChange={onMedicalChange} />
-                    </CardAccordion>
-
-                    {/* VR-5: COMMUNICATIONS PLAN */}
-                    <CardAccordion
-                        isReady={commsReady}
-                        emoji="📡"
-                        title="Communications Plan"
-                        subtitle="Radio · Position reports · Shore contact"
-                        readySubtitle="✅ Comms plan confirmed · Shore contact set"
-                        cardKey="comms_plan"
-                        {...delegationProps}
-                    >
-                        <CommsPlanCard voyageId={selectedPassageId} onReviewedChange={onCommsChange} />
-                    </CardAccordion>
-                </details>
-            )}
+                {/* VR-5: COMMUNICATIONS PLAN */}
+                <CardAccordion
+                    isReady={commsReady}
+                    emoji="📡"
+                    title="Communications Plan"
+                    subtitle="Radio · Position reports · Shore contact"
+                    readySubtitle="✅ Comms plan confirmed · Shore contact set"
+                    cardKey="comms_plan"
+                    {...delegationProps}
+                >
+                    <CommsPlanCard voyageId={selectedPassageId || undefined} onReviewedChange={onCommsChange} />
+                </CardAccordion>
+            </details>
         </>
     );
 };
