@@ -198,10 +198,14 @@ export const useAppController = () => {
             }
 
             // Genuinely new account (or offline + no flag). Show
-            // onboarding. We only get here after authChecked=true,
-            // so we know auth has resolved and we're making an
-            // informed decision.
-            if (!cancelled) setShowOnboarding(true);
+            // onboarding ONLY if signed in. Un-authed users have no
+            // cloud account to attach a vessel to yet, so the wizard
+            // would dead-end at the "save your boat" step. Browsing
+            // without an account is supported — onboarding waits until
+            // the user signs in at a save point and we land back here
+            // with authedUser populated. (Deferred-sign-in flow,
+            // 2026-05-17.)
+            if (!cancelled && authedUser) setShowOnboarding(true);
         })();
 
         return () => {
