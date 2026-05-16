@@ -230,10 +230,18 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     },
 
     // ── Vessel sub-pages ─────────────────────────────────────────────────
+    // NOTE: `details` (LogPage) is now `group: 'standalone'` because the
+    // 5-tab nav restructure (Week 2) promoted Log to a top-level bottom
+    // tab — same level as Glass / Charts / Plan / Vessel. Keeping it
+    // grouped as `vessel` would highlight the Vessel tab when on Log
+    // and clash with the dedicated Log tab. Back-target remains
+    // 'vessel' since users coming from a Vessel sub-page (e.g. compass
+    // → details was a common path) still expect "Back" to land them
+    // in Nav Station.
     details: {
         component: LogPage,
         boundaryName: 'LogPage',
-        group: 'vessel',
+        group: 'standalone',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
     compass: {

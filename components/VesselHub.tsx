@@ -1074,6 +1074,25 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     />
                     <CollapsibleContent open={expanded.has('wardroom')}>
                         <div style={GLASS.listContainer}>
+                            {/* Scuttlebutt — community + DMs + Chandlery
+                                (Marketplace) + LonelyHearts (crew finder).
+                                Demoted from the bottom nav in the Week 2
+                                5-tab restructure; the Wardroom is the
+                                natural home for social features since it's
+                                the officers' lounge of a vessel. The
+                                top-level chatUnread badge now surfaces on
+                                the Vessel nav tab. */}
+                            <OfficeRow
+                                icon={<ChatBubbleIcon color="#f472b6" />}
+                                label="Scuttlebutt"
+                                status="Community · DMs · Chandlery"
+                                statusColor="#f472b6"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('chat');
+                                }}
+                            />
+                            <ListDivider />
                             <OfficeRow
                                 icon={<MusicNoteIcon color="#f472b6" />}
                                 label="Music"
@@ -2091,6 +2110,16 @@ const NoticeIcon: React.FC<{ color: string }> = ({ color }) => (
 const MusicNoteIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill={color} aria-hidden="true">
         <path d="M9 17.5a2.5 2.5 0 0 1-2.5 2.5A2.5 2.5 0 0 1 4 17.5 2.5 2.5 0 0 1 6.5 15c.34 0 .67.07.97.18V6L20 4v11.5a2.5 2.5 0 0 1-2.5 2.5 2.5 2.5 0 0 1-2.5-2.5 2.5 2.5 0 0 1 2.5-2.5c.34 0 .67.07.97.18V7.79L9 9.5v8z" />
+    </svg>
+);
+
+const ChatBubbleIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5} aria-hidden="true">
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+        />
     </svg>
 );
 
