@@ -187,91 +187,84 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                     {/* Blue accent bar */}
                     <div className="w-1.5 shrink-0 bg-sky-500" />
 
-                    {/* Content */}
-                    <div className="flex-1 p-4">
-                        {/* Mood badge — top of card */}
-                        <div className="flex items-center gap-1.5 mb-1.5">
-                            <span className="text-micro">{moodCfg.emoji}</span>
-                            <span className="text-micro font-bold text-gray-400 uppercase tracking-widest">
-                                {moodCfg.label || entry.mood}
-                            </span>
-                            {entry.audio_url && (
-                                <span className="text-[11px] text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded-full font-bold">
-                                    🎙️
-                                </span>
-                            )}
-                            {entry._offline && (
-                                <span className="text-[11px] text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded-full font-bold">
-                                    PENDING
-                                </span>
-                            )}
-                        </div>
+                    {/* Content — compact two-line layout
+                        (Shane: cards were too tall, drop the body
+                        blurb, target ~half height). Row 1: mood emoji
+                        + title + (audio/pending badges). Row 2:
+                        small subtitle with time + location.
+                        Share/Edit on the right, vertically centred. */}
+                    <div className="flex-1 px-3 py-2 min-w-0">
                         <div className="flex items-center justify-between gap-3">
-                            <div className="flex-1 text-left min-w-0">
-                                <h4 className="text-sm font-black text-white tracking-wide mb-0.5 truncate">
-                                    {entry.title}
-                                </h4>
-                                <p className="text-label text-gray-400 line-clamp-2 leading-relaxed">
-                                    {entry.body || (entry.audio_url ? 'Voice memo attached' : '')}
-                                </p>
-                                {entryHasCoords && (
-                                    <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-sky-500/60">
-                                        <svg
-                                            className="w-3 h-3 shrink-0"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
+                            <div className="flex-1 min-w-0">
+                                {/* Title row — mood emoji inline */}
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-sm shrink-0" aria-label={moodCfg.label || entry.mood}>
+                                        {moodCfg.emoji}
+                                    </span>
+                                    <h4 className="text-sm font-black text-white tracking-wide truncate">
+                                        {entry.title}
+                                    </h4>
+                                    {entry.audio_url && (
+                                        <span
+                                            className="text-[10px] shrink-0"
+                                            aria-label="Voice memo attached"
+                                            title="Voice memo"
                                         >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                            />
-                                        </svg>
-                                        <span className="font-mono font-medium">
-                                            {formatCoord(entry.latitude!, entry.longitude!)}
+                                            🎙️
                                         </span>
-                                        {entry.location_name && !entry.location_name.includes('°') && (
-                                            <span className="text-gray-400 truncate">— {entry.location_name}</span>
-                                        )}
-                                    </div>
-                                )}
-                                {!entryHasCoords && entry.location_name && (
-                                    <div className="flex items-center gap-1.5 mt-1.5 text-[11px] text-sky-500/50">
-                                        <svg
-                                            className="w-3 h-3 shrink-0"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={1.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
-                                            />
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
-                                            />
-                                        </svg>
-                                        <span className="font-medium truncate">{entry.location_name}</span>
-                                    </div>
-                                )}
+                                    )}
+                                    {entry._offline && (
+                                        <span className="text-[9px] text-amber-400 bg-amber-500/15 px-1 py-0.5 rounded-full font-bold shrink-0">
+                                            PENDING
+                                        </span>
+                                    )}
+                                </div>
+                                {/* Subtitle — time + location, one line, no blurb */}
+                                <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400 min-w-0">
+                                    <span className="font-mono shrink-0">
+                                        {new Date(entry.created_at).toLocaleTimeString('en-AU', {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                        })}
+                                    </span>
+                                    {(entryHasCoords || entry.location_name) && (
+                                        <>
+                                            <span className="text-slate-600 shrink-0">·</span>
+                                            <svg
+                                                className="w-3 h-3 shrink-0 text-sky-500/60"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={1.5}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"
+                                                />
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"
+                                                />
+                                            </svg>
+                                            <span className="truncate">
+                                                {entry.location_name && !entry.location_name.includes('°')
+                                                    ? entry.location_name
+                                                    : entryHasCoords
+                                                      ? formatCoord(entry.latitude!, entry.longitude!)
+                                                      : entry.location_name}
+                                            </span>
+                                        </>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Share + Edit buttons — vertically centered */}
-                            <div className="shrink-0 flex flex-col items-center gap-1 self-center">
+                            <div className="shrink-0 flex items-center gap-0.5">
                                 <button
                                     onClick={handleShare}
-                                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                                    className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
                                     aria-label="Share entry"
                                 >
                                     <svg
@@ -293,7 +286,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                                         e.stopPropagation();
                                         onEdit();
                                     }}
-                                    className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                                    className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
                                     aria-label="Edit entry"
                                 >
                                     <svg
