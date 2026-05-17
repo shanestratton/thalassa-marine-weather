@@ -695,18 +695,21 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey;
                                         }).length;
                                         const totalNm = Math.round(careerTotals.totalDistance ?? 0);
+                                        // Status row — bumped 11 → 12 px + slate-400 → slate-300
+                                        // for the labels 2026-05-17. The numbers themselves stay
+                                        // sky-300 / 12 px so they still read as the signal in the row.
                                         return (
-                                            <div className="mb-3 flex items-center gap-3 px-1 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 tabular-nums">
+                                            <div className="mb-3 flex items-center gap-3 px-1 py-2 text-xs font-bold uppercase tracking-wider text-slate-300 tabular-nums">
                                                 <span className="text-sky-300">{entriesToday}</span>
-                                                <span className="text-slate-500/60">Today</span>
+                                                <span className="text-slate-400">Today</span>
                                                 <span className="text-slate-600">·</span>
                                                 <span className="text-sky-300">{voyageGroups.length}</span>
-                                                <span className="text-slate-500/60">
+                                                <span className="text-slate-400">
                                                     {voyageGroups.length === 1 ? 'Voyage' : 'Voyages'}
                                                 </span>
                                                 <span className="text-slate-600">·</span>
                                                 <span className="text-sky-300">{totalNm.toLocaleString()}</span>
-                                                <span className="text-slate-500/60">nm</span>
+                                                <span className="text-slate-400">nm</span>
                                             </div>
                                         );
                                     })()}

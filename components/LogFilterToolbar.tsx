@@ -135,7 +135,11 @@ const FilterPill: React.FC<FilterPillProps> = ({ label, count, active, onClick, 
             onClick={onClick}
             aria-label={`Filter ${label === 'Man' ? 'manual' : 'waypoint'} entries${count !== undefined ? ` (${count})` : ''}`}
             aria-pressed={active}
-            className={`min-w-[56px] min-h-[36px] px-3 py-1.5 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
+            // min-h bumped 36 → 44 px 2026-05-17 to clear the Apple HIG
+            // tap-target floor. Filter pills sit in a horizontal row at
+            // the top of the Log page; 36 px is genuinely small on a
+            // moving deck with wet hands.
+            className={`min-w-[56px] min-h-[44px] px-3 py-2 rounded-lg border text-xs font-bold transition-all active:scale-95 ${colorClasses[color]}`}
         >
             {label}
             {count !== undefined && count > 0 && <span className="ml-0.5 opacity-70">{count}</span>}

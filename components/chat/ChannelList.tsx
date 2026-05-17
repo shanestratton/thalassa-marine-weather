@@ -303,8 +303,38 @@ const ChannelListInner: React.FC<ChannelListProps> = ({
 
             <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/60 px-1 mb-2">Channels</p>
 
-            {/* Channel list */}
-            {topLevel.map((ch, i) => renderChannelCard(ch, false, i))}
+            {/* Channel list. Empty state added 2026-05-17 — before, when
+                the channels API returned an empty array (rare but real:
+                first launch before any channels seeded, or a filter
+                state that hides everything), the list simply rendered
+                nothing and the user saw a confusing blank pane. */}
+            {topLevel.length === 0 ? (
+                <div className="flex flex-col items-center text-center py-16 px-6">
+                    <div className="w-12 h-12 rounded-full bg-sky-500/[0.08] border border-sky-500/15 flex items-center justify-center mb-4">
+                        <svg
+                            className="w-6 h-6 text-sky-400/70"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={1.5}
+                            aria-hidden="true"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M21 11.5a8.38 8.38 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.38 8.38 0 01-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.38 8.38 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z"
+                            />
+                        </svg>
+                    </div>
+                    <p className="text-sm font-semibold text-white/70 mb-1">No channels yet</p>
+                    <p className="text-[12px] text-white/40 leading-relaxed max-w-[220px]">
+                        Channels will appear here once sailors join Scuttlebutt. Propose a new one with the + button
+                        above.
+                    </p>
+                </div>
+            ) : (
+                topLevel.map((ch, i) => renderChannelCard(ch, false, i))
+            )}
 
             {/* Proposal Modal */}
             {showProposalForm && (

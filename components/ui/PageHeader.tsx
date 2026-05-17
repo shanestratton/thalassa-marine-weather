@@ -78,7 +78,13 @@ export const PageHeader: React.FC<PageHeaderProps> = ({ title, subtitle, onBack,
                 <h1 className="text-xl font-extrabold text-white uppercase tracking-wider truncate">{title}</h1>
                 {subtitle &&
                     (typeof subtitle === 'string' ? (
-                        <p className="text-[11px] text-gray-400 font-bold uppercase tracking-widest">{subtitle}</p>
+                        // Bumped 11 → 12 px 2026-05-17. PageHeader sits at
+                        // the top of every non-tab surface; the subtitle is
+                        // the secondary label users rely on to confirm
+                        // they're in the right place. At 11 px with the
+                        // tracking-widest + uppercase + 400-weight grey it
+                        // was sliding into illegibility on glare/spray.
+                        <p className="text-xs text-gray-300 font-bold uppercase tracking-widest">{subtitle}</p>
                     ) : (
                         subtitle
                     ))}
