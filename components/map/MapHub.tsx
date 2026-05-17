@@ -76,6 +76,7 @@ import { EncRouteButton } from './EncRouteButton';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
+import { autoSyncFromPiIfPossible } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -377,6 +378,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // No-op once the localStorage flag is set or when real cells already exist.
     useEffect(() => {
         void bootstrapEncSamplesIfNeeded();
+        // After the bundled NOAA demo lands, also check if the user's Bosun
+        // Pi is reachable on local wifi and silently pull any AU/NZ/EU cells
+        // they've decrypted there. No UI interaction required — the user
+        // just sees more chart coverage appear when they're near the boat.
+        void autoSyncFromPiIfPossible();
     }, []);
     const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
