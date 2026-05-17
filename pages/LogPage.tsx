@@ -648,6 +648,45 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 className="flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2"
                                 style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}
                             >
+                                {/* ── STATUS HEADER ──────────────────────
+                                    Live counts at a glance — entries today,
+                                    voyages logged, career distance. Moved
+                                    here from VesselHub's Quick Actions
+                                    "Log Book" tile (deleted 2026-05-17 as
+                                    duplication of the bottom-nav Log tab).
+                                    Only renders when there's data to count;
+                                    on the empty state the "Begin Your Log"
+                                    compass artwork does its own job. */}
+                                {voyageGroups.length > 0 &&
+                                    (() => {
+                                        // Entries today — compare by LOCAL
+                                        // calendar day to avoid the UTC-vs-
+                                        // local parse-ambiguity bug from the
+                                        // old VesselHub implementation.
+                                        const today = new Date();
+                                        const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
+                                        const entriesToday = entries.filter((e) => {
+                                            const d = new Date(e.timestamp);
+                                            if (Number.isNaN(d.getTime())) return false;
+                                            return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey;
+                                        }).length;
+                                        const totalNm = Math.round(careerTotals.totalDistance ?? 0);
+                                        return (
+                                            <div className="mb-3 flex items-center gap-3 px-1 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-400 tabular-nums">
+                                                <span className="text-sky-300">{entriesToday}</span>
+                                                <span className="text-slate-500/60">Today</span>
+                                                <span className="text-slate-600">·</span>
+                                                <span className="text-sky-300">{voyageGroups.length}</span>
+                                                <span className="text-slate-500/60">
+                                                    {voyageGroups.length === 1 ? 'Voyage' : 'Voyages'}
+                                                </span>
+                                                <span className="text-slate-600">·</span>
+                                                <span className="text-sky-300">{totalNm.toLocaleString()}</span>
+                                                <span className="text-slate-500/60">nm</span>
+                                            </div>
+                                        );
+                                    })()}
+
                                 {/* Past Voyage Cards */}
                                 {voyageGroups.length === 0 ? (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
