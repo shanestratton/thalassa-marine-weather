@@ -21,7 +21,7 @@ import type { EncConversionResult } from './types';
 const log = createLogger('bootstrapEncSamples');
 // Bumping the version forces the bootstrap to run again on next launch — used
 // when we ship a new sample set or fix a previously-failed-silently regression.
-const FLAG_KEY = 'thalassa.enc.samplesImported.v4';
+const FLAG_KEY = 'thalassa.enc.samplesImported.v5';
 
 /**
  * Sample cells to fetch on first launch. Names match files in
@@ -45,24 +45,19 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
             return;
         }
 
-        // Build a per-cell skip set so we only import the missing ones — leaves
-        // anything the user already imported via the chart locker untouched,
-        // but lets us add NEW sample cells (Newport, Moreton Bay, overview)
-        // alongside an existing Brisbane River cell from an earlier version.
+        // Always re-import our sample cells when a new bootstrap version fires —
+        // older triangle-soup or earlier-edition cells get clobbered by importCell
+        // (it overwrites by cellId). User-imported cells outside SAMPLE_CELLS are
+        // never touched.
         const existing = new Set(listCells().map((c) => c.id));
         const platform = Capacitor.getPlatform();
         log.warn(
-            `bootstrap starting on ${platform} — ${SAMPLE_CELLS.length} sample cells, ${existing.size} already in store`,
+            `bootstrap starting on ${platform} — ${SAMPLE_CELLS.length} sample cells, ${existing.size} cells in store (will overwrite any matching sample IDs)`,
         );
 
         let imported = 0;
-        let alreadyHave = 0;
+        const alreadyHave = 0;
         for (const cellId of SAMPLE_CELLS) {
-            if (existing.has(cellId)) {
-                log.warn(`  ${cellId}: already imported, skipping`);
-                alreadyHave += 1;
-                continue;
-            }
             const url = `/enc-samples/${cellId}.geojson`;
             try {
                 log.warn(`  ${cellId}: fetching ${url}`);
