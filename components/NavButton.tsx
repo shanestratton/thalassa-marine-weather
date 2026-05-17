@@ -47,20 +47,28 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
         <div
             className="relative flex items-center justify-center"
             style={{
-                // Active-state treatment dialled down 2026-05-17.
-                // Was: brightness(1.2) + sea-foam green drop-shadow
-                //      with 6 px radius @ 0.5 alpha + scale(1.1)
-                //      = three competing signals (lift + glow + glow
-                //      colour) shouting at the same time.
-                // Now: subtle brightness lift + smaller cyan glow
-                //      that matches the brand palette + smaller
-                //      scale. Reads as "this tab is active" without
-                //      yelling about it. The white dot under the
-                //      label (line below) already does most of the
-                //      heavy lifting — the icon treatment just
-                //      reinforces it.
-                filter: active ? 'brightness(1.08) drop-shadow(0 0 3px rgba(103, 232, 249, 0.35))' : 'none',
-                transform: active ? 'scale(1.04)' : 'none',
+                // Active-state treatment, v3 — minimal (2026-05-17).
+                //
+                // History
+                // -------
+                //   v1 (original): brightness 1.2 + sea-foam drop-shadow
+                //      6 px @ 0.5 + scale 1.1. Three competing signals
+                //      yelling at the same time.
+                //   v2 (earlier today): brightness 1.08 + cyan drop-
+                //      shadow 3 px @ 0.35 + scale 1.04. Cleaner, but
+                //      still read brighter than intended on iOS where
+                //      the OLED contrast makes glow halos punchier.
+                //   v3 (here): drop the drop-shadow entirely. Keep
+                //      JUST brightness + scale. The icon's inherent
+                //      cyan colour (set by the parent NavBar when
+                //      active) IS the "you are here" signal — it
+                //      doesn't need a halo announcing it. The white
+                //      indicator dot below the label finishes the job.
+                //
+                // Visual A/B test PNGs at /tmp/nav-glow-test.html
+                // settled on this variant (option C — "Minimal").
+                filter: active ? 'brightness(1.10)' : 'none',
+                transform: active ? 'scale(1.03)' : 'none',
                 transition: 'all 0.2s ease-in-out',
                 willChange: 'transform, filter',
                 width: 32,
@@ -94,12 +102,13 @@ export const NavButton: React.FC<NavButtonProps> = ({ icon, label, active, onCli
             {label}
         </span>
         {active && (
+            // White indicator dot under the label. The box-shadow halo
+            // was removed in v3 (matched the icon's glow removal above)
+            // — the dot itself at solid 0.85 alpha is already plenty
+            // visible against the dark nav bar without needing a glow.
             <div
                 className="absolute bottom-0.5 w-1 h-1 rounded-full pointer-events-none"
-                style={{
-                    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-                    boxShadow: '0 0 4px rgba(255, 255, 255, 0.4)',
-                }}
+                style={{ backgroundColor: 'rgba(255, 255, 255, 0.85)' }}
                 aria-hidden="true"
             />
         )}
