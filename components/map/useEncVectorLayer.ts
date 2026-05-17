@@ -27,13 +27,23 @@ import {
     detachEncFeatureClickHandlers,
     mountEncVectorLayer,
     refreshEncVectorData,
+    setEncVectorVisibility,
     unmountEncVectorLayer,
 } from './EncVectorLayer';
 import { getMergedVectorData, hasAnyCells, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 
 const log = createLogger('useEncVectorLayer');
 
-export function useEncVectorLayer(mapRef: React.MutableRefObject<mapboxgl.Map | null>, mapReady: boolean): void {
+export function useEncVectorLayer(
+    mapRef: React.MutableRefObject<mapboxgl.Map | null>,
+    mapReady: boolean,
+    /**
+     * Whether the user has toggled ENC vector display on in the layer FAB.
+     * Defaults to `true` for backwards compat — older callers without a toggle
+     * get the previous always-on behaviour.
+     */
+    visible: boolean = true,
+): void {
     const mountedRef = useRef(false);
     const [bumpCounter, setBumpCounter] = useState(0);
 
@@ -73,6 +83,8 @@ export function useEncVectorLayer(mapRef: React.MutableRefObject<mapboxgl.Map | 
                     attachEncFeatureClickHandlers(map);
                     mountedRef.current = true;
                 }
+                // Always-on by default — explicit toggle from the FAB flips it.
+                setEncVectorVisibility(map, visible);
             } catch (err) {
                 log.warn('failed to mount vector layer', err);
             }
@@ -83,5 +95,5 @@ export function useEncVectorLayer(mapRef: React.MutableRefObject<mapboxgl.Map | 
         return () => {
             cancelled = true;
         };
-    }, [mapRef, mapReady, bumpCounter]);
+    }, [mapRef, mapReady, bumpCounter, visible]);
 }

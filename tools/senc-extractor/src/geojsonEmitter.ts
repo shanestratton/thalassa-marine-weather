@@ -31,17 +31,23 @@ interface FeatureCollection {
     features: GeoJsonFeature[];
 }
 
+/**
+ * Shape consumed by the Thalassa iOS app (services/enc/types.ts:EncConversionResult).
+ * Kept here as a structural duplicate so this CLI doesn't pull in the whole app
+ * type tree just for the emitter target. If `services/enc/types.ts` evolves,
+ * mirror the change here.
+ */
 export interface CellOutput {
     cellId: string;
+    sourceHO: string;
+    edition: number;
+    issued: string;
+    bbox: [number, number, number, number];
+    layers: Record<string, FeatureCollection>;
+    /** Extra metadata — not in the canonical EncConversionResult but harmless on the app side. */
     cellName?: string;
-    publishDate?: string;
-    cellEdition?: number;
-    updateDate?: string;
     nativeScale?: number;
     sencCreateDate?: string;
-    extent?: HeaderInfo['cellExtent'];
-    layers: Record<string, FeatureCollection>;
-    /** Counts before per-class filtering (diagnostic). */
     stats?: { totalFeatures: number; emittedFeatures: number; classes: Record<string, number> };
 }
 
@@ -50,6 +56,8 @@ export interface EmitOptions {
     classes?: Set<string> | 'all';
     /** Filename-derived cell id for the output (e.g. "US5GA22M"). */
     cellId: string;
+    /** Hydrographic-office code (e.g. "AU", "US"). Default "??" if unknown. */
+    sourceHO?: string;
 }
 
 export function emitCell(header: HeaderInfo, features: SencFeature[], opts: EmitOptions): CellOutput {
@@ -73,22 +81,34 @@ export function emitCell(header: HeaderInfo, features: SencFeature[], opts: Emit
         emittedFeatures += 1;
     }
 
+    // Canonical fields the iOS app needs.
+    const bbox: [number, number, number, number] = header.cellExtent
+        ? [header.cellExtent.wLon, header.cellExtent.sLat, header.cellExtent.eLon, header.cellExtent.nLat]
+        : [0, 0, 0, 0];
+    const issuedIso = isoDateFromCompact(header.publishDate ?? header.updateDate);
+
     return {
         cellId: opts.cellId,
+        sourceHO: opts.sourceHO ?? '??',
+        edition: header.cellEdition ?? 0,
+        issued: issuedIso,
+        bbox,
+        layers,
         cellName: header.cellName,
-        publishDate: header.publishDate,
-        cellEdition: header.cellEdition,
-        updateDate: header.updateDate,
         nativeScale: header.nativeScale,
         sencCreateDate: header.sencCreateDate,
-        extent: header.cellExtent,
-        layers,
         stats: {
             totalFeatures: features.length,
             emittedFeatures,
             classes: classCounts,
         },
     };
+}
+
+/** SENC headers store dates as `YYYYMMDD`; emit ISO `YYYY-MM-DD` for the app. */
+function isoDateFromCompact(compact: string | undefined): string {
+    if (!compact || compact.length < 8) return '';
+    return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
 }
 
 function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
