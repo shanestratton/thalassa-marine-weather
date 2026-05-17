@@ -357,71 +357,103 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                             </div>
                         </div>
 
-                        {/* Air Draft */}
-                        <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                Air Draft <UnitToggle value={airDraftUnit} onClick={onToggleAirDraftUnit} />
-                            </label>
-                            <input
-                                type="number"
-                                value={airDraft}
-                                onChange={(e) => onAirDraftChange(e.target.value)}
-                                placeholder="Height above waterline"
-                                className={INPUT_CLASS}
-                            />
-                            <p className="text-[11px] text-gray-400 mt-1">Used for bridge clearance on routes</p>
-                        </div>
+                        {/* ── Optional details — progressive disclosure
+                            added 2026-05-17. Air draft / fuel / water /
+                            crew-count are useful for routing and
+                            provisioning but rarely needed for first-time
+                            vessel setup. Folding them behind a chevron
+                            disclosure trims ~40 % of the form's visible
+                            length at first paint. Users with the
+                            numbers tap to expand. */}
+                        <details className="group/optional">
+                            <summary className="list-none cursor-pointer flex items-center gap-2 py-3 text-xs font-bold uppercase tracking-widest text-sky-300/80 hover:text-sky-300 transition-colors">
+                                <svg
+                                    className="w-3.5 h-3.5 transition-transform group-open/optional:rotate-90"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                    aria-hidden="true"
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                </svg>
+                                <span className="flex-1">More details</span>
+                                <span className="text-[10px] text-slate-500 normal-case tracking-normal italic font-normal">
+                                    Optional — for routing &amp; provisioning
+                                </span>
+                            </summary>
+                            <div className="space-y-6 pt-3">
+                                {/* Air Draft */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
+                                        Air Draft <UnitToggle value={airDraftUnit} onClick={onToggleAirDraftUnit} />
+                                    </label>
+                                    <input
+                                        type="number"
+                                        value={airDraft}
+                                        onChange={(e) => onAirDraftChange(e.target.value)}
+                                        placeholder="Height above waterline"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <p className="text-[11px] text-gray-400 mt-1">
+                                        Used for bridge clearance on routes
+                                    </p>
+                                </div>
 
-                        {/* Tankage */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
-                                    <span className="flex items-center gap-1">
-                                        <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
-                                    </span>{' '}
-                                    <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
-                                </label>
-                                <input
-                                    type="number"
-                                    value={fuel}
-                                    onChange={(e) => onFuelChange(e.target.value)}
-                                    placeholder="0"
-                                    className={INPUT_CLASS}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
-                                    <span className="flex items-center gap-1">
-                                        <DropletIcon className="w-3 h-3 text-sky-400" /> Water
-                                    </span>{' '}
-                                    <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
-                                </label>
-                                <input
-                                    type="number"
-                                    value={water}
-                                    onChange={(e) => onWaterChange(e.target.value)}
-                                    placeholder="0"
-                                    className={INPUT_CLASS}
-                                />
-                            </div>
-                        </div>
+                                {/* Tankage */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                            <span className="flex items-center gap-1">
+                                                <GearIcon className="w-3 h-3 text-amber-400" /> Fuel
+                                            </span>{' '}
+                                            <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={fuel}
+                                            onChange={(e) => onFuelChange(e.target.value)}
+                                            placeholder="0"
+                                            className={INPUT_CLASS}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between gap-1 items-center">
+                                            <span className="flex items-center gap-1">
+                                                <DropletIcon className="w-3 h-3 text-sky-400" /> Water
+                                            </span>{' '}
+                                            <UnitToggle value={volUnit} onClick={onToggleVolUnit} />
+                                        </label>
+                                        <input
+                                            type="number"
+                                            value={water}
+                                            onChange={(e) => onWaterChange(e.target.value)}
+                                            placeholder="0"
+                                            className={INPUT_CLASS}
+                                        />
+                                    </div>
+                                </div>
 
-                        {/* Crew */}
-                        <div>
-                            <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
-                                <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
-                            </label>
-                            <input
-                                type="number"
-                                min="1"
-                                max="99"
-                                value={crewCount}
-                                onChange={(e) => onCrewCountChange(e.target.value)}
-                                placeholder="2"
-                                className={INPUT_CLASS}
-                            />
-                            <p className="text-[11px] text-gray-400 mt-1">Used for provisioning and watch schedules</p>
-                        </div>
+                                {/* Crew */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-1">
+                                        <AnchorIcon className="w-3 h-3 text-sky-400" /> Crew Aboard (incl. Skipper)
+                                    </label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="99"
+                                        value={crewCount}
+                                        onChange={(e) => onCrewCountChange(e.target.value)}
+                                        placeholder="2"
+                                        className={INPUT_CLASS}
+                                    />
+                                    <p className="text-[11px] text-gray-400 mt-1">
+                                        Used for provisioning and watch schedules
+                                    </p>
+                                </div>
+                            </div>
+                        </details>
                     </div>
                     <button
                         aria-label="Proceed to next step"
