@@ -53,6 +53,13 @@ export interface GpsSubscriptionOptions {
     isActive: () => boolean;
     /** True iff rapid mode is engaged — disables speed-tier debouncing while on. */
     isRapidMode: () => boolean;
+    /**
+     * True iff Precision Mode is engaged — routes accepted fixes
+     * through `pushWithLiveFilter` (collocation + 3-point collinearity
+     * decimation) instead of raw push. Lets us safely sample at
+     * 2 Hz without ballooning the buffer.
+     */
+    isPrecisionMode: () => boolean;
     /** Current tracking interval in ms — read by heartbeat to decide if a flush is owed. */
     getIntervalMs: () => number;
     /** ISO timestamp of last saved entry, or undefined if none yet. */
@@ -240,9 +247,18 @@ export class GpsSubscriptionManager {
             }
         }
 
-        // Fix-acceptance gate + buffer push.
+        // Fix-acceptance gate + buffer push. When Precision Mode is
+        // active, route through the buffer's live decimation filter
+        // (collocation drop + 3-point collinearity replacement)
+        // instead of raw push, so the 2 Hz capture rate doesn't
+        // bloat the buffer with redundant points. Final RDP at
+        // flush time still runs as before.
         if (opts.isActive() && this.acceptFix(pos, opts.trackBuffer)) {
-            opts.trackBuffer.push(pos);
+            if (opts.isPrecisionMode()) {
+                opts.trackBuffer.pushWithLiveFilter(pos);
+            } else {
+                opts.trackBuffer.push(pos);
+            }
         }
 
         // Altitude → EnvironmentService for on-water/on-land detection.

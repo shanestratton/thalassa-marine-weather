@@ -121,6 +121,47 @@ class BgGeoManagerClass {
         }
     }
 
+    /**
+     * Runtime-reconfigure the Transistor GPS sampling rate.
+     *
+     * Added 2026-05-17 to support Precision Mode — when the user wants
+     * the highest-accuracy track (entering harbour, anchoring, narrow
+     * channels), we tighten the distance filter to 0 and ask iOS/
+     * Android for fixes as fast as the OS will give them (~1–2 Hz on
+     * iOS, configurable on Android). The live decimation in
+     * `GpsTrackBuffer.pushWithLiveFilter` immediately drops the
+     * redundant ones, so storage stays sane while accuracy peaks.
+     *
+     * Modes:
+     *   - 'default'   — distanceFilter 1 m, 1 Hz floor (normal sailing)
+     *   - 'precision' — distanceFilter 0,   500 ms floor (~2 Hz target)
+     *
+     * Calling `setConfig` on a running BgGeo session applies live,
+     * no restart needed.
+     */
+    async setSamplingMode(mode: 'default' | 'precision'): Promise<void> {
+        try {
+            await this.ensureReady();
+            if (mode === 'precision') {
+                await BackgroundGeolocation.setConfig({
+                    distanceFilter: 0,
+                    locationUpdateInterval: 500,
+                    fastestLocationUpdateInterval: 500,
+                });
+                log.info('GPS sampling → PRECISION (2 Hz target, distanceFilter 0)');
+            } else {
+                await BackgroundGeolocation.setConfig({
+                    distanceFilter: 1,
+                    locationUpdateInterval: 3000,
+                    fastestLocationUpdateInterval: 1000,
+                });
+                log.info('GPS sampling → DEFAULT (1 m / 1–3 s)');
+            }
+        } catch (e) {
+            log.warn('setSamplingMode failed (engine may not be running):', e);
+        }
+    }
+
     // ---- SUBSCRIBE HELPERS ----
 
     subscribeLocation(cb: LocationCallback): () => void {

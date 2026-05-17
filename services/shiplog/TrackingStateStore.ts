@@ -27,6 +27,14 @@ export interface TrackingState {
     isTracking: boolean;
     isPaused: boolean;
     isRapidMode: boolean;
+    /**
+     * Precision Mode (added 2026-05-17) — hi-fi GPS capture at ~2 Hz
+     * with live decimation in GpsTrackBuffer.pushWithLiveFilter to
+     * keep storage sane. Auto-shuts-off after 60 min to bound the
+     * battery cost. Distinct from Rapid Mode (which only changes the
+     * adaptive flush interval) — Precision changes the SAMPLE rate.
+     */
+    isPrecisionMode?: boolean;
     currentVoyageId?: string;
     voyageStartTime?: string;
     voyageEndTime?: string;
