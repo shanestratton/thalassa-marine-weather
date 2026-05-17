@@ -43,9 +43,6 @@ async function main() {
     if (stats.linesResolved !== undefined || stats.linesUnresolvable !== undefined) {
         console.log(`Lines resolved: ${stats.linesResolved ?? 0}  unresolvable: ${stats.linesUnresolvable ?? 0}`);
     }
-    if (stats.areasResolved !== undefined || stats.areasUnresolvable !== undefined) {
-        console.log(`Areas resolved: ${stats.areasResolved ?? 0}  unresolvable: ${stats.areasUnresolvable ?? 0}`);
-    }
 
     const wanted = filters ? features.filter((f) => filters.has(f.acronym)) : features;
 
@@ -80,13 +77,10 @@ function geomSummary(g: NonNullable<SencFeature['geometry']>): string {
             return `MultiPoint count=${g.coordinates.length}${firstStr}`;
         }
         case 'Area': {
-            const totalPts = g.rings.reduce((acc, r) => acc + r.length, 0);
-            const first = g.rings[0]?.[0];
+            const first = g.triangles[0]?.[0];
             const firstStr = first ? ` v0=[${first[0].toFixed(5)}, ${first[1].toFixed(5)}]` : '';
-            return `Area rings=${g.rings.length} pts=${totalPts}${firstStr} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
+            return `Area triangles=${g.triangles.length}${firstStr} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
         }
-        case 'AreaRaw':
-            return `AreaRaw contours=${g.contourCount} edges=${g.edgeVectorCount} (UNRESOLVED) bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
         case 'Line': {
             const first = g.coordinates[0];
             const firstStr = first ? ` first=[${first[0].toFixed(5)}, ${first[1].toFixed(5)}]` : '';

@@ -21,7 +21,7 @@ import type { EncConversionResult } from './types';
 const log = createLogger('bootstrapEncSamples');
 // Bumping the version forces the bootstrap to run again on next launch — used
 // when we ship a new sample set or fix a previously-failed-silently regression.
-const FLAG_KEY = 'thalassa.enc.samplesImported.v5';
+const FLAG_KEY = 'thalassa.enc.samplesImported.v6';
 
 /**
  * Sample cells to fetch on first launch. Names match files in
