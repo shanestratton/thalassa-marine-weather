@@ -215,9 +215,19 @@ class BgGeoManagerClass {
                 preventSuspend: true, // iOS: prevent app suspension
                 heartbeatInterval: 60, // Heartbeat every 60s when stationary
 
-                // Geofencing
+                // Geofencing — high-accuracy mode is REQUIRED for the
+                // 20–50 m anchor swing-radius use case. Without this
+                // flag, iOS may fall back to the low-power Significant
+                // Location Changes API (~500 m resolution) for fence
+                // checks, which means a vessel can drift 500 m
+                // off-anchor before the EXIT event fires. Set to true
+                // 2026-05-17 as part of the anchor-watch reliability
+                // pass; battery cost is acceptable because the watch
+                // is only ever armed when the user explicitly drops
+                // anchor (not during normal sailing).
                 geofenceProximityRadius: 5000,
                 geofenceInitialTriggerEntry: false,
+                geofenceModeHighAccuracy: true,
 
                 // iOS-specific — CRITICAL for background GPS
                 activityType: BackgroundGeolocation.ACTIVITY_TYPE_OTHER_NAVIGATION,
