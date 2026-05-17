@@ -594,6 +594,17 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
 const ROUTE_FOCUS_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.COALNE] as const;
 
 /**
+ * "Clean chart" mode — hide the busy depth-fills + coastline lines so the
+ * chart reads as just land + navigational markers + hazards. Keeps LNDARE
+ * (the user explicitly asked for "land"), all marker layers, and hazards.
+ *
+ * This is independent of route-focus: route-focus hides LNDARE too because
+ * the route polyline is the focal point; clean-chart KEEPS land so the
+ * sailor can sense-check waypoints against the coastline.
+ */
+const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.COALNE] as const;
+
+/**
  * Route-focus mode: hide the busy bulk-fill and coastline layers so the route
  * polyline is the dominant visual, but keep markers / lights / hazards so the
  * sailor can sense-check the route against channel marks.
@@ -617,6 +628,28 @@ export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void 
 
     const value = focused ? 'none' : 'visible';
     for (const id of ROUTE_FOCUS_HIDE_LAYERS) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
+    }
+}
+
+/**
+ * Chart-detail toggle: false = clean (land + markers + hazards only), true =
+ * full (also depth-fills + coastline). Mirrors `setEncRouteFocusMode` shape
+ * so MapHub can call them independently and the more-specific layer wins.
+ *
+ * Order rule: clean-chart can be on alongside route-focus; whichever sets
+ * 'none' last sticks. Since both target overlapping layers (DEPARE/COALNE),
+ * effectively "clean OR focused → hide" is what the user sees — which is
+ * the intended composition.
+ */
+export function setEncChartDetail(map: mapboxgl.Map, detailed: boolean): void {
+    const probe = map.getLayer(ENC_VEC_LAYERS.BCNLAT);
+    if (!probe) return;
+    const masterVisible = map.getLayoutProperty(ENC_VEC_LAYERS.BCNLAT, 'visibility') !== 'none';
+    if (!masterVisible) return;
+
+    const value = detailed ? 'visible' : 'none';
+    for (const id of CHART_DETAIL_HIDE_LAYERS) {
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
     }
 }

@@ -27,6 +27,7 @@ import {
     detachEncFeatureClickHandlers,
     mountEncVectorLayer,
     refreshEncVectorData,
+    setEncChartDetail,
     setEncVectorVisibility,
     unmountEncVectorLayer,
 } from './EncVectorLayer';
@@ -43,6 +44,11 @@ export function useEncVectorLayer(
      * get the previous always-on behaviour.
      */
     visible: boolean = true,
+    /**
+     * Whether to show full chart detail (depth fills + coastlines) or just
+     * land + markers. Defaults to `false` — clean view per user preference.
+     */
+    chartDetail: boolean = false,
 ): void {
     const mountedRef = useRef(false);
     const [bumpCounter, setBumpCounter] = useState(0);
@@ -85,6 +91,9 @@ export function useEncVectorLayer(
                 }
                 // Always-on by default — explicit toggle from the FAB flips it.
                 setEncVectorVisibility(map, visible);
+                // Detail mode independently controls the busy fills + coastlines.
+                // Apply AFTER visibility so the detail-hide stays effective.
+                setEncChartDetail(map, chartDetail);
             } catch (err) {
                 log.warn('failed to mount vector layer', err);
             }
@@ -95,5 +104,5 @@ export function useEncVectorLayer(
         return () => {
             cancelled = true;
         };
-    }, [mapRef, mapReady, bumpCounter, visible]);
+    }, [mapRef, mapReady, bumpCounter, visible, chartDetail]);
 }
