@@ -99,9 +99,16 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
         isOffshore: isOffshoreProp,
     }) => {
         const env = useEnvironment();
-        const { refreshData, loading, backgroundUpdating } = useWeather();
+        const { refreshData, loading, backgroundUpdating, error } = useWeather();
         const isSyncing = loading || backgroundUpdating;
         const badgeTextSize = env === 'onshore' ? 'text-[11px]' : 'text-xs';
+        // Error state takes precedence over staleness — if the last
+        // refresh failed, the user needs to know the data they're
+        // looking at is from BEFORE the failure, not "live". Added
+        // 2026-05-17 as part of the error-handling pass; previously
+        // refreshData failures were silent and the pill kept ticking
+        // down to next-update as if nothing happened.
+        const hasError = !!error && !isSyncing;
 
         // Pi Cache fetch stats — poll on mount and after syncs. Not shown to
         // the user anymore (modal is gone), but cheap to compute and still
@@ -241,11 +248,13 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             bar' rather than a tired blinker. */}
                         <button
                             onClick={() => refreshData()}
-                            aria-label="Refresh weather data"
+                            aria-label={hasError ? 'Retry failed refresh' : 'Refresh weather data'}
                             className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
                                 isSyncing
                                     ? 'bg-sky-500/25 text-sky-100 border-sky-400/50 status-badge-sweep shadow-[0_0_12px_-2px_rgba(56,189,248,0.5)]'
-                                    : `${timerBadgeColor} ${staleLabel ? '' : 'status-badge-glow-sky'}`
+                                    : hasError
+                                      ? 'bg-red-500/25 text-red-100 border-red-400/50 status-badge-glow-red'
+                                      : `${timerBadgeColor} ${staleLabel ? '' : 'status-badge-glow-sky'}`
                             }`}
                         >
                             {isSyncing ? (
@@ -266,6 +275,28 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                                         />
                                     </span>
                                     <span>Syncing</span>
+                                </>
+                            ) : hasError ? (
+                                <>
+                                    {/* Error state — show a warning glyph and
+                                        an explicit "RETRY" label so the user
+                                        knows (a) the data is stale, (b) the
+                                        last refresh failed, and (c) this
+                                        button is how to recover. */}
+                                    <svg
+                                        className="w-3 h-3 shrink-0"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="currentColor"
+                                        strokeWidth={2.5}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"
+                                        />
+                                    </svg>
+                                    Retry
                                 </>
                             ) : (
                                 <>

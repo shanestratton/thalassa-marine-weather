@@ -27,6 +27,16 @@ interface SettingsViewProps {
     onBack?: () => void;
 }
 
+// Settings tab-nav button. Rewritten 2026-05-17 to align with the
+// Minimal v3 active-state language that the bottom nav adopted on
+// the same day. The previous treatment was three signals stacked
+// (gradient bg + 20 px sky-glow shadow + left-border highlight +
+// scale-110 icon tile + animate-pulse arrow + translate-x label) —
+// fine in isolation but it screamed against the toned-down bottom
+// nav within the same app session. One active-state language now:
+// solid sky-500 left-bar (the "you are here" anchor) + brighter
+// label/icon (the inherent color cue) + subtle bg tint. No glow,
+// no scale, no pulse.
 const NavButton = React.memo(
     ({
         active,
@@ -40,24 +50,20 @@ const NavButton = React.memo(
         label: string;
     }) => (
         <button
-            aria-label="Select this option"
+            aria-label={label}
             onClick={onClick}
-            className={`group relative flex items-center gap-3 w-full p-3 rounded-xl transition-all duration-300 text-left overflow-hidden ${active ? 'bg-gradient-to-r from-sky-500/20 to-sky-600/20 text-white shadow-[0_0_20px_rgba(14,165,233,0.15)] border border-sky-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white border border-transparent'}`}
+            className={`relative flex items-center gap-3 w-full pl-4 pr-3 py-2.5 rounded-lg transition-colors duration-150 text-left ${
+                active ? 'bg-white/[0.04] text-white' : 'text-slate-400 hover:bg-white/[0.03] hover:text-slate-200'
+            }`}
         >
+            {/* Single-pixel anchor bar. Solid sky-500 at full opacity
+                so it reads cleanly without a halo. Mirrors the bottom-
+                nav indicator-dot pattern: one solid mark, no glow. */}
             {active && (
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-sky-400 shadow-[0_0_10px_2px_rgba(56,189,248,0.5)]"></div>
+                <span className="absolute left-0 top-2 bottom-2 w-[3px] rounded-r bg-sky-500" aria-hidden="true" />
             )}
-            <div
-                className={`p-2 rounded-lg transition-all duration-300 ${active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/40 scale-110' : 'bg-white/5 text-gray-400 group-hover:bg-white/10 group-hover:text-white group-hover:scale-105'}`}
-            >
-                {icon}
-            </div>
-            <span
-                className={`font-bold text-sm tracking-wide transition-all ${active ? 'text-white translate-x-1' : ''}`}
-            >
-                {label}
-            </span>
-            {active && <ArrowRightIcon className="w-4 h-4 ml-auto text-sky-400 animate-pulse" />}
+            <span className={active ? 'text-sky-300' : 'text-slate-400'}>{icon}</span>
+            <span className="font-semibold text-sm tracking-wide">{label}</span>
         </button>
     ),
 );
