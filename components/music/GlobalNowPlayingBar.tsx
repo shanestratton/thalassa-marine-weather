@@ -235,7 +235,13 @@ export const GlobalNowPlayingBar: React.FC = () => {
             type="button"
             onClick={handleBarTap}
             aria-label={`Now playing: ${nowPlaying.title}${nowPlaying.artist ? ` by ${nowPlaying.artist}` : ''}. Tap to open music page.`}
-            className="fixed left-2 right-2 z-[850] flex items-center gap-3 px-3 py-2 rounded-2xl border border-white/10 bg-slate-900/90 backdrop-blur-xl shadow-2xl active:scale-[0.99] transition-transform"
+            // Compact floating pill (2026-05-18 — was a full-width bar
+            // that walled off the bottom of every screen; Shane: "in the
+            // way on most screens, make it float"). Right-anchored so
+            // it sits in iOS's natural picture-in-picture zone and
+            // leaves the left ~60% of the screen clear for content.
+            // max-w cap keeps it tight even with a long track title.
+            className="fixed right-2 z-[850] flex items-center gap-2.5 pl-2 pr-1.5 py-2 rounded-2xl border border-white/10 bg-slate-900/90 backdrop-blur-xl shadow-2xl active:scale-[0.99] transition-transform max-w-[280px]"
             style={{
                 // Slot above the bottom nav (h-16 = 64px + safe area inset)
                 bottom: 'calc(env(safe-area-inset-bottom) + 68px)',
@@ -255,8 +261,11 @@ export const GlobalNowPlayingBar: React.FC = () => {
                 </div>
             )}
 
-            {/* Title + artist */}
-            <div className="flex-1 min-w-0 text-left">
+            {/* Title + artist — capped at 120px so a long title doesn't
+                blow the pill back out to full-width. Artist line stays
+                — it's the second-most-useful piece of info after the
+                title, and at 11px on one line it costs nothing. */}
+            <div className="min-w-0 max-w-[120px] text-left">
                 <div className="text-sm font-bold text-white truncate">{nowPlaying.title}</div>
                 {nowPlaying.artist && <div className="text-[11px] text-white/60 truncate">{nowPlaying.artist}</div>}
             </div>
