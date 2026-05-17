@@ -71,6 +71,8 @@ import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
+import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
+import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -345,6 +347,18 @@ export const MapHub: React.FC<MapHubProps> = ({
     // are meant to be session-only (cyclone / squall / weather inspect)
     // deliberately stay as plain useState.
     const [aisVisible, setAisVisible] = usePersistedState('thalassa_map_ais_visible', false);
+    // ENC vector chart visibility — separate from cell *presence*. When the user
+    // has imported cells we still let them toggle the chart off (e.g. to compare
+    // with raster charts underneath). Default true so first import is visible.
+    const [encVisible, setEncVisible] = usePersistedState('thalassa_map_enc_visible', true);
+    // Live cell-count so the layer FAB shows the right "N cells imported" caption
+    // and surfaces the toggle the moment the first cell lands.
+    const [encCellCount, setEncCellCount] = useState(() => listEncCells().length);
+    useEffect(() => {
+        const refresh = () => setEncCellCount(listEncCells().length);
+        refresh();
+        return subscribeToEnc(refresh);
+    }, []);
     const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
     const [squallVisible, setSquallVisible] = useState(false);
@@ -1194,7 +1208,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // obstruction/wreck/rock symbols. Depth-graduated blues so
     // the user can read shoals at a glance. Mounts at zoom 7+
     // (lower zooms get the dashed coverage overlay above).
-    useEncVectorLayer(mapRef, mapReady);
+    useEncVectorLayer(mapRef, mapReady, encVisible);
 
     // ── Pending fit-to-bbox request ──
     // Used by EncCellManager (and any future "show me on the map"
@@ -1681,6 +1695,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                             weather.selectInGroup(layer, ATMOSPHERE_LAYERS);
                         }}
                         setShowLayerMenu={weather.setShowLayerMenu}
+                        encVisible={encVisible}
+                        onToggleEnc={() => setEncVisible(!encVisible)}
+                        encCellCount={encCellCount}
                         aisVisible={aisVisible}
                         onToggleAis={() => {
                             setAisVisible((v) => {

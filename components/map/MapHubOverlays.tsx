@@ -303,6 +303,14 @@ export const LayerFABMenu: React.FC<{
     vesselTrackingVisible?: boolean;
     onToggleVesselTracking?: () => void;
     onLocateVessel?: () => void;
+    /**
+     * ENC vector chart visibility. The user can have imported cells but still
+     * want the vector layer hidden — toggle controls layer visibility, not
+     * cell presence. Surfaces in the Charts section as the first entry.
+     */
+    encVisible?: boolean;
+    onToggleEnc?: () => void;
+    encCellCount?: number;
     skCharts?: AvNavChart[];
     skChartIds?: Set<string>;
     skChartOpacity?: number;
@@ -370,6 +378,9 @@ export const LayerFABMenu: React.FC<{
     vesselTrackingVisible = false,
     onToggleVesselTracking,
     onLocateVessel,
+    encVisible = true,
+    onToggleEnc,
+    encCellCount = 0,
     skCharts = [],
     skChartIds = new Set<string>(),
     skChartOpacity = 0.7,
@@ -496,7 +507,8 @@ export const LayerFABMenu: React.FC<{
     );
 
     // Has any charts available
-    const hasCharts = skCharts.length > 0 || chartCatalogSources.length > 0 || localCharts.length > 0;
+    const hasEnc = !!onToggleEnc && encCellCount > 0;
+    const hasCharts = hasEnc || skCharts.length > 0 || chartCatalogSources.length > 0 || localCharts.length > 0;
 
     return (
         // Right-rail FAB column — anchors at top-[80px] so it clears the
@@ -1117,6 +1129,49 @@ export const LayerFABMenu: React.FC<{
 
                             {showCharts && (
                                 <>
+                                    {/* ENC Vector Charts — depth-graduated S-57 layer */}
+                                    {hasEnc && (
+                                        <>
+                                            <div className="px-4 pt-2 pb-1">
+                                                <span className="text-[10px] font-black text-violet-400/80 uppercase tracking-[0.15em]">
+                                                    Vector Charts
+                                                </span>
+                                            </div>
+                                            <button
+                                                aria-label="Toggle ENC vector charts"
+                                                onClick={() => {
+                                                    onToggleEnc?.();
+                                                    triggerHaptic('light');
+                                                }}
+                                                className={`w-full flex items-center gap-3 px-4 py-2 text-left transition-colors ${encVisible ? 'bg-violet-500/10 text-violet-300' : 'text-gray-400 hover:bg-white/5'}`}
+                                            >
+                                                <AnchorIcon
+                                                    className={`w-5 h-5 shrink-0 ${encVisible ? 'text-violet-300' : 'text-violet-400/60'}`}
+                                                />
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="text-[13px] font-bold block truncate">
+                                                        ENC Charts
+                                                    </span>
+                                                    <span className="text-[10px] text-gray-500 block truncate">
+                                                        {encCellCount} cell{encCellCount === 1 ? '' : 's'} imported ·
+                                                        depth + obstructions
+                                                    </span>
+                                                </div>
+                                                {encVisible ? (
+                                                    <span className="flex items-center gap-1">
+                                                        <span className="w-1.5 h-1.5 rounded-full bg-violet-400 shadow-lg shadow-violet-400/50" />
+                                                        <span className="text-[10px] font-bold text-violet-300 uppercase tracking-wider">
+                                                            On
+                                                        </span>
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] text-gray-500">Off</span>
+                                                )}
+                                            </button>
+                                            {skCharts.length > 0 && <div className="h-px bg-white/[0.06] mx-3 mt-1" />}
+                                        </>
+                                    )}
+
                                     {/* AvNav Charts */}
                                     {skCharts.length > 0 && onToggleSkChart && (
                                         <>

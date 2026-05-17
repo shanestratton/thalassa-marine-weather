@@ -14,6 +14,8 @@ interface Args {
     onlyBbox?: { sLat: number; nLat: number; wLon: number; eLon: number };
     limit?: number;
     skipExisting: boolean;
+    sourceHO: string;
+    fileExt: string;
 }
 
 function parseArgs(argv: string[]): Args | null {
@@ -24,6 +26,8 @@ function parseArgs(argv: string[]): Args | null {
     let onlyBboxStr: string | undefined;
     let limit: number | undefined;
     let skipExisting = false;
+    let sourceHO = 'AU';
+    let fileExt = '.geojson';
 
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
@@ -34,6 +38,8 @@ function parseArgs(argv: string[]): Args | null {
         else if (a === '--only-bbox' && i + 1 < argv.length) onlyBboxStr = argv[++i];
         else if (a === '--limit' && i + 1 < argv.length) limit = Number(argv[++i]);
         else if (a === '--skip-existing') skipExisting = true;
+        else if (a === '--source-ho' && i + 1 < argv.length) sourceHO = argv[++i];
+        else if (a === '--file-ext' && i + 1 < argv.length) fileExt = argv[++i];
     }
     if (!chartDir || !outDir) return null;
 
@@ -46,7 +52,7 @@ function parseArgs(argv: string[]): Args | null {
         onlyBbox = { wLon: parts[0], sLat: parts[1], eLon: parts[2], nLat: parts[3] };
     }
 
-    return { chartDir, outDir, keyFile, binaryPath, onlyBbox, limit, skipExisting };
+    return { chartDir, outDir, keyFile, binaryPath, onlyBbox, limit, skipExisting, sourceHO, fileExt };
 }
 
 function findKeyFile(dir: string, files: string[]): string | undefined {
@@ -99,7 +105,7 @@ async function main() {
 
             const baseName = basename(file, extname(file));
             const installKey = keys.get(baseName);
-            const outPath = join(args.outDir, `${baseName}.json`);
+            const outPath = join(args.outDir, `${baseName}${args.fileExt}`);
             const t0 = Date.now();
 
             if (args.skipExisting) {
@@ -133,7 +139,7 @@ async function main() {
                     }
                 }
 
-                const cell = emitCell(header, features, { cellId: baseName });
+                const cell = emitCell(header, features, { cellId: baseName, sourceHO: args.sourceHO });
                 const json = JSON.stringify(cell);
                 await writeFile(outPath, json);
 

@@ -57,6 +57,7 @@ async function main() {
     const cell = emitCell(header, features, {
         cellId,
         classes: args.classes,
+        sourceHO: process.env.SENC_SOURCE_HO ?? '??',
     });
 
     await mkdir(dirname(outPath), { recursive: true });
