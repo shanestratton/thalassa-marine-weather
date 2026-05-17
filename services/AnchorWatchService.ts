@@ -21,12 +21,27 @@
 
 import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { KeepAwake } from '@capacitor-community/keep-awake';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { Capacitor } from '@capacitor/core';
 import { BgGeoManager } from './BgGeoManager';
 import { AnchorWatchSyncService } from './AnchorWatchSyncService';
 import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/logger';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
+
+// ── Local-notification IDs ─────────────────────────────────────────
+// The alarm path drops THREE flavours of notification to maximise
+// the chance one wakes the skipper:
+//   1. NOTIF_ID_PRIMARY (fires once, immediately)
+//   2. NOTIF_ID_REPEAT_BASE..+19 (fires every 30 s for 10 min)
+//   3. (future) a critical-alerts variant — pending Apple entitlement
+// Stable IDs let us cancel them all on acknowledge/stop without
+// having to remember dynamic IDs across pages/sessions.
+const NOTIF_ID_PRIMARY = 99001;
+const NOTIF_ID_REPEAT_BASE = 99100; // 99100..99119 = 20 reminders
+const NOTIF_REPEAT_COUNT = 20; // 20 × 30 s = 10 min coverage
+const NOTIF_REPEAT_INTERVAL_MS = 30_000;
 
 const log = createLogger('AnchorWatch');
 
@@ -245,6 +260,26 @@ class AnchorWatchServiceClass {
         };
     }
 
+    /**
+     * Request iOS local-notification permission. Idempotent. Called
+     * before setAnchor so the user grants permission BEFORE they're
+     * relying on it during a drag emergency (when there's no time
+     * for a permission dialog).
+     */
+    private async ensureNotificationPermission(): Promise<boolean> {
+        if (!Capacitor.isNativePlatform()) return false;
+        try {
+            const current = await LocalNotifications.checkPermissions();
+            if (current.display === 'granted') return true;
+            if (current.display === 'denied') return false; // user said no — don't re-prompt every set
+            const result = await LocalNotifications.requestPermissions();
+            return result.display === 'granted';
+        } catch (e) {
+            log.warn('ensureNotificationPermission failed:', e);
+            return false;
+        }
+    }
+
     /** Set anchor at current GPS position */
     async setAnchor(config?: Partial<AnchorWatchConfig>): Promise<boolean> {
         if (config) {
@@ -253,6 +288,11 @@ class AnchorWatchServiceClass {
 
         this.state = 'setting';
         this.notify();
+
+        // Pre-flight: request notification permission while we still
+        // have the user's attention. Don't BLOCK on the result — if
+        // they deny, the audio alarm + push-to-shore is still in play.
+        void this.ensureNotificationPermission();
 
         try {
             // Prefer NMEA/external GPS if available (more accurate)
@@ -737,7 +777,9 @@ class AnchorWatchServiceClass {
         // Persist alarm state — crash during alarm should restore to alarm, not watching
         this.persistWatchState();
 
-        // Haptic burst
+        // Haptic burst (fires in the brief wake window iOS gives us when
+        // the geofence event arrives; haptics during full suspension are
+        // unreliable — that's what the local notification below is for).
         try {
             await Haptics.impact({ style: ImpactStyle.Heavy });
             // Triple vibrate
@@ -750,6 +792,22 @@ class AnchorWatchServiceClass {
         // Start repeating alarm
         this.startAlarmSound();
 
+        // ── Local-notification fallback (added 2026-05-17) ──────────
+        // The native AlarmAudioService.startAlarm() opens an AVAudio
+        // session in .playback mode which CAN survive backgrounding —
+        // but iOS thermal/battery throttling can kill the audio thread
+        // before the skipper notices. A LocalNotification with
+        // `interruptionLevel: timeSensitive` (a) breaks through Focus
+        // / DND, (b) wakes the screen, and (c) doesn't depend on the
+        // audio session staying alive. Schedule one IMMEDIATE alert +
+        // 20 repeats at 30 s intervals so the user gets a notification
+        // every 30 s for the next 10 min until they acknowledge.
+        //
+        // Future: switch interruptionLevel to 'critical' once Apple
+        // grants the com.apple.developer.usernotifications.critical-
+        // alerts entitlement (it bypasses the silent switch too).
+        void this.scheduleAlarmNotifications();
+
         // Send push notification to shore devices via Supabase
         AnchorWatchSyncService.sendAlarmPush({
             distance: this.distanceFromAnchor,
@@ -761,18 +819,84 @@ class AnchorWatchServiceClass {
         this.notify();
     }
 
+    /**
+     * Schedule the on-device local-notification fallback that wakes
+     * the skipper if the audio alarm goes quiet (iOS thermal throttle,
+     * audio-session interruption, etc).
+     *
+     * One immediate notification + 20 repeats spaced 30 s apart. All
+     * use timeSensitive interruption level so they break through Focus
+     * / Do Not Disturb. They're cancelled the moment the user
+     * acknowledges (see cancelAlarmNotifications).
+     */
+    private async scheduleAlarmNotifications(): Promise<void> {
+        if (!Capacitor.isNativePlatform()) return;
+        const distance = Math.round(this.distanceFromAnchor ?? 0);
+        const radius = Math.round(this.swingRadius ?? 0);
+        const title = '⚠️ Anchor Dragging';
+        const body = `${distance}m from anchor (swing radius ${radius}m). Check vessel position.`;
+
+        // Build the immediate + repeat schedule. iOS LocalNotifications
+        // can't loop indefinitely, so we enqueue 20 discrete reminders.
+        const now = Date.now();
+        const schedules = [
+            // Immediate (~100 ms in the future so iOS treats it as scheduled,
+            // not display-while-the-event-loop-is-still-running)
+            { id: NOTIF_ID_PRIMARY, atMs: now + 100 },
+            ...Array.from({ length: NOTIF_REPEAT_COUNT }, (_, i) => ({
+                id: NOTIF_ID_REPEAT_BASE + i,
+                atMs: now + NOTIF_REPEAT_INTERVAL_MS * (i + 1),
+            })),
+        ];
+
+        try {
+            await LocalNotifications.schedule({
+                notifications: schedules.map(({ id, atMs }) => ({
+                    id,
+                    title,
+                    body,
+                    schedule: { at: new Date(atMs) },
+                    sound: 'beep.caf', // capacitor default tone; replace once anchor-alarm.caf ships
+                    // Apple iOS extras — these are tolerated as extras by the
+                    // plugin and read by the iOS bridge. timeSensitive breaks
+                    // through Focus / DND.
+                    extra: { interruptionLevel: 'timeSensitive', kind: 'anchor-drag' },
+                })),
+            });
+        } catch (e) {
+            log.warn('scheduleAlarmNotifications failed:', e);
+        }
+    }
+
+    /** Cancel every alarm-related local notification (acknowledge + stop). */
+    private async cancelAlarmNotifications(): Promise<void> {
+        if (!Capacitor.isNativePlatform()) return;
+        const ids = [
+            { id: NOTIF_ID_PRIMARY },
+            ...Array.from({ length: NOTIF_REPEAT_COUNT }, (_, i) => ({
+                id: NOTIF_ID_REPEAT_BASE + i,
+            })),
+        ];
+        try {
+            await LocalNotifications.cancel({ notifications: ids });
+        } catch (e) {
+            log.warn('cancelAlarmNotifications failed:', e);
+        }
+    }
+
     private startAlarmSound(): void {
-        // Use native alarm audio that bypasses iOS mute switch
+        // Use native alarm audio that bypasses iOS mute switch. The
+        // setInterval-based haptic loop that used to live here was
+        // removed 2026-05-17 — haptics during full app suspension
+        // don't fire on iOS anyway (the JS event loop is frozen), so
+        // the loop was wasted code that only produced noise during
+        // the brief foreground window where the triple-burst above
+        // already covers. The LocalNotification fallback in
+        // scheduleAlarmNotifications() handles the during-suspension
+        // wake-up signal instead.
         AlarmAudioService.startAlarm().catch((err) => {
             log.warn('startAlarmSound: native alarm failed', err);
         });
-
-        // Also re-trigger haptics every 2 seconds
-        this.alarmInterval = setInterval(() => {
-            Haptics.impact({ style: ImpactStyle.Heavy }).catch((e) => {
-                log.warn(`[AnchorWatchService]`, e);
-            });
-        }, 2000);
     }
 
     private stopAlarm(): void {
@@ -783,6 +907,10 @@ class AnchorWatchServiceClass {
         AlarmAudioService.stopAlarm().catch((e) => {
             log.warn(`[AnchorWatchService]`, e);
         });
+        // Belt-and-braces: cancel every queued local notification so
+        // we don't keep buzzing the user after they've acknowledged.
+        // Safe to call on web — short-circuits inside the method.
+        void this.cancelAlarmNotifications();
     }
 
     private notify(): void {
