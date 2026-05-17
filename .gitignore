@@ -29,6 +29,11 @@ coverage
 .vercel
 .env*.local
 
+# o-charts decrypted ENC chart samples — redistribution prohibited by EULA.
+# Files are bundled into the local dev/TestFlight build via Vite's public/
+# folder but must never reach the repo or be shared with third parties.
+public/enc-samples/
+
 # Claude-managed per-session worktrees (local only)
 .claude/worktrees/
 

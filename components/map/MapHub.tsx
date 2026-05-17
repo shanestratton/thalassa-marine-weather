@@ -73,6 +73,7 @@ import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
+import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -358,6 +359,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         const refresh = () => setEncCellCount(listEncCells().length);
         refresh();
         return subscribeToEnc(refresh);
+    }, []);
+    // One-shot import of any bundled sample cells the dev server is serving.
+    // No-op once the localStorage flag is set or when real cells already exist.
+    useEffect(() => {
+        void bootstrapEncSamplesIfNeeded();
     }, []);
     const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
