@@ -35,22 +35,31 @@ import { AuthModal } from './AuthModal';
 import { triggerHaptic } from '../utils/system';
 import { XIcon } from './Icons';
 import { useAuthStore } from '../stores/authStore';
+// Production brand lockup — compass mark + "THALASSA" wordmark +
+// "MARINE DATA & NAVIGATION" descriptor, generated from the Gemini
+// Pro concept via Upscayl 4x → Vectorizer.AI → 3-pass SVGO cleanup
+// (see assets/brand/CLEANING_NOTES.md). White-on-dark variant.
+// Vite resolves the import to a hashed URL string at build time.
+import brandLockup from '../assets/brand/full-lockup-dark.svg';
 
 // ─── Brand palette (2026-05-17 logo direction) ────────────────────
 // Distinct from the cyan UI palette used elsewhere in the app — this
-// is the BRAND palette, used only on the conversion-moment surfaces
-// (SignInScreen for now; future: favicon, app icon, splash).
-//   primary  — deep sea green   (the wordmark + brand-container glow)
-//   accent   — safety orange    (destination terminator on the mark)
-//   stroke   — sea-foam teal    (the continuous line itself — chosen
-//              brighter than the primary so it reads on a dark slate
-//              background without losing the "sea green" lineage)
-// Concept 2 mark + Concept 3 palette per Shane's direction.
+// is the BRAND palette, locked in `assets/brand/palette.txt` and
+// baked into the lockup SVG itself. The constants below are used by
+// SignInScreen for the accent-coloured tagline middots and for the
+// pulse drop-shadow keyframe (see <style> block at the bottom). Kept
+// as a typed const so other conversion-moment surfaces (splash,
+// upgrade modal, share cards) can pull from the same source of truth.
+//   primary      — deep sea green   (teal-700, pulse halo depth)
+//   primarySoft  — sea-foam teal    (teal-300, pulse highlight; also
+//                                    the cyan accents inside the SVG)
+//   accent       — safety orange    (orange-400, tagline middots)
+//   accentDeep   — deep orange      (orange-500, reserved for light surfaces)
 const BRAND = {
-    primary: '#0F766E', //   teal-700 — deep sea green (glow + shadow)
-    primarySoft: '#5EEAD4', // teal-300 — line stroke on dark background
-    accent: '#FB923C', //    orange-400 — safety terminator
-    accentDeep: '#F97316', // orange-500 — accent on light surfaces
+    primary: '#0F766E',
+    primarySoft: '#5EEAD4',
+    accent: '#FB923C',
+    accentDeep: '#F97316',
 } as const;
 
 interface SignInScreenProps {
@@ -184,76 +193,37 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 </button>
             )}
 
-            {/* ─── Brand mark — Concept 2 direction ─────────────
-                A single continuous-line stroke that starts as an
-                ocean swell at bottom-left, rises into a rhumb-line
-                arc, and terminates at a safety-orange destination
-                dot. Mimics the sweeping orbit of a weather
-                satellite or a great-circle bearing curving across
-                a globe. Sits inside a soft brand-coloured glow
-                disc; 3 s pulse animation makes the disc breathe
-                like a beacon. */}
-            <div className="relative z-10 mb-8 text-center">
-                <div className="mb-5 flex items-center justify-center">
-                    <div
-                        className="relative w-24 h-24 rounded-full flex items-center justify-center shadow-2xl"
-                        style={{
-                            backgroundColor: 'rgba(15, 118, 110, 0.10)', // teal-700 @ 10%
-                            border: '1px solid rgba(94, 234, 212, 0.25)', // teal-300 @ 25%
-                            boxShadow: '0 25px 50px -12px rgba(15, 118, 110, 0.25)',
-                            animation: 'signInPulse 3s ease-in-out infinite',
-                        }}
-                    >
-                        <svg viewBox="0 0 64 64" className="w-14 h-14" fill="none" aria-hidden="true">
-                            {/* Single continuous-line stroke. Begins as a
-                                swell trough at bottom-left, crests, then
-                                glides into a rhumb-line arc heading top-
-                                right. Three quadratic segments give it
-                                fluid motion without feeling cartoony. */}
-                            <path
-                                d="M 8 48 Q 16 52, 24 40 Q 34 26, 44 26 Q 52 26, 56 16"
-                                stroke={BRAND.primarySoft}
-                                strokeWidth="3"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            />
-                            {/* Safety-orange destination terminator —
-                                the arrival point on the great-circle. */}
-                            <circle cx="56" cy="16" r="3.2" fill={BRAND.accent} />
-                        </svg>
-                    </div>
-                </div>
-                {/*
-                    Wordmark — modern geometric serif (Concept 2
-                    direction). System font stack ordered for the best
-                    available marine-grade serif on each OS:
-                      Cochin  — macOS / iOS, refined classical bones
-                      Optima  — macOS / iOS fallback, humanist-serif
-                      Athelas — macOS modern serif
-                      Iowan Old Style — iOS / macOS bookish fallback
-                      Georgia — Windows / Android baseline
-                    Light tracking + 600 weight gives it luxury-brand
-                    presence without resorting to a Google Font.
-                */}
-                <h1
-                    className="text-4xl text-white"
+            {/* ─── Brand lockup ─────────────────────────────────
+                The cleaned production logo: compass rose with wind
+                /wave swirls (white + cyan accents), "THALASSA"
+                wordmark, and "MARINE DATA & NAVIGATION" descriptor —
+                all baked into one SVG so proportions and weights
+                stay exactly as designed. The pulse keyframe (below)
+                animates a teal drop-shadow around it so the mark
+                breathes like a beacon. */}
+            <div className="relative z-10 mb-7 text-center">
+                <div
+                    className="mx-auto w-60 h-60 sm:w-64 sm:h-64 flex items-center justify-center"
                     style={{
-                        fontFamily: '"Cochin", "Optima", "Athelas", "Iowan Old Style", Georgia, serif',
-                        fontWeight: 600,
-                        letterSpacing: '0.10em',
+                        animation: 'signInPulse 4s ease-in-out infinite',
                     }}
                 >
-                    THALASSA
-                </h1>
+                    <img
+                        src={brandLockup}
+                        alt="Thalassa — Marine Data & Navigation"
+                        className="w-full h-full object-contain"
+                        draggable={false}
+                    />
+                </div>
                 {/*
-                    Tagline middot accents tinted safety-orange to
-                    echo the mark's destination terminator. Subtle —
-                    a punter who's seen the mark will register the
-                    colour callback subconsciously. The rest of the
-                    tagline stays sky-300 to bridge brand palette
-                    (teal/orange) and UI palette (sky/cyan).
+                    Positioning tagline — separate copy from the
+                    brand descriptor ("MARINE DATA & NAVIGATION")
+                    baked into the lockup SVG. This is the conversion
+                    promise: what signing in unlocks. Middot accents
+                    tinted safety-orange to echo the brand palette
+                    against the sky-300 line.
                 */}
-                <p className="mt-2 text-[13px] font-semibold tracking-wider text-sky-300/90">
+                <p className="mt-3 text-[13px] font-semibold tracking-wider text-sky-300/90">
                     <span>Plan it</span>
                     <span className="mx-1.5" style={{ color: BRAND.accent }}>
                         ·
@@ -370,16 +340,26 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({ isOpen, onClose, pro
                 </p>
             </div>
 
-            {/* Pulse keyframe — teal hues to match the new brand
-                palette (Concept 3 deep sea green). Scoped to this
-                screen via inline <style>; no global CSS pollution. */}
+            {/* Pulse keyframe — drop-shadow filter rather than the
+                old disc-based box-shadow, because the lockup is now a
+                free-standing image (no surrounding container disc).
+                Two stacked drop-shadows: a tight inner glow that
+                pulses (the beacon breath) plus a wider soft halo
+                (depth on the dark slate). Teal-300 hues to match the
+                brand palette + the cyan accents in the lockup itself.
+                Scoped to this screen via inline <style>; no global
+                CSS pollution. */}
             <style>{`
                 @keyframes signInPulse {
                     0%, 100% {
-                        box-shadow: 0 0 0 0 rgba(94, 234, 212, 0.0), 0 25px 50px -12px rgba(15, 118, 110, 0.25);
+                        filter:
+                            drop-shadow(0 0 14px rgba(94, 234, 212, 0.12))
+                            drop-shadow(0 8px 32px rgba(15, 118, 110, 0.30));
                     }
                     50% {
-                        box-shadow: 0 0 0 18px rgba(94, 234, 212, 0.0), 0 0 40px 4px rgba(94, 234, 212, 0.30), 0 25px 50px -12px rgba(15, 118, 110, 0.35);
+                        filter:
+                            drop-shadow(0 0 28px rgba(94, 234, 212, 0.28))
+                            drop-shadow(0 12px 40px rgba(15, 118, 110, 0.40));
                     }
                 }
             `}</style>
