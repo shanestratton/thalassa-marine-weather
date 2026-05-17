@@ -41,15 +41,18 @@ const FIRST_MATE_FEATURES: { label: string; feature: string }[] = [
 const SKIPPER_FEATURES: { label: string; feature: string }[] = [
     { label: 'Everything in First Mate, plus:', feature: '_header' },
     { label: 'Route Planner & Passage Planning', feature: 'routePlanner' },
-    { label: 'Passage Legs (Multi-Stop)', feature: 'passageLegs' },
-    { label: "Ship's Log & Logbook", feature: 'shipLog' },
-    { label: 'Vessel Profile & Management', feature: 'vesselProfile' },
-    { label: 'Cast Off / Voyage Control', feature: 'castOff' },
+    { label: 'Multi-Stop Passages', feature: 'passageLegs' },
+    { label: "Ship's Log & Voyage History", feature: 'shipLog' },
+    { label: 'Full Vessel Profile', feature: 'vesselProfile' },
+    { label: 'Cast-Off / Voyage Mode', feature: 'castOff' },
     { label: 'Galley & Meal Planning', feature: 'galley' },
-    // Removed "Crew Finder (as Skipper)" — crewFinderCaptain is
-    // now 'free' (WD #11 network-effect parity with the Chandlery
-    // B-pivot) and was never enforced in code anyway.
-    { label: 'Polar Diagrams & Smart Polars', feature: 'polars' },
+    // 2026-05-17: rewrote "Polar Diagrams & Smart Polars" →
+    // "Boat-speed tuning curves" (plain English, matches the
+    // onboarding RoleSelectionStep). Other small jargon tweaks
+    // applied to "Passage Legs (Multi-Stop)" → "Multi-Stop
+    // Passages" and "Cast Off / Voyage Control" → "Cast-Off /
+    // Voyage Mode".
+    { label: 'Boat-speed tuning curves', feature: 'polars' },
     { label: 'Community Track Sharing', feature: 'communityShare' },
 ];
 
@@ -61,23 +64,27 @@ const PlanCard: React.FC<{
     recommended?: boolean;
 }> = ({ tier, features, selected, onSelect, recommended }) => {
     const info = TIER_INFO[tier];
-    const isSkipper = tier === 'owner';
 
+    // 2026-05-17 honest-scorecard polish: unify the selected-state
+    // colour across both tier cards. Was amber for Skipper / cyan
+    // for Crew (two different colours on a single conversion surface);
+    // now both use sky (matches the rest of the app's active-state
+    // language + UpgradeModal's CTA). "Best Value" badge uses the
+    // locked brand teal (#5EEAD4) — actual brand colour, not
+    // TIER_INFO.color which would re-introduce amber for Skipper.
     return (
         <button
             onClick={onSelect}
             className={`relative w-full text-left p-4 rounded-2xl border-2 transition-all active:scale-[0.98] ${
                 selected
-                    ? isSkipper
-                        ? 'border-amber-500/60 bg-amber-500/[0.06]'
-                        : 'border-cyan-500/60 bg-cyan-500/[0.06]'
+                    ? 'border-sky-500/60 bg-sky-500/[0.06]'
                     : 'border-white/10 bg-white/[0.02] hover:border-white/20 hover:bg-white/[0.04]'
             }`}
         >
             {recommended && (
                 <div
                     className="absolute -top-2.5 left-4 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-widest"
-                    style={{ background: info.color, color: '#000' }}
+                    style={{ backgroundColor: '#5EEAD4', color: '#020617' }}
                 >
                     Best Value
                 </div>
@@ -95,38 +102,40 @@ const PlanCard: React.FC<{
                 </div>
             </div>
 
-            {/* Feature list */}
+            {/* Feature list. Header colour 2026-05-17: was amber-400/70
+                which clashed with the new cyan-unified card selection.
+                Neutral slate-400 now so it reads as a section divider
+                rather than a colour-coded callout. Body text bumped
+                11 → 12 px for marine readability. */}
             <div className="space-y-1.5">
                 {features.map((f, i) =>
                     f.feature === '_header' ? (
-                        <p key={i} className="text-[11px] font-bold text-amber-400/70 uppercase tracking-widest pt-1">
+                        <p key={i} className="text-[11px] font-bold text-slate-400 uppercase tracking-widest pt-1">
                             {f.label}
                         </p>
                     ) : (
                         <div key={i} className="flex items-center gap-2">
-                            <span style={{ color: info.color }}>
+                            <span className="text-sky-400">
                                 <CheckIcon className="w-3 h-3 shrink-0" />
                             </span>
-                            <span className="text-[11px] text-gray-300">{f.label}</span>
+                            <span className="text-xs text-gray-300">{f.label}</span>
                         </div>
                     ),
                 )}
             </div>
 
-            {/* Selection indicator */}
+            {/* Selection indicator — unified to sky-500 (was amber for
+                Skipper / cyan for Crew). White checkmark on filled
+                sky circle. */}
             <div className="flex items-center justify-center mt-4">
                 <div
                     className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                        selected
-                            ? isSkipper
-                                ? 'bg-amber-500 border-amber-500'
-                                : 'bg-cyan-500 border-cyan-500'
-                            : 'border-gray-600'
+                        selected ? 'bg-sky-500 border-sky-500' : 'border-gray-600'
                     }`}
                 >
                     {selected && (
                         <svg
-                            className="w-3 h-3 text-black"
+                            className="w-3 h-3 text-white"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -239,17 +248,18 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         failed contrast on the darker tier-amber. New:
                         solid brand colour, white text, no icon. Lets
                         the LABEL do the work. */}
+                    {/* CTA — final 2026-05-17 polish: dropped
+                        selectedInfo.color (amber for Skipper). Single
+                        brand cyan regardless of tier — keeps the
+                        conversion surface in one colour family. */}
                     <button
                         aria-label={`Start 7-day free trial of ${selectedInfo.label}`}
                         onClick={() => {
                             onUpgrade(selectedTier);
                             onClose();
                         }}
-                        className="w-full py-4 rounded-xl font-bold shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-white"
-                        style={{
-                            backgroundColor: selectedInfo.color,
-                            boxShadow: `0 8px 24px -8px ${selectedInfo.color}`,
-                        }}
+                        className="w-full py-4 rounded-xl font-bold shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-white bg-sky-500 hover:bg-sky-400"
+                        style={{ boxShadow: '0 8px 24px -8px rgba(14, 165, 233, 0.6)' }}
                     >
                         Start 7-Day Free Trial — {selectedInfo.label}
                     </button>
