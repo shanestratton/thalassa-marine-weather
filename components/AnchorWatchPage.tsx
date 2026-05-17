@@ -347,6 +347,15 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
         if (success) {
             setViewMode('watching');
+            // First-time hint dismissal — the intro card at the top
+            // of the setup view only shows for users who haven't
+            // armed yet. After one successful arm, they know.
+            try {
+                localStorage.setItem('thalassa_anchor_watch_armed_once', '1');
+            } catch {
+                // localStorage unavailable (private browsing etc) —
+                // harmless; hint will keep showing.
+            }
         } else {
             setGpsStatus('GPS fix failed. Check location permissions.');
         }
@@ -490,6 +499,29 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
                 {/* ── Content — single screen, no scroll ── */}
                 <div className="flex-1 min-h-0 flex flex-col pb-[98px]">
+                    {/* First-time-user guidance card — added 2026-05-17.
+                        Shows for users who haven't yet armed an anchor
+                        watch (gated by the
+                        `thalassa_anchor_watch_armed_once` localStorage
+                        flag set in `handleDropAnchor`'s success branch).
+                        Anchor Watch is a safety feature — vague setup
+                        UX = real risk. The card explains the three
+                        configuration knobs in plain English and the
+                        slide-to-arm gesture. Hides permanently after
+                        the user successfully arms once. */}
+                    {typeof window !== 'undefined' && !localStorage.getItem('thalassa_anchor_watch_armed_once') && (
+                        <div className="shrink-0 mx-4 mt-2 mb-1 rounded-xl bg-sky-500/[0.06] border border-sky-500/15 px-3 py-2.5">
+                            <p className="text-[12px] text-sky-200 leading-relaxed">
+                                <span className="font-bold text-sky-300">Drop anchor, then arm the watch.</span> Set
+                                your <span className="font-semibold text-white">water depth</span>,{' '}
+                                <span className="font-semibold text-white">rode out</span>, and{' '}
+                                <span className="font-semibold text-white">tackle type</span> below — Thalassa
+                                calculates a safe swing circle. Slide the bar at the bottom to arm. You'll get a loud
+                                alarm if you drag, even with the screen off.
+                            </p>
+                        </div>
+                    )}
+
                     {/* ── Hero: Scope Radar ── */}
                     <div className="flex-1 min-h-0 flex items-center justify-center px-4 py-2 relative">
                         <ScopeRadar
