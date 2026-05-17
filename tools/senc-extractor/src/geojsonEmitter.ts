@@ -140,16 +140,21 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
         }
 
         case 'Area': {
-            const polys: [number, number][][][] = f.geometry.triangles.map((tri) => [
-                [roundPt(tri[0]), roundPt(tri[1]), roundPt(tri[2]), roundPt(tri[0])],
-            ]);
-            if (polys.length === 0) return null;
+            // S-57 convention: first ring is the outer boundary; subsequent rings
+            // are holes. GeoJSON Polygon expects the same.
+            const rings = f.geometry.rings.map((ring) => ring.map(roundPt));
+            if (rings.length === 0 || rings[0].length < 4) return null;
             return {
                 type: 'Feature',
-                geometry: { type: 'MultiPolygon', coordinates: polys },
+                geometry: { type: 'Polygon', coordinates: rings },
                 properties,
             };
         }
+
+        case 'AreaRaw':
+            // Should have been resolved during the second pass; if we get here the
+            // vector tables were missing or malformed for this chart.
+            return null;
 
         case 'Line': {
             const coords = f.geometry.coordinates.map(roundPt);
