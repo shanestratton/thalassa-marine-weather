@@ -19,6 +19,7 @@ interface GeoJsonFeature {
     geometry:
         | { type: 'Point'; coordinates: [number, number] }
         | { type: 'MultiPoint'; coordinates: [number, number][] }
+        | { type: 'LineString'; coordinates: [number, number][] }
         | { type: 'Polygon'; coordinates: [number, number][][] }
         | { type: 'MultiPolygon'; coordinates: [number, number][][][] }
         | null;
@@ -130,9 +131,19 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
             };
         }
 
+        case 'Line': {
+            const coords = f.geometry.coordinates.map(roundPt);
+            if (coords.length < 2) return null;
+            return {
+                type: 'Feature',
+                geometry: { type: 'LineString', coordinates: coords },
+                properties,
+            };
+        }
+
         case 'LineRaw':
-            // Line geometry not yet resolved (needs vector edge/node tables) — emit null geometry
-            // so the feature still shows up in the layer count for diagnostics.
+            // Should have been resolved during the second pass; if we get here the
+            // vector tables were missing or malformed for this chart.
             return null;
     }
 }

@@ -31,15 +31,39 @@ export interface AreaGeometry {
     extent: { sLat: number; nLat: number; wLon: number; eLon: number };
 }
 
-/** LINE geometry — kept as raw edge-vector indices until the vector tables land. */
+/**
+ * LINE geometry resolved into [lon, lat] coordinates.
+ *
+ * S-57 lines are topology-encoded: the feature's record stores indices into
+ * shared edge and connected-node tables, which are decoded in a second pass
+ * once those tables have been read.
+ */
+export interface LineGeometry {
+    type: 'Line';
+    coordinates: [number, number][];
+    extent: { sLat: number; nLat: number; wLon: number; eLon: number };
+}
+
+/** Intermediate form retained between record-walk and table-resolve passes. */
 export interface LineGeometryRaw {
     type: 'LineRaw';
     extent: { sLat: number; nLat: number; wLon: number; eLon: number };
     edgeVectorCount: number;
     rawIndices: Buffer;
+    /** SENC version determines whether each edge entry has 3 or 4 int32 fields. */
+    stride: 3 | 4;
 }
 
-export type FeatureGeometry = PointGeometry | MultiPointGeometry | AreaGeometry | LineGeometryRaw;
+export type FeatureGeometry = PointGeometry | MultiPointGeometry | AreaGeometry | LineGeometry | LineGeometryRaw;
+
+interface EdgeEntry {
+    /** Intermediate vertices in [lon, lat] (excludes the connected-node endpoints). */
+    points: [number, number][];
+}
+
+interface ConnectedNodeEntry {
+    coord: [number, number]; // [lon, lat]
+}
 
 export interface SencFeature {
     classCode: number;
@@ -81,6 +105,8 @@ export interface ParseResult {
         geometriesByPrimitive: Record<Primitive, number>;
         triPrimitiveTypes: Map<number, number>;
         unknownAttrCodes: Set<number>;
+        linesResolved?: number;
+        linesUnresolvable?: number;
     };
 }
 
@@ -104,6 +130,9 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
         triPrimitiveTypes: new Map(),
         unknownAttrCodes: new Set(),
     };
+
+    const edgeTable = new Map<number, EdgeEntry>();
+    const connectedNodeTable = new Map<number, ConnectedNodeEntry>();
 
     let current: SencFeature | null = null;
 
@@ -246,13 +275,40 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
                 const wLon = payload.readDoubleLE(16);
                 const eLon = payload.readDoubleLE(24);
                 const edgeVectorCount = payload.readUInt32LE(32);
+                const indicesBuf = Buffer.from(payload.subarray(36));
+                // SENC writers vary on edge-entry stride: 3 ints (idx,start,end) or
+                // 4 ints (idx,start,end,fwdFlag). wellenvogel uses sencVersion > 200 as
+                // the discriminator for o-charts .oesu, but OpenCPN's local SENC cache
+                // ships stride=3 at the same version — auto-detect from buffer width.
+                let stride: 3 | 4 = 3;
+                if (edgeVectorCount > 0) {
+                    const perEdge = indicesBuf.length / edgeVectorCount;
+                    if (perEdge === 16) stride = 4;
+                    else if (perEdge !== 12) {
+                        // Unrecognised stride — keep as 3 and let resolveLineGeometry bail.
+                        stride = 3;
+                    }
+                }
                 current.geometry = {
                     type: 'LineRaw',
                     extent: { sLat, nLat, wLon, eLon },
                     edgeVectorCount,
-                    rawIndices: Buffer.from(payload.subarray(36)),
+                    rawIndices: indicesBuf,
+                    stride,
                 };
                 stats.geometriesByPrimitive.line += 1;
+                break;
+            }
+
+            case RecordType.VECTOR_EDGE_NODE_TABLE_RECORD: {
+                if (!header.refMerc) break;
+                parseEdgeTable(payload, header.refMerc, edgeTable);
+                break;
+            }
+
+            case RecordType.VECTOR_CONNECTED_NODE_TABLE_RECORD: {
+                if (!header.refMerc) break;
+                parseConnectedNodeTable(payload, header.refMerc, connectedNodeTable);
                 break;
             }
 
@@ -276,7 +332,111 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
     flush();
 
+    // Second pass: resolve LineRaw → Line using the vector tables.
+    let linesResolved = 0;
+    let linesUnresolvable = 0;
+    for (const f of features) {
+        if (f.geometry?.type === 'LineRaw') {
+            const resolved = resolveLineGeometry(f.geometry, edgeTable, connectedNodeTable);
+            if (resolved) {
+                f.geometry = resolved;
+                linesResolved += 1;
+            } else {
+                f.geometry = null;
+                linesUnresolvable += 1;
+            }
+        }
+    }
+    stats.linesResolved = linesResolved;
+    stats.linesUnresolvable = linesUnresolvable;
+
     return { header, features, stats };
+}
+
+function parseEdgeTable(payload: Buffer, refMerc: MercXY, out: Map<number, EdgeEntry>): void {
+    if (payload.length < 4) return;
+    const numEntries = payload.readUInt32LE(0);
+    let off = 4;
+    for (let i = 0; i < numEntries; i++) {
+        if (off + 8 > payload.length) return;
+        const edgeIndex = payload.readInt32LE(off);
+        const pointCount = payload.readInt32LE(off + 4);
+        off += 8;
+        if (off + pointCount * 8 > payload.length) return;
+        const points: [number, number][] = [];
+        for (let p = 0; p < pointCount; p++) {
+            const x = payload.readFloatLE(off);
+            const y = payload.readFloatLE(off + 4);
+            off += 8;
+            const ll = smVertexToLatLon(x, y, refMerc);
+            points.push([ll.lon, ll.lat]);
+        }
+        out.set(edgeIndex, { points });
+    }
+}
+
+function parseConnectedNodeTable(payload: Buffer, refMerc: MercXY, out: Map<number, ConnectedNodeEntry>): void {
+    if (payload.length < 4) return;
+    const numEntries = payload.readUInt32LE(0);
+    let off = 4;
+    for (let i = 0; i < numEntries; i++) {
+        if (off + 12 > payload.length) return;
+        const nodeIndex = payload.readInt32LE(off);
+        const x = payload.readFloatLE(off + 4);
+        const y = payload.readFloatLE(off + 8);
+        off += 12;
+        const ll = smVertexToLatLon(x, y, refMerc);
+        out.set(nodeIndex, { coord: [ll.lon, ll.lat] });
+    }
+}
+
+function resolveLineGeometry(
+    raw: LineGeometryRaw,
+    edgeTable: Map<number, EdgeEntry>,
+    connectedNodeTable: Map<number, ConnectedNodeEntry>,
+): LineGeometry | null {
+    const coords: [number, number][] = [];
+    const buf = raw.rawIndices;
+    let off = 0;
+    const entryBytes = raw.stride * 4;
+    if (buf.length < raw.edgeVectorCount * entryBytes) return null;
+
+    const pushCoord = (c: [number, number]) => {
+        const last = coords[coords.length - 1];
+        if (last && last[0] === c[0] && last[1] === c[1]) return;
+        coords.push(c);
+    };
+
+    for (let i = 0; i < raw.edgeVectorCount; i++) {
+        const edgeIdx = buf.readInt32LE(off);
+        const startNode = buf.readInt32LE(off + 4);
+        const endNode = buf.readInt32LE(off + 8);
+        const fwdFlag = raw.stride === 4 ? buf.readInt32LE(off + 12) : 1;
+        off += entryBytes;
+
+        const startCoord = connectedNodeTable.get(startNode);
+        const edge = edgeTable.get(edgeIdx);
+        const endCoord = connectedNodeTable.get(endNode);
+
+        if (startCoord) pushCoord(startCoord.coord);
+
+        if (edge) {
+            if (fwdFlag === -1 || fwdFlag === 0) {
+                for (let p = edge.points.length - 1; p >= 0; p--) pushCoord(edge.points[p]);
+            } else {
+                for (const p of edge.points) pushCoord(p);
+            }
+        }
+
+        if (endCoord) pushCoord(endCoord.coord);
+    }
+
+    if (coords.length < 2) return null;
+    return {
+        type: 'Line',
+        coordinates: coords,
+        extent: raw.extent,
+    };
 }
 
 function parseAreaGeometry(payload: Buffer, refMerc: MercXY, stats: ParseResult['stats']): AreaGeometry | null {

@@ -40,6 +40,9 @@ async function main() {
             .join(' ');
         console.log(`Triangle primitive types seen: ${tris}  (GL_TRIANGLES=4 STRIP=5 FAN=6)`);
     }
+    if (stats.linesResolved !== undefined || stats.linesUnresolvable !== undefined) {
+        console.log(`Lines resolved: ${stats.linesResolved ?? 0}  unresolvable: ${stats.linesUnresolvable ?? 0}`);
+    }
 
     const wanted = filters ? features.filter((f) => filters.has(f.acronym)) : features;
 
@@ -78,8 +81,13 @@ function geomSummary(g: NonNullable<SencFeature['geometry']>): string {
             const firstStr = first ? ` v0=[${first[0].toFixed(5)}, ${first[1].toFixed(5)}]` : '';
             return `Area triangles=${g.triangles.length}${firstStr} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
         }
+        case 'Line': {
+            const first = g.coordinates[0];
+            const firstStr = first ? ` first=[${first[0].toFixed(5)}, ${first[1].toFixed(5)}]` : '';
+            return `Line points=${g.coordinates.length}${firstStr} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
+        }
         case 'LineRaw':
-            return `LineRaw edges=${g.edgeVectorCount} bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
+            return `LineRaw edges=${g.edgeVectorCount} (UNRESOLVED) bbox=[${g.extent.wLon.toFixed(4)}, ${g.extent.sLat.toFixed(4)}, ${g.extent.eLon.toFixed(4)}, ${g.extent.nLat.toFixed(4)}]`;
     }
 }
 
