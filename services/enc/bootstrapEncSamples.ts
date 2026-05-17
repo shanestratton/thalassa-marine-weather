@@ -38,7 +38,20 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
             return;
         }
         if (hasAnyCells()) {
-            log.warn('bootstrap skipped — user already has cells');
+            // Diagnostic dump — once we're seeing the right cells in the FAB
+            // this branch is safe to silence, but right now we need to know
+            // *which* cell(s) the metadata store has registered.
+            try {
+                const { listCells } = await import('./EncCellMetadata');
+                const cells = listCells();
+                log.warn(
+                    `bootstrap skipped — ${cells.length} cell(s) already imported: ${cells
+                        .map((c) => `${c.id}(${c.sourceHO},ed${c.edition})`)
+                        .join(', ')}`,
+                );
+            } catch {
+                log.warn('bootstrap skipped — user already has cells (could not enumerate)');
+            }
             localStorage.setItem(FLAG_KEY, '1');
             return;
         }
