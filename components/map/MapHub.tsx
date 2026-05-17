@@ -71,6 +71,8 @@ import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
+import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
+import { EncRouteButton } from './EncRouteButton';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
@@ -1227,6 +1229,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     // (lower zooms get the dashed coverage overlay above).
     useEncVectorLayer(mapRef, mapReady, encVisible);
 
+    // ── ENC test route line ──
+    // One-off rendering of `tryInshoreRoute` output triggered by the
+    // EncRouteButton chip. Independent of the passage-planner pipeline so
+    // we can demo on-chart routing without the planner UI in scope.
+    const [encTestRoute, setEncTestRoute] = useState<EncTestRoute | null>(null);
+    useEncTestRouteLayer(mapRef, mapReady, encTestRoute);
+
     // ── Pending fit-to-bbox request ──
     // Used by EncCellManager (and any future "show me on the map"
     // entry point) to fit the viewport to a bbox after navigating
@@ -1688,6 +1697,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                             ],
                         }}
                     />
+                )}
+
+                {/* ═══ ENC TEST ROUTE BUTTON (top-left chip when ENC cells imported) ═══ */}
+                {!passage.showPassage && !embedded && !isPinView && encCellCount > 0 && (
+                    <EncRouteButton encCellCount={encCellCount} onRoute={setEncTestRoute} />
                 )}
 
                 {/* ═══ LEGACY LAYER MENU (kept for chart/SK/vessel controls not yet in radial) ═══ */}
