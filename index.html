@@ -31,7 +31,21 @@
       base-uri 'self';"
         />
         <link rel="manifest" href="/manifest.json" />
-        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/567/567055.png" />
+        <!--
+          Favicons + Apple touch icon — all generated from the cleaned
+          Thalassa brand mark (see assets/brand/CLEANING_NOTES.md).
+          We ship both the SVG (modern browsers; scales perfectly) AND
+          the PNG stack as a fallback (older browsers + iOS home-screen).
+          The 16/32 are the SIMPLIFIED mark (just the 4-point compass
+          star) because the detailed mark + wave goes illegible below
+          ~48 px; 48+ get the full mark with wave. Apple-touch-icon is
+          the 192 detailed version on opaque slate-950.
+        -->
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+        <link rel="icon" type="image/png" sizes="48x48" href="/favicon-48.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 
         <!-- Performance Optimization: Pre-establish connections to critical domains -->
         <link rel="preconnect" href="https://images.unsplash.com" />
@@ -59,7 +73,7 @@
             content="Professional marine weather intelligence. Real-time wind, waves, tides, and weather-routed passage planning for sailors."
         />
         <meta property="og:type" content="website" />
-        <meta property="og:image" content="https://cdn-icons-png.flaticon.com/512/567/567055.png" />
+        <meta property="og:image" content="/icon-512.png" />
 
         <style>
             /* Custom scrollbar for glassmorphism feel */
