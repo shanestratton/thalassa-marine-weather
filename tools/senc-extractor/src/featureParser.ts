@@ -342,7 +342,7 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
             case RecordType.FEATURE_GEOMETRY_RECORD_AREA: {
                 if (!current || payload.length < 44 || !header.refMerc) break;
-                const parsed = parseAreaTriangles(payload, header.refMerc, stats, 1);
+                const parsed = parseAreaTriangles(payload, header.refMerc, stats, 1, 44);
                 if (parsed) {
                     current.geometry = parsed.geometry;
                     stats.geometriesByPrimitive.area += 1;
@@ -358,16 +358,17 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
             }
 
             case RecordType.FEATURE_GEOMETRY_RECORD_AREA_EXT: {
-                // V3+ "extended" AREA record. Same layout as type 82 plus a
-                // trailing `scaleFactor: double` in the fixed header (8 bytes
-                // after edgeVector_count), and per-vertex coordinates divided
-                // by scaleFactor before mercator→latlon conversion.
+                // V3+ "extended" AREA record. Same first 44 bytes as type 82
+                // (extent + contour_count + triprim_count + edgeVector_count),
+                // then 8 bytes of `scaleFactor: double`, then the triprim
+                // payload at offset 52. Per-vertex coordinates are divided by
+                // `scaleFactor` before mercator → lat/lon conversion.
                 //
                 // See reference Osenc.h _OSENC_AreaGeometryExt_Record_Payload
                 // and OESUChart.cpp parseAreaRecord<…,true>.
                 if (!current || payload.length < 52 || !header.refMerc) break;
                 const scaleFactor = payload.readDoubleLE(44);
-                const parsed = parseAreaTriangles(payload.subarray(8), header.refMerc, stats, scaleFactor);
+                const parsed = parseAreaTriangles(payload, header.refMerc, stats, scaleFactor, 52);
                 if (parsed) {
                     current.geometry = parsed.geometry;
                     stats.geometriesByPrimitive.area += 1;
@@ -568,6 +569,13 @@ function parseAreaTriangles(
      * For basic AREA (type 82) records pass 1 (no scaling).
      */
     scaleFactor: number,
+    /**
+     * Offset where the contour-point-counts table begins. Always 44 for type
+     * 82 (extent + 3×uint32). For type 84 (EXT) it's 52, because an extra
+     * `scaleFactor: double` field is inserted between edgeVector_count and the
+     * payload. Reference: Osenc.h _OSENC_AreaGeometryExt_Record_Payload.
+     */
+    payloadStartOffset: number,
 ): { geometry: AreaGeometry; edges?: AreaEdgesRaw } | null {
     const scale = scaleFactor > 0 ? scaleFactor : 1;
     const sLat = payload.readDoubleLE(0);
@@ -578,7 +586,7 @@ function parseAreaTriangles(
     const triprimCount = payload.readUInt32LE(36);
     const edgeVectorCount = payload.readUInt32LE(40);
 
-    let off = 44;
+    let off = payloadStartOffset;
     off += contourCount * 4; // skip contour-point-counts
 
     const triangles: AreaGeometry['triangles'] = [];
