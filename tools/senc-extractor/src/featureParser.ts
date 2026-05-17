@@ -20,33 +20,22 @@ export interface MultiPointGeometry {
 }
 
 /**
- * AREA geometry as a list of closed rings, each [lon, lat] coordinates with
- * the first vertex repeated as the last. By S-57 convention the first ring is
- * the outer boundary; subsequent rings are holes.
+ * AREA geometry decoded into a flat list of triangles. Each triangle is three
+ * [lon, lat] points. Built from the SENC triangulation primitives — every
+ * triangle is small, correct, and self-contained, which is what the inshore
+ * router's rasterizer needs to mark land cells without accidentally bridging
+ * across navigable water.
  *
- * Reconstructed from the SENC edge-vector + connected-node tables (the same
- * topology LINE features use) — the triangulation primitives that ship in the
- * AREA record are skipped, since they're a renderer convenience that bloats
- * routing-relevant data by ~3×.
+ * A previous polygon-outline reconstruction (using edge-vector indices to
+ * chain rings) was too lossy at the chain-merge step: incomplete partitioning
+ * produced rings that crossed open water, blocking the BFS from finding a
+ * connected channel between origin and destination. Reverted to triangles
+ * until the ring assembly is fully Eulerian.
  */
 export interface AreaGeometry {
     type: 'Area';
-    rings: [number, number][][];
+    triangles: [[number, number], [number, number], [number, number]][];
     extent: { sLat: number; nLat: number; wLon: number; eLon: number };
-}
-
-/** Intermediate AREA form before vector-table resolution. */
-export interface AreaGeometryRaw {
-    type: 'AreaRaw';
-    extent: { sLat: number; nLat: number; wLon: number; eLon: number };
-    /** Number of contour rings advertised in the header. */
-    contourCount: number;
-    /** Point-count per contour (informational; used as sanity check). */
-    contourPointCounts: number[];
-    /** Edge-vector index entries. Same wire format as LINE records (3 or 4 int32 per edge). */
-    edgeIndicesRaw: Buffer;
-    edgeVectorCount: number;
-    stride: 3 | 4;
 }
 
 /**
@@ -72,13 +61,7 @@ export interface LineGeometryRaw {
     stride: 3 | 4;
 }
 
-export type FeatureGeometry =
-    | PointGeometry
-    | MultiPointGeometry
-    | AreaGeometry
-    | AreaGeometryRaw
-    | LineGeometry
-    | LineGeometryRaw;
+export type FeatureGeometry = PointGeometry | MultiPointGeometry | AreaGeometry | LineGeometry | LineGeometryRaw;
 
 interface EdgeEntry {
     /** Intermediate vertices in [lon, lat] (excludes the connected-node endpoints). */
@@ -131,8 +114,6 @@ export interface ParseResult {
         unknownAttrCodes: Set<number>;
         linesResolved?: number;
         linesUnresolvable?: number;
-        areasResolved?: number;
-        areasUnresolvable?: number;
     };
 }
 
@@ -340,10 +321,10 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
             }
 
             case RecordType.FEATURE_GEOMETRY_RECORD_AREA: {
-                if (!current || payload.length < 44) break;
-                const areaRaw = parseAreaRecordToRaw(payload, header.sencVersion ?? 0, stats);
-                if (areaRaw) {
-                    current.geometry = areaRaw;
+                if (!current || payload.length < 44 || !header.refMerc) break;
+                const areaGeom = parseAreaTriangles(payload, header.refMerc, stats);
+                if (areaGeom) {
+                    current.geometry = areaGeom;
                     stats.geometriesByPrimitive.area += 1;
                 }
                 break;
@@ -359,12 +340,12 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
     flush();
 
-    // Second pass: resolve LineRaw → Line and AreaRaw → Area using the
-    // chart-wide vector tables that come after the feature records.
+    // Second pass: resolve LineRaw → Line using the chart-wide vector tables.
+    // (AREA features were already materialised into triangle soup during the
+    // main walk — see parseAreaTriangles. Polygon-outline reconstruction is
+    // deferred until ring assembly is fully Eulerian.)
     let linesResolved = 0;
     let linesUnresolvable = 0;
-    let areasResolved = 0;
-    let areasUnresolvable = 0;
     for (const f of features) {
         if (f.geometry?.type === 'LineRaw') {
             const resolved = resolveLineGeometry(f.geometry, edgeTable, connectedNodeTable);
@@ -375,21 +356,10 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
                 f.geometry = null;
                 linesUnresolvable += 1;
             }
-        } else if (f.geometry?.type === 'AreaRaw') {
-            const resolved = resolveAreaGeometry(f.geometry, edgeTable, connectedNodeTable);
-            if (resolved) {
-                f.geometry = resolved;
-                areasResolved += 1;
-            } else {
-                f.geometry = null;
-                areasUnresolvable += 1;
-            }
         }
     }
     stats.linesResolved = linesResolved;
     stats.linesUnresolvable = linesUnresolvable;
-    stats.areasResolved = areasResolved;
-    stats.areasUnresolvable = areasUnresolvable;
 
     return { header, features, stats };
 }
@@ -480,153 +450,79 @@ function resolveLineGeometry(
     };
 }
 
+// OpenGL primitive type values for the triangle blocks shipped in AREA records.
+const GL_TRIANGLES = 4;
+const GL_TRIANGLE_STRIP = 5;
+const GL_TRIANGLE_FAN = 6;
+
 /**
- * First-pass AREA record parser. Walks past the triangulation primitives (we
- * don't emit them — they're a renderer convenience that bloats routing data)
- * and slices out the edge-vector index entries so the second pass can resolve
- * them against the chart-wide edge + node tables. Stride is auto-detected
- * from the leftover buffer width, mirroring the LINE record logic.
+ * Decode an AREA record's triangulation primitives into a flat list of triangles
+ * in [lon, lat]. Triangles are self-contained — each one rasterises correctly
+ * for the inshore router's land/water mask even though the union of triangles
+ * forms the same polygon as the SENC edge-vector outline would.
+ *
+ * We deliberately keep triangles for now rather than reconstructing the polygon
+ * outline: ring assembly via edge-vector indices needs a full Eulerian cycle
+ * walk that we haven't built yet. An earlier attempt produced rings that
+ * crossed open water, blocking the BFS from finding navigable channels.
  */
-function parseAreaRecordToRaw(
-    payload: Buffer,
-    _sencVersion: number,
-    stats: ParseResult['stats'],
-): AreaGeometryRaw | null {
+function parseAreaTriangles(payload: Buffer, refMerc: MercXY, stats: ParseResult['stats']): AreaGeometry | null {
     const sLat = payload.readDoubleLE(0);
     const nLat = payload.readDoubleLE(8);
     const wLon = payload.readDoubleLE(16);
     const eLon = payload.readDoubleLE(24);
     const contourCount = payload.readUInt32LE(32);
     const triprimCount = payload.readUInt32LE(36);
-    const edgeVectorCount = payload.readUInt32LE(40);
 
     let off = 44;
+    off += contourCount * 4; // skip contour-point-counts
 
-    // contourCount × uint32 — point count per ring.
-    const contourPointCounts: number[] = [];
-    if (off + contourCount * 4 > payload.length) return null;
-    for (let i = 0; i < contourCount; i++) {
-        contourPointCounts.push(payload.readUInt32LE(off));
-        off += 4;
-    }
+    const triangles: AreaGeometry['triangles'] = [];
 
-    // Walk past triPrimitive blocks — each:
-    //   uint8 triType + uint32 numVerts + 4× double vert_extent + numVerts × 2×float
     for (let i = 0; i < triprimCount; i++) {
         if (off + 1 + 4 + 32 > payload.length) return null;
         const triType = payload.readUInt8(off);
         off += 1;
         const numVerts = payload.readUInt32LE(off);
         off += 4;
-        off += 32; // vert_extent
+        off += 32; // vert_extent — unused for routing geometry
         stats.triPrimitiveTypes.set(triType, (stats.triPrimitiveTypes.get(triType) ?? 0) + 1);
-        const vertBytes = numVerts * 8;
-        if (off + vertBytes > payload.length) return null;
-        off += vertBytes;
-    }
 
-    // Remaining buffer is edge-vector entries. Same auto-detect as LINE.
-    const edgeBytes = payload.length - off;
-    let stride: 3 | 4 = 3;
-    if (edgeVectorCount > 0) {
-        const perEdge = edgeBytes / edgeVectorCount;
-        if (perEdge === 16) stride = 4;
-        else if (perEdge !== 12) {
-            // Buffer width doesn't divide cleanly — keep stride=3, the resolver
-            // will bail if the indices don't make sense.
+        const VERT_STRIDE = 8; // float x + float y
+        if (off + numVerts * VERT_STRIDE > payload.length) return null;
+
+        const verts: [number, number][] = []; // [lon, lat]
+        for (let v = 0; v < numVerts; v++) {
+            const x = payload.readFloatLE(off);
+            const y = payload.readFloatLE(off + 4);
+            off += VERT_STRIDE;
+            const ll = smVertexToLatLon(x, y, refMerc);
+            verts.push([ll.lon, ll.lat]);
+        }
+
+        if (triType === GL_TRIANGLE_FAN) {
+            for (let t = 0; t < numVerts - 2; t++) {
+                triangles.push([verts[0], verts[t + 1], verts[t + 2]]);
+            }
+        } else if (triType === GL_TRIANGLE_STRIP) {
+            for (let t = 0; t < numVerts - 2; t++) {
+                if (t % 2 === 0) {
+                    triangles.push([verts[t], verts[t + 1], verts[t + 2]]);
+                } else {
+                    triangles.push([verts[t + 1], verts[t], verts[t + 2]]);
+                }
+            }
+        } else if (triType === GL_TRIANGLES) {
+            for (let t = 0; t + 2 < numVerts; t += 3) {
+                triangles.push([verts[t], verts[t + 1], verts[t + 2]]);
+            }
         }
     }
 
-    return {
-        type: 'AreaRaw',
-        extent: { sLat, nLat, wLon, eLon },
-        contourCount,
-        contourPointCounts,
-        edgeIndicesRaw: Buffer.from(payload.subarray(off)),
-        edgeVectorCount,
-        stride,
-    };
-}
-
-/**
- * Resolve an AreaRaw into closed polygon rings using the chart's edge and node
- * tables.
- *
- * Ring grouping comes from the contour-point-counts the SENC ships in the AREA
- * record header: `contourPointCounts[i]` is the number of EDGE entries that
- * belong to ring i. This is the same partitioning OpenCPN's renderer uses, and
- * gives a deterministic split (an earlier naive "chain when consecutive nodes
- * disagree" heuristic over-split rings whenever edges referenced different
- * node-table entries that happened to have identical coordinates).
- *
- * Within each ring, consecutive edges share an endpoint node, so we add
- * `startNode + edgePoints + endNode` for the first edge and only
- * `edgePoints + endNode` for subsequent edges to avoid duplicating shared
- * vertices. Each ring is closed with its first vertex.
- *
- * If `sum(contourPointCounts) !== edgeVectorCount` we fall back to treating the
- * whole edge list as a single ring — better one slightly-wrong ring than
- * nothing.
- */
-function resolveAreaGeometry(
-    raw: AreaGeometryRaw,
-    edgeTable: Map<number, EdgeEntry>,
-    connectedNodeTable: Map<number, ConnectedNodeEntry>,
-): AreaGeometry | null {
-    const buf = raw.edgeIndicesRaw;
-    const entryBytes = raw.stride * 4;
-    if (buf.length < raw.edgeVectorCount * entryBytes) return null;
-
-    // Sanity-check ring partitioning. If counts don't sum to the edge total,
-    // collapse to one ring covering every edge.
-    const partitionSum = raw.contourPointCounts.reduce((acc, n) => acc + n, 0);
-    const partition = partitionSum === raw.edgeVectorCount ? raw.contourPointCounts : [raw.edgeVectorCount];
-
-    const rings: [number, number][][] = [];
-    let edgeIdxCursor = 0;
-
-    for (const edgesInRing of partition) {
-        const ring: [number, number][] = [];
-
-        for (let i = 0; i < edgesInRing; i++) {
-            const off = (edgeIdxCursor + i) * entryBytes;
-            const edgeIdx = buf.readInt32LE(off);
-            const startNode = buf.readInt32LE(off + 4);
-            const endNode = buf.readInt32LE(off + 8);
-            const fwdFlag = raw.stride === 4 ? buf.readInt32LE(off + 12) : 1;
-
-            // First edge in the ring contributes its start node; subsequent edges
-            // chain off the previous edge's end node.
-            if (i === 0) {
-                const sc = connectedNodeTable.get(startNode);
-                if (sc) ring.push(sc.coord);
-            }
-
-            const edge = edgeTable.get(edgeIdx);
-            if (edge) {
-                const pts = fwdFlag === -1 || fwdFlag === 0 ? [...edge.points].reverse() : edge.points;
-                for (const p of pts) ring.push(p);
-            }
-
-            const ec = connectedNodeTable.get(endNode);
-            if (ec) ring.push(ec.coord);
-        }
-
-        edgeIdxCursor += edgesInRing;
-        if (ring.length < 3) continue;
-
-        // Close the ring (GeoJSON convention).
-        const first = ring[0];
-        const last = ring[ring.length - 1];
-        if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
-        rings.push(ring);
-    }
-
-    if (rings.length === 0) return null;
     return {
         type: 'Area',
-        rings,
-        extent: raw.extent,
+        triangles,
+        extent: { sLat, nLat, wLon, eLon },
     };
 }
 
