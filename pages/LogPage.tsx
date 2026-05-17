@@ -28,6 +28,7 @@ import { UndoToast } from '../components/ui/UndoToast';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useLogPageState } from '../hooks/useLogPageState';
+import { useUI } from '../context/UIContext';
 import { ShipLogEntry } from '../types';
 
 import { reverseGeocode } from '../services/weatherService';
@@ -56,6 +57,13 @@ const _AnchorIcon = ({ className }: { className?: string }) => (
 );
 
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
+    // Navigation helper — used by the "📔 Diary" menu item below.
+    // Diary lost its old VesselHub Quick-Actions tile (commit ee6ab49c
+    // killed the duplicate), so its only remaining entry point lives
+    // here in the Log tab's kebab. Justified because diary entries
+    // are part of the voyage record itself — they ride alongside
+    // routes/tracks into the public Voyage Log feed.
+    const { setPage } = useUI();
     const {
         state,
         dispatch,
@@ -421,6 +429,22 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     <div className="border-t border-white/5" />
                                                 </>
                                             )}
+                                            {/* Diary — first in the menu because diary entries
+                                                are the conversion-worthy "sharing object" in
+                                                the voyage record (they ride alongside routes/
+                                                tracks into the public Voyage Log feed at
+                                                thalassawx.app/logs/<handle>). Before this
+                                                line landed, Diary was orphaned in the UI —
+                                                only viewRegistry knew about it. */}
+                                            <MenuBtn
+                                                icon="📔"
+                                                label="Diary"
+                                                onClick={() => {
+                                                    setPage('diary');
+                                                    setShowMenu(false);
+                                                }}
+                                            />
+                                            <div className="border-t border-white/5" />
                                             <MenuBtn
                                                 icon="📊"
                                                 label="Statistics"
