@@ -77,6 +77,19 @@ async function main() {
             .join(' ');
         console.log(`  dropped record-types (type:count): ${dropped}`);
     }
+    if (stats.triPrimitiveTypes.size > 0) {
+        const types = [...stats.triPrimitiveTypes.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([t, n]) => {
+                const name = t === 4 ? 'TRIANGLES' : t === 5 ? 'STRIP' : t === 6 ? 'FAN' : '?';
+                return `${name}(${t}):${n}`;
+            })
+            .join(' ');
+        console.log(`  AREA triPrim types: ${types}`);
+    }
+    console.log(
+        `  SENC version: ${header.sencVersion ?? '?'}, edition: ${header.cellEdition ?? '?'}, scale: 1:${header.nativeScale ?? '?'}`,
+    );
     console.log(`  wrote ${outPath} (${json.length.toLocaleString()} bytes)`);
 }
 
