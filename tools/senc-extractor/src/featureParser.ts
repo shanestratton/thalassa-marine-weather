@@ -124,6 +124,8 @@ export interface ParseResult {
         geometriesByPrimitive: Record<Primitive, number>;
         triPrimitiveTypes: Map<number, number>;
         unknownAttrCodes: Set<number>;
+        /** record-type code → count of records the parser had no case for */
+        unknownRecordCounts: Map<number, number>;
         linesResolved?: number;
         linesUnresolvable?: number;
         areasWithRings?: number;
@@ -151,6 +153,7 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
         geometriesByPrimitive: { point: 0, line: 0, area: 0, multipoint: 0, unknown: 0 },
         triPrimitiveTypes: new Map(),
         unknownAttrCodes: new Set(),
+        unknownRecordCounts: new Map(),
     };
 
     const edgeTable = new Map<number, EdgeEntry>();
@@ -339,7 +342,7 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
             case RecordType.FEATURE_GEOMETRY_RECORD_AREA: {
                 if (!current || payload.length < 44 || !header.refMerc) break;
-                const parsed = parseAreaTriangles(payload, header.refMerc, stats);
+                const parsed = parseAreaTriangles(payload, header.refMerc, stats, 1);
                 if (parsed) {
                     current.geometry = parsed.geometry;
                     stats.geometriesByPrimitive.area += 1;
@@ -354,10 +357,33 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
                 break;
             }
 
+            case RecordType.FEATURE_GEOMETRY_RECORD_AREA_EXT: {
+                // V3+ "extended" AREA record. Same layout as type 82 plus a
+                // trailing `scaleFactor: double` in the fixed header (8 bytes
+                // after edgeVector_count), and per-vertex coordinates divided
+                // by scaleFactor before mercator→latlon conversion.
+                //
+                // See reference Osenc.h _OSENC_AreaGeometryExt_Record_Payload
+                // and OESUChart.cpp parseAreaRecord<…,true>.
+                if (!current || payload.length < 52 || !header.refMerc) break;
+                const scaleFactor = payload.readDoubleLE(44);
+                const parsed = parseAreaTriangles(payload.subarray(8), header.refMerc, stats, scaleFactor);
+                if (parsed) {
+                    current.geometry = parsed.geometry;
+                    stats.geometriesByPrimitive.area += 1;
+                    if (parsed.edges) {
+                        pendingAreaEdges.set(current, parsed.edges);
+                    }
+                }
+                break;
+            }
+
             default:
                 // VECTOR_EDGE_NODE_TABLE_RECORD (96), VECTOR_CONNECTED_NODE_TABLE_RECORD (97),
                 // CELL_COVR_RECORD (98), CELL_NOCOVR_RECORD (99), CELL_TXTDSC_INFO_FILE_RECORD (101),
                 // SERVER_STATUS_RECORD (200) — not consumed for routing extraction.
+                // Count what we drop so diagnostics surface unsupported types.
+                stats.unknownRecordCounts.set(recHeader.type, (stats.unknownRecordCounts.get(recHeader.type) ?? 0) + 1);
                 break;
         }
     }
@@ -536,7 +562,14 @@ function parseAreaTriangles(
     payload: Buffer,
     refMerc: MercXY,
     stats: ParseResult['stats'],
+    /**
+     * For V3+ AREA_EXT (type 84) records, vertex coordinates are divided by
+     * `scaleFactor` before mercator→latlon conversion (per OESUChart.cpp:151).
+     * For basic AREA (type 82) records pass 1 (no scaling).
+     */
+    scaleFactor: number,
 ): { geometry: AreaGeometry; edges?: AreaEdgesRaw } | null {
+    const scale = scaleFactor > 0 ? scaleFactor : 1;
     const sLat = payload.readDoubleLE(0);
     const nLat = payload.readDoubleLE(8);
     const wLon = payload.readDoubleLE(16);
@@ -567,7 +600,7 @@ function parseAreaTriangles(
             const x = payload.readFloatLE(off);
             const y = payload.readFloatLE(off + 4);
             off += VERT_STRIDE;
-            const ll = smVertexToLatLon(x, y, refMerc);
+            const ll = smVertexToLatLon(x / scale, y / scale, refMerc);
             verts.push([ll.lon, ll.lat]);
         }
 
