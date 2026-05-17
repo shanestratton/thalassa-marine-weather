@@ -438,42 +438,68 @@ export const VoyageCard: React.FC<{
                         }}
                         className="flex-1 p-3.5 text-left min-w-0"
                     >
-                        {/* Top row: route + distance */}
-                        <div className="flex items-start justify-between mb-1.5">
+                        {/* ── Top row: route title with stylised arrow ──
+                            2026-05-17 polish: replaced the bare "→"
+                            ascii arrow with a proper sky-tinted SVG
+                            glyph so the from-to relationship reads as
+                            a navigation move rather than a typographic
+                            afterthought. Title bumped to 16 px. */}
+                        <div className="flex items-start justify-between mb-2">
                             <div className="min-w-0 flex-1">
                                 {startLabel || endLabel ? (
-                                    <div className="text-[15px] font-bold text-white truncate leading-tight">
-                                        {startLabel || '—'} → {endLabel || '…'}
+                                    <div className="flex items-center gap-1.5 text-[16px] font-bold text-white leading-tight">
+                                        <span className="truncate">{startLabel || '—'}</span>
+                                        <svg
+                                            className="shrink-0 w-3.5 h-3.5 text-sky-400"
+                                            viewBox="0 0 24 24"
+                                            fill="none"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            aria-hidden="true"
+                                        >
+                                            <path d="M5 12h14M13 6l6 6-6 6" />
+                                        </svg>
+                                        <span className="truncate">{endLabel || '…'}</span>
                                     </div>
                                 ) : (
-                                    <div className="text-[15px] font-bold text-white/60 truncate leading-tight">
+                                    <div className="text-[16px] font-bold text-white/60 truncate leading-tight">
                                         Voyage
                                     </div>
                                 )}
                             </div>
-                            {isSelected && (
-                                <span className="ml-2 flex-shrink-0 w-2 h-2 rounded-full bg-sky-400 mt-1.5" />
-                            )}
+                            {isSelected && <span className="ml-2 flex-shrink-0 w-2 h-2 rounded-full bg-sky-400 mt-2" />}
                         </div>
 
-                        {/* Stats row — compact inline */}
-                        <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-1">
-                            <span className="font-bold text-white/70 tabular-nums">{(dist ?? 0).toFixed(1)} NM</span>
-                            <span className="text-white/10">·</span>
-                            <span className="tabular-nums">{durationLabel}</span>
-                            <span className="text-white/10">·</span>
-                            <span>{dateLabel}</span>
-                            {avgSpeed > 0 && (
-                                <>
-                                    <span className="text-white/10">·</span>
-                                    <span className="tabular-nums">{(avgSpeed ?? 0).toFixed(1)} kts</span>
-                                </>
-                            )}
-                        </div>
-
-                        {/* Badge row */}
+                        {/* ── Stats row — small chips, not dot-separated text ──
+                            2026-05-17 polish: was a single muted line with
+                            "·" separators that all the metrics had to
+                            share. Each metric is now its own subtle pill
+                            so the eye can pick out distance vs duration
+                            vs date vs speed independently. Distance gets
+                            the sky tint because it's the headline number
+                            for a voyage log. */}
                         <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] text-slate-600 tabular-nums">
+                            <span className="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[11px] font-bold text-sky-300 tabular-nums">
+                                {(dist ?? 0).toFixed(1)} nm
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold text-slate-300 tabular-nums">
+                                {durationLabel}
+                            </span>
+                            {avgSpeed > 0 && (
+                                <span className="px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold text-slate-300 tabular-nums">
+                                    {(avgSpeed ?? 0).toFixed(1)} kts
+                                </span>
+                            )}
+                            <span className="px-2 py-0.5 rounded-full bg-white/[0.02] border border-white/[0.04] text-[11px] font-medium text-slate-400">
+                                {dateLabel}
+                            </span>
+                        </div>
+
+                        {/* Badge row — entries count + source-type chips */}
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                            <span className="text-[10px] text-slate-500 tabular-nums">
                                 {voyage.entries.length} entries
                             </span>
                             {hasManual && (

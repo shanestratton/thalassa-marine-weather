@@ -496,19 +496,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         }
                     />
 
-                    {/* ── Voyage Totals — three big gauge tiles ──
-                        Rewritten 2026-05-17 to compute directly from
-                        `voyageGroups` (the same data driving the cards
-                        rendered below) rather than the `careerTotals`
-                        memo, which was over-filtering — its isOnWater
-                        ≥60 % land rule + source==='device' filter was
-                        excluding real voyages and reading 0 / 0 / 0
-                        while three voyage cards sat right below it.
-                        Same source of truth as the cards now. Also
-                        means the smaller "X TODAY · Y VOYAGES · Z NM"
-                        status row that used to live below this grid
-                        is gone — it was a worse-formatted duplicate
-                        of the same three numbers. */}
+                    {/* ── Voyage Totals — three hero gauge tiles ──
+                        Polished 2026-05-17 — gradient backdrops per
+                        accent colour, icon glyph in the upper-right
+                        corner of each, larger metric + inline unit
+                        suffix, brighter labels. Same data source as
+                        the voyage cards below (voyageGroups). */}
                     {(() => {
                         const totalNmRaw = voyageGroups.reduce((sum, g) => {
                             const dist = Math.max(0, ...g.entries.map((e) => e.cumulativeDistanceNM || 0));
@@ -520,37 +513,103 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             return sum + (Math.max(...times) - Math.min(...times));
                         }, 0);
                         const totalHrs = Math.round((totalMs / (1000 * 60 * 60)) * 10) / 10;
+                        const atSeaValue = totalHrs < 24 ? totalHrs.toString() : Math.round(totalHrs / 24).toString();
+                        const atSeaUnit = totalHrs < 24 ? 'hrs' : 'days';
                         return (
                             <div className="shrink-0 px-4 pb-3">
-                                <div className="grid grid-cols-3 gap-2">
-                                    {/* NM Sailed */}
-                                    <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
-                                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-sky-500/60 to-sky-500/0" />
-                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                                            NM Sailed
+                                <div className="grid grid-cols-3 gap-2.5">
+                                    {/* ── NM Sailed ── */}
+                                    <div className="relative rounded-2xl overflow-hidden border border-sky-500/15 bg-gradient-to-br from-sky-500/[0.10] via-sky-500/[0.04] to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(56,189,248,0.15)]">
+                                        {/* Soft top-edge highlight */}
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-sky-400/40 to-transparent" />
+                                        {/* Compass-needle icon, top-right */}
+                                        <svg
+                                            className="absolute top-2.5 right-2.5 w-4 h-4 text-sky-400/40"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.8}
+                                            aria-hidden="true"
+                                        >
+                                            <circle cx="12" cy="12" r="9" />
+                                            <path
+                                                d="M14.5 9.5L11 13l-1.5-1.5L13 8z"
+                                                fill="currentColor"
+                                                stroke="none"
+                                            />
+                                            <path
+                                                d="M9.5 14.5L13 11l1.5 1.5L11 16z"
+                                                fill="currentColor"
+                                                stroke="none"
+                                                opacity="0.4"
+                                            />
+                                        </svg>
+                                        <div className="text-[10px] font-bold text-sky-300/70 uppercase tracking-widest mb-2">
+                                            Distance
                                         </div>
-                                        <div className="text-xl font-black text-white tabular-nums leading-tight">
-                                            {totalNmRaw.toFixed(1)}
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-black text-white tabular-nums leading-none">
+                                                {totalNmRaw.toFixed(1)}
+                                            </span>
+                                            <span className="text-[11px] font-bold text-sky-300/60 uppercase tracking-wider">
+                                                nm
+                                            </span>
                                         </div>
                                     </div>
-                                    {/* Time at Sea */}
-                                    <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
-                                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-500/60 to-emerald-500/0" />
-                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                                            At Sea
+                                    {/* ── At Sea ── */}
+                                    <div className="relative rounded-2xl overflow-hidden border border-emerald-500/15 bg-gradient-to-br from-emerald-500/[0.10] via-emerald-500/[0.04] to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(16,185,129,0.15)]">
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-400/40 to-transparent" />
+                                        {/* Clock-like circle-with-tick icon */}
+                                        <svg
+                                            className="absolute top-2.5 right-2.5 w-4 h-4 text-emerald-400/40"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.8}
+                                            aria-hidden="true"
+                                        >
+                                            <circle cx="12" cy="12" r="9" />
+                                            <path d="M12 7v5l3 2" strokeLinecap="round" />
+                                        </svg>
+                                        <div className="text-[10px] font-bold text-emerald-300/70 uppercase tracking-widest mb-2">
+                                            Time at Sea
                                         </div>
-                                        <div className="text-xl font-black text-white tabular-nums leading-tight">
-                                            {totalHrs < 24 ? `${totalHrs}h` : `${Math.round(totalHrs / 24)}d`}
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-black text-white tabular-nums leading-none">
+                                                {atSeaValue}
+                                            </span>
+                                            <span className="text-[11px] font-bold text-emerald-300/60 uppercase tracking-wider">
+                                                {atSeaUnit}
+                                            </span>
                                         </div>
                                     </div>
-                                    {/* Voyages */}
-                                    <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
-                                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-500/60 to-amber-500/0" />
-                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                    {/* ── Voyages ── */}
+                                    <div className="relative rounded-2xl overflow-hidden border border-amber-500/15 bg-gradient-to-br from-amber-500/[0.10] via-amber-500/[0.04] to-transparent p-3.5 shadow-[0_2px_12px_-4px_rgba(245,158,11,0.15)]">
+                                        <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
+                                        {/* Anchor icon */}
+                                        <svg
+                                            className="absolute top-2.5 right-2.5 w-4 h-4 text-amber-400/40"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={1.8}
+                                            aria-hidden="true"
+                                        >
+                                            <circle cx="12" cy="5" r="2" />
+                                            <path d="M12 7v13" strokeLinecap="round" />
+                                            <path d="M8 11h8" strokeLinecap="round" />
+                                            <path d="M5 15a7 7 0 0014 0" strokeLinecap="round" />
+                                        </svg>
+                                        <div className="text-[10px] font-bold text-amber-300/70 uppercase tracking-widest mb-2">
                                             Voyages
                                         </div>
-                                        <div className="text-xl font-black text-white tabular-nums leading-tight">
-                                            {voyageGroups.length}
+                                        <div className="flex items-baseline gap-1">
+                                            <span className="text-2xl font-black text-white tabular-nums leading-none">
+                                                {voyageGroups.length}
+                                            </span>
+                                            <span className="text-[11px] font-bold text-amber-300/60 uppercase tracking-wider">
+                                                {voyageGroups.length === 1 ? 'log' : 'logs'}
+                                            </span>
                                         </div>
                                     </div>
                                 </div>
