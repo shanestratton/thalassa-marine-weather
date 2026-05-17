@@ -343,106 +343,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         });
     }, []);
 
-    // ── Live tile state — entries today, suggested/actual track counts, guardian, maintenance overdue ──
-    const [entriesToday, setEntriesToday] = useState<number | null>(null);
-    // Suggested/Actual track counts for the Log Book tile —
-    // sourced from RoutesAndTracks (planned_* voyageIds vs everything
-    // else). Refetches whenever a route is saved or a voyage deleted
-    // (window event from invalidateRoutesAndTracks).
-    const [routeCount, setRouteCount] = useState<number | null>(null);
-    const [trackCount, setTrackCount] = useState<number | null>(null);
+    // ── Live tile state — guardian status, maintenance overdue ──
+    // entriesToday + routeCount + trackCount removed 2026-05-17:
+    // they powered the Log Book tile in Quick Actions which got
+    // deleted (duplicated the bottom-nav Log tab). Their fetch +
+    // event-subscription logic moved to LogPage.tsx where the
+    // counts now render as a status header above the voyage list.
     const [guardianArmed, setGuardianArmed] = useState<boolean>(false);
     const [guardianNearby, setGuardianNearby] = useState<number>(0);
     const [overdueCount, setOverdueCount] = useState<number>(0);
     const [expiringDocsCount, setExpiringDocsCount] = useState<number>(0);
     const [expiringEquipCount, setExpiringEquipCount] = useState<number>(0);
-
-    useEffect(() => {
-        // Entries logged today (current voyage or any voyage). Source
-        // of truth is ship_logs; we just need a count of entries
-        // whose timestamp is on the current local day.
-        let cancelled = false;
-        (async () => {
-            try {
-                const { getLogEntries } = await import('../services/shiplog/EntryCrud');
-                const entries = await getLogEntries(200);
-                if (cancelled) return;
-                // Compare by LOCAL calendar day, not ms-since-epoch
-                // cutoff. The previous version used `setHours(0,0,0,0)`
-                // which is correct local midnight — but a ship_log
-                // timestamp stored as bare ISO (no timezone marker)
-                // can be parsed as UTC by `Date.parse`, and an entry
-                // made yesterday 23:30 AEST (= UTC 13:30 same day)
-                // can then look like today UTC and incorrectly pass
-                // `>= localMidnight`. Comparing year/month/day strings
-                // sidesteps the parse ambiguity entirely: an entry
-                // counts as "today" only if its rendered calendar date
-                // matches today's calendar date.
-                const today = new Date();
-                const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
-                const todays = entries.filter((e) => {
-                    const d = new Date(e.timestamp);
-                    if (Number.isNaN(d.getTime())) return false;
-                    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey;
-                }).length;
-                setEntriesToday(todays);
-            } catch {
-                /* offline — leave null */
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, []);
-
-    useEffect(() => {
-        // Suggested + Actual track counts for the Log Book
-        // tile. Source of truth is RoutesAndTracks:
-        //   routes  → planned_* voyageIds  (suggested / not yet sailed)
-        //   tracks  → every other voyageId (actual / sailed passages)
-        //
-        // Dynamic: re-fetches on the `routes-and-tracks-changed`
-        // window event (fired by invalidateRoutesAndTracks() from
-        // PassagePlanSave + EntryCrud.deleteVoyage), and again when
-        // the page becomes visible (skipper backgrounded the app and
-        // came back). No polling.
-        let cancelled = false;
-
-        const refetch = async () => {
-            try {
-                const { fetchRoutesAndTracks } = await import('../services/shiplog/RoutesAndTracks');
-                // Force=true bypasses the 60s cache so a delete reflects
-                // immediately rather than waiting up to a minute.
-                const data = await fetchRoutesAndTracks(true);
-                if (cancelled) return;
-                setRouteCount(data.routes.length);
-                setTrackCount(data.tracks.length);
-            } catch {
-                /* offline — leave nulls so the tile shows the CTA */
-            }
-        };
-
-        refetch();
-
-        const onChanged = () => {
-            void refetch();
-        };
-        const onVisibility = () => {
-            if (document.visibilityState === 'visible') void refetch();
-        };
-
-        if (typeof window !== 'undefined') {
-            window.addEventListener('thalassa:routes-and-tracks-changed', onChanged);
-            document.addEventListener('visibilitychange', onVisibility);
-        }
-        return () => {
-            cancelled = true;
-            if (typeof window !== 'undefined') {
-                window.removeEventListener('thalassa:routes-and-tracks-changed', onChanged);
-                document.removeEventListener('visibilitychange', onVisibility);
-            }
-        };
-    }, []);
 
     useEffect(() => {
         // Subscribe to Guardian for live armed-state + nearby-count.
@@ -671,102 +582,32 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     the Passage subgroup of Boat Binder below. */}
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* QUICK ACTIONS — daily ops (always expanded) */}
+                {/* WATCH STATUS — live operational status grid  */}
+                {/* (was "Quick Actions" with 6 tiles. The Log    */}
+                {/*  Book + Diary tiles were removed 2026-05-17   */}
+                {/*  because both routed to the same destinations  */}
+                {/*  as the new bottom-nav Log tab — pure         */}
+                {/*  duplication of the 5-tab nav restructure.    */}
+                {/*  Live counts that used to live on the Log    */}
+                {/*  Book tile moved to the top of LogPage         */}
+                {/*  itself. The remaining 4 tiles all share a   */}
+                {/*  unifying purpose: live operational status —  */}
+                {/*  Anchor armed/disarmed, Guardian watching,    */}
+                {/*  MOB rest state, Radio active. Section        */}
+                {/*  renamed accordingly. localStorage key 'quick' */}
+                {/*  preserved to retain the expanded state for    */}
+                {/*  existing users.) */}
                 {/* ═══════════════════════════════════════════ */}
                 <div className="mb-4">
                     <SectionHeader
                         color="#67E8F9"
-                        label="Quick Actions"
+                        label="Watch Status"
                         id="quick"
                         expanded={expanded.has('quick')}
                         onToggle={toggleSection}
                     />
                     <CollapsibleContent open={expanded.has('quick')}>
-                        {/* Row 1 — Log Book + Route Planner */}
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                            <button
-                                aria-label="Open log book"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('details');
-                                }}
-                                style={GLASS.card}
-                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
-                                    >
-                                        <BookIcon color="#67E8F9" />
-                                    </div>
-                                    {/* Log Book shows both counts on one line:
-                                                  N PLAN  = saved suggested routes (not yet sailed)
-                                                  N SAIL  = actually-logged tracks
-                                                Tracking is `wide` (not `widest`) so 2-digit
-                                                counts still fit inside the half-grid tile on
-                                                a small phone — `tracking-widest` blew past
-                                                the card edge. min-w-0 + truncate are belt &
-                                                suspenders if a future change pushes the
-                                                length out further. */}
-                                    <div className="min-w-0 flex-1">
-                                        <h4 className="text-[13px] font-black text-white tracking-wide truncate">
-                                            Log Book
-                                        </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400 mt-0.5 tabular-nums truncate">
-                                            {(() => {
-                                                const r = routeCount ?? 0;
-                                                const t = trackCount ?? 0;
-                                                if (r === 0 && t === 0) {
-                                                    return entriesToday !== null && entriesToday > 0
-                                                        ? `${entriesToday} Today`
-                                                        : 'Log Entry';
-                                                }
-                                                if (r === 0) return `${t} Sail`;
-                                                if (t === 0) return `${r} Plan`;
-                                                return `${r} Plan · ${t} Sail`;
-                                            })()}
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-
-                            {/* Route Planner moved into the Passage Planning
-                                        page (top of the readiness panel) so the
-                                        skipper plans a route + crew + provisioning in
-                                        one funnel. The slot here is now Diary —
-                                        promoted out of its own single-item section
-                                        into Quick Actions where it sits alongside
-                                        the Log Book as the "open it daily" pair. */}
-                            <button
-                                aria-label="Diary"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('diary');
-                                }}
-                                style={GLASS.card}
-                                className="p-4 text-left transition-all active:scale-[0.98] card-lift hover:bg-white/[0.03]"
-                            >
-                                <div className="flex items-center gap-3">
-                                    <div
-                                        className="p-2.5 rounded-lg"
-                                        style={{ background: 'rgba(103, 232, 249, 0.12)' }}
-                                    >
-                                        <PenIcon color="#67E8F9" />
-                                    </div>
-                                    <div className="min-w-0 flex-1">
-                                        <h4 className="text-[13px] font-black text-white tracking-wide truncate">
-                                            Diary
-                                        </h4>
-                                        <p className="text-[11px] font-bold uppercase tracking-widest mt-0.5 text-slate-400">
-                                            Daily Notes
-                                        </p>
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-
-                        {/* Row 2 — Anchor Watch + Guardian */}
+                        {/* Row 1 — Anchor Watch + Guardian */}
                         <div className="grid grid-cols-2 gap-3 mb-3">
                             <button
                                 aria-label="Anchor Watch"
@@ -839,7 +680,7 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             </button>
                         </div>
 
-                        {/* Row 3 — MOB + Radio Report */}
+                        {/* Row 2 — MOB + Radio Report */}
                         <div className="grid grid-cols-2 gap-3">
                             <button
                                 aria-label="Man Overboard"
@@ -2076,15 +1917,9 @@ const SignalIcon: React.FC<{ color?: string }> = ({ color = 'currentColor' }) =>
     </svg>
 );
 
-const BookIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-        />
-    </svg>
-);
+// BookIcon removed 2026-05-17 — only used by the Log Book tile in
+// Quick Actions, which was deleted as part of the duplicate-with-
+// bottom-nav-Log-tab cleanup.
 
 const MobIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
@@ -2110,15 +1945,9 @@ const ChecklistIcon: React.FC<{ color: string }> = ({ color }) => (
     </svg>
 );
 
-const PenIcon: React.FC<{ color: string }> = ({ color }) => (
-    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
-        <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
-        />
-    </svg>
-);
+// PenIcon removed 2026-05-17 — only used by the Diary tile in
+// Quick Actions, which was deleted alongside the Log Book tile
+// in the duplicate-cleanup pass.
 
 const BoxIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
