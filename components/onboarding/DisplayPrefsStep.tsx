@@ -37,7 +37,11 @@ export const DisplayPrefsStep: React.FC<DisplayPrefsStepProps> = ({
     onFinish,
 }) => (
     <div className="animate-in fade-in slide-in-from-right-8 duration-500 pt-8">
-        <h2 className="text-2xl font-bold text-white mb-6 text-center">Display Preferences</h2>
+        {/* Title rewritten 2026-05-17 — "Display Preferences" reads
+            like a system-settings header. "How it looks at the helm"
+            frames the same toggles in terms of how the user will
+            actually use them (on watch, in the cockpit). */}
+        <h2 className="text-2xl font-bold text-white mb-6 text-center">How it looks at the helm</h2>
 
         <div className="space-y-6 mb-8">
             {/* Display Mode */}

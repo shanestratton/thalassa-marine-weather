@@ -44,7 +44,7 @@ const ROLE_OPTIONS: {
         emoji: '⚓',
         label: 'Skipper',
         tagline: 'I own or skipper a vessel',
-        features: ['Route & passage planning', 'Full vessel profile & polars', "Galley & ship's stores"],
+        features: ['Route & passage planning', 'Vessel profile & boat-speed tuning', "Galley & ship's stores"],
         color: 'text-amber-400',
         borderColor: 'border-amber-500',
         bgColor: 'bg-amber-500/15',
