@@ -386,16 +386,38 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
             // Eulerian polygon-outline reconstruction is disabled — empirical
             // diagnostics on AU SENCs show the per-feature edge graph has
             // mostly degree-1 nodes, so the Eulerian-cycle invariant doesn't
-            // hold for o-charts AREA data. Two candidate explanations:
+            // hold for o-charts AREA data.
+            //
+            // User intuition (the "rope" model): each AREA's boundary is a
+            // collection of edge-segments ("ropes") that, end-to-end, traces
+            // the polygon. Each rope has a clear first node and last node.
+            // If we index ropes by their endpoints we can stitch them
+            // greedily: pick any unused rope, follow first→last, find the
+            // next rope whose first==current.last, keep going until we
+            // return to the start node — that's one ring. Repeat for the
+            // remaining ropes to pick up holes.
+            //
+            // Two candidate explanations for why the current naive
+            // implementation sees degree-1 nodes for every endpoint:
             //   1. Sign bit on startNode/endNode encodes traversal direction;
-            //      take abs() before building adjacency.
+            //      take abs() before building adjacency. (Hornang's reference
+            //      parser does exactly this for the Osenc edge tables.)
             //   2. AREA polygon outline lives in the triangulation's convex
             //      hull, not in the edge_vector index array (which may be
             //      annotations or shared-edge references, not boundary).
-            // Both need a deeper inspection of the SENC binary against a
-            // chart whose polygon outline is known visually. Until then,
-            // triangles cover the router correctly and the renderer
-            // (LNDARE without fill-outline, COALNE z11+) looks acceptable.
+            //
+            // Next session plan:
+            //   a. Dump pendingAreaEdges for ONE known feature (e.g. the
+            //      LNDARE for Newport spit) — print {startNode, endNode}
+            //      pairs and the raw bytes — and check whether sign-bit
+            //      stripping yields a connected graph.
+            //   b. If (a) fails, render the triangulation hull (boundary
+            //      edges that appear in exactly one triangle) and compare
+            //      visually to OpenCPN's display of the same cell.
+            //
+            // Until then, triangles cover the router correctly and the
+            // renderer (LNDARE without fill-outline, COALNE z11+) looks
+            // acceptable.
             const _edges = pendingAreaEdges.get(f);
             void _edges;
             areasRingFallback += 1;

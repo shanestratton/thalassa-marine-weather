@@ -45,6 +45,23 @@ interface InstalledIndex {
     cells: InstalledCellMeta[];
 }
 
+/**
+ * Per-source-file record used by --skip-existing to decide whether to
+ * re-decrypt. Keyed by absolute .oesu path; value records the file's mtime
+ * at the time we last processed it, plus the cellId we wrote (for back-trace
+ * during diagnostics). When o-charts pushes an updated edition the .oesu
+ * file's mtime advances, so the next watcher fire re-decrypts automatically.
+ */
+interface ProcessedFileEntry {
+    mtimeMs: number;
+    cellId: string;
+    edition: number;
+}
+interface ProcessedFilesRecord {
+    version: 1;
+    files: Record<string, ProcessedFileEntry>;
+}
+
 function parseArgs(argv: string[]): Args | null {
     let chartDir = '';
     let outDir = '';
@@ -137,6 +154,14 @@ async function main() {
         ? await loadPiCacheIndex(args.piCacheStore).catch(() => ({ version: 1, cells: [] }))
         : { version: 1, cells: [] };
 
+    // Edition-aware skip: track .oesu mtime so we re-decrypt when o-charts
+    // pushes an updated edition (or when the user manually re-imports). The
+    // record lives next to the chart store so all decryptBatch runs share it.
+    const processedStoreDir = args.piCacheStore ?? args.outDir;
+    const processedRecord: ProcessedFilesRecord = args.skipExisting
+        ? await loadProcessedFiles(processedStoreDir).catch(() => ({ version: 1, files: {} }))
+        : { version: 1, files: {} };
+
     try {
         for (const file of oesuFiles) {
             if (args.limit && processed >= args.limit) break;
@@ -144,15 +169,29 @@ async function main() {
             const baseName = basename(file, extname(file));
             const installKey = keys.get(baseName);
             const outPath = join(args.outDir, `${baseName}${args.fileExt}`);
+            const chartPath = join(args.chartDir, file);
             const t0 = Date.now();
 
             if (args.skipExisting) {
+                // Edition-aware skip: only skip when we've processed THIS file
+                // at its current mtime AND the output still exists. Any change
+                // — chart-update push, manual re-import, even a touch — bumps
+                // mtime and triggers re-decryption.
                 try {
-                    await stat(outPath);
-                    skipped += 1;
-                    continue;
+                    const sourceStat = await stat(chartPath);
+                    const recorded = processedRecord.files[chartPath];
+                    if (recorded && recorded.mtimeMs === sourceStat.mtimeMs) {
+                        // Belt-and-braces: also confirm the output is still there.
+                        try {
+                            await stat(outPath);
+                            skipped += 1;
+                            continue;
+                        } catch {
+                            // Output deleted out from under us — fall through and re-decrypt.
+                        }
+                    }
                 } catch {
-                    // doesn't exist, proceed
+                    // Source file unreadable — let the decrypt attempt below produce the real error.
                 }
             }
 
@@ -163,7 +202,6 @@ async function main() {
             }
 
             try {
-                const chartPath = join(args.chartDir, file);
                 const decrypted = await client.decryptChart(chartPath, installKey);
                 const { header, features } = parseSenc(decrypted);
 
@@ -197,6 +235,20 @@ async function main() {
                     });
                 }
 
+                // Record source mtime so a subsequent run with --skip-existing
+                // recognises this exact version as already processed. Updates
+                // bump mtime → re-decrypt on the next watcher fire.
+                try {
+                    const sourceStat = await stat(chartPath);
+                    processedRecord.files[chartPath] = {
+                        mtimeMs: sourceStat.mtimeMs,
+                        cellId: cell.cellId,
+                        edition: cell.edition,
+                    };
+                } catch {
+                    // Source file gone mid-run — rare; skip recording.
+                }
+
                 const tParse = Date.now() - t0;
                 const layers = Object.keys(cell.layers);
                 summary.push({
@@ -225,6 +277,15 @@ async function main() {
                 );
             } catch (err) {
                 console.warn(`Failed to write pi-cache index: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+        if (args.skipExisting) {
+            try {
+                await saveProcessedFiles(processedStoreDir, processedRecord);
+            } catch (err) {
+                console.warn(
+                    `Failed to write processed-files record: ${err instanceof Error ? err.message : String(err)}`,
+                );
             }
         }
     }
@@ -266,6 +327,25 @@ function upsertIndexEntry(index: InstalledIndex, entry: InstalledCellMeta): void
     const existing = index.cells.findIndex((c) => c.cellId === entry.cellId);
     if (existing >= 0) index.cells[existing] = entry;
     else index.cells.push(entry);
+}
+
+// ── processed-files record (edition-aware skip) ───────────────────
+
+async function loadProcessedFiles(storeDir: string): Promise<ProcessedFilesRecord> {
+    const path = join(storeDir, 'processed-files.json');
+    try {
+        const raw = await readFile(path, 'utf8');
+        const parsed = JSON.parse(raw) as ProcessedFilesRecord;
+        if (parsed.version === 1 && parsed.files && typeof parsed.files === 'object') return parsed;
+    } catch {
+        /* fresh install or corrupt — fall through */
+    }
+    return { version: 1, files: {} };
+}
+
+async function saveProcessedFiles(storeDir: string, record: ProcessedFilesRecord): Promise<void> {
+    await mkdir(storeDir, { recursive: true });
+    await writeFile(join(storeDir, 'processed-files.json'), JSON.stringify(record, null, 2), 'utf8');
 }
 
 main().catch((e) => {
