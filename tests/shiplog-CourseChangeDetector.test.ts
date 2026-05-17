@@ -101,7 +101,11 @@ describe('CourseChangeDetector', () => {
         expect(turns).toHaveLength(1);
         expect(turns[0].oldCardinal).toBe('N');
         expect(turns[0].newCardinal).toBe('E');
-        expect(turns[0].deltaDeg).toBeGreaterThanOrEqual(22.5);
+        // Lower bound updated 22.5 → 30 on 2026-05-17 when the firing
+        // threshold was raised to filter out helm-trim noise. 90° N→E
+        // still trivially clears it (90 ≥ 30), but the explicit bound
+        // documents the actual contract.
+        expect(turns[0].deltaDeg).toBeGreaterThanOrEqual(30);
     });
 
     it('does not fire when isActive returns false', () => {

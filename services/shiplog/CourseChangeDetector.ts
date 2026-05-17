@@ -1,6 +1,7 @@
 /**
- * CourseChangeDetector — fires when the boat's bearing changes by ≥22.5°
- * (one compass point).
+ * CourseChangeDetector — fires when the boat's bearing changes by
+ * ≥COURSE_CHANGE_THRESHOLD_DEG (currently 30°, one quarter past one
+ * compass point).
  *
  * Strategy: every 15s, take the latest GPS fix and compute the bearing
  * from the LAST checked position to the CURRENT one — i.e. a recent,
@@ -12,6 +13,24 @@
  * origin-bearing barely changes when you turn (1km north + small turn
  * → bearing-from-origin moves a degree or two). The recent-vector
  * approach is sensitive to short turns.
+ *
+ * Threshold tuning (2026-05-17):
+ * Raised the firing threshold from 22.5° (one compass point) to 30°.
+ * At 22.5°, under-sail helm corrections and minor course adjustments
+ * triggered visible waypoint pins ("Auto: COG ENE → E") which cluttered
+ * the chart with non-meaningful markers. 30° catches deliberate
+ * direction changes only:
+ *   - Tacks   (90°+ wind-to-wind under sail)
+ *   - Gybes   (120°+ downwind under sail)
+ *   - Harbour turns (typically 45-90°)
+ *   - Waypoint approaches / channel bends
+ * Trim adjustments (5-15°), minor lulls, and GPS jitter at the
+ * speed-tier edge no longer paint a pin.
+ *
+ * NOTE: this is the WAYPOINT-EMISSION threshold (visible map markers).
+ * The track polyline force-keep threshold in GpsTrackBuffer.thinTrack
+ * stays at 22.5° so the rendered LINE still curves accurately around
+ * gentler bends — only the named PIN density is reduced here.
  *
  * Coupling: the detector calls into `getPos()` and `onTurn()` callbacks —
  * it doesn't touch `lastBgLocation`, the tracking state, or any timers
@@ -27,7 +46,12 @@ import { GpsPrecision } from './GpsPrecisionTracker';
 const log = createLogger('ShipLog.Course');
 
 const COURSE_CHECK_INTERVAL_MS = 15_000;
-const COURSE_CHANGE_THRESHOLD_DEG = 22.5;
+/**
+ * Minimum heading delta (degrees) for a course change to fire a
+ * waypoint marker. Raised 22.5 → 30 on 2026-05-17 — see the file-
+ * level docstring for the full rationale.
+ */
+const COURSE_CHANGE_THRESHOLD_DEG = 30;
 
 const CARDINALS_16 = [
     'N',
