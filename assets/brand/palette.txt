@@ -1,14 +1,61 @@
 Thalassa Brand Palette (v1) — locked 2026-05-17
 
-Primary navy   #0F172A  (slate-900)  — wordmark, compass-rose strokes
-Slate grey     #475569  (slate-600)  — (reserved for light-mode lockup)
-Cyan accent    #5EEAD4  (teal-300)   — wave element, brand mark accents
-Deep sea green #0F766E  (teal-700)   — (reserved for wave shadow / depth)
-Safety accent  #FB923C  (orange-400) — (reserved for status destinations / optional terminator)
-White          #FFFFFF                — wordmark on dark, inner shapes
-Dark slate     #1E293B  (slate-800)  — (reserved for light-mode contrast)
+These hexes are the canonical brand colours, used ONLY on conversion-
+moment surfaces: SignInScreen, UpgradeModal, favicons, app icon,
+splash, OG images. The everyday UI surfaces (Glass / Charts / Plan /
+Log / Vessel and every sub-page they open into) use a different
+palette — sky-blue accents on slate, defined in `theme.ts`.
 
-Cleaned full-lockup-dark.svg uses three of these:
-  - #0F172A  Primary navy
-  - #5EEAD4  Cyan accent
-  - #FFFFFF  White
+Mirror in code at `theme.ts`:
+    import { BRAND } from './theme';
+
+────────────────────────────────────────────────────────────────────
+COLOUR             HEX        TAILWIND      USED FOR
+────────────────────────────────────────────────────────────────────
+Primary navy       #0F172A    slate-900     Wordmark on light bg,
+                                            compass-rose strokes
+                                            (light-mode lockup)
+
+Deep sea green     #0F766E    teal-700      Pulse-halo depth shadow
+                                            (BRAND.primary)
+
+Sea-foam teal      #5EEAD4    teal-300      Cyan accents in the
+                                            lockup SVG, pulse glow
+                                            highlight, brand-line
+                                            strokes on dark
+                                            (BRAND.primarySoft)
+
+Safety orange      #FB923C    orange-400    Destination terminator
+                                            on the compass mark,
+                                            tagline middots
+                                            (BRAND.accent)
+
+Deep orange        #F97316    orange-500    Light-surface accent
+                                            (BRAND.accentDeep) —
+                                            reserved, not yet used
+
+Dark slate         #1E293B    slate-800     Light-mode contrast
+                                            (reserved)
+
+White              #FFFFFF                  Wordmark on dark bg,
+                                            inner shapes inside
+                                            the compass mark
+                                            (BRAND.white)
+────────────────────────────────────────────────────────────────────
+
+Cleaned `full-lockup-dark.svg` uses three of these:
+  - #FFFFFF  White            (wordmark + compass body)
+  - #5EEAD4  Sea-foam teal    (wave swirl + accents)
+  - (background transparent, sits on slate-950 #020617 from theme)
+
+Cleaned `full-lockup-light.svg` uses three of these:
+  - #FFFFFF  White            (background)
+  - #0F172A  Primary navy     (wordmark + compass body)
+  - #5EEAD4  Sea-foam teal    (wave swirl + accents)
+
+DO NOT use these colours on everyday UI surfaces. If you find
+yourself reaching for one of these on a Vessel sub-page or a Log
+entry, either (a) you're on a conversion moment that needs a design
+call, or (b) you should be using the UI palette in theme.ts. The
+two-palette discipline is what keeps "Thalassa is talking to you"
+moments from getting drowned out by routine app chrome.
