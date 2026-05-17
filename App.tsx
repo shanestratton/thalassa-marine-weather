@@ -13,6 +13,7 @@ import { SearchIcon, MapIcon, StarIcon, RouteIcon, ClipboardIcon } from './compo
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
+import { FollowRouteBadge } from './components/FollowRouteBadge';
 import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
@@ -317,6 +318,27 @@ const App: React.FC = () => {
                 <IOSInstallPrompt />
             </Suspense>
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
+
+            {/* Active-route banner — added 2026-05-17. Global
+                persistent banner that ONLY renders when the user is
+                following a route. Auto-hides when they stop. Until
+                now this component was defined but never mounted, so
+                once a user started following a route they had no UI
+                to stop it — the dashed line would sit on the Charts
+                page indefinitely (one Newport → Noumea route prompted
+                this fix). Wrapped in a fixed-position container so
+                the badge floats above tab content from any tab.
+                Sits just below the safe-area + universal page-header
+                cluster (~90 px) and above the tab content. z-[900]
+                keeps it under modals (z-[1200]) but above maps. */}
+            <div
+                className="fixed left-0 right-0 z-[900] pointer-events-none"
+                style={{ top: 'calc(env(safe-area-inset-top) + 80px)' }}
+            >
+                <div className="pointer-events-auto">
+                    <FollowRouteBadge />
+                </div>
+            </div>
 
             {/* BACKGROUND */}
             {showBackgroundImage ? (
