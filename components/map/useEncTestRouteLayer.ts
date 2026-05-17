@@ -11,6 +11,7 @@ import { useEffect, useRef } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
 import { createLogger } from '../../utils/createLogger';
+import { setEncRouteFocusMode } from './EncVectorLayer';
 
 const log = createLogger('useEncTestRouteLayer');
 
@@ -100,6 +101,14 @@ export function useEncTestRouteLayer(
             const src = map.getSource(SOURCE_ID) as mapboxgl.GeoJSONSource | undefined;
             if (src) src.setData(data);
         }
+
+        // When a route is on the map, drop the busy DEPARE/LNDARE/COALNE
+        // fills + coastlines so the route polyline is the visual focus.
+        // Markers, lights, and hazards stay so the sailor can sense-check
+        // the route against channel marks. When the route clears, restore
+        // the full chart.
+        const focused = !!route && route.polyline.length >= 2;
+        setEncRouteFocusMode(map, focused);
     }, [mapRef, mapReady, route]);
 
     // Cleanup on full unmount (rare — MapHub stays mounted for the session).
