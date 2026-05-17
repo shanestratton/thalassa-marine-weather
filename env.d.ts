@@ -81,3 +81,17 @@ interface HttpError extends Error {
 
 /** Safely extract HTTP status from an unknown error */
 declare function isHttpError(err: unknown): err is HttpError;
+
+// --- VITE ASSET IMPORTS ---
+// Allow `import logoUrl from './path/logo.svg'` syntax (Vite returns the
+// hashed URL string at build time). Without this, TS complains about
+// the missing module declaration for .svg files at the project root.
+
+declare module '*.svg' {
+    const src: string;
+    export default src;
+}
+declare module '*.png' {
+    const src: string;
+    export default src;
+}
