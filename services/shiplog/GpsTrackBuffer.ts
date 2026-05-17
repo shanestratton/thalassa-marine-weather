@@ -300,6 +300,89 @@ export class GpsTrackBuffer {
         }
     }
 
+    /**
+     * Push a new GPS fix with **live decimation** applied first.
+     *
+     * Added 2026-05-17 to support Precision Mode (2 Hz GPS sampling).
+     * At hi-fi capture rates the raw stream is dense with redundant
+     * points — boat anchored, boat steady on a heading, etc. Two
+     * filters keep the buffer lean without losing the points that
+     * matter:
+     *
+     *   Filter A — Collocation
+     *     If the new point is within `epsilonCollocation` metres of
+     *     the previous accepted point, drop it. Catches "boat hasn't
+     *     actually moved, just GPS noise".
+     *
+     *   Filter B — 3-point collinearity
+     *     If the previous point sits on (within `epsilonCollinear` m
+     *     of) the line from the previous-previous to the new point,
+     *     the previous point is redundant — replace it with the new
+     *     point. Catches "boat is steady on a heading" without losing
+     *     the actual progress.
+     *
+     * The full RDP pass in `thinTrack()` still runs at flush time
+     * for additional simplification with speed-adaptive epsilon.
+     * This live filter is the FIRST line of defence; RDP is the
+     * second.
+     */
+    pushWithLiveFilter(
+        pos: CachedPosition,
+        opts: { epsilonCollocation?: number; epsilonCollinear?: number } = {},
+    ): { accepted: boolean; replacedPrevious: boolean } {
+        const epsCol = opts.epsilonCollocation ?? 1.0; // metres
+        const epsLin = opts.epsilonCollinear ?? 2.0; // metres
+        const n = this.buffer.length;
+
+        // Buffer empty → always accept
+        if (n === 0) {
+            this.push(pos);
+            return { accepted: true, replacedPrevious: false };
+        }
+
+        // ── Filter A: collocation ──
+        const prev = this.buffer[n - 1];
+        const dist = haversineMeters(prev.latitude, prev.longitude, pos.latitude, pos.longitude);
+        if (dist < epsCol) {
+            // Same spot → drop the new reading (we already have prev there).
+            return { accepted: false, replacedPrevious: false };
+        }
+
+        // ── Filter B: 3-point collinearity ──
+        // Need at least 2 prior points to form the A→C line.
+        if (n >= 2) {
+            const prev2 = this.buffer[n - 2];
+            // Distance from `prev` to the line `prev2 → pos`. If `prev`
+            // is closer than `epsLin` to that line, the middle point
+            // is redundant — replace it with `pos`. Geometrically this
+            // is "boat continued straight; prev was a redundant tick".
+            const perp = perpendicularDistanceMeters(
+                prev.latitude,
+                prev.longitude,
+                prev2.latitude,
+                prev2.longitude,
+                pos.latitude,
+                pos.longitude,
+            );
+            // ALSO require that bearings are consistent — if prev2→prev
+            // and prev→pos diverge sharply, perpendicular distance
+            // would also be small in degenerate cases (e.g. backtrack).
+            const b1 = bearing(prev2.latitude, prev2.longitude, prev.latitude, prev.longitude);
+            const b2 = bearing(prev.latitude, prev.longitude, pos.latitude, pos.longitude);
+            const bearingDelta = headingDelta(b1, b2);
+
+            if (perp < epsLin && bearingDelta < 8) {
+                // Replace prev with the new point — "drop the middle"
+                this.buffer[n - 1] = pos;
+                return { accepted: true, replacedPrevious: true };
+            }
+        }
+
+        // Default: accept as a new buffer entry
+        this.push(pos);
+        return { accepted: true, replacedPrevious: false };
+    }
+
     /** Drain all positions and clear the buffer. Returns chronologically ordered array. */
     drain(): CachedPosition[] {
         const result = this.buffer;

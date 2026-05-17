@@ -74,6 +74,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         continueLastVoyage,
 
         handleToggleRapidMode,
+        handleTogglePrecisionMode,
         handleStopTracking,
         confirmStopVoyage,
         // Entry CRUD
@@ -213,6 +214,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         entries,
         isTracking,
         isRapidMode,
+        isPrecisionMode,
         loading,
         showAddModal,
         showTrackMap,
@@ -425,6 +427,27 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                             setShowMenu(false);
                                                         }}
                                                         accent={isRapidMode}
+                                                    />
+                                                    {/* Precision Mode — hi-fi 2 Hz GPS sampling
+                                                        with live decimation. Battery cost is
+                                                        real (~25-35 %/hr extra) so auto-shuts
+                                                        off after 60 min. Distinct from Rapid:
+                                                        Rapid changes flush cadence (how often
+                                                        we save an entry), Precision changes
+                                                        sample rate (how often GPS gives us a
+                                                        fix). They compose. */}
+                                                    <MenuBtn
+                                                        icon="🎯"
+                                                        label={
+                                                            isPrecisionMode
+                                                                ? 'Precision (ON · 60 min)'
+                                                                : 'Precision Mode'
+                                                        }
+                                                        onClick={() => {
+                                                            handleTogglePrecisionMode();
+                                                            setShowMenu(false);
+                                                        }}
+                                                        accent={isPrecisionMode}
                                                     />
                                                     <div className="border-t border-white/5" />
                                                 </>

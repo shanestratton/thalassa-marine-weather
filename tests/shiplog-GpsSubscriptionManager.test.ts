@@ -86,12 +86,13 @@ describe('GpsSubscriptionManager', () => {
         vi.useRealTimers();
     });
 
-    function startMgr(opts: Partial<{ active: boolean; rapid: boolean }> = {}) {
+    function startMgr(opts: Partial<{ active: boolean; rapid: boolean; precision: boolean }> = {}) {
         mgr.start({
             isNative: true,
             trackBuffer,
             isActive: () => opts.active ?? true,
             isRapidMode: () => opts.rapid ?? false,
+            isPrecisionMode: () => opts.precision ?? false,
             getIntervalMs: () => 60_000,
             getLastEntryTime: () => undefined,
             // Cast through unknown to match the manager's strict signatures —

@@ -32,6 +32,13 @@ interface LogPageState {
     isTracking: boolean;
     isPaused: boolean;
     isRapidMode: boolean;
+    /**
+     * Precision Mode — hi-fi GPS capture at ~2 Hz with live decimation.
+     * Distinct from Rapid Mode: Rapid changes the FLUSH interval (how
+     * often we save an entry), Precision changes the SAMPLE rate (how
+     * often the GPS chip delivers a fix to us). Independent toggles.
+     */
+    isPrecisionMode: boolean;
     loading: boolean;
 
     // UI modals / sheets
@@ -65,12 +72,14 @@ type LogPageAction =
           isTracking: boolean;
           isPaused: boolean;
           isRapidMode: boolean;
+          isPrecisionMode: boolean;
           currentVoyageId: string | undefined;
       }
     | { type: 'SET_ENTRIES'; entries: ShipLogEntry[] }
     | { type: 'UPDATE_ENTRIES'; updater: (prev: ShipLogEntry[]) => ShipLogEntry[] }
     | { type: 'SET_TRACKING'; isTracking: boolean; isPaused: boolean }
     | { type: 'SET_RAPID_MODE'; isRapidMode: boolean }
+    | { type: 'SET_PRECISION_MODE'; isPrecisionMode: boolean }
     | { type: 'SET_GPS_STATUS'; status: 'locked' | 'stale' | 'none' }
     | { type: 'SHOW_ADD_MODAL'; show: boolean }
     | { type: 'SHOW_TRACK_MAP'; show: boolean }
@@ -93,6 +102,7 @@ const initialState: LogPageState = {
     isTracking: false,
     isPaused: false,
     isRapidMode: false,
+    isPrecisionMode: false,
     loading: true,
     showAddModal: false,
     showTrackMap: false,
@@ -126,6 +136,7 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
                 isTracking: action.isTracking,
                 isPaused: action.isPaused,
                 isRapidMode: action.isRapidMode,
+                isPrecisionMode: action.isPrecisionMode,
                 currentVoyageId: action.currentVoyageId,
                 expandedVoyages,
                 loading: false,
@@ -136,7 +147,15 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
         case 'UPDATE_ENTRIES':
             return { ...state, entries: action.updater(state.entries) };
         case 'SET_TRACKING':
-            return { ...state, isTracking: action.isTracking, isPaused: action.isPaused, isRapidMode: false };
+            return {
+                ...state,
+                isTracking: action.isTracking,
+                isPaused: action.isPaused,
+                isRapidMode: false,
+                isPrecisionMode: false,
+            };
+        case 'SET_PRECISION_MODE':
+            return { ...state, isPrecisionMode: action.isPrecisionMode };
         case 'SET_RAPID_MODE':
             return { ...state, isRapidMode: action.isRapidMode };
         case 'SET_GPS_STATUS':
@@ -253,6 +272,7 @@ export function useLogPageState() {
             isTracking: stoppingRef.current ? false : status.isTracking,
             isPaused: stoppingRef.current ? false : status.isPaused,
             isRapidMode: stoppingRef.current ? false : status.isRapidMode,
+            isPrecisionMode: stoppingRef.current ? false : status.isPrecisionMode === true,
             currentVoyageId: voyageId,
         });
 
@@ -451,6 +471,17 @@ export function useLogPageState() {
         await ShipLogService.setRapidMode(newState);
         dispatch({ type: 'SET_RAPID_MODE', isRapidMode: newState });
     }, [state.isRapidMode]);
+
+    /**
+     * Precision Mode toggle — hi-fi GPS capture at ~2 Hz with live
+     * decimation. See `ShipLogService.setPrecisionMode` for the full
+     * battery / auto-shutoff story. Independent of Rapid Mode.
+     */
+    const handleTogglePrecisionMode = useCallback(async () => {
+        const newState = !state.isPrecisionMode;
+        await ShipLogService.setPrecisionMode(newState);
+        dispatch({ type: 'SET_PRECISION_MODE', isPrecisionMode: newState });
+    }, [state.isPrecisionMode]);
 
     const handleStopTracking = useCallback(() => {
         dispatch({ type: 'SHOW_STOP_DIALOG', show: true });
@@ -921,6 +952,7 @@ export function useLogPageState() {
         continueLastVoyage,
         handlePauseTracking,
         handleToggleRapidMode,
+        handleTogglePrecisionMode,
         handleStopTracking,
         confirmStopVoyage,
 
