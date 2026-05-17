@@ -14,7 +14,8 @@
  */
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
-import { importCell, hasAnyCells } from './EncHazardService';
+import { importCell } from './EncHazardService';
+import { listCells } from './EncCellMetadata';
 import type { EncConversionResult } from './types';
 
 const log = createLogger('bootstrapEncSamples');
@@ -43,30 +44,25 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
             log.warn(`bootstrap skipped — already ran (clear localStorage.${FLAG_KEY} to retry)`);
             return;
         }
-        if (hasAnyCells()) {
-            // Diagnostic dump — once we're seeing the right cells in the FAB
-            // this branch is safe to silence, but right now we need to know
-            // *which* cell(s) the metadata store has registered.
-            try {
-                const { listCells } = await import('./EncCellMetadata');
-                const cells = listCells();
-                log.warn(
-                    `bootstrap skipped — ${cells.length} cell(s) already imported: ${cells
-                        .map((c) => `${c.id}(${c.sourceHO},ed${c.edition})`)
-                        .join(', ')}`,
-                );
-            } catch {
-                log.warn('bootstrap skipped — user already has cells (could not enumerate)');
-            }
-            localStorage.setItem(FLAG_KEY, '1');
-            return;
-        }
 
+        // Build a per-cell skip set so we only import the missing ones — leaves
+        // anything the user already imported via the chart locker untouched,
+        // but lets us add NEW sample cells (Newport, Moreton Bay, overview)
+        // alongside an existing Brisbane River cell from an earlier version.
+        const existing = new Set(listCells().map((c) => c.id));
         const platform = Capacitor.getPlatform();
-        log.warn(`bootstrap starting on ${platform}, ${SAMPLE_CELLS.length} cells to fetch`);
+        log.warn(
+            `bootstrap starting on ${platform} — ${SAMPLE_CELLS.length} sample cells, ${existing.size} already in store`,
+        );
 
         let imported = 0;
+        let alreadyHave = 0;
         for (const cellId of SAMPLE_CELLS) {
+            if (existing.has(cellId)) {
+                log.warn(`  ${cellId}: already imported, skipping`);
+                alreadyHave += 1;
+                continue;
+            }
             const url = `/enc-samples/${cellId}.geojson`;
             try {
                 log.warn(`  ${cellId}: fetching ${url}`);
@@ -99,15 +95,18 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
             }
         }
 
-        // Only latch the flag on success — a failed first attempt (e.g. file
-        // not yet bundled into the build) shouldn't lock subsequent launches
-        // out of retrying.
-        if (imported > 0) {
+        // Latch the flag only when every sample is accounted for (either pre-
+        // existing or freshly imported). A partial run leaves the flag unset
+        // so subsequent launches keep trying.
+        const covered = imported + alreadyHave;
+        if (covered === SAMPLE_CELLS.length) {
             localStorage.setItem(FLAG_KEY, '1');
-            log.warn(`bootstrap complete: ${imported}/${SAMPLE_CELLS.length} cells imported, flag set`);
+            log.warn(
+                `bootstrap complete: ${imported} imported / ${alreadyHave} pre-existing / ${SAMPLE_CELLS.length} total, flag set`,
+            );
         } else {
             log.warn(
-                `bootstrap complete: 0/${SAMPLE_CELLS.length} cells imported — flag NOT set, will retry on next launch`,
+                `bootstrap complete: ${imported} imported / ${alreadyHave} pre-existing / ${SAMPLE_CELLS.length} expected — flag NOT set, will retry`,
             );
         }
     } catch (err) {
