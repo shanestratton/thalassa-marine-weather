@@ -20,16 +20,24 @@ export const WelcomeStep: React.FC<WelcomeStepProps> = ({ onNext }) => (
             </span>
         </h1>
 
+        {/* Subtitle rewritten 2026-05-17 — was "Professional-grade
+            forecasting for the modern mariner. Precision tools for
+            safety and performance." which read like marketing copy
+            from a 1990s nav-software brochure. New copy is concrete
+            (says WHAT you get) and warm (sounds like a sailor wrote
+            it, not an engineer). */}
         <p className="text-lg text-slate-300 mb-12 max-w-sm mx-auto leading-relaxed font-light">
-            Professional-grade forecasting for the modern mariner. Precision tools for safety and performance.
+            Wind, waves, tides, and smart passage planning — all on one boat. Let's set yours up.
         </p>
 
         <button
-            aria-label="Proceed to next step"
+            aria-label="Get started"
             onClick={onNext}
             className="group bg-white text-slate-950 font-bold py-4 px-12 rounded-2xl hover:bg-sky-50 transition-all transform hover:scale-105 hover:shadow-[0_0_30px_rgba(255,255,255,0.3)] flex items-center gap-3 mx-auto relative overflow-hidden"
         >
-            <span className="relative z-10">Initialize System</span>
+            {/* CTA was "Initialize System" — robotic, and not what
+                a sailor would say. Plain English now. */}
+            <span className="relative z-10">Let's get started</span>
             <ArrowRightIcon className="w-5 h-5 relative z-10 group-hover:translate-x-1 transition-transform" />
             <div className="absolute inset-0 bg-gradient-to-r from-sky-100 to-white opacity-0 group-hover:opacity-100 transition-opacity"></div>
         </button>

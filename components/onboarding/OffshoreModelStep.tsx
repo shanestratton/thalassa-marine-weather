@@ -13,6 +13,19 @@ interface OffshoreModelStepProps {
     onNext: () => void;
 }
 
+/**
+ * Copy rewritten 2026-05-17 (scorecard fix #4 — onboarding microcopy).
+ *
+ * Before: "AI-blended ensemble model", "Global Forecast System — NOAA",
+ * "NWP model", "20 nm offshore boundary" — all correct but talks to the
+ * 5 % of sailors who already know what NWP means. The other 95 % glaze
+ * over and pick the default.
+ *
+ * After: plain-English first ("Blends the best of the major forecasts"),
+ * technical badge stays as the secondary line for the pros who want it.
+ * The page subtitle frames the WHOLE choice in user-facing terms ("which
+ * forecast to trust offshore") instead of engineering ones ("NWP model").
+ */
 const MODEL_OPTIONS: {
     value: OffshoreModel;
     label: string;
@@ -26,39 +39,46 @@ const MODEL_OPTIONS: {
         label: 'Stormglass AI',
         tag: 'Recommended',
         tagColor: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-        desc: 'AI-blended ensemble model',
-        detail: 'Combines the best of multiple NWP models into a single, optimised forecast. Ideal for most passages.',
+        desc: 'Blends the best of all the major forecasts',
+        detail: "Mixes ECMWF, GFS and several others into one tuned forecast. The right pick if you're not sure which to trust.",
     },
     {
         value: 'ecmwf',
         label: 'ECMWF',
         tag: 'European Standard',
         tagColor: 'bg-sky-500/20 text-sky-400 border-sky-500/30',
-        desc: 'European Centre for Medium-Range Weather Forecasts',
-        detail: 'World-leading 9 km global model. Widely trusted by professional meteorologists and ocean routing services.',
+        desc: 'What professional ocean routers trust most',
+        detail: 'European Centre for Medium-Range Weather Forecasts — 9 km global resolution. Most-trusted single model worldwide for offshore work.',
     },
     {
         value: 'gfs',
         label: 'GFS / NOAA',
         tag: 'American Standard',
         tagColor: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-        desc: 'Global Forecast System — NOAA',
-        detail: '25 km global model from the US National Weather Service. Excellent coverage, frequent updates (every 6 hours).',
+        desc: 'Free US-government model — refreshes every 6 hours',
+        detail: '25 km global resolution from NOAA. Less precise than ECMWF but updates often. Good fallback if other sources are slow.',
     },
     {
         value: 'icon',
         label: 'ICON',
-        desc: 'DWD Global High-Resolution',
-        detail: '13 km global model from the German Weather Service. Strong performance in mid-latitudes and Southern Ocean.',
+        desc: 'German model — strong in the Southern Ocean',
+        detail: "DWD's 13 km global model. Particularly good in mid-latitudes and Southern Ocean sailing where European models can sag.",
     },
 ];
 
 export const OffshoreModelStep: React.FC<OffshoreModelStepProps> = ({ selected, onChange, onNext }) => (
     <div className="animate-in fade-in slide-in-from-right-8 duration-500 pt-8">
-        <h2 className="text-2xl font-bold text-white mb-2 text-center">Offshore Weather Model</h2>
-        <p className="text-sm text-gray-400 text-center mb-6 leading-relaxed">
-            When your vessel crosses the <span className="text-white font-semibold">20 nm</span> offshore boundary,
-            Thalassa switches from Apple WeatherKit to Stormglass for ocean data. Choose your preferred NWP model.
+        <h2 className="text-2xl font-bold text-white mb-2 text-center">Which forecast offshore?</h2>
+        {/* Subtitle rewritten — was "When your vessel crosses the 20 nm
+            offshore boundary, Thalassa switches from Apple WeatherKit
+            to Stormglass for ocean data. Choose your preferred NWP
+            model." Five jargon hits in two sentences (offshore
+            boundary, WeatherKit, Stormglass, NWP, model). Now reads
+            like sailing copy, not engineering copy. */}
+        <p className="text-sm text-gray-400 text-center mb-6 leading-relaxed max-w-md mx-auto">
+            Once you're more than <span className="text-white font-semibold">20 nautical miles</span> from shore,
+            Apple's built-in forecast loses accuracy. Different services predict differently out there — pick the one
+            you trust.
         </p>
 
         <div className="space-y-3 mb-8">
