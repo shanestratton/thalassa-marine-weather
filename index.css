@@ -2461,6 +2461,30 @@ body,
     animation: status-badge-glow-amber 3s ease-in-out infinite;
 }
 
+/* Red variant — used when refreshData() failed and the pill flips
+   to "Retry" mode (added 2026-05-17 alongside the StatusBadges
+   error-state pass). Slightly faster cycle (2.4s vs 3s) so the
+   error glow reads as more urgent than the calm sky/amber glows
+   for fresh/stale states. */
+@keyframes status-badge-glow-red {
+    0%,
+    100% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.05) inset,
+            0 0 10px -2px rgba(239, 68, 68, 0.25);
+    }
+
+    50% {
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.1) inset,
+            0 0 18px -1px rgba(239, 68, 68, 0.45);
+    }
+}
+
+.status-badge-glow-red {
+    animation: status-badge-glow-red 2.4s ease-in-out infinite;
+}
+
 /* Honour reduced-motion — no sweep, no breathing. Keep the static
    styling (which is already gradient-rich) so the badges still look
    intentional. */
@@ -2469,7 +2493,8 @@ body,
     .status-badge-glow-sky,
     .status-badge-glow-emerald,
     .status-badge-glow-teal,
-    .status-badge-glow-amber {
+    .status-badge-glow-amber,
+    .status-badge-glow-red {
         animation: none;
     }
 }
