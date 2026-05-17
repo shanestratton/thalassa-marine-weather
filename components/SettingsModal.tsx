@@ -215,6 +215,34 @@ type SettingsTab =
     | 'boatNetwork'
     | 'voyageLog';
 
+/**
+ * Section grouping for the Settings tab list.
+ *
+ * Scorecard fix 2026-05-17: the previous flat list of 10 tabs put
+ * Pi Cache and Calypso (which 95 % of users will never touch — they
+ * exist for the on-boat hardware integration story) on the same
+ * shelf as Account and Notifications (which every user touches).
+ * That dilutes discoverability for the items that matter and makes
+ * the Settings surface read as "everything-and-the-kitchen-sink".
+ *
+ * Now grouped into four sections, declared in render order:
+ *   - essentials      — what every user actually configures
+ *   - sharing         — outward-facing (cloud sync, public log)
+ *   - appearance      — personalisation
+ *   - advanced        — boat-hardware + integrations, collapsed
+ *
+ * The Advanced section collapses by default (via <details>) so it
+ * doesn't take cognitive space until the user goes looking for it.
+ */
+type SettingsGroup = 'essentials' | 'sharing' | 'appearance' | 'advanced';
+
+const SETTINGS_GROUPS: { id: SettingsGroup; label: string; collapsibleByDefault: boolean }[] = [
+    { id: 'essentials', label: 'Essentials', collapsibleByDefault: false },
+    { id: 'sharing', label: 'Account & Sharing', collapsibleByDefault: false },
+    { id: 'appearance', label: 'Appearance', collapsibleByDefault: false },
+    { id: 'advanced', label: 'Advanced — Boat Hardware & Integrations', collapsibleByDefault: true },
+];
+
 const MENU_ITEMS: {
     id: SettingsTab;
     label: string;
@@ -222,7 +250,9 @@ const MENU_ITEMS: {
     icon: (cls: string) => React.ReactNode;
     iconBg: string;
     iconHoverBg: string;
+    group: SettingsGroup;
 }[] = [
+    // ── ESSENTIALS ──────────────────────────────────────────────
     {
         id: 'general',
         label: 'Preferences',
@@ -230,22 +260,7 @@ const MENU_ITEMS: {
         icon: (c) => <GearIcon className={c} />,
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
-    },
-    {
-        id: 'locations',
-        label: 'Locations',
-        description: 'Saved ports & anchorages',
-        icon: (c) => <MapPinIcon className={c} />,
-        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
-        iconHoverBg: 'group-hover:bg-emerald-500/25',
-    },
-    {
-        id: 'account',
-        label: 'System & Cloud',
-        description: 'Cloud sync, API keys & account',
-        icon: (c) => <ServerIcon className={c} />,
-        iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10',
-        iconHoverBg: 'group-hover:bg-purple-500/25',
+        group: 'essentials',
     },
     {
         id: 'vessel',
@@ -254,16 +269,12 @@ const MENU_ITEMS: {
         icon: (c) => <BoatIcon className={c} />,
         iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10',
         iconHoverBg: 'group-hover:bg-amber-500/25',
+        group: 'essentials',
     },
     {
-        // Vessel Readiness — vessel-wide pre-departure checklists. The same
-        // four cards also render inside passage planning when a voyage is
-        // selected; this tab is a second access point so the skipper can
-        // tick them off without starting a passage.
         id: 'vesselReadiness',
         label: 'Vessel Readiness',
         description: 'Reserves, pre-check, medical & comms',
-        // Clipboard-with-check icon — checklist semantics.
         icon: (c) => (
             <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
                 <path
@@ -275,8 +286,17 @@ const MENU_ITEMS: {
         ),
         iconBg: 'bg-amber-500/15 text-amber-400 shadow-amber-500/10',
         iconHoverBg: 'group-hover:bg-amber-500/25',
+        group: 'essentials',
     },
-
+    {
+        id: 'locations',
+        label: 'Locations',
+        description: 'Saved ports & anchorages',
+        icon: (c) => <MapPinIcon className={c} />,
+        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
+        iconHoverBg: 'group-hover:bg-emerald-500/25',
+        group: 'essentials',
+    },
     {
         id: 'alerts',
         label: 'Notifications',
@@ -284,57 +304,20 @@ const MENU_ITEMS: {
         icon: (c) => <BellIcon className={c} />,
         iconBg: 'bg-red-500/15 text-red-400 shadow-red-500/10',
         iconHoverBg: 'group-hover:bg-red-500/25',
+        group: 'essentials',
+    },
+
+    // ── ACCOUNT & SHARING ───────────────────────────────────────
+    {
+        id: 'account',
+        label: 'System & Cloud',
+        description: 'Cloud sync, API keys & account',
+        icon: (c) => <ServerIcon className={c} />,
+        iconBg: 'bg-purple-500/15 text-purple-400 shadow-purple-500/10',
+        iconHoverBg: 'group-hover:bg-purple-500/25',
+        group: 'sharing',
     },
     {
-        id: 'scenery',
-        label: 'Aesthetics',
-        description: 'Theme, colors & environment',
-        icon: (c) => <StarIcon className={c} />,
-        iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
-        iconHoverBg: 'group-hover:bg-sky-500/25',
-    },
-    {
-        id: 'calypso',
-        label: 'Calypso',
-        description: 'Music & email integrations',
-        // Microphone icon (inline SVG) — voice-assistant adjacent.
-        icon: (c) => (
-            <svg className={c} viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-            </svg>
-        ),
-        iconBg: 'bg-cyan-500/15 text-cyan-400 shadow-cyan-500/10',
-        iconHoverBg: 'group-hover:bg-cyan-500/25',
-    },
-    {
-        // Boat Network — Pi cache + auto-discovery of on-boat services.
-        // Hosts the PiCacheTab which runs BoatNetworkService.scan() to find
-        // and auto-configure pi-cache, Signal K, and AvNav charts in one go.
-        // Shown to all users; PiCacheTab itself surfaces a Skipper-tier
-        // upsell screen for free users.
-        id: 'boatNetwork',
-        label: 'Boat Network',
-        description: 'Pi cache, Signal K & AvNav charts',
-        // Antenna / WiFi icon (inline SVG) — represents the on-boat LAN
-        // discovery workflow. Distinct from System & Cloud (server icon)
-        // which is about Thalassa's cloud sync, not the boat's local Pi.
-        icon: (c) => (
-            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
-                <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
-                />
-            </svg>
-        ),
-        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
-        iconHoverBg: 'group-hover:bg-emerald-500/25',
-    },
-    {
-        // Voyage Log — the punter's public passage page + API. Globe icon
-        // signals "this is the outward-facing, shared-with-the-world view"
-        // — distinct from the inward-facing diary on the Ship's Office page.
         id: 'voyageLog',
         label: 'Voyage Log',
         description: 'Public passage page & API',
@@ -349,8 +332,58 @@ const MENU_ITEMS: {
         ),
         iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
         iconHoverBg: 'group-hover:bg-sky-500/25',
+        group: 'sharing',
+    },
+
+    // ── APPEARANCE ──────────────────────────────────────────────
+    {
+        id: 'scenery',
+        label: 'Aesthetics',
+        description: 'Theme, colors & environment',
+        icon: (c) => <StarIcon className={c} />,
+        iconBg: 'bg-sky-500/15 text-sky-400 shadow-sky-500/10',
+        iconHoverBg: 'group-hover:bg-sky-500/25',
+        group: 'appearance',
+    },
+
+    // ── ADVANCED — collapsed by default ─────────────────────────
+    {
+        id: 'calypso',
+        label: 'Calypso',
+        description: 'Music & email integrations',
+        icon: (c) => (
+            <svg className={c} viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
+                <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
+            </svg>
+        ),
+        iconBg: 'bg-cyan-500/15 text-cyan-400 shadow-cyan-500/10',
+        iconHoverBg: 'group-hover:bg-cyan-500/25',
+        group: 'advanced',
+    },
+    {
+        id: 'boatNetwork',
+        label: 'Boat Network',
+        description: 'Pi cache, Signal K & AvNav charts',
+        icon: (c) => (
+            <svg className={c} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
+                />
+            </svg>
+        ),
+        iconBg: 'bg-emerald-500/15 text-emerald-400 shadow-emerald-500/10',
+        iconHoverBg: 'group-hover:bg-emerald-500/25',
+        group: 'advanced',
     },
 ];
+
+/** Small section header used on both desktop sidebar and mobile menu. */
+const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 px-2 pt-4 pb-1.5">{children}</p>
+);
 
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     ({ settings, onSave, onLocationSelect, onBack }) => {
@@ -424,75 +457,56 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         </p>
                     </div>
 
-                    <div className="space-y-1">
-                        <NavButton
-                            active={activeTab === 'general'}
-                            onClick={() => setActiveTab('general')}
-                            icon={<GearIcon className="w-5 h-5" />}
-                            label="PREFERENCES"
-                        />
-                        <NavButton
-                            active={activeTab === 'locations'}
-                            onClick={() => setActiveTab('locations')}
-                            icon={<MapPinIcon className="w-5 h-5" />}
-                            label="LOCATIONS"
-                        />
-                        <NavButton
-                            active={activeTab === 'account'}
-                            onClick={() => setActiveTab('account')}
-                            icon={<ServerIcon className="w-5 h-5" />}
-                            label="SYSTEM & CLOUD"
-                        />
-                        <NavButton
-                            active={activeTab === 'vessel'}
-                            onClick={() => setActiveTab('vessel')}
-                            icon={<BoatIcon className="w-5 h-5" />}
-                            label={isObserver ? 'VESSEL (CREW)' : 'VESSEL PROFILE'}
-                        />
-
-                        <NavButton
-                            active={activeTab === 'alerts'}
-                            onClick={() => setActiveTab('alerts')}
-                            icon={<BellIcon className="w-5 h-5" />}
-                            label="NOTIFICATIONS"
-                        />
-                        <NavButton
-                            active={activeTab === 'calypso'}
-                            onClick={() => setActiveTab('calypso')}
-                            icon={
-                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
-                                    <path d="M19 11h-1.7c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.49 6-3.31 6-6.72z" />
-                                </svg>
+                    {/* Desktop sidebar — driven by MENU_ITEMS + SETTINGS_GROUPS.
+                        Before 2026-05-17 this was a hardcoded list of 7
+                        NavButtons that omitted three of the registered
+                        tabs (Vessel Readiness, Voyage Log, etc), so
+                        desktop users couldn't reach them. Now the same
+                        source-of-truth feeds both desktop and mobile,
+                        with section headers + an Advanced disclosure
+                        that collapses by default. */}
+                    <div className="space-y-0.5">
+                        {SETTINGS_GROUPS.map((group) => {
+                            const items = MENU_ITEMS.filter((m) => m.group === group.id);
+                            if (items.length === 0) return null;
+                            const itemsJsx = items.map((item) => (
+                                <NavButton
+                                    key={item.id}
+                                    active={activeTab === item.id}
+                                    onClick={() => setActiveTab(item.id)}
+                                    icon={item.icon('w-5 h-5')}
+                                    label={
+                                        item.id === 'vessel' && isObserver ? 'VESSEL (CREW)' : item.label.toUpperCase()
+                                    }
+                                />
+                            ));
+                            if (group.collapsibleByDefault) {
+                                return (
+                                    <details key={group.id} className="group/details">
+                                        <summary className="list-none cursor-pointer flex items-center gap-1 px-2 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
+                                            <svg
+                                                className="w-3 h-3 transition-transform group-open/details:rotate-90"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth={2.5}
+                                                aria-hidden="true"
+                                            >
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                            </svg>
+                                            <span>{group.label}</span>
+                                        </summary>
+                                        <div className="space-y-0.5">{itemsJsx}</div>
+                                    </details>
+                                );
                             }
-                            label="CALYPSO"
-                        />
-                        <NavButton
-                            active={activeTab === 'boatNetwork'}
-                            onClick={() => setActiveTab('boatNetwork')}
-                            icon={
-                                <svg
-                                    className="w-5 h-5"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth={1.8}
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z"
-                                    />
-                                </svg>
-                            }
-                            label="BOAT NETWORK"
-                        />
-                        <NavButton
-                            active={activeTab === 'scenery'}
-                            onClick={() => setActiveTab('scenery')}
-                            icon={<StarIcon className="w-5 h-5" />}
-                            label="AESTHETICS"
-                        />
+                            return (
+                                <div key={group.id}>
+                                    <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
+                                    <div className="space-y-0.5">{itemsJsx}</div>
+                                </div>
+                            );
+                        })}
                     </div>
 
                     <div className="mt-auto pt-6 border-t border-white/5">
@@ -543,11 +557,17 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 </div>
                             </div>
                         </div>
-                        <div className="flex-1 px-4 pb-32 space-y-2">
-                            {MENU_ITEMS.map((item) => {
-                                return (
+                        {/* Mobile menu — same grouping as the desktop
+                            sidebar (single source of truth in MENU_ITEMS
+                            + SETTINGS_GROUPS). Advanced collapses by
+                            default; the chevron rotates open/close. */}
+                        <div className="flex-1 px-4 pb-32 space-y-3">
+                            {SETTINGS_GROUPS.map((group) => {
+                                const items = MENU_ITEMS.filter((m) => m.group === group.id);
+                                if (items.length === 0) return null;
+                                const itemButtons = items.map((item) => (
                                     <button
-                                        aria-label="Active Tab"
+                                        aria-label={`Open ${item.label} settings`}
                                         key={item.id}
                                         onClick={() => setActiveTab(item.id)}
                                         className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
@@ -567,6 +587,36 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         </div>
                                         <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
                                     </button>
+                                ));
+                                if (group.collapsibleByDefault) {
+                                    return (
+                                        <details key={group.id} className="group/details">
+                                            <summary className="list-none cursor-pointer flex items-center gap-1.5 px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
+                                                <svg
+                                                    className="w-3 h-3 transition-transform group-open/details:rotate-90"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2.5}
+                                                    aria-hidden="true"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M9 5l7 7-7 7"
+                                                    />
+                                                </svg>
+                                                <span>{group.label}</span>
+                                            </summary>
+                                            <div className="space-y-2 mt-1">{itemButtons}</div>
+                                        </details>
+                                    );
+                                }
+                                return (
+                                    <div key={group.id} className="space-y-2">
+                                        <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
+                                        {itemButtons}
+                                    </div>
                                 );
                             })}
                         </div>
