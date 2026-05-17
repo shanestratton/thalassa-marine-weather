@@ -295,6 +295,21 @@ export function mountEncVectorLayer(
     // OBSTRN, WRECKS, UWTROC are all magenta point hazards in IHO
     // styling. We use circle-stroke + circle-color to differentiate.
     const POINT_BASE_COLOR = '#d837a9'; // magenta
+
+    // SCAMIN-aware visibility filter — features pre-tagged with `_minZoom`
+    // (derived from S-57 SCAMIN at extraction time) become visible only at
+    // or above their chart-prescribed display zoom. Features without
+    // `_minZoom` (or zero) are always-visible. Composes with the layer's
+    // existing `_kind` filter so we don't lose the multi-class routing.
+    //
+    // Mapbox's published `FilterSpecification` is a huge discriminated union
+    // that doesn't admit dynamic composition cleanly; cast at the seam.
+    const scaminAware = (kindFilter: unknown): mapboxgl.FilterSpecification =>
+        [
+            'all',
+            kindFilter,
+            ['any', ['!', ['has', '_minZoom']], ['>=', ['zoom'], ['get', '_minZoom']]],
+        ] as unknown as mapboxgl.FilterSpecification;
     if (!map.getLayer(ENC_VEC_LAYERS.OBSTRN)) {
         map.addLayer(
             {
@@ -302,7 +317,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'OBSTRN'],
+                filter: scaminAware(['==', ['get', '_kind'], 'OBSTRN']),
                 paint: {
                     'circle-color': POINT_BASE_COLOR,
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2, 11, 4, 15, 6],
@@ -322,7 +337,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'WRECKS'],
+                filter: scaminAware(['==', ['get', '_kind'], 'WRECKS']),
                 paint: {
                     'circle-color': POINT_BASE_COLOR,
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 3, 11, 5, 15, 7],
@@ -342,7 +357,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.POINTS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'UWTROC'],
+                filter: scaminAware(['==', ['get', '_kind'], 'UWTROC']),
                 paint: {
                     'circle-color': '#ffffff',
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 1.5, 11, 3, 15, 5],
@@ -373,7 +388,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'BOYLAT'],
+                filter: scaminAware(['==', ['get', '_kind'], 'BOYLAT']),
                 paint: {
                     'circle-color': ['coalesce', ['get', '_displayColor'], '#facc15'],
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
@@ -394,7 +409,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'BCNLAT'],
+                filter: scaminAware(['==', ['get', '_kind'], 'BCNLAT']),
                 paint: {
                     'circle-color': ['coalesce', ['get', '_displayColor'], '#facc15'],
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
@@ -421,7 +436,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'BOYCAR'],
+                filter: scaminAware(['==', ['get', '_kind'], 'BOYCAR']),
                 paint: {
                     'circle-color': '#facc15',
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
@@ -442,7 +457,7 @@ export function mountEncVectorLayer(
                 type: 'circle',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'BCNCAR'],
+                filter: scaminAware(['==', ['get', '_kind'], 'BCNCAR']),
                 paint: {
                     'circle-color': '#facc15',
                     'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
@@ -468,7 +483,7 @@ export function mountEncVectorLayer(
                 type: 'symbol',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: ['==', ['get', '_kind'], 'LIGHTS'],
+                filter: scaminAware(['==', ['get', '_kind'], 'LIGHTS']),
                 layout: {
                     'text-field': '★',
                     'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 11, 16, 15, 22],

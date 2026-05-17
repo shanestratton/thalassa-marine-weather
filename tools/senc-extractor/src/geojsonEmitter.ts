@@ -111,6 +111,31 @@ function isoDateFromCompact(compact: string | undefined): string {
     return `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}`;
 }
 
+/**
+ * Convert S-57 SCAMIN (smallest display scale at which an object should be
+ * shown) into a Mapbox-friendly minimum-zoom threshold.
+ *
+ * Scale denominator at zoom Z is 559082264 / 2^Z, so the condition
+ *   denominator <= SCAMIN
+ * solves for
+ *   Z >= log2(559082264) - log2(SCAMIN)  ≈ 29.06 - log2(SCAMIN)
+ *
+ * Examples:
+ *   SCAMIN=10000  (1:10k harbour-band)  → minZoom ≈ 15.8
+ *   SCAMIN=89999  (1:90k general)       → minZoom ≈ 12.6
+ *   SCAMIN=179999 (1:180k coastal)      → minZoom ≈ 11.6
+ *   SCAMIN=899999 (1:900k overview)     → minZoom ≈ 9.3
+ *
+ * Returns 0 when SCAMIN is missing or non-positive — the feature is
+ * always-visible. Layers can still apply their own coarser floor via Mapbox
+ * `minzoom` on top of this per-feature threshold.
+ */
+function scaminToMinZoom(scamin: unknown): number {
+    const n = typeof scamin === 'number' ? scamin : Number(scamin);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return 29.06 - Math.log2(n);
+}
+
 function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
     const properties: Record<string, unknown> = {
         classCode: f.classCode,
@@ -118,6 +143,12 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
         rcid: f.rcid,
         ...f.attributes,
     };
+    // Pre-bake the SCAMIN→minZoom conversion so Mapbox filters don't have to
+    // compute log2 per render. Stored in _minZoom (leading underscore =
+    // internal, derived from SCAMIN). Renderer falls back to 0 when missing.
+    if (f.attributes.SCAMIN !== undefined) {
+        properties._minZoom = Number(scaminToMinZoom(f.attributes.SCAMIN).toFixed(2));
+    }
 
     if (!f.geometry) return null;
 
