@@ -27,46 +27,59 @@ const FLAG_KEY = 'thalassa.enc.samplesImported.v1';
 const SAMPLE_CELLS: string[] = ['OC-61-10ENB5'];
 
 export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
+    // log.warn used throughout so the bootstrap is visible in Xcode console even
+    // on a release build — createLogger.info is no-op'd in prod (see the
+    // log.info() silenced in prod memory).
     try {
-        if (localStorage.getItem(FLAG_KEY) === '1') return;
-        // Don't clobber a real user's existing fleet of cells.
+        if (localStorage.getItem(FLAG_KEY) === '1') {
+            log.warn('bootstrap skipped — already ran (clear localStorage.thalassa.enc.samplesImported.v1 to retry)');
+            return;
+        }
         if (hasAnyCells()) {
+            log.warn('bootstrap skipped — user already has cells');
             localStorage.setItem(FLAG_KEY, '1');
             return;
         }
 
-        // Sample files only ship via the Vite dev server (or whatever public/
-        // assets the prod build includes). Skip cleanly on native if not bundled.
         const platform = Capacitor.getPlatform();
-        log.info(`bootstrap starting on ${platform}, ${SAMPLE_CELLS.length} cells`);
+        log.warn(`bootstrap starting on ${platform}, ${SAMPLE_CELLS.length} cells to fetch`);
 
         let imported = 0;
         for (const cellId of SAMPLE_CELLS) {
+            const url = `/enc-samples/${cellId}.geojson`;
             try {
-                const res = await fetch(`/enc-samples/${cellId}.geojson`);
+                log.warn(`  ${cellId}: fetching ${url}`);
+                const res = await fetch(url);
+                log.warn(`  ${cellId}: fetch returned HTTP ${res.status}`);
                 if (!res.ok) {
-                    log.info(`  ${cellId}: not bundled (${res.status}), skipping`);
+                    log.warn(`  ${cellId}: NOT bundled (${res.status}) — skipping`);
                     continue;
                 }
-                const blob = (await res.json()) as EncConversionResult;
+                const text = await res.text();
+                log.warn(`  ${cellId}: got ${text.length} bytes, parsing JSON`);
+                let blob: EncConversionResult;
+                try {
+                    blob = JSON.parse(text) as EncConversionResult;
+                } catch (parseErr) {
+                    log.warn(`  ${cellId}: JSON parse failed`, parseErr);
+                    continue;
+                }
                 if (!blob.cellId || !blob.layers) {
-                    log.warn(`  ${cellId}: malformed sample, skipping`);
+                    log.warn(`  ${cellId}: malformed sample (no cellId/layers), skipping`);
                     continue;
                 }
                 await importCell(blob);
                 imported += 1;
-                log.info(
-                    `  ${cellId}: imported (${blob.sourceHO}, edition ${blob.edition}, ${Object.keys(blob.layers).length} layers)`,
+                log.warn(
+                    `  ${cellId}: IMPORTED (${blob.sourceHO} edition ${blob.edition}, ${Object.keys(blob.layers).length} layers)`,
                 );
             } catch (err) {
                 log.warn(`  ${cellId}: import failed`, err);
             }
         }
 
-        // Set the flag regardless of how many imported — failed imports
-        // shouldn't cause an infinite retry loop on every launch.
         localStorage.setItem(FLAG_KEY, '1');
-        log.info(`bootstrap complete: ${imported}/${SAMPLE_CELLS.length} cells imported`);
+        log.warn(`bootstrap complete: ${imported}/${SAMPLE_CELLS.length} cells imported`);
     } catch (err) {
         log.warn('bootstrap unexpected error', err);
     }
