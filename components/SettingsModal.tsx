@@ -415,6 +415,22 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
         const [showFactoryReset, setShowFactoryReset] = useState(false);
         const isObserver = settings?.vessel?.type === 'observer';
 
+        // Settings tab search — added 2026-05-17 (scorecard fix #11).
+        // 10 tabs is a lot even after the section grouping; "where do I
+        // change the anchor alarm radius" still needs hunting. Search
+        // filters MENU_ITEMS by label + description so the user can type
+        // "anchor" and see Notifications + Vessel Readiness surface.
+        // Empty query passes through (shows the full section list).
+        const [tabQuery, setTabQuery] = useState('');
+        const filteredMenuItems = React.useMemo(() => {
+            const q = tabQuery.trim().toLowerCase();
+            if (!q) return MENU_ITEMS;
+            return MENU_ITEMS.filter(
+                (m) => m.label.toLowerCase().includes(q) || m.description.toLowerCase().includes(q),
+            );
+        }, [tabQuery]);
+        const searchIsActive = tabQuery.trim().length > 0;
+
         const _updateUnit = (type: keyof typeof settings.units, value: string) => {
             onSave({ units: { ...settings.units, [type]: value } });
         };
@@ -447,7 +463,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
 
                 {/* --- DESKTOP SIDEBAR (unchanged) --- */}
                 <div className="hidden md:flex w-72 border-r border-white/5 p-6 flex-col gap-3 shrink-0 relative z-10 bg-gradient-to-b from-transparent via-white/[0.02] to-transparent">
-                    <div className="mb-8 px-2">
+                    <div className="mb-6 px-2">
                         <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-sky-300 flex items-center gap-3 drop-shadow-sm">
                             <GearIcon className="w-6 h-6 text-sky-400" />
                             SETTINGS
@@ -457,6 +473,54 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         </p>
                     </div>
 
+                    {/* Tab search — solves "I know what I want to change
+                        but not which section it lives in" for the 10-tab
+                        Settings surface. Sits between the header and the
+                        section list; when active, sections collapse and
+                        every matching tab renders flat. */}
+                    <div className="relative mb-3 px-2">
+                        <svg
+                            className="absolute left-5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M21 21l-4.34-4.34m0 0A8 8 0 103.32 12.32a8 8 0 0013.34 4.34z"
+                            />
+                        </svg>
+                        <input
+                            type="search"
+                            value={tabQuery}
+                            onChange={(e) => setTabQuery(e.target.value)}
+                            placeholder="Search settings…"
+                            className="w-full h-9 pl-9 pr-8 rounded-lg bg-white/[0.04] border border-white/10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/40 focus:bg-white/[0.06] transition-colors"
+                            aria-label="Search settings tabs"
+                        />
+                        {tabQuery && (
+                            <button
+                                type="button"
+                                onClick={() => setTabQuery('')}
+                                aria-label="Clear search"
+                                className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
+                            >
+                                <svg
+                                    className="w-3 h-3"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+
                     {/* Desktop sidebar — driven by MENU_ITEMS + SETTINGS_GROUPS.
                         Before 2026-05-17 this was a hardcoded list of 7
                         NavButtons that omitted three of the registered
@@ -464,49 +528,82 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         desktop users couldn't reach them. Now the same
                         source-of-truth feeds both desktop and mobile,
                         with section headers + an Advanced disclosure
-                        that collapses by default. */}
+                        that collapses by default.
+
+                        When `searchIsActive`, sections collapse and
+                        filtered items render flat — the section labels
+                        would be visual noise when the user has already
+                        narrowed by text. */}
                     <div className="space-y-0.5">
-                        {SETTINGS_GROUPS.map((group) => {
-                            const items = MENU_ITEMS.filter((m) => m.group === group.id);
-                            if (items.length === 0) return null;
-                            const itemsJsx = items.map((item) => (
-                                <NavButton
-                                    key={item.id}
-                                    active={activeTab === item.id}
-                                    onClick={() => setActiveTab(item.id)}
-                                    icon={item.icon('w-5 h-5')}
-                                    label={
-                                        item.id === 'vessel' && isObserver ? 'VESSEL (CREW)' : item.label.toUpperCase()
-                                    }
-                                />
-                            ));
-                            if (group.collapsibleByDefault) {
+                        {searchIsActive ? (
+                            filteredMenuItems.length === 0 ? (
+                                <p className="text-xs text-slate-400 px-2 py-3 leading-relaxed">
+                                    No settings match <strong className="text-white/80">"{tabQuery}"</strong>.
+                                </p>
+                            ) : (
+                                filteredMenuItems.map((item) => (
+                                    <NavButton
+                                        key={item.id}
+                                        active={activeTab === item.id}
+                                        onClick={() => setActiveTab(item.id)}
+                                        icon={item.icon('w-5 h-5')}
+                                        label={
+                                            item.id === 'vessel' && isObserver
+                                                ? 'VESSEL (CREW)'
+                                                : item.label.toUpperCase()
+                                        }
+                                    />
+                                ))
+                            )
+                        ) : (
+                            SETTINGS_GROUPS.map((group) => {
+                                const items = MENU_ITEMS.filter((m) => m.group === group.id);
+                                if (items.length === 0) return null;
+                                const itemsJsx = items.map((item) => (
+                                    <NavButton
+                                        key={item.id}
+                                        active={activeTab === item.id}
+                                        onClick={() => setActiveTab(item.id)}
+                                        icon={item.icon('w-5 h-5')}
+                                        label={
+                                            item.id === 'vessel' && isObserver
+                                                ? 'VESSEL (CREW)'
+                                                : item.label.toUpperCase()
+                                        }
+                                    />
+                                ));
+                                if (group.collapsibleByDefault) {
+                                    return (
+                                        <details key={group.id} className="group/details">
+                                            <summary className="list-none cursor-pointer flex items-center gap-1 px-2 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
+                                                <svg
+                                                    className="w-3 h-3 transition-transform group-open/details:rotate-90"
+                                                    viewBox="0 0 24 24"
+                                                    fill="none"
+                                                    stroke="currentColor"
+                                                    strokeWidth={2.5}
+                                                    aria-hidden="true"
+                                                >
+                                                    <path
+                                                        strokeLinecap="round"
+                                                        strokeLinejoin="round"
+                                                        d="M9 5l7 7-7 7"
+                                                    />
+                                                </svg>
+                                                <span>{group.label}</span>
+                                            </summary>
+                                            <div className="space-y-0.5">{itemsJsx}</div>
+                                        </details>
+                                    );
+                                }
                                 return (
-                                    <details key={group.id} className="group/details">
-                                        <summary className="list-none cursor-pointer flex items-center gap-1 px-2 pt-4 pb-1.5 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
-                                            <svg
-                                                className="w-3 h-3 transition-transform group-open/details:rotate-90"
-                                                viewBox="0 0 24 24"
-                                                fill="none"
-                                                stroke="currentColor"
-                                                strokeWidth={2.5}
-                                                aria-hidden="true"
-                                            >
-                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-                                            </svg>
-                                            <span>{group.label}</span>
-                                        </summary>
+                                    <div key={group.id}>
+                                        <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
                                         <div className="space-y-0.5">{itemsJsx}</div>
-                                    </details>
+                                    </div>
                                 );
-                            }
-                            return (
-                                <div key={group.id}>
-                                    <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
-                                    <div className="space-y-0.5">{itemsJsx}</div>
-                                </div>
-                            );
-                        })}
+                            })
+                        )}
                     </div>
 
                     <div className="mt-auto pt-6 border-t border-white/5">
@@ -560,12 +657,67 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         {/* Mobile menu — same grouping as the desktop
                             sidebar (single source of truth in MENU_ITEMS
                             + SETTINGS_GROUPS). Advanced collapses by
-                            default; the chevron rotates open/close. */}
+                            default; the chevron rotates open/close.
+                            When search is active, sections collapse and
+                            matching tabs render flat (same pattern as the
+                            desktop sidebar). */}
                         <div className="flex-1 px-4 pb-32 space-y-3">
-                            {SETTINGS_GROUPS.map((group) => {
-                                const items = MENU_ITEMS.filter((m) => m.group === group.id);
-                                if (items.length === 0) return null;
-                                const itemButtons = items.map((item) => (
+                            {/* Search input — same component shape as desktop,
+                                slightly taller (h-11 for thumb-friendly tap). */}
+                            <div className="relative pt-1">
+                                <svg
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2}
+                                    aria-hidden="true"
+                                >
+                                    <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        d="M21 21l-4.34-4.34m0 0A8 8 0 103.32 12.32a8 8 0 0013.34 4.34z"
+                                    />
+                                </svg>
+                                <input
+                                    type="search"
+                                    value={tabQuery}
+                                    onChange={(e) => setTabQuery(e.target.value)}
+                                    placeholder="Search settings…"
+                                    className="w-full h-11 pl-9 pr-9 rounded-xl bg-white/[0.04] border border-white/10 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/40 focus:bg-white/[0.06] transition-colors"
+                                    aria-label="Search settings tabs"
+                                />
+                                {tabQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setTabQuery('')}
+                                        aria-label="Clear search"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
+                                    >
+                                        <svg
+                                            className="w-3.5 h-3.5"
+                                            fill="none"
+                                            viewBox="0 0 24 24"
+                                            stroke="currentColor"
+                                            strokeWidth={2.5}
+                                        >
+                                            <path
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                d="M6 18L18 6M6 6l12 12"
+                                            />
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+
+                            {searchIsActive && filteredMenuItems.length === 0 && (
+                                <p className="text-sm text-slate-400 px-2 py-4 leading-relaxed">
+                                    No settings match <strong className="text-white/80">"{tabQuery}"</strong>.
+                                </p>
+                            )}
+                            {searchIsActive &&
+                                filteredMenuItems.map((item) => (
                                     <button
                                         aria-label={`Open ${item.label} settings`}
                                         key={item.id}
@@ -587,38 +739,67 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         </div>
                                         <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
                                     </button>
-                                ));
-                                if (group.collapsibleByDefault) {
+                                ))}
+                            {!searchIsActive &&
+                                SETTINGS_GROUPS.map((group) => {
+                                    const items = MENU_ITEMS.filter((m) => m.group === group.id);
+                                    if (items.length === 0) return null;
+                                    const itemButtons = items.map((item) => (
+                                        <button
+                                            aria-label={`Open ${item.label} settings`}
+                                            key={item.id}
+                                            onClick={() => setActiveTab(item.id)}
+                                            className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
+                                        >
+                                            <div
+                                                className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
+                                            >
+                                                {item.icon('w-6 h-6')}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-white font-bold text-sm tracking-wide">
+                                                    {item.label}
+                                                </p>
+                                                <p className="text-gray-300 text-xs mt-0.5">
+                                                    {item.id === 'vessel' && isObserver
+                                                        ? 'Crew Member — tap to configure vessel'
+                                                        : item.description}
+                                                </p>
+                                            </div>
+                                            <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                                        </button>
+                                    ));
+                                    if (group.collapsibleByDefault) {
+                                        return (
+                                            <details key={group.id} className="group/details">
+                                                <summary className="list-none cursor-pointer flex items-center gap-1.5 px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
+                                                    <svg
+                                                        className="w-3 h-3 transition-transform group-open/details:rotate-90"
+                                                        viewBox="0 0 24 24"
+                                                        fill="none"
+                                                        stroke="currentColor"
+                                                        strokeWidth={2.5}
+                                                        aria-hidden="true"
+                                                    >
+                                                        <path
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            d="M9 5l7 7-7 7"
+                                                        />
+                                                    </svg>
+                                                    <span>{group.label}</span>
+                                                </summary>
+                                                <div className="space-y-2 mt-1">{itemButtons}</div>
+                                            </details>
+                                        );
+                                    }
                                     return (
-                                        <details key={group.id} className="group/details">
-                                            <summary className="list-none cursor-pointer flex items-center gap-1.5 px-2 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 hover:text-slate-300 transition-colors">
-                                                <svg
-                                                    className="w-3 h-3 transition-transform group-open/details:rotate-90"
-                                                    viewBox="0 0 24 24"
-                                                    fill="none"
-                                                    stroke="currentColor"
-                                                    strokeWidth={2.5}
-                                                    aria-hidden="true"
-                                                >
-                                                    <path
-                                                        strokeLinecap="round"
-                                                        strokeLinejoin="round"
-                                                        d="M9 5l7 7-7 7"
-                                                    />
-                                                </svg>
-                                                <span>{group.label}</span>
-                                            </summary>
-                                            <div className="space-y-2 mt-1">{itemButtons}</div>
-                                        </details>
+                                        <div key={group.id} className="space-y-2">
+                                            <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
+                                            {itemButtons}
+                                        </div>
                                     );
-                                }
-                                return (
-                                    <div key={group.id} className="space-y-2">
-                                        <SettingsSectionLabel>{group.label}</SettingsSectionLabel>
-                                        {itemButtons}
-                                    </div>
-                                );
-                            })}
+                                })}
                         </div>
                     </div>
                 )}
