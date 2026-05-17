@@ -385,6 +385,53 @@ const SettingsSectionLabel: React.FC<{ children: React.ReactNode }> = ({ childre
     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 px-2 pt-4 pb-1.5">{children}</p>
 );
 
+/**
+ * "Frequently Used" tap-count tracking — added 2026-05-17.
+ *
+ * Why: search shipped earlier in the day fixed the "I know what I want
+ * but not which section it lives in" problem. The remaining friction
+ * is the user who taps the SAME 2-3 tabs every time (Vessel Profile,
+ * Notifications, Aesthetics) and still has to either search or scan
+ * the section list every visit. A "Frequently Used" row at the top
+ * of the menu drops their journey to one tap.
+ *
+ * Storage: simple `Record<SettingsTab, number>` keyed by tap count
+ * persisted to localStorage. No clock decay — settings access is
+ * infrequent enough that lifetime count is a fine proxy for "do I use
+ * this." A user who reconfigures their boat once never sees that tab
+ * dominate the row because all the OTHER tabs are still 0.
+ *
+ * Floor: minimum 3 taps before a tab qualifies, so the row doesn't
+ * pop up on day-one with whatever the user happened to tap first.
+ * Capped at 3 items so the row stays compact.
+ */
+const TAB_USAGE_KEY = 'thalassa_settings_tab_usage';
+const FREQ_USED_MIN_TAPS = 3;
+const FREQ_USED_MAX_ITEMS = 3;
+
+function loadTabUsage(): Record<string, number> {
+    if (typeof window === 'undefined') return {};
+    try {
+        const raw = localStorage.getItem(TAB_USAGE_KEY);
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        return parsed && typeof parsed === 'object' ? (parsed as Record<string, number>) : {};
+    } catch {
+        return {};
+    }
+}
+
+function bumpTabUsage(id: SettingsTab): void {
+    if (typeof window === 'undefined') return;
+    try {
+        const usage = loadTabUsage();
+        usage[id] = (usage[id] || 0) + 1;
+        localStorage.setItem(TAB_USAGE_KEY, JSON.stringify(usage));
+    } catch {
+        // Storage quota / private browsing — best-effort only.
+    }
+}
+
 export const SettingsView: React.FC<SettingsViewProps> = React.memo(
     ({ settings, onSave, onLocationSelect, onBack }) => {
         const { resetSettings } = useThalassa();
@@ -430,6 +477,24 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
             );
         }, [tabQuery]);
         const searchIsActive = tabQuery.trim().length > 0;
+
+        // Frequently-used tracking — see TAB_USAGE_KEY docstring.
+        // State seeded from localStorage on mount; bumped on every tab
+        // selection so the memo recomputes and the row updates live.
+        const [tabUsage, setTabUsage] = useState<Record<string, number>>(() => loadTabUsage());
+        const frequentlyUsedTabs = React.useMemo(() => {
+            return Object.entries(tabUsage)
+                .filter(([, count]) => count >= FREQ_USED_MIN_TAPS)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, FREQ_USED_MAX_ITEMS)
+                .map(([id]) => MENU_ITEMS.find((m) => m.id === id))
+                .filter((m): m is (typeof MENU_ITEMS)[number] => Boolean(m));
+        }, [tabUsage]);
+        const handleSelectTab = React.useCallback((id: SettingsTab) => {
+            bumpTabUsage(id);
+            setTabUsage(loadTabUsage());
+            setActiveTab(id);
+        }, []);
 
         const _updateUnit = (type: keyof typeof settings.units, value: string) => {
             onSave({ units: { ...settings.units, [type]: value } });
@@ -521,6 +586,36 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                         )}
                     </div>
 
+                    {/* Frequently Used — top-of-menu shortcut row. Surfaces
+                        the user's 3 most-tapped tabs once any tab has 3+
+                        taps. Hidden during search (search supersedes it).
+                        See TAB_USAGE_KEY docstring for tracking details. */}
+                    {!searchIsActive && frequentlyUsedTabs.length > 0 && (
+                        <div className="mb-2">
+                            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-400/80 px-2 pt-2 pb-1.5 flex items-center gap-1.5">
+                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+                                </svg>
+                                Frequently Used
+                            </p>
+                            <div className="space-y-0.5">
+                                {frequentlyUsedTabs.map((item) => (
+                                    <NavButton
+                                        key={`freq-${item.id}`}
+                                        active={activeTab === item.id}
+                                        onClick={() => handleSelectTab(item.id)}
+                                        icon={item.icon('w-5 h-5')}
+                                        label={
+                                            item.id === 'vessel' && isObserver
+                                                ? 'VESSEL (CREW)'
+                                                : item.label.toUpperCase()
+                                        }
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Desktop sidebar — driven by MENU_ITEMS + SETTINGS_GROUPS.
                         Before 2026-05-17 this was a hardcoded list of 7
                         NavButtons that omitted three of the registered
@@ -545,7 +640,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     <NavButton
                                         key={item.id}
                                         active={activeTab === item.id}
-                                        onClick={() => setActiveTab(item.id)}
+                                        onClick={() => handleSelectTab(item.id)}
                                         icon={item.icon('w-5 h-5')}
                                         label={
                                             item.id === 'vessel' && isObserver
@@ -563,7 +658,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     <NavButton
                                         key={item.id}
                                         active={activeTab === item.id}
-                                        onClick={() => setActiveTab(item.id)}
+                                        onClick={() => handleSelectTab(item.id)}
                                         icon={item.icon('w-5 h-5')}
                                         label={
                                             item.id === 'vessel' && isObserver
@@ -614,7 +709,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     Thalassa Pro
                                 </span>
                             </div>
-                            <p className="text-[11px] text-sky-200/70 mb-3">
+                            <p className="text-[12px] text-sky-200/70 mb-3">
                                 Your subscription is active. Access to all premium features.
                             </p>
                         </div>
@@ -711,6 +806,50 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                 )}
                             </div>
 
+                            {/* Frequently Used — mobile variant. Same data + rule
+                                as desktop sidebar; renders the cards-style buttons
+                                used elsewhere in the mobile menu. */}
+                            {!searchIsActive && frequentlyUsedTabs.length > 0 && (
+                                <div className="space-y-2">
+                                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-sky-400/80 px-2 pt-2 pb-1.5 flex items-center gap-1.5">
+                                        <svg
+                                            className="w-3 h-3"
+                                            viewBox="0 0 24 24"
+                                            fill="currentColor"
+                                            aria-hidden="true"
+                                        >
+                                            <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8l-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
+                                        </svg>
+                                        Frequently Used
+                                    </p>
+                                    {frequentlyUsedTabs.map((item) => (
+                                        <button
+                                            aria-label={`Open ${item.label} settings`}
+                                            key={`freq-${item.id}`}
+                                            onClick={() => handleSelectTab(item.id)}
+                                            className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-sky-500/[0.05] border border-sky-500/15 hover:bg-sky-500/[0.08] hover:border-sky-500/25 transition-all duration-300 active:scale-[0.98] text-left"
+                                        >
+                                            <div
+                                                className={`p-3 rounded-xl ${item.iconBg} ${item.iconHoverBg} group-hover:scale-110 transition-all duration-300 shadow-lg`}
+                                            >
+                                                {item.icon('w-6 h-6')}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-white font-bold text-sm tracking-wide">
+                                                    {item.label}
+                                                </p>
+                                                <p className="text-gray-300 text-xs mt-0.5">
+                                                    {item.id === 'vessel' && isObserver
+                                                        ? 'Crew Member — tap to configure vessel'
+                                                        : item.description}
+                                                </p>
+                                            </div>
+                                            <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-sky-400 group-hover:translate-x-1 transition-all" />
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             {searchIsActive && filteredMenuItems.length === 0 && (
                                 <p className="text-sm text-slate-400 px-2 py-4 leading-relaxed">
                                     No settings match <strong className="text-white/80">"{tabQuery}"</strong>.
@@ -721,7 +860,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                     <button
                                         aria-label={`Open ${item.label} settings`}
                                         key={item.id}
-                                        onClick={() => setActiveTab(item.id)}
+                                        onClick={() => handleSelectTab(item.id)}
                                         className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
                                     >
                                         <div
@@ -748,7 +887,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         <button
                                             aria-label={`Open ${item.label} settings`}
                                             key={item.id}
-                                            onClick={() => setActiveTab(item.id)}
+                                            onClick={() => handleSelectTab(item.id)}
                                             className="group w-full flex items-center gap-4 p-4 rounded-2xl bg-white/[0.03] border border-white/5 hover:bg-white/[0.07] hover:border-white/10 transition-all duration-300 active:scale-[0.98] text-left"
                                         >
                                             <div

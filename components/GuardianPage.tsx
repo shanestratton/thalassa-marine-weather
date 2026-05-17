@@ -384,7 +384,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                         )}
                     </div>
                     {nearbyUsers.length > 0 && (
-                        <div className="text-[11px] text-emerald-400/70 font-medium mt-1">
+                        <div className="text-[12px] text-emerald-400/70 font-medium mt-1">
                             Closest: {nearbyUsers[0].vessel_name || 'Unknown'} ({nearbyUsers[0].distance_nm.toFixed(1)}{' '}
                             NM)
                         </div>
@@ -557,7 +557,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                         <div className="text-xs font-bold text-white truncate">
                                             {user.vessel_name || `MMSI ${user.mmsi}`}
                                         </div>
-                                        <div className="text-[11px] text-gray-400 flex items-center gap-2">
+                                        <div className="text-[12px] text-gray-400 flex items-center gap-2">
                                             <span>{user.distance_nm.toFixed(1)} NM</span>
                                             {user.owner_name && (
                                                 <>
@@ -615,7 +615,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                 <SailBoatIcon className="w-7 h-7" />
                             </div>
                             <div className="text-xs text-gray-400">No alerts in your area</div>
-                            <div className="text-[11px] text-gray-500 mt-1">All quiet on the waterfront</div>
+                            <div className="text-[12px] text-gray-500 mt-1">All quiet on the waterfront</div>
                         </div>
                     ) : (
                         <div className="space-y-2">
@@ -641,7 +641,7 @@ export const GuardianPage: React.FC<GuardianPageProps> = ({ onBack }) => {
                                                     {alert.body}
                                                 </p>
                                                 {alert.source_vessel_name && (
-                                                    <div className="text-[11px] text-gray-500 mt-1">
+                                                    <div className="text-[12px] text-gray-500 mt-1">
                                                         from {alert.source_vessel_name}
                                                     </div>
                                                 )}

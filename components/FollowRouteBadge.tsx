@@ -108,7 +108,7 @@ const RouteChangePanel: React.FC<{
                             Route Updated
                         </h4>
                         <p className="text-sm text-gray-300 leading-relaxed">{description}</p>
-                        <p className="text-[11px] text-gray-400 mt-1">
+                        <p className="text-[12px] text-gray-400 mt-1">
                             Old route shown in gray. New route in blue. Accept to confirm the new route.
                         </p>
                     </div>

@@ -118,7 +118,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                 {/* Header */}
                 <div className="px-5 pt-5 pb-3 border-b border-white/[0.06] sticky top-0 bg-slate-900/95 z-10">
                     <h2 className="text-base font-bold text-white tracking-tight">Pin a metric to the top</h2>
-                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                    <p className="text-[12px] text-slate-400 mt-1 leading-relaxed">
                         The selected metric replaces temperature in the hero. Temperature moves to its grid cell.
                     </p>
                 </div>
@@ -153,7 +153,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                             >
                                 Temperature
                             </p>
-                            <p className="text-[11px] text-slate-400 truncate">Default — air temperature</p>
+                            <p className="text-[12px] text-slate-400 truncate">Default — air temperature</p>
                         </div>
                         {currentMetric === 'temp' && (
                             <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-sky-300">
@@ -195,7 +195,7 @@ export const MetricPinSheet: React.FC<MetricPinSheetProps> = ({
                                     >
                                         {m.label}
                                     </p>
-                                    <p className="text-[11px] text-slate-400 truncate">{m.helper}</p>
+                                    <p className="text-[12px] text-slate-400 truncate">{m.helper}</p>
                                 </div>
                                 {isActive && (
                                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-sky-300">
