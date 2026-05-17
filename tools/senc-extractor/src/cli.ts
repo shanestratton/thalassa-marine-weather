@@ -70,6 +70,13 @@ async function main() {
     for (const [acronym, fc] of Object.entries(cell.layers).sort()) {
         console.log(`    ${acronym.padEnd(8)} ${String(fc.features.length).padStart(6)} features`);
     }
+    if (stats.unknownRecordCounts.size > 0) {
+        const dropped = [...stats.unknownRecordCounts.entries()]
+            .sort((a, b) => a[0] - b[0])
+            .map(([type, n]) => `${type}:${n}`)
+            .join(' ');
+        console.log(`  dropped record-types (type:count): ${dropped}`);
+    }
     console.log(`  wrote ${outPath} (${json.length.toLocaleString()} bytes)`);
 }
 
