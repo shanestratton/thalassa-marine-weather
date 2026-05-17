@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
 import { t } from '../theme';
-import { XIcon, DiamondIcon, CheckIcon, LockIcon } from './Icons';
+import { XIcon, CheckIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { TIER_INFO, type Feature as _Feature } from '../services/SubscriptionService';
 import type { SubscriptionTier } from '../types/settings';
+// Brand mark — same lockup as the SignInScreen. Vite resolves the
+// import to a hashed URL string at build time. Replaces the previous
+// DiamondIcon header treatment (the "jewelry-store / Vegas" vibe the
+// 64/100 scorecard flagged as the biggest brand-cohesion hit).
+import brandLockup from '../assets/brand/mark-simplified-dark.svg';
 
 /** Format an annual price tightly: whole-dollar prices skip the .00
  *  (so $149 not $149.00), prices with cents keep two decimals
@@ -157,17 +162,33 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
             <div
                 className={`modal-panel-enter relative bg-slate-900 w-full max-w-lg rounded-2xl overflow-hidden ${t.border.default} shadow-2xl flex flex-col max-h-[90vh]`}
             >
-                {/* Header */}
-                <div className="relative h-32 bg-gradient-to-br from-sky-900 via-slate-900 to-amber-900/30 flex items-center justify-center overflow-hidden">
-                    <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] to-transparent" />
+                {/* Header — rebuilt 2026-05-17. Before: gradient
+                    sky-900 → slate-900 → amber-900 + a Diamond-icon
+                    badge in amber/sky on a glow ring. Read as a
+                    casino-app "premium" upsell. Now: clean slate
+                    backdrop + the actual Thalassa compass mark + a
+                    subtle teal glow. Same brand language as the
+                    sign-in screen so the conversion moment feels
+                    like part of the app, not a vendor-pitch interlude. */}
+                <div className="relative h-32 bg-slate-900 flex items-center justify-center overflow-hidden border-b border-white/5">
+                    <div
+                        className="absolute inset-0 pointer-events-none"
+                        style={{
+                            background: 'radial-gradient(ellipse at top, rgba(94, 234, 212, 0.10), transparent 60%)',
+                        }}
+                    />
                     <div className="relative z-10 text-center">
-                        <div className="w-14 h-14 mx-auto bg-gradient-to-br from-amber-500 to-sky-500 rounded-full flex items-center justify-center shadow-[0_0_30px_rgba(245,158,11,0.3)] mb-2">
-                            <DiamondIcon className="w-7 h-7 text-white" />
-                        </div>
+                        <img
+                            src={brandLockup}
+                            alt=""
+                            className="w-12 h-12 mx-auto mb-2"
+                            draggable={false}
+                            style={{ filter: 'drop-shadow(0 0 12px rgba(94, 234, 212, 0.25))' }}
+                        />
                         <h2 id="upgrade-title" className="text-xl font-bold text-white tracking-tight">
                             Upgrade Thalassa
                         </h2>
-                        <p className="text-[11px] text-gray-400 mt-0.5">
+                        <p className="text-[11px] text-slate-400 mt-0.5">
                             The marine platform sailors plan passages on — together
                         </p>
                     </div>
@@ -208,30 +229,43 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, onU
                         </p>
                     </div>
 
-                    {/* CTA */}
+                    {/* CTA — rebuilt 2026-05-17. Was: amber/orange
+                        gradient (for owner tier) or sky/cyan gradient
+                        (for crew), with BLACK text on top + a Lock
+                        icon. Two problems: (1) the lock icon implies
+                        "you can't access this yet" which is exactly
+                        the wrong vibe for a button labelled "Start
+                        free trial", (2) black text on gradient
+                        failed contrast on the darker tier-amber. New:
+                        solid brand colour, white text, no icon. Lets
+                        the LABEL do the work. */}
                     <button
-                        aria-label="Upgrade subscription"
+                        aria-label={`Start 7-day free trial of ${selectedInfo.label}`}
                         onClick={() => {
                             onUpgrade(selectedTier);
                             onClose();
                         }}
-                        className="w-full py-4 rounded-xl font-bold shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2"
+                        className="w-full py-4 rounded-xl font-bold shadow-lg transition-all active:scale-[0.98] flex items-center justify-center gap-2 text-white"
                         style={{
-                            background: `linear-gradient(135deg, ${selectedInfo.color}, ${selectedTier === 'owner' ? '#f97316' : '#06b6d4'})`,
-                            color: '#000',
+                            backgroundColor: selectedInfo.color,
+                            boxShadow: `0 8px 24px -8px ${selectedInfo.color}`,
                         }}
                     >
-                        <LockIcon className="w-5 h-5" />
                         Start 7-Day Free Trial — {selectedInfo.label}
                     </button>
 
-                    <p className="text-center text-[11px] text-gray-500 pb-1">
+                    <p className="text-center text-[11px] text-slate-500 pb-1">
                         {fmtPrice(selectedInfo.priceAnnual)}/year after trial • {selectedInfo.priceMonthly}/month
                     </p>
 
+                    {/* Restore Purchases — rebuilt as a proper styled
+                        secondary button rather than an unstyled grey
+                        text link (the 2014-era treatment the
+                        scorecard flagged). Apple HIG requires this
+                        to be findable for the App Store review pass. */}
                     <button
-                        aria-label="Restore purchases"
-                        className="w-full py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                        aria-label="Restore previous purchases from this Apple ID"
+                        className="w-full py-2.5 rounded-xl text-sm font-semibold text-slate-300 hover:text-white bg-white/[0.03] hover:bg-white/[0.06] border border-white/10 transition-colors"
                     >
                         Restore Purchases
                     </button>
