@@ -749,26 +749,33 @@ function buildNavGrid(
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
         const g = f.geometry as Polygon | MultiPolygon;
         const rescueDepth = Math.max(draftM + safetyM, 5.0);
+        // S-57 charted features carry an `acronym` property (e.g. 'DRGARE',
+        // 'FAIRWY') set by senc-extractor's geojsonEmitter. OSM-derived
+        // mock channels don't. A chart-authoritative dredged area or
+        // fairway is *surveyed navigable water* — when it overlaps an
+        // LNDARE polygon (which happens on real ENC charts because the
+        // SENC's GLU-tessellated LNDARE primitives can span across
+        // river concavities), the DRGARE/FAIRWY is the truth.
+        //
+        // This is the inverse of the 2026-05-14 Scarborough peninsula
+        // fix: that fix locked LNDARE down so bathymetry-derived DEPARE
+        // couldn't unblock real land. Chart DRGARE/FAIRWY are a different
+        // signal class — they exist because a harbour authority surveyed
+        // and dredged the channel, so they get the keys back. OSM-derived
+        // channel features (no `acronym`) still respect LNDARE's hard-block.
+        const props = f.properties as Record<string, unknown> | null;
+        const isChartAuthoritative = typeof props?.acronym === 'string';
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             preferred[idx] = 1;
-            // Rescue: a marked fairway / dredged area is navigable
-            // water by definition. If coarse public bathymetry
-            // blocked this cell with a shallow DEPARE band, un-block
-            // it — the channel markers (placed by the harbour
-            // authority) are the authoritative "navigable" signal,
-            // not the 30 m raster. Never override a hard-blocked cell
-            // (LNDARE / obstruction). (2026-05-14: Newport — the
-            // marked exit channel was preferred-but-blocked, so it
-            // couldn't connect the canal to open water and the route
-            // snapped ~2 km across the peninsula.)
-            if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
-                // Rescue a hard-blocked OR caution-marked cell to
-                // real navigable depth — the marked channel is
-                // authoritative over both a shallow bathymetry
-                // reading and a coastline-buffer over-reach.
-                cells[idx] = rescueDepth;
-            }
+            const blockedOrShallow = Number.isNaN(cells[idx]) || cells[idx] < 0;
+            if (!blockedOrShallow) return;
+            // Chart DRGARE/FAIRWY rescues hard-blocked cells too —
+            // LNDARE polygons on ENC charts span river concavities, and
+            // the dredged-channel polygon is the authoritative "this is
+            // navigable" overlay. OSM channels still respect hardBlocked.
+            if (hardBlocked[idx] === 1 && !isChartAuthoritative) return;
+            cells[idx] = rescueDepth;
         });
     };
     const tPassFairwy = Date.now();

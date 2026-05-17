@@ -311,6 +311,12 @@ export const LayerFABMenu: React.FC<{
     encVisible?: boolean;
     onToggleEnc?: () => void;
     encCellCount?: number;
+    /**
+     * Chart-detail toggle — false = land + markers only (default), true =
+     * also show depth-fills + coastlines. Sub-toggle of ENC Charts.
+     */
+    encChartDetail?: boolean;
+    onToggleEncChartDetail?: () => void;
     skCharts?: AvNavChart[];
     skChartIds?: Set<string>;
     skChartOpacity?: number;
@@ -381,6 +387,8 @@ export const LayerFABMenu: React.FC<{
     encVisible = true,
     onToggleEnc,
     encCellCount = 0,
+    encChartDetail = false,
+    onToggleEncChartDetail,
     skCharts = [],
     skChartIds = new Set<string>(),
     skChartOpacity = 0.7,
@@ -1168,6 +1176,34 @@ export const LayerFABMenu: React.FC<{
                                                     <span className="text-[10px] text-gray-500">Off</span>
                                                 )}
                                             </button>
+                                            {encVisible && onToggleEncChartDetail && (
+                                                <button
+                                                    aria-label="Toggle full chart detail (depth fills + coastlines)"
+                                                    onClick={() => {
+                                                        onToggleEncChartDetail();
+                                                        triggerHaptic('light');
+                                                    }}
+                                                    className={`w-full flex items-center gap-3 pl-12 pr-4 py-1.5 text-left transition-colors ${encChartDetail ? 'text-violet-300/90' : 'text-gray-500 hover:text-gray-400'}`}
+                                                >
+                                                    <div className="flex-1 min-w-0">
+                                                        <span className="text-[11px] font-semibold block truncate">
+                                                            Full Detail
+                                                        </span>
+                                                        <span className="text-[9px] text-gray-500/80 block truncate">
+                                                            {encChartDetail
+                                                                ? 'depth fills + coastlines'
+                                                                : 'land + markers only'}
+                                                        </span>
+                                                    </div>
+                                                    {encChartDetail ? (
+                                                        <span className="text-[10px] font-bold text-violet-300/90 uppercase tracking-wider">
+                                                            On
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] text-gray-500">Off</span>
+                                                    )}
+                                                </button>
+                                            )}
                                             {skCharts.length > 0 && <div className="h-px bg-white/[0.06] mx-3 mt-1" />}
                                         </>
                                     )}
