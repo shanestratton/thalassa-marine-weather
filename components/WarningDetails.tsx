@@ -76,9 +76,15 @@ export const WarningDetails: React.FC<WarningDetailsProps> = ({ alerts }) => {
                 </div>
                 {dismissableCount > 1 && (
                     <button
-                        aria-label="Show all weather warnings"
+                        aria-label="Dismiss all dismissable weather warnings"
                         onClick={dismissAll}
-                        className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-xs px-3 py-1.5 rounded-lg transition-colors uppercase tracking-wider"
+                        // 2026-05-17: bumped to min-h-[44px] to clear the
+                        // Apple HIG tap-target floor (was py-1.5 ≈ 28 px).
+                        // A "Dismiss All" button on a warnings page is
+                        // exactly where you don't want mis-taps — could
+                        // accidentally clear a critical alert in heavy
+                        // weather. Aria-label rewritten to be specific.
+                        className="bg-white/10 hover:bg-white/20 active:bg-white/30 text-white/80 font-bold text-xs px-3 py-2.5 min-h-[44px] rounded-lg transition-colors uppercase tracking-wider"
                     >
                         Dismiss All
                     </button>
