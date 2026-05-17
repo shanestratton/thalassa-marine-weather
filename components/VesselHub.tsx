@@ -814,6 +814,28 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 }}
                             />
                             <ListDivider />
+                            {/* Galley — orphan-audit fix 2026-05-17. The
+                                GalleyPage docstring claimed it was
+                                "accessible directly from VesselHub Ship's
+                                Office grid" but the tile had silently been
+                                removed (paying Skipper-tier users couldn't
+                                reach a feature they'd paid for). Slot it
+                                here because galley = meal-planning ABOVE
+                                Ship's Stores (you plan meals FROM stores).
+                                PaywallGate is auto-applied by viewRegistry
+                                via gatedFeature: 'galley', so free users
+                                hit an upgrade prompt — not a broken page. */}
+                            <OfficeRow
+                                icon={<GalleyIcon color="#cbd5e1" />}
+                                label="Galley"
+                                status="Meal Planning"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('galley');
+                                }}
+                            />
+                            <ListDivider />
                             <OfficeRow
                                 icon={<ClipboardIcon color="#cbd5e1" />}
                                 label="Equipment"
@@ -1965,6 +1987,25 @@ const WrenchIcon: React.FC<{ color: string }> = ({ color }) => (
             strokeLinecap="round"
             strokeLinejoin="round"
             d="M11.42 15.17l-5.3 5.3a1.5 1.5 0 01-2.12 0l-.36-.36a1.5 1.5 0 010-2.12l5.3-5.3m2.1-2.1l4.24-4.24a3 3 0 014.24 0l.36.36a3 3 0 010 4.24l-4.24 4.24m-6.36-6.36l6.36 6.36"
+        />
+    </svg>
+);
+
+// Pot/cooking icon — used for the Galley tile in the Inventory &
+// Stores subgroup. Drawn as a simple cooking pot with two handles
+// and a steam wisp; reads as "cook / meal planning" at the small
+// 16-px tile size.
+const GalleyIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M5 11h14M5 11v7a2 2 0 002 2h10a2 2 0 002-2v-7M3 11h2M19 11h2"
+        />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M9 7c0-1 0.5-2 1.5-2s1.5 1 1.5 2-0.5 2 0 3M14 5c0-1 0.5-2 1.5-2s1.5 1 1.5 2-0.5 2 0 3"
         />
     </svg>
 );
