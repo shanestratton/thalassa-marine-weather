@@ -243,9 +243,21 @@ export function useMapInit(opts: UseMapInitOptions) {
             interactive: true,
             dragPan: true,
             scrollZoom: true,
-            dragRotate: true,
+            // North-up always (2026-05-18 — Shane: "prevent the earth from
+            // rotating on the chart page"). A rotating map disorients on
+            // a moving boat: chart-north no longer matches paper-chart
+            // conventions, magnetic-vs-true gets confused, and reading
+            // bearings off the screen requires constant re-orientation.
+            // dragRotate kills right-click/two-finger drag; touchPitch
+            // kills two-finger up/down tilt; pitchWithRotate kills the
+            // pitch-on-rotate chain. The pinch-rotate gesture is killed
+            // by touchZoomRotate.disableRotation() after construction.
+            dragRotate: false,
+            touchPitch: false,
+            pitchWithRotate: false,
+            bearing: 0,
             pitch: 0,
-            maxPitch: 60,
+            maxPitch: 0,
             maxTileCacheSize: 500,
             // Tile request interceptor — handles two cases:
             // 1. Local MBTiles: mbtiles.local URLs → blob URLs from sql.js (synchronous)
@@ -319,6 +331,12 @@ export function useMapInit(opts: UseMapInitOptions) {
         if (containerRef.current) {
             containerRef.current.style.backgroundColor = '#191a1a';
         }
+
+        // Kill the two-finger pinch-rotate gesture. This is a separate
+        // handler from `dragRotate` — without this, users could still
+        // rotate the map by twisting two fingers. Belt-and-braces lock
+        // to north-up. See the rationale on the constructor options.
+        map.touchZoomRotate.disableRotation();
 
         // Store Aus+NZ zoom on map instance so other hooks can read it
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
