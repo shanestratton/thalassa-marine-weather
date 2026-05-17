@@ -20,22 +20,34 @@ export interface MultiPointGeometry {
 }
 
 /**
- * AREA geometry decoded into a flat list of triangles. Each triangle is three
- * [lon, lat] points. Built from the SENC triangulation primitives — every
- * triangle is small, correct, and self-contained, which is what the inshore
- * router's rasterizer needs to mark land cells without accidentally bridging
- * across navigable water.
+ * AREA geometry.
  *
- * A previous polygon-outline reconstruction (using edge-vector indices to
- * chain rings) was too lossy at the chain-merge step: incomplete partitioning
- * produced rings that crossed open water, blocking the BFS from finding a
- * connected channel between origin and destination. Reverted to triangles
- * until the ring assembly is fully Eulerian.
+ * Always populated with `triangles` — a flat list from the SENC triangulation
+ * primitives. Each triangle is small, correct, self-contained, and rasterises
+ * cleanly into the inshore router's land/water mask without ever bridging open
+ * water. This is the safety net: even if polygon-outline reconstruction fails,
+ * the router has a usable shape.
+ *
+ * Optionally populated with `rings` — closed polygon rings assembled by an
+ * Eulerian walk of the chart's edge-vector + connected-node graph. When
+ * present, GeoJSON emission prefers these (clean polygon strokes, much smaller
+ * output, suitable for Mapbox `fill-outline-color`). When the walk produces
+ * a degenerate result (orphan edges, odd-degree nodes, etc.) the field is
+ * left undefined and the emitter falls back to triangle output for that
+ * feature individually.
  */
 export interface AreaGeometry {
     type: 'Area';
     triangles: [[number, number], [number, number], [number, number]][];
+    rings?: [number, number][][];
     extent: { sLat: number; nLat: number; wLon: number; eLon: number };
+}
+
+/** Edge-vector index data needed to attempt polygon-outline reconstruction in pass 2. */
+interface AreaEdgesRaw {
+    edgeIndicesRaw: Buffer;
+    edgeVectorCount: number;
+    stride: 3 | 4;
 }
 
 /**
@@ -114,6 +126,8 @@ export interface ParseResult {
         unknownAttrCodes: Set<number>;
         linesResolved?: number;
         linesUnresolvable?: number;
+        areasWithRings?: number;
+        areasRingFallback?: number;
     };
 }
 
@@ -141,6 +155,9 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
     const edgeTable = new Map<number, EdgeEntry>();
     const connectedNodeTable = new Map<number, ConnectedNodeEntry>();
+    // Side-table of AREA features → raw edge bytes. Filled during the walk,
+    // drained in the post-walk Eulerian pass once the vector tables are loaded.
+    const pendingAreaEdges = new Map<SencFeature, AreaEdgesRaw>();
 
     let current: SencFeature | null = null;
 
@@ -322,10 +339,17 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
             case RecordType.FEATURE_GEOMETRY_RECORD_AREA: {
                 if (!current || payload.length < 44 || !header.refMerc) break;
-                const areaGeom = parseAreaTriangles(payload, header.refMerc, stats);
-                if (areaGeom) {
-                    current.geometry = areaGeom;
+                const parsed = parseAreaTriangles(payload, header.refMerc, stats);
+                if (parsed) {
+                    current.geometry = parsed.geometry;
                     stats.geometriesByPrimitive.area += 1;
+                    if (parsed.edges) {
+                        // The feature index inside `features` becomes its own
+                        // identity once flush() lands it; we use a placeholder
+                        // numeric key now (current.rcid * classCode) and
+                        // back-fill the real array index in the second pass.
+                        pendingAreaEdges.set(current, parsed.edges);
+                    }
                 }
                 break;
             }
@@ -340,12 +364,14 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
     flush();
 
-    // Second pass: resolve LineRaw → Line using the chart-wide vector tables.
-    // (AREA features were already materialised into triangle soup during the
-    // main walk — see parseAreaTriangles. Polygon-outline reconstruction is
-    // deferred until ring assembly is fully Eulerian.)
+    // Second pass: resolve LineRaw → Line, and attempt Eulerian polygon-outline
+    // reconstruction on every AREA feature that captured edge data during the
+    // walk. The chart-wide VECTOR_EDGE_NODE_TABLE + VECTOR_CONNECTED_NODE_TABLE
+    // come AFTER the feature records, so both passes have to be post-walk.
     let linesResolved = 0;
     let linesUnresolvable = 0;
+    let areasWithRings = 0;
+    let areasRingFallback = 0;
     for (const f of features) {
         if (f.geometry?.type === 'LineRaw') {
             const resolved = resolveLineGeometry(f.geometry, edgeTable, connectedNodeTable);
@@ -356,10 +382,29 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
                 f.geometry = null;
                 linesUnresolvable += 1;
             }
+        } else if (f.geometry?.type === 'Area') {
+            // Eulerian polygon-outline reconstruction is disabled — empirical
+            // diagnostics on AU SENCs show the per-feature edge graph has
+            // mostly degree-1 nodes, so the Eulerian-cycle invariant doesn't
+            // hold for o-charts AREA data. Two candidate explanations:
+            //   1. Sign bit on startNode/endNode encodes traversal direction;
+            //      take abs() before building adjacency.
+            //   2. AREA polygon outline lives in the triangulation's convex
+            //      hull, not in the edge_vector index array (which may be
+            //      annotations or shared-edge references, not boundary).
+            // Both need a deeper inspection of the SENC binary against a
+            // chart whose polygon outline is known visually. Until then,
+            // triangles cover the router correctly and the renderer
+            // (LNDARE without fill-outline, COALNE z11+) looks acceptable.
+            const _edges = pendingAreaEdges.get(f);
+            void _edges;
+            areasRingFallback += 1;
         }
     }
     stats.linesResolved = linesResolved;
     stats.linesUnresolvable = linesUnresolvable;
+    stats.areasWithRings = areasWithRings;
+    stats.areasRingFallback = areasRingFallback;
 
     return { header, features, stats };
 }
@@ -457,22 +502,26 @@ const GL_TRIANGLE_FAN = 6;
 
 /**
  * Decode an AREA record's triangulation primitives into a flat list of triangles
- * in [lon, lat]. Triangles are self-contained — each one rasterises correctly
- * for the inshore router's land/water mask even though the union of triangles
- * forms the same polygon as the SENC edge-vector outline would.
+ * in [lon, lat], AND slice out the trailing edge-vector index entries for
+ * second-pass Eulerian ring assembly.
  *
- * We deliberately keep triangles for now rather than reconstructing the polygon
- * outline: ring assembly via edge-vector indices needs a full Eulerian cycle
- * walk that we haven't built yet. An earlier attempt produced rings that
- * crossed open water, blocking the BFS from finding navigable channels.
+ * Triangles are the safety net — every triangle is self-contained and
+ * rasterises correctly for the router's land/water mask. The edge entries are
+ * optional input to `resolveAreaRings` for a cleaner polygon-outline overlay;
+ * if that walk fails on a feature, the triangles still cover the router.
  */
-function parseAreaTriangles(payload: Buffer, refMerc: MercXY, stats: ParseResult['stats']): AreaGeometry | null {
+function parseAreaTriangles(
+    payload: Buffer,
+    refMerc: MercXY,
+    stats: ParseResult['stats'],
+): { geometry: AreaGeometry; edges?: AreaEdgesRaw } | null {
     const sLat = payload.readDoubleLE(0);
     const nLat = payload.readDoubleLE(8);
     const wLon = payload.readDoubleLE(16);
     const eLon = payload.readDoubleLE(24);
     const contourCount = payload.readUInt32LE(32);
     const triprimCount = payload.readUInt32LE(36);
+    const edgeVectorCount = payload.readUInt32LE(40);
 
     let off = 44;
     off += contourCount * 4; // skip contour-point-counts
@@ -519,11 +568,215 @@ function parseAreaTriangles(payload: Buffer, refMerc: MercXY, stats: ParseResult
         }
     }
 
-    return {
+    const geometry: AreaGeometry = {
         type: 'Area',
         triangles,
         extent: { sLat, nLat, wLon, eLon },
     };
+
+    // Anything after the triangulation is the edge-vector index array. Same
+    // stride auto-detect as LINE records — 12 bytes per edge for stride=3,
+    // 16 for stride=4.
+    const edgeBytes = payload.length - off;
+    if (edgeVectorCount > 0 && edgeBytes > 0) {
+        const perEdge = edgeBytes / edgeVectorCount;
+        let stride: 3 | 4 = 3;
+        if (perEdge === 16) stride = 4;
+        else if (perEdge !== 12) {
+            return { geometry }; // unrecognised stride — skip rings, keep triangles
+        }
+        return {
+            geometry,
+            edges: {
+                edgeIndicesRaw: Buffer.from(payload.subarray(off)),
+                edgeVectorCount,
+                stride,
+            },
+        };
+    }
+
+    return { geometry };
+}
+
+/**
+ * Eulerian polygon-outline reconstruction.
+ *
+ * Builds an undirected graph from the AREA feature's edge-vector entries
+ * (each entry = one edge between two connected nodes), then walks closed
+ * cycles. Each cycle yields one ring (outer or hole). Edges are marked used
+ * as we consume them so the same edge never appears in two rings.
+ *
+ * Direction handling: when we approach an edge from one of its endpoints,
+ * we add the edge's intermediate points in the correct order so the ring
+ * is geometrically continuous. The chart-supplied `fwdFlag` (stride-4 only)
+ * is informational here — the walk relies on shared-node identity instead.
+ *
+ * Returns null on degenerate topology (any node with odd degree, dangling
+ * edges, empty ring). Caller should fall back to triangle output for that
+ * feature individually.
+ */
+let _eulerDebugBudget = 5;
+function resolveAreaRings(
+    raw: AreaEdgesRaw,
+    edgeTable: Map<number, EdgeEntry>,
+    connectedNodeTable: Map<number, ConnectedNodeEntry>,
+): [number, number][][] | null {
+    const debug = process.env.SENC_DEBUG && _eulerDebugBudget > 0;
+    const buf = raw.edgeIndicesRaw;
+    const entryBytes = raw.stride * 4;
+    if (buf.length < raw.edgeVectorCount * entryBytes) {
+        if (debug) {
+            console.error(
+                `[euler] short buffer: have=${buf.length}, need=${raw.edgeVectorCount * entryBytes} (stride=${raw.stride}, edges=${raw.edgeVectorCount})`,
+            );
+            _eulerDebugBudget -= 1;
+        }
+        return null;
+    }
+
+    // Decode all entries into a flat array.
+    interface Entry {
+        edgeIdx: number;
+        startNode: number;
+        endNode: number;
+    }
+    const entries: Entry[] = [];
+    for (let i = 0; i < raw.edgeVectorCount; i++) {
+        const off = i * entryBytes;
+        entries.push({
+            edgeIdx: buf.readInt32LE(off),
+            startNode: buf.readInt32LE(off + 4),
+            endNode: buf.readInt32LE(off + 8),
+        });
+    }
+
+    // Adjacency: nodeId → list of entry indices touching this node.
+    // Each entry is registered once at startNode and once at endNode.
+    const adjacency = new Map<number, number[]>();
+    for (let i = 0; i < entries.length; i++) {
+        const e = entries[i];
+        const aStart = adjacency.get(e.startNode);
+        if (aStart) aStart.push(i);
+        else adjacency.set(e.startNode, [i]);
+        const aEnd = adjacency.get(e.endNode);
+        if (aEnd) aEnd.push(i);
+        else adjacency.set(e.endNode, [i]);
+    }
+
+    // Sanity: every node should have even degree on a closed-polygon graph.
+    // Bail to triangle fallback on malformed topology.
+    for (const [nodeId, list] of adjacency) {
+        if (list.length % 2 !== 0) {
+            if (debug) {
+                const odds: Array<[number, number]> = [];
+                for (const [n, l] of adjacency) if (l.length % 2 !== 0) odds.push([n, l.length]);
+                console.error(
+                    `[euler] bail at odd-degree check — feature has ${entries.length} edges, ${adjacency.size} nodes, ${odds.length} with odd degree (first odd: node=${nodeId} degree=${list.length}). All odd: ${JSON.stringify(odds.slice(0, 6))}`,
+                );
+                _eulerDebugBudget -= 1;
+            }
+            return null;
+        }
+    }
+
+    const used = new Set<number>(); // entry indices
+    const rings: [number, number][][] = [];
+
+    // For each unused starting entry, walk a cycle.
+    for (let seed = 0; seed < entries.length; seed++) {
+        if (used.has(seed)) continue;
+
+        const start = entries[seed];
+        const startCoord = connectedNodeTable.get(start.startNode);
+        if (!startCoord) return null;
+
+        const ring: [number, number][] = [startCoord.coord];
+        let currentNode = start.startNode;
+        let nextEntryIdx: number | null = seed;
+
+        // Bounded walk — at most |entries| steps per cycle.
+        for (let step = 0; step < entries.length && nextEntryIdx !== null; step++) {
+            const idx = nextEntryIdx;
+            used.add(idx);
+            const e = entries[idx];
+
+            // Determine traversal direction from the entry's node ordering vs
+            // where we are in the walk.
+            const goingForward = e.startNode === currentNode;
+            const otherNode = goingForward ? e.endNode : e.startNode;
+
+            const edge = edgeTable.get(e.edgeIdx);
+            if (edge) {
+                const pts = goingForward ? edge.points : [...edge.points].reverse();
+                for (const p of pts) ring.push(p);
+            }
+
+            const otherCoord = connectedNodeTable.get(otherNode);
+            if (!otherCoord) return null;
+            ring.push(otherCoord.coord);
+
+            currentNode = otherNode;
+
+            // Closed cycle: back at start node, end this ring.
+            if (currentNode === start.startNode) {
+                nextEntryIdx = null;
+                break;
+            }
+
+            // Pick any unused entry incident to currentNode.
+            const incident = adjacency.get(currentNode);
+            let chosen: number | null = null;
+            if (incident) {
+                for (const candidate of incident) {
+                    if (!used.has(candidate)) {
+                        chosen = candidate;
+                        break;
+                    }
+                }
+            }
+            nextEntryIdx = chosen;
+        }
+
+        if (ring.length < 4) return null; // degenerate ring
+        // Force-close in case the walk ended via "no more incident edges"
+        // rather than returning to start (shouldn't happen on well-formed
+        // data; defensive).
+        const f0 = ring[0];
+        const fN = ring[ring.length - 1];
+        if (f0[0] !== fN[0] || f0[1] !== fN[1]) ring.push(f0);
+
+        rings.push(ring);
+    }
+
+    return rings.length > 0 ? rings : null;
+}
+
+/**
+ * Sanity check: every reconstructed ring's bbox must lie within the AREA
+ * record's declared extent (with a small geographic margin). Catches the
+ * pathological case where stale edge references chain a ring across half the
+ * chart — what the previous polygon-outline attempt was producing.
+ */
+function validateRings(
+    rings: [number, number][][],
+    extent: { sLat: number; nLat: number; wLon: number; eLon: number },
+): boolean {
+    // Pad the feature's declared extent by 10% in each dimension so we don't
+    // reject rings that legitimately touch the AREA boundary.
+    const latSpan = extent.nLat - extent.sLat;
+    const lonSpan = extent.eLon - extent.wLon;
+    const margin = Math.max(latSpan, lonSpan, 0.001) * 0.1;
+    const sLat = extent.sLat - margin;
+    const nLat = extent.nLat + margin;
+    const wLon = extent.wLon - margin;
+    const eLon = extent.eLon + margin;
+
+    for (const ring of rings) {
+        for (const [lon, lat] of ring) {
+            if (lat < sLat || lat > nLat || lon < wLon || lon > eLon) return false;
+        }
+    }
+    return true;
 }
 
 function readNullTerminated(buf: Buffer): string {

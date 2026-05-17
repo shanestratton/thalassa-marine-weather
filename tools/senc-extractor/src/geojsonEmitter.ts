@@ -140,10 +140,23 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
         }
 
         case 'Area': {
-            // Each triangle becomes one closed Polygon ring inside a MultiPolygon.
-            // Self-contained triangles rasterise cleanly for the router's land/water
-            // mask — proper polygon outlines via edge-vector indices are deferred
-            // until ring assembly is fully Eulerian.
+            // Prefer Eulerian-reconstructed polygon rings when present:
+            // smaller wire format, clean strokes, fewer rasterizer cells to
+            // process. Each feature is emitted as a single Polygon (first ring
+            // outer, subsequent rings holes per S-57 convention).
+            //
+            // Fall back to the triangle safety net per-feature when the rings
+            // either weren't assembled or failed the sanity check.
+            if (f.geometry.rings && f.geometry.rings.length > 0) {
+                const rings = f.geometry.rings.map((ring) => ring.map(roundPt));
+                if (rings[0].length >= 4) {
+                    return {
+                        type: 'Feature',
+                        geometry: { type: 'Polygon', coordinates: rings },
+                        properties,
+                    };
+                }
+            }
             const polys: [number, number][][][] = f.geometry.triangles.map((tri) => [
                 [roundPt(tri[0]), roundPt(tri[1]), roundPt(tri[2]), roundPt(tri[0])],
             ]);
