@@ -57,13 +57,13 @@ const _AnchorIcon = ({ className }: { className?: string }) => (
 );
 
 export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
-    // Navigation helper — used by the "📔 Diary" menu item below.
-    // Diary lost its old VesselHub Quick-Actions tile (commit ee6ab49c
-    // killed the duplicate), so its only remaining entry point lives
-    // here in the Log tab's kebab. Justified because diary entries
-    // are part of the voyage record itself — they ride alongside
-    // routes/tracks into the public Voyage Log feed.
-    const { setPage } = useUI();
+    // Navigation helper was used by the old Diary kebab item;
+    // Diary now has its own tile in the Vessel-tab → Sharing section
+    // (2026-05-17). The destructure stays as a `_` placeholder so
+    // useUI() is still called — keeps the hook's effect/subscription
+    // semantics if other code starts depending on it.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { setPage: _setPage } = useUI();
     const {
         state,
         dispatch,
@@ -433,22 +433,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 (handleToggleRapidMode, handleTogglePrecisionMode)
                                                 stay in the hook in case we re-expose them as a
                                                 Skipper-tier gate. */}
-                                            {/* Diary — first in the menu because diary entries
-                                                are the conversion-worthy "sharing object" in
-                                                the voyage record (they ride alongside routes/
-                                                tracks into the public Voyage Log feed at
-                                                thalassawx.app/logs/<handle>). Before this
-                                                line landed, Diary was orphaned in the UI —
-                                                only viewRegistry knew about it. */}
-                                            <MenuBtn
-                                                icon="📔"
-                                                label="Diary"
-                                                onClick={() => {
-                                                    setPage('diary');
-                                                    setShowMenu(false);
-                                                }}
-                                            />
-                                            <div className="border-t border-white/5" />
+                                            {/* Diary kebab item REMOVED 2026-05-17 — Diary now
+                                                has its own prominent full-card tile in the new
+                                                Vessel-tab → Sharing section (paired with
+                                                Scuttlebutt). The kebab was the right rescue
+                                                home when Diary was otherwise orphaned, but for
+                                                the "share your voyage" conversion story it
+                                                deserves real presence, not menu-burial. */}
                                             <MenuBtn
                                                 icon="📊"
                                                 label="Statistics"

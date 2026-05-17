@@ -72,17 +72,23 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     const [anchorStatus, setAnchorStatus] = useState<'armed' | 'disarmed' | 'alarm'>('disarmed');
     const [anchorRadius, setAnchorRadius] = useState(0);
     const [showAdminPanel, setShowAdminPanel] = useState(false);
-    // Initial expanded set: only Quick Actions. The 4-bucket IA
-    // (2026-05-17) collapses the old 7 sections into:
-    //   - Quick Actions (always-expanded, daily ops grid)
+    // Initial expanded set: Quick Actions (Watch Status) + Sharing.
+    // The 4-bucket IA (2026-05-17) collapses the old 7 sections into:
+    //   - Watch Status (always-expanded, daily ops grid — id 'quick')
+    //   - Sharing      (always-expanded, Diary + Scuttlebutt tiles —
+    //                   id 'sharing'; added 2026-05-17 so the share-
+    //                   your-voyage features sit prominently below
+    //                   Watch Status rather than hidden in the Log
+    //                   kebab or buried inside Wardroom)
     //   - Boat Binder  (collapsed: Passage / Inventory / Reference rows)
-    //   - Wardroom     (collapsed: Scuttlebutt + Music)
+    //   - Wardroom     (collapsed: Music — Scuttlebutt moved out to
+    //                   Sharing 2026-05-17)
     //   - Settings & Connect (collapsed: NMEA + Boat Network + Account)
     // Section IDs renamed: 'passage' + 'inventory' + 'reference' →
     // 'binder', 'connect' + 'account' → 'setup'. Any old persisted
     // expanded-state from localStorage referencing the old IDs is
     // harmless; the Set just won't match any current section.
-    const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick']));
+    const [expanded, setExpanded] = useState<Set<string>>(new Set(['quick', 'sharing']));
     const [_isAdmin, setIsAdmin] = useState(false);
 
     // ── Hero band state — vessel name, active voyage, GPS fix, wind, network ──
@@ -740,14 +746,100 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 </div>
 
                 {/* ═══════════════════════════════════════════ */}
-                {/* DIARY — personal journal                    */}
-                {/* (voyage log entries live in Quick Actions)  */}
-                {/* Diary section removed — Diary moved into the Quick
-                            Actions grid alongside the Log Book. Single-row
-                            sections were costing a section header for very
-                            little, and Diary's natural pair is the Log Book
-                            (one is for navigation, one is for journal — both
-                            "open daily"). */}
+                {/* SHARING — Diary + Scuttlebutt               */}
+                {/* (Added 2026-05-17.) Diary used to be buried */}
+                {/* in the Log-tab kebab menu, which was wrong: */}
+                {/* the diary is half of the "share your voyage"*/}
+                {/* story (the other half being Scuttlebutt —   */}
+                {/* the community feed where crews discuss the  */}
+                {/* same voyages). Pairing them as two full     */}
+                {/* tiles right below Watch Status puts both    */}
+                {/* one tap from Vessel-tab home.               */}
+                {/*                                             */}
+                {/* Tile geometry mirrors the Watch Status grid */}
+                {/* above (grid-cols-2, GLASS.card, icon-on-    */}
+                {/* tinted-square + title + status). Visually   */}
+                {/* reads as a peer to Watch Status, which is   */}
+                {/* the right level of importance.              */}
+                {/* ═══════════════════════════════════════════ */}
+                <div className="mb-4">
+                    <SectionHeader
+                        color="#67E8F9"
+                        label="Sharing"
+                        id="sharing"
+                        expanded={expanded.has('sharing')}
+                        onToggle={toggleSection}
+                    />
+                    <CollapsibleContent open={expanded.has('sharing')}>
+                        <div className="grid grid-cols-2 gap-3">
+                            {/* Diary — personal journal (left tile) */}
+                            <button
+                                aria-label="Open Diary"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('diary');
+                                }}
+                                style={GLASS.card}
+                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div
+                                        className="p-2.5 rounded-lg"
+                                        style={{ background: 'rgba(94, 234, 212, 0.12)' }}
+                                    >
+                                        <PenIcon color="#5EEAD4" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">Diary</h4>
+                                        <p
+                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                            style={{ color: '#5EEAD4' }}
+                                        >
+                                            Voyage Journal
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+
+                            {/* Scuttlebutt — community + DMs + Chandlery
+                                (right tile). Moved here from the Wardroom
+                                section because it's a sharing surface
+                                more than a "lounge" feature — pairs
+                                naturally with Diary as the inward (Diary)
+                                + outward (Scuttlebutt) halves of the
+                                share-your-voyage story. Wardroom keeps
+                                Music; could be renamed if it slims down
+                                further. */}
+                            <button
+                                aria-label="Open Scuttlebutt"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('chat');
+                                }}
+                                style={GLASS.card}
+                                className="p-4 text-left hover:bg-white/[0.03] transition-all active:scale-[0.98] card-lift"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div
+                                        className="p-2.5 rounded-lg"
+                                        style={{ background: 'rgba(125, 211, 252, 0.12)' }}
+                                    >
+                                        <ChatBubbleIcon color="#7dd3fc" />
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[13px] font-black text-white tracking-wide">Scuttlebutt</h4>
+                                        <p
+                                            className="text-[11px] font-bold uppercase tracking-widest mt-0.5"
+                                            style={{ color: '#7dd3fc' }}
+                                        >
+                                            Community · DMs
+                                        </p>
+                                    </div>
+                                </div>
+                            </button>
+                        </div>
+                    </CollapsibleContent>
+                </div>
 
                 {/* ═══════════════════════════════════════════ */}
                 {/* BOAT BINDER — passage / inventory / reference   */}
@@ -939,25 +1031,13 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     />
                     <CollapsibleContent open={expanded.has('wardroom')}>
                         <div style={GLASS.listContainer}>
-                            {/* Scuttlebutt — community + DMs + Chandlery
-                                (Marketplace) + LonelyHearts (crew finder).
-                                Demoted from the bottom nav in the Week 2
-                                5-tab restructure; the Wardroom is the
-                                natural home for social features since it's
-                                the officers' lounge of a vessel. The
-                                top-level chatUnread badge now surfaces on
-                                the Vessel nav tab. */}
-                            <OfficeRow
-                                icon={<ChatBubbleIcon color="#cbd5e1" />}
-                                label="Scuttlebutt"
-                                status="Community · DMs · Chandlery"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('chat');
-                                }}
-                            />
-                            <ListDivider />
+                            {/* Scuttlebutt moved up to the new Sharing
+                                section on 2026-05-17 — it pairs better
+                                with Diary as the outward half of the
+                                share-your-voyage story than with Music
+                                here. Wardroom is now Music-only; if it
+                                stays single-row long we may rename or
+                                fold into another section. */}
                             <OfficeRow
                                 icon={<MusicNoteIcon color="#cbd5e1" />}
                                 label="Music"
@@ -1967,9 +2047,19 @@ const ChecklistIcon: React.FC<{ color: string }> = ({ color }) => (
     </svg>
 );
 
-// PenIcon removed 2026-05-17 — only used by the Diary tile in
-// Quick Actions, which was deleted alongside the Log Book tile
-// in the duplicate-cleanup pass.
+// Diary / pen-and-paper glyph — restored 2026-05-17 when Diary
+// got its own card in the new "Sharing" section under Watch Status.
+// Drawn at w-5 h-5 (slightly larger than the OfficeRow w-4) because
+// the Sharing tiles match the Watch Status full-card treatment.
+const PenIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125"
+        />
+    </svg>
+);
 
 const BoxIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
