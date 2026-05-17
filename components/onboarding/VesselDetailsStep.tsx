@@ -77,6 +77,63 @@ const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, o
     </button>
 );
 
+/**
+ * JargonHint — inline "?" badge that toggles a tap-to-reveal tooltip
+ * for marine technical terms. Added 2026-05-17. New owners hit jargon
+ * walls in vessel-detail steps — fin/wing/skeg, sloop/ketch/cutter,
+ * draft, displacement — and either bail or guess. A small tappable
+ * explainer next to the label is enough to keep them moving without
+ * cluttering the form with always-on helper paragraphs.
+ *
+ * Mobile-friendly: tap toggles the popover (no hover dependency).
+ * Auto-closes on outside tap via the document-level pointerdown
+ * listener installed while open. Z-50 keeps it above siblings; absolute
+ * positioning anchors it under the badge.
+ */
+const JargonHint: React.FC<{ term: string; explanation: string }> = ({ term, explanation }) => {
+    const [open, setOpen] = React.useState(false);
+    const wrapRef = React.useRef<HTMLSpanElement | null>(null);
+    React.useEffect(() => {
+        if (!open) return;
+        const onPointer = (e: PointerEvent) => {
+            if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('pointerdown', onPointer);
+        return () => document.removeEventListener('pointerdown', onPointer);
+    }, [open]);
+    return (
+        <span ref={wrapRef} className="relative inline-block align-middle">
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setOpen((v) => !v);
+                }}
+                className="ml-1.5 inline-flex items-center justify-center w-[18px] h-[18px] rounded-full bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 text-[10px] font-bold transition-colors"
+                aria-label={`What is ${term}?`}
+                aria-expanded={open}
+            >
+                ?
+            </button>
+            {open && (
+                <span
+                    role="tooltip"
+                    className="absolute z-50 top-full left-0 mt-1.5 w-60 p-3 rounded-lg bg-slate-900/95 backdrop-blur border border-sky-500/30 text-[11px] text-gray-200 leading-relaxed shadow-xl normal-case tracking-normal font-normal"
+                    style={{ whiteSpace: 'normal' }}
+                >
+                    <span className="block text-sky-300 font-bold mb-1 text-[11px] uppercase tracking-wide">
+                        {term}
+                    </span>
+                    {explanation}
+                </span>
+            )}
+        </span>
+    );
+};
+
 export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
     ({
         vesselType,
@@ -265,6 +322,10 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                         <div>
                             <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                 Keel Type
+                                <JargonHint
+                                    term="Keel Type"
+                                    explanation="The fin or weight under your hull. Fin = single deep blade (most modern boats). Full = runs the length of the hull (classic). Wing = horizontal foils on a stub. Skeg = small protective fin. C/Board = retractable. Bilge = twin shallow keels."
+                                />
                             </label>
                             <div className="grid grid-cols-3 bg-white/5 p-1 rounded-xl border border-white/10 gap-1">
                                 {(['fin', 'full', 'wing', 'skeg', 'centerboard', 'bilge'] as const).map((kt) => (
@@ -284,6 +345,10 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                             <div>
                                 <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
                                     Rigging Type
+                                    <JargonHint
+                                        term="Rigging Type"
+                                        explanation="The shape and layout of your masts and sails. Sloop = one mast, one mainsail + one headsail (most common). Cutter = one mast, two headsails. Ketch / Yawl = two masts, mainmast forward. Schooner = two masts, taller aft. Catboat = single sail."
+                                    />
                                 </label>
                                 <select
                                     value={riggingType}
@@ -332,8 +397,15 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                    Draft <UnitToggle value={draftUnit} onClick={onToggleDraftUnit} />
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between items-center">
+                                    <span>
+                                        Draft
+                                        <JargonHint
+                                            term="Draft"
+                                            explanation="How deep your boat sits below the waterline. Tells us the shallowest water you can safely cross."
+                                        />
+                                    </span>
+                                    <UnitToggle value={draftUnit} onClick={onToggleDraftUnit} />
                                 </label>
                                 <input
                                     type="number"
@@ -344,8 +416,15 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between">
-                                    Displacement <UnitToggle value={dispUnit} onClick={onToggleDispUnit} />
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2 flex justify-between items-center">
+                                    <span>
+                                        Displacement
+                                        <JargonHint
+                                            term="Displacement"
+                                            explanation="Your boat's total weight in the water (loaded, with crew + fuel + tanks). Used by routing and weather models to predict performance accurately."
+                                        />
+                                    </span>
+                                    <UnitToggle value={dispUnit} onClick={onToggleDispUnit} />
                                 </label>
                                 <input
                                     type="number"

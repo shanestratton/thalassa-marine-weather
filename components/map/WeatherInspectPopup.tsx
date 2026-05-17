@@ -102,7 +102,7 @@ export const WeatherInspectPopup: React.FC<Props> = ({ data, loading, onClose })
                 {/* Close button */}
                 <button
                     onClick={onClose}
-                    className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
+                    className="absolute top-1 right-1 w-11 h-11 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors z-10"
                     aria-label="Close dialog"
                 >
                     <svg

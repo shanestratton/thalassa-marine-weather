@@ -309,7 +309,7 @@ export const MarketplaceThread: React.FC<MarketplaceThreadProps> = ({ listing, o
                                                     </div>
                                                 ))}
                                             </div>
-                                            <p className="text-[11px] text-gray-400 mt-3">
+                                            <p className="text-[12px] text-gray-400 mt-3">
                                                 Share this PIN with the seller at handoff
                                             </p>
                                         </div>
