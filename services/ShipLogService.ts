@@ -332,7 +332,18 @@ class ShipLogServiceClass {
         this.trackingState = {
             isTracking: true,
             isPaused: false,
-            isRapidMode: false, // Start in normal mode, user can activate rapid via long-press
+            isRapidMode: false, // Rapid Mode (5 s flush cadence) — kept off
+            // by default; the adaptive scheduler + live decimation cover
+            // the same density requirement more efficiently.
+            // ── 2026-05-17: Precision Mode is now ON BY DEFAULT ──
+            // User feedback: "we have two modes of tracking, one works
+            // and one doesn't". 2 Hz capture + live decimation is the
+            // canonical tracking experience now — no toggle needed.
+            // Assumption: user is on charger when actively tracking a
+            // voyage (their explicit acknowledgement). 60-minute auto-
+            // shutoff also removed; tracking sessions stay at hi-fi
+            // for the duration.
+            isPrecisionMode: true,
             currentVoyageId: voyageId,
             voyageStartTime: resume || continueVoyageId ? this.trackingState.voyageStartTime : new Date().toISOString(),
             lastMovementTime: new Date().toISOString(),
@@ -340,6 +351,13 @@ class ShipLogServiceClass {
 
         await this.saveTrackingState();
         this.notifyTrackingChanged();
+
+        // Flip the GPS plugin into precision sampling mode immediately.
+        // Done after saveTrackingState so that on a crash + restore the
+        // state reflects what the engine is actually doing.
+        BgGeoManager.setSamplingMode('precision').catch((e) => {
+            log.warn('failed to enter precision sampling on track start:', e);
+        });
 
         // --- BATTLE-HARDENED GPS STREAMING ---
         // Wire up continuous position caching + the speed-tier debounce +
@@ -711,18 +729,24 @@ class ShipLogServiceClass {
      * Toggle Precision Mode — hi-fi GPS sampling at ~2 Hz with live
      * decimation in GpsTrackBuffer.pushWithLiveFilter.
      *
-     * Added 2026-05-17. Distinct from Rapid Mode — Rapid changes the
-     * FLUSH interval (how often we save a logbook entry), Precision
-     * changes the SAMPLE rate (how often the GPS chip gives us a fix).
-     * They can run independently or together: e.g. Precision + Rapid
-     * gives you 2 Hz capture with 5 s entry cadence.
+     * 2026-05-17 update: Precision Mode is now ON BY DEFAULT for every
+     * tracking session (see `startTracking`). The toggle is preserved
+     * as a public API for two reasons:
+     *   1. Future paywall gating — if we ever ship Precision as a
+     *      Skipper-tier-only feature, we'll need to flip it off for
+     *      free users from a feature-gate boundary.
+     *   2. Test isolation — unit tests still need a programmatic way
+     *      to swap between modes.
      *
-     * Two safeties:
-     *   1. 60-minute auto-shutoff — battery cost at 2 Hz is real
-     *      (~25-35 %/hr on top of normal GPS draw), so we don't let
-     *      it run indefinitely. Long passages stay in default mode.
-     *   2. Reverts to default sampling on stopTracking — Precision
-     *      Mode is voyage-scoped, not app-scoped.
+     * The earlier 60-minute auto-shutoff was REMOVED. It was a battery
+     * guard from when Precision was a user-toggled "I'll just turn it
+     * on for harbour entry" mode. With Precision always-on for a full
+     * voyage, the auto-disable would silently revert to lower-fidelity
+     * sampling mid-passage — exactly wrong. Assumption: user is on
+     * charger when tracking (their explicit ack).
+     *
+     * Reverts to default sampling on stopTracking — Precision Mode is
+     * voyage-scoped, not app-scoped.
      */
     async setPrecisionMode(enabled: boolean): Promise<void> {
         if (!this.trackingState.isTracking) return;
@@ -734,26 +758,15 @@ class ShipLogServiceClass {
         // Reconfigure Transistor BgGeo at runtime — no engine restart.
         await BgGeoManager.setSamplingMode(enabled ? 'precision' : 'default');
 
-        if (enabled) {
-            // 60-min auto-shutoff. Battery guard — at 2 Hz with high-
-            // accuracy GPS and background-audio session running, we
-            // estimate 25-35 %/hr drain on top of normal usage. An
-            // hour is the longest reasonable user expectation; if
-            // they really need more, they can re-enable.
-            if (this.precisionModeTimeoutId) clearTimeout(this.precisionModeTimeoutId);
-            const PRECISION_AUTO_DISABLE_MS = 60 * 60 * 1000;
-            this.precisionModeTimeoutId = setTimeout(async () => {
-                log.info('Precision Mode auto-disabled after 60 min (battery guard)');
-                await this.setPrecisionMode(false);
-            }, PRECISION_AUTO_DISABLE_MS);
-            log.info('Precision Mode ENABLED — 2 Hz capture, 60 min auto-shutoff');
-        } else {
-            if (this.precisionModeTimeoutId) {
-                clearTimeout(this.precisionModeTimeoutId);
-                this.precisionModeTimeoutId = undefined;
-            }
-            log.info('Precision Mode DISABLED — back to default sampling');
+        // Clear any legacy auto-shutoff timer (preserved for crash-
+        // recovery from older app versions where the timer may have
+        // been pending in memory).
+        if (this.precisionModeTimeoutId) {
+            clearTimeout(this.precisionModeTimeoutId);
+            this.precisionModeTimeoutId = undefined;
         }
+
+        log.info(`Precision Mode ${enabled ? 'ENABLED' : 'DISABLED'}`);
     }
 
     /** Read accessor for Precision Mode — used by the UI toggle. */

@@ -73,8 +73,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         startTrackingWithNewVoyage,
         continueLastVoyage,
 
-        handleToggleRapidMode,
-        handleTogglePrecisionMode,
+        // handleToggleRapidMode + handleTogglePrecisionMode no longer
+        // destructured 2026-05-17 — both kebab menu items removed when
+        // Precision Mode became the always-on tracking pipeline. The
+        // hook still exposes them for future paywall gating.
         handleStopTracking,
         confirmStopVoyage,
         // Entry CRUD
@@ -209,12 +211,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         return () => window.removeEventListener('thalassa:save-planned-route', handlePlannedRoute);
     }, [loadData, toast]);
 
-    // Destructure frequently used state for JSX readability
+    // Destructure frequently used state for JSX readability.
+    // `isRapidMode` and `isPrecisionMode` no longer destructured here
+    // 2026-05-17 — the UI toggles that consumed them were removed when
+    // Precision became always-on. State remains in the reducer for
+    // potential paywall-gating UI to read directly.
     const {
         entries,
         isTracking,
-        isRapidMode,
-        isPrecisionMode,
         loading,
         showAddModal,
         showTrackMap,
@@ -417,41 +421,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     <>
                                         <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
-                                            {isTracking && (
-                                                <>
-                                                    <MenuBtn
-                                                        icon="⚡"
-                                                        label={isRapidMode ? 'Rapid Mode (ON)' : 'Rapid Mode'}
-                                                        onClick={() => {
-                                                            handleToggleRapidMode();
-                                                            setShowMenu(false);
-                                                        }}
-                                                        accent={isRapidMode}
-                                                    />
-                                                    {/* Precision Mode — hi-fi 2 Hz GPS sampling
-                                                        with live decimation. Battery cost is
-                                                        real (~25-35 %/hr extra) so auto-shuts
-                                                        off after 60 min. Distinct from Rapid:
-                                                        Rapid changes flush cadence (how often
-                                                        we save an entry), Precision changes
-                                                        sample rate (how often GPS gives us a
-                                                        fix). They compose. */}
-                                                    <MenuBtn
-                                                        icon="🎯"
-                                                        label={
-                                                            isPrecisionMode
-                                                                ? 'Precision (ON · 60 min)'
-                                                                : 'Precision Mode'
-                                                        }
-                                                        onClick={() => {
-                                                            handleTogglePrecisionMode();
-                                                            setShowMenu(false);
-                                                        }}
-                                                        accent={isPrecisionMode}
-                                                    />
-                                                    <div className="border-t border-white/5" />
-                                                </>
-                                            )}
+                                            {/* Rapid Mode + Precision Mode toggles were removed
+                                                from this menu 2026-05-17. Precision Mode is now
+                                                always-on whenever tracking is active (the
+                                                canonical "hi-fi 2 Hz + live decimation" pipeline),
+                                                so the toggle was just visual noise. Rapid Mode is
+                                                preserved in the service for potential future
+                                                paywall gating but no longer surfaced in the UI —
+                                                "having two tracking modes, one of which works"
+                                                was the wrong story. The handler hooks
+                                                (handleToggleRapidMode, handleTogglePrecisionMode)
+                                                stay in the hook in case we re-expose them as a
+                                                Skipper-tier gate. */}
                                             {/* Diary — first in the menu because diary entries
                                                 are the conversion-worthy "sharing object" in
                                                 the voyage record (they ride alongside routes/
