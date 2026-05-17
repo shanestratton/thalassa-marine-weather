@@ -243,6 +243,11 @@ export function mountEncVectorLayer(
     }
 
     // ── LNDARE (tan land) ─────────────────────────────────────────
+    // Outline dropped — with proper polygon-outline rings each AREA gets one
+    // visible stroke around its perimeter, and the polygon-assembly pass still
+    // has rough edges at corners that read as visual noise. Fill alone reads
+    // as land well enough; a clean outline comes back once ring chaining is
+    // fully Eulerian.
     if (!map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
         map.addLayer(
             {
@@ -253,7 +258,7 @@ export function mountEncVectorLayer(
                 paint: {
                     'fill-color': '#d6c590',
                     'fill-opacity': opacity,
-                    'fill-outline-color': '#a8956a',
+                    'fill-antialias': true,
                 },
             },
             before,
