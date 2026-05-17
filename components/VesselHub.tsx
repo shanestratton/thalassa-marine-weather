@@ -8,7 +8,7 @@
  *   (Diary now lives inside Quick Actions — see the 6-tile grid above.)
  *   Inventory & Maint.:  Stores · Equipment · Repairs & Maintenance
  *   Reference:           Checklists · Polars · Documents
- *   Wardroom:            Music (Apple Music)
+ *   Atmosphere:          Music (Apple Music) — "music on watch", non-essential
  *   Connect:             NMEA Gateway · Boat Network
  *   Account:             Settings + tier
  *
@@ -81,8 +81,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     //                   Watch Status rather than hidden in the Log
     //                   kebab or buried inside Wardroom)
     //   - Boat Binder  (collapsed: Passage / Inventory / Reference rows)
-    //   - Wardroom     (collapsed: Music — Scuttlebutt moved out to
-    //                   Sharing 2026-05-17)
+    //   - Atmosphere   (collapsed: Music — Scuttlebutt moved out to
+    //                   Sharing 2026-05-17, section renamed from
+    //                   "Wardroom" to "Atmosphere" the same day. The
+    //                   bucket exists for "music on watch" — non-
+    //                   essential, intentionally low-key, but reachable
+    //                   in 2 taps. Section ID stays 'wardroom' so any
+    //                   persisted expanded-state from localStorage
+    //                   continues to match — only the label changed.)
     //   - Settings & Connect (collapsed: NMEA + Boat Network + Account)
     // Section IDs renamed: 'passage' + 'inventory' + 'reference' →
     // 'binder', 'connect' + 'account' → 'setup'. Any old persisted
@@ -1024,20 +1030,24 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 <div className="mb-4">
                     <SectionHeader
                         color="#67E8F9"
-                        label="Wardroom"
+                        label="Atmosphere"
                         id="wardroom"
                         expanded={expanded.has('wardroom')}
                         onToggle={toggleSection}
                     />
                     <CollapsibleContent open={expanded.has('wardroom')}>
                         <div style={GLASS.listContainer}>
-                            {/* Scuttlebutt moved up to the new Sharing
-                                section on 2026-05-17 — it pairs better
-                                with Diary as the outward half of the
-                                share-your-voyage story than with Music
-                                here. Wardroom is now Music-only; if it
-                                stays single-row long we may rename or
-                                fold into another section. */}
+                            {/* "Wardroom" → "Atmosphere" rename 2026-05-17.
+                                Scuttlebutt moved to the new Sharing section;
+                                Music is the only resident here. Section
+                                exists for "music on watch" — explicitly
+                                non-essential, accessible in 2 taps (open
+                                section, tap row) without claiming prime
+                                real estate. Future ambient sounds / podcast
+                                queue / Bosun voice-mode would land here
+                                without IA gymnastics. Section ID stays
+                                'wardroom' so persisted-expand state still
+                                matches. */}
                             <OfficeRow
                                 icon={<MusicNoteIcon color="#cbd5e1" />}
                                 label="Music"
