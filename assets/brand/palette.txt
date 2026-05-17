@@ -1,0 +1,14 @@
+Thalassa Brand Palette (v1) — locked 2026-05-17
+
+Primary navy   #0F172A  (slate-900)  — wordmark, compass-rose strokes
+Slate grey     #475569  (slate-600)  — (reserved for light-mode lockup)
+Cyan accent    #5EEAD4  (teal-300)   — wave element, brand mark accents
+Deep sea green #0F766E  (teal-700)   — (reserved for wave shadow / depth)
+Safety accent  #FB923C  (orange-400) — (reserved for status destinations / optional terminator)
+White          #FFFFFF                — wordmark on dark, inner shapes
+Dark slate     #1E293B  (slate-800)  — (reserved for light-mode contrast)
+
+Cleaned full-lockup-dark.svg uses three of these:
+  - #0F172A  Primary navy
+  - #5EEAD4  Cyan accent
+  - #FFFFFF  White
