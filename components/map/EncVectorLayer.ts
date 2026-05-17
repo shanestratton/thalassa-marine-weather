@@ -568,6 +568,44 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
     }
 }
 
+/**
+ * The ENC layers we drop when a route is on the map. Polygon fills
+ * (DEPARE, LNDARE) and lines (COALNE) clutter the route polyline; the
+ * lateral/cardinal markers + lights + obstruction symbols help the user
+ * verify the route is sensible so we keep those visible. Hazard points
+ * (WRECKS/UWTROC/OBSTRN as circles) also stay — they're the things the
+ * router already routed around but the user wants to see.
+ */
+const ROUTE_FOCUS_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.COALNE] as const;
+
+/**
+ * Route-focus mode: hide the busy bulk-fill and coastline layers so the route
+ * polyline is the dominant visual, but keep markers / lights / hazards so the
+ * sailor can sense-check the route against channel marks.
+ *
+ * Composes with the master FAB toggle (`setEncVectorVisibility`) by reading
+ * the BCNLAT layer's current visibility as a master-state probe — BCNLAT is
+ * one of the marker layers we never hide, so its visibility equals the master
+ * state. If master is off, we leave every layer hidden. If master is on, we
+ * flip the bulk-fill subset and leave the markers alone.
+ *
+ * Idempotent — calling repeatedly with the same args costs almost nothing.
+ */
+export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void {
+    // Probe master toggle state via BCNLAT (always 'visible' when ENC is on,
+    // 'none' when ENC is off). If the layer doesn't exist yet, the user has
+    // no cells imported and there's nothing to focus.
+    const probe = map.getLayer(ENC_VEC_LAYERS.BCNLAT);
+    if (!probe) return;
+    const masterVisible = map.getLayoutProperty(ENC_VEC_LAYERS.BCNLAT, 'visibility') !== 'none';
+    if (!masterVisible) return; // every ENC layer already hidden — leave it
+
+    const value = focused ? 'none' : 'visible';
+    for (const id of ROUTE_FOCUS_HIDE_LAYERS) {
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
+    }
+}
+
 // ── Click-to-popup ─────────────────────────────────────────────────
 
 /**
