@@ -1,16 +1,18 @@
 /**
- * One-shot import of sample ENC cells bundled with the dev build.
+ * One-shot import of bundled demo ENC cells.
  *
- * The Pi-side `senc-extractor` writes canonical `EncConversionResult` JSON
- * files. For development we drop a small set into `public/enc-samples/` so
- * the dev server serves them at `/enc-samples/<cellId>.geojson` and the app
- * can fetch + `importCell()` them without an Apple Files-app sideload step.
+ * Ships **NOAA US-domain S-57 charts only** — they're US Federal data, public
+ * domain, no EULA, free to redistribute. The previous AU bundle has been
+ * removed: o-charts oeSENC charts are bound to the dongle that decrypted them
+ * and their EULA prohibits redistribution, so they cannot ship in the app.
  *
- * Guarded by a localStorage flag so we don't re-import on every app launch
- * after the user manually deletes a sample cell.
+ * For the user's purchased AU/NZ/EU coverage, the production path is `EncPiSync`
+ * (separate service) — the iPhone pulls each user's own decrypted cells from
+ * their own Bosun Pi over local wifi. Their license, their device.
  *
- * Production builds skip this path entirely — it's a dev convenience to make
- * the Newport→Rivergate demo runnable without manual chart provisioning.
+ * This bootstrap stays in the App Store / TestFlight build as a "demo mode"
+ * so first-launch users without a Pi see a working chart somewhere — even if
+ * it's Savannah River and they're sailing the Whitsundays.
  */
 import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
@@ -21,19 +23,20 @@ import type { EncConversionResult } from './types';
 const log = createLogger('bootstrapEncSamples');
 // Bumping the version forces the bootstrap to run again on next launch — used
 // when we ship a new sample set or fix a previously-failed-silently regression.
-const FLAG_KEY = 'thalassa.enc.samplesImported.v6';
+const FLAG_KEY = 'thalassa.enc.samplesImported.v7';
 
 /**
  * Sample cells to fetch on first launch. Names match files in
- * `public/enc-samples/`. Add more entries to bundle additional regions.
+ * `public/enc-samples/`. Only US-domain NOAA cells appear here — they're
+ * public domain and redistributable. AU/NZ/etc. coverage comes via EncPiSync
+ * from the user's own Bosun Pi.
  *
- * Current set: Newport Marina → Rivergate Marina via the Brisbane River.
- *   - OC-61-10RCS5  Newport Waterways (harbour-band detail, lat -27.22..-27.17)
- *   - OC-61-10ENB5  Brisbane River + south Moreton Bay (lat -27.48..-27.09)
- *   - OC-61-20ENB5  N Moreton Bay (lat -27.10..-26.71)
- *   - OC-61-351824  SE QLD overview (-28..-27, 153..154) — fallback at low zoom
+ * Current set:
+ *   - US5GA22M  NOAA Savannah River Savannah to Brier Creek
+ *               1:20k harbour band, demonstrates DEPARE/LNDARE/COALNE/
+ *               BCNLAT/BOYLAT/OBSTRN/WRECKS coverage for the inshore router.
  */
-const SAMPLE_CELLS: string[] = ['OC-61-10RCS5', 'OC-61-10ENB5', 'OC-61-20ENB5', 'OC-61-351824'];
+const SAMPLE_CELLS: string[] = ['US5GA22M'];
 
 export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
     // log.warn used throughout so the bootstrap is visible in Xcode console even

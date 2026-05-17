@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readdir, mkdir, writeFile, stat } from 'node:fs/promises';
+import { readdir, mkdir, writeFile, readFile, stat } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 import { OexserverdClient } from './oexserverd.js';
 import { loadKeyFile } from './keyFile.js';
@@ -16,6 +16,33 @@ interface Args {
     skipExisting: boolean;
     sourceHO: string;
     fileExt: string;
+    /**
+     * When set, output is written in pi-cache's chart-store format:
+     *   <piCacheStore>/cells/<cellId>.json   wrapped as `{cells: [cell]}`
+     *   <piCacheStore>/index.json            updated with InstalledCellMeta
+     * That makes the cells immediately consumable by pi-cache's
+     * /api/enc/installed endpoints — and from there by the iOS app's
+     * existing `syncEncFromPi` UI flow.
+     */
+    piCacheStore?: string;
+}
+
+interface InstalledCellMeta {
+    cellId: string;
+    sourceHO: string;
+    edition: number;
+    issued: string;
+    bbox: [number, number, number, number];
+    featureCount: number;
+    sizeBytes: number;
+    installedAt: string;
+    source: 'phone-upload' | 'url' | 'pi-decrypt';
+    sourceUrl?: string;
+}
+
+interface InstalledIndex {
+    version: 1;
+    cells: InstalledCellMeta[];
 }
 
 function parseArgs(argv: string[]): Args | null {
@@ -28,6 +55,7 @@ function parseArgs(argv: string[]): Args | null {
     let skipExisting = false;
     let sourceHO = 'AU';
     let fileExt = '.geojson';
+    let piCacheStore: string | undefined;
 
     for (let i = 0; i < argv.length; i++) {
         const a = argv[i];
@@ -40,8 +68,12 @@ function parseArgs(argv: string[]): Args | null {
         else if (a === '--skip-existing') skipExisting = true;
         else if (a === '--source-ho' && i + 1 < argv.length) sourceHO = argv[++i];
         else if (a === '--file-ext' && i + 1 < argv.length) fileExt = argv[++i];
+        else if (a === '--pi-cache-store' && i + 1 < argv.length) piCacheStore = argv[++i];
     }
-    if (!chartDir || !outDir) return null;
+    if (!chartDir) return null;
+    // In pi-cache-store mode, --out is implied (uses <store>/cells/).
+    if (!outDir && !piCacheStore) return null;
+    if (piCacheStore && !outDir) outDir = join(piCacheStore, 'cells');
 
     let onlyBbox: Args['onlyBbox'];
     if (onlyBboxStr) {
@@ -52,7 +84,7 @@ function parseArgs(argv: string[]): Args | null {
         onlyBbox = { wLon: parts[0], sLat: parts[1], eLon: parts[2], nLat: parts[3] };
     }
 
-    return { chartDir, outDir, keyFile, binaryPath, onlyBbox, limit, skipExisting, sourceHO, fileExt };
+    return { chartDir, outDir, keyFile, binaryPath, onlyBbox, limit, skipExisting, sourceHO, fileExt, piCacheStore };
 }
 
 function findKeyFile(dir: string, files: string[]): string | undefined {
@@ -99,6 +131,12 @@ async function main() {
     let bboxFiltered = 0;
     const summary: Array<{ file: string; cellId: string; layers: string[]; featureCount: number; bytes: number }> = [];
 
+    // Pi-cache mode: maintain the index across the run so the iOS app's
+    // `/api/enc/installed` call sees every successfully-converted cell.
+    const piCacheIndex: InstalledIndex = args.piCacheStore
+        ? await loadPiCacheIndex(args.piCacheStore).catch(() => ({ version: 1, cells: [] }))
+        : { version: 1, cells: [] };
+
     try {
         for (const file of oesuFiles) {
             if (args.limit && processed >= args.limit) break;
@@ -140,8 +178,24 @@ async function main() {
                 }
 
                 const cell = emitCell(header, features, { cellId: baseName, sourceHO: args.sourceHO });
-                const json = JSON.stringify(cell);
+                // Pi-cache mode wraps each cell in {cells: [single]} so the file
+                // matches the wire format `EncImportService.syncEncFromPi`
+                // already understands. Plain mode emits the raw cell.
+                const json = args.piCacheStore ? JSON.stringify({ cells: [cell] }) : JSON.stringify(cell);
                 await writeFile(outPath, json);
+                if (args.piCacheStore) {
+                    upsertIndexEntry(piCacheIndex, {
+                        cellId: cell.cellId,
+                        sourceHO: cell.sourceHO,
+                        edition: cell.edition,
+                        issued: cell.issued,
+                        bbox: cell.bbox,
+                        featureCount: cell.stats?.emittedFeatures ?? 0,
+                        sizeBytes: json.length,
+                        installedAt: new Date().toISOString(),
+                        source: 'pi-decrypt',
+                    });
+                }
 
                 const tParse = Date.now() - t0;
                 const layers = Object.keys(cell.layers);
@@ -163,6 +217,16 @@ async function main() {
         }
     } finally {
         await client.stop();
+        if (args.piCacheStore) {
+            try {
+                await savePiCacheIndex(args.piCacheStore, piCacheIndex);
+                console.log(
+                    `Wrote pi-cache index → ${join(args.piCacheStore, 'index.json')} (${piCacheIndex.cells.length} cells)`,
+                );
+            } catch (err) {
+                console.warn(`Failed to write pi-cache index: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
     }
 
     console.log();
@@ -174,6 +238,34 @@ async function main() {
             `Total: ${totalFeats.toLocaleString()} routing features across ${summary.length} cells, ${(totalBytes / 1024 / 1024).toFixed(1)} MB`,
         );
     }
+}
+
+// ── pi-cache store helpers ────────────────────────────────────────
+// Mirror the read/write semantics of pi-cache/src/routes/enc.ts so that
+// running this tool with --pi-cache-store populates an index pi-cache
+// can serve through its existing /api/enc/installed* endpoints.
+
+async function loadPiCacheIndex(storeDir: string): Promise<InstalledIndex> {
+    const path = join(storeDir, 'index.json');
+    try {
+        const raw = await readFile(path, 'utf8');
+        const parsed = JSON.parse(raw) as InstalledIndex;
+        if (parsed.version === 1 && Array.isArray(parsed.cells)) return parsed;
+    } catch {
+        /* fresh install or corrupt — fall through */
+    }
+    return { version: 1, cells: [] };
+}
+
+async function savePiCacheIndex(storeDir: string, index: InstalledIndex): Promise<void> {
+    await mkdir(storeDir, { recursive: true });
+    await writeFile(join(storeDir, 'index.json'), JSON.stringify(index, null, 2), 'utf8');
+}
+
+function upsertIndexEntry(index: InstalledIndex, entry: InstalledCellMeta): void {
+    const existing = index.cells.findIndex((c) => c.cellId === entry.cellId);
+    if (existing >= 0) index.cells[existing] = entry;
+    else index.cells.push(entry);
 }
 
 main().catch((e) => {
