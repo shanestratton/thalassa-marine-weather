@@ -41,26 +41,11 @@ import { useAuthStore } from '../stores/authStore';
 // (see assets/brand/CLEANING_NOTES.md). White-on-dark variant.
 // Vite resolves the import to a hashed URL string at build time.
 import brandLockup from '../assets/brand/full-lockup-dark.svg';
-
-// ─── Brand palette (2026-05-17 logo direction) ────────────────────
-// Distinct from the cyan UI palette used elsewhere in the app — this
-// is the BRAND palette, locked in `assets/brand/palette.txt` and
-// baked into the lockup SVG itself. The constants below are used by
-// SignInScreen for the accent-coloured tagline middots and for the
-// pulse drop-shadow keyframe (see <style> block at the bottom). Kept
-// as a typed const so other conversion-moment surfaces (splash,
-// upgrade modal, share cards) can pull from the same source of truth.
-//   primary      — deep sea green   (teal-700, pulse halo depth)
-//   primarySoft  — sea-foam teal    (teal-300, pulse highlight; also
-//                                    the cyan accents inside the SVG)
-//   accent       — safety orange    (orange-400, tagline middots)
-//   accentDeep   — deep orange      (orange-500, reserved for light surfaces)
-const BRAND = {
-    primary: '#0F766E',
-    primarySoft: '#5EEAD4',
-    accent: '#FB923C',
-    accentDeep: '#F97316',
-} as const;
+// Locked brand palette — single source of truth in theme.ts. Used
+// here for the accent-coloured tagline middots and the pulse drop-
+// shadow keyframe at the bottom of this file. See theme.ts for the
+// two-palette discipline rules (UI vs BRAND).
+import { BRAND } from '../theme';
 
 interface SignInScreenProps {
     /**

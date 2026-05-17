@@ -12,9 +12,56 @@
  *   import { useTheme } from '../context/ThemeContext';
  *   const t = useTheme();
  *   <div className={t.card.base}>...</div>
+ *
+ * ─────────────────────────────────────────────────────────────────
+ * Two-palette discipline
+ * ─────────────────────────────────────────────────────────────────
+ * The app deliberately runs TWO colour palettes side-by-side. Each
+ * has a defined surface area; mixing them is the smell that the
+ * 64/100 scorecard flagged as "six accents, no rules".
+ *
+ *   UI PALETTE — the everyday surfaces (Glass / Charts / Plan /
+ *   Log / Vessel and every sub-page they open into). Sky-blue
+ *   accents on slate, status colours (red/amber/emerald) for
+ *   warnings/staleness/health. Defined below in OFFSHORE_THEME
+ *   and ONSHORE_THEME — pull from `t.*` everywhere.
+ *
+ *   BRAND PALETTE — the conversion-moment surfaces ONLY: SignInScreen,
+ *   UpgradeModal, favicons, app icon, splash, OG images. Teal-300
+ *   (#5EEAD4) and orange-400 (#FB923C) accents on slate-950. NEVER
+ *   mix these into UI surfaces — they're reserved so they remain
+ *   recognisable as "the brand is talking to you" moments.
+ *
+ * BRAND palette is exported below as `BRAND` so the four surfaces
+ * that use it pull from one source of truth. Mirror file at
+ * `assets/brand/palette.txt` documents the same values for design
+ * tools (Figma, Inkscape, the SVG cleanup pipeline).
  */
 
 import type { Environment } from './services/EnvironmentService';
+
+/**
+ * Locked brand palette — used ONLY on the conversion-moment surfaces
+ * listed above. If you find yourself reaching for these in a tab or
+ * sub-page, you're probably making a mistake: either pull from the
+ * UI palette (`t.accent.sky`/`t.accent.amber`/etc.) or you've stumbled
+ * onto a conversion moment that belongs in BRAND palette territory —
+ * in which case escalate to a design call before adding it.
+ */
+export const BRAND = {
+    /** Deep sea green — wave shadow / depth. Used in pulse-glow halos. */
+    primary: '#0F766E',
+    /** Sea-foam teal — line stroke on dark, cyan accents in the lockup SVG. */
+    primarySoft: '#5EEAD4',
+    /** Safety orange — accent for destination terminators and tagline middots. */
+    accent: '#FB923C',
+    /** Deep orange — reserved for light surfaces. */
+    accentDeep: '#F97316',
+    /** Primary navy — wordmark on light bg, compass-rose strokes. */
+    navy: '#0F172A',
+    /** White — wordmark on dark bg, inner shapes. */
+    white: '#FFFFFF',
+} as const;
 
 // ── Shared Types ────────────────────────────────────────────────
 
