@@ -415,7 +415,11 @@ const App: React.FC = () => {
                         {/* Logo row — same style on all pages */}
                         <div className="flex items-start justify-between pointer-events-auto">
                             <div className="flex items-center space-x-2">
-                                <img src="/thalassa-icon.png" alt="" className="w-10 h-10 rounded-lg" />
+                                {/* Bumped 40 → 46 px (+15 %) 2026-05-17 — the
+                                    new compass mark needed a touch more
+                                    presence next to the wordmark + Skipper
+                                    pill cluster. */}
+                                <img src="/thalassa-icon.png" alt="" className="w-[46px] h-[46px] rounded-lg" />
                                 <div>
                                     <div className="flex items-center gap-1">
                                         <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
