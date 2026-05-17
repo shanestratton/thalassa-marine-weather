@@ -203,7 +203,7 @@ async function main() {
 
             try {
                 const decrypted = await client.decryptChart(chartPath, installKey);
-                const { header, features } = parseSenc(decrypted);
+                const { header, features, stats: pstats } = parseSenc(decrypted);
 
                 // Bbox filter — drop charts that don't overlap the requested region.
                 if (args.onlyBbox && header.cellExtent) {
@@ -262,6 +262,23 @@ async function main() {
                 console.log(
                     `  ${file}: ${features.length} feats / ${cell.stats?.emittedFeatures ?? 0} routing  layers=[${layers.join(',')}]  bbox=${header.cellExtent ? `${header.cellExtent.wLon.toFixed(3)},${header.cellExtent.sLat.toFixed(3)}→${header.cellExtent.eLon.toFixed(3)},${header.cellExtent.nLat.toFixed(3)}` : '?'}  ${json.length.toLocaleString()}B  ${tParse}ms`,
                 );
+                if (pstats.unknownRecordCounts.size > 0) {
+                    const dropped = [...pstats.unknownRecordCounts.entries()]
+                        .sort((a, b) => a[0] - b[0])
+                        .map(([t, n]) => `${t}:${n}`)
+                        .join(' ');
+                    console.log(`    dropped record-types: ${dropped}`);
+                }
+                if (pstats.triPrimitiveTypes.size > 0) {
+                    const types = [...pstats.triPrimitiveTypes.entries()]
+                        .sort((a, b) => a[0] - b[0])
+                        .map(([t, n]) => {
+                            const name = t === 4 ? 'TRI' : t === 5 ? 'STRIP' : t === 6 ? 'FAN' : '?';
+                            return `${name}(${t}):${n}`;
+                        })
+                        .join(' ');
+                    console.log(`    triPrims: ${types}  SENCv${header.sencVersion}`);
+                }
             } catch (err) {
                 failed += 1;
                 console.warn(`  ${file}: FAILED — ${err instanceof Error ? err.message : String(err)}`);
