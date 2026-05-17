@@ -216,16 +216,27 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 />
                             </div>
                             <div>
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block mb-2">
-                                    MMSI
-                                </label>
+                                <div className="flex items-baseline justify-between mb-2 gap-2">
+                                    <label className="text-xs font-bold text-gray-400 uppercase tracking-widest block">
+                                        MMSI
+                                    </label>
+                                    {/* Plain-English hint added 2026-05-17 — MMSI
+                                        is universal jargon among VHF-licensed
+                                        sailors but completely opaque to a first-
+                                        time owner. The hint sits next to the
+                                        label as a quiet aside, doesn't get in
+                                        the way of users who already know. */}
+                                    <span className="text-[10px] text-slate-500 italic normal-case tracking-normal shrink-0">
+                                        your VHF radio ID
+                                    </span>
+                                </div>
                                 <input
                                     type="text"
                                     inputMode="numeric"
                                     maxLength={9}
                                     value={mmsi}
                                     onChange={(e) => onMmsiChange(e.target.value.replace(/\D/g, '').slice(0, 9))}
-                                    placeholder="9 digits"
+                                    placeholder="Leave blank if you don't have one yet"
                                     className={INPUT_CLASS}
                                 />
                             </div>
