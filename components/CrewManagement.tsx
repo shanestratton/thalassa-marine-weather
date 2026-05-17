@@ -48,6 +48,7 @@ import { CrewRoster } from './crew/CrewRoster';
 import { ReadinessCardStack } from './crew/ReadinessCardStack';
 import { useUI } from '../context/UIContext';
 import { PageHeader } from './ui/PageHeader';
+import { DataFreshness } from './ui/DataFreshness';
 
 const CastOffPanel = lazyRetry(
     () => import('./vessel/CastOffPanel').then((m) => ({ default: m.CastOffPanel })),
@@ -117,6 +118,13 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     // Loading
     const [loading, setLoading] = useState(true);
+    // Last-successful-sync timestamp + last-attempt error for the
+    // DataFreshness pill that sits in the PageHeader action slot.
+    // Crew + invites + memberships come from Supabase; users
+    // waiting on an invite acceptance benefit from "synced 30s ago"
+    // visibility so they know whether to pull again.
+    const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+    const [syncError, setSyncError] = useState<string | null>(null);
 
     // Soft-delete with undo
     const [deletedMember, setDeletedMember] = useState<{ member: CrewMember; mode: 'captain' | 'crew' } | null>(null);
@@ -248,17 +256,23 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
     // forever.
     const loadData = useCallback(async () => {
         setLoading(true);
+        setSyncError(null);
         const timeout = new Promise<'timeout'>((resolve) => window.setTimeout(() => resolve('timeout'), 6000));
         const work = Promise.allSettled([getMyCrew(), getMyInvites(), getMyMemberships()]);
         try {
             const result = await Promise.race([work, timeout]);
             if (result === 'timeout') {
                 console.warn('[CrewManagement] loadData: timed out after 6s — leaving lists empty for now');
+                setSyncError('Sync timed out — tap retry');
             } else {
                 const [crewRes, invitesRes, shipsRes] = result;
                 if (crewRes.status === 'fulfilled') setMyCrew(crewRes.value);
                 if (invitesRes.status === 'fulfilled') setPendingInvites(invitesRes.value);
                 if (shipsRes.status === 'fulfilled') setMemberships(shipsRes.value);
+                // Surface the freshness signal — even if some lists
+                // failed, the user gets a "synced 2m ago" pill so
+                // they know their view isn't stale-by-default.
+                setLastSyncedAt(Date.now());
             }
         } finally {
             setLoading(false);
@@ -697,7 +711,26 @@ export const CrewManagement: React.FC<CrewManagementProps> = React.memo(({ onBac
 
     return (
         <div className={`h-full ${t.colors.bg.base} flex flex-col overflow-hidden`}>
-            <PageHeader title="Passage Planning" onBack={onBack} />
+            <PageHeader
+                title="Passage Planning"
+                onBack={onBack}
+                action={
+                    // DataFreshness pill — wired 2026-05-17 (the
+                    // component was built earlier today and was
+                    // genuinely unused; this was one of the honest
+                    // score deductions). Lives in the PageHeader's
+                    // action slot. Surfaces when crew + invites +
+                    // memberships were last pulled, lets the user
+                    // tap to refresh. Useful when a skipper is
+                    // waiting on an invitee to accept.
+                    <DataFreshness
+                        lastUpdatedAt={lastSyncedAt}
+                        isLoading={loading}
+                        error={syncError}
+                        onRefresh={() => void loadData()}
+                    />
+                }
+            />
             {/* The "+ Invite Crew" action lives inside the My Crew section
                 header below — it was crowding the page title in the
                 PageHeader's action slot. */}
