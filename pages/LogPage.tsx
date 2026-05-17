@@ -496,43 +496,67 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         }
                     />
 
-                    {/* ── Career Totals — Vertical Gauge Tiles ── */}
-                    <div className="shrink-0 px-4 pb-2">
-                        <div className="grid grid-cols-3 gap-2">
-                            {/* NM Sailed */}
-                            <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
-                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-sky-500/60 to-sky-500/0" />
-                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                                    NM Sailed
-                                </div>
-                                <div className="text-xl font-black text-white tabular-nums leading-tight">
-                                    {(careerTotals.totalDistance ?? 0).toFixed(1)}
+                    {/* ── Voyage Totals — three big gauge tiles ──
+                        Rewritten 2026-05-17 to compute directly from
+                        `voyageGroups` (the same data driving the cards
+                        rendered below) rather than the `careerTotals`
+                        memo, which was over-filtering — its isOnWater
+                        ≥60 % land rule + source==='device' filter was
+                        excluding real voyages and reading 0 / 0 / 0
+                        while three voyage cards sat right below it.
+                        Same source of truth as the cards now. Also
+                        means the smaller "X TODAY · Y VOYAGES · Z NM"
+                        status row that used to live below this grid
+                        is gone — it was a worse-formatted duplicate
+                        of the same three numbers. */}
+                    {(() => {
+                        const totalNmRaw = voyageGroups.reduce((sum, g) => {
+                            const dist = Math.max(0, ...g.entries.map((e) => e.cumulativeDistanceNM || 0));
+                            return sum + dist;
+                        }, 0);
+                        const totalMs = voyageGroups.reduce((sum, g) => {
+                            if (g.entries.length < 2) return sum;
+                            const times = g.entries.map((e) => new Date(e.timestamp).getTime());
+                            return sum + (Math.max(...times) - Math.min(...times));
+                        }, 0);
+                        const totalHrs = Math.round((totalMs / (1000 * 60 * 60)) * 10) / 10;
+                        return (
+                            <div className="shrink-0 px-4 pb-3">
+                                <div className="grid grid-cols-3 gap-2">
+                                    {/* NM Sailed */}
+                                    <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-sky-500/60 to-sky-500/0" />
+                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                            NM Sailed
+                                        </div>
+                                        <div className="text-xl font-black text-white tabular-nums leading-tight">
+                                            {totalNmRaw.toFixed(1)}
+                                        </div>
+                                    </div>
+                                    {/* Time at Sea */}
+                                    <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-500/60 to-emerald-500/0" />
+                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                            At Sea
+                                        </div>
+                                        <div className="text-xl font-black text-white tabular-nums leading-tight">
+                                            {totalHrs < 24 ? `${totalHrs}h` : `${Math.round(totalHrs / 24)}d`}
+                                        </div>
+                                    </div>
+                                    {/* Voyages */}
+                                    <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-500/60 to-amber-500/0" />
+                                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
+                                            Voyages
+                                        </div>
+                                        <div className="text-xl font-black text-white tabular-nums leading-tight">
+                                            {voyageGroups.length}
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                            {/* Time at Sea */}
-                            <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
-                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-emerald-500/60 to-emerald-500/0" />
-                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                                    At Sea
-                                </div>
-                                <div className="text-xl font-black text-white tabular-nums leading-tight">
-                                    {careerTotals.totalTimeAtSeaHrs < 24
-                                        ? `${careerTotals.totalTimeAtSeaHrs}h`
-                                        : `${Math.round(careerTotals.totalTimeAtSeaHrs / 24)}d`}
-                                </div>
-                            </div>
-                            {/* Voyages */}
-                            <div className="relative rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 overflow-hidden">
-                                <div className="absolute top-0 left-0 w-full h-0.5 bg-gradient-to-r from-amber-500/60 to-amber-500/0" />
-                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">
-                                    Voyages
-                                </div>
-                                <div className="text-xl font-black text-white tabular-nums leading-tight">
-                                    {careerTotals.totalVoyages}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
+                        );
+                    })()}
 
                     {isTracking ? (
                         <>
@@ -672,47 +696,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 className="flex-1 overflow-y-auto px-4 snap-y snap-proximity scroll-pt-2"
                                 style={{ paddingBottom: 'calc(5rem + env(safe-area-inset-bottom) + 16px)' }}
                             >
-                                {/* ── STATUS HEADER ──────────────────────
-                                    Live counts at a glance — entries today,
-                                    voyages logged, career distance. Moved
-                                    here from VesselHub's Quick Actions
-                                    "Log Book" tile (deleted 2026-05-17 as
-                                    duplication of the bottom-nav Log tab).
-                                    Only renders when there's data to count;
-                                    on the empty state the "Begin Your Log"
-                                    compass artwork does its own job. */}
-                                {voyageGroups.length > 0 &&
-                                    (() => {
-                                        // Entries today — compare by LOCAL
-                                        // calendar day to avoid the UTC-vs-
-                                        // local parse-ambiguity bug from the
-                                        // old VesselHub implementation.
-                                        const today = new Date();
-                                        const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
-                                        const entriesToday = entries.filter((e) => {
-                                            const d = new Date(e.timestamp);
-                                            if (Number.isNaN(d.getTime())) return false;
-                                            return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === todayKey;
-                                        }).length;
-                                        const totalNm = Math.round(careerTotals.totalDistance ?? 0);
-                                        // Status row — bumped 11 → 12 px + slate-400 → slate-300
-                                        // for the labels 2026-05-17. The numbers themselves stay
-                                        // sky-300 / 12 px so they still read as the signal in the row.
-                                        return (
-                                            <div className="mb-3 flex items-center gap-3 px-1 py-2 text-xs font-bold uppercase tracking-wider text-slate-300 tabular-nums">
-                                                <span className="text-sky-300">{entriesToday}</span>
-                                                <span className="text-slate-400">Today</span>
-                                                <span className="text-slate-600">·</span>
-                                                <span className="text-sky-300">{voyageGroups.length}</span>
-                                                <span className="text-slate-400">
-                                                    {voyageGroups.length === 1 ? 'Voyage' : 'Voyages'}
-                                                </span>
-                                                <span className="text-slate-600">·</span>
-                                                <span className="text-sky-300">{totalNm.toLocaleString()}</span>
-                                                <span className="text-slate-400">nm</span>
-                                            </div>
-                                        );
-                                    })()}
+                                {/* The smaller "X TODAY · Y VOYAGES · Z NM"
+                                    status row that used to live here was
+                                    removed 2026-05-17 — it was a duplicate
+                                    of the three big gauge tiles up at the
+                                    top of the page, just in worse formatting
+                                    (and using a different — broken — data
+                                    source for the totals). Career counts now
+                                    live in one place: the gauge tile grid. */}
 
                                 {/* Past Voyage Cards */}
                                 {voyageGroups.length === 0 ? (
