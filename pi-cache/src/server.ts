@@ -29,6 +29,7 @@ import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes } from './routes/enc.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
+import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
 
 // ── Config (mutable — app can update via /api/configure) ──
 
@@ -207,6 +208,11 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     if (SUPABASE_URL) {
         startScheduler(cache, proxyConfig);
     }
+
+    // Close the chart-distribution loop: watch the user's o-charts download dir
+    // for new .oesu files and auto-decrypt them into pi-cache's chart store.
+    // The iOS app's auto-sync picks them up on next launch.
+    startEncWatcher();
 });
 
 // ── Graceful Shutdown ──
@@ -214,6 +220,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
 function shutdown() {
     console.log('\n🛑 Shutting down...');
     stopScheduler();
+    void stopEncWatcher();
     server.close(() => {
         cache.close();
         process.exit(0);

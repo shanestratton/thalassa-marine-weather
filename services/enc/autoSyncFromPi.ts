@@ -18,6 +18,7 @@
 import { createLogger } from '../../utils/createLogger';
 import { syncEncFromPi } from '../EncImportService';
 import { piCache } from '../PiCacheService';
+import { GpsService } from '../GpsService';
 
 const log = createLogger('autoSyncFromPi');
 
@@ -25,6 +26,15 @@ const log = createLogger('autoSyncFromPi');
 // hit the Pi. localStorage flag would persist across launches, which is wrong —
 // we want to re-check every launch in case the Pi has new cells.
 let attempted = false;
+
+/**
+ * Cells pulled per auto-sync run. A typical AU fleet has 900+ decrypted
+ * cells; pulling all of them on first launch is minutes of wifi + ~600 MB
+ * of storage. We cap at 20 nearest-to-user — enough to cover a cruising
+ * region of a few hundred nautical miles — and let later launches /
+ * manual syncs pull the rest.
+ */
+const AUTO_SYNC_MAX_CELLS = 20;
 
 export async function autoSyncFromPiIfPossible(): Promise<void> {
     if (attempted) return;
@@ -36,15 +46,31 @@ export async function autoSyncFromPiIfPossible(): Promise<void> {
             return;
         }
 
-        log.warn('auto-sync starting — Pi reachable, checking for new cells');
-        const result = await syncEncFromPi((p) => {
-            // Bubble up only meaningful phase changes — not every per-cell pulse.
-            if (p.phase === 'fetching' && p.cellId) {
-                log.warn(`  pulling ${p.cellId} (${p.cellsDone ?? 0}/${p.cellCount ?? 0})`);
-            } else if (p.phase === 'error') {
-                log.warn(`  error: ${p.error}`);
-            }
-        });
+        // Locate the punter — drives nearest-first pull ordering. If GPS is
+        // off or hasn't fixed yet, we still sync but without prioritisation
+        // (the Pi's alphabetical order is essentially random across the chart
+        // set, but the cap at AUTO_SYNC_MAX_CELLS keeps the run bounded).
+        const pos = await GpsService.getCurrentPosition().catch(() => null);
+        const priorityCenter = pos ? { lat: pos.latitude, lon: pos.longitude } : undefined;
+        if (priorityCenter) {
+            log.warn(
+                `auto-sync starting — Pi reachable, priority centre (${priorityCenter.lat.toFixed(3)}, ${priorityCenter.lon.toFixed(3)})`,
+            );
+        } else {
+            log.warn('auto-sync starting — Pi reachable, no GPS fix (alphabetical order)');
+        }
+
+        const result = await syncEncFromPi(
+            (p) => {
+                // Bubble up only meaningful phase changes — not every per-cell pulse.
+                if (p.phase === 'fetching' && p.cellId) {
+                    log.warn(`  pulling ${p.cellId} (${p.cellsDone ?? 0}/${p.cellCount ?? 0})`);
+                } else if (p.phase === 'error') {
+                    log.warn(`  error: ${p.error}`);
+                }
+            },
+            { priorityCenter, maxCells: AUTO_SYNC_MAX_CELLS },
+        );
 
         if (result.cells.length > 0) {
             log.warn(
