@@ -77,7 +77,35 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
     const [newListingIds, setNewListingIds] = useState<Set<string>>(new Set());
     const [deletedListing, setDeletedListing] = useState<MarketplaceListing | null>(null);
     const [userId, setUserId] = useState<string | null>(null);
+    // Search query — client-side filter on title + description + seller +
+    // make/model. Added 2026-05-17 because the feed could return dozens of
+    // category-matched listings with no way to drill further.
+    const [searchQuery, setSearchQuery] = useState('');
     const feedRef = useRef<HTMLDivElement>(null);
+
+    // Filter listings by search query. Matches against title, description,
+    // seller name, vessel name, and boat make/model — anything a user
+    // would naturally type ("Hood mainsail", "Bavaria 38", "Sarah").
+    // Case-insensitive, trims whitespace. Empty query returns all.
+    const filteredListings = React.useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return listings;
+        return listings.filter((l) => {
+            const haystack = [
+                l.title,
+                l.description,
+                l.seller_name,
+                l.seller_vessel,
+                l.boat_details?.make,
+                l.boat_details?.model,
+                l.location_name,
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+            return haystack.includes(q);
+        });
+    }, [listings, searchQuery]);
 
     // Initialize
     useEffect(() => {
@@ -208,6 +236,55 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
         <div className="flex flex-col bg-slate-950">
             {/* ═══════ HEADER ═══════ */}
             <div className="sticky top-0 z-20 bg-slate-950/95 border-b border-white/[0.06]">
+                {/* Search — added 2026-05-17. Sits above the category chips
+                    so it's the first interaction the user sees. Filters
+                    title + description + seller name + vessel name + make/
+                    model + location, all client-side over whatever the
+                    current category-filter returned. */}
+                <div className="px-3 pt-2.5">
+                    <div className="relative">
+                        <svg
+                            className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            aria-hidden="true"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                d="M21 21l-4.34-4.34m0 0A8 8 0 103.32 12.32a8 8 0 0013.34 4.34z"
+                            />
+                        </svg>
+                        <input
+                            type="search"
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            placeholder="Search gear, boats, sellers…"
+                            className="w-full h-10 pl-9 pr-9 rounded-xl bg-white/[0.04] border border-white/10 text-[13px] text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/40 focus:bg-white/[0.06] transition-colors"
+                            aria-label="Search marketplace listings"
+                        />
+                        {searchQuery && (
+                            <button
+                                type="button"
+                                onClick={() => setSearchQuery('')}
+                                aria-label="Clear search"
+                                className="absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
+                            >
+                                <svg
+                                    className="w-3.5 h-3.5"
+                                    fill="none"
+                                    viewBox="0 0 24 24"
+                                    stroke="currentColor"
+                                    strokeWidth={2.5}
+                                >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        )}
+                    </div>
+                </div>
                 {/* Category chips */}
                 <div className="px-3 pt-2 pb-2.5 flex flex-wrap gap-2">
                     <button
@@ -247,14 +324,54 @@ export const MarketplacePage: React.FC<MarketplacePageProps> = React.memo(({ onB
                         <ShimmerBlock variant="card" />
                     </div>
                 ) : listings.length === 0 ? (
+                    // Truly empty — no listings at all from the API. The
+                    // first-time "be the first to list" experience.
                     <EmptyState
                         icon={<AnchorIcon className="w-10 h-10 text-sky-400/60" />}
                         title="No Gear Listed Yet"
                         description="Be the first to list your marine gear. Electronics, sails, rigging — if it floats or helps you float, it belongs here."
                     />
+                ) : filteredListings.length === 0 ? (
+                    // Listings exist but the user's search/category filter
+                    // hides them all. Different copy + "Clear filters" CTA
+                    // so they don't think the marketplace is dead. Added
+                    // 2026-05-17 alongside search.
+                    <EmptyState
+                        icon={
+                            <svg
+                                className="w-10 h-10 text-slate-500"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M21 21l-4.34-4.34m0 0A8 8 0 103.32 12.32a8 8 0 0013.34 4.34z"
+                                />
+                            </svg>
+                        }
+                        title={
+                            searchQuery
+                                ? `No results for "${searchQuery}"`
+                                : `Nothing in ${activeCategory ?? 'this category'}`
+                        }
+                        description={
+                            searchQuery
+                                ? `Try a different search, or browse without filters.`
+                                : `No listings in this category right now. Try ALL or another category.`
+                        }
+                        actionLabel="Clear filters"
+                        onAction={() => {
+                            setSearchQuery('');
+                            setActiveCategory(null);
+                            loadListings(null);
+                        }}
+                    />
                 ) : (
                     /* Listing cards */
-                    listings.map((listing) => (
+                    filteredListings.map((listing) => (
                         <ListingCard
                             key={listing.id}
                             listing={listing}

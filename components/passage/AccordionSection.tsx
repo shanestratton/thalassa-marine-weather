@@ -106,9 +106,11 @@ export const AccordionSection: React.FC<AccordionSectionProps> = React.memo(
                     className={`absolute top-0 right-0 w-64 h-64 ${colors.glow} rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none opacity-50`}
                 />
 
-                {/* Header Bar — always visible */}
+                {/* Header Bar — always visible. Whole row is the tap
+                    target (w-full + 16 px vertical padding), well above
+                    the 44 px Apple HIG floor. */}
                 <button
-                    aria-label="Is Open"
+                    aria-label={`${isOpen ? 'Collapse' : 'Expand'} ${title}`}
                     onClick={() => setIsOpen((o) => !o)}
                     className="w-full flex items-center gap-3 px-5 py-4 text-left group relative z-10 transition-colors hover:bg-white/[0.03]"
                     aria-expanded={isOpen}
