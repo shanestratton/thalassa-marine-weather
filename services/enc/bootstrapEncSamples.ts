@@ -18,7 +18,9 @@ import { importCell, hasAnyCells } from './EncHazardService';
 import type { EncConversionResult } from './types';
 
 const log = createLogger('bootstrapEncSamples');
-const FLAG_KEY = 'thalassa.enc.samplesImported.v1';
+// Bumping the version forces the bootstrap to run again on next launch — used
+// when we ship a new sample set or fix a previously-failed-silently regression.
+const FLAG_KEY = 'thalassa.enc.samplesImported.v2';
 
 /**
  * Sample cells to fetch on first launch. Names match files in
@@ -78,8 +80,17 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
             }
         }
 
-        localStorage.setItem(FLAG_KEY, '1');
-        log.warn(`bootstrap complete: ${imported}/${SAMPLE_CELLS.length} cells imported`);
+        // Only latch the flag on success — a failed first attempt (e.g. file
+        // not yet bundled into the build) shouldn't lock subsequent launches
+        // out of retrying.
+        if (imported > 0) {
+            localStorage.setItem(FLAG_KEY, '1');
+            log.warn(`bootstrap complete: ${imported}/${SAMPLE_CELLS.length} cells imported, flag set`);
+        } else {
+            log.warn(
+                `bootstrap complete: 0/${SAMPLE_CELLS.length} cells imported — flag NOT set, will retry on next launch`,
+            );
+        }
     } catch (err) {
         log.warn('bootstrap unexpected error', err);
     }
