@@ -1,0 +1,16 @@
+node_modules/
+dist/
+package-lock.json
+
+# GPL'd upstream reference materials — fetched on demand, not redistributed
+reference/
+
+# Decrypted chart cache files — must not be redistributed per o-charts EULA
+samples/
+
+# hornang/oesenc-export Python tool — GPL upstream, fetched on demand
+hornang/
+
+# Local extractor output (per-chart GeoJSON cells)
+cells/
+out/

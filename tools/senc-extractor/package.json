@@ -1,0 +1,20 @@
+{
+    "name": "@thalassa/senc-extractor",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Extract S-57 feature geometry from OpenCPN SENC binary files into GeoJSON for the Thalassa inshore router",
+    "type": "module",
+    "bin": {
+        "senc-extract": "./dist/cli.js"
+    },
+    "scripts": {
+        "build": "tsc",
+        "extract": "tsx src/cli.ts",
+        "scan": "tsx src/scan.ts"
+    },
+    "devDependencies": {
+        "@types/node": "^22.0.0",
+        "tsx": "^4.19.0",
+        "typescript": "^5.6.0"
+    }
+}
