@@ -20,13 +20,19 @@ import type { EncConversionResult } from './types';
 const log = createLogger('bootstrapEncSamples');
 // Bumping the version forces the bootstrap to run again on next launch — used
 // when we ship a new sample set or fix a previously-failed-silently regression.
-const FLAG_KEY = 'thalassa.enc.samplesImported.v2';
+const FLAG_KEY = 'thalassa.enc.samplesImported.v3';
 
 /**
  * Sample cells to fetch on first launch. Names match files in
  * `public/enc-samples/`. Add more entries to bundle additional regions.
+ *
+ * Current set: Newport Marina → Rivergate Marina via the Brisbane River.
+ *   - OC-61-10RCS5  Newport Waterways (harbour-band detail, lat -27.22..-27.17)
+ *   - OC-61-10ENB5  Brisbane River + south Moreton Bay (lat -27.48..-27.09)
+ *   - OC-61-20ENB5  N Moreton Bay (lat -27.10..-26.71)
+ *   - OC-61-351824  SE QLD overview (-28..-27, 153..154) — fallback at low zoom
  */
-const SAMPLE_CELLS: string[] = ['OC-61-10ENB5'];
+const SAMPLE_CELLS: string[] = ['OC-61-10RCS5', 'OC-61-10ENB5', 'OC-61-20ENB5', 'OC-61-351824'];
 
 export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
     // log.warn used throughout so the bootstrap is visible in Xcode console even
@@ -34,7 +40,7 @@ export async function bootstrapEncSamplesIfNeeded(): Promise<void> {
     // log.info() silenced in prod memory).
     try {
         if (localStorage.getItem(FLAG_KEY) === '1') {
-            log.warn('bootstrap skipped — already ran (clear localStorage.thalassa.enc.samplesImported.v1 to retry)');
+            log.warn(`bootstrap skipped — already ran (clear localStorage.${FLAG_KEY} to retry)`);
             return;
         }
         if (hasAnyCells()) {
