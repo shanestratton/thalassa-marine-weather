@@ -56,7 +56,11 @@ export const EncRouteButton: React.FC<Props> = ({ encCellCount, onRoute }) => {
     };
 
     return (
-        <div className="absolute z-[600] top-[80px] left-[16px] flex flex-col items-start gap-1.5">
+        // Horizontally-centred under the top FABs / Status pill. top-[140px]
+        // clears the right-rail LayerFAB (top-[80px], 48px tall) and the
+        // status pill (top-[56px]); pinning to centre also keeps it clear of
+        // both the left-edge status pill and the right-rail FAB column.
+        <div className="absolute z-[600] top-[140px] left-1/2 -translate-x-1/2 flex flex-col items-center gap-1.5">
             <button
                 aria-label="Plan ENC test route"
                 onClick={run}
