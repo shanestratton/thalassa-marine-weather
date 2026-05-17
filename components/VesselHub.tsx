@@ -561,29 +561,48 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                 {/* HERO BAND — situational awareness           */}
                 {/* Vessel · voyage state · last fix            */}
                 {/* ═══════════════════════════════════════════ */}
-                <NavStationHero
-                    vesselName={vesselName}
-                    vesselNameSet={vesselNameSet}
-                    voyage={activeVoyage}
-                    tripLogActive={tripLogActive}
-                    position={position}
-                    anchorStatus={anchorStatus}
-                    anchorRadius={anchorRadius}
-                    anchorOffset={anchorOffset}
-                    anchorBearing={anchorBearing}
-                    windSpeed={windSpeed}
-                    windDir={windDir}
-                    waveHeight={waveHeight}
-                    waveUnit={waveUnit}
-                    airTemp={airTemp}
-                    seaTemp={seaTemp}
-                    visibility={visibility}
-                    pressureTrend={pressureTrend}
-                    tideTrend={tideTrend}
-                    destCoords={destCoords}
-                    routeNm={routeNm}
-                    onNavigate={onNavigate}
-                />
+                {/* Sticky on scroll — added 2026-05-18. The boat-name
+                    + voyage-state + position card is the single most
+                    important piece of context on this page; it should
+                    stay pinned at the top while the user explores the
+                    sections below. Negative margins cancel the parent's
+                    px-4/pt-4 so the gradient backdrop covers edge-to-
+                    edge as content scrolls underneath. Backdrop fades
+                    out at the bottom so the next section transitions
+                    softly rather than hitting a hard band. z-20 sits
+                    above the section cards (default stacking) but
+                    below modals/overlays. */}
+                <div
+                    className="sticky top-0 z-20 -mx-4 -mt-4 px-4 pt-4 pb-1 backdrop-blur-md"
+                    style={{
+                        background:
+                            'linear-gradient(to bottom, rgba(2,6,23,0.92) 0%, rgba(2,6,23,0.92) 85%, rgba(2,6,23,0) 100%)',
+                    }}
+                >
+                    <NavStationHero
+                        vesselName={vesselName}
+                        vesselNameSet={vesselNameSet}
+                        voyage={activeVoyage}
+                        tripLogActive={tripLogActive}
+                        position={position}
+                        anchorStatus={anchorStatus}
+                        anchorRadius={anchorRadius}
+                        anchorOffset={anchorOffset}
+                        anchorBearing={anchorBearing}
+                        windSpeed={windSpeed}
+                        windDir={windDir}
+                        waveHeight={waveHeight}
+                        waveUnit={waveUnit}
+                        airTemp={airTemp}
+                        seaTemp={seaTemp}
+                        visibility={visibility}
+                        pressureTrend={pressureTrend}
+                        tideTrend={tideTrend}
+                        destCoords={destCoords}
+                        routeNm={routeNm}
+                        onNavigate={onNavigate}
+                    />
+                </div>
 
                 {/* The 4-bucket IA (2026-05-17) reordered the
                     sections so Quick Actions (daily ops) sits at the
