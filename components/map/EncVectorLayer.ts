@@ -261,21 +261,25 @@ export function mountEncVectorLayer(
     }
 
     // ── COALNE (white coastline) ──────────────────────────────────
+    // Held back to zoom 11+ — at lower zooms the LNDARE fill alone reads as
+    // land, and the COALNE line features at chart-overview scales collapse
+    // into a visually noisy wireframe. Re-instate detail when the user
+    // zooms in for pilotage.
     if (!map.getLayer(ENC_VEC_LAYERS.COALNE)) {
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.COALNE,
                 type: 'line',
                 source: ENC_VEC_SRC.COALNE,
-                minzoom: minZoom,
+                minzoom: Math.max(minZoom, 11),
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
                 },
                 paint: {
                     'line-color': '#ffffff',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 11, 1.0, 15, 1.6],
-                    'line-opacity': Math.min(1, opacity + 0.1),
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.7, 13, 1.1, 15, 1.6],
+                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 13, 0.85, 15, opacity],
                 },
             },
             before,
