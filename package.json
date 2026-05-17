@@ -17,6 +17,7 @@
         "test:e2e": "playwright test",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
+        "lint:routes": "node scripts/audit-orphan-routes.mjs --strict",
         "format": "prettier --write '**/*.{ts,tsx,json,md}' --ignore-path .gitignore",
         "format:check": "prettier --check '**/*.{ts,tsx,json,md}' --ignore-path .gitignore",
         "prepare": "husky",
