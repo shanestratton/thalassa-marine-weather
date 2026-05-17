@@ -371,7 +371,26 @@ export async function installEncFromUrl(
  *   2. Otherwise GET /api/enc/installed/:cellId/data and run
  *      EncHazardService.importCell on the result.
  */
-export async function syncEncFromPi(onProgress?: (p: EncImportProgress) => void): Promise<EncImportSummary> {
+export interface SyncEncFromPiOptions {
+    /**
+     * Lat/lon to prioritise pulls around — nearest-first ordering. Typically
+     * the user's current GPS position; falls back to vessel home port if GPS
+     * is unavailable. If omitted, cells are pulled in the Pi's listing order
+     * (alphabetical by cellId).
+     */
+    priorityCenter?: { lat: number; lon: number };
+    /**
+     * Soft cap on cells pulled in this sync run. The remaining cells stay on
+     * the Pi and are pulled on subsequent runs (or when the user moves into
+     * a new region). Use 0 / undefined for "pull everything reachable".
+     */
+    maxCells?: number;
+}
+
+export async function syncEncFromPi(
+    onProgress?: (p: EncImportProgress) => void,
+    options: SyncEncFromPiOptions = {},
+): Promise<EncImportSummary> {
     const emit = (p: EncImportProgress): void => {
         try {
             onProgress?.(p);
@@ -412,7 +431,7 @@ export async function syncEncFromPi(onProgress?: (p: EncImportProgress) => void)
 
     // Skip cells we already have locally at the same edition.
     const localCellIds = new Set(EncHazardService.getCoverage().map((c) => `${c.id}@${c.edition}`));
-    const toFetch = installed.filter((c) => !localCellIds.has(`${c.cellId}@${c.edition}`));
+    let toFetch = installed.filter((c) => !localCellIds.has(`${c.cellId}@${c.edition}`));
 
     if (toFetch.length === 0) {
         emit({
@@ -423,6 +442,44 @@ export async function syncEncFromPi(onProgress?: (p: EncImportProgress) => void)
             cellsDone: installed.length,
         });
         return { cells: [], skipped: [] };
+    }
+
+    // Priority ordering — nearest-cell-first when the caller passed a centre
+    // (typically current GPS). Each cell's distance is computed against its
+    // bbox centroid; if a cell already contains the priority point, distance
+    // is zero so it sorts to the top. This means a punter who launches the
+    // app at the dock gets the harbour-band cell first, then the approach,
+    // then the overview, then everything else.
+    //
+    // Without a priority centre we keep the Pi's listing order (alphabetic),
+    // which is fine for "give me everything" manual syncs.
+    if (options.priorityCenter) {
+        const { lat: pLat, lon: pLon } = options.priorityCenter;
+        const distance = (c: PiInstalledCell): number => {
+            const [wLon, sLat, eLon, nLat] = c.bbox;
+            if (pLat >= sLat && pLat <= nLat && pLon >= wLon && pLon <= eLon) return 0;
+            const cLat = (sLat + nLat) / 2;
+            const cLon = (wLon + eLon) / 2;
+            const dLat = (pLat - cLat) * 111; // ~km per degree latitude
+            const dLon = (pLon - cLon) * 111 * Math.cos((pLat * Math.PI) / 180);
+            return Math.hypot(dLat, dLon);
+        };
+        toFetch = [...toFetch].sort((a, b) => distance(a) - distance(b));
+        log.warn(
+            `priority-sorted ${toFetch.length} cells around (${pLat.toFixed(3)}, ${pLon.toFixed(3)}); first 3: ${toFetch
+                .slice(0, 3)
+                .map((c) => c.cellId)
+                .join(', ')}`,
+        );
+    }
+
+    // Soft cap — caller can ask "give me the nearest N and we'll get the rest
+    // next launch." Auto-sync sets this; manual sync leaves it unlimited.
+    if (options.maxCells && options.maxCells > 0 && toFetch.length > options.maxCells) {
+        log.warn(
+            `capping sync at ${options.maxCells} nearest cells (${toFetch.length - options.maxCells} deferred to next run)`,
+        );
+        toFetch = toFetch.slice(0, options.maxCells);
     }
 
     const persisted: EncCell[] = [];
