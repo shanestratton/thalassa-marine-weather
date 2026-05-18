@@ -549,6 +549,16 @@ const GL_TRIANGLES = 4;
 const GL_TRIANGLE_STRIP = 5;
 const GL_TRIANGLE_FAN = 6;
 
+/** Great-circle distance in meters between two lat/lon pairs. */
+function haversineLatLonM(lat1: number, lon1: number, lat2: number, lon2: number): number {
+    const R = 6_378_137;
+    const toRad = Math.PI / 180;
+    const dLat = (lat2 - lat1) * toRad;
+    const dLon = (lon2 - lon1) * toRad;
+    const a = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 /**
  * Decode an AREA record's triangulation primitives into a flat list of triangles
  * in [lon, lat], AND slice out the trailing edge-vector index entries for
@@ -631,9 +641,47 @@ function parseAreaTriangles(
         }
     }
 
+    // ── Rogue-triangle filter ───────────────────────────────────────
+    // The SENC's GLU tessellator emits TRIANGLE_FAN/STRIP primitives that
+    // can include slivers spanning across polygon concavities (verified on
+    // Brisbane River — LNDARE rcid 3885 had 9-13 km wide fans whose outer
+    // verts walked along the river bank but whose fan-center sat inland,
+    // creating a triangular wedge OVER the river). Visually: the chart
+    // bleeds land into water.
+    //
+    // Two-axis filter:
+    //   - max edge > MAX_EDGE_M (geographic span of the triangle)
+    //   - aspect ratio (max/min edge) > MAX_ASPECT (a sliver, not a fill triangle)
+    //
+    // Both must trip to drop — a large equilateral triangle on a coarse-
+    // scale cell is legitimate. A long thin sliver crossing 5+ km isn't.
+    // Tuned conservatively: 2000m maxEdge + aspect 15 keeps city-scale
+    // LNDARE filled while dropping the long thin rays that span 5-15 km.
+    // First (more aggressive) tuning at 800m/8x dropped 30% of legit
+    // onshore-Savannah triangles, so dialled up to err on "keep" side.
+    const MAX_EDGE_M = 2000;
+    const MAX_ASPECT = 15;
+    const cleaned: AreaGeometry['triangles'] = [];
+    let droppedRogue = 0;
+    for (const tri of triangles) {
+        const e1 = haversineLatLonM(tri[0][1], tri[0][0], tri[1][1], tri[1][0]);
+        const e2 = haversineLatLonM(tri[1][1], tri[1][0], tri[2][1], tri[2][0]);
+        const e3 = haversineLatLonM(tri[2][1], tri[2][0], tri[0][1], tri[0][0]);
+        const maxE = Math.max(e1, e2, e3);
+        const minE = Math.max(1, Math.min(e1, e2, e3)); // avoid /0 on degen
+        if (maxE > MAX_EDGE_M && maxE / minE > MAX_ASPECT) {
+            droppedRogue += 1;
+            continue;
+        }
+        cleaned.push(tri);
+    }
+    if (droppedRogue > 0) {
+        stats.triPrimitiveTypes.set(-1, (stats.triPrimitiveTypes.get(-1) ?? 0) + droppedRogue);
+    }
+
     const geometry: AreaGeometry = {
         type: 'Area',
-        triangles,
+        triangles: cleaned,
         extent: { sLat, nLat, wLon, eLon },
     };
 
