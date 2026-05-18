@@ -343,6 +343,12 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
         catzocRange = [best, worst];
     }
 
+    // sizeBytes — content fingerprint used by syncEncFromPi to detect
+    // re-extractions with the same cellId+edition (e.g. when the
+    // senc-extractor's rogue-triangle filter improves). Stringify length
+    // matches the bytes the Pi reported in its installed-cells index.
+    const sizeBytes = JSON.stringify(blob).length;
+
     const cell: EncCell = {
         id: blob.cellId,
         sourceHO: blob.sourceHO,
@@ -353,6 +359,7 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
         geojsonPath: path,
         hazardCount,
         catzocRange,
+        sizeBytes,
     };
     cellMeta.putCell(cell);
 

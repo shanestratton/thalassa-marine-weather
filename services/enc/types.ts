@@ -254,6 +254,19 @@ export interface EncCell {
      * Null when M_QUAL data was not present in the source cell.
      */
     catzocRange?: [EncCatzoc, EncCatzoc] | null;
+    /**
+     * Byte count of the imported GeoJSON. Used by `syncEncFromPi` as a
+     * content-change signal: when a chart-set's underlying extraction
+     * changes (e.g. the senc-extractor's rogue-triangle filter improves,
+     * or AREA_EXT handling adds new features), the Pi emits the same
+     * cellId+edition with a DIFFERENT size. Without this signal the
+     * dedup key would be `cellId@edition` and iOS would never re-import
+     * the cleaner version.
+     *
+     * Optional for backward compat — pre-2026-05-19 cells lack it and
+     * are treated as "size unknown" → re-import on next sync.
+     */
+    sizeBytes?: number;
 }
 
 // ── Query result ───────────────────────────────────────────────────
