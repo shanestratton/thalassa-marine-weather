@@ -13,7 +13,9 @@ import { SearchIcon, MapIcon, StarIcon, RouteIcon, ClipboardIcon } from './compo
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
-import { FollowRouteBadge } from './components/FollowRouteBadge';
+// FollowRouteBadge unmounted 2026-05-19 — stop-following lives in the
+// SystemStatusButton i-card now. See comment block in JSX below for
+// the rationale.
 import { PaywallGate } from './components/PaywallGate';
 import { PullToRefresh } from './components/PullToRefresh';
 import { NavButton } from './components/NavButton';
@@ -319,26 +321,31 @@ const App: React.FC = () => {
             </Suspense>
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 
-            {/* Active-route banner — added 2026-05-17. Global
-                persistent banner that ONLY renders when the user is
-                following a route. Auto-hides when they stop. Until
-                now this component was defined but never mounted, so
-                once a user started following a route they had no UI
-                to stop it — the dashed line would sit on the Charts
-                page indefinitely (one Newport → Noumea route prompted
-                this fix). Wrapped in a fixed-position container so
-                the badge floats above tab content from any tab.
-                Sits just below the safe-area + universal page-header
-                cluster (~90 px) and above the tab content. z-[900]
-                keeps it under modals (z-[1200]) but above maps. */}
-            <div
-                className="fixed left-0 right-0 z-[900] pointer-events-none"
-                style={{ top: 'calc(env(safe-area-inset-top) + 80px)' }}
-            >
-                <div className="pointer-events-auto">
-                    <FollowRouteBadge />
+            {/* Active-route banner removed 2026-05-19 — it floated
+                above EVERY tab and ate prime screen real estate even
+                when the user wasn't looking at the chart. The Stop-
+                Following control lives in the SystemStatusButton ("i"
+                card) on every page, with the same confirmation modal,
+                so users can still kill an active follow from anywhere
+                — they just open the i-card instead of dismissing a
+                always-on banner. Active-route state remains visible
+                in the i-card's "Following Route" row.
+
+                Keeping the mount commented (not deleted) so the next
+                person investigating "where did the banner go" can see
+                the rationale. The component itself stays exported in
+                case we want to revive it in a less aggressive form
+                (e.g. only on the chart tab) later.
+
+                <div
+                    className="fixed left-0 right-0 z-[900] pointer-events-none"
+                    style={{ top: 'calc(env(safe-area-inset-top) + 80px)' }}
+                >
+                    <div className="pointer-events-auto">
+                        <FollowRouteBadge />
+                    </div>
                 </div>
-            </div>
+            */}
 
             {/* BACKGROUND */}
             {showBackgroundImage ? (
