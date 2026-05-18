@@ -429,9 +429,15 @@ export async function syncEncFromPi(
         return { cells: [], skipped: [] };
     }
 
-    // Skip cells we already have locally at the same edition.
-    const localCellIds = new Set(EncHazardService.getCoverage().map((c) => `${c.id}@${c.edition}`));
-    let toFetch = installed.filter((c) => !localCellIds.has(`${c.cellId}@${c.edition}`));
+    // Skip cells we already have locally at the same edition AND same
+    // sizeBytes. The sizeBytes guard catches re-extraction with a new
+    // emitter (e.g. SCAMIN baking, rogue-triangle filter): the cell's
+    // chart-edition stays unchanged but the byte count shifts. Without
+    // this guard, iOS would never pick up the cleaner version.
+    const localCells = EncHazardService.getCoverage();
+    const localKey = (id: string, ed: number, sz?: number): string => `${id}@${ed}@${sz ?? 'unknown'}`;
+    const localKeys = new Set(localCells.map((c) => localKey(c.id, c.edition, c.sizeBytes)));
+    let toFetch = installed.filter((c) => !localKeys.has(localKey(c.cellId, c.edition, c.sizeBytes)));
 
     if (toFetch.length === 0) {
         emit({
