@@ -189,6 +189,64 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
 }
 
 /**
+ * Rogue-triangle detector for SENC-emitted MultiPolygon features.
+ *
+ * AU oeSENC AREA records use GLU TRIANGLE_FAN primitives where the fan's
+ * centre can be a vertex on one side of a concave polygon and the outer
+ * vertices walk the OTHER side — producing degenerate "spanning" triangles
+ * that cross polygon-internal voids (rivers cutting through mainland,
+ * harbours cutting into coastline). Each AREA emits as a MultiPolygon of
+ * single-triangle rings, so the rogue spans are visible as triangles with:
+ *
+ *   - one very long edge (≫ chart-scale norm) and/or
+ *   - extreme aspect ratio (slivers).
+ *
+ * For LNDARE these triangles bleed into water (Rivergate marina was inside
+ * one). For DEPARE/DRGARE/FAIRWY they bleed into land — that's the cause of
+ * 2026-05-19 Newport→Lytton routing across the Redcliffe peninsula and
+ * zig-zagging inland to Lytton: the deep shipping-channel DEPARE polygon's
+ * rogue triangle un-blocked an inland Brisbane corridor.
+ *
+ * Filter heuristic: max edge > 2 km (no legitimate harbour-scale triangle
+ * spans that far) OR aspect ratio > 10 (sliver). Polygons failing this drop
+ * out of rasterisation entirely; the non-rogue triangles in the same
+ * feature still cover the polygon correctly.
+ */
+const ROGUE_TRI_MAX_EDGE_M = 2_000;
+const ROGUE_TRI_ASPECT = 10;
+function isRogueTriangleRing(ring: Position[]): boolean {
+    if (ring.length < 3) return false;
+    const e1 = haversineM(ring[0][1], ring[0][0], ring[1][1], ring[1][0]);
+    const e2 = haversineM(ring[1][1], ring[1][0], ring[2][1], ring[2][0]);
+    const e3 = haversineM(ring[2][1], ring[2][0], ring[0][1], ring[0][0]);
+    const max = Math.max(e1, e2, e3);
+    if (max > ROGUE_TRI_MAX_EDGE_M) return true;
+    const min = Math.min(e1, e2, e3);
+    return min > 0 && max / min > ROGUE_TRI_ASPECT;
+}
+/**
+ * Drop rogue triangle rings from a MultiPolygon. Single-polygon features
+ * pass through unchanged (only triangle-soup MultiPolygons have the bug).
+ * Returns null when every ring is rogue (rare — usually a feature has both
+ * rogue and legitimate triangles).
+ */
+function filterRogueTriangles(geom: Polygon | MultiPolygon): Polygon | MultiPolygon | null {
+    if (geom.type === 'Polygon') {
+        // Real outer-ring polygons (multi-vertex) aren't subject to the
+        // triangulation pathology. Only flag literal 3-vertex triangles.
+        if (geom.coordinates[0].length <= 4 && isRogueTriangleRing(geom.coordinates[0])) return null;
+        return geom;
+    }
+    const kept = geom.coordinates.filter((poly) => {
+        const ring = poly[0];
+        if (ring.length > 4) return true; // not a triangle — keep
+        return !isRogueTriangleRing(ring);
+    });
+    if (kept.length === 0) return null;
+    return { type: 'MultiPolygon', coordinates: kept };
+}
+
+/**
  * Ray-casting point-in-polygon for a single ring.
  * Coordinates are [lon, lat]. Returns true if (lon, lat) is inside.
  */
@@ -602,23 +660,26 @@ function buildNavGrid(
     const depare = layers.DEPARE?.features ?? [];
     const tPassDepare = Date.now();
     for (const f of depare) {
-        const g = f.geometry;
-        if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
+        const g0 = f.geometry;
+        if (g0.type !== 'Polygon' && g0.type !== 'MultiPolygon') continue;
+        // Drop rogue triangulation slivers that bleed across land — DEPARE
+        // suffers the same SENC TRIANGLE_FAN pathology as LNDARE, just on
+        // the other side. Without this the deep shipping channel's rogue
+        // span un-blocked an inland Brisbane corridor and A* routed across
+        // the peninsula (2026-05-19 user report).
+        const g = filterRogueTriangles(g0);
+        if (!g) continue;
         const props = f.properties as Record<string, unknown> | null;
         const drval1 = props?.['DRVAL1'];
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
         if (drval1Num == null) continue; // no depth → nothing to do
-        // Chart-source DEPARE (has `acronym='DEPARE'` from senc-extractor) is
-        // hydrographic-survey data — the harbour authority surveyed it. Trust
-        // it over LNDARE if they overlap, because the SENC's LNDARE
-        // triangulation can bleed across narrow rivers (verified in OC-61
-        // Brisbane cell: rcid 3885's TRIANGLE_FAN primitives span the
-        // Brisbane River). OSM-derived DEPARE (no `acronym`) does NOT get
-        // this treatment — that's the 2026-05-14 Scarborough peninsula
-        // safeguard (bathymetry-derived DEPARE was unblocking real land).
-        const isS57Depare = typeof props?.acronym === 'string';
-        const authoritative = isS57Depare || isAuthoritativeDepare(props);
+        // Authoritative water means "trust this over LNDARE". After the
+        // rogue-triangle filter we no longer need to extend authority to
+        // every S-57 DEPARE — the filter has already removed the cells
+        // where chart DEPARE was bleeding into land. Stick with the
+        // original OSM-tag whitelist so Scarborough peninsula stays safe.
+        const authoritative = isAuthoritativeDepare(props);
         const shallow = drval1Num < draftM + safetyM;
 
         // Scanline-rasterize the polygon and apply cell updates inside
@@ -689,8 +750,15 @@ function buildNavGrid(
     const lndare = layers.LNDARE?.features ?? [];
     const tPassLndare = Date.now();
     for (const f of lndare) {
-        const g = f.geometry;
-        if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
+        const g0 = f.geometry;
+        if (g0.type !== 'Polygon' && g0.type !== 'MultiPolygon') continue;
+        // Drop the SENC's TRIANGLE_FAN bleed-into-water triangles — they
+        // wrongly mark Rivergate marina and parts of Brisbane River as
+        // land. Filtered triangles leave those cells UNKNOWN_OPEN, which
+        // A* can route through (preferred-cell rescue restores them to
+        // navigable depth via FAIRWY/DRGARE later).
+        const g = filterRogueTriangles(g0);
+        if (!g) continue;
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             if (!protectedCells[idx]) {
@@ -756,7 +824,12 @@ function buildNavGrid(
     // cost function can prefer them.
     const markChannelPreference = (f: Feature): void => {
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
-        const g = f.geometry as Polygon | MultiPolygon;
+        // Filter rogue triangles same as DEPARE/LNDARE — a DRGARE rogue
+        // span (e.g. across the Pinkenba river bend) would otherwise rescue
+        // an inland Brisbane corridor as preferred channel.
+        const filtered = filterRogueTriangles(f.geometry as Polygon | MultiPolygon);
+        if (!filtered) return;
+        const g = filtered;
         const rescueDepth = Math.max(draftM + safetyM, 5.0);
         // S-57 charted features carry an `acronym` property (e.g. 'DRGARE',
         // 'FAIRWY') set by senc-extractor's geojsonEmitter. OSM-derived
