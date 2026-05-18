@@ -72,7 +72,7 @@ import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
-import { EncRouteButton } from './EncRouteButton';
+import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
@@ -1709,10 +1709,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* ═══ ENC TEST ROUTE BUTTON (top-left chip when ENC cells imported) ═══ */}
-                {!passage.showPassage && !embedded && !isPinView && encCellCount > 0 && (
-                    <EncRouteButton encCellCount={encCellCount} onRoute={setEncTestRoute} />
-                )}
+                {/* Plan ENC Route action moved into the ChartModes dropdown
+                    (2026-05-18) — sits between "Charts Only" and "Clear All".
+                    The floating top-left pill was easily missed and crowded
+                    the FAB column. */}
 
                 {/* ═══ LEGACY LAYER MENU (kept for chart/SK/vessel controls not yet in radial) ═══ */}
                 {!passage.showPassage && !embedded && !isPinView && weather.showLayerMenu && (
@@ -1914,6 +1914,38 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setVesselTrackingVisible={setVesselTrackingVisible}
                     mpaVisible={weather.mpaVisible}
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
+                    encCellCount={encCellCount}
+                    onPlanEncRoute={async () => {
+                        // Demo waypoints — hardcoded Newport → Rivergate
+                        // until the full two-tap workflow lands. Tayana 55
+                        // draft for the safety margin.
+                        const FROM = { lat: -27.157, lon: 153.103 };
+                        const TO = { lat: -27.435, lon: 153.105 };
+                        const DRAFT_M = 1.9;
+                        try {
+                            const res = await tryInshoreRoute(FROM, TO, DRAFT_M);
+                            if (res && 'polyline' in res) {
+                                setEncTestRoute({ polyline: res.polyline, cautionMask: res.cautionMask });
+                                const cautionCount = res.cautionMask?.filter(Boolean).length ?? 0;
+                                return {
+                                    ok: true,
+                                    summary: `${res.distanceNM.toFixed(1)} NM · ${res.polyline.length} pts · ${cautionCount} caution`,
+                                };
+                            }
+                            if (res && 'error' in res) {
+                                setEncTestRoute(null);
+                                return { ok: false, summary: `failed: ${res.error}` };
+                            }
+                            setEncTestRoute(null);
+                            return { ok: false, summary: 'no route (gated)' };
+                        } catch (err) {
+                            setEncTestRoute(null);
+                            return {
+                                ok: false,
+                                summary: `crash: ${err instanceof Error ? err.message : String(err)}`,
+                            };
+                        }
+                    }}
                 />
 
                 {/* First-run coach marks — fire once per device. Five
