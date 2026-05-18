@@ -81,10 +81,30 @@ function ensureHideListener() {
 /**
  * onFocus handler — scrolls the focused input above the keyboard.
  *
- * Uses scrollIntoView which handles all container types including
- * fixed-position modals. The 'center' block alignment places the
- * input nicely above the keyboard (top half of screen).
+ * Compute-and-scroll approach (replaces the old `scrollIntoView({block:
+ * 'center'})` which had a fatal flaw: on iOS with `KeyboardResize.None`
+ * the layout viewport is the full screen, so "center" placed the input
+ * roughly where the keyboard's top edge lives — covered, not above).
+ *
+ * What this does instead: compute where the input currently sits inside
+ * its nearest scrollable ancestor, then scroll that container so the
+ * input's top edge ends up TARGET_TOP_OFFSET_PX (80 px) below the
+ * scrollable area's top. That puts the field firmly in the upper third
+ * of the screen on every phone form factor, with breathing room for a
+ * sticky page header — and well clear of the keyboard regardless of
+ * its actual height.
+ *
+ * Falls back to `scrollIntoView({block:'start'})` if the input has no
+ * scrollable ancestor (e.g. it lives in a non-scrolling fixed-position
+ * modal whose viewport IS the visual viewport).
+ *
+ * Bug fix 2026-05-18 (Shane: "the keyboard covers the destination box
+ * on the Plan page, I can't read it"). The Plan page's input column
+ * lives inside a flex-1 overflow-y-auto container, so the find-scroll-
+ * parent path is taken and the compute-and-scroll lifts the field.
  */
+const TARGET_TOP_OFFSET_PX = 80;
+
 export function scrollInputAboveKeyboard(
     e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>,
 ): void {
@@ -99,10 +119,24 @@ export function scrollInputAboveKeyboard(
         lastScrollParent = scrollParent;
     }
 
-    // Wait for keyboard animation to complete, then scroll into view.
-    // Use a small initial delay (50ms) to let iOS register the focus.
+    // Wait for keyboard animation to complete, then position the input.
     setTimeout(() => {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (document.activeElement !== el) return;
+        if (scrollParent) {
+            const inputRect = el.getBoundingClientRect();
+            const parentRect = scrollParent.getBoundingClientRect();
+            const targetTop = parentRect.top + TARGET_TOP_OFFSET_PX;
+            const scrollDelta = inputRect.top - targetTop;
+            if (Math.abs(scrollDelta) > 1) {
+                scrollParent.scrollBy({ top: scrollDelta, behavior: 'smooth' });
+            }
+        } else {
+            // No scroll ancestor — fall back to scrollIntoView at the
+            // start (top) of the visible area, then nudge down to leave
+            // header breathing room.
+            el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            window.scrollBy({ top: -TARGET_TOP_OFFSET_PX, behavior: 'smooth' });
+        }
     }, KEYBOARD_ANIM_MS);
 }
 
@@ -143,7 +177,18 @@ export function initGlobalKeyboardScroll(): void {
             setTimeout(() => {
                 // Re-check that the element is still focused (user may have blurred quickly)
                 if (document.activeElement !== el) return;
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (scrollParent) {
+                    const inputRect = el.getBoundingClientRect();
+                    const parentRect = scrollParent.getBoundingClientRect();
+                    const targetTop = parentRect.top + TARGET_TOP_OFFSET_PX;
+                    const scrollDelta = inputRect.top - targetTop;
+                    if (Math.abs(scrollDelta) > 1) {
+                        scrollParent.scrollBy({ top: scrollDelta, behavior: 'smooth' });
+                    }
+                } else {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    window.scrollBy({ top: -TARGET_TOP_OFFSET_PX, behavior: 'smooth' });
+                }
             }, KEYBOARD_ANIM_MS);
         },
         { passive: true },
