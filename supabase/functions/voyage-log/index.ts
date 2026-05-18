@@ -43,7 +43,12 @@ const corsHeaders = {
 };
 
 const MAX_ENTRIES = 200;
-const MAX_TRACK_POINTS = 5000;
+// Raised 5_000 → 200_000 on 2026-05-19 alongside the 5 s GPS sampling
+// switch. At the new cadence a 4-day passage = ~72k fixes; the 5k cap
+// would have shown only the first 7 hours of track on the public page.
+// 200k = ~11 days of headroom; Pacific crossings (~20 days) would still
+// truncate but we can paginate / decimate server-side when we need to.
+const MAX_TRACK_POINTS = 200_000;
 
 function json(body: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
     return new Response(JSON.stringify(body), {

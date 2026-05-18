@@ -444,12 +444,12 @@ const App: React.FC = () => {
                         {/* Logo row — same style on all pages */}
                         <div className="flex items-start justify-between pointer-events-auto">
                             <div className="flex items-center space-x-2">
-                                {/* Bumped 40 → 46 → 51 px 2026-05-17 — two
-                                    iterative +10–15 % nudges after the
-                                    icon-swap commit. Compass mark needed
-                                    more presence next to the wordmark +
-                                    Skipper pill cluster than 40 px gave. */}
-                                <img src="/thalassa-icon.png" alt="" className="w-[51px] h-[51px] rounded-lg" />
+                                {/* Bumped 40 → 46 → 51 → 64 px (2026-05-19).
+                                    Combined with the app-icon SVG mark-scale
+                                    bump (0.49 → 0.55), the in-app header now
+                                    has a properly sized compass that doesn't
+                                    drown next to the wordmark + Skipper pill. */}
+                                <img src="/thalassa-icon.png" alt="" className="w-[64px] h-[64px] rounded-lg" />
                                 <div>
                                     <div className="flex items-center gap-1">
                                         <h2 className="text-xl font-bold tracking-wider uppercase shadow-black drop-shadow-lg">
