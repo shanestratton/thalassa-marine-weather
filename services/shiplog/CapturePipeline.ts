@@ -210,6 +210,15 @@ export interface CaptureLogOptions {
      * silently drop valid turn/speed-change points.
      */
     skipDedup?: boolean;
+    /**
+     * Optional explicit lat/lon override for the entry. Used by the
+     * CourseChangeDetector so waypoint pins land at the geometric
+     * midpoint of the turn (computed inside the detector) rather than
+     * at whatever the current cached GPS fix happens to be. All other
+     * entry fields (timestamp, speed, weather, etc.) still come from
+     * the live position resolver. Added 2026-05-19.
+     */
+    positionOverride?: { lat: number; lon: number };
 }
 
 /**
@@ -218,7 +227,16 @@ export interface CaptureLogOptions {
  * adaptive interval.
  */
 export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = {}): Promise<ShipLogEntry | null> {
-    const { entryType = 'auto', notes, waypointName, eventCategory, engineStatus, voyageId, skipDedup } = opts;
+    const {
+        entryType = 'auto',
+        notes,
+        waypointName,
+        eventCategory,
+        engineStatus,
+        voyageId,
+        skipDedup,
+        positionOverride,
+    } = opts;
 
     try {
         const bestPos = await getBestPosition(ctx.getCachedFix(), ctx.isNative);
@@ -228,8 +246,11 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             if (entryType === 'auto') return null;
         }
 
-        const latitude = bestPos?.latitude ?? 0;
-        const longitude = bestPos?.longitude ?? 0;
+        // positionOverride wins for lat/lon (used by midpoint waypoint
+        // pins from CourseChangeDetector). Speed, heading, weather still
+        // come from the live fix — only the spatial coords are overridden.
+        const latitude = positionOverride?.lat ?? bestPos?.latitude ?? 0;
+        const longitude = positionOverride?.lon ?? bestPos?.longitude ?? 0;
         const heading = bestPos?.heading ?? null;
 
         // Quarter-hour timestamp snap for offshore auto entries (rapid

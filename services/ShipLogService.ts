@@ -397,14 +397,20 @@ class ShipLogServiceClass {
         this.courseDetector.start({
             getPos: () => this.lastBgLocation,
             isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
-            onTurn: ({ oldCardinal, newCardinal }) => {
-                // Fire-and-forget waypoint entry on detected turn.
-                this.captureLogEntry(
-                    'waypoint',
-                    `Auto: COG ${oldCardinal} → ${newCardinal}`,
-                    `COG ${oldCardinal} → ${newCardinal}`,
-                    'navigation',
-                ).catch(() => {
+            onTurn: ({ oldCardinal, newCardinal, lat, lon }) => {
+                // Fire-and-forget waypoint entry on detected turn. The
+                // detector hands us the geometric midpoint of the turn —
+                // we route through _captureLog directly with the
+                // positionOverride option so the pin lands at the
+                // midpoint rather than the current GPS fix (which would
+                // be the END of the turn for long gradual drifts).
+                _captureLog(this._captureCtx(), {
+                    entryType: 'waypoint',
+                    notes: `Auto: COG ${oldCardinal} → ${newCardinal}`,
+                    waypointName: `COG ${oldCardinal} → ${newCardinal}`,
+                    eventCategory: 'navigation',
+                    positionOverride: { lat, lon },
+                }).catch(() => {
                     /* best effort */
                 });
             },
