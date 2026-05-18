@@ -506,7 +506,9 @@ interface SystemStatusButtonProps {
 
 export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentView, onNavigateAnchor }) => {
     const [showModal, setShowModal] = useState(false);
-    const [showStopConfirm, setShowStopConfirm] = useState(false);
+    // Stop-follow confirmation modal removed 2026-05-19 — the action
+    // is reversible (just re-tap Follow on the voyage card) so a
+    // confirmation step was pure friction.
 
     // ── Aggressive Pi status refresh while the modal is open ─────────
     // The background health check runs every 30s. That's fine for steady-
@@ -868,7 +870,12 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                         onNavigateAnchor();
                     }}
                     onStopFollowing={() => {
-                        setShowStopConfirm(true);
+                        // Stop directly — no confirmation. Following a
+                        // route is fully reversible (tap Follow on the
+                        // voyage card again to resume), so a modal here
+                        // is friction not safety. Removed 2026-05-19.
+                        stopFollowing();
+                        setShowModal(false);
                     }}
                     onRefreshRoute={() => {
                         refreshRoute();
@@ -881,48 +888,6 @@ export const SystemStatusButton: React.FC<SystemStatusButtonProps> = ({ currentV
                         dismissRouteChange();
                     }}
                 />
-            )}
-
-            {/* Stop Following Confirmation */}
-            {showStopConfirm && (
-                <div
-                    className="fixed inset-0 z-[10000] flex items-center justify-center p-6"
-                    onClick={() => setShowStopConfirm(false)}
-                >
-                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-                    <div
-                        className="relative w-full max-w-sm bg-slate-900 border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-300"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <div className="h-1 bg-gradient-to-r from-red-500 via-amber-500 to-red-500" />
-                        <div className="p-6 text-center">
-                            <h3 className="text-lg font-bold text-white mb-2">Stop Following Route?</h3>
-                            <p className="text-sm text-gray-400 leading-relaxed">
-                                This will remove the route overlay and stop weather auto-refresh.
-                            </p>
-                        </div>
-                        <div className="px-6 pb-6 flex gap-3">
-                            <button
-                                aria-label="Stop tracking location"
-                                onClick={() => setShowStopConfirm(false)}
-                                className="flex-1 py-3.5 px-4 rounded-xl bg-white/5 border border-white/10 text-gray-300 font-bold text-sm hover:bg-white/10 transition-all active:scale-[0.97]"
-                            >
-                                Keep
-                            </button>
-                            <button
-                                aria-label="Follow current position on map"
-                                onClick={() => {
-                                    stopFollowing();
-                                    setShowStopConfirm(false);
-                                    setShowModal(false);
-                                }}
-                                className="flex-1 py-3.5 px-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 font-bold text-sm hover:bg-red-500/25 transition-all active:scale-[0.97]"
-                            >
-                                Stop Route
-                            </button>
-                        </div>
-                    </div>
-                </div>
             )}
         </>
     );
