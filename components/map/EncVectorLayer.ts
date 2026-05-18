@@ -243,14 +243,11 @@ export function mountEncVectorLayer(
     }
 
     // ── LNDARE (tan land) ─────────────────────────────────────────
-    // Tan fill with a dark olive 1-px stroke. The stroke draws around every
-    // emitted polygon — and since each AREA feature emits as a MultiPolygon
-    // of individual triangles, the stroke traces every triangle's three
-    // edges. Interior edges are shared between two triangles so they render
-    // twice at the same color (no visual cost); the outer hull (which is
-    // the only edge with degree-1 in the triangulation graph) renders just
-    // once. Net effect: a darker tan margin along the actual coastline.
-    // The COALNE black line on top provides the authoritative outline.
+    // No fill-outline-color: each AREA feature emits as a MultiPolygon of
+    // individual triangles (until polygon-outline rings are restored), so
+    // any stroke draws the full triangulation mesh — verified visually
+    // on 2026-05-19 as a brown criss-cross over Brisbane. COALNE on top
+    // provides the proper land/water boundary.
     if (!map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
         map.addLayer(
             {
@@ -262,7 +259,6 @@ export function mountEncVectorLayer(
                     'fill-color': '#d6c590',
                     'fill-opacity': opacity,
                     'fill-antialias': true,
-                    'fill-outline-color': '#5c4a1a',
                 },
             },
             before,
