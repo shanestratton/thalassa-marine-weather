@@ -1,13 +1,15 @@
 /**
  * CourseChangeDetector — fires when the boat's bearing changes by
  * ≥COURSE_CHANGE_THRESHOLD_DEG (currently 30°, one quarter past one
- * compass point).
+ * compass point). On fire the pin is placed at the GEOMETRIC MIDPOINT
+ * of the turn (start-of-drift position averaged with end-of-drift
+ * position), not at the position where the threshold was crossed.
  *
  * Strategy: every 15s, take the latest GPS fix and compute the bearing
  * from the LAST checked position to the CURRENT one — i.e. a recent,
  * short vector. Compare that against a "baseline" heading that stays
- * locked until we detect a turn. On turn, fire `onTurn(oldDeg, newDeg)`
- * and reset the baseline to the new heading.
+ * locked until we detect a turn. On turn, fire `onTurn(...)` with the
+ * midpoint lat/lon embedded and reset the baseline to the new heading.
  *
  * Why this, not "bearing from voyage origin": on long straight legs the
  * origin-bearing barely changes when you turn (1km north + small turn
@@ -52,6 +54,25 @@ const COURSE_CHECK_INTERVAL_MS = 15_000;
  * level docstring for the full rationale.
  */
 const COURSE_CHANGE_THRESHOLD_DEG = 30;
+/**
+ * Smaller heading delta (degrees) that marks "the turn has STARTED."
+ * When `delta` first crosses this threshold we remember the position
+ * as `turnStartPos`. When `delta` later reaches the fire threshold
+ * (30°) the pin is placed at midpoint(turnStartPos, currentPos)
+ * rather than at currentPos.
+ *
+ * Added 2026-05-19 (option B from Shane's review): for sharp turns
+ * (tack/gybe/harbour entry) start-of-drift and end-of-drift sit
+ * within metres of each other, so behaviour is unchanged. For long
+ * gradual turns (e.g. a 30° drift over 12 hours) the old logic
+ * dropped a pin at the END of the turn — could be 20–60 NM downstream
+ * of where the sailor would intuitively say "the turn happened here."
+ * Midpoint placement fixes that.
+ *
+ * If drift starts (≥5°) then steadies back (<5°) before reaching 30°,
+ * the start anchor is abandoned (false-start protection).
+ */
+const TURN_START_THRESHOLD_DEG = 5;
 
 const CARDINALS_16 = [
     'N',
@@ -89,6 +110,16 @@ export interface TurnEvent {
     newCardinal: string;
     /** Heading delta in degrees (always positive, 0–180) */
     deltaDeg: number;
+    /**
+     * Latitude of the geometric midpoint of the turn — average of
+     * start-of-drift position and end-of-drift position. If no
+     * start-of-drift was captured (e.g. the turn went from 0° to
+     * 30° in a single tick — sharp helm input) this falls back to
+     * the current position.
+     */
+    lat: number;
+    /** Longitude of the geometric midpoint of the turn. */
+    lon: number;
 }
 
 /**
@@ -107,6 +138,14 @@ export class CourseChangeDetector {
     private intervalId?: ReturnType<typeof setInterval>;
     private lastValidPos: { lat: number; lon: number } | null = null;
     private baselineHeading: number | null = null;
+    /**
+     * Set when `delta` first crosses TURN_START_THRESHOLD_DEG. Holds
+     * the position right BEFORE the drift began (the previous tick's
+     * anchor). When the fire threshold is reached, the pin is placed
+     * at midpoint(turnStartPos, currentPos). Cleared on fire, or on
+     * `delta` falling back below the start threshold (false-start).
+     */
+    private turnStartPos: { lat: number; lon: number } | null = null;
 
     /**
      * Start the 15s detection loop. Subsequent calls clear the existing
@@ -133,6 +172,7 @@ export class CourseChangeDetector {
     reset(): void {
         this.lastValidPos = null;
         this.baselineHeading = null;
+        this.turnStartPos = null;
     }
 
     private tick(opts: CourseChangeOptions): void {
@@ -158,6 +198,11 @@ export class CourseChangeDetector {
         // 3. Compute the recent bearing — short vector from anchor to now.
         const recentBearing = bearing(this.lastValidPos.lat, this.lastValidPos.lon, currentPos.lat, currentPos.lon);
 
+        // Capture the PRE-SLIDE anchor so we can use it as the "drift
+        // started here" position if we cross the start threshold this
+        // tick. After this point lastValidPos becomes currentPos.
+        const previousAnchor = this.lastValidPos;
+
         // 4. CRITICAL: slide the anchor forward every tick so the bearing
         //    vector stays SHORT and RECENT. Long legs would dilute the turn signal.
         this.lastValidPos = currentPos;
@@ -170,6 +215,21 @@ export class CourseChangeDetector {
 
         // 6. Compare recent bearing against the locked baseline.
         const delta = headingDelta(this.baselineHeading, recentBearing);
+
+        // 6a. Track turn-start position for midpoint pin placement.
+        // First tick where drift crosses the start threshold → remember
+        // the pre-slide anchor (≈ where we were 15s ago, right at the
+        // edge of the still-on-baseline window). If drift falls back
+        // below the threshold without ever reaching fire, abandon.
+        if (delta >= TURN_START_THRESHOLD_DEG) {
+            if (!this.turnStartPos) {
+                this.turnStartPos = previousAnchor;
+            }
+        } else if (this.turnStartPos) {
+            // False start — boat steadied back inside the start band.
+            this.turnStartPos = null;
+        }
+
         if (delta < COURSE_CHANGE_THRESHOLD_DEG) return;
 
         const oldDeg = this.baselineHeading;
@@ -177,13 +237,33 @@ export class CourseChangeDetector {
         const oldCardinal = degreesToCardinal16(oldDeg);
         const newCardinal = degreesToCardinal16(newDeg);
 
-        // Lock baseline to the new direction for the next leg.
-        this.baselineHeading = newDeg;
+        // 7. Compute pin position — midpoint of (start-of-drift, now).
+        // Fallback to current position if no start anchor was captured
+        // (happens when the turn goes 0° → 30° in a SINGLE tick — sharp
+        // helm input, no intermediate "started drifting" sample). Even
+        // then start ≈ end so the result reads correctly.
+        const pinPos = this.turnStartPos ? lonLatMidpoint(this.turnStartPos, currentPos) : currentPos;
 
-        log.info(`Turn detected: ${oldCardinal} → ${newCardinal} (Δ${delta.toFixed(1)}°)`);
+        // Lock baseline to the new direction for the next leg. Clear
+        // the turn-start anchor — the next turn starts fresh.
+        this.baselineHeading = newDeg;
+        this.turnStartPos = null;
+
+        log.info(
+            `Turn detected: ${oldCardinal} → ${newCardinal} (Δ${delta.toFixed(1)}°) ` +
+                `pin @ ${pinPos.lat.toFixed(5)},${pinPos.lon.toFixed(5)}`,
+        );
 
         try {
-            opts.onTurn({ oldDeg, newDeg, oldCardinal, newCardinal, deltaDeg: delta });
+            opts.onTurn({
+                oldDeg,
+                newDeg,
+                oldCardinal,
+                newCardinal,
+                deltaDeg: delta,
+                lat: pinPos.lat,
+                lon: pinPos.lon,
+            });
         } catch (e) {
             // Defensive: an exception inside onTurn would kill the timer
             // and we'd silently stop detecting course changes for the
@@ -191,6 +271,26 @@ export class CourseChangeDetector {
             log.warn('onTurn handler threw — continuing', e);
         }
     }
+}
+
+/**
+ * Linear midpoint of two lat/lon points, with antimeridian-aware
+ * longitude handling. For waypoint pins at the scale of a single
+ * turn (≤60 NM), great-circle vs flat-earth midpoint differs by a
+ * few hundred metres at most — not worth the geodetic complexity.
+ */
+function lonLatMidpoint(
+    a: { lat: number; lon: number },
+    b: { lat: number; lon: number },
+): { lat: number; lon: number } {
+    const lat = (a.lat + b.lat) / 2;
+    let dLon = b.lon - a.lon;
+    if (dLon > 180) dLon -= 360;
+    if (dLon < -180) dLon += 360;
+    let lon = a.lon + dLon / 2;
+    if (lon > 180) lon -= 360;
+    if (lon < -180) lon += 360;
+    return { lat, lon };
 }
 
 /** Haversine distance in meters between two lat/lon points. */
