@@ -29,7 +29,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
-import { SunriseIcon, CompassIcon, ThunderstormIcon, MapIcon, SparklesIcon, GearIcon, CheckIcon } from '../Icons';
+import {
+    SunriseIcon,
+    CompassIcon,
+    ThunderstormIcon,
+    MapIcon,
+    SparklesIcon,
+    GearIcon,
+    CheckIcon,
+    AnchorIcon,
+} from '../Icons';
 
 export type ChartMode = 'day-sail' | 'offshore' | 'storm-watch' | 'charts-only' | 'clear' | 'custom';
 
@@ -129,6 +138,17 @@ interface ChartModesProps {
 
     mpaVisible?: boolean;
     setMpaVisible?: (v: boolean) => void;
+
+    /**
+     * If provided, renders a "Plan ENC Route" action row between the
+     * Charts Only and Clear All preset rows in the dropdown. The callback
+     * runs `tryInshoreRoute` and returns a short status string for the
+     * row's secondary text. ChartModes manages the local busy state.
+     *
+     * Only shown when `encCellCount > 0` — pointless without imported cells.
+     */
+    encCellCount?: number;
+    onPlanEncRoute?: () => Promise<{ ok: boolean; summary: string }>;
 }
 
 const STORAGE_KEY = 'thalassa_chart_mode';
@@ -172,6 +192,26 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
         }
     });
     const wrapRef = useRef<HTMLDivElement>(null);
+
+    // Plan-ENC-Route action state. Local because the action is "fire and
+    // surface a one-line result" — no need to lift to MapHub. The actual
+    // routing call comes from props.onPlanEncRoute.
+    const [encBusy, setEncBusy] = useState(false);
+    const [encLastResult, setEncLastResult] = useState<string | null>(null);
+    const showEncRouteRow = !!props.onPlanEncRoute && (props.encCellCount ?? 0) > 0;
+    const runEncRoute = useCallback(async () => {
+        if (!props.onPlanEncRoute || encBusy) return;
+        setEncBusy(true);
+        setEncLastResult(null);
+        try {
+            const result = await props.onPlanEncRoute();
+            setEncLastResult(result.summary);
+        } catch (err) {
+            setEncLastResult(`crash: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+            setEncBusy(false);
+        }
+    }, [props.onPlanEncRoute, encBusy]);
 
     // Detect current mode every render — when state matches one of the
     // presets, the chip reflects that preset. When it doesn't, "Custom".
@@ -382,52 +422,108 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                 >
                     {MODE_SPECS.map((spec) => {
                         const active = currentMode === spec.id;
+                        // Inject the "Plan ENC Route" action row immediately
+                        // BEFORE the Clear All row so the picker reads:
+                        //   Day Sail / Offshore / Storm Watch / Charts Only /
+                        //   ─ Plan ENC Route (action, violet) ─
+                        //   Clear All
+                        const isClearRow = spec.id === 'clear';
                         return (
-                            <button
-                                key={spec.id}
-                                onClick={() => applyMode(spec)}
-                                className="flex items-center gap-3 text-left transition-colors"
-                                style={{
-                                    background: active ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
-                                    borderRadius: 10,
-                                    padding: '8px 10px',
-                                    border: active ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
-                                }}
-                            >
-                                <span
-                                    aria-hidden
-                                    className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                    style={{ color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)' }}
-                                >
-                                    <spec.Icon className="w-[18px] h-[18px]" />
-                                </span>
-                                <span className="flex-1 min-w-0">
-                                    <span
-                                        className="block font-semibold"
-                                        style={{
-                                            color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)',
-                                            fontSize: 13,
+                            <React.Fragment key={spec.id}>
+                                {isClearRow && showEncRouteRow && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            void runEncRoute();
                                         }}
-                                    >
-                                        {spec.label}
-                                    </span>
-                                    <span
-                                        className="block opacity-70"
+                                        disabled={encBusy}
+                                        className="flex items-center gap-3 text-left transition-colors"
                                         style={{
-                                            color: 'rgba(255,255,255,0.7)',
-                                            fontSize: 10,
-                                            marginTop: 1,
+                                            background: encBusy
+                                                ? 'rgba(167, 139, 250, 0.18)'
+                                                : 'rgba(167, 139, 250, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(167, 139, 250, 0.25)',
+                                            cursor: encBusy ? 'wait' : 'pointer',
                                         }}
+                                        aria-label="Plan ENC test route — Newport to Rivergate"
                                     >
-                                        {spec.summary}
-                                    </span>
-                                </span>
-                                {active && (
-                                    <span aria-hidden className="inline-flex items-center text-sky-400">
-                                        <CheckIcon className="w-4 h-4" />
-                                    </span>
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#a78bfa' }}
+                                        >
+                                            <AnchorIcon className="w-[18px] h-[18px]" />
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{
+                                                    color: '#a78bfa',
+                                                    fontSize: 13,
+                                                }}
+                                            >
+                                                {encBusy ? 'Routing…' : 'Plan ENC Route'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                {encLastResult ?? 'Newport → Rivergate demo'}
+                                            </span>
+                                        </span>
+                                    </button>
                                 )}
-                            </button>
+                                <button
+                                    onClick={() => applyMode(spec)}
+                                    className="flex items-center gap-3 text-left transition-colors"
+                                    style={{
+                                        background: active ? 'rgba(56, 189, 248, 0.15)' : 'transparent',
+                                        borderRadius: 10,
+                                        padding: '8px 10px',
+                                        border: active ? '1px solid rgba(56, 189, 248, 0.35)' : '1px solid transparent',
+                                    }}
+                                >
+                                    <span
+                                        aria-hidden
+                                        className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                        style={{ color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)' }}
+                                    >
+                                        <spec.Icon className="w-[18px] h-[18px]" />
+                                    </span>
+                                    <span className="flex-1 min-w-0">
+                                        <span
+                                            className="block font-semibold"
+                                            style={{
+                                                color: active ? '#38bdf8' : 'rgba(255,255,255,0.92)',
+                                                fontSize: 13,
+                                            }}
+                                        >
+                                            {spec.label}
+                                        </span>
+                                        <span
+                                            className="block opacity-70"
+                                            style={{
+                                                color: 'rgba(255,255,255,0.7)',
+                                                fontSize: 10,
+                                                marginTop: 1,
+                                            }}
+                                        >
+                                            {spec.summary}
+                                        </span>
+                                    </span>
+                                    {active && (
+                                        <span aria-hidden className="inline-flex items-center text-sky-400">
+                                            <CheckIcon className="w-4 h-4" />
+                                        </span>
+                                    )}
+                                </button>
+                            </React.Fragment>
                         );
                     })}
                     {currentMode === 'custom' && (
