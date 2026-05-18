@@ -54,8 +54,7 @@ import {
 } from './EntrySave';
 import { calculateBearing, calculateDistanceNM, formatPositionDMS, getWeatherSnapshot } from './helpers';
 import { getLastPosition, saveLastPosition, type TrackingState } from './TrackingStateStore';
-import { thinTrack, type GpsTrackBuffer } from './GpsTrackBuffer';
-import { GpsPrecision } from './GpsPrecisionTracker';
+import { type GpsTrackBuffer } from './GpsTrackBuffer';
 import { getBestPosition } from './PositionResolver';
 import { checkIsOnWater } from './waterDetection';
 
@@ -469,20 +468,14 @@ export async function flushBufferedTrack(ctx: CaptureContext): Promise<void> {
         return;
     }
 
-    const epsilonMult = GpsPrecision.getAdaptedThresholds().trackThinningMultiplier;
-    const significant = thinTrack(rawPoints, epsilonMult);
-
-    // All points filtered out as noise → fall back to the latest raw fix.
-    if (significant.length === 0) {
-        ctx.setCachedFix(rawPoints[rawPoints.length - 1]);
-        await captureLog(ctx);
-        return;
-    }
-
-    // Log each significant point sequentially. The orchestrator's
-    // cached fix is overwritten so getBestPosition picks up the right
-    // point; skipDedup=true so RDP's context-aware filtering wins.
-    for (const pos of significant) {
+    // 2026-05-19: log every raw point — no RDP, no thinTrack. Shane's
+    // policy after the driving-speed disaster: 5 s cadence with full
+    // retention beats sub-second cadence with smart culling, because
+    // the cull was overly aggressive on straight high-speed legs. The
+    // BgGeo 1 m distanceFilter already removes stationary jitter at
+    // ingest. CourseChangeDetector still emits the visible turn pins
+    // at 30°+ — that pipeline is independent of track storage.
+    for (const pos of rawPoints) {
         ctx.setCachedFix(pos);
         await captureLog(ctx, { skipDedup: true });
     }

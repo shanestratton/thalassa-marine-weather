@@ -124,17 +124,27 @@ class BgGeoManagerClass {
     /**
      * Runtime-reconfigure the Transistor GPS sampling rate.
      *
-     * Added 2026-05-17 to support Precision Mode — when the user wants
-     * the highest-accuracy track (entering harbour, anchoring, narrow
-     * channels), we tighten the distance filter to 0 and ask iOS/
-     * Android for fixes as fast as the OS will give them (~1–2 Hz on
-     * iOS, configurable on Android). The live decimation in
-     * `GpsTrackBuffer.pushWithLiveFilter` immediately drops the
-     * redundant ones, so storage stays sane while accuracy peaks.
+     * Model history:
+     *   2026-05-17: introduced two-tier sampling — DEFAULT (1 m/1 Hz)
+     *      vs PRECISION (distanceFilter 0, 2 Hz, with live decimation
+     *      in pushWithLiveFilter to keep storage sane).
+     *   2026-05-19: collapsed to a single 5 s cadence with NO live
+     *      decimation and NO RDP at flush. The 2 Hz + smart-cull model
+     *      cut too much detail at driving speeds (the 3-point
+     *      collinearity filter killed straight-road runs). 5 s ×
+     *      4-day passage ≈ 72k fixes — large but tractable: ~3.5 MB
+     *      stored, Mapbox handles the polyline, battery is BETTER than
+     *      the old 2 Hz precision mode. Predictability > compression.
      *
-     * Modes:
-     *   - 'default'   — distanceFilter 1 m, 1 Hz floor (normal sailing)
-     *   - 'precision' — distanceFilter 0,   500 ms floor (~2 Hz target)
+     * Modes (both now use the same 5 s cadence — kept the two-mode
+     * signature for backwards compat with callers that still pass
+     * 'precision'):
+     *   - 'default'   — distanceFilter 1 m, 5 s interval
+     *   - 'precision' — distanceFilter 1 m, 5 s interval (same)
+     *
+     * The 1 m distanceFilter is what stops stationary GPS jitter from
+     * generating fixes at anchor. During real movement at any speed
+     * above ~0.2 m/s, every 5 s tick produces a fix.
      *
      * Calling `setConfig` on a running BgGeo session applies live,
      * no restart needed.
@@ -142,21 +152,12 @@ class BgGeoManagerClass {
     async setSamplingMode(mode: 'default' | 'precision'): Promise<void> {
         try {
             await this.ensureReady();
-            if (mode === 'precision') {
-                await BackgroundGeolocation.setConfig({
-                    distanceFilter: 0,
-                    locationUpdateInterval: 500,
-                    fastestLocationUpdateInterval: 500,
-                });
-                log.info('GPS sampling → PRECISION (2 Hz target, distanceFilter 0)');
-            } else {
-                await BackgroundGeolocation.setConfig({
-                    distanceFilter: 1,
-                    locationUpdateInterval: 3000,
-                    fastestLocationUpdateInterval: 1000,
-                });
-                log.info('GPS sampling → DEFAULT (1 m / 1–3 s)');
-            }
+            await BackgroundGeolocation.setConfig({
+                distanceFilter: 1,
+                locationUpdateInterval: 5000,
+                fastestLocationUpdateInterval: 5000,
+            });
+            log.info(`GPS sampling → ${mode.toUpperCase()} (5 s interval, raw retention)`);
         } catch (e) {
             log.warn('setSamplingMode failed (engine may not be running):', e);
         }
@@ -242,9 +243,13 @@ class BgGeoManagerClass {
             await BackgroundGeolocation.ready({
                 // Geolocation — high accuracy for marine navigation
                 desiredAccuracy: BackgroundGeolocation.DESIRED_ACCURACY_HIGH,
-                distanceFilter: 1, // 1m — capture fine-grained positions for track buffer (RDP handles dedup)
-                locationUpdateInterval: 3000, // 3s preferred (Android)
-                fastestLocationUpdateInterval: 1000,
+                // 5 s cadence with 1 m gate — matches setSamplingMode().
+                // See the long-form rationale on that method. Stationary
+                // jitter is gated out by distanceFilter; during movement
+                // every 5 s tick produces a kept fix.
+                distanceFilter: 1,
+                locationUpdateInterval: 5000,
+                fastestLocationUpdateInterval: 5000,
 
                 // Activity recognition
                 stopTimeout: 0, // NEVER auto-stop — vessel may be anchored

@@ -247,18 +247,19 @@ export class GpsSubscriptionManager {
             }
         }
 
-        // Fix-acceptance gate + buffer push. When Precision Mode is
-        // active, route through the buffer's live decimation filter
-        // (collocation drop + 3-point collinearity replacement)
-        // instead of raw push, so the 2 Hz capture rate doesn't
-        // bloat the buffer with redundant points. Final RDP at
-        // flush time still runs as before.
+        // Fix-acceptance gate + buffer push.
+        //
+        // 2026-05-19: removed the precision-mode branch that routed
+        // through pushWithLiveFilter (collocation drop + 3-point
+        // collinearity). At driving speeds the collinearity filter
+        // killed straight-road runs because three consecutive 10 m
+        // points on a 1 km straight road ARE collinear within tolerance.
+        // The new model is 5 s cadence with raw retention — predictable
+        // at any speed, ~72 k fixes per 4-day passage which is fine
+        // (~3.5 MB stored). isPrecisionMode() is still called by callers
+        // but no longer changes ingest behaviour.
         if (opts.isActive() && this.acceptFix(pos, opts.trackBuffer)) {
-            if (opts.isPrecisionMode()) {
-                opts.trackBuffer.pushWithLiveFilter(pos);
-            } else {
-                opts.trackBuffer.push(pos);
-            }
+            opts.trackBuffer.push(pos);
         }
 
         // Altitude → EnvironmentService for on-water/on-land detection.
