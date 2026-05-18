@@ -243,11 +243,14 @@ export function mountEncVectorLayer(
     }
 
     // ── LNDARE (tan land) ─────────────────────────────────────────
-    // Outline dropped — with proper polygon-outline rings each AREA gets one
-    // visible stroke around its perimeter, and the polygon-assembly pass still
-    // has rough edges at corners that read as visual noise. Fill alone reads
-    // as land well enough; a clean outline comes back once ring chaining is
-    // fully Eulerian.
+    // Tan fill with a dark olive 1-px stroke. The stroke draws around every
+    // emitted polygon — and since each AREA feature emits as a MultiPolygon
+    // of individual triangles, the stroke traces every triangle's three
+    // edges. Interior edges are shared between two triangles so they render
+    // twice at the same color (no visual cost); the outer hull (which is
+    // the only edge with degree-1 in the triangulation graph) renders just
+    // once. Net effect: a darker tan margin along the actual coastline.
+    // The COALNE black line on top provides the authoritative outline.
     if (!map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
         map.addLayer(
             {
@@ -259,32 +262,40 @@ export function mountEncVectorLayer(
                     'fill-color': '#d6c590',
                     'fill-opacity': opacity,
                     'fill-antialias': true,
+                    'fill-outline-color': '#5c4a1a',
                 },
             },
             before,
         );
     }
 
-    // ── COALNE (white coastline) ──────────────────────────────────
-    // Held back to zoom 11+ — at lower zooms the LNDARE fill alone reads as
-    // land, and the COALNE line features at chart-overview scales collapse
-    // into a visually noisy wireframe. Re-instate detail when the user
-    // zooms in for pilotage.
+    // ── COALNE (black coastline) ──────────────────────────────────
+    // Drawn from chart zoom upward — at low zoom the LNDARE triangulation
+    // bleeds into water (GLU TRIANGLE_FAN slivers across river concavities)
+    // so the fill alone doesn't read as a proper land/water boundary.
+    // COALNE is the chart-author's intended coastline as a line feature —
+    // immune to the triangulation issue and gives a clean black outline at
+    // all zooms.
+    //
+    // Earlier choice was white @ z11+ on the assumption LNDARE fill plus
+    // an OSM coastline would suffice at coastal zoom. With ENC charts as
+    // the primary surface that's no longer true (2026-05-19 — user
+    // feedback: "still very hard to see land from water").
     if (!map.getLayer(ENC_VEC_LAYERS.COALNE)) {
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.COALNE,
                 type: 'line',
                 source: ENC_VEC_SRC.COALNE,
-                minzoom: Math.max(minZoom, 11),
+                minzoom: minZoom,
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
                 },
                 paint: {
-                    'line-color': '#ffffff',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 11, 0.7, 13, 1.1, 15, 1.6],
-                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 11, 0.5, 13, 0.85, 15, opacity],
+                    'line-color': '#0a0a0a',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.0, 13, 1.4, 15, 1.8],
+                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, opacity],
                 },
             },
             before,
@@ -594,15 +605,17 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
 const ROUTE_FOCUS_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.COALNE] as const;
 
 /**
- * "Clean chart" mode — hide the busy depth-fills + coastline lines so the
- * chart reads as just land + navigational markers + hazards. Keeps LNDARE
- * (the user explicitly asked for "land"), all marker layers, and hazards.
+ * "Clean chart" mode — hide the busy depth-band fills so the chart reads
+ * as just land + coastline + navigational markers + hazards. COALNE is
+ * KEPT visible in clean mode (2026-05-19 user feedback: needs the
+ * coastline to distinguish land from water at coastal zooms because the
+ * LNDARE triangulation bleeds across river concavities).
  *
- * This is independent of route-focus: route-focus hides LNDARE too because
- * the route polyline is the focal point; clean-chart KEEPS land so the
+ * Independent of route-focus: route-focus hides LNDARE+COALNE too because
+ * the route polyline is the focal point; clean-chart keeps both so the
  * sailor can sense-check waypoints against the coastline.
  */
-const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.COALNE] as const;
+const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE] as const;
 
 /**
  * Route-focus mode: hide the busy bulk-fill and coastline layers so the route
