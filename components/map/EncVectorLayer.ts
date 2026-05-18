@@ -265,33 +265,32 @@ export function mountEncVectorLayer(
         );
     }
 
-    // ── COALNE (black coastline) ──────────────────────────────────
-    // Drawn from chart zoom upward — at low zoom the LNDARE triangulation
-    // bleeds into water (GLU TRIANGLE_FAN slivers across river concavities)
-    // so the fill alone doesn't read as a proper land/water boundary.
-    // COALNE is the chart-author's intended coastline as a line feature —
-    // immune to the triangulation issue and gives a clean black outline at
-    // all zooms.
-    //
-    // Earlier choice was white @ z11+ on the assumption LNDARE fill plus
-    // an OSM coastline would suffice at coastal zoom. With ENC charts as
-    // the primary surface that's no longer true (2026-05-19 — user
-    // feedback: "still very hard to see land from water").
+    // ── COALNE (coastline) ────────────────────────────────────────
+    // Held back to zoom 13+ — the AU oeSENC LINE records on this cell set
+    // come through as criss-cross spans connecting unrelated nodes
+    // (verified visually 2026-05-19: tapping any criss-cross line shows
+    // "Charted coastline OC-61-351824"). Root cause is the LineRaw second-
+    // pass walking the wrong edge sequence — likely the VECTOR_EDGE_NODE_
+    // TABLE_EXT_RECORD (type 85) variant we don't yet parse contributes
+    // edges that are missing from our 96/97 tables, so the resolved Line
+    // joins distant nodes through space. Until that's fixed, keep COALNE
+    // suppressed at coastal zoom; high zoom (≥13) is where remaining
+    // resolvable edges look acceptable.
     if (!map.getLayer(ENC_VEC_LAYERS.COALNE)) {
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.COALNE,
                 type: 'line',
                 source: ENC_VEC_SRC.COALNE,
-                minzoom: minZoom,
+                minzoom: Math.max(minZoom, 13),
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
                 },
                 paint: {
-                    'line-color': '#0a0a0a',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.0, 13, 1.4, 15, 1.8],
-                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, opacity],
+                    'line-color': '#ffffff',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 15, 1.4, 17, 2.0],
+                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 15, opacity],
                 },
             },
             before,
@@ -601,17 +600,14 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
 const ROUTE_FOCUS_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.COALNE] as const;
 
 /**
- * "Clean chart" mode — hide the busy depth-band fills so the chart reads
- * as just land + coastline + navigational markers + hazards. COALNE is
- * KEPT visible in clean mode (2026-05-19 user feedback: needs the
- * coastline to distinguish land from water at coastal zooms because the
- * LNDARE triangulation bleeds across river concavities).
- *
- * Independent of route-focus: route-focus hides LNDARE+COALNE too because
- * the route polyline is the focal point; clean-chart keeps both so the
- * sailor can sense-check waypoints against the coastline.
+ * "Clean chart" mode — hide depth fills AND COALNE so the chart reads as
+ * just land + navigational markers + hazards. COALNE is back in the hide
+ * list (2026-05-19 second pass): on AU oeSENC the LineRaw resolution
+ * produces criss-cross spans between unrelated nodes, looks like a brown
+ * mesh. Until the EXT vector tables (types 85/86) are wired in, COALNE
+ * stays off by default.
  */
-const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE] as const;
+const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.COALNE] as const;
 
 /**
  * Route-focus mode: hide the busy bulk-fill and coastline layers so the route
