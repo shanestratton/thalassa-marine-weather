@@ -609,7 +609,16 @@ function buildNavGrid(
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
         if (drval1Num == null) continue; // no depth → nothing to do
-        const authoritative = isAuthoritativeDepare(props);
+        // Chart-source DEPARE (has `acronym='DEPARE'` from senc-extractor) is
+        // hydrographic-survey data — the harbour authority surveyed it. Trust
+        // it over LNDARE if they overlap, because the SENC's LNDARE
+        // triangulation can bleed across narrow rivers (verified in OC-61
+        // Brisbane cell: rcid 3885's TRIANGLE_FAN primitives span the
+        // Brisbane River). OSM-derived DEPARE (no `acronym`) does NOT get
+        // this treatment — that's the 2026-05-14 Scarborough peninsula
+        // safeguard (bathymetry-derived DEPARE was unblocking real land).
+        const isS57Depare = typeof props?.acronym === 'string';
+        const authoritative = isS57Depare || isAuthoritativeDepare(props);
         const shallow = drval1Num < draftM + safetyM;
 
         // Scanline-rasterize the polygon and apply cell updates inside
@@ -1480,6 +1489,43 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // reports "no-path" and we need to know whether the grid was
     // mostly land (bad chart for this route) or mostly navigable
     // with a topology issue.
+
+    // ── Endpoint carve ──────────────────────────────────────────────
+    // When the user picks an origin/destination, they're asserting "this
+    // is water". On ENC charts where LNDARE's GLU-tessellated TRIANGLE_FAN
+    // primitives can bleed across narrow rivers (Brisbane River + Rivergate
+    // marina is the verified case), the exact endpoint cell can end up
+    // hard-blocked even though it's a real marina. Carve a small radius
+    // around each endpoint as forced-navigable so the snap algorithm has
+    // a target and A* can connect through.
+    //
+    // 60 m radius — narrow enough to fit any sane marina basin / river
+    // bend without bleeding to the opposite shore on a 50 m grid; just
+    // big enough that even a slight position error puts the carve in the
+    // right water body.
+    const mPerLonHere = mPerDegLon((grid.minLat + grid.minLat + grid.height * grid.dLat) / 2);
+    const carveEndpoint = (lat: number, lon: number, radiusM: number): void => {
+        const dLatBuf = radiusM / M_PER_DEG_LAT;
+        const dLonBuf = radiusM / mPerLonHere;
+        const x0 = Math.max(0, Math.floor((lon - dLonBuf - grid.minLon) / grid.dLon));
+        const x1 = Math.min(grid.width - 1, Math.ceil((lon + dLonBuf - grid.minLon) / grid.dLon));
+        const y0 = Math.max(0, Math.floor((lat - dLatBuf - grid.minLat) / grid.dLat));
+        const y1 = Math.min(grid.height - 1, Math.ceil((lat + dLatBuf - grid.minLat) / grid.dLat));
+        const carveDepth = Math.max((req.draftM ?? 1.5) + 1.0, 5.0);
+        for (let y = y0; y <= y1; y++) {
+            const cellLat = grid.minLat + (y + 0.5) * grid.dLat;
+            for (let x = x0; x <= x1; x++) {
+                const cellLon = grid.minLon + (x + 0.5) * grid.dLon;
+                if (haversineM(cellLat, cellLon, lat, lon) > radiusM) continue;
+                const idx = y * grid.width + x;
+                grid.cells[idx] = carveDepth;
+                grid.preferred[idx] = 1; // attract A* to enter via the bubble
+            }
+        }
+    };
+    carveEndpoint(req.fromLat, req.fromLon, 60);
+    carveEndpoint(req.toLat, req.toLon, 60);
+
     let blocked = 0;
     for (let i = 0; i < grid.cells.length; i++) {
         if (Number.isNaN(grid.cells[i])) blocked++;
