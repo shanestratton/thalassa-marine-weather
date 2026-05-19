@@ -539,13 +539,25 @@ async function tryInshoreRouteInner(
             log.warn(
                 `STAGE: OSM near ORIGIN (${oLat.toFixed(4)},${oLon.toFixed(4)} ±2.5km) — canalLines=${canalNear.length} water=${waterNear.length} marina=${marinaNear.length}`,
             );
-            for (const f of canalNear.slice(0, 12)) {
-                const coords = (f.geometry as { coordinates: number[][] }).coordinates;
+            // Endpoints on STAGE: lines (one canal per line, no leading
+            // bullet) so they survive the indent/namespace log filter.
+            // Longest canals first — the exit channel is usually a longer
+            // run than the residential side-arms. We're hunting for one
+            // whose endpoints span from the estate interior (lon ~153.085-
+            // 0.10) out toward open water (Hays Inlet lon <153.08, or
+            // Bramble Bay to the north/west).
+            const canalSorted = [...canalNear].sort(
+                (a, b) =>
+                    (b.geometry as { coordinates: number[][] }).coordinates.length -
+                    (a.geometry as { coordinates: number[][] }).coordinates.length,
+            );
+            for (let ci = 0; ci < Math.min(15, canalSorted.length); ci++) {
+                const coords = (canalSorted[ci].geometry as { coordinates: number[][] }).coordinates;
                 const a = coords[0];
                 const b = coords[coords.length - 1];
-                const props = (f.properties ?? {}) as Record<string, unknown>;
+                const props = (canalSorted[ci].properties ?? {}) as Record<string, unknown>;
                 log.warn(
-                    `  • canal ${props['waterway'] ?? '?'} ${coords.length}pts [${a[1].toFixed(4)},${a[0].toFixed(4)} → ${b[1].toFixed(4)},${b[0].toFixed(4)}]`,
+                    `STAGE: canal[${ci}] ${props['waterway'] ?? '?'} ${coords.length}pts ${a[1].toFixed(4)},${a[0].toFixed(4)} -> ${b[1].toFixed(4)},${b[0].toFixed(4)}`,
                 );
             }
         }
