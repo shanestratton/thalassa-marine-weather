@@ -48,7 +48,7 @@ if (typeof window !== 'undefined') {
         // only way to make a JS error reliably appear in the iOS logs.
         Preferences.set({ key: 'BOOT_ERR', value: `[window.error] ${detail.slice(0, 1500)}` }).catch(() => {});
         // Web console (in case anyone has the inspector attached)
-        // eslint-disable-next-line no-console
+
         console.error('[GlobalErrorHandler]', detail);
         // Sentry — best-effort, swallow if Sentry isn't ready yet
         try {
@@ -65,7 +65,7 @@ if (typeof window !== 'undefined') {
                 ? `${reason.name}: ${reason.message}\n${reason.stack ?? ''}`
                 : `[unhandled rejection] ${typeof reason === 'object' ? JSON.stringify(reason) : String(reason)}`;
         Preferences.set({ key: 'BOOT_REJECT', value: detail.slice(0, 1500) }).catch(() => {});
-        // eslint-disable-next-line no-console
+
         console.error('[UnhandledRejection]', detail);
         try {
             if (reason instanceof Error) captureException(reason, { tags: { source: 'unhandledrejection' } });
@@ -99,7 +99,7 @@ import('./services/native/watchBridgeListeners')
     .catch((e) => {
         // Bridge missing or watch not paired — silent ok, the watch is
         // optional and failure here mustn't block app boot.
-        // eslint-disable-next-line no-console
+
         console.info('[index] watchBridgeListeners not initialised:', e);
     });
 

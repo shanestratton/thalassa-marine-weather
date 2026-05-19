@@ -60,7 +60,9 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                 {/* Report Modal */}
                 {showReportModal && (
                     <div
-                        role="dialog" aria-modal="true" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                        role="dialog"
+                        aria-modal="true"
+                        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowReportModal(null)}
                     >
                         <div
@@ -107,7 +109,9 @@ export const CrewModals: React.FC<CrewModalsProps> = React.memo(
                 {/* Super Like Modal */}
                 {showSuperLikeModal && (
                     <div
-                        role="dialog" aria-modal="true" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+                        role="dialog"
+                        aria-modal="true"
+                        className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm"
                         onClick={() => setShowSuperLikeModal(null)}
                     >
                         <div

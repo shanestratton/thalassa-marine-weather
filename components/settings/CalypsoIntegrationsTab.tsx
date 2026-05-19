@@ -107,7 +107,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                         });
                     } else {
                         onSave({ calypsoEmailEnabled: false });
-                        // eslint-disable-next-line no-alert
+
                         alert(
                             'Gmail authorisation failed. Try again — if it keeps failing, check that the OAuth client ID matches your iOS bundle ID in the Google Cloud console.',
                         );
@@ -183,7 +183,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                     const url = await beginAuthorization();
                     if (!url) {
                         onSave({ calypsoEmailEnabled: false });
-                        // eslint-disable-next-line no-alert
+
                         alert(
                             'Gmail integration is not configured. Add VITE_GOOGLE_OAUTH_CLIENT_ID to .env.local — ' +
                                 'see services/voice/integrations/gmail.ts for the Google Cloud setup steps.',
@@ -208,7 +208,7 @@ export const CalypsoIntegrationsTab: React.FC<SettingsTabProps> = ({ settings, o
                 awaitingCallback.current = false;
                 onSave({ calypsoEmailEnabled: false });
                 setBusy(false);
-                // eslint-disable-next-line no-alert
+
                 alert(`Gmail authorisation failed: ${(err as Error).message}`);
             }
         },

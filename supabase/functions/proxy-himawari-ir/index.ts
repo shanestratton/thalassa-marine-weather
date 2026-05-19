@@ -59,19 +59,21 @@ Deno.serve(async (req: Request) => {
 
     for (const dateStr of dates) {
         // KVP WMTS format — the working endpoint for Himawari IR
-        const tileUrl = `${GIBS_BASE}?` + new URLSearchParams({
-            Service: 'WMTS',
-            Request: 'GetTile',
-            Version: '1.0.0',
-            Layer: 'Himawari_AHI_Band13_Clean_Infrared',
-            Style: 'default',
-            TileMatrixSet: 'GoogleMapsCompatible_Level6',
-            TileMatrix: z,
-            TileRow: y,
-            TileCol: x,
-            Format: 'image/png',
-            Time: dateStr,
-        }).toString();
+        const tileUrl =
+            `${GIBS_BASE}?` +
+            new URLSearchParams({
+                Service: 'WMTS',
+                Request: 'GetTile',
+                Version: '1.0.0',
+                Layer: 'Himawari_AHI_Band13_Clean_Infrared',
+                Style: 'default',
+                TileMatrixSet: 'GoogleMapsCompatible_Level6',
+                TileMatrix: z,
+                TileRow: y,
+                TileCol: x,
+                Format: 'image/png',
+                Time: dateStr,
+            }).toString();
 
         try {
             const res = await fetch(tileUrl, {

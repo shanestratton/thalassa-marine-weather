@@ -32,9 +32,7 @@ describe('StoresService', () => {
         it('calls from(inventory_items) and returns array', async () => {
             const chain = {
                 select: vi.fn().mockReturnThis(),
-                order: vi.fn().mockImplementation(() =>
-                    Promise.resolve({ data: [mockItem], error: null })
-                ),
+                order: vi.fn().mockImplementation(() => Promise.resolve({ data: [mockItem], error: null })),
             };
             (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 
@@ -47,9 +45,7 @@ describe('StoresService', () => {
         it('throws on error', async () => {
             const chain = {
                 select: vi.fn().mockReturnThis(),
-                order: vi.fn().mockImplementation(() =>
-                    Promise.resolve({ data: null, error: { message: 'Failed' } })
-                ),
+                order: vi.fn().mockImplementation(() => Promise.resolve({ data: null, error: { message: 'Failed' } })),
             };
             (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 
@@ -62,9 +58,7 @@ describe('StoresService', () => {
             const chain = {
                 select: vi.fn().mockReturnThis(),
                 eq: vi.fn().mockReturnThis(),
-                order: vi.fn().mockImplementation(() =>
-                    Promise.resolve({ data: [mockItem], error: null })
-                ),
+                order: vi.fn().mockImplementation(() => Promise.resolve({ data: [mockItem], error: null })),
             };
             (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 
@@ -118,9 +112,7 @@ describe('StoresService', () => {
         it('throws on delete error', async () => {
             const chain = {
                 delete: vi.fn().mockReturnThis(),
-                eq: vi.fn().mockImplementation(() =>
-                    Promise.resolve({ error: { message: 'RLS error' } })
-                ),
+                eq: vi.fn().mockImplementation(() => Promise.resolve({ error: { message: 'RLS error' } })),
             };
             (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 
@@ -138,9 +130,7 @@ describe('StoresService', () => {
 
             const chain = {
                 select: vi.fn().mockReturnThis(),
-                order: vi.fn().mockImplementation(() =>
-                    Promise.resolve({ data: items, error: null })
-                ),
+                order: vi.fn().mockImplementation(() => Promise.resolve({ data: items, error: null })),
             };
             (supabase!.from as ReturnType<typeof vi.fn>).mockReturnValue(chain);
 

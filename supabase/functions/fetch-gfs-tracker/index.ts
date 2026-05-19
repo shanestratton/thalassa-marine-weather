@@ -84,7 +84,7 @@ interface TrackerResponse {
 // ── ATCF Unix Parser (atcfunix.all) ──────────────────────────
 /**
  * Parse the GFS atcfunix.all file.
- * 
+ *
  * Format (comma-separated):
  *   JTWC, 28P, 2026032318, 03, AVNO, 000,  214S,  1635E,  62, 0990, ...
  *   JTWC, 28P, 2026032318, 03, AVNO, 006,  220S,  1638E,  58, 0992, ...
@@ -171,7 +171,7 @@ function parseTcvitals(text: string): Record<string, StormRecord> {
         if (parts.length < 10) continue;
 
         const stormId = parts[1]; // "28P"
-        const name = parts[2];   // "TWENTY-EI"
+        const name = parts[2]; // "TWENTY-EI"
 
         const latStr = parts[5];
         const latDir = latStr.slice(-1);
@@ -240,7 +240,7 @@ Deno.serve(async (req: Request) => {
                         for (const [sid, storm] of Object.entries(result.storms)) {
                             console.info(
                                 `[fetch-gfs-tracker] ✅ atcfunix: ${sid} — ${storm.positions.length} forecast hours ` +
-                                `(fhr 0-${storm.positions[storm.positions.length - 1]?.fhr || 0})`,
+                                    `(fhr 0-${storm.positions[storm.positions.length - 1]?.fhr || 0})`,
                             );
                         }
                     }
@@ -294,7 +294,9 @@ Deno.serve(async (req: Request) => {
                         }
                     }
                 }
-            } catch { /* ignore */ }
+            } catch {
+                /* ignore */
+            }
         }
 
         return corsResponse(JSON.stringify(result), 200, {

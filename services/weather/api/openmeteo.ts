@@ -256,7 +256,7 @@ const doFetchOpenMeteo = async (
         fetchDirect,
     );
 
-    let wData = piResult.data;
+    const wData = piResult.data;
 
     // Fetch Marine (Waves) using Ring Search (Proximity)
     let waveData: OMMarineResponse | null = null;

@@ -369,7 +369,6 @@ export const AvNavPage: React.FC<AvNavPageProps> = ({ onBack }) => {
         }
 
         setConnectAllDone(true);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [piHost, chartPort, chartServerType, hasNmea, hasSignalK, hasPiCache, network.services]);
 
     // ── Disconnect handler ──

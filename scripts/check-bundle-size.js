@@ -8,9 +8,8 @@
  * Budget: 5MB total (excluding source maps)
  */
 
-// eslint-disable-next-line no-undef
 const fs = require('fs');
-// eslint-disable-next-line no-undef
+
 const path = require('path');
 
 const DIST = path.join(__dirname, '..', 'dist');

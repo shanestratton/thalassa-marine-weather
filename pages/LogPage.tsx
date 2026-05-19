@@ -62,7 +62,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // (2026-05-17). The destructure stays as a `_` placeholder so
     // useUI() is still called — keeps the hook's effect/subscription
     // semantics if other code starts depending on it.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     const { setPage: _setPage } = useUI();
     const {
         state,

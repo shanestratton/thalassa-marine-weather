@@ -13,20 +13,21 @@ import { TrackSharingService } from '../services/TrackSharingService';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-const makeEntry = (overrides: Partial<ShipLogEntry> = {}): ShipLogEntry => ({
-    id: 'entry-1',
-    voyageId: 'voyage-1',
-    latitude: -33.868,
-    longitude: 151.209,
-    timestamp: Date.now(),
-    heading: 180,
-    speed: 5,
-    distanceNM: 1.5,
-    cumulativeDistanceNM: 10.5,
-    notes: '',
-    source: 'device',
-    ...overrides,
-} as ShipLogEntry);
+const makeEntry = (overrides: Partial<ShipLogEntry> = {}): ShipLogEntry =>
+    ({
+        id: 'entry-1',
+        voyageId: 'voyage-1',
+        latitude: -33.868,
+        longitude: 151.209,
+        timestamp: Date.now(),
+        heading: 180,
+        speed: 5,
+        distanceNM: 1.5,
+        cumulativeDistanceNM: 10.5,
+        notes: '',
+        source: 'device',
+        ...overrides,
+    }) as ShipLogEntry;
 
 const mockMetadata = {
     title: 'Sydney to Manly',
@@ -50,9 +51,9 @@ describe('TrackSharingService', () => {
             });
 
             const entries = [makeEntry({ source: 'community_download' })];
-            await expect(
-                TrackSharingService.shareTrack(entries, mockMetadata)
-            ).rejects.toThrow('Cannot re-share a community-downloaded track');
+            await expect(TrackSharingService.shareTrack(entries, mockMetadata)).rejects.toThrow(
+                'Cannot re-share a community-downloaded track',
+            );
         });
 
         it('throws when entries have source=gpx_import', async () => {
@@ -61,9 +62,9 @@ describe('TrackSharingService', () => {
             });
 
             const entries = [makeEntry({ source: 'gpx_import' })];
-            await expect(
-                TrackSharingService.shareTrack(entries, mockMetadata)
-            ).rejects.toThrow('Cannot share imported GPX tracks');
+            await expect(TrackSharingService.shareTrack(entries, mockMetadata)).rejects.toThrow(
+                'Cannot share imported GPX tracks',
+            );
         });
 
         it('throws for unknown external sources', async () => {
@@ -72,9 +73,9 @@ describe('TrackSharingService', () => {
             });
 
             const entries = [makeEntry({ source: 'external_api' as any })];
-            await expect(
-                TrackSharingService.shareTrack(entries, mockMetadata)
-            ).rejects.toThrow('Cannot share tracks from external sources');
+            await expect(TrackSharingService.shareTrack(entries, mockMetadata)).rejects.toThrow(
+                'Cannot share tracks from external sources',
+            );
         });
 
         it('throws when not authenticated', async () => {
@@ -83,9 +84,7 @@ describe('TrackSharingService', () => {
             });
 
             const entries = [makeEntry()];
-            await expect(
-                TrackSharingService.shareTrack(entries, mockMetadata)
-            ).rejects.toThrow('Must be logged in');
+            await expect(TrackSharingService.shareTrack(entries, mockMetadata)).rejects.toThrow('Must be logged in');
         });
 
         it('throws when entries array is empty', async () => {
@@ -93,17 +92,15 @@ describe('TrackSharingService', () => {
                 data: { user: { id: 'user-1' } },
             });
 
-            await expect(
-                TrackSharingService.shareTrack([], mockMetadata)
-            ).rejects.toThrow('No entries to share');
+            await expect(TrackSharingService.shareTrack([], mockMetadata)).rejects.toThrow('No entries to share');
         });
     });
 
     describe('downloadTrack', () => {
         it('throws when user is not Pro', async () => {
-            await expect(
-                TrackSharingService.downloadTrack('track-1', false)
-            ).rejects.toThrow('Pro subscription required');
+            await expect(TrackSharingService.downloadTrack('track-1', false)).rejects.toThrow(
+                'Pro subscription required',
+            );
         });
 
         it('prevents downloading own track', async () => {
@@ -120,9 +117,9 @@ describe('TrackSharingService', () => {
                 data: { user: { id: 'user-1' } },
             });
 
-            await expect(
-                TrackSharingService.downloadTrack('track-1', true)
-            ).rejects.toThrow('Cannot download your own shared track');
+            await expect(TrackSharingService.downloadTrack('track-1', true)).rejects.toThrow(
+                'Cannot download your own shared track',
+            );
         });
 
         it('returns null when supabase is not available', async () => {

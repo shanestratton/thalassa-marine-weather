@@ -368,7 +368,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // Diagnostic — log every time the FAB-input value changes so we
             // can see whether MapHub agrees with the bootstrap about state.
             // Safe to demote to log.info once the ENC toggle is known-good.
-            // eslint-disable-next-line no-console
+
             console.warn(
                 `[MapHub] encCellCount = ${cells.length}` +
                     (cells.length > 0 ? ` (${cells.map((c) => c.id).join(', ')})` : ''),
