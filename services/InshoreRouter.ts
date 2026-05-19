@@ -426,40 +426,58 @@ async function tryInshoreRouteInner(
             merged.LNDARE = lndare;
             merged.COASTLINE = coast;
         }
-        // OSM aeroway polygons → LNDARE. Brisbane Airport's eastern runway
-        // is built on reclaimed land that postdates the AU SENC charts —
-        // the chart has water where there's now ~3 km of concrete and fill.
-        // Without this, A* threads a straight diagonal across the runway
-        // when routing from Moreton Bay into the river.
+        // OSM aeroway polygons → OBSTRN (NOT LNDARE). Brisbane Airport's
+        // eastern runway is built on reclaimed land that postdates the AU
+        // SENC charts — the chart has ~5 m of water marked where there's
+        // now ~3 km of concrete and fill.
         //
-        // 2026-05-19: the raw `aeroway=aerodrome` polygon alone wasn't
-        // enough. OSM's aerodrome boundary traces the fence-line, which
-        // for Brisbane Airport has a several-hundred-metre-wide eastern
-        // strip between the new runway and the bay-side perimeter that
-        // isn't inside the fence polygon — A* threaded through it. Fix:
-        // for `aeroway=aerodrome` features we ALSO push a rectangular
-        // polygon covering the polygon's bbox into LNDARE. Boats have
-        // no legitimate business inside an airport's footprint, so the
-        // small over-block is the right tradeoff. Smaller aeroway
-        // features (runway/taxiway/apron) keep their actual geometry
-        // because they're already tight.
+        // 2026-05-19: tried LNDARE first; didn't block. The reason: chart-
+        // source DEPARE features carry `acronym='DEPARE'` which trips
+        // `isAuthoritativeDepare`, marking those cells `protectedCells=1`
+        // in Pass 1. Pass 2 LNDARE then SKIPS protected cells — so the
+        // stale chart depth silently nullifies any LNDARE we add. Pass 3
+        // OBSTRN by contrast hard-blocks unconditionally, no protectedCells
+        // check. That's the right home for "this is engineered LAND, not
+        // chart-ambiguous shoreline".
+        //
+        // For `aeroway=aerodrome` features we ALSO push a rectangular
+        // polygon covering the polygon's bbox into OBSTRN. OSM's aerodrome
+        // boundary traces the fence-line; Brisbane Airport's fence has a
+        // several-hundred-metre-wide eastern strip between the new runway
+        // and the bay-side perimeter that ISN'T inside the polygon, and
+        // A* threads through it. The bbox rect closes that gap. Boats
+        // have no legitimate business inside an airport's footprint, so
+        // the small over-block beyond the actual concrete is fine.
+        //
+        // Pass 4 FAIRWY rescue still works for chart-authoritative
+        // polygons (Brisbane River main multipolygon has _promotePreferred
+        // = true so isChartAuthoritative=true), which means the river
+        // itself stays navigable where it flows past the airport — the
+        // airport's LAND surface stays blocked but the WATER alongside
+        // doesn't.
         let aerodromeBboxRectsAdded = 0;
         if (osmOverlay.aeroway.features.length > 0) {
-            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of osmOverlay.aeroway.features) {
                 if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') continue;
-                (lndare.features as unknown[]).push(f);
+                (obstrn.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        _class: 'osm-aeroway',
+                    },
+                });
                 const tags = (f.properties ?? {}) as Record<string, unknown>;
                 if (tags['aeroway'] === 'aerodrome') {
                     const dim = featureBboxAndSizeM(f);
                     if (dim) {
                         const [minLon, minLat, maxLon, maxLat] = dim.bbox;
-                        (lndare.features as unknown[]).push({
+                        (obstrn.features as unknown[]).push({
                             type: 'Feature',
                             properties: {
                                 ...tags,
                                 _source: 'osm-aerodrome-bbox-fill',
-                                _class: 'lndare-aerodrome-bbox',
+                                _class: 'osm-aerodrome-bbox',
                             },
                             geometry: {
                                 type: 'Polygon',
@@ -478,7 +496,7 @@ async function tryInshoreRouteInner(
                     }
                 }
             }
-            merged.LNDARE = lndare;
+            merged.OBSTRN = obstrn;
         }
         // OSM coastline (natural=coastline) → COASTLINE layer. The engine's
         // pass 2b Bresenham-rasterises each segment as a thin LNDARE strip
