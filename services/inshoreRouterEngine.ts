@@ -2005,7 +2005,29 @@ function routeInshoreOnce(
     // genuine landmass — only an entrance-width barrier the boat really
     // does pass through.
     {
-        const MAX_BRIDGE_CELLS = 10;
+        // Two-tier bridge:
+        //   • gap ≤ NAV cells (≤500 m): a real entrance cut the chart
+        //     over-represents as land. Carve NAVIGABLE — the boat does
+        //     pass through, it's just mischarted.
+        //   • NAV < gap ≤ CAUTION cells (≤2.5 km): a wider barrier we
+        //     can't confirm is passable from data (Newport canal estate
+        //     → bay: the entrance is a sub-2 km cut no source maps as
+        //     water). Carve CAUTION (red) — A* exits the islanded pocket
+        //     at the SHORTEST gap (geometrically the marina entrance, not
+        //     a goal-biased diagonal across the suburb), and the corridor
+        //     renders red as a "verify pilotage, draft may not clear"
+        //     warning. This replaces the localized relax-CIRCLE for the
+        //     islanded-endpoint case: a circle let A* cut goal-ward across
+        //     land (Shane 2026-05-20: "follow the canals until it runs out
+        //     of room — it is going the wrong way"); a single narrow
+        //     corridor at the shortest gap forces the correct exit.
+        const MAX_BRIDGE_CELLS = 10; // 500 m navigable
+        const MAX_CAUTION_BRIDGE_CELLS = 60; // 3 km red corridor
+        // The CAUTION search is O(smallCells × window²). Only run the
+        // wide (±50) window for genuinely small islanded pockets (marina
+        // canal estates ≤ a few thousand cells); for big components fall
+        // back to the cheap ±10 window so we never pay 100M+ iterations.
+        const SMALL_FOR_CAUTION_BRIDGE = 3000;
         // Generous snap radius just to identify which component each
         // endpoint belongs to (same 10 km used by the shared-component
         // snap below).
@@ -2018,16 +2040,18 @@ function routeInshoreOnce(
             // Bridge the smaller component to the larger one.
             const small = (sizes.get(lo) ?? 0) <= (sizes.get(ld) ?? 0) ? lo : ld;
             const large = small === lo ? ld : lo;
+            const smallSize = sizes.get(small) ?? 0;
+            const searchCap = smallSize <= SMALL_FOR_CAUTION_BRIDGE ? MAX_CAUTION_BRIDGE_CELLS : MAX_BRIDGE_CELLS;
             // Collect the small component's cells once, then probe each
-            // for a large-component cell within MAX_BRIDGE_CELLS.
+            // for a large-component cell within searchCap.
             let bestGap = Infinity;
             let bestSmall: { x: number; y: number } | null = null;
             let bestLarge: { x: number; y: number } | null = null;
             for (let y = 0; y < grid.height; y++) {
                 for (let x = 0; x < grid.width; x++) {
                     if (labels[y * grid.width + x] !== small) continue;
-                    for (let dy = -MAX_BRIDGE_CELLS; dy <= MAX_BRIDGE_CELLS; dy++) {
-                        for (let dx = -MAX_BRIDGE_CELLS; dx <= MAX_BRIDGE_CELLS; dx++) {
+                    for (let dy = -searchCap; dy <= searchCap; dy++) {
+                        for (let dx = -searchCap; dx <= searchCap; dx++) {
                             const nx = x + dx;
                             const ny = y + dy;
                             if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height) continue;
@@ -2042,24 +2066,30 @@ function routeInshoreOnce(
                     }
                 }
             }
-            if (bestSmall && bestLarge && bestGap <= MAX_BRIDGE_CELLS) {
+            if (bestSmall && bestLarge && bestGap <= searchCap) {
+                // ≤ NAV gap → navigable (real entrance cut); wider →
+                // CAUTION (red, verify-pilotage barrier).
+                const asCaution = bestGap > MAX_BRIDGE_CELLS;
                 const carveDepth = Math.max((req.draftM ?? 1.5) + 1.0, 5.0);
+                const carveValue = asCaution ? CAUTION : carveDepth;
                 for (const c of bresenhamCells(bestSmall.x, bestSmall.y, bestLarge.x, bestLarge.y)) {
                     if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
                     const idx = c.y * grid.width + c.x;
+                    // Only fill blocked/unknown/caution cells — never
+                    // downgrade real charted water along the corridor.
                     if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0 || grid.cells[idx] === UNKNOWN_OPEN) {
-                        grid.cells[idx] = carveDepth;
+                        grid.cells[idx] = carveValue;
                     }
                 }
                 engineLog.warn(
-                    `BRIDGE: carved comp ${small}(${sizes.get(small)} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m`,
+                    `BRIDGE: carved comp ${small}(${smallSize} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m as ${asCaution ? 'CAUTION(red)' : 'navigable'}`,
                 );
                 const relabeled = labelConnectedComponents(grid);
                 labels = relabeled.labels;
                 sizes = relabeled.sizes;
             } else {
                 engineLog.warn(
-                    `BRIDGE: origin comp ${lo} / dest comp ${ld} — nearest gap > ${MAX_BRIDGE_CELLS * resolutionM}m, not bridged`,
+                    `BRIDGE: origin comp ${lo} / dest comp ${ld} — nearest gap ${Math.round(bestGap * resolutionM)}m > ${searchCap * resolutionM}m, not bridged`,
                 );
             }
         }
