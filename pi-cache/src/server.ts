@@ -27,6 +27,7 @@ import { createTideRoutes } from './routes/tides.js';
 import { createMiscRoutes } from './routes/misc.js';
 import { createChartRoutes } from './routes/charts.js';
 import { createEncRoutes } from './routes/enc.js';
+import { createOsmRoutes } from './routes/osm.js';
 import { cachedJsonFetch, cachedTileFetch } from './proxy.js';
 import { startScheduler, stopScheduler } from './scheduler.js';
 import { startEncWatcher, stopEncWatcher } from './encWatcher.js';
@@ -196,6 +197,7 @@ app.use('/api/tides', createTideRoutes(cache, proxyConfig));
 app.use('/api/misc', createMiscRoutes(cache, proxyConfig));
 app.use('/api/charts', createChartRoutes());
 app.use('/api/enc', createEncRoutes());
+app.use('/api/osm', createOsmRoutes());
 
 // ── Start ──
 

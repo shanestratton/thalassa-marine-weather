@@ -592,18 +592,27 @@ function buildNavGrid(
         // Real navigable canals are tagged `waterway=canal` (also kept).
         const waterway = props['waterway'];
         const water = props['water'];
+        const natural = props['natural'];
         const harbour = props['harbour'];
         return (
             leisure === 'marina' ||
             waterway === 'dock' ||
             waterway === 'canal' ||
             waterway === 'fairway' ||
+            waterway === 'river' ||
+            waterway === 'riverbank' ||
             // `water=*` subtags for marina contexts (Newport canals use
             // these for the side arms branching off the main basin)
             water === 'canal' ||
             water === 'harbour' ||
             water === 'marina' ||
             water === 'dock' ||
+            water === 'river' ||
+            water === 'lake' ||
+            // OsmRouteOverlayService injects natural=water polygons into
+            // DEPARE for rivers / harbours / basins. They're OSM-derived
+            // navigable water — authoritative to override LNDARE-bleed.
+            natural === 'water' ||
             harbour === 'yes'
         );
     };
@@ -906,6 +915,54 @@ function buildNavGrid(
     for (const f of boylatFeatures) markMarkerRadius(f);
     for (const f of bcnlatFeatures) markMarkerRadius(f);
     markPass('pass5-markers', tPassMarkers, boylatFeatures.length + bcnlatFeatures.length);
+
+    // ── Pass 6: LNDARE 1-cell buffer ─────────────────────────────────
+    // The scanline rasterizer marks cells whose centre is inside an
+    // LNDARE polygon. Cells along the polygon boundary whose centre is
+    // OUTSIDE but pixels overlap stay navigable — A* can then thread a
+    // 50m water sliver hugging the coastline that visually looks like
+    // crossing land (verified on AU OC-61-10ENB5 Newport → Pinkenba
+    // 2026-05-19). Add a 1-cell skin so cells adjacent to any LNDARE-
+    // blocked cell are also blocked.
+    //
+    // Runs LAST so `preferred` flags from FAIRWY/DRGARE (pass 4) and
+    // marker-pair midpoints (pass 5) are already set — those cells are
+    // skipped to keep charted channels open. Also skips real-depth cells
+    // (chart DEPARE claimed them as deep water). Skipped entirely in
+    // relaxedLndare mode where the whole point is to thread "land" cells.
+    if (!relaxedLndare) {
+        const tPassBuffer = Date.now();
+        const lndareSeed = new Uint8Array(width * height);
+        for (let i = 0; i < cells.length; i++) {
+            if (hardBlocked[i] === 1) lndareSeed[i] = 1;
+        }
+        let bufferedCount = 0;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (lndareSeed[idx] === 1) continue;
+                if (preferred[idx] === 1) continue;
+                const prior = cells[idx];
+                if (prior > 0) continue; // chart DEPARE-claimed deep water
+                let neighborBlocked = false;
+                for (let dy = -1; dy <= 1 && !neighborBlocked; dy++) {
+                    for (let dx = -1; dx <= 1 && !neighborBlocked; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                        if (lndareSeed[ny * width + nx] === 1) neighborBlocked = true;
+                    }
+                }
+                if (neighborBlocked) {
+                    cells[idx] = BLOCKED;
+                    hardBlocked[idx] = 1;
+                    bufferedCount++;
+                }
+            }
+        }
+        markPass('pass6-LNDARE-buffer', tPassBuffer, bufferedCount);
+    }
 
     // Per-pass breakdown — surfaces which polygon scanner is the hot
     // path. Format: pass=Nms(F features) so the eye can pair time
