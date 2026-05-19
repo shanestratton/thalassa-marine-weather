@@ -47,7 +47,16 @@
  * No channel preference cost yet (would penalize leaving DEPARE >5m).
  */
 
-import type { Feature, FeatureCollection, Polygon, MultiPolygon, Point, Position } from 'geojson';
+import type {
+    Feature,
+    FeatureCollection,
+    LineString,
+    MultiLineString,
+    Polygon,
+    MultiPolygon,
+    Point,
+    Position,
+} from 'geojson';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -89,6 +98,17 @@ export interface InshoreLayers {
      * Same channel-inference treatment.
      */
     BCNLAT?: FeatureCollection;
+    /**
+     * OSM coastline LineStrings (natural=coastline). Used to plug
+     * LNDARE gaps where the chart's LNDARE tessellation misses the
+     * actual land boundary (Newport peninsula 2026-05-19: chart
+     * LNDARE was missing the canal-estate islands, so A* threaded
+     * a straight diagonal across them from the canal exit to the
+     * bay). Each LineString segment is Bresenham-rasterized as a
+     * thin hardBlocked strip — enough to stop A* from crossing the
+     * boundary even when the polygon LNDARE has the hole.
+     */
+    COASTLINE?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -465,6 +485,7 @@ function buildNavGridCached(
         layers.DRGARE?.features.length ?? 0,
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
+        layers.COASTLINE?.features.length ?? 0,
     ].join(',');
     const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_${sig}`;
     const cached = navGridCache.get(key);
@@ -732,6 +753,56 @@ function buildNavGrid(
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
+
+    // ── Pass 2b: OSM coastline (lines) — block the thin land/water boundary ─
+    // Rasterises each natural=coastline LineString with Bresenham so cells
+    // touched by the coast boundary are hardBlocked. Plugs gaps in chart
+    // LNDARE polygons — Newport canal-estate islands have working chart
+    // LNDARE for the suburb perimeter but no polygon for the small island
+    // between the marina canal and Bramble Bay, so A* threaded straight
+    // from the canal exit NE to the bay across "navigable" cells. With
+    // the coastline strip blocked, the Bresenham line-of-sight check in
+    // smoothPath now sees those cells as blocked and forces A* through
+    // the actual canal/bay corridor.
+    //
+    // Same `protectedCells` guard as Pass 2 so engineered water
+    // (leisure=marina, waterway=dock/canal) stays passable across a
+    // coastline alignment mistake. Same relaxedLndare bypass so the
+    // disconnected-destination retry isn't choked by coastline gaps.
+    const coastline = layers.COASTLINE?.features ?? [];
+    const tPassCoast = Date.now();
+    let coastCellsBlocked = 0;
+    for (const f of coastline) {
+        const g = f.geometry;
+        if (!g) continue;
+        let lineRings: Position[][] = [];
+        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+        else continue;
+        for (const coords of lineRings) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon0, lat0] = coords[i];
+                const [lon1, lat1] = coords[i + 1];
+                const gx0 = Math.floor((lon0 - minLon) / dLon);
+                const gy0 = Math.floor((lat0 - minLat) / dLat);
+                const gx1 = Math.floor((lon1 - minLon) / dLon);
+                const gy1 = Math.floor((lat1 - minLat) / dLat);
+                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+                    if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+                    const idx = c.y * width + c.x;
+                    if (protectedCells[idx]) continue;
+                    if (relaxedLndare) {
+                        if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+                    } else {
+                        cells[idx] = BLOCKED;
+                        hardBlocked[idx] = 1;
+                        coastCellsBlocked++;
+                    }
+                }
+            }
+        }
+    }
+    markPass('pass2b-coastline', tPassCoast, coastline.length);
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {

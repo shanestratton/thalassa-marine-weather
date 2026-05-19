@@ -36,7 +36,16 @@
  * No channel preference cost yet (would penalize leaving DEPARE >5m).
  */
 
-import type { Feature, FeatureCollection, Polygon, MultiPolygon, Point, Position } from 'geojson';
+import type {
+    Feature,
+    FeatureCollection,
+    LineString,
+    MultiLineString,
+    Polygon,
+    MultiPolygon,
+    Point,
+    Position,
+} from 'geojson';
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -78,6 +87,12 @@ export interface InshoreLayers {
      * Same channel-inference treatment.
      */
     BCNLAT?: FeatureCollection;
+    /**
+     * OSM coastline LineStrings (natural=coastline). Pass 2b Bresenham-
+     * rasterises each segment as a thin hardBlocked strip to plug gaps
+     * in chart LNDARE polygons (Newport canal-estate 2026-05-19 bug).
+     */
+    COASTLINE?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -328,6 +343,7 @@ function buildNavGridCached(
         layers.DRGARE?.features.length ?? 0,
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
+        layers.COASTLINE?.features.length ?? 0,
     ].join(',');
     const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
     const cached = navGridCache.get(key);
@@ -536,6 +552,39 @@ function buildNavGrid(
                         cells[idx] = BLOCKED;
                         hardBlocked[idx] = 1;
                     }
+                }
+            }
+        }
+    }
+
+    // ── Pass 2b: OSM coastline (lines) — block thin land/water boundary ─
+    // Bresenham-rasterise each natural=coastline LineString so cells along
+    // the coast boundary are hardBlocked. Plugs gaps in chart LNDARE
+    // polygons (Newport canal estate, 2026-05-19). Same `protectedCells`
+    // guard so engineered water (marina/canal/dock) stays passable across
+    // a coastline misalignment.
+    const coastlineFeatures = layers.COASTLINE?.features ?? [];
+    for (const f of coastlineFeatures) {
+        const g = f.geometry;
+        if (!g) continue;
+        let lineRings: Position[][] = [];
+        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+        else continue;
+        for (const coords of lineRings) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon0, lat0] = coords[i];
+                const [lon1, lat1] = coords[i + 1];
+                const gx0 = Math.floor((lon0 - minLon) / dLon);
+                const gy0 = Math.floor((lat0 - minLat) / dLat);
+                const gx1 = Math.floor((lon1 - minLon) / dLon);
+                const gy1 = Math.floor((lat1 - minLat) / dLat);
+                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+                    if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+                    const idx = c.y * width + c.x;
+                    if (protectedCells[idx]) continue;
+                    cells[idx] = BLOCKED;
+                    hardBlocked[idx] = 1;
                 }
             }
         }
