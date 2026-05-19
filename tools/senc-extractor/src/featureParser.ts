@@ -330,13 +330,30 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
 
             case RecordType.VECTOR_EDGE_NODE_TABLE_RECORD: {
                 if (!header.refMerc) break;
-                parseEdgeTable(payload, header.refMerc, edgeTable);
+                parseEdgeTable(payload, header.refMerc, edgeTable, 1, 0);
                 break;
             }
 
             case RecordType.VECTOR_CONNECTED_NODE_TABLE_RECORD: {
                 if (!header.refMerc) break;
-                parseConnectedNodeTable(payload, header.refMerc, connectedNodeTable);
+                parseConnectedNodeTable(payload, header.refMerc, connectedNodeTable, 1, 0);
+                break;
+            }
+
+            case RecordType.VECTOR_EDGE_NODE_TABLE_EXT_RECORD: {
+                // V3+ EXT variant: header is { scaleFactor: double, numEntries: int },
+                // payload identical to type 96 but per-vertex coords scaled by
+                // 1/scaleFactor. See Osenc.h:OSENC_VectorTableExtRecordPayload.
+                if (!header.refMerc || payload.length < 12) break;
+                const scaleFactor = payload.readDoubleLE(0);
+                parseEdgeTable(payload, header.refMerc, edgeTable, scaleFactor, 8);
+                break;
+            }
+
+            case RecordType.VECTOR_CONNECTED_NODE_TABLE_EXT_RECORD: {
+                if (!header.refMerc || payload.length < 12) break;
+                const scaleFactor = payload.readDoubleLE(0);
+                parseConnectedNodeTable(payload, header.refMerc, connectedNodeTable, scaleFactor, 8);
                 break;
             }
 
@@ -397,7 +414,7 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
     // come AFTER the feature records, so both passes have to be post-walk.
     let linesResolved = 0;
     let linesUnresolvable = 0;
-    const areasWithRings = 0;
+    let areasWithRings = 0;
     let areasRingFallback = 0;
     for (const f of features) {
         if (f.geometry?.type === 'LineRaw') {
@@ -410,44 +427,37 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
                 linesUnresolvable += 1;
             }
         } else if (f.geometry?.type === 'Area') {
-            // Eulerian polygon-outline reconstruction is disabled — empirical
-            // diagnostics on AU SENCs show the per-feature edge graph has
-            // mostly degree-1 nodes, so the Eulerian-cycle invariant doesn't
-            // hold for o-charts AREA data.
+            // Linear-chain ring assembly per reference buildLineGeometries
+            // (OESUChart.cpp:692). The SENC stores AREA boundary edges
+            // in walk-order around the polygon — successive edges are
+            // contiguous in node space (next.startNode == prev.endNode).
+            // A discontinuity (next.startNode != prev.endNode) marks the
+            // start of a new ring (a hole or a disjoint outer).
             //
-            // User intuition (the "rope" model): each AREA's boundary is a
-            // collection of edge-segments ("ropes") that, end-to-end, traces
-            // the polygon. Each rope has a clear first node and last node.
-            // If we index ropes by their endpoints we can stitch them
-            // greedily: pick any unused rope, follow first→last, find the
-            // next rope whose first==current.last, keep going until we
-            // return to the start node — that's one ring. Repeat for the
-            // remaining ropes to pick up holes.
-            //
-            // Two candidate explanations for why the current naive
-            // implementation sees degree-1 nodes for every endpoint:
-            //   1. Sign bit on startNode/endNode encodes traversal direction;
-            //      take abs() before building adjacency. (Hornang's reference
-            //      parser does exactly this for the Osenc edge tables.)
-            //   2. AREA polygon outline lives in the triangulation's convex
-            //      hull, not in the edge_vector index array (which may be
-            //      annotations or shared-edge references, not boundary).
-            //
-            // Next session plan:
-            //   a. Dump pendingAreaEdges for ONE known feature (e.g. the
-            //      LNDARE for Newport spit) — print {startNode, endNode}
-            //      pairs and the raw bytes — and check whether sign-bit
-            //      stripping yields a connected graph.
-            //   b. If (a) fails, render the triangulation hull (boundary
-            //      edges that appear in exactly one triangle) and compare
-            //      visually to OpenCPN's display of the same cell.
-            //
-            // Until then, triangles cover the router correctly and the
-            // renderer (LNDARE without fill-outline, COALNE z11+) looks
-            // acceptable.
-            const _edges = pendingAreaEdges.get(f);
-            void _edges;
-            areasRingFallback += 1;
+            // The Eulerian approach the previous attempt used was wrong on
+            // two counts (both fixed 2026-05-19):
+            //   (a) buffer field order in LineIndex was swapped — we treated
+            //       buffer[0] as the edge index when it's actually the
+            //       startNode index. That made the adjacency graph see
+            //       every "edge index" as a unique single-use node →
+            //       all degree-1 → walker bailed.
+            //   (b) direction flag (buffer[3] for V>200) was inverted —
+            //       reversed edges were walked forward and vice versa,
+            //       so chained rings didn't close.
+            // With the field order + direction fixed, the linear-chain
+            // walk works directly. No actual Euler walking needed.
+            const edges = pendingAreaEdges.get(f);
+            if (edges) {
+                const rings = resolveAreaRings(edges, edgeTable, connectedNodeTable);
+                if (rings && rings.length > 0 && validateRings(rings, f.geometry.extent)) {
+                    f.geometry = { ...f.geometry, rings };
+                    areasWithRings += 1;
+                } else {
+                    areasRingFallback += 1;
+                }
+            } else {
+                areasRingFallback += 1;
+            }
         }
     }
     stats.linesResolved = linesResolved;
@@ -458,10 +468,28 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
     return { header, features, stats };
 }
 
-function parseEdgeTable(payload: Buffer, refMerc: MercXY, out: Map<number, EdgeEntry>): void {
-    if (payload.length < 4) return;
-    const numEntries = payload.readUInt32LE(0);
-    let off = 4;
+/**
+ * Parse a VECTOR_EDGE_NODE_TABLE record (type 96 — basic) OR its EXT
+ * variant (type 85). The EXT record prepends a `scaleFactor: double`
+ * to the header and per-vertex coords are divided by scaleFactor
+ * before mercator → lat/lon. Pass `scaleFactor=1` for the basic record.
+ *
+ * Per-entry layout (same for both):
+ *   int32 edgeIndex
+ *   int32 pointCount
+ *   pointCount × (float x, float y)
+ */
+function parseEdgeTable(
+    payload: Buffer,
+    refMerc: MercXY,
+    out: Map<number, EdgeEntry>,
+    scaleFactor: number,
+    headerStartOffset: number,
+): void {
+    if (payload.length < headerStartOffset + 4) return;
+    const numEntries = payload.readUInt32LE(headerStartOffset);
+    const scale = scaleFactor > 0 ? scaleFactor : 1;
+    let off = headerStartOffset + 4;
     for (let i = 0; i < numEntries; i++) {
         if (off + 8 > payload.length) return;
         const edgeIndex = payload.readInt32LE(off);
@@ -473,24 +501,39 @@ function parseEdgeTable(payload: Buffer, refMerc: MercXY, out: Map<number, EdgeE
             const x = payload.readFloatLE(off);
             const y = payload.readFloatLE(off + 4);
             off += 8;
-            const ll = smVertexToLatLon(x, y, refMerc);
+            const ll = smVertexToLatLon(x / scale, y / scale, refMerc);
             points.push([ll.lon, ll.lat]);
         }
         out.set(edgeIndex, { points });
     }
 }
 
-function parseConnectedNodeTable(payload: Buffer, refMerc: MercXY, out: Map<number, ConnectedNodeEntry>): void {
-    if (payload.length < 4) return;
-    const numEntries = payload.readUInt32LE(0);
-    let off = 4;
+/**
+ * Parse a VECTOR_CONNECTED_NODE_TABLE record (type 97 — basic) OR its
+ * EXT variant (type 86). Same scaleFactor treatment as parseEdgeTable.
+ *
+ * Per-entry layout:
+ *   int32 nodeIndex
+ *   float x, float y
+ */
+function parseConnectedNodeTable(
+    payload: Buffer,
+    refMerc: MercXY,
+    out: Map<number, ConnectedNodeEntry>,
+    scaleFactor: number,
+    headerStartOffset: number,
+): void {
+    if (payload.length < headerStartOffset + 4) return;
+    const numEntries = payload.readUInt32LE(headerStartOffset);
+    const scale = scaleFactor > 0 ? scaleFactor : 1;
+    let off = headerStartOffset + 4;
     for (let i = 0; i < numEntries; i++) {
         if (off + 12 > payload.length) return;
         const nodeIndex = payload.readInt32LE(off);
         const x = payload.readFloatLE(off + 4);
         const y = payload.readFloatLE(off + 8);
         off += 12;
-        const ll = smVertexToLatLon(x, y, refMerc);
+        const ll = smVertexToLatLon(x / scale, y / scale, refMerc);
         out.set(nodeIndex, { coord: [ll.lon, ll.lat] });
     }
 }
@@ -512,11 +555,27 @@ function resolveLineGeometry(
         coords.push(c);
     };
 
+    // Per reference S57Object::LineIndex (Osenc.h:185), each edge-vector
+    // entry has fields in this order:
+    //   buffer[0] = startNode index (into connectedNodeTable)
+    //   buffer[1] = edge index (into edgeTable); SIGN bit encodes direction
+    //               on V<=200 (legacy); positive on V>200.
+    //   buffer[2] = endNode index (into connectedNodeTable)
+    //   buffer[3] = direction flag for V>200 ONLY: 0 == forward, !=0 == reverse
+    //
+    // The previous implementation here had buffer[0] and buffer[1] swapped
+    // (treating buffer[0] as edge index, buffer[1] as startNode) AND had
+    // the direction logic inverted (treating fwdFlag===0 as reverse).
+    // That produced criss-cross COALNE rendering on AU oeSENC charts and
+    // made the Eulerian ring walker bail with degree-1 nodes (because
+    // every edge looked like a unique "node").
     for (let i = 0; i < raw.edgeVectorCount; i++) {
-        const edgeIdx = buf.readInt32LE(off);
-        const startNode = buf.readInt32LE(off + 4);
+        const startNode = buf.readInt32LE(off);
+        const edgeIdxSigned = buf.readInt32LE(off + 4);
         const endNode = buf.readInt32LE(off + 8);
-        const fwdFlag = raw.stride === 4 ? buf.readInt32LE(off + 12) : 1;
+        const fwdFlag = raw.stride === 4 ? buf.readInt32LE(off + 12) : 0;
+        const forward = raw.stride === 4 ? fwdFlag === 0 : edgeIdxSigned >= 0;
+        const edgeIdx = edgeIdxSigned >= 0 ? edgeIdxSigned : -edgeIdxSigned;
         off += entryBytes;
 
         const startCoord = connectedNodeTable.get(startNode);
@@ -524,15 +583,13 @@ function resolveLineGeometry(
         const endCoord = connectedNodeTable.get(endNode);
 
         if (startCoord) pushCoord(startCoord.coord);
-
         if (edge) {
-            if (fwdFlag === -1 || fwdFlag === 0) {
-                for (let p = edge.points.length - 1; p >= 0; p--) pushCoord(edge.points[p]);
-            } else {
+            if (forward) {
                 for (const p of edge.points) pushCoord(p);
+            } else {
+                for (let p = edge.points.length - 1; p >= 0; p--) pushCoord(edge.points[p]);
             }
         }
-
         if (endCoord) pushCoord(endCoord.coord);
     }
 
@@ -710,156 +767,92 @@ function parseAreaTriangles(
 }
 
 /**
- * Eulerian polygon-outline reconstruction.
+ * Linear-chain polygon-ring reconstruction.
  *
- * Builds an undirected graph from the AREA feature's edge-vector entries
- * (each entry = one edge between two connected nodes), then walks closed
- * cycles. Each cycle yields one ring (outer or hole). Edges are marked used
- * as we consume them so the same edge never appears in two rings.
+ * Per reference OESUChart.cpp:buildLineGeometries (around line 692): the
+ * SENC ships the AREA boundary edges in walk-order around the polygon —
+ * each successive edge's startNode equals the previous edge's endNode.
+ * A discontinuity (next.startNode != prev.endNode) marks the start of a
+ * new ring (a hole, a disjoint outer, or another polygon part).
  *
- * Direction handling: when we approach an edge from one of its endpoints,
- * we add the edge's intermediate points in the correct order so the ring
- * is geometrically continuous. The chart-supplied `fwdFlag` (stride-4 only)
- * is informational here — the walk relies on shared-node identity instead.
+ * Per-entry layout (see LineIndex constructor at S57Object.h:185):
+ *   int32 startNode   (into connectedNodeTable)
+ *   int32 edgeIndex   (into edgeTable for intermediate points; sign bit
+ *                      encodes direction on V<=200, unsigned on V>200)
+ *   int32 endNode     (into connectedNodeTable)
+ *   int32 fwdFlag     (V>200 ONLY: 0 == forward, !=0 == reverse)
  *
- * Returns null on degenerate topology (any node with odd degree, dangling
- * edges, empty ring). Caller should fall back to triangle output for that
- * feature individually.
+ * Direction handling: forward edges traverse start → intermediates →
+ * end. Reverse edges traverse end → reversed-intermediates → start, but
+ * we still consume them in [startCoord, …, endCoord] order — the only
+ * change is which way we iterate the intermediate edgeTable points.
+ *
+ * The reference relies on SHARED-NODE INDEX (line.startNode == prev.endNode)
+ * to detect continuity. We do the same — coord-based continuity would also
+ * work but is more numerically fragile.
+ *
+ * Returns null if the buffer is short or any node/edge can't be resolved.
+ * Caller falls back to triangle output for that feature individually.
  */
-let _eulerDebugBudget = 5;
 function resolveAreaRings(
     raw: AreaEdgesRaw,
     edgeTable: Map<number, EdgeEntry>,
     connectedNodeTable: Map<number, ConnectedNodeEntry>,
 ): [number, number][][] | null {
-    const debug = process.env.SENC_DEBUG && _eulerDebugBudget > 0;
     const buf = raw.edgeIndicesRaw;
     const entryBytes = raw.stride * 4;
-    if (buf.length < raw.edgeVectorCount * entryBytes) {
-        if (debug) {
-            console.error(
-                `[euler] short buffer: have=${buf.length}, need=${raw.edgeVectorCount * entryBytes} (stride=${raw.stride}, edges=${raw.edgeVectorCount})`,
-            );
-            _eulerDebugBudget -= 1;
-        }
-        return null;
-    }
+    if (buf.length < raw.edgeVectorCount * entryBytes) return null;
 
-    // Decode all entries into a flat array.
-    interface Entry {
-        edgeIdx: number;
-        startNode: number;
-        endNode: number;
-    }
-    const entries: Entry[] = [];
+    const rings: [number, number][][] = [];
+    let currentRing: [number, number][] | null = null;
+    let currentEndNode = -1;
+
     for (let i = 0; i < raw.edgeVectorCount; i++) {
         const off = i * entryBytes;
-        entries.push({
-            edgeIdx: buf.readInt32LE(off),
-            startNode: buf.readInt32LE(off + 4),
-            endNode: buf.readInt32LE(off + 8),
-        });
-    }
+        const startNode = buf.readInt32LE(off);
+        const edgeIdxSigned = buf.readInt32LE(off + 4);
+        const endNode = buf.readInt32LE(off + 8);
+        const fwdFlag = raw.stride === 4 ? buf.readInt32LE(off + 12) : 0;
+        const forward = raw.stride === 4 ? fwdFlag === 0 : edgeIdxSigned >= 0;
+        const edgeIdx = edgeIdxSigned >= 0 ? edgeIdxSigned : -edgeIdxSigned;
 
-    // Adjacency: nodeId → list of entry indices touching this node.
-    // Each entry is registered once at startNode and once at endNode.
-    const adjacency = new Map<number, number[]>();
-    for (let i = 0; i < entries.length; i++) {
-        const e = entries[i];
-        const aStart = adjacency.get(e.startNode);
-        if (aStart) aStart.push(i);
-        else adjacency.set(e.startNode, [i]);
-        const aEnd = adjacency.get(e.endNode);
-        if (aEnd) aEnd.push(i);
-        else adjacency.set(e.endNode, [i]);
-    }
+        const startCoord = connectedNodeTable.get(startNode)?.coord;
+        const endCoord = connectedNodeTable.get(endNode)?.coord;
+        if (!startCoord || !endCoord) return null;
 
-    // Sanity: every node should have even degree on a closed-polygon graph.
-    // Bail to triangle fallback on malformed topology.
-    for (const [nodeId, list] of adjacency) {
-        if (list.length % 2 !== 0) {
-            if (debug) {
-                const odds: Array<[number, number]> = [];
-                for (const [n, l] of adjacency) if (l.length % 2 !== 0) odds.push([n, l.length]);
-                console.error(
-                    `[euler] bail at odd-degree check — feature has ${entries.length} edges, ${adjacency.size} nodes, ${odds.length} with odd degree (first odd: node=${nodeId} degree=${list.length}). All odd: ${JSON.stringify(odds.slice(0, 6))}`,
-                );
-                _eulerDebugBudget -= 1;
+        // Build segment as [startCoord, intermediates (in walk direction), endCoord]
+        const edge = edgeTable.get(edgeIdx);
+        const intermediate = edge ? (forward ? edge.points : edge.points.slice().reverse()) : [];
+
+        // Detect ring continuation vs new ring
+        if (currentRing === null || startNode !== currentEndNode) {
+            // Start a new ring. Close the previous one if it exists.
+            if (currentRing) {
+                closeRing(currentRing);
+                if (currentRing.length >= 4) rings.push(currentRing);
             }
-            return null;
+            currentRing = [startCoord];
         }
+        // Append this segment to the current ring (skip duplicate start point)
+        for (const p of intermediate) currentRing.push(p);
+        currentRing.push(endCoord);
+        currentEndNode = endNode;
     }
 
-    const used = new Set<number>(); // entry indices
-    const rings: [number, number][][] = [];
-
-    // For each unused starting entry, walk a cycle.
-    for (let seed = 0; seed < entries.length; seed++) {
-        if (used.has(seed)) continue;
-
-        const start = entries[seed];
-        const startCoord = connectedNodeTable.get(start.startNode);
-        if (!startCoord) return null;
-
-        const ring: [number, number][] = [startCoord.coord];
-        let currentNode = start.startNode;
-        let nextEntryIdx: number | null = seed;
-
-        // Bounded walk — at most |entries| steps per cycle.
-        for (let step = 0; step < entries.length && nextEntryIdx !== null; step++) {
-            const idx = nextEntryIdx;
-            used.add(idx);
-            const e = entries[idx];
-
-            // Determine traversal direction from the entry's node ordering vs
-            // where we are in the walk.
-            const goingForward = e.startNode === currentNode;
-            const otherNode = goingForward ? e.endNode : e.startNode;
-
-            const edge = edgeTable.get(e.edgeIdx);
-            if (edge) {
-                const pts = goingForward ? edge.points : [...edge.points].reverse();
-                for (const p of pts) ring.push(p);
-            }
-
-            const otherCoord = connectedNodeTable.get(otherNode);
-            if (!otherCoord) return null;
-            ring.push(otherCoord.coord);
-
-            currentNode = otherNode;
-
-            // Closed cycle: back at start node, end this ring.
-            if (currentNode === start.startNode) {
-                nextEntryIdx = null;
-                break;
-            }
-
-            // Pick any unused entry incident to currentNode.
-            const incident = adjacency.get(currentNode);
-            let chosen: number | null = null;
-            if (incident) {
-                for (const candidate of incident) {
-                    if (!used.has(candidate)) {
-                        chosen = candidate;
-                        break;
-                    }
-                }
-            }
-            nextEntryIdx = chosen;
-        }
-
-        if (ring.length < 4) return null; // degenerate ring
-        // Force-close in case the walk ended via "no more incident edges"
-        // rather than returning to start (shouldn't happen on well-formed
-        // data; defensive).
-        const f0 = ring[0];
-        const fN = ring[ring.length - 1];
-        if (f0[0] !== fN[0] || f0[1] !== fN[1]) ring.push(f0);
-
-        rings.push(ring);
+    if (currentRing) {
+        closeRing(currentRing);
+        if (currentRing.length >= 4) rings.push(currentRing);
     }
 
     return rings.length > 0 ? rings : null;
+}
+
+/** Ensure a ring's last point equals its first, closing it. Mutates input. */
+function closeRing(ring: [number, number][]): void {
+    if (ring.length < 2) return;
+    const a = ring[0];
+    const b = ring[ring.length - 1];
+    if (a[0] !== b[0] || a[1] !== b[1]) ring.push([a[0], a[1]]);
 }
 
 /**
