@@ -1442,11 +1442,25 @@ class MinHeap {
  * accepting a single unmarked cell.
  */
 function cellCostMultiplier(depth: number, preferred: boolean): number {
-    // Cells inside a marked fairway / dredged area always get the
-    // baseline cost regardless of depth band — that's how we get
-    // A* to follow the channel instead of cutting across deeper
-    // open water nearby.
-    if (preferred) return 1.0;
+    // Cells inside a marked fairway / dredged area / promoted river get
+    // the cheapest costs so A* follows the channel instead of cutting
+    // across deeper open water nearby — BUT still depth-graded within
+    // the channel so A* rides the DEEP dredged centre rather than weaving
+    // into the shallow margins. Before this was a flat 1.0× regardless of
+    // depth, which let A* zigzag between 10 m and 1.5 m cells freely
+    // (Shane 2026-05-20: "it is not following the dredged area, it should
+    // utilise the dredge area and weave between the red and green
+    // markers" — the route weaved through 1.5 m promoted-river cells
+    // because they cost the same as the 10 m channel centre). Every tier
+    // here stays below the non-preferred deep cost (5×), so the channel
+    // as a whole still wins decisively over open water — we only break
+    // ties WITHIN the channel toward depth.
+    if (preferred) {
+        if (depth >= 5) return 1.0; // deep dredged centre — baseline
+        if (depth > 0) return 2.5; // shallow channel margin — ride the centre instead
+        if (depth < 0) return 3.5; // caution-depth inside a marked channel
+        return 4.0; // unknown inside a marked channel
+    }
 
     // Outside marked channels, prefer deeper water but allow shallow
     // navigable cells. The penalties are stiffer than before (was
