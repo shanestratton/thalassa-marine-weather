@@ -430,15 +430,52 @@ async function tryInshoreRouteInner(
         // is built on reclaimed land that postdates the AU SENC charts —
         // the chart has water where there's now ~3 km of concrete and fill.
         // Without this, A* threads a straight diagonal across the runway
-        // when routing from Moreton Bay into the river (Newport→Rivergate
-        // was cutting Pinkenba via the airport peninsula). Treating the
-        // aerodrome polygon as LNDARE forces A* to detour around — which
-        // is the actual river-mouth entrance any honest skipper takes.
+        // when routing from Moreton Bay into the river.
+        //
+        // 2026-05-19: the raw `aeroway=aerodrome` polygon alone wasn't
+        // enough. OSM's aerodrome boundary traces the fence-line, which
+        // for Brisbane Airport has a several-hundred-metre-wide eastern
+        // strip between the new runway and the bay-side perimeter that
+        // isn't inside the fence polygon — A* threaded through it. Fix:
+        // for `aeroway=aerodrome` features we ALSO push a rectangular
+        // polygon covering the polygon's bbox into LNDARE. Boats have
+        // no legitimate business inside an airport's footprint, so the
+        // small over-block is the right tradeoff. Smaller aeroway
+        // features (runway/taxiway/apron) keep their actual geometry
+        // because they're already tight.
+        let aerodromeBboxRectsAdded = 0;
         if (osmOverlay.aeroway.features.length > 0) {
             const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of osmOverlay.aeroway.features) {
-                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-                    (lndare.features as unknown[]).push(f);
+                if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') continue;
+                (lndare.features as unknown[]).push(f);
+                const tags = (f.properties ?? {}) as Record<string, unknown>;
+                if (tags['aeroway'] === 'aerodrome') {
+                    const dim = featureBboxAndSizeM(f);
+                    if (dim) {
+                        const [minLon, minLat, maxLon, maxLat] = dim.bbox;
+                        (lndare.features as unknown[]).push({
+                            type: 'Feature',
+                            properties: {
+                                ...tags,
+                                _source: 'osm-aerodrome-bbox-fill',
+                                _class: 'lndare-aerodrome-bbox',
+                            },
+                            geometry: {
+                                type: 'Polygon',
+                                coordinates: [
+                                    [
+                                        [minLon, minLat],
+                                        [maxLon, minLat],
+                                        [maxLon, maxLat],
+                                        [minLon, maxLat],
+                                        [minLon, minLat],
+                                    ],
+                                ],
+                            },
+                        });
+                        aerodromeBboxRectsAdded++;
+                    }
                 }
             }
             merged.LNDARE = lndare;
@@ -458,7 +495,7 @@ async function tryInshoreRouteInner(
             (ff) => (ff.properties as Record<string, unknown> | null)?._promotePreferred === true,
         ).length;
         log.warn(
-            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} promotedFairwy=${promotedCount}`,
+            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} aerodromeBboxFill=${aerodromeBboxRectsAdded} promotedFairwy=${promotedCount}`,
         );
         // DIAGNOSTIC — per-tag promotion breakdown. Tells us which OSM
         // tags are doing the work and which are silent. If `water=river`
