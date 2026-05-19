@@ -453,6 +453,7 @@ function buildNavGridCached(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    relaxedLndare: boolean = false,
 ): { grid: NavGrid; cacheHit: boolean } {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -465,13 +466,13 @@ function buildNavGridCached(
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
     ].join(',');
-    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_${sig}`;
     const cached = navGridCache.get(key);
     if (cached) {
         cached.ts = Date.now();
         return { grid: cached.grid, cacheHit: true };
     }
-    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM);
+    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM, relaxedLndare);
     if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
         let oldestKey: string | null = null;
         let oldestTs = Infinity;
@@ -499,6 +500,13 @@ function buildNavGrid(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    /**
+     * When true, LNDARE cells become CAUTION (high-cost 500× traversable)
+     * instead of BLOCKED. Set by the destination-disconnected retry path —
+     * lets A* navigate through the rare case where a chart's mainland
+     * LNDARE polygon includes a river course without a proper hole.
+     */
+    relaxedLndare: boolean = false,
 ): NavGrid {
     // Per-pass timing — a single Newport→Brisbane build was clocked at
     // 37.8 s and accounted for 97% of the route compute. Without per-
@@ -702,7 +710,12 @@ function buildNavGrid(
         // pass 1 to un-block actual surveyed water.
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
-            if (!protectedCells[idx]) {
+            if (protectedCells[idx]) return;
+            if (relaxedLndare) {
+                // CAUTION-mode: A* can traverse at 500× cost. Don't set
+                // hardBlocked so FAIRWY/DRGARE rescue still applies.
+                if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+            } else {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
             }
@@ -1442,6 +1455,32 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * before calling this.
  */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    // Try strict first — LNDARE blocks land. With proper ring assembly
+    // (Eulerian/linear-chain fix landed 2026-05-19) this gives accurate
+    // results for most routes. But certain charts represent rivers as
+    // "inside" a giant mainland LNDARE polygon with no inner-ring hole
+    // (verified on AU OC-61-351824 rcid 4500: Brisbane mainland is one
+    // 3503-vert polygon, no holes — the river course is inside it). For
+    // destinations inside such polygons, retry with LNDARE relaxed to
+    // CAUTION (cost 500× water). A* prefers actual water cells massively
+    // over caution, so it won't cross real land masses — only the
+    // chart-says-land-but-really-water river/harbour interior cells get
+    // traversed, flagged red in the polyline so the user verifies.
+    const strict = routeInshoreOnce(layers, req, false);
+    if (!('error' in strict)) return strict;
+    if (strict.code !== 'destination-disconnected') return strict;
+    console.warn(
+        '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed to CAUTION',
+    );
+    const relaxed = routeInshoreOnce(layers, req, true);
+    return relaxed;
+}
+
+function routeInshoreOnce(
+    layers: InshoreLayers,
+    req: RouteRequest,
+    relaxedLndare: boolean,
+): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
     const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
@@ -1488,6 +1527,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         req.draftM,
         safetyM,
         obstructionBufferM,
+        relaxedLndare,
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
