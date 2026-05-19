@@ -109,6 +109,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         groupedEntries: _groupedEntries,
         entryCounts: _entryCounts,
         voyageGroups,
+        sailedVoyageGroups,
         hasNonDeviceEntries,
         totalDistance: _totalDistance,
         avgSpeed: _avgSpeed,
@@ -331,9 +332,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     </div>
                     <div className="flex-1 overflow-auto p-4 md:p-8 flex flex-col justify-center md:max-w-3xl md:mx-auto">
                         {(() => {
+                            // All-Voyages aggregate excludes suggested/
+                            // planned routes (source='planned_route') so
+                            // they don't inflate distance / speed / entry
+                            // totals. A single selected voyage shows its
+                            // own entries verbatim (the user explicitly
+                            // drilled into it). 2026-05-20.
                             const scopedEntries = selectedVoyageId
                                 ? filteredEntries.filter((e) => e.voyageId === selectedVoyageId)
-                                : filteredEntries;
+                                : filteredEntries.filter((e) => e.source !== 'planned_route');
 
                             let scopedDistance = 0;
                             if (selectedVoyageId) {
@@ -495,14 +502,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         Polished 2026-05-17 — gradient backdrops per
                         accent colour, icon glyph in the upper-right
                         corner of each, larger metric + inline unit
-                        suffix, brighter labels. Same data source as
-                        the voyage cards below (voyageGroups). */}
+                        suffix, brighter labels. Stats use
+                        `sailedVoyageGroups` — the SAILED subset of the
+                        cards below, with suggested/planned routes excluded
+                        (2026-05-20) so aspirational routes don't inflate
+                        the distance / time / voyage totals. */}
                     {(() => {
-                        const totalNmRaw = voyageGroups.reduce((sum, g) => {
+                        const totalNmRaw = sailedVoyageGroups.reduce((sum, g) => {
                             const dist = Math.max(0, ...g.entries.map((e) => e.cumulativeDistanceNM || 0));
                             return sum + dist;
                         }, 0);
-                        const totalMs = voyageGroups.reduce((sum, g) => {
+                        const totalMs = sailedVoyageGroups.reduce((sum, g) => {
                             if (g.entries.length < 2) return sum;
                             const times = g.entries.map((e) => new Date(e.timestamp).getTime());
                             return sum + (Math.max(...times) - Math.min(...times));
@@ -600,10 +610,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white tabular-nums leading-none">
-                                                {voyageGroups.length}
+                                                {sailedVoyageGroups.length}
                                             </span>
                                             <span className="text-[11px] font-bold text-amber-300/60 uppercase tracking-wider">
-                                                {voyageGroups.length === 1 ? 'log' : 'logs'}
+                                                {sailedVoyageGroups.length === 1 ? 'log' : 'logs'}
                                             </span>
                                         </div>
                                     </div>

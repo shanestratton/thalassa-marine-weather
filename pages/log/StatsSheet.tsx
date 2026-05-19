@@ -27,6 +27,10 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
 }) => {
     const effectiveVoyageId = selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
     const voyageEntryCount = effectiveVoyageId ? entries.filter((e) => e.voyageId === effectiveVoyageId).length : 0;
+    // All-Voyages aggregate count excludes suggested/planned routes
+    // (source='planned_route') so the "pts" total reflects sailed
+    // entries only. 2026-05-20 — matches the LogPage gauge tiles.
+    const sailedEntryCount = entries.filter((e) => e.source !== 'planned_route').length;
 
     return (
         <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">
@@ -139,7 +143,7 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
                             <div className="text-slate-400 text-sm mt-1">Combined statistics across every voyage</div>
                         </div>
                         <span className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-400 text-xs font-bold">
-                            {entries.length} pts
+                            {sailedEntryCount} pts
                         </span>
                         <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
