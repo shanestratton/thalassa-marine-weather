@@ -385,14 +385,32 @@ async function tryInshoreRouteInner(
         }
         // OSM breakwaters → LNDARE. Same rasterisation as chart LNDARE so
         // A* can't plough through breakwaters when exiting marinas.
+        // Polygon variants go into LNDARE (rasterized as area); LineString
+        // variants go into COASTLINE (Bresenham-rasterized as a thin strip
+        // by pass 2b in the engine).
         if (overlay.breakwater.features.length > 0) {
             const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of overlay.breakwater.features) {
                 if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
                     (lndare.features as unknown[]).push(f);
+                } else if (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString') {
+                    (coast.features as unknown[]).push(f);
                 }
             }
             merged.LNDARE = lndare;
+            merged.COASTLINE = coast;
+        }
+        // OSM coastline (natural=coastline) → COASTLINE layer. The engine's
+        // pass 2b Bresenham-rasterises each segment as a thin LNDARE strip
+        // so A* can't cut across the land/water boundary even where chart
+        // LNDARE polygons have gaps (Newport canal estate 2026-05-19).
+        if (overlay.coastline.features.length > 0) {
+            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of overlay.coastline.features) {
+                (coast.features as unknown[]).push(f);
+            }
+            merged.COASTLINE = coast;
         }
         log.warn(
             `STAGE: OSM overlay merged — water=${overlay.water.features.length} marina=${overlay.marina.features.length} reef=${overlay.reef.features.length} breakwater=${overlay.breakwater.features.length} coastline=${overlay.coastline.features.length}`,
@@ -412,7 +430,7 @@ async function tryInshoreRouteInner(
     // planning is the skipper's job — chart datum is already lowest
     // astronomical tide.
     log.warn(
-        `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0}, calling routeInshore`,
+        `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0} COASTLINE=${merged.COASTLINE?.features.length ?? 0}, calling routeInshore`,
     );
     // 60 m hazard buffer (engine default 30 m).
     //
