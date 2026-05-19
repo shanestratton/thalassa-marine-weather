@@ -2122,7 +2122,20 @@ async function fetchRegionalMarkers(
         // do we draw segments, and a cluster spans ≤350 m hops.
         const SEGMENT_MAX_M = 1200;
         const segments: unknown[] = [];
-        for (const arr of byChain.values()) {
+        // Ribbon-continuity diagnostic (#19, 2026-05-20). Per multi-pair
+        // chain: where it is (centroid — lets us ID the Brisbane River
+        // chain near the destination), how many segments connect it, and
+        // how many consecutive-midpoint gaps got dropped for being
+        // >SEGMENT_MAX_M. A dropped gap = a hole in the channel ribbon
+        // where A* free-routes (and can cut to the shallow side). Tells
+        // us whether the "route crosses the markers to the far side"
+        // symptom is a ribbon GAP (fill it) vs a continuous-but-too-weak
+        // ribbon flattened by the OSM-water 1.0× promotion (re-tier cost).
+        const chainRibbonDiag: string[] = [];
+        for (const [cid, arr] of byChain.entries()) {
+            let emitted = 0;
+            let droppedGap = 0;
+            let maxGapM = 0;
             for (let i = 0; i < arr.length - 1; i++) {
                 const a = arr[i];
                 const b = arr[i + 1];
@@ -2131,7 +2144,11 @@ async function fetchRegionalMarkers(
                 const dxM = (b.lon - a.lon) * mPerLonAtMid;
                 const dyM = (b.lat - a.lat) * 111_320;
                 const lenM = Math.sqrt(dxM * dxM + dyM * dyM);
-                if (lenM < 1 || lenM > SEGMENT_MAX_M) continue;
+                if (lenM > maxGapM) maxGapM = lenM;
+                if (lenM < 1 || lenM > SEGMENT_MAX_M) {
+                    if (lenM > SEGMENT_MAX_M) droppedGap++;
+                    continue;
+                }
                 const perpDxM = (-dyM / lenM) * HALF_WIDTH_M;
                 const perpDyM = (dxM / lenM) * HALF_WIDTH_M;
                 const perpDLon = perpDxM / mPerLonAtMid;
@@ -2158,8 +2175,25 @@ async function fetchRegionalMarkers(
                         ],
                     },
                 });
+                emitted++;
+            }
+            if (arr.length >= 2) {
+                let cLat = 0;
+                let cLon = 0;
+                for (const m of arr) {
+                    cLat += m.lat;
+                    cLon += m.lon;
+                }
+                cLat /= arr.length;
+                cLon /= arr.length;
+                chainRibbonDiag.push(
+                    `chain ${cid}: ${arr.length}mp @ ${cLat.toFixed(3)},${cLon.toFixed(3)} → ${emitted}seg ${droppedGap}gap-dropped maxGap=${Math.round(maxGapM)}m`,
+                );
             }
         }
+        log.warn(
+            `STAGE: ribbon continuity (${chainRibbonDiag.length} multi-pair chains): ${chainRibbonDiag.join(' || ')}`,
+        );
 
         // ── Step 6: Solo + direct-hazard markers → OBSTRN points ─
         // Solo lateral markers (unpaired in their cluster) join
