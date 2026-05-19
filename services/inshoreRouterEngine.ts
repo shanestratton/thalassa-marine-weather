@@ -58,6 +58,10 @@ import type {
     Position,
 } from 'geojson';
 
+import { createLogger } from '../utils/createLogger';
+
+const engineLog = createLogger('inshoreEngine');
+
 // ── Types ──────────────────────────────────────────────────────────
 
 /**
@@ -1899,7 +1903,8 @@ function routeInshoreOnce(
                 traceLines.push(`    @${lat.toFixed(4)},${lon.toFixed(4)} ${depthStr} preferred=${pref}`);
             }
         }
-        console.warn(`[inshoreEngine] CELL TRACE along smoothed polyline:\n${traceLines.join('\n')}`);
+        engineLog.warn(`CELL TRACE along smoothed polyline (${smoothedCells.length - 1} segments):`);
+        for (const line of traceLines) engineLog.warn(line);
     }
 
     // Convert grid path → polyline (cell centers). Keep each smoothed
