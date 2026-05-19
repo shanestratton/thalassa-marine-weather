@@ -874,8 +874,18 @@ function buildNavGrid(
         // signal class — they exist because a harbour authority surveyed
         // and dredged the channel, so they get the keys back. OSM-derived
         // channel features (no `acronym`) still respect LNDARE's hard-block.
+        //
+        // EXTENSION (2026-05-19): OSM water polygons tagged `water=river`
+        // or `harbour=yes` and wider than ~200 m are promoted to this
+        // chart-authoritative class via `_promotePreferred` set in
+        // InshoreRouter.ts. Without this, the Brisbane River shipping
+        // channel cells (which sit inside an over-bleeding mainland
+        // LNDARE polygon on the AU SENC) couldn't be rescued by their
+        // own OSM water tag, and A* would route through Bramble Bay
+        // shallows instead of along the river. The promotion is gated
+        // on tag + minimum width to keep suburban ponds out.
         const props = f.properties as Record<string, unknown> | null;
-        const isChartAuthoritative = typeof props?.acronym === 'string';
+        const isChartAuthoritative = typeof props?.acronym === 'string' || props?._promotePreferred === true;
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             preferred[idx] = 1;

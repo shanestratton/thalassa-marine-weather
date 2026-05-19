@@ -42,7 +42,7 @@ import { cellsForBBox } from './enc/EncCellMetadata';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { piCache } from './PiCacheService';
-import { getOsmRouteOverlay } from './OsmRouteOverlayService';
+import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InshoreRouter');
@@ -256,6 +256,163 @@ async function tryInshoreRouteInner(
         return null;
     }
 
+    // ── OSM route overlay (fetched BEFORE regional markers) ──
+    // Order matters: the regional-marker pair-rejection step (Step 3 of
+    // fetchRegionalMarkers) needs to know which polygons OSM calls water
+    // even when the chart's LNDARE bleeds across them. Brisbane River is
+    // the canonical case: the river is "inside" a coastal LNDARE polygon
+    // on the AU SENC, so every legitimate port/starboard midpoint along
+    // the shipping channel sits inside that LNDARE and gets rejected.
+    // Wiring OSM water into the rejection gate turns those rejections
+    // back into accepted pairs and resurrects the FAIRWY ribbon.
+    //
+    // Fill structural gaps in S-57 ENC data:
+    //   - rivers inside coastal landmass (Brisbane River is INSIDE the
+    //     mainland LNDARE polygon per the AU chart — OSM water=river makes
+    //     the river navigable)
+    //   - marina exit channels (chart doesn't tessellate Newport canals
+    //     in detail — OSM water=canal + leisure=marina fills them)
+    //   - reef extents (chart marks Scarborough Reef as a single UWTROC
+    //     point — OSM natural=reef polygon describes the full shape)
+    //   - breakwaters (block routing through marina breakwaters when chart
+    //     omits them — OSM man_made=breakwater)
+    //
+    // Pi caches Overpass responses for 7 days per 0.01° bbox tile so most
+    // route runs are sub-second. Pi unreachable / no OSM data → empty
+    // overlay, router falls back to chart-only behaviour.
+    const routeBbox: [number, number, number, number] = [
+        Math.min(origin.lon, destination.lon) - 0.05,
+        Math.min(origin.lat, destination.lat) - 0.05,
+        Math.max(origin.lon, destination.lon) + 0.05,
+        Math.max(origin.lat, destination.lat) + 0.05,
+    ];
+    let osmOverlay: OsmRouteOverlay | null = null;
+    try {
+        osmOverlay = await getOsmRouteOverlay(routeBbox);
+        // OSM water polygons → DEPARE with synthetic deep DRVAL1 so the
+        // router treats them as authoritative navigable (the existing
+        // isAuthoritativeDepare gate honours waterway=river/canal/dock
+        // and natural=water as authoritative).
+        //
+        // For wide rivers/harbours, we ALSO push the polygon into FAIRWY
+        // with `_promotePreferred: true` so the engine treats it like a
+        // chart-authoritative dredged channel: 1.0× cost AND can rescue
+        // hard-blocked LNDARE cells inside the polygon. This is what
+        // attracts A* INTO the river instead of letting it cut across
+        // Bramble Bay / Moreton Bay through generic deep bathymetry.
+        const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
+        if (osmOverlay.water.features.length > 0) {
+            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.water.features) {
+                (depare.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        DRVAL1: 10.0, // synthetic — OSM doesn't ship depth
+                        DRVAL2: 10.0,
+                    },
+                });
+                // Promote wide rivers/harbours to channel-preferred. The
+                // width test rejects suburban stormwater ponds tagged
+                // `natural=water` (those would otherwise hand A* a free
+                // 1.0× shortcut through a backyard pond). 200 m at the
+                // narrowest is the heuristic — comfortably wider than
+                // any navigable creek, narrow enough that the Brisbane
+                // River's tightest reach (the bend at Bulimba is ~230 m
+                // bank-to-bank) still qualifies.
+                const props = (f.properties ?? {}) as Record<string, unknown>;
+                const isRiverOrHarbour =
+                    props['water'] === 'river' ||
+                    props['water'] === 'harbour' ||
+                    props['waterway'] === 'river' ||
+                    props['waterway'] === 'riverbank' ||
+                    props['harbour'] === 'yes';
+                if (isRiverOrHarbour && isPolygonWideEnough(f, 200)) {
+                    (fairwy.features as unknown[]).push({
+                        ...f,
+                        properties: {
+                            ...(f.properties ?? {}),
+                            _promotePreferred: true,
+                            _source: 'osm-water-promoted',
+                        },
+                    });
+                }
+            }
+            merged.DEPARE = depare;
+        }
+        // OSM marina polygons → DEPARE (basin counts as authoritative water).
+        if (osmOverlay.marina.features.length > 0) {
+            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.marina.features) {
+                (depare.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        DRVAL1: 5.0, // marinas typically maintained to 5 m
+                        DRVAL2: 5.0,
+                    },
+                });
+            }
+            merged.DEPARE = depare;
+        }
+        if (fairwy.features.length > 0) merged.FAIRWY = fairwy;
+        // OSM reef polygons → OBSTRN. Pass 3 rasterises polygon OBSTRN as
+        // BLOCKED cells over the whole polygon, so the boat detours the
+        // reef's actual extent (not just a 400m point disc).
+        if (osmOverlay.reef.features.length > 0) {
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.reef.features) {
+                (obstrn.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        _class: 'osm-reef',
+                    },
+                });
+            }
+            merged.OBSTRN = obstrn;
+        }
+        // OSM breakwaters → LNDARE. Same rasterisation as chart LNDARE so
+        // A* can't plough through breakwaters when exiting marinas.
+        // Polygon variants go into LNDARE (rasterized as area); LineString
+        // variants go into COASTLINE (Bresenham-rasterized as a thin strip
+        // by pass 2b in the engine).
+        if (osmOverlay.breakwater.features.length > 0) {
+            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.breakwater.features) {
+                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                    (lndare.features as unknown[]).push(f);
+                } else if (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString') {
+                    (coast.features as unknown[]).push(f);
+                }
+            }
+            merged.LNDARE = lndare;
+            merged.COASTLINE = coast;
+        }
+        // OSM coastline (natural=coastline) → COASTLINE layer. The engine's
+        // pass 2b Bresenham-rasterises each segment as a thin LNDARE strip
+        // so A* can't cut across the land/water boundary even where chart
+        // LNDARE polygons have gaps (Newport canal estate 2026-05-19).
+        if (osmOverlay.coastline.features.length > 0) {
+            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.coastline.features) {
+                (coast.features as unknown[]).push(f);
+            }
+            merged.COASTLINE = coast;
+        }
+        const promotedCount = fairwy.features.filter(
+            (ff) => (ff.properties as Record<string, unknown> | null)?._promotePreferred === true,
+        ).length;
+        log.warn(
+            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} promotedFairwy=${promotedCount}`,
+        );
+    } catch (err) {
+        log.warn(
+            `OSM overlay fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+
     // ── Regional nav-markers (lateral buoys/beacons) ──
     // The app already loads this file for chart display (useMapInit.ts).
     // For routing we re-fetch it and convert port/starboard markers to
@@ -268,9 +425,16 @@ async function tryInshoreRouteInner(
     const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
     if (regionalMarkersUrl) {
         try {
+            // Combined OSM water+marina list. Used inside the pair loop
+            // as a tie-breaker against LNDARE-bleed: if the midpoint of
+            // a port/starboard pair falls inside an over-bleeding LNDARE
+            // polygon BUT also inside an OSM water polygon (river /
+            // marina basin), trust OSM and accept the pair.
+            const osmWaterForPairing = osmOverlay ? [...osmOverlay.water.features, ...osmOverlay.marina.features] : [];
             const { midpoints, segments, hazards } = await fetchRegionalMarkers(
                 regionalMarkersUrl,
                 merged.LNDARE?.features ?? [],
+                osmWaterForPairing,
             );
             if (midpoints.length > 0) {
                 const boylat = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
@@ -309,116 +473,6 @@ async function tryInshoreRouteInner(
                 `regional markers fetch failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
             );
         }
-    }
-
-    // ── OSM route overlay ──
-    // Fill structural gaps in S-57 ENC data:
-    //   - rivers inside coastal landmass (Brisbane River is INSIDE the
-    //     mainland LNDARE polygon per the AU chart — OSM water=river makes
-    //     the river navigable)
-    //   - marina exit channels (chart doesn't tessellate Newport canals
-    //     in detail — OSM water=canal + leisure=marina fills them)
-    //   - reef extents (chart marks Scarborough Reef as a single UWTROC
-    //     point — OSM natural=reef polygon describes the full shape)
-    //   - breakwaters (block routing through marina breakwaters when chart
-    //     omits them — OSM man_made=breakwater)
-    //
-    // Pi caches Overpass responses for 7 days per 0.01° bbox tile so most
-    // route runs are sub-second. Pi unreachable / no OSM data → empty
-    // overlay, router falls back to chart-only behaviour.
-    const routeBbox: [number, number, number, number] = [
-        Math.min(origin.lon, destination.lon) - 0.05,
-        Math.min(origin.lat, destination.lat) - 0.05,
-        Math.max(origin.lon, destination.lon) + 0.05,
-        Math.max(origin.lat, destination.lat) + 0.05,
-    ];
-    try {
-        const overlay = await getOsmRouteOverlay(routeBbox);
-        // OSM water polygons → DEPARE with synthetic deep DRVAL1 so the
-        // router treats them as authoritative navigable (the existing
-        // isAuthoritativeDepare gate honours waterway=river/canal/dock
-        // and natural=water as authoritative).
-        if (overlay.water.features.length > 0) {
-            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of overlay.water.features) {
-                (depare.features as unknown[]).push({
-                    ...f,
-                    properties: {
-                        ...(f.properties ?? {}),
-                        DRVAL1: 10.0, // synthetic — OSM doesn't ship depth
-                        DRVAL2: 10.0,
-                    },
-                });
-            }
-            merged.DEPARE = depare;
-        }
-        // OSM marina polygons → DEPARE (basin counts as authoritative water).
-        if (overlay.marina.features.length > 0) {
-            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of overlay.marina.features) {
-                (depare.features as unknown[]).push({
-                    ...f,
-                    properties: {
-                        ...(f.properties ?? {}),
-                        DRVAL1: 5.0, // marinas typically maintained to 5 m
-                        DRVAL2: 5.0,
-                    },
-                });
-            }
-            merged.DEPARE = depare;
-        }
-        // OSM reef polygons → OBSTRN. Pass 3 rasterises polygon OBSTRN as
-        // BLOCKED cells over the whole polygon, so the boat detours the
-        // reef's actual extent (not just a 400m point disc).
-        if (overlay.reef.features.length > 0) {
-            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of overlay.reef.features) {
-                (obstrn.features as unknown[]).push({
-                    ...f,
-                    properties: {
-                        ...(f.properties ?? {}),
-                        _class: 'osm-reef',
-                    },
-                });
-            }
-            merged.OBSTRN = obstrn;
-        }
-        // OSM breakwaters → LNDARE. Same rasterisation as chart LNDARE so
-        // A* can't plough through breakwaters when exiting marinas.
-        // Polygon variants go into LNDARE (rasterized as area); LineString
-        // variants go into COASTLINE (Bresenham-rasterized as a thin strip
-        // by pass 2b in the engine).
-        if (overlay.breakwater.features.length > 0) {
-            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
-            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of overlay.breakwater.features) {
-                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
-                    (lndare.features as unknown[]).push(f);
-                } else if (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString') {
-                    (coast.features as unknown[]).push(f);
-                }
-            }
-            merged.LNDARE = lndare;
-            merged.COASTLINE = coast;
-        }
-        // OSM coastline (natural=coastline) → COASTLINE layer. The engine's
-        // pass 2b Bresenham-rasterises each segment as a thin LNDARE strip
-        // so A* can't cut across the land/water boundary even where chart
-        // LNDARE polygons have gaps (Newport canal estate 2026-05-19).
-        if (overlay.coastline.features.length > 0) {
-            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            for (const f of overlay.coastline.features) {
-                (coast.features as unknown[]).push(f);
-            }
-            merged.COASTLINE = coast;
-        }
-        log.warn(
-            `STAGE: OSM overlay merged — water=${overlay.water.features.length} marina=${overlay.marina.features.length} reef=${overlay.reef.features.length} breakwater=${overlay.breakwater.features.length} coastline=${overlay.coastline.features.length}`,
-        );
-    } catch (err) {
-        log.warn(
-            `OSM overlay fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
-        );
     }
 
     // safetyM=0.2 instead of the engine's 1.0 m default. Our public-data
@@ -1162,16 +1216,26 @@ function perpDistFromLineM(
  */
 /**
  * Ray-casting point-in-polygon test. Returns true if the point falls
- * inside ANY ring of the polygon/multipolygon. Doesn't distinguish
- * outer rings from holes — for our use case (was this midpoint on
- * land?) we want any-ring containment.
+ * inside ANY ring of any polygon/multipolygon in `features`. Doesn't
+ * distinguish outer rings from holes — for our use cases (was this
+ * midpoint on land? was it inside an OSM water polygon?) we want
+ * any-ring containment.
+ *
+ * The function is feature-agnostic: pass it LNDARE polygons to ask
+ * "is this point on charted land?", pass it OSM water+marina polygons
+ * to ask "is this point inside OSM-tagged navigable water?". The pair-
+ * rejection step (Step 3 of fetchRegionalMarkers) calls it twice with
+ * different feature sets and uses the OSM check as a tie-breaker
+ * against LNDARE-bleed across rivers (Brisbane River shipping channel
+ * markers, whose midpoints sit inside the over-bleeding mainland
+ * LNDARE polygon).
  */
-function pointInLandare(
+function pointInAnyPolygon(
     lon: number,
     lat: number,
-    lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
+    features: { geometry?: { type?: string; coordinates?: unknown } }[],
 ): boolean {
-    for (const f of lndareFeatures) {
+    for (const f of features) {
         const g = f.geometry;
         if (!g) continue;
         const ringsList: number[][][][] =
@@ -1211,6 +1275,55 @@ function pointInLandare(
         }
     }
     return false;
+}
+
+/**
+ * Cheap "is this polygon wide enough to be a navigable channel?" test.
+ * Uses the bounding-box short-side as a proxy for narrowest width.
+ *
+ * Why this exists: when we promote OSM water=river/water=harbour polygons
+ * to channel-preferred status (1.0× cost), we must NOT promote suburban
+ * stormwater ponds and drainage basins that happen to share the same
+ * `natural=water` tag. A 100×100 m pond would otherwise give A* a free
+ * 1.0× shortcut through a backyard.
+ *
+ * Bbox short-side is conservative: an L-shaped polygon (e.g. a river
+ * bend) reports both sides as the bbox extent of the bend, so it'll
+ * pass the test even if the river itself is narrow at the bend's
+ * elbow. That's fine — we'd rather over-promote a real river than
+ * under-promote it. False-promotions are filtered downstream by the
+ * tag check (`water=river`/`harbour=yes`/etc.) which already excludes
+ * lakes and isolated water bodies.
+ */
+function isPolygonWideEnough(f: { geometry?: { type?: string; coordinates?: unknown } }, minWidthM: number): boolean {
+    const g = f.geometry;
+    if (!g) return false;
+    const outerRings: number[][][] =
+        g.type === 'Polygon'
+            ? [(g.coordinates as number[][][])[0]]
+            : g.type === 'MultiPolygon'
+              ? (g.coordinates as number[][][][]).map((poly) => poly[0])
+              : [];
+    if (outerRings.length === 0) return false;
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+    for (const ring of outerRings) {
+        for (const v of ring) {
+            if (v[0] < minLon) minLon = v[0];
+            if (v[0] > maxLon) maxLon = v[0];
+            if (v[1] < minLat) minLat = v[1];
+            if (v[1] > maxLat) maxLat = v[1];
+        }
+    }
+    if (!Number.isFinite(minLon)) return false;
+    const midLat = (minLat + maxLat) / 2;
+    const M_PER_DEG_LAT = 111_320;
+    const mPerLon = M_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180);
+    const widthM = (maxLon - minLon) * mPerLon;
+    const heightM = (maxLat - minLat) * M_PER_DEG_LAT;
+    return Math.min(widthM, heightM) >= minWidthM;
 }
 
 function principalAxis(points: { lat: number; lon: number }[]): { lat: number; lon: number } {
@@ -1270,6 +1383,7 @@ const rawMarkerFetchCache = new Map<
 async function fetchRegionalMarkers(
     url: string,
     lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
+    osmWaterFeatures: { geometry?: { type?: string; coordinates?: unknown } }[] = [],
 ): Promise<RegionalChannelData> {
     let dataPromise = rawMarkerFetchCache.get(url);
     if (!dataPromise) {
@@ -1422,7 +1536,7 @@ async function fetchRegionalMarkers(
         //    the Newport line stay a separate chain.
         //
         // Safe also because the LNDARE-between-pair check
-        // (`pointInLandare` on each candidate midpoint) rejects any
+        // (`pointInAnyPolygon` on each candidate midpoint) rejects any
         // pair whose channel midpoint lands on solid ground, and
         // SEGMENT_MAX_M=1200 m caps any over-long FAIRWY segment.
         const CLUSTER_LINK_M = 900;
@@ -1453,12 +1567,24 @@ async function fetchRegionalMarkers(
         //
         // Now safe because the pairing loop additionally rejects
         // any pair whose midpoint falls inside a LNDARE polygon
-        // (see `pointInLandare` check below). Pairs across land
-        // can't form.
+        // AND is NOT also inside an OSM water polygon (see the
+        // dual `pointInAnyPolygon` check below). Pairs that straddle
+        // a real river — where LNDARE bleeds across the water but
+        // OSM correctly tags the river as `natural=water` — used
+        // to be killed silently. Now they're kept, and the Brisbane
+        // River shipping-channel midpoints survive into the FAIRWY
+        // ribbon that A* follows.
+        //
+        // 2026-05-19: this was the root cause of "route ignores
+        // Brisbane River entirely" — the log showed 562/629 pair
+        // candidates rejected by LNDARE, 272 of those wide(>300m)
+        // shipping-channel candidates. Most of those rejections
+        // are actually in water per OSM.
         const PAIR_MAX_DIST_M = 600;
         const pairDiag = {
             considered: 0,
             rejectedByLandare: 0,
+            acceptedByOsmWater: 0, // would have been LNDARE-rejected, saved by OSM water tie-break
             wideConsidered: 0, // pairs > 300 m apart (only possible with PAIR_MAX_DIST > 300)
             wideAccepted: 0,
             wideRejected: 0,
@@ -1531,12 +1657,27 @@ async function fetchRegionalMarkers(
                     // what lets us bump PAIR_MAX_DIST_M into shipping-
                     // channel territory without false pairs forming
                     // across canal complexes or land features.
+                    //
+                    // EXCEPTION (2026-05-19): if the midpoint is also
+                    // inside an OSM water polygon (river, harbour,
+                    // marina), trust OSM. Chart LNDARE polygons in AU
+                    // SENC data bleed across river concavities — the
+                    // entire Brisbane River sits "inside" a coastal
+                    // LNDARE per the chart, so every legitimate
+                    // shipping-channel pair midpoint flunks the LNDARE
+                    // test. OSM water tags the river correctly, so
+                    // using OSM as a tie-breaker rescues those pairs.
                     const midLat = (p.lat + s.lat) / 2;
                     const midLon = (p.lon + s.lon) / 2;
-                    if (pointInLandare(midLon, midLat, lndareFeatures)) {
-                        pairDiag.rejectedByLandare++;
-                        if (d > 300) pairDiag.wideRejected++;
-                        continue;
+                    if (pointInAnyPolygon(midLon, midLat, lndareFeatures)) {
+                        if (pointInAnyPolygon(midLon, midLat, osmWaterFeatures)) {
+                            pairDiag.acceptedByOsmWater++;
+                            // fall through to accept
+                        } else {
+                            pairDiag.rejectedByLandare++;
+                            if (d > 300) pairDiag.wideRejected++;
+                            continue;
+                        }
                     }
                     if (d > 300) pairDiag.wideAccepted++;
                     bestDist = d;
@@ -1564,6 +1705,7 @@ async function fetchRegionalMarkers(
         log.warn(
             `STAGE: pair-candidate diagnostics — considered=${pairDiag.considered} ` +
                 `rejectedByLandare=${pairDiag.rejectedByLandare} ` +
+                `acceptedByOsmWater=${pairDiag.acceptedByOsmWater} ` +
                 `wide(>300m): considered=${pairDiag.wideConsidered} accepted=${pairDiag.wideAccepted} rejected=${pairDiag.wideRejected}`,
         );
 
