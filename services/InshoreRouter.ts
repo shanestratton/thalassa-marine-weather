@@ -493,6 +493,28 @@ async function tryInshoreRouteInner(
                 );
             }
         }
+        // DIAGNOSTIC — full aeroway inventory with bbox + tag. We need to
+        // know whether OSM has the airport's *aerodrome* boundary (one big
+        // polygon covering the whole airport including reclaimed runway
+        // peninsulas) or just the individual runways/taxiways (thin strips
+        // that A* can route around). 2026-05-19: route still cuts the
+        // Brisbane Airport peninsula despite aeroway=15 polygons being
+        // injected — need to see what those 15 polygons actually cover.
+        if (osmOverlay.aeroway.features.length > 0) {
+            const aerowayWithSize = osmOverlay.aeroway.features
+                .map((f) => ({ f, dim: featureBboxAndSizeM(f) }))
+                .filter((x): x is { f: typeof x.f; dim: NonNullable<typeof x.dim> } => x.dim != null)
+                .sort((a, b) => b.dim.widthM * b.dim.heightM - a.dim.widthM * a.dim.heightM);
+            log.warn(`STAGE: aeroway inventory (${aerowayWithSize.length} polygons):`);
+            for (const { f, dim } of aerowayWithSize.slice(0, 10)) {
+                const props = (f as { properties?: Record<string, unknown> }).properties ?? {};
+                const kind = props['aeroway'] ?? 'unknown';
+                const name = props['name'] ?? props['ref'] ?? '(unnamed)';
+                log.warn(
+                    `  • ${kind} ${name} — bbox [${dim.bbox[1].toFixed(3)},${dim.bbox[0].toFixed(3)} → ${dim.bbox[3].toFixed(3)},${dim.bbox[2].toFixed(3)}] ${(dim.widthM / 1000).toFixed(2)}×${(dim.heightM / 1000).toFixed(2)} km`,
+                );
+            }
+        }
         // DIAGNOSTIC — OSM coverage tight around the destination (±0.05°
         // ≈ 5 km box). If this comes back with low water/coastline/
         // breakwater counts, the destination area is an OSM data desert
