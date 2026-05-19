@@ -1648,17 +1648,28 @@ function routeInshoreOnce(
     // bbox missed the deepwater channel entirely and the origin
     // snapped into a 5-cell marina basin.
     //
-    // Now: pad BOTH axes by 25% of the LARGER span (with a 0.05°≈5.5km
-    // floor). That gives lateral room equal to the route's longer
-    // dimension percentage — enough for harbour approaches that don't
-    // run along the great-circle line.
+    // 2026-05-19: bumped multiplier 0.25→0.5 and floor 0.05→0.08. The
+    // Newport→Pinkenba route was hitting the grid's east edge at exactly
+    // Luggage Point (Brisbane River mouth, lon ~153.18). The corridor
+    // east of Fisherman Islands that links north Moreton Bay to the
+    // river fell outside the grid, leaving the bay and river as two
+    // disconnected components (74,357 cells north / 4,592 cells south)
+    // with origin reaching only the north and destination only the
+    // south. The visible "route through the airport" was just the
+    // post-snap bridge segment. With 0.5×, this Newport route gets
+    // ~0.10° (~11 km) lateral padding — enough to include the corridor
+    // east of Fisherman Islands so the components merge.
+    //
+    // Short routes (maxSpan ≤ 0.16°) still hit the 0.08° floor; not
+    // dramatically larger than before but a touch more breathing room
+    // for marina exits.
     const minLat = Math.min(req.fromLat, req.toLat);
     const maxLat = Math.max(req.fromLat, req.toLat);
     const minLon = Math.min(req.fromLon, req.toLon);
     const maxLon = Math.max(req.fromLon, req.toLon);
     const maxSpan = Math.max(maxLat - minLat, maxLon - minLon);
-    const padLat = Math.max(maxSpan * 0.25, 0.05);
-    const padLon = Math.max(maxSpan * 0.25, 0.05);
+    const padLat = Math.max(maxSpan * 0.5, 0.08);
+    const padLon = Math.max(maxSpan * 0.5, 0.08);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();

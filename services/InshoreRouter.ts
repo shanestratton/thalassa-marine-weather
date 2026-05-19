@@ -300,11 +300,18 @@ async function tryInshoreRouteInner(
     // Pi caches Overpass responses for 7 days per 0.01° bbox tile so most
     // route runs are sub-second. Pi unreachable / no OSM data → empty
     // overlay, router falls back to chart-only behaviour.
+    // OSM fetch bbox — matches the engine's wider grid padding (commit
+    // a42a2762 + the floor bump that goes with it). The engine pads by
+    // max(maxSpan * 0.5, 0.08°); we use a slightly more generous flat
+    // 0.10° (≈11 km) here so the OSM water/coastline/aeroway coverage
+    // never undershoots the grid's lateral margin. Empty cells in
+    // open-bay corridors fall back to chart-DEPARE cleanly anyway, but
+    // matching the bbox keeps the diagnostic counts honest.
     const routeBbox: [number, number, number, number] = [
-        Math.min(origin.lon, destination.lon) - 0.05,
-        Math.min(origin.lat, destination.lat) - 0.05,
-        Math.max(origin.lon, destination.lon) + 0.05,
-        Math.max(origin.lat, destination.lat) + 0.05,
+        Math.min(origin.lon, destination.lon) - 0.1,
+        Math.min(origin.lat, destination.lat) - 0.1,
+        Math.max(origin.lon, destination.lon) + 0.1,
+        Math.max(origin.lat, destination.lat) + 0.1,
     ];
     let osmOverlay: OsmRouteOverlay | null = null;
     try {
