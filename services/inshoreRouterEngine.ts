@@ -1847,6 +1847,19 @@ function routeInshoreOnce(
 
     tPhase = mark('componentSnap', tPhase);
 
+    // DEBUG 2026-05-19: surface the snap distances so we can spot when
+    // the destination got pulled far from where the user actually
+    // tapped. A "12 km destination snap" is the smoking gun for the
+    // destination cell being in a different connected component than
+    // the origin (componentSnap then picks the largest component both
+    // endpoints can reach, even if it means dragging the destination
+    // across the map). The visible "bridge" segment from the route's
+    // last cell to the user input is what looks like routing through
+    // land but is actually post-snap fiction.
+    engineLog.warn(
+        `SNAP: origin ${haversineM(req.fromLat, req.fromLon, debug.originSnap?.snappedLat ?? 0, debug.originSnap?.snappedLon ?? 0).toFixed(0)}m  •  dest ${haversineM(req.toLat, req.toLon, debug.destinationSnap?.snappedLat ?? 0, debug.destinationSnap?.snappedLon ?? 0).toFixed(0)}m  •  componentSize=${bestComponentSize} cells`,
+    );
+
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
     // grid has a path-cost edge case I haven't anticipated.
