@@ -92,37 +92,47 @@ async function saveCache(bbox: [number, number, number, number], data: OsmRouteO
  */
 function buildQuery(bbox: [number, number, number, number]): string {
     const [w, s, e, n] = bbox;
+    // `out geom` returns inline geometry for each way/relation — eliminates
+    // node-table lookups AND makes multipolygon relations easy to parse
+    // (the canonical OSM tagging for Brisbane River, harbours, etc.).
     return `
         [out:json][timeout:30];
         (
           way["natural"="water"](${s},${w},${n},${e});
           relation["natural"="water"](${s},${w},${n},${e});
           way["natural"="reef"](${s},${w},${n},${e});
+          relation["natural"="reef"](${s},${w},${n},${e});
           way["natural"="coastline"](${s},${w},${n},${e});
           way["leisure"="marina"](${s},${w},${n},${e});
+          relation["leisure"="marina"](${s},${w},${n},${e});
           way["man_made"="breakwater"](${s},${w},${n},${e});
           way["waterway"~"^(canal|fairway|dock|river|riverbank)$"](${s},${w},${n},${e});
         );
-        out body;
-        >;
-        out skel qt;
+        out geom;
     `.trim();
 }
 
-interface OverpassNode {
-    type: 'node';
-    id: number;
-    lat: number;
-    lon: number;
-}
-interface OverpassWay {
+interface OverpassWayGeom {
     type: 'way';
     id: number;
-    nodes: number[];
+    geometry: Array<{ lat: number; lon: number }>;
     tags?: Record<string, string>;
 }
+interface OverpassRelationMember {
+    type: 'way' | 'node' | 'relation';
+    ref: number;
+    role: string;
+    geometry?: Array<{ lat: number; lon: number }>;
+}
+interface OverpassRelationGeom {
+    type: 'relation';
+    id: number;
+    members: OverpassRelationMember[];
+    tags?: Record<string, string>;
+}
+type OverpassElement = OverpassWayGeom | OverpassRelationGeom;
 interface OverpassResponse {
-    elements: Array<OverpassNode | OverpassWay>;
+    elements: OverpassElement[];
 }
 
 async function fetchFromOverpass(bbox: [number, number, number, number]): Promise<OsmRouteOverlay> {
@@ -154,79 +164,164 @@ async function fetchFromOverpass(bbox: [number, number, number, number]): Promis
     return assembleOverlay(json);
 }
 
+/** Coordinates of a way returned by `out geom` (Overpass inline geometry). */
+function wayCoords(el: OverpassWayGeom): Position[] {
+    if (!el.geometry) return [];
+    return el.geometry.map((p) => [p.lon, p.lat]);
+}
+
+function isClosed(coords: Position[]): boolean {
+    return (
+        coords.length >= 4 &&
+        coords[0][0] === coords[coords.length - 1][0] &&
+        coords[0][1] === coords[coords.length - 1][1]
+    );
+}
+
 /**
- * Convert Overpass JSON (flat nodes + ways) into per-class FeatureCollections.
- * Each way's nodes are looked up to build the line/polygon coordinates.
+ * Assemble multipolygon-relation member ways into closed rings.
+ *
+ * OSM multipolygons may need consecutive member ways chained together —
+ * one ring can be split across multiple ways that share endpoints. We
+ * greedy-chain by matching way endpoints.
+ *
+ * Returns array of {ring, role} where role is 'outer' (boundary) or
+ * 'inner' (hole). Single-polygon emit: pair holes with their containing
+ * outer by point-in-polygon (the caller decides).
  */
-function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
-    const nodes = new Map<number, [number, number]>();
-    for (const el of osm.elements) {
-        if (el.type === 'node') {
-            nodes.set(el.id, [el.lon, el.lat]);
-        }
+function assembleMultipolygonRings(rel: OverpassRelationGeom): Array<{ ring: Position[]; role: 'outer' | 'inner' }> {
+    interface Segment {
+        coords: Position[];
+        role: 'outer' | 'inner';
+    }
+    // Bucket member ways by role.
+    const remaining: Segment[] = [];
+    for (const m of rel.members ?? []) {
+        if (m.type !== 'way' || !m.geometry) continue;
+        const coords = m.geometry.map((p) => [p.lon, p.lat] as Position);
+        if (coords.length < 2) continue;
+        const role: 'outer' | 'inner' = m.role === 'inner' ? 'inner' : 'outer';
+        remaining.push({ coords, role });
     }
 
+    const closed: Array<{ ring: Position[]; role: 'outer' | 'inner' }> = [];
+
+    while (remaining.length > 0) {
+        const start = remaining.shift()!;
+        let ring = start.coords.slice();
+        let extended = true;
+        // Chain other segments of the same role that share endpoints.
+        while (extended && remaining.length > 0) {
+            extended = false;
+            const tail = ring[ring.length - 1];
+            for (let i = 0; i < remaining.length; i++) {
+                const seg = remaining[i];
+                if (seg.role !== start.role) continue;
+                const segStart = seg.coords[0];
+                const segEnd = seg.coords[seg.coords.length - 1];
+                if (segStart[0] === tail[0] && segStart[1] === tail[1]) {
+                    // append seg forward
+                    for (let j = 1; j < seg.coords.length; j++) ring.push(seg.coords[j]);
+                    remaining.splice(i, 1);
+                    extended = true;
+                    break;
+                }
+                if (segEnd[0] === tail[0] && segEnd[1] === tail[1]) {
+                    // append seg reversed
+                    for (let j = seg.coords.length - 2; j >= 0; j--) ring.push(seg.coords[j]);
+                    remaining.splice(i, 1);
+                    extended = true;
+                    break;
+                }
+            }
+        }
+        // Close ring if it self-closes (start==end after chaining)
+        const head = ring[0];
+        const tail = ring[ring.length - 1];
+        if (!(head[0] === tail[0] && head[1] === tail[1])) {
+            // Force-close — multipolygon members SHOULD form closed rings
+            // when chained. If they don't (broken OSM data), close anyway
+            // and accept the geometric distortion.
+            ring.push([head[0], head[1]]);
+        }
+        if (ring.length >= 4) closed.push({ ring, role: start.role });
+    }
+
+    return closed;
+}
+
+/**
+ * Convert Overpass JSON (ways + multipolygon relations, both with inline
+ * geometry via `out geom`) into per-class FeatureCollections.
+ */
+function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
     const overlay = emptyOverlay();
 
     for (const el of osm.elements) {
-        if (el.type !== 'way' || !el.nodes) continue;
-        const coords: Position[] = [];
-        for (const nodeId of el.nodes) {
-            const pt = nodes.get(nodeId);
-            if (pt) coords.push(pt);
-        }
-        if (coords.length < 2) continue;
-        const tags = el.tags ?? {};
-        const closed =
-            coords.length >= 4 &&
-            coords[0][0] === coords[coords.length - 1][0] &&
-            coords[0][1] === coords[coords.length - 1][1];
+        if (el.type === 'way') {
+            const coords = wayCoords(el);
+            if (coords.length < 2) continue;
+            const tags = el.tags ?? {};
+            const closed = isClosed(coords);
+            const props: Record<string, unknown> = { ...tags, _source: 'osm', _osmId: el.id };
 
-        const props: Record<string, unknown> = {
-            ...tags,
-            _source: 'osm',
-            _osmId: el.id,
-        };
+            const polyFeature = (): Feature<Polygon> => ({
+                type: 'Feature',
+                properties: props,
+                geometry: { type: 'Polygon', coordinates: [coords] },
+            });
+            const lineFeature = (): Feature<LineString> => ({
+                type: 'Feature',
+                properties: props,
+                geometry: { type: 'LineString', coordinates: coords },
+            });
 
-        const polyFeature = (): Feature<Polygon> => ({
-            type: 'Feature',
-            properties: props,
-            geometry: { type: 'Polygon', coordinates: [coords] },
-        });
-        const lineFeature = (): Feature<LineString> => ({
-            type: 'Feature',
-            properties: props,
-            geometry: { type: 'LineString', coordinates: coords },
-        });
+            if (tags.natural === 'water' && closed) {
+                overlay.water.features.push(polyFeature());
+            } else if (tags.natural === 'reef' && closed) {
+                overlay.reef.features.push(polyFeature());
+            } else if (tags.natural === 'coastline') {
+                overlay.coastline.features.push(lineFeature());
+            } else if (tags.leisure === 'marina' && closed) {
+                overlay.marina.features.push(polyFeature());
+            } else if (tags.man_made === 'breakwater') {
+                if (closed) overlay.breakwater.features.push(polyFeature());
+                else overlay.breakwater.features.push(lineFeature() as unknown as Feature<Polygon>);
+            } else if (
+                (tags.waterway === 'canal' ||
+                    tags.waterway === 'fairway' ||
+                    tags.waterway === 'dock' ||
+                    tags.waterway === 'river' ||
+                    tags.waterway === 'riverbank') &&
+                closed
+            ) {
+                overlay.water.features.push(polyFeature());
+            }
+        } else if (el.type === 'relation') {
+            const tags = el.tags ?? {};
+            if (tags.type !== 'multipolygon') continue;
+            const rings = assembleMultipolygonRings(el);
+            if (rings.length === 0) continue;
 
-        // Route OSM tag → overlay layer.
-        if (tags.natural === 'water' && closed) {
-            overlay.water.features.push(polyFeature());
-        } else if (tags.natural === 'reef' && closed) {
-            overlay.reef.features.push(polyFeature());
-        } else if (tags.natural === 'coastline') {
-            // Coastline is conventionally a LineString with land on the LEFT.
-            // Used as visual reference + router land-context.
-            overlay.coastline.features.push(lineFeature());
-        } else if (tags.leisure === 'marina' && closed) {
-            overlay.marina.features.push(polyFeature());
-        } else if (tags.man_made === 'breakwater') {
-            // Treat closed breakwater rings as polygons; long groynes/jetties
-            // as LineStrings (the router buffers around these).
-            if (closed) overlay.breakwater.features.push(polyFeature());
-            else overlay.breakwater.features.push(lineFeature() as unknown as Feature<Polygon>);
-        } else if (
-            (tags.waterway === 'canal' ||
-                tags.waterway === 'fairway' ||
-                tags.waterway === 'dock' ||
-                tags.waterway === 'river' ||
-                tags.waterway === 'riverbank') &&
-            closed
-        ) {
-            // Closed waterway ways are basins/canals/dock outlines — add to
-            // water layer with the waterway tag preserved for downstream
-            // classification.
-            overlay.water.features.push(polyFeature());
+            const outers = rings.filter((r) => r.role === 'outer').map((r) => r.ring);
+            const inners = rings.filter((r) => r.role === 'inner').map((r) => r.ring);
+            // Emit each outer as its own Polygon with all inners as holes.
+            // Strict pairing (which hole belongs to which outer) needs
+            // point-in-polygon; for our routing use case the simple
+            // "all holes apply to all outers" approach is adequate
+            // because A* only cares about cell-by-cell coverage anyway.
+            const props: Record<string, unknown> = { ...tags, _source: 'osm', _osmId: el.id };
+            for (const outer of outers) {
+                const polygon: Position[][] = [outer, ...inners];
+                const feature: Feature<Polygon> = {
+                    type: 'Feature',
+                    properties: props,
+                    geometry: { type: 'Polygon', coordinates: polygon },
+                };
+                if (tags.natural === 'water') overlay.water.features.push(feature);
+                else if (tags.natural === 'reef') overlay.reef.features.push(feature);
+                else if (tags.leisure === 'marina') overlay.marina.features.push(feature);
+            }
         }
     }
 
