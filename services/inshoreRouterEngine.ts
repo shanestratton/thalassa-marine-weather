@@ -189,64 +189,6 @@ function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): num
 }
 
 /**
- * Rogue-triangle detector for SENC-emitted MultiPolygon features.
- *
- * AU oeSENC AREA records use GLU TRIANGLE_FAN primitives where the fan's
- * centre can be a vertex on one side of a concave polygon and the outer
- * vertices walk the OTHER side — producing degenerate "spanning" triangles
- * that cross polygon-internal voids (rivers cutting through mainland,
- * harbours cutting into coastline). Each AREA emits as a MultiPolygon of
- * single-triangle rings, so the rogue spans are visible as triangles with:
- *
- *   - one very long edge (≫ chart-scale norm) and/or
- *   - extreme aspect ratio (slivers).
- *
- * For LNDARE these triangles bleed into water (Rivergate marina was inside
- * one). For DEPARE/DRGARE/FAIRWY they bleed into land — that's the cause of
- * 2026-05-19 Newport→Lytton routing across the Redcliffe peninsula and
- * zig-zagging inland to Lytton: the deep shipping-channel DEPARE polygon's
- * rogue triangle un-blocked an inland Brisbane corridor.
- *
- * Filter heuristic: max edge > 2 km (no legitimate harbour-scale triangle
- * spans that far) OR aspect ratio > 10 (sliver). Polygons failing this drop
- * out of rasterisation entirely; the non-rogue triangles in the same
- * feature still cover the polygon correctly.
- */
-const ROGUE_TRI_MAX_EDGE_M = 2_000;
-const ROGUE_TRI_ASPECT = 10;
-function isRogueTriangleRing(ring: Position[]): boolean {
-    if (ring.length < 3) return false;
-    const e1 = haversineM(ring[0][1], ring[0][0], ring[1][1], ring[1][0]);
-    const e2 = haversineM(ring[1][1], ring[1][0], ring[2][1], ring[2][0]);
-    const e3 = haversineM(ring[2][1], ring[2][0], ring[0][1], ring[0][0]);
-    const max = Math.max(e1, e2, e3);
-    if (max > ROGUE_TRI_MAX_EDGE_M) return true;
-    const min = Math.min(e1, e2, e3);
-    return min > 0 && max / min > ROGUE_TRI_ASPECT;
-}
-/**
- * Drop rogue triangle rings from a MultiPolygon. Single-polygon features
- * pass through unchanged (only triangle-soup MultiPolygons have the bug).
- * Returns null when every ring is rogue (rare — usually a feature has both
- * rogue and legitimate triangles).
- */
-function filterRogueTriangles(geom: Polygon | MultiPolygon): Polygon | MultiPolygon | null {
-    if (geom.type === 'Polygon') {
-        // Real outer-ring polygons (multi-vertex) aren't subject to the
-        // triangulation pathology. Only flag literal 3-vertex triangles.
-        if (geom.coordinates[0].length <= 4 && isRogueTriangleRing(geom.coordinates[0])) return null;
-        return geom;
-    }
-    const kept = geom.coordinates.filter((poly) => {
-        const ring = poly[0];
-        if (ring.length > 4) return true; // not a triangle — keep
-        return !isRogueTriangleRing(ring);
-    });
-    if (kept.length === 0) return null;
-    return { type: 'MultiPolygon', coordinates: kept };
-}
-
-/**
  * Ray-casting point-in-polygon for a single ring.
  * Coordinates are [lon, lat]. Returns true if (lon, lat) is inside.
  */
@@ -511,7 +453,6 @@ function buildNavGridCached(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
-    relaxedLndare: boolean = false,
 ): { grid: NavGrid; cacheHit: boolean } {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -524,13 +465,13 @@ function buildNavGridCached(
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
     ].join(',');
-    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_${sig}`;
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
     const cached = navGridCache.get(key);
     if (cached) {
         cached.ts = Date.now();
         return { grid: cached.grid, cacheHit: true };
     }
-    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM, relaxedLndare);
+    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM);
     if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
         let oldestKey: string | null = null;
         let oldestTs = Infinity;
@@ -558,16 +499,6 @@ function buildNavGrid(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
-    /**
-     * When true, LNDARE cells are written as CAUTION (high-cost traversable)
-     * instead of BLOCKED. Used by the destination-disconnected fallback in
-     * routeInshore — when the strict pass can't find a connected water path,
-     * we relax LNDARE so the router can thread through chart-data bleed
-     * areas (Brisbane River LNDARE-bleed verified 2026-05-19). Cells the
-     * boat actually traverses are flagged caution so the renderer draws
-     * them red, signalling "your chart shows land here — verify visually".
-     */
-    relaxedLndare: boolean = false,
 ): NavGrid {
     // Per-pass timing — a single Newport→Brisbane build was clocked at
     // 37.8 s and accounted for 97% of the route compute. Without per-
@@ -678,22 +609,16 @@ function buildNavGrid(
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
         if (drval1Num == null) continue; // no depth → nothing to do
-        // Authoritative water means "trust this over LNDARE". REVERTED
-        // 2026-05-19: S-57 chart DEPARE polygons in AU oeSENC have outer
-        // rings that bleed slightly onto land in their tessellation. The
-        // diagnostic on Newport→Lytton showed LNDARE skipped 1.41M cell-
-        // hits because DEPARE protected them, vs only 26k cells actually
-        // blocked. Rogue-triangle filtering on DEPARE wasn't enough — most
-        // bleed triangles are small/square (not slivers).
-        //
-        // Returning to the OSM-tag-only authoritative gate. The trade-off:
-        // ENC river destinations buried in LNDARE-bleed (Rivergate marina
-        // was inside an LNDARE triangle) won't reach via this path. The
-        // endpoint carve handles the destination itself; if no chart-
-        // authoritative DEPARE/DRGARE/FAIRWY connects the carve to open
-        // water, the route fails with destination-disconnected. That's
-        // an honest failure mode — better than crossing visible land.
-        const authoritative = isAuthoritativeDepare(props);
+        // Chart-source DEPARE (acronym='DEPARE' from senc-extractor) is
+        // hydrographic-survey data. With the Eulerian ring fix (2026-05-19)
+        // these polygons now have proper outer rings — they no longer
+        // bleed across the coastline as the triangle-soup did. So trust
+        // them to win against LNDARE on overlap (e.g. marina basins where
+        // chart has a tiny DEPARE inside a chunky mainland LNDARE).
+        // OSM-derived DEPARE (no acronym) still uses the old OSM-tag gate
+        // (Scarborough peninsula safeguard).
+        const isS57Depare = typeof props?.acronym === 'string';
+        const authoritative = isS57Depare || isAuthoritativeDepare(props);
         const shallow = drval1Num < draftM + safetyM;
 
         // Scanline-rasterize the polygon and apply cell updates inside
@@ -777,15 +702,7 @@ function buildNavGrid(
         // pass 1 to un-block actual surveyed water.
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
-            if (protectedCells[idx]) return;
-            if (relaxedLndare) {
-                // Relaxed mode: mark CAUTION instead of BLOCKED so A* can
-                // traverse at high cost. Used by the destination-disconnected
-                // fallback when chart LNDARE bleeds across water (Brisbane
-                // River). Don't set hardBlocked so FAIRWY/DRGARE rescue can
-                // still touch these cells too.
-                if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
-            } else {
+            if (!protectedCells[idx]) {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
             }
@@ -848,12 +765,7 @@ function buildNavGrid(
     // cost function can prefer them.
     const markChannelPreference = (f: Feature): void => {
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
-        // Filter rogue triangles same as DEPARE/LNDARE — a DRGARE rogue
-        // span (e.g. across the Pinkenba river bend) would otherwise rescue
-        // an inland Brisbane corridor as preferred channel.
-        const filtered = filterRogueTriangles(f.geometry as Polygon | MultiPolygon);
-        if (!filtered) return;
-        const g = filtered;
+        const g = f.geometry as Polygon | MultiPolygon;
         const rescueDepth = Math.max(draftM + safetyM, 5.0);
         // S-57 charted features carry an `acronym` property (e.g. 'DRGARE',
         // 'FAIRWY') set by senc-extractor's geojsonEmitter. OSM-derived
@@ -1530,30 +1442,6 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * before calling this.
  */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
-    // Try strict first — LNDARE blocks all land. If the destination is
-    // unreachable due to chart-data LNDARE bleeding across water (verified
-    // 2026-05-19: Brisbane mainland's LNDARE rcid 3885 covers most of the
-    // river + harbour), retry with LNDARE relaxed to CAUTION so A* can
-    // thread through chart-confused areas. The result is flagged caution
-    // (red polyline segments) signalling "verify visually — chart says
-    // land here". The endpoint carve still guarantees the user-asserted
-    // start/end are navigable.
-    const strict = routeInshoreOnce(layers, req, false);
-    if (!('error' in strict)) return strict;
-    if (strict.code !== 'destination-disconnected') return strict;
-    console.warn(
-        '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed to CAUTION',
-    );
-    const relaxed = routeInshoreOnce(layers, req, true);
-    if ('error' in relaxed) return relaxed;
-    return relaxed;
-}
-
-function routeInshoreOnce(
-    layers: InshoreLayers,
-    req: RouteRequest,
-    relaxedLndare: boolean,
-): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
     const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
@@ -1600,7 +1488,6 @@ function routeInshoreOnce(
         req.draftM,
         safetyM,
         obstructionBufferM,
-        relaxedLndare,
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
