@@ -63,8 +63,21 @@ const log = createLogger('ShipLog.Capture');
 const GPS_STALE_LIMIT_MS = 60_000;
 const STATIONARY_THRESHOLD_NM = 0.05;
 const DEDUP_THRESHOLD_NM = 0.005; // ~10 m
-const MAX_PLAUSIBLE_SPEED_KTS = 25;
-const MAX_ACCELERATION_KTS = 8;
+// Both raised on 2026-05-19 after Shane's drive showed 7 stored points
+// in 10 minutes (everything else rejected as GPS spike). The old caps
+// were sailboat-assumptive: 25 kn absolute, 8 kn delta-per-fix. At
+// 5 s sampling, a normal car accelerating 0→50 km/h hits 27 kn between
+// consecutive fixes, which rejects every fix in the first 5 seconds
+// AND every subsequent fix because 50 km/h itself exceeds the cap.
+//
+// New ceilings:
+//   - 100 kn absolute (Tesla launch territory, fast power boat — beyond
+//     any sail or normal driving but well below real-spike deltas)
+//   - 50 kn acceleration per fix (= 10 kn/sec at 5 s cadence, covers
+//     hard acceleration without letting through the typical GPS
+//     teleport which looks like 500+ kn deltas)
+const MAX_PLAUSIBLE_SPEED_KTS = 100;
+const MAX_ACCELERATION_KTS = 50;
 
 /**
  * Hooks the orchestrator hands to the pipeline. The pipeline mutates
@@ -288,10 +301,12 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             speedKts = timeDiffHours > 0 ? distanceNM / timeDiffHours : 0;
 
             // SPEED SANITY: 3 layers
-            //   Layer 1: hard cap (25kn) — drop the entry, the spike's
+            //   Layer 1: hard cap (100kn) — drop the entry, the spike's
             //     coordinates would still hop the polyline if we saved.
-            //   Layer 2: acceleration gate — even a fast cat doesn't
-            //     accelerate 8+kn between fixes.
+            //   Layer 2: acceleration gate — beyond a 50 kn delta
+            //     between consecutive fixes is GPS-teleport territory
+            //     (a Tesla launch hits ~13 kn/sec = 65 kn/5s — under,
+            //     but barely; real spikes are 500+ kn deltas, well over).
             //   Layer 3: ignore speed when prev pos was the 0,0
             //     placeholder from captureImmediate (no real reference).
             if (lastPos.latitude === 0 && lastPos.longitude === 0) {

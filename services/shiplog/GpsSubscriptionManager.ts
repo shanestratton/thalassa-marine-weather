@@ -40,7 +40,15 @@ import { getIntervalForSpeed, type SpeedTier } from './helpers';
 const log = createLogger('ShipLog.GpsSub');
 
 const MS_TO_KTS = 1.94384;
-const MAX_PLAUSIBLE_SPEED_KTS = 25;
+// Absolute speed cap for GPS-reported speed sanity. Raised 25 → 100
+// on 2026-05-19: at 25 kn the app rejected ALL highway/driving fixes
+// (50 km/h ≈ 27 kn) as "GPS spikes", which left a 10-minute drive
+// showing 7 stored points and 0 NM. 100 kn covers every reasonable
+// scenario (cars, fast power boats, sail at any wind). Real GPS
+// teleports look like 500+ kn deltas, so 100 kn still catches them.
+// The acceleration gate (Layer 3 below + CapturePipeline) is what
+// actually catches the common spike pattern.
+const MAX_PLAUSIBLE_SPEED_KTS = 100;
 const GPS_WARMUP_MS = 5_000;
 const SPEED_TIER_DEBOUNCE = 3;
 const WEB_HEARTBEAT_MS = 60_000;
