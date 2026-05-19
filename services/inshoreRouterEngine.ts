@@ -799,6 +799,38 @@ function buildNavGrid(
     diagProbe(-27.21, 153.13, 'peninsula-east (should be LAND)');
     diagProbe(-27.3, 153.13, 'bramble-bay (should be water)');
     diagProbe(-27.33, 153.13, 'pt2-coast (should be water)');
+    // DIAG-BRESENHAM (temp 2026-05-19): walk a line from Newport to the
+    // reported pt2 (-27.33, 153.13) and count blocked cells. The smoother
+    // would only emit this as a single segment if EVERY cell on this line
+    // were navigable. If we see blocked cells here, the smoother is
+    // bypassing lineOfSightClear somehow.
+    const probeBresenham = (fromLat: number, fromLon: number, toLat: number, toLon: number, label: string) => {
+        const fx = Math.floor((fromLon - minLon) / dLon);
+        const fy = Math.floor((fromLat - minLat) / dLat);
+        const tx = Math.floor((toLon - minLon) / dLon);
+        const ty = Math.floor((toLat - minLat) / dLat);
+        let blocked = 0;
+        let cautionN = 0;
+        let unknown = 0;
+        let depth = 0;
+        let total = 0;
+        const samples: string[] = [];
+        for (const c of bresenhamCells(fx, fy, tx, ty)) {
+            total++;
+            if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+            const v = cells[c.y * width + c.x];
+            if (Number.isNaN(v)) {
+                blocked++;
+                if (samples.length < 4) samples.push(`[${c.x},${c.y}]BLOCKED`);
+            } else if (v < 0) cautionN++;
+            else if (v === 0) unknown++;
+            else depth++;
+        }
+        console.warn(
+            `[BRESENHAM ${label}] (${fromLat.toFixed(3)},${fromLon.toFixed(3)})→(${toLat.toFixed(3)},${toLon.toFixed(3)}) total=${total} BLOCKED=${blocked} caution=${cautionN} unknown=${unknown} depth=${depth} ${samples.join(' ')}`,
+        );
+    };
+    probeBresenham(-27.2135, 153.0875, -27.3335, 153.1335, 'Newport→pt2');
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
