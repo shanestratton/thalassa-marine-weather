@@ -242,12 +242,12 @@ export function mountEncVectorLayer(
         );
     }
 
-    // ── LNDARE (tan land) ─────────────────────────────────────────
-    // No fill-outline-color: each AREA feature emits as a MultiPolygon of
-    // individual triangles (until polygon-outline rings are restored), so
-    // any stroke draws the full triangulation mesh — verified visually
-    // on 2026-05-19 as a brown criss-cross over Brisbane. COALNE on top
-    // provides the proper land/water boundary.
+    // ── LNDARE (tan land + dark outline) ──────────────────────────
+    // Each AREA feature now emits as a SINGLE Polygon with proper outer
+    // ring + holes (rings reconstructed from the chart's edge-vector
+    // table per OESUChart.cpp:buildLineGeometries, fixed 2026-05-19).
+    // The fill-outline strokes only the actual polygon boundary, no
+    // triangulation mesh.
     if (!map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
         map.addLayer(
             {
@@ -259,38 +259,34 @@ export function mountEncVectorLayer(
                     'fill-color': '#d6c590',
                     'fill-opacity': opacity,
                     'fill-antialias': true,
+                    'fill-outline-color': '#5c4a1a',
                 },
             },
             before,
         );
     }
 
-    // ── COALNE (coastline) ────────────────────────────────────────
-    // Held back to zoom 13+ — the AU oeSENC LINE records on this cell set
-    // come through as criss-cross spans connecting unrelated nodes
-    // (verified visually 2026-05-19: tapping any criss-cross line shows
-    // "Charted coastline OC-61-351824"). Root cause is the LineRaw second-
-    // pass walking the wrong edge sequence — likely the VECTOR_EDGE_NODE_
-    // TABLE_EXT_RECORD (type 85) variant we don't yet parse contributes
-    // edges that are missing from our 96/97 tables, so the resolved Line
-    // joins distant nodes through space. Until that's fixed, keep COALNE
-    // suppressed at coastal zoom; high zoom (≥13) is where remaining
-    // resolvable edges look acceptable.
+    // ── COALNE (chart-source coastline, black) ────────────────────
+    // The chart-author's intended coastline as a line feature. With the
+    // LineIndex field-order fix (2026-05-19) these resolve correctly to
+    // continuous traced coastlines — no more criss-cross spans. Drawn
+    // from chart zoom upward in black for high contrast against tan
+    // LNDARE.
     if (!map.getLayer(ENC_VEC_LAYERS.COALNE)) {
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.COALNE,
                 type: 'line',
                 source: ENC_VEC_SRC.COALNE,
-                minzoom: Math.max(minZoom, 13),
+                minzoom: minZoom,
                 layout: {
                     'line-cap': 'round',
                     'line-join': 'round',
                 },
                 paint: {
-                    'line-color': '#ffffff',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 15, 1.4, 17, 2.0],
-                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 13, 0.7, 15, opacity],
+                    'line-color': '#0a0a0a',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.0, 13, 1.4, 15, 1.8],
+                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, opacity],
                 },
             },
             before,
@@ -600,14 +596,13 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
 const ROUTE_FOCUS_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.COALNE] as const;
 
 /**
- * "Clean chart" mode — hide depth fills AND COALNE so the chart reads as
- * just land + navigational markers + hazards. COALNE is back in the hide
- * list (2026-05-19 second pass): on AU oeSENC the LineRaw resolution
- * produces criss-cross spans between unrelated nodes, looks like a brown
- * mesh. Until the EXT vector tables (types 85/86) are wired in, COALNE
- * stays off by default.
+ * "Clean chart" mode — hide the busy depth-band fills so the chart reads
+ * as just land + coastline + navigational markers + hazards. COALNE
+ * (chart-source coastline) stays VISIBLE in clean mode because it's the
+ * authoritative land/water boundary. With the LineIndex field-order fix
+ * (2026-05-19) COALNE renders cleanly without criss-cross spans.
  */
-const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.COALNE] as const;
+const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE] as const;
 
 /**
  * Route-focus mode: hide the busy bulk-fill and coastline layers so the route
