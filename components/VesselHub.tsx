@@ -427,11 +427,33 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     /* offline — local-only count */
                 }
 
-                // Merge by id; cloud wins on conflict (server is
-                // canonical for serviced/unserviced state once synced).
+                // Merge by id, NEWEST updated_at wins.
+                //
+                // Bug fix 2026-05-20: this used to be "cloud wins
+                // unconditionally," which broke the overdue badge.
+                // The MaintenanceHub writes ticks ONLY to the local
+                // store (offline-first), so right after the user
+                // services a task the local copy is fresh but the
+                // cloud copy is still the old overdue row (it hasn't
+                // synced up yet). Cloud-wins then overwrote the fresh
+                // local task with the stale cloud one → the badge kept
+                // showing "1 Overdue" forever. Comparing updated_at
+                // makes the genuinely-newer record win in both
+                // directions: a local tick beats stale cloud, and a
+                // change synced from another device beats stale local.
                 const merged = new Map<string, (typeof localTasks)[number]>();
-                for (const t of localTasks) merged.set(t.id, t);
-                for (const t of cloudTasks) merged.set(t.id, t);
+                const consider = (t: (typeof localTasks)[number]) => {
+                    const existing = merged.get(t.id);
+                    if (!existing) {
+                        merged.set(t.id, t);
+                        return;
+                    }
+                    const tTime = t.updated_at ? Date.parse(t.updated_at) : 0;
+                    const exTime = existing.updated_at ? Date.parse(existing.updated_at) : 0;
+                    if (tTime >= exTime) merged.set(t.id, t);
+                };
+                for (const t of localTasks) consider(t);
+                for (const t of cloudTasks) consider(t);
 
                 const now = Date.now();
                 const overdue = Array.from(merged.values()).filter(
