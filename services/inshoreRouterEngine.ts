@@ -1861,6 +1861,47 @@ function routeInshoreOnce(
         .join(' ');
     console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
 
+    // DEBUG 2026-05-19: trace cell-state along the final smoothed polyline.
+    // For each adjacent waypoint pair, sample up to 6 evenly-spaced cells
+    // along the Bresenham line and log the cell's effective depth, the
+    // preferred flag, and the lat/lon. Tells us *directly* whether the
+    // OBSTRN-injected airport bbox is actually hard-blocking the cells
+    // the route claims to thread, or whether FAIRWY rescue is letting
+    // the route through (rescued cells have positive depth AND
+    // preferred=1, blocked cells have NaN). Remove once Brisbane Airport
+    // routing is sorted.
+    if (smoothedCells.length >= 2) {
+        const traceLines: string[] = [];
+        for (let i = 0; i < smoothedCells.length - 1; i++) {
+            const a = smoothedCells[i];
+            const b = smoothedCells[i + 1];
+            const cellsOnLine = Array.from(bresenhamCells(a.x, a.y, b.x, b.y));
+            const sampleCount = Math.min(6, cellsOnLine.length);
+            const step = Math.max(1, Math.floor(cellsOnLine.length / sampleCount));
+            const samples: { x: number; y: number }[] = [];
+            for (let s = 0; s < cellsOnLine.length; s += step) samples.push(cellsOnLine[s]);
+            if (cellsOnLine.length > 0 && samples[samples.length - 1] !== cellsOnLine[cellsOnLine.length - 1]) {
+                samples.push(cellsOnLine[cellsOnLine.length - 1]);
+            }
+            traceLines.push(`  seg ${i}→${i + 1} (${cellsOnLine.length} cells):`);
+            for (const s of samples) {
+                const idx = s.y * grid.width + s.x;
+                const depth = grid.cells[idx];
+                const pref = grid.preferred[idx];
+                const [lon, lat] = gridToLatLon(grid, s.x, s.y);
+                const depthStr = Number.isNaN(depth)
+                    ? 'NaN(BLOCKED)'
+                    : depth < 0
+                      ? `CAUTION(${depth})`
+                      : depth === 0
+                        ? 'UNKNOWN(0)'
+                        : `depth=${depth.toFixed(1)}m`;
+                traceLines.push(`    @${lat.toFixed(4)},${lon.toFixed(4)} ${depthStr} preferred=${pref}`);
+            }
+        }
+        console.warn(`[inshoreEngine] CELL TRACE along smoothed polyline:\n${traceLines.join('\n')}`);
+    }
+
     // Convert grid path → polyline (cell centers). Keep each smoothed
     // cell's caution-state alongside so Douglas-Peucker can be run
     // per caution-run below — DP itself is not caution-aware, so
