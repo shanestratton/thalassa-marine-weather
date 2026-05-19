@@ -1029,6 +1029,41 @@ function buildNavGrid(
                 if (preferred[idx] === 1) continue;
                 const prior = cells[idx];
                 if (prior > 0) continue; // chart DEPARE-claimed deep water
+
+                // 2026-05-20: also skip cells that are 8-adjacent to any
+                // protectedCells (OSM marina/canal/water or chart S57
+                // DEPARE). This dilates protection by one cell so that
+                // narrow water passages at marina exits don't get sealed
+                // by the buffer.
+                //
+                // The Newport Marina case: chart LNDARE tessellates the
+                // canal banks at 50m resolution but the actual marina exit
+                // channel is 60-100m wide. The OSM marina polygon protects
+                // cells inside the marina basin, but cells just outside the
+                // basin (the exit channel itself) are CAUTION water that
+                // Pass 6 was buffering shut. Result: Newport canal interior
+                // was a 349-cell isolated component, origin tap snapped 2 km
+                // away to the big bay component, the visible route appeared
+                // to start 2 km from where the user tapped.
+                //
+                // By exempting cells adjacent to protected ones, the
+                // exit-channel buffer is suppressed and the canal connects
+                // to the bay through its natural opening. Pass 2 LNDARE
+                // still blocks the actual land cells unconditionally —
+                // only the 1-cell skin around them is relaxed near
+                // protected water.
+                let adjacentToProtected = false;
+                for (let dy = -1; dy <= 1 && !adjacentToProtected; dy++) {
+                    for (let dx = -1; dx <= 1 && !adjacentToProtected; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                        if (protectedCells[ny * width + nx] === 1) adjacentToProtected = true;
+                    }
+                }
+                if (adjacentToProtected) continue;
+
                 let neighborBlocked = false;
                 for (let dy = -1; dy <= 1 && !neighborBlocked; dy++) {
                     for (let dx = -1; dx <= 1 && !neighborBlocked; dx++) {
