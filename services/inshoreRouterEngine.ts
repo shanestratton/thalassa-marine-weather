@@ -511,6 +511,7 @@ function buildNavGridCached(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    relaxedLndare: boolean = false,
 ): { grid: NavGrid; cacheHit: boolean } {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -523,13 +524,13 @@ function buildNavGridCached(
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
     ].join(',');
-    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_${sig}`;
     const cached = navGridCache.get(key);
     if (cached) {
         cached.ts = Date.now();
         return { grid: cached.grid, cacheHit: true };
     }
-    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM);
+    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM, relaxedLndare);
     if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
         let oldestKey: string | null = null;
         let oldestTs = Infinity;
@@ -557,6 +558,16 @@ function buildNavGrid(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    /**
+     * When true, LNDARE cells are written as CAUTION (high-cost traversable)
+     * instead of BLOCKED. Used by the destination-disconnected fallback in
+     * routeInshore — when the strict pass can't find a connected water path,
+     * we relax LNDARE so the router can thread through chart-data bleed
+     * areas (Brisbane River LNDARE-bleed verified 2026-05-19). Cells the
+     * boat actually traverses are flagged caution so the renderer draws
+     * them red, signalling "your chart shows land here — verify visually".
+     */
+    relaxedLndare: boolean = false,
 ): NavGrid {
     // Per-pass timing — a single Newport→Brisbane build was clocked at
     // 37.8 s and accounted for 97% of the route compute. Without per-
@@ -766,7 +777,15 @@ function buildNavGrid(
         // pass 1 to un-block actual surveyed water.
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
-            if (!protectedCells[idx]) {
+            if (protectedCells[idx]) return;
+            if (relaxedLndare) {
+                // Relaxed mode: mark CAUTION instead of BLOCKED so A* can
+                // traverse at high cost. Used by the destination-disconnected
+                // fallback when chart LNDARE bleeds across water (Brisbane
+                // River). Don't set hardBlocked so FAIRWY/DRGARE rescue can
+                // still touch these cells too.
+                if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+            } else {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
             }
@@ -774,63 +793,6 @@ function buildNavGrid(
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
-    // DIAG-LANDPROBE (temp 2026-05-19): sample known-land + known-water
-    // points so we can read the engine's actual classification.
-    const diagProbe = (lat: number, lon: number, label: string) => {
-        const px = Math.floor((lon - minLon) / dLon);
-        const py = Math.floor((lat - minLat) / dLat);
-        if (px < 0 || py < 0 || px >= width || py >= height) {
-            console.warn(`[PROBE] ${label} (${lat},${lon}): OUT OF GRID`);
-            return;
-        }
-        const idx = py * width + px;
-        const v = cells[idx];
-        const state = Number.isNaN(v)
-            ? 'BLOCKED'
-            : v < 0
-              ? 'CAUTION'
-              : v === 0
-                ? 'UNKNOWN_OPEN'
-                : 'depth=' + v.toFixed(1);
-        const prot = protectedCells[idx] === 1 ? ' [protected]' : '';
-        console.warn(`[PROBE] ${label} (${lat},${lon}) grid[${px},${py}]: ${state}${prot}`);
-    };
-    diagProbe(-27.25, 153.105, 'peninsula-middle (should be LAND)');
-    diagProbe(-27.21, 153.13, 'peninsula-east (should be LAND)');
-    diagProbe(-27.3, 153.13, 'bramble-bay (should be water)');
-    diagProbe(-27.33, 153.13, 'pt2-coast (should be water)');
-    // DIAG-BRESENHAM (temp 2026-05-19): walk a line from Newport to the
-    // reported pt2 (-27.33, 153.13) and count blocked cells. The smoother
-    // would only emit this as a single segment if EVERY cell on this line
-    // were navigable. If we see blocked cells here, the smoother is
-    // bypassing lineOfSightClear somehow.
-    const probeBresenham = (fromLat: number, fromLon: number, toLat: number, toLon: number, label: string) => {
-        const fx = Math.floor((fromLon - minLon) / dLon);
-        const fy = Math.floor((fromLat - minLat) / dLat);
-        const tx = Math.floor((toLon - minLon) / dLon);
-        const ty = Math.floor((toLat - minLat) / dLat);
-        let blocked = 0;
-        let cautionN = 0;
-        let unknown = 0;
-        let depth = 0;
-        let total = 0;
-        const samples: string[] = [];
-        for (const c of bresenhamCells(fx, fy, tx, ty)) {
-            total++;
-            if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
-            const v = cells[c.y * width + c.x];
-            if (Number.isNaN(v)) {
-                blocked++;
-                if (samples.length < 4) samples.push(`[${c.x},${c.y}]BLOCKED`);
-            } else if (v < 0) cautionN++;
-            else if (v === 0) unknown++;
-            else depth++;
-        }
-        console.warn(
-            `[BRESENHAM ${label}] (${fromLat.toFixed(3)},${fromLon.toFixed(3)})→(${toLat.toFixed(3)},${toLon.toFixed(3)}) total=${total} BLOCKED=${blocked} caution=${cautionN} unknown=${unknown} depth=${depth} ${samples.join(' ')}`,
-        );
-    };
-    probeBresenham(-27.2135, 153.0875, -27.3335, 153.1335, 'Newport→pt2');
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
@@ -1568,6 +1530,30 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * before calling this.
  */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    // Try strict first — LNDARE blocks all land. If the destination is
+    // unreachable due to chart-data LNDARE bleeding across water (verified
+    // 2026-05-19: Brisbane mainland's LNDARE rcid 3885 covers most of the
+    // river + harbour), retry with LNDARE relaxed to CAUTION so A* can
+    // thread through chart-confused areas. The result is flagged caution
+    // (red polyline segments) signalling "verify visually — chart says
+    // land here". The endpoint carve still guarantees the user-asserted
+    // start/end are navigable.
+    const strict = routeInshoreOnce(layers, req, false);
+    if (!('error' in strict)) return strict;
+    if (strict.code !== 'destination-disconnected') return strict;
+    console.warn(
+        '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed to CAUTION',
+    );
+    const relaxed = routeInshoreOnce(layers, req, true);
+    if ('error' in relaxed) return relaxed;
+    return relaxed;
+}
+
+function routeInshoreOnce(
+    layers: InshoreLayers,
+    req: RouteRequest,
+    relaxedLndare: boolean,
+): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
     const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
@@ -1614,6 +1600,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         req.draftM,
         safetyM,
         obstructionBufferM,
+        relaxedLndare,
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
