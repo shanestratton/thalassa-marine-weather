@@ -1840,8 +1840,86 @@ function routeInshoreOnce(
     // ── Label connected components ──
     // One pass to bucket every navigable cell into its 8-connected
     // water body. Drives the shared-component snap below.
-    const { labels, sizes } = labelConnectedComponents(grid);
+    let { labels, sizes } = labelConnectedComponents(grid);
     tPhase = mark('labelComponents', tPhase);
+
+    // ── Component bridge ────────────────────────────────────────────
+    // Connect a small origin/destination component to the main routing
+    // component across a THIN barrier. Marina canal estates (Newport)
+    // sit a short distance from open water, separated by an entrance
+    // cut / seawall that chart LNDARE over-represents as land and that
+    // OSM canal LineStrings stop short of (they trace the residential
+    // canals up to the seawall and end). If origin and destination snap
+    // to different components but the shortest gap between them is short
+    // — a thin cut, not a real landmass — carve a 1-cell corridor across
+    // it so they merge into one navigable body.
+    //
+    // 2026-05-20: Newport Marina canal estate was a 361-cell isolated
+    // component, origin tap snapping 2 km out to the bay. The estate's
+    // entrance to open water is a sub-500 m cut that no data source
+    // captured cleanly. Capped at 10 cells (500 m) so we never bridge a
+    // genuine landmass — only an entrance-width barrier the boat really
+    // does pass through.
+    {
+        const MAX_BRIDGE_CELLS = 10;
+        // Generous snap radius just to identify which component each
+        // endpoint belongs to (same 10 km used by the shared-component
+        // snap below).
+        const bridgeSnapCells = Math.ceil(10_000 / resolutionM);
+        const oCell = snapToNavigable(grid, req.fromLat, req.fromLon, bridgeSnapCells);
+        const dCell = snapToNavigable(grid, req.toLat, req.toLon, bridgeSnapCells);
+        const lo = oCell ? labels[oCell.y * grid.width + oCell.x] : 0;
+        const ld = dCell ? labels[dCell.y * grid.width + dCell.x] : 0;
+        if (lo > 0 && ld > 0 && lo !== ld) {
+            // Bridge the smaller component to the larger one.
+            const small = (sizes.get(lo) ?? 0) <= (sizes.get(ld) ?? 0) ? lo : ld;
+            const large = small === lo ? ld : lo;
+            // Collect the small component's cells once, then probe each
+            // for a large-component cell within MAX_BRIDGE_CELLS.
+            let bestGap = Infinity;
+            let bestSmall: { x: number; y: number } | null = null;
+            let bestLarge: { x: number; y: number } | null = null;
+            for (let y = 0; y < grid.height; y++) {
+                for (let x = 0; x < grid.width; x++) {
+                    if (labels[y * grid.width + x] !== small) continue;
+                    for (let dy = -MAX_BRIDGE_CELLS; dy <= MAX_BRIDGE_CELLS; dy++) {
+                        for (let dx = -MAX_BRIDGE_CELLS; dx <= MAX_BRIDGE_CELLS; dx++) {
+                            const nx = x + dx;
+                            const ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height) continue;
+                            if (labels[ny * grid.width + nx] !== large) continue;
+                            const gap = Math.hypot(dx, dy);
+                            if (gap < bestGap) {
+                                bestGap = gap;
+                                bestSmall = { x, y };
+                                bestLarge = { x: nx, y: ny };
+                            }
+                        }
+                    }
+                }
+            }
+            if (bestSmall && bestLarge && bestGap <= MAX_BRIDGE_CELLS) {
+                const carveDepth = Math.max((req.draftM ?? 1.5) + 1.0, 5.0);
+                for (const c of bresenhamCells(bestSmall.x, bestSmall.y, bestLarge.x, bestLarge.y)) {
+                    if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
+                    const idx = c.y * grid.width + c.x;
+                    if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0 || grid.cells[idx] === UNKNOWN_OPEN) {
+                        grid.cells[idx] = carveDepth;
+                    }
+                }
+                engineLog.warn(
+                    `BRIDGE: carved comp ${small}(${sizes.get(small)} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m`,
+                );
+                const relabeled = labelConnectedComponents(grid);
+                labels = relabeled.labels;
+                sizes = relabeled.sizes;
+            } else {
+                engineLog.warn(
+                    `BRIDGE: origin comp ${lo} / dest comp ${ld} — nearest gap > ${MAX_BRIDGE_CELLS * resolutionM}m, not bridged`,
+                );
+            }
+        }
+    }
 
     // ── Shared-component snap ──────────────────────────────────────
     // For each sizeable component, find its nearest cell to origin AND
