@@ -131,9 +131,11 @@ async function fetchFromOverpass(bbox: [number, number, number, number]): Promis
     const timeout = setTimeout(() => controller.abort(), OVERPASS_TIMEOUT_MS);
     let response: Response;
     try {
+        // Overpass convention: POST with body `data=<query>` URL-encoded.
+        // Raw query in body without `data=` returns 406 Not Acceptable.
         response = await fetch(OVERPASS_URL, {
             method: 'POST',
-            body: query,
+            body: 'data=' + encodeURIComponent(query),
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             signal: controller.signal,
         });
