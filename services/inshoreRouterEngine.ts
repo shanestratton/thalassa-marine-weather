@@ -662,11 +662,13 @@ function buildNavGrid(
     for (const f of depare) {
         const g0 = f.geometry;
         if (g0.type !== 'Polygon' && g0.type !== 'MultiPolygon') continue;
-        // Drop rogue triangulation slivers that bleed across land — DEPARE
-        // suffers the same SENC TRIANGLE_FAN pathology as LNDARE, just on
-        // the other side. Without this the deep shipping channel's rogue
-        // span un-blocked an inland Brisbane corridor and A* routed across
-        // the peninsula (2026-05-19 user report).
+        // Drop rogue triangulation slivers from DEPARE — these are the
+        // shipping-channel polygon's TRIANGLE_FAN spans that cross over
+        // land (e.g. inland Brisbane between river bends). Filtering here
+        // means rogue DEPARE doesn't un-block land cells when paired with
+        // S-57-authoritative below. The filter is SAFE on DEPARE because
+        // it un-blocks; over-filtering means a few legit cells stay
+        // blocked, which fails closed.
         const g = filterRogueTriangles(g0);
         if (!g) continue;
         const props = f.properties as Record<string, unknown> | null;
@@ -674,12 +676,14 @@ function buildNavGrid(
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
         if (drval1Num == null) continue; // no depth → nothing to do
-        // Authoritative water means "trust this over LNDARE". After the
-        // rogue-triangle filter we no longer need to extend authority to
-        // every S-57 DEPARE — the filter has already removed the cells
-        // where chart DEPARE was bleeding into land. Stick with the
-        // original OSM-tag whitelist so Scarborough peninsula stays safe.
-        const authoritative = isAuthoritativeDepare(props);
+        // S-57 chart DEPARE (acronym='DEPARE') is hydrographic-survey
+        // data — trustworthy. Now that DEPARE rogue triangles are filtered
+        // out, the cells DEPARE protects really are water. Restore the
+        // authoritative override so chart DEPARE beats LNDARE-bleed on
+        // overlap (this is what makes Rivergate / river marinas reachable).
+        // OSM-derived DEPARE (no acronym) still uses the old OSM-tag gate.
+        const isS57Depare = typeof props?.acronym === 'string';
+        const authoritative = isS57Depare || isAuthoritativeDepare(props);
         const shallow = drval1Num < draftM + safetyM;
 
         // Scanline-rasterize the polygon and apply cell updates inside
@@ -750,15 +754,17 @@ function buildNavGrid(
     const lndare = layers.LNDARE?.features ?? [];
     const tPassLndare = Date.now();
     for (const f of lndare) {
-        const g0 = f.geometry;
-        if (g0.type !== 'Polygon' && g0.type !== 'MultiPolygon') continue;
-        // Drop the SENC's TRIANGLE_FAN bleed-into-water triangles — they
-        // wrongly mark Rivergate marina and parts of Brisbane River as
-        // land. Filtered triangles leave those cells UNKNOWN_OPEN, which
-        // A* can route through (preferred-cell rescue restores them to
-        // navigable depth via FAIRWY/DRGARE later).
-        const g = filterRogueTriangles(g0);
-        if (!g) continue;
+        const g = f.geometry;
+        if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
+        // NO rogue filter on LNDARE: real chart-source LNDARE for narrow
+        // land features (Redcliffe peninsula, river banks) naturally has
+        // long-edge fan triangles that LOOK rogue but are correctly
+        // covering the elongated polygon. Filtering them leaves big gaps
+        // (peninsula's rcid 4500 had 49% of its 3146 triangles flagged as
+        // rogue by edge/aspect heuristics) and A* threads through. Better
+        // to over-block (LNDARE bleeds across rivers → some water shows
+        // as land) and rely on S-57 DEPARE authoritative override in
+        // pass 1 to un-block actual surveyed water.
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             if (!protectedCells[idx]) {
