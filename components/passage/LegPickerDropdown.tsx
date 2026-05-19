@@ -33,7 +33,7 @@
  * poll for the localStorage-backed leg state (VoyageLegService
  * doesn't fire its own event yet).
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { getCachedActiveVoyage, getDraftVoyages, type Voyage } from '../../services/VoyageService';
 import { getLegsForVoyage } from '../../services/VoyageLegService';
@@ -330,12 +330,20 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
         refresh();
         const handler = () => refresh();
         window.addEventListener('thalassa:active-voyage-changed', handler);
+        // Passage-plan-saved fires immediately after a Calculate + Save,
+        // when a new draft voyage row has just been created. Without
+        // this listener the picker would not pick up the new leg until
+        // the 5 s polling interval fires — long enough that the user
+        // assumes they're stuck and can't plan another leg. Wired in
+        // 2026-05-19 alongside the auto-advance effect below.
+        window.addEventListener('thalassa:passage-plan-saved', handler);
         // VoyageLegService is localStorage-backed and silent — poll
         // every 5s so a Depart-Next-Leg / Arrive-at-Port action in
         // CastOffPanel reflects without a route planner remount.
         const t = setInterval(refresh, 5_000);
         return () => {
             window.removeEventListener('thalassa:active-voyage-changed', handler);
+            window.removeEventListener('thalassa:passage-plan-saved', handler);
             clearInterval(t);
         };
     }, [refresh]);
@@ -394,6 +402,40 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
         },
         [onSelectDeparture, onSelectDestination],
     );
+
+    // ── Auto-advance to the next future leg after save ──
+    // Without this, multi-leg planning felt like it caps at 2 legs:
+    //   1. User picks future Leg N (status='future') in the dropdown.
+    //   2. Calculates + Saves → a new draft voyage row is created.
+    //   3. refresh() rebuilds the chain → Leg N is now status='draft'
+    //      and a new future leg N+1 has been appended.
+    //   4. BUT legNumber is still N, so selectedLeg resolves to the
+    //      just-saved draft. The user sees the form filled with Leg
+    //      N's saved values, with no obvious cue that Leg N+1 exists.
+    //      Many users assume the planner is "done" at this point.
+    //
+    // Fix: when the previously-selected leg transitions from 'future'
+    // to 'draft' AND the new chain has a future leg with a higher
+    // legNumber, jump to it automatically. The form refills via apply()
+    // so the user can immediately type the next destination.
+    //
+    // Scoped tightly: only fires on the SAME tripId, and only when the
+    // exact "future → draft" transition is detected. Doesn't hijack a
+    // manual selection of an older draft leg for re-editing.
+    const prevTripRef = useRef<UiTrip | null>(null);
+    useEffect(() => {
+        const prev = prevTripRef.current;
+        prevTripRef.current = selectedTrip;
+        if (!prev || prev.id !== selectedTrip.id) return;
+        const prevLeg = prev.legs.find((l) => l.legNumber === legNumber);
+        if (prevLeg?.status !== 'future') return;
+        const newLegSameNumber = selectedTrip.legs.find((l) => l.legNumber === legNumber);
+        if (newLegSameNumber?.status !== 'draft') return; // hasn't transitioned yet
+        const nextFuture = selectedTrip.legs.find((l) => l.status === 'future' && l.legNumber > legNumber);
+        if (!nextFuture) return;
+        setLegNumber(nextFuture.legNumber);
+        apply(selectedTrip, nextFuture);
+    }, [selectedTrip, legNumber, apply]);
 
     /**
      *  Pick the "default leg" to surface when a trip is selected.
