@@ -1753,6 +1753,70 @@ function routeInshoreOnce(
     const minComponentCells = req.minComponentCells ?? 25;
     const maxSnapCells = Math.ceil(10_000 / resolutionM);
 
+    // DEBUG 2026-05-19: dump the top 5 connected components by size,
+    // each with bbox + can-origin-snap-here + can-dest-snap-here. Tells
+    // us at a glance which component contains the river (vs the bay)
+    // and how far each endpoint is from each component. The snap
+    // algorithm below picks the component minimising combined snap
+    // distance, so seeing all the candidates clarifies WHY it picks
+    // what it picks.
+    {
+        const sortedComponents = [...sizes.entries()]
+            .filter(([, size]) => size >= minComponentCells)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+        engineLog.warn(`COMPONENTS top ${sortedComponents.length} (min size ${minComponentCells} cells):`);
+        for (const [label, size] of sortedComponents) {
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            for (let y = 0; y < grid.height; y++) {
+                for (let x = 0; x < grid.width; x++) {
+                    if (labels[y * grid.width + x] === label) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            const [bboxWLon, bboxSLat] = gridToLatLon(grid, minX, minY);
+            const [bboxELon, bboxNLat] = gridToLatLon(grid, maxX, maxY);
+            const oSnap = snapWithPredicate(
+                grid,
+                req.fromLat,
+                req.fromLon,
+                maxSnapCells,
+                (idx) => labels[idx] === label,
+            );
+            const dSnap = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => labels[idx] === label);
+            const oDistM = oSnap
+                ? Math.round(
+                      haversineM(
+                          req.fromLat,
+                          req.fromLon,
+                          gridToLatLon(grid, oSnap.x, oSnap.y)[1],
+                          gridToLatLon(grid, oSnap.x, oSnap.y)[0],
+                      ),
+                  )
+                : null;
+            const dDistM = dSnap
+                ? Math.round(
+                      haversineM(
+                          req.toLat,
+                          req.toLon,
+                          gridToLatLon(grid, dSnap.x, dSnap.y)[1],
+                          gridToLatLon(grid, dSnap.x, dSnap.y)[0],
+                      ),
+                  )
+                : null;
+            engineLog.warn(
+                `  • label=${label} size=${size} bbox=[${bboxSLat.toFixed(3)},${bboxWLon.toFixed(3)} → ${bboxNLat.toFixed(3)},${bboxELon.toFixed(3)}]  origin-snap=${oDistM != null ? oDistM + 'm' : 'OUT-OF-RANGE'}  dest-snap=${dDistM != null ? dDistM + 'm' : 'OUT-OF-RANGE'}`,
+            );
+        }
+    }
+
     let bestStart: { x: number; y: number } | null = null;
     let bestEnd: { x: number; y: number } | null = null;
     let bestLabel = -1;
