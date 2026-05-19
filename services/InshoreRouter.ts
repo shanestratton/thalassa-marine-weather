@@ -42,6 +42,7 @@ import { cellsForBBox } from './enc/EncCellMetadata';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { piCache } from './PiCacheService';
+import { getOsmRouteOverlay } from './OsmRouteOverlayService';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InshoreRouter');
@@ -308,6 +309,98 @@ async function tryInshoreRouteInner(
                 `regional markers fetch failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
             );
         }
+    }
+
+    // ── OSM route overlay ──
+    // Fill structural gaps in S-57 ENC data:
+    //   - rivers inside coastal landmass (Brisbane River is INSIDE the
+    //     mainland LNDARE polygon per the AU chart — OSM water=river makes
+    //     the river navigable)
+    //   - marina exit channels (chart doesn't tessellate Newport canals
+    //     in detail — OSM water=canal + leisure=marina fills them)
+    //   - reef extents (chart marks Scarborough Reef as a single UWTROC
+    //     point — OSM natural=reef polygon describes the full shape)
+    //   - breakwaters (block routing through marina breakwaters when chart
+    //     omits them — OSM man_made=breakwater)
+    //
+    // Pi caches Overpass responses for 7 days per 0.01° bbox tile so most
+    // route runs are sub-second. Pi unreachable / no OSM data → empty
+    // overlay, router falls back to chart-only behaviour.
+    const routeBbox: [number, number, number, number] = [
+        Math.min(origin.lon, destination.lon) - 0.05,
+        Math.min(origin.lat, destination.lat) - 0.05,
+        Math.max(origin.lon, destination.lon) + 0.05,
+        Math.max(origin.lat, destination.lat) + 0.05,
+    ];
+    try {
+        const overlay = await getOsmRouteOverlay(routeBbox);
+        // OSM water polygons → DEPARE with synthetic deep DRVAL1 so the
+        // router treats them as authoritative navigable (the existing
+        // isAuthoritativeDepare gate honours waterway=river/canal/dock
+        // and natural=water as authoritative).
+        if (overlay.water.features.length > 0) {
+            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of overlay.water.features) {
+                (depare.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        DRVAL1: 10.0, // synthetic — OSM doesn't ship depth
+                        DRVAL2: 10.0,
+                    },
+                });
+            }
+            merged.DEPARE = depare;
+        }
+        // OSM marina polygons → DEPARE (basin counts as authoritative water).
+        if (overlay.marina.features.length > 0) {
+            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of overlay.marina.features) {
+                (depare.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        DRVAL1: 5.0, // marinas typically maintained to 5 m
+                        DRVAL2: 5.0,
+                    },
+                });
+            }
+            merged.DEPARE = depare;
+        }
+        // OSM reef polygons → OBSTRN. Pass 3 rasterises polygon OBSTRN as
+        // BLOCKED cells over the whole polygon, so the boat detours the
+        // reef's actual extent (not just a 400m point disc).
+        if (overlay.reef.features.length > 0) {
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of overlay.reef.features) {
+                (obstrn.features as unknown[]).push({
+                    ...f,
+                    properties: {
+                        ...(f.properties ?? {}),
+                        _class: 'osm-reef',
+                    },
+                });
+            }
+            merged.OBSTRN = obstrn;
+        }
+        // OSM breakwaters → LNDARE. Same rasterisation as chart LNDARE so
+        // A* can't plough through breakwaters when exiting marinas.
+        if (overlay.breakwater.features.length > 0) {
+            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of overlay.breakwater.features) {
+                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                    (lndare.features as unknown[]).push(f);
+                }
+            }
+            merged.LNDARE = lndare;
+        }
+        log.warn(
+            `STAGE: OSM overlay merged — water=${overlay.water.features.length} marina=${overlay.marina.features.length} reef=${overlay.reef.features.length} breakwater=${overlay.breakwater.features.length} coastline=${overlay.coastline.features.length}`,
+        );
+    } catch (err) {
+        log.warn(
+            `OSM overlay fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
+        );
     }
 
     // safetyM=0.2 instead of the engine's 1.0 m default. Our public-data
