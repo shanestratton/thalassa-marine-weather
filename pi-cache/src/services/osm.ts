@@ -132,11 +132,16 @@ async function fetchFromOverpass(bbox: [number, number, number, number]): Promis
     let response: Response;
     try {
         // Overpass convention: POST with body `data=<query>` URL-encoded.
-        // Raw query in body without `data=` returns 406 Not Acceptable.
+        // Raw query in body without `data=` returns 406. Apache also
+        // requires a User-Agent — without one we get 406 Not Acceptable
+        // from the front-end before the query even reaches Overpass.
         response = await fetch(OVERPASS_URL, {
             method: 'POST',
             body: 'data=' + encodeURIComponent(query),
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'User-Agent': 'thalassa-pi-cache/1.0 (https://thalassawx.app)',
+            },
             signal: controller.signal,
         });
     } finally {
