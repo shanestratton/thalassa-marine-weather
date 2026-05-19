@@ -83,10 +83,23 @@ import { Keyboard } from '@capacitor/keyboard';
 import { Capacitor } from '@capacitor/core';
 import { CrewCountProvider } from './contexts/CrewCountContext';
 
-// Enable iOS keyboard "Done" toolbar — lets you dismiss the keyboard
-// without having to find somewhere else to tap
+// Hide the iOS keyboard accessory bar (the translucent strip with the
+// up/down field-navigation chevrons and a Done button that iOS attaches
+// to the top of the keyboard).
+//
+// We previously had this set to `true` for the Done-button convenience
+// (commit before 2026-05-19). The cost: on pages where a focused input
+// sits close to the top of the keyboard — RoutePlanner's destination
+// box being the canonical case — the accessory bar visually OVERLAYS
+// the input. The cyan focus border stays visible but the chevrons +
+// Done sit on top of the typing area, obscuring the placeholder and
+// the cursor.
+//
+// Trade-off accepted: no Done button. Dismiss paths still available
+// via (a) the input's own confirm-icon, (b) tapping outside the
+// input, (c) the keyboard's Return key.
 if (Capacitor.isNativePlatform()) {
-    Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {
+    Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => {
         /* Keyboard API unavailable on web */
     });
 }
