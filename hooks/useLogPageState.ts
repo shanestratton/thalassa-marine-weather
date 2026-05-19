@@ -825,6 +825,17 @@ export function useLogPageState() {
         });
     }, [state.entries]);
 
+    // Voyage groups that were ACTUALLY SAILED — planned/suggested routes
+    // (any entry with source='planned_route') excluded. Added 2026-05-20:
+    // suggested routes are aspirational, not logged miles, so they must
+    // NOT inflate the stats totals (top gauge tiles + the 3-dot Stats
+    // sheet). They still appear in `voyageGroups` so the route cards
+    // remain visible in the list — this is purely for stat aggregation.
+    const sailedVoyageGroups = useMemo(
+        () => voyageGroups.filter((g) => !g.entries.some((e) => e.source === 'planned_route')),
+        [voyageGroups],
+    );
+
     const hasNonDeviceEntries = useMemo(() => {
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
@@ -989,6 +1000,7 @@ export function useLogPageState() {
         groupedEntries,
         entryCounts,
         voyageGroups,
+        sailedVoyageGroups,
         hasNonDeviceEntries,
         totalDistance,
         avgSpeed,
