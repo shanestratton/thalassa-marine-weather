@@ -774,6 +774,31 @@ function buildNavGrid(
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
+    // DIAG-LANDPROBE (temp 2026-05-19): sample known-land + known-water
+    // points so we can read the engine's actual classification.
+    const diagProbe = (lat: number, lon: number, label: string) => {
+        const px = Math.floor((lon - minLon) / dLon);
+        const py = Math.floor((lat - minLat) / dLat);
+        if (px < 0 || py < 0 || px >= width || py >= height) {
+            console.warn(`[PROBE] ${label} (${lat},${lon}): OUT OF GRID`);
+            return;
+        }
+        const idx = py * width + px;
+        const v = cells[idx];
+        const state = Number.isNaN(v)
+            ? 'BLOCKED'
+            : v < 0
+              ? 'CAUTION'
+              : v === 0
+                ? 'UNKNOWN_OPEN'
+                : 'depth=' + v.toFixed(1);
+        const prot = protectedCells[idx] === 1 ? ' [protected]' : '';
+        console.warn(`[PROBE] ${label} (${lat},${lon}) grid[${px},${py}]: ${state}${prot}`);
+    };
+    diagProbe(-27.25, 153.105, 'peninsula-middle (should be LAND)');
+    diagProbe(-27.21, 153.13, 'peninsula-east (should be LAND)');
+    diagProbe(-27.3, 153.13, 'bramble-bay (should be water)');
+    diagProbe(-27.33, 153.13, 'pt2-coast (should be water)');
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
