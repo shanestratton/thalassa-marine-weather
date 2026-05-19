@@ -484,11 +484,24 @@ async function tryInshoreRouteInner(
             }
             merged.COASTLINE = coast;
         }
+        // OSM canal LineStrings (waterway=canal/fairway/dock) → CANAL layer.
+        // The engine Bresenham-rasterises each segment as a 1-cell NAVIGABLE
+        // corridor (protected water) — the inverse of COASTLINE. This carves
+        // marina exit channels into the grid so canal estates connect to open
+        // water across chart LNDARE that tessellates the banks as land at
+        // 50 m resolution (Newport Marina exit, 2026-05-20).
+        if (osmOverlay.canalLines.features.length > 0) {
+            const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.canalLines.features) {
+                (canal.features as unknown[]).push(f);
+            }
+            merged.CANAL = canal;
+        }
         const promotedCount = fairwy.features.filter(
             (ff) => (ff.properties as Record<string, unknown> | null)?._promotePreferred === true,
         ).length;
         log.warn(
-            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} aerodromeBboxFill=${aerodromeBboxRectsAdded} promotedFairwy=${promotedCount}`,
+            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} canalLines=${osmOverlay.canalLines.features.length} aerodromeBboxFill=${aerodromeBboxRectsAdded} promotedFairwy=${promotedCount}`,
         );
         // DIAGNOSTIC — per-tag promotion breakdown. Tells us which OSM
         // tags are doing the work and which are silent. If `water=river`

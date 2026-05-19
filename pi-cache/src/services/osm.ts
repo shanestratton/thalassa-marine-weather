@@ -31,7 +31,8 @@ const OVERPASS_TIMEOUT_MS = 45_000;
 // they're just ignored at read time.
 //   v1 — original (water/reef/coastline/marina/breakwater)
 //   v2 — adds aeroway (Brisbane Airport peninsula coverage)
-const CACHE_SCHEMA_VERSION = 'v2';
+//   v3 — adds canalLines (marina exit channels as navigable corridors)
+const CACHE_SCHEMA_VERSION = 'v3';
 
 export interface OsmRouteOverlay {
     /** natural=water polygons (rivers, lakes, harbours, basins). Used as
@@ -58,6 +59,16 @@ export interface OsmRouteOverlay {
      *  is the only honest source. Added 2026-05-19 after a Newport→
      *  Rivergate route cut diagonally across Brisbane Airport. */
     aeroway: FeatureCollection;
+    /** waterway=canal/fairway/dock LineStrings (NOT closed polygons). The
+     *  navigable centreline of dredged channels — marina exit channels,
+     *  port approach cuts. Bresenham-rasterised by the router into a
+     *  1-cell navigable corridor so canal estates (Newport Marina) stay
+     *  connected to open water across chart LNDARE that tessellates the
+     *  channel banks as land at 50 m resolution. Closed waterway polygons
+     *  still go to `water`; only the line variants land here. Added
+     *  2026-05-20 after Newport Marina canal interior was a 349-cell
+     *  isolated component (origin tap snapped 2 km away). */
+    canalLines: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -68,6 +79,7 @@ function emptyOverlay(): OsmRouteOverlay {
         marina: { type: 'FeatureCollection', features: [] },
         breakwater: { type: 'FeatureCollection', features: [] },
         aeroway: { type: 'FeatureCollection', features: [] },
+        canalLines: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -313,6 +325,15 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
                 closed
             ) {
                 overlay.water.features.push(polyFeature());
+            } else if (tags.waterway === 'canal' || tags.waterway === 'fairway' || tags.waterway === 'dock') {
+                // Non-closed (LineString) navigable waterways — the
+                // dredged centreline of marina exit channels and port
+                // approach cuts. The router Bresenham-rasterises these
+                // into a 1-cell navigable corridor. NOT river/riverbank:
+                // those line variants are usually large-river centrelines
+                // already represented as `natural=water` polygons, and
+                // their lines can cut misleading corridors through land.
+                overlay.canalLines.features.push(lineFeature());
             } else if (
                 tags.aeroway === 'aerodrome' ||
                 tags.aeroway === 'runway' ||

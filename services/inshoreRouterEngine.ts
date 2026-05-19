@@ -113,6 +113,19 @@ export interface InshoreLayers {
      * boundary even when the polygon LNDARE has the hole.
      */
     COASTLINE?: FeatureCollection;
+    /**
+     * OSM waterway=canal/fairway/dock LineStrings — the navigable
+     * centreline of dredged channels (marina exit channels, port
+     * approach cuts). The inverse of COASTLINE: each segment is
+     * Bresenham-rasterized as a 1-cell NAVIGABLE corridor (protected
+     * water) so canal estates connect to open water across chart
+     * LNDARE that tessellates the channel banks as land at 50 m
+     * resolution. Newport Marina 2026-05-20: the canal interior was
+     * a 349-cell isolated component because the exit channel (a
+     * waterway=canal LineString, not a closed polygon) was being
+     * dropped — origin tap snapped 2 km out into Bramble Bay.
+     */
+    CANAL?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -490,6 +503,7 @@ function buildNavGridCached(
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
         layers.COASTLINE?.features.length ?? 0,
+        layers.CANAL?.features.length ?? 0,
     ].join(',');
     const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_${sig}`;
     const cached = navGridCache.get(key);
@@ -707,6 +721,55 @@ function buildNavGrid(
     }
 
     markPass('pass1-DEPARE', tPassDepare, depare.length);
+
+    // ── Pass 1b: OSM canal LineStrings — carve navigable corridors ───
+    // The inverse of the Pass 2b coastline strip. Each waterway=canal/
+    // fairway/dock LineString (a dredged-channel centreline) is
+    // Bresenham-rasterised as a 1-cell NAVIGABLE corridor: cells set to
+    // a safe depth and flagged protected. Runs BEFORE Pass 2 (LNDARE),
+    // Pass 2b (coastline) and Pass 6 (LNDARE buffer) so the protected
+    // flag makes all three skip these cells — the corridor survives even
+    // where chart LNDARE tessellates the canal banks as land.
+    //
+    // Newport Marina 2026-05-20: the marina basin polygon (OSM
+    // leisure=marina) is captured as authoritative water, but the
+    // ~600 m exit channel out to Hays Inlet is a waterway=canal
+    // LineString. Without this pass it was dropped, the canal estate
+    // was a 349-cell isolated component, and the origin tap snapped 2 km
+    // out into Bramble Bay. Carving the channel connects the estate to
+    // the bay so the route starts where the user actually tapped.
+    const canalFeatures = layers.CANAL?.features ?? [];
+    const tPassCanal = Date.now();
+    const canalDepth = Math.max(draftM + safetyM, 5.0);
+    for (const f of canalFeatures) {
+        const g = f.geometry;
+        if (!g) continue;
+        let lineRings: Position[][] = [];
+        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+        else continue;
+        for (const coords of lineRings) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon0, lat0] = coords[i];
+                const [lon1, lat1] = coords[i + 1];
+                const gx0 = Math.floor((lon0 - minLon) / dLon);
+                const gy0 = Math.floor((lat0 - minLat) / dLat);
+                const gx1 = Math.floor((lon1 - minLon) / dLon);
+                const gy1 = Math.floor((lat1 - minLat) / dLat);
+                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+                    if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+                    const idx = c.y * width + c.x;
+                    // Carve to a safe navigable depth unless an earlier
+                    // pass already claimed real (deeper) water here.
+                    if (Number.isNaN(cells[idx]) || cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
+                        cells[idx] = canalDepth;
+                    }
+                    protectedCells[idx] = 1;
+                }
+            }
+        }
+    }
+    markPass('pass1b-canal', tPassCanal, canalFeatures.length);
 
     // ── Pass 2: LNDARE — block land cells, except authoritative water ─
     // Earlier conflict rule was "DEPARE > 0 beats LNDARE", which let
