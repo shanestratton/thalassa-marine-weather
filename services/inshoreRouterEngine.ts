@@ -660,30 +660,29 @@ function buildNavGrid(
     const depare = layers.DEPARE?.features ?? [];
     const tPassDepare = Date.now();
     for (const f of depare) {
-        const g0 = f.geometry;
-        if (g0.type !== 'Polygon' && g0.type !== 'MultiPolygon') continue;
-        // Drop rogue triangulation slivers from DEPARE — these are the
-        // shipping-channel polygon's TRIANGLE_FAN spans that cross over
-        // land (e.g. inland Brisbane between river bends). Filtering here
-        // means rogue DEPARE doesn't un-block land cells when paired with
-        // S-57-authoritative below. The filter is SAFE on DEPARE because
-        // it un-blocks; over-filtering means a few legit cells stay
-        // blocked, which fails closed.
-        const g = filterRogueTriangles(g0);
-        if (!g) continue;
+        const g = f.geometry;
+        if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
         const props = f.properties as Record<string, unknown> | null;
         const drval1 = props?.['DRVAL1'];
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
         if (drval1Num == null) continue; // no depth → nothing to do
-        // S-57 chart DEPARE (acronym='DEPARE') is hydrographic-survey
-        // data — trustworthy. Now that DEPARE rogue triangles are filtered
-        // out, the cells DEPARE protects really are water. Restore the
-        // authoritative override so chart DEPARE beats LNDARE-bleed on
-        // overlap (this is what makes Rivergate / river marinas reachable).
-        // OSM-derived DEPARE (no acronym) still uses the old OSM-tag gate.
-        const isS57Depare = typeof props?.acronym === 'string';
-        const authoritative = isS57Depare || isAuthoritativeDepare(props);
+        // Authoritative water means "trust this over LNDARE". REVERTED
+        // 2026-05-19: S-57 chart DEPARE polygons in AU oeSENC have outer
+        // rings that bleed slightly onto land in their tessellation. The
+        // diagnostic on Newport→Lytton showed LNDARE skipped 1.41M cell-
+        // hits because DEPARE protected them, vs only 26k cells actually
+        // blocked. Rogue-triangle filtering on DEPARE wasn't enough — most
+        // bleed triangles are small/square (not slivers).
+        //
+        // Returning to the OSM-tag-only authoritative gate. The trade-off:
+        // ENC river destinations buried in LNDARE-bleed (Rivergate marina
+        // was inside an LNDARE triangle) won't reach via this path. The
+        // endpoint carve handles the destination itself; if no chart-
+        // authoritative DEPARE/DRGARE/FAIRWY connects the carve to open
+        // water, the route fails with destination-disconnected. That's
+        // an honest failure mode — better than crossing visible land.
+        const authoritative = isAuthoritativeDepare(props);
         const shallow = drval1Num < draftM + safetyM;
 
         // Scanline-rasterize the polygon and apply cell updates inside
@@ -753,10 +752,6 @@ function buildNavGrid(
     // are accurate sub-10 m instead of 60 m-pixel chunky.
     const lndare = layers.LNDARE?.features ?? [];
     const tPassLndare = Date.now();
-    // DIAG-LANDBLOCK (temp 2026-05-19): count cells blocked by LNDARE per
-    // feature so the user can read the engine's actual land-mask.
-    let diagLndBlocked = 0;
-    let diagLndSkipped = 0;
     for (const f of lndare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
@@ -774,18 +769,11 @@ function buildNavGrid(
             if (!protectedCells[idx]) {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
-                diagLndBlocked++;
-            } else {
-                diagLndSkipped++;
             }
         });
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
-    // eslint-disable-next-line no-console
-    console.warn(
-        `[inshoreEngine DIAG-LANDBLOCK] LNDARE blocked ${diagLndBlocked} cells, skipped ${diagLndSkipped} (protected by DEPARE) — grid total ${width * height}`,
-    );
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
