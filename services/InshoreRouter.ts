@@ -497,6 +497,58 @@ async function tryInshoreRouteInner(
             }
             merged.CANAL = canal;
         }
+        // DIAGNOSTIC — what OSM water/canal/marina features sit near the
+        // ORIGIN (±0.025° ≈ 2.5 km). Newport Marina canal estate stays a
+        // 349-cell isolated component despite canalLines=65 captured — the
+        // carved canal cells are internal estate canals, not a continuous
+        // channel bridging the estate to Hays Inlet/Bramble Bay. This dump
+        // shows whether OSM even has the exit channel tagged, and as what.
+        {
+            const oLat = origin.lat;
+            const oLon = origin.lon;
+            const near = (lat: number, lon: number): boolean =>
+                Math.abs(lat - oLat) <= 0.025 && Math.abs(lon - oLon) <= 0.025;
+            const firstCoord = (f: {
+                geometry?: { type?: string; coordinates?: unknown };
+            }): [number, number] | null => {
+                const g = f.geometry;
+                if (!g) return null;
+                if (g.type === 'LineString') {
+                    const c = (g.coordinates as number[][])[0];
+                    return c ? [c[1], c[0]] : null;
+                }
+                if (g.type === 'Polygon') {
+                    const c = (g.coordinates as number[][][])[0]?.[0];
+                    return c ? [c[1], c[0]] : null;
+                }
+                return null;
+            };
+            const canalNear = osmOverlay.canalLines.features.filter((f) => {
+                const g = f.geometry;
+                if (g?.type !== 'LineString') return false;
+                return (g.coordinates as number[][]).some(([lon, lat]) => near(lat, lon));
+            });
+            const waterNear = osmOverlay.water.features.filter((f) => {
+                const c = firstCoord(f);
+                return c ? near(c[0], c[1]) : false;
+            });
+            const marinaNear = osmOverlay.marina.features.filter((f) => {
+                const c = firstCoord(f);
+                return c ? near(c[0], c[1]) : false;
+            });
+            log.warn(
+                `STAGE: OSM near ORIGIN (${oLat.toFixed(4)},${oLon.toFixed(4)} ±2.5km) — canalLines=${canalNear.length} water=${waterNear.length} marina=${marinaNear.length}`,
+            );
+            for (const f of canalNear.slice(0, 12)) {
+                const coords = (f.geometry as { coordinates: number[][] }).coordinates;
+                const a = coords[0];
+                const b = coords[coords.length - 1];
+                const props = (f.properties ?? {}) as Record<string, unknown>;
+                log.warn(
+                    `  • canal ${props['waterway'] ?? '?'} ${coords.length}pts [${a[1].toFixed(4)},${a[0].toFixed(4)} → ${b[1].toFixed(4)},${b[0].toFixed(4)}]`,
+                );
+            }
+        }
         const promotedCount = fairwy.features.filter(
             (ff) => (ff.properties as Record<string, unknown> | null)?._promotePreferred === true,
         ).length;
