@@ -168,7 +168,12 @@ async function main() {
 
             const baseName = basename(file, extname(file));
             const installKey = keys.get(baseName);
-            const outPath = join(args.outDir, `${baseName}${args.fileExt}`);
+            // Pi-cache mode REQUIRES .json extension (pi-cache/src/routes/enc.ts:
+            // cellStorePath constructs <cellId>.json — files with .geojson are
+            // 404'd by the /api/enc/installed/:cellId/data endpoint). Other modes
+            // honour --file-ext (default .geojson) for human-readable dumps.
+            const effectiveExt = args.piCacheStore ? '.json' : args.fileExt;
+            const outPath = join(args.outDir, `${baseName}${effectiveExt}`);
             const chartPath = join(args.chartDir, file);
             const t0 = Date.now();
 
