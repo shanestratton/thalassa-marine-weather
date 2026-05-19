@@ -753,6 +753,10 @@ function buildNavGrid(
     // are accurate sub-10 m instead of 60 m-pixel chunky.
     const lndare = layers.LNDARE?.features ?? [];
     const tPassLndare = Date.now();
+    // DIAG-LANDBLOCK (temp 2026-05-19): count cells blocked by LNDARE per
+    // feature so the user can read the engine's actual land-mask.
+    let diagLndBlocked = 0;
+    let diagLndSkipped = 0;
     for (const f of lndare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
@@ -770,11 +774,18 @@ function buildNavGrid(
             if (!protectedCells[idx]) {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
+                diagLndBlocked++;
+            } else {
+                diagLndSkipped++;
             }
         });
     }
 
     markPass('pass2-LNDARE', tPassLndare, lndare.length);
+    // eslint-disable-next-line no-console
+    console.warn(
+        `[inshoreEngine DIAG-LANDBLOCK] LNDARE blocked ${diagLndBlocked} cells, skipped ${diagLndSkipped} (protected by DEPARE) — grid total ${width * height}`,
+    );
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
