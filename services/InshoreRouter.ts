@@ -428,34 +428,30 @@ async function tryInshoreRouteInner(
         }
         // OSM aeroway polygons → OBSTRN (NOT LNDARE). Brisbane Airport's
         // eastern runway is built on reclaimed land that postdates the AU
-        // SENC charts — the chart has ~5 m of water marked where there's
-        // now ~3 km of concrete and fill.
+        // SENC charts. OBSTRN hard-blocks unconditionally (no
+        // protectedCells check) so the stale chart depth doesn't silently
+        // rescue the airport surface.
         //
-        // 2026-05-19: tried LNDARE first; didn't block. The reason: chart-
-        // source DEPARE features carry `acronym='DEPARE'` which trips
-        // `isAuthoritativeDepare`, marking those cells `protectedCells=1`
-        // in Pass 1. Pass 2 LNDARE then SKIPS protected cells — so the
-        // stale chart depth silently nullifies any LNDARE we add. Pass 3
-        // OBSTRN by contrast hard-blocks unconditionally, no protectedCells
-        // check. That's the right home for "this is engineered LAND, not
-        // chart-ambiguous shoreline".
+        // 2026-05-19: I tried adding a full-bbox rectangle to OBSTRN
+        // alongside each aerodrome polygon to close the fence-line
+        // concavity that A* was threading. The cell trace showed it
+        // worked TOO well — it broke connectivity between Moreton Bay
+        // (origin component) and the Brisbane River (destination
+        // component), because the bbox covered chart-DEPARE cells that
+        // formed the only navigable corridor between the two bodies of
+        // water (Pinkenba destination ended up 12 km from any cell in
+        // the origin component; componentSnap moved it and the visible
+        // "airport cut" was actually the post-snap bridge segment).
         //
-        // For `aeroway=aerodrome` features we ALSO push a rectangular
-        // polygon covering the polygon's bbox into OBSTRN. OSM's aerodrome
-        // boundary traces the fence-line; Brisbane Airport's fence has a
-        // several-hundred-metre-wide eastern strip between the new runway
-        // and the bay-side perimeter that ISN'T inside the polygon, and
-        // A* threads through it. The bbox rect closes that gap. Boats
-        // have no legitimate business inside an airport's footprint, so
-        // the small over-block beyond the actual concrete is fine.
+        // Now just the actual aerodrome polygon plus the smaller runway/
+        // taxiway/apron polygons. The fence-line strip A* threads
+        // through is the wrong evil — better to thread the strip than
+        // isolate the destination.
         //
-        // Pass 4 FAIRWY rescue still works for chart-authoritative
-        // polygons (Brisbane River main multipolygon has _promotePreferred
-        // = true so isChartAuthoritative=true), which means the river
-        // itself stays navigable where it flows past the airport — the
-        // airport's LAND surface stays blocked but the WATER alongside
-        // doesn't.
-        let aerodromeBboxRectsAdded = 0;
+        // aerodromeBboxFill stays in the log line at 0 so the field
+        // remains for future use if we add a smarter fill that respects
+        // chart-DEPARE corridors.
+        const aerodromeBboxRectsAdded = 0;
         if (osmOverlay.aeroway.features.length > 0) {
             const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of osmOverlay.aeroway.features) {
@@ -467,34 +463,6 @@ async function tryInshoreRouteInner(
                         _class: 'osm-aeroway',
                     },
                 });
-                const tags = (f.properties ?? {}) as Record<string, unknown>;
-                if (tags['aeroway'] === 'aerodrome') {
-                    const dim = featureBboxAndSizeM(f);
-                    if (dim) {
-                        const [minLon, minLat, maxLon, maxLat] = dim.bbox;
-                        (obstrn.features as unknown[]).push({
-                            type: 'Feature',
-                            properties: {
-                                ...tags,
-                                _source: 'osm-aerodrome-bbox-fill',
-                                _class: 'osm-aerodrome-bbox',
-                            },
-                            geometry: {
-                                type: 'Polygon',
-                                coordinates: [
-                                    [
-                                        [minLon, minLat],
-                                        [maxLon, minLat],
-                                        [maxLon, maxLat],
-                                        [minLon, maxLat],
-                                        [minLon, minLat],
-                                    ],
-                                ],
-                            },
-                        });
-                        aerodromeBboxRectsAdded++;
-                    }
-                }
             }
             merged.OBSTRN = obstrn;
         }
