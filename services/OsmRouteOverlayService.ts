@@ -31,6 +31,15 @@ export interface OsmRouteOverlay {
     coastline: FeatureCollection;
     marina: FeatureCollection;
     breakwater: FeatureCollection;
+    /** aeroway=aerodrome/runway/taxiway/apron polygons from OSM. Injected
+     *  into LNDARE in InshoreRouter to block reclaimed-land airport
+     *  peninsulas (Brisbane Airport's eastern runway is the canonical
+     *  case — chart LNDARE doesn't cover the post-2020 reclamation, so
+     *  A* threaded a straight diagonal across the runway).
+     *  Added 2026-05-19. Pi side must be on cache schema v2 or newer for
+     *  this field to be populated; older Pi versions return [] which is
+     *  fine (router falls through to chart-only for the airport area). */
+    aeroway: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -40,6 +49,7 @@ function emptyOverlay(): OsmRouteOverlay {
         coastline: { type: 'FeatureCollection', features: [] },
         marina: { type: 'FeatureCollection', features: [] },
         breakwater: { type: 'FeatureCollection', features: [] },
+        aeroway: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -85,8 +95,21 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
             log.warn(`OSM overlay HTTP ${res.status} — using empty overlay`);
             return emptyOverlay();
         }
-        const data = (await res.json()) as OsmRouteOverlay;
-        const counts = `water=${data.water?.features?.length ?? 0} reef=${data.reef?.features?.length ?? 0} coast=${data.coastline?.features?.length ?? 0} marina=${data.marina?.features?.length ?? 0} bw=${data.breakwater?.features?.length ?? 0}`;
+        const raw = (await res.json()) as Partial<OsmRouteOverlay>;
+        // Fill any fields the Pi didn't send (older Pi versions don't
+        // know about `aeroway`). Older Pis return [] for the missing
+        // field, which is the same behaviour as a successful fetch over
+        // an aeroway-free bbox — router degrades cleanly to chart-only
+        // for those features.
+        const data: OsmRouteOverlay = {
+            water: raw.water ?? { type: 'FeatureCollection', features: [] },
+            reef: raw.reef ?? { type: 'FeatureCollection', features: [] },
+            coastline: raw.coastline ?? { type: 'FeatureCollection', features: [] },
+            marina: raw.marina ?? { type: 'FeatureCollection', features: [] },
+            breakwater: raw.breakwater ?? { type: 'FeatureCollection', features: [] },
+            aeroway: raw.aeroway ?? { type: 'FeatureCollection', features: [] },
+        };
+        const counts = `water=${data.water.features.length} reef=${data.reef.features.length} coast=${data.coastline.features.length} marina=${data.marina.features.length} bw=${data.breakwater.features.length} aeroway=${data.aeroway.features.length}`;
         log.warn(`OSM overlay fetched in ${Date.now() - t0}ms — ${counts}`);
         memCache.set(key, { ts: Date.now(), data });
         return data;

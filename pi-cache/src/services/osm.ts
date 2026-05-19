@@ -25,6 +25,13 @@ const OSM_CACHE_DIR = process.env.OSM_CACHE_DIR ?? '/opt/thalassa-pi-cache/osm-c
 const OVERPASS_URL = process.env.OVERPASS_URL ?? 'https://overpass-api.de/api/interpreter';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const OVERPASS_TIMEOUT_MS = 45_000;
+// Cache schema version. Bump when adding new fields to OsmRouteOverlay so
+// old cache files (which lack the new fields) are bypassed and a fresh
+// Overpass fetch happens. Old files stay on disk until LRU/manual cleanup —
+// they're just ignored at read time.
+//   v1 — original (water/reef/coastline/marina/breakwater)
+//   v2 — adds aeroway (Brisbane Airport peninsula coverage)
+const CACHE_SCHEMA_VERSION = 'v2';
 
 export interface OsmRouteOverlay {
     /** natural=water polygons (rivers, lakes, harbours, basins). Used as
@@ -44,6 +51,13 @@ export interface OsmRouteOverlay {
     /** man_made=breakwater. Treated as LNDARE so the router doesn't try
      *  to plough through a breakwater to exit a marina (Newport problem). */
     breakwater: FeatureCollection;
+    /** aeroway=aerodrome/runway/taxiway/apron polygons. Treated as LNDARE
+     *  in the router so reclaimed-land airport peninsulas (Brisbane
+     *  Airport's eastern runway, Sydney Mascot, Hong Kong Chek Lap Kok)
+     *  block routing. Chart LNDARE often pre-dates the reclamation; OSM
+     *  is the only honest source. Added 2026-05-19 after a Newport→
+     *  Rivergate route cut diagonally across Brisbane Airport. */
+    aeroway: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -53,6 +67,7 @@ function emptyOverlay(): OsmRouteOverlay {
         coastline: { type: 'FeatureCollection', features: [] },
         marina: { type: 'FeatureCollection', features: [] },
         breakwater: { type: 'FeatureCollection', features: [] },
+        aeroway: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -63,7 +78,7 @@ function bboxCacheKey(bbox: [number, number, number, number]): string {
 }
 
 function cachePath(bbox: [number, number, number, number]): string {
-    return path.join(OSM_CACHE_DIR, `${bboxCacheKey(bbox)}.json`);
+    return path.join(OSM_CACHE_DIR, `${CACHE_SCHEMA_VERSION}_${bboxCacheKey(bbox)}.json`);
 }
 
 async function loadCache(bbox: [number, number, number, number]): Promise<OsmRouteOverlay | null> {
@@ -107,6 +122,8 @@ function buildQuery(bbox: [number, number, number, number]): string {
           relation["leisure"="marina"](${s},${w},${n},${e});
           way["man_made"="breakwater"](${s},${w},${n},${e});
           way["waterway"~"^(canal|fairway|dock|river|riverbank)$"](${s},${w},${n},${e});
+          way["aeroway"~"^(aerodrome|runway|taxiway|apron)$"](${s},${w},${n},${e});
+          relation["aeroway"~"^(aerodrome|runway|taxiway|apron)$"](${s},${w},${n},${e});
         );
         out geom;
     `.trim();
@@ -296,6 +313,18 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
                 closed
             ) {
                 overlay.water.features.push(polyFeature());
+            } else if (
+                tags.aeroway === 'aerodrome' ||
+                tags.aeroway === 'runway' ||
+                tags.aeroway === 'taxiway' ||
+                tags.aeroway === 'apron'
+            ) {
+                // Only emit polygon variants — runways are most reliably
+                // mapped as closed polygons in OSM (the linear `aeroway=
+                // runway` LineString variant exists but its width info is
+                // a separate `width=*` tag we'd have to buffer ourselves,
+                // not worth the complexity for now).
+                if (closed) overlay.aeroway.features.push(polyFeature());
             }
         } else if (el.type === 'relation') {
             const tags = el.tags ?? {};
@@ -321,6 +350,14 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
                 if (tags.natural === 'water') overlay.water.features.push(feature);
                 else if (tags.natural === 'reef') overlay.reef.features.push(feature);
                 else if (tags.leisure === 'marina') overlay.marina.features.push(feature);
+                else if (
+                    tags.aeroway === 'aerodrome' ||
+                    tags.aeroway === 'runway' ||
+                    tags.aeroway === 'taxiway' ||
+                    tags.aeroway === 'apron'
+                ) {
+                    overlay.aeroway.features.push(feature);
+                }
             }
         }
     }
