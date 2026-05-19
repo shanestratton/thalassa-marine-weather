@@ -301,6 +301,16 @@ async function tryInshoreRouteInner(
         // attracts A* INTO the river instead of letting it cut across
         // Bramble Bay / Moreton Bay through generic deep bathymetry.
         const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
+        // Per-tag promotion counters and the actual promoted features —
+        // used by the OSM-promotion diagnostic line below to confirm
+        // (a) which OSM tags are doing the work and which are silent,
+        // (b) whether the Brisbane River main multipolygon is in the
+        // promoted set (would show up as the largest by bbox area).
+        const promotionTagCounts: Record<string, number> = {};
+        const tagRejectedByWidth: Record<string, number> = {};
+        const promotedFeatures: {
+            geometry?: { type?: string; coordinates?: unknown };
+        }[] = [];
         if (osmOverlay.water.features.length > 0) {
             const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
             for (const f of osmOverlay.water.features) {
@@ -321,21 +331,27 @@ async function tryInshoreRouteInner(
                 // River's tightest reach (the bend at Bulimba is ~230 m
                 // bank-to-bank) still qualifies.
                 const props = (f.properties ?? {}) as Record<string, unknown>;
-                const isRiverOrHarbour =
-                    props['water'] === 'river' ||
-                    props['water'] === 'harbour' ||
-                    props['waterway'] === 'river' ||
-                    props['waterway'] === 'riverbank' ||
-                    props['harbour'] === 'yes';
-                if (isRiverOrHarbour && isPolygonWideEnough(f, 200)) {
-                    (fairwy.features as unknown[]).push({
-                        ...f,
-                        properties: {
-                            ...(f.properties ?? {}),
-                            _promotePreferred: true,
-                            _source: 'osm-water-promoted',
-                        },
-                    });
+                let tagKey: string | null = null;
+                if (props['water'] === 'river') tagKey = 'water=river';
+                else if (props['water'] === 'harbour') tagKey = 'water=harbour';
+                else if (props['waterway'] === 'river') tagKey = 'waterway=river';
+                else if (props['waterway'] === 'riverbank') tagKey = 'waterway=riverbank';
+                else if (props['harbour'] === 'yes') tagKey = 'harbour=yes';
+                if (tagKey) {
+                    if (isPolygonWideEnough(f, 200)) {
+                        promotionTagCounts[tagKey] = (promotionTagCounts[tagKey] ?? 0) + 1;
+                        promotedFeatures.push(f);
+                        (fairwy.features as unknown[]).push({
+                            ...f,
+                            properties: {
+                                ...(f.properties ?? {}),
+                                _promotePreferred: true,
+                                _source: 'osm-water-promoted',
+                            },
+                        });
+                    } else {
+                        tagRejectedByWidth[tagKey] = (tagRejectedByWidth[tagKey] ?? 0) + 1;
+                    }
                 }
             }
             merged.DEPARE = depare;
@@ -406,6 +422,82 @@ async function tryInshoreRouteInner(
         ).length;
         log.warn(
             `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} promotedFairwy=${promotedCount}`,
+        );
+        // DIAGNOSTIC — per-tag promotion breakdown. Tells us which OSM
+        // tags are doing the work and which are silent. If `water=river`
+        // is missing/zero on a Brisbane route, the river is tagged some
+        // other way (or the multipolygon isn't assembling) and that's
+        // why A* doesn't see a preferred ribbon to follow.
+        const tagSummary = Object.entries(promotionTagCounts)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(' ');
+        const rejectSummary = Object.entries(tagRejectedByWidth)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(' ');
+        log.warn(
+            `STAGE: OSM promotion by tag — ${tagSummary || '(none)'} | rejected-by-width(<200m): ${rejectSummary || '(none)'}`,
+        );
+        // DIAGNOSTIC — top 3 promoted polygons by bbox area. Brisbane
+        // River main multipolygon should be the biggest (~30 km long,
+        // covering the whole tidal reach). If the biggest is just a
+        // marina basin, the river isn't getting through.
+        const promotedWithSize = promotedFeatures
+            .map((f) => ({ f, dim: featureBboxAndSizeM(f) }))
+            .filter((x): x is { f: typeof x.f; dim: NonNullable<typeof x.dim> } => x.dim != null)
+            .sort((a, b) => b.dim.widthM * b.dim.heightM - a.dim.widthM * a.dim.heightM)
+            .slice(0, 3);
+        if (promotedWithSize.length > 0) {
+            log.warn(`STAGE: top promoted polygons by bbox area:`);
+            for (const { f, dim } of promotedWithSize) {
+                const props = (f as { properties?: Record<string, unknown> }).properties ?? {};
+                const name = props['name'] ?? props['water'] ?? props['waterway'] ?? 'unnamed';
+                log.warn(
+                    `  • ${name} — bbox [${dim.bbox[1].toFixed(3)},${dim.bbox[0].toFixed(3)} → ${dim.bbox[3].toFixed(3)},${dim.bbox[2].toFixed(3)}] ${(dim.widthM / 1000).toFixed(1)}×${(dim.heightM / 1000).toFixed(1)} km`,
+                );
+            }
+        }
+        // DIAGNOSTIC — OSM coverage tight around the destination (±0.05°
+        // ≈ 5 km box). If this comes back with low water/coastline/
+        // breakwater counts, the destination area is an OSM data desert
+        // and we'll need to widen the bbox or supplement.
+        const destBbox: [number, number, number, number] = [
+            destination.lon - 0.05,
+            destination.lat - 0.05,
+            destination.lon + 0.05,
+            destination.lat + 0.05,
+        ];
+        const overlapsDest = (f: { geometry?: { type?: string; coordinates?: unknown } }): boolean => {
+            const dim = featureBboxAndSizeM(f);
+            if (!dim) return false;
+            const [minLon, minLat, maxLon, maxLat] = dim.bbox;
+            return minLon <= destBbox[2] && maxLon >= destBbox[0] && minLat <= destBbox[3] && maxLat >= destBbox[1];
+        };
+        // coastline features are LineStrings — bbox check via a
+        // dedicated mini-helper since featureBboxAndSizeM only handles
+        // polygons.
+        const lineStringInDestBbox = (f: { geometry?: { type?: string; coordinates?: unknown } }): boolean => {
+            const g = f.geometry;
+            if (!g || (g.type !== 'LineString' && g.type !== 'MultiLineString')) return false;
+            const lines: number[][][] =
+                g.type === 'LineString' ? [g.coordinates as number[][]] : (g.coordinates as number[][][]);
+            for (const line of lines) {
+                for (const v of line) {
+                    if (v[0] >= destBbox[0] && v[0] <= destBbox[2] && v[1] >= destBbox[1] && v[1] <= destBbox[3]) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        const destOsmCounts = {
+            water: osmOverlay.water.features.filter(overlapsDest).length,
+            marina: osmOverlay.marina.features.filter(overlapsDest).length,
+            reef: osmOverlay.reef.features.filter(overlapsDest).length,
+            breakwater: osmOverlay.breakwater.features.filter((f) => overlapsDest(f) || lineStringInDestBbox(f)).length,
+            coastline: osmOverlay.coastline.features.filter(lineStringInDestBbox).length,
+        };
+        log.warn(
+            `STAGE: OSM coverage ±0.05° around dest (${destination.lat.toFixed(4)},${destination.lon.toFixed(4)}) — water=${destOsmCounts.water} marina=${destOsmCounts.marina} reef=${destOsmCounts.reef} breakwater=${destOsmCounts.breakwater} coastline=${destOsmCounts.coastline}`,
         );
     } catch (err) {
         log.warn(
@@ -1295,16 +1387,25 @@ function pointInAnyPolygon(
  * tag check (`water=river`/`harbour=yes`/etc.) which already excludes
  * lakes and isolated water bodies.
  */
-function isPolygonWideEnough(f: { geometry?: { type?: string; coordinates?: unknown } }, minWidthM: number): boolean {
+/**
+ * Returns the bbox + meter-dimensions of a polygon/multipolygon feature.
+ * Returns null if the geometry isn't polygonal or has no vertices.
+ * Used by isPolygonWideEnough and by the OSM-promotion diagnostics
+ * (so we can log the size of the largest promoted polygon and confirm
+ * the Brisbane River multipolygon is what we expect).
+ */
+function featureBboxAndSizeM(f: {
+    geometry?: { type?: string; coordinates?: unknown };
+}): { bbox: [number, number, number, number]; widthM: number; heightM: number } | null {
     const g = f.geometry;
-    if (!g) return false;
+    if (!g) return null;
     const outerRings: number[][][] =
         g.type === 'Polygon'
             ? [(g.coordinates as number[][][])[0]]
             : g.type === 'MultiPolygon'
               ? (g.coordinates as number[][][][]).map((poly) => poly[0])
               : [];
-    if (outerRings.length === 0) return false;
+    if (outerRings.length === 0) return null;
     let minLon = Infinity;
     let maxLon = -Infinity;
     let minLat = Infinity;
@@ -1317,13 +1418,19 @@ function isPolygonWideEnough(f: { geometry?: { type?: string; coordinates?: unkn
             if (v[1] > maxLat) maxLat = v[1];
         }
     }
-    if (!Number.isFinite(minLon)) return false;
+    if (!Number.isFinite(minLon)) return null;
     const midLat = (minLat + maxLat) / 2;
     const M_PER_DEG_LAT = 111_320;
     const mPerLon = M_PER_DEG_LAT * Math.cos((midLat * Math.PI) / 180);
     const widthM = (maxLon - minLon) * mPerLon;
     const heightM = (maxLat - minLat) * M_PER_DEG_LAT;
-    return Math.min(widthM, heightM) >= minWidthM;
+    return { bbox: [minLon, minLat, maxLon, maxLat], widthM, heightM };
+}
+
+function isPolygonWideEnough(f: { geometry?: { type?: string; coordinates?: unknown } }, minWidthM: number): boolean {
+    const dim = featureBboxAndSizeM(f);
+    if (!dim) return false;
+    return Math.min(dim.widthM, dim.heightM) >= minWidthM;
 }
 
 function principalAxis(points: { lat: number; lon: number }[]): { lat: number; lon: number } {
@@ -1589,6 +1696,20 @@ async function fetchRegionalMarkers(
             wideAccepted: 0,
             wideRejected: 0,
         };
+        // DIAGNOSTIC samples — coordinates of pair midpoints in two
+        // categories, capped per-category to keep log volume sane:
+        //   • osmSaved: midpoints rescued by the OSM-water tie-break.
+        //     Cluster pattern tells us where the OSM water polygons
+        //     are doing useful work (expected: Brisbane River).
+        //   • wideRejected: midpoints of wide (>300m) pairs that were
+        //     killed by LNDARE even with OSM in scope. Cluster pattern
+        //     tells us WHERE the OSM water coverage is missing — if
+        //     these cluster around the river mouth / airport peninsula,
+        //     the OSM Brisbane River polygon doesn't extend far enough
+        //     downstream and that's why A* doesn't follow the channel.
+        const osmSavedSamples: Array<{ lat: number; lon: number; distM: number }> = [];
+        const wideRejectedSamples: Array<{ lat: number; lon: number; distM: number }> = [];
+        const SAMPLE_CAP = 15;
         const midpointCoords: Midpoint[] = [];
         const soloMarkers: Marker[] = [];
 
@@ -1672,10 +1793,22 @@ async function fetchRegionalMarkers(
                     if (pointInAnyPolygon(midLon, midLat, lndareFeatures)) {
                         if (pointInAnyPolygon(midLon, midLat, osmWaterFeatures)) {
                             pairDiag.acceptedByOsmWater++;
+                            if (osmSavedSamples.length < SAMPLE_CAP) {
+                                osmSavedSamples.push({ lat: midLat, lon: midLon, distM: d });
+                            }
                             // fall through to accept
                         } else {
                             pairDiag.rejectedByLandare++;
-                            if (d > 300) pairDiag.wideRejected++;
+                            if (d > 300) {
+                                pairDiag.wideRejected++;
+                                if (wideRejectedSamples.length < SAMPLE_CAP) {
+                                    wideRejectedSamples.push({
+                                        lat: midLat,
+                                        lon: midLon,
+                                        distM: d,
+                                    });
+                                }
+                            }
                             continue;
                         }
                     }
@@ -1708,6 +1841,20 @@ async function fetchRegionalMarkers(
                 `acceptedByOsmWater=${pairDiag.acceptedByOsmWater} ` +
                 `wide(>300m): considered=${pairDiag.wideConsidered} accepted=${pairDiag.wideAccepted} rejected=${pairDiag.wideRejected}`,
         );
+        if (osmSavedSamples.length > 0) {
+            log.warn(`STAGE: sample midpoints saved by OSM water (${osmSavedSamples.length}):`);
+            for (const s of osmSavedSamples) {
+                log.warn(`  • ${s.lat.toFixed(4)},${s.lon.toFixed(4)} pairDist=${Math.round(s.distM)}m`);
+            }
+        }
+        if (wideRejectedSamples.length > 0) {
+            log.warn(
+                `STAGE: sample wide(>300m) midpoints STILL rejected by LNDARE — these are channel pairs OSM water didn't rescue (${wideRejectedSamples.length}):`,
+            );
+            for (const s of wideRejectedSamples) {
+                log.warn(`  • ${s.lat.toFixed(4)},${s.lon.toFixed(4)} pairDist=${Math.round(s.distM)}m`);
+            }
+        }
 
         // ── Step 4: Build midpoint Point features ───────────────
         const midpoints: unknown[] = midpointCoords.map((m) => ({
