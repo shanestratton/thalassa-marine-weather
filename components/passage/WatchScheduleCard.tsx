@@ -339,7 +339,6 @@ export const WatchScheduleCard: React.FC<WatchScheduleCardProps> = ({
                 }
             })();
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [voyageId]);
 
     const handleAssign = useCallback(

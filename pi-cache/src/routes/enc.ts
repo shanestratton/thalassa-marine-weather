@@ -479,7 +479,7 @@ async function parseS57Metadata(inputPath: string): Promise<{
     } catch (err) {
         // Non-fatal — keep edition=0 / issued=today. Logged so a
         // sysop can spot the parse failure if they care.
-        // eslint-disable-next-line no-console
+
         console.warn(`[enc] DSID parse via ogr2ogr CSV failed for ${cellId}:`, (err as Error).message);
     }
 

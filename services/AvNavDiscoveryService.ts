@@ -106,7 +106,7 @@ class AvNavDiscoveryServiceClass {
         try {
             // Opaque import — hides from Vite's static analysis so it doesn't
             // fail to resolve when the package isn't installed (web dev mode).
-            // eslint-disable-next-line @typescript-eslint/no-implied-eval
+
             const dynamicImport = new Function('specifier', 'return import(specifier)');
             const { Zeroconf } = await dynamicImport('capacitor-zeroconf');
 
@@ -146,7 +146,6 @@ class AvNavDiscoveryServiceClass {
 
     private async stopNative(): Promise<void> {
         try {
-            // eslint-disable-next-line @typescript-eslint/no-implied-eval
             const dynamicImport = new Function('specifier', 'return import(specifier)');
             const { Zeroconf } = await dynamicImport('capacitor-zeroconf');
             await Zeroconf.close();

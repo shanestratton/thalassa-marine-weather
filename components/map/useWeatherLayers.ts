@@ -1793,7 +1793,7 @@ export function useWeatherLayers(
                 s.at = Date.now();
                 setCurrentsHour(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         currentsTotalHours,
@@ -1812,7 +1812,7 @@ export function useWeatherLayers(
                 s.at = Date.now();
                 setWavesHour(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         wavesTotalHours,
@@ -1828,7 +1828,7 @@ export function useWeatherLayers(
                 s.at = Date.now();
                 setSstStep(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         sstTotalSteps,
@@ -1844,7 +1844,7 @@ export function useWeatherLayers(
                 s.at = Date.now();
                 setChlStep(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         chlTotalSteps,
@@ -1860,7 +1860,7 @@ export function useWeatherLayers(
                 s.at = Date.now();
                 setSeaiceStep(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         seaiceTotalSteps,
@@ -1876,7 +1876,7 @@ export function useWeatherLayers(
                 s.at = Date.now();
                 setMldStep(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         mldTotalSteps,
@@ -1915,7 +1915,7 @@ export function useWeatherLayers(
                 pressureUserScrubbedTimeRef.current = Date.now();
                 setForecastHour(valOrFn);
             },
-            // eslint-disable-next-line react-hooks/exhaustive-deps
+
             [],
         ),
         /** Sub-frame index corresponding to wall-clock "Now". Consumed by

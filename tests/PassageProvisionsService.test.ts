@@ -10,22 +10,23 @@ import type { StoresItem } from '../types';
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-const makeStoreItem = (overrides: Partial<StoresItem> = {}): StoresItem => ({
-    id: 'store-1',
-    user_id: 'user-1',
-    item_name: 'Chicken Breast',
-    category: 'food' as any,
-    quantity: 5,
-    min_quantity: 2,
-    barcode: '',
-    location_zone: '',
-    location_specific: '',
-    unit: 'kg',
-    description: '',
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-    ...overrides,
-} as StoresItem);
+const makeStoreItem = (overrides: Partial<StoresItem> = {}): StoresItem =>
+    ({
+        id: 'store-1',
+        user_id: 'user-1',
+        item_name: 'Chicken Breast',
+        category: 'food' as any,
+        quantity: 5,
+        min_quantity: 2,
+        barcode: '',
+        location_zone: '',
+        location_specific: '',
+        unit: 'kg',
+        description: '',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        ...overrides,
+    }) as StoresItem;
 
 const storeItems: StoresItem[] = [
     makeStoreItem({ id: 's1', item_name: 'Chicken Breast' }),

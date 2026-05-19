@@ -397,7 +397,7 @@ export function parseSenc(buf: Buffer, opts: ParseOptions = {}): ParseResult {
     // come AFTER the feature records, so both passes have to be post-walk.
     let linesResolved = 0;
     let linesUnresolvable = 0;
-    let areasWithRings = 0;
+    const areasWithRings = 0;
     let areasRingFallback = 0;
     for (const f of features) {
         if (f.geometry?.type === 'LineRaw') {

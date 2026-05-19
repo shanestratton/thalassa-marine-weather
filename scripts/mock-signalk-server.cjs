@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
  * mock-signalk-server.js
- * 
+ *
  * A lightweight mock Signal K server that serves real NOAA nautical chart tiles
  * for testing the Thalassa Signal K chart integration without a Raspberry Pi.
- * 
+ *
  * Usage:  node scripts/mock-signalk-server.js
  * Then:   In Thalassa Settings → Signal K → Host: localhost, Port: 3000 → Connect
  */
@@ -30,7 +30,7 @@ const CHARTS = {
         bounds: [-180, -90, 180, 90],
         scale: 1,
     },
-    'openseamap': {
+    openseamap: {
         identifier: 'openseamap',
         name: 'OpenSeaMap Seamark Overlay',
         description: 'Community-maintained sea marks, lights, and buoys',
@@ -47,7 +47,7 @@ const CHARTS = {
 // Upstream tile sources (the actual tile servers we proxy)
 const TILE_SOURCES = {
     'osm-nautical': 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    'openseamap': 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+    openseamap: 'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
 };
 
 // ── Signal K API Responses ──
@@ -93,38 +93,41 @@ function proxyTile(sourceId, z, x, y, res) {
         return;
     }
 
-    const url = template
-        .replace('{z}', z)
-        .replace('{x}', x)
-        .replace('{y}', y);
+    const url = template.replace('{z}', z).replace('{x}', x).replace('{y}', y);
 
     const client = url.startsWith('https') ? https : http;
 
-    const req = client.get(url, { 
-        headers: { 'User-Agent': 'Thalassa-Mock-SignalK/1.0' },
-        timeout: 15000,
-    }, (upstream) => {
-        if (upstream.statusCode === 200) {
-            res.writeHead(200, {
-                'Content-Type': upstream.headers['content-type'] || 'image/png',
-                'Access-Control-Allow-Origin': '*',
-                'Cache-Control': 'public, max-age=86400',
-            });
-            upstream.pipe(res);
-        } else {
-            console.log(`  ⚠️  Tile ${sourceId}/${z}/${x}/${y} → ${upstream.statusCode}`);
-            // Return a transparent 1x1 PNG for missing tiles
-            res.writeHead(200, {
-                'Content-Type': 'image/png',
-                'Access-Control-Allow-Origin': '*',
-            });
-            res.end(Buffer.from(
-                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB' +
-                'Nl7BcQAAAABJRU5ErkJggg==',
-                'base64'
-            ));
-        }
-    });
+    const req = client.get(
+        url,
+        {
+            headers: { 'User-Agent': 'Thalassa-Mock-SignalK/1.0' },
+            timeout: 15000,
+        },
+        (upstream) => {
+            if (upstream.statusCode === 200) {
+                res.writeHead(200, {
+                    'Content-Type': upstream.headers['content-type'] || 'image/png',
+                    'Access-Control-Allow-Origin': '*',
+                    'Cache-Control': 'public, max-age=86400',
+                });
+                upstream.pipe(res);
+            } else {
+                console.log(`  ⚠️  Tile ${sourceId}/${z}/${x}/${y} → ${upstream.statusCode}`);
+                // Return a transparent 1x1 PNG for missing tiles
+                res.writeHead(200, {
+                    'Content-Type': 'image/png',
+                    'Access-Control-Allow-Origin': '*',
+                });
+                res.end(
+                    Buffer.from(
+                        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVQI12NgAAIABQAB' +
+                            'Nl7BcQAAAABJRU5ErkJggg==',
+                        'base64',
+                    ),
+                );
+            }
+        },
+    );
     req.on('error', (err) => {
         console.log(`  ❌ Tile fetch error ${sourceId}/${z}/${x}/${y}: ${err.message}`);
         res.writeHead(500);
@@ -163,13 +166,15 @@ const server = http.createServer((req, res) => {
     // Signal K API root (version probe)
     if (path === '/signalk/v1/api') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-            version: '1.46.0',
-            self: 'vessels.self',
-            resources: {
-                charts: { href: '/signalk/v1/api/resources/charts' }
-            }
-        }));
+        res.end(
+            JSON.stringify({
+                version: '1.46.0',
+                self: 'vessels.self',
+                resources: {
+                    charts: { href: '/signalk/v1/api/resources/charts' },
+                },
+            }),
+        );
         console.log('  📡 API v1 probe — responded OK');
         return;
     }
@@ -222,7 +227,9 @@ const server = http.createServer((req, res) => {
                 </ul>
                 <h3 style="color:#38bdf8;">Available Charts:</h3>
                 <ul>
-                    ${Object.values(CHARTS).map(c => `<li><strong>${c.name}</strong> — ${c.description}</li>`).join('')}
+                    ${Object.values(CHARTS)
+                        .map((c) => `<li><strong>${c.name}</strong> — ${c.description}</li>`)
+                        .join('')}
                 </ul>
                 <h3 style="color:#34d399;">How to test:</h3>
                 <ol>

@@ -47,7 +47,6 @@ export const OfflineAreaModal: React.FC<OfflineAreaModalProps> = ({ isOpen, onCl
             east: b.getEast(),
             west: b.getWest(),
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen, map]);
 
     const tileCount = useMemo(() => {

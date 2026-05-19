@@ -4,7 +4,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // Mock LocalDatabase
-/* eslint-disable @typescript-eslint/no-explicit-any */
+
 vi.mock('../services/vessel/LocalDatabase', () => {
     const store = new Map<string, any[]>();
     return {
@@ -33,7 +33,6 @@ vi.mock('../services/vessel/LocalDatabase', () => {
         _testReset: () => store.clear(),
     };
 });
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Mock supabase
 vi.mock('../services/supabase', () => ({

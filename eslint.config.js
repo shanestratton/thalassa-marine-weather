@@ -16,6 +16,17 @@ export default tseslint.config(
             'ios/**',
             '*.config.*',
             'vite.config.*',
+            // Agent worktree copies — parallel sessions check these out as
+            // siblings of the main tree. Without this ignore, local lint
+            // multiplies every problem by the number of active worktrees
+            // (3221 errors locally vs. ~250 on CI was the giveaway). CI
+            // doesn't see them; local should match.
+            '.claude/**',
+            // Compiled output of the Pi cache server. The .ts source under
+            // pi-cache/src/ is what humans edit; the .js under dist/ is
+            // generated. Linting the compiled output spammed CI with
+            // 'Buffer is not defined' on every push.
+            'pi-cache/dist/**',
         ],
     },
 
@@ -203,13 +214,45 @@ export default tseslint.config(
         },
     },
 
-    // Build scripts + dev tools — full console access
+    // Build scripts + dev tools — full console access + Node globals.
+    // The .cjs / .js scripts here use require/Buffer/process/__dirname
+    // which aren't in the global default-browser env. Listing them
+    // explicitly so CI lint doesn't trip no-undef.
     {
-        files: ['scripts/**/*.{js,mjs,ts}'],
+        files: ['scripts/**/*.{js,mjs,cjs,ts}'],
+        languageOptions: {
+            globals: {
+                require: 'readonly',
+                module: 'readonly',
+                exports: 'writable',
+                Buffer: 'readonly',
+                process: 'readonly',
+                __dirname: 'readonly',
+                __filename: 'readonly',
+                global: 'readonly',
+            },
+        },
         rules: {
             'no-console': 'off',
             '@typescript-eslint/no-explicit-any': 'off',
             '@typescript-eslint/no-unused-vars': 'off',
+        },
+    },
+
+    // AudioWorklet processors — run in a different worklet global scope
+    // with its own set of globals (AudioWorkletProcessor, registerProcessor,
+    // currentTime, currentFrame, sampleRate). Apply to any .js / .ts file
+    // under public/ that hosts a worklet processor.
+    {
+        files: ['public/pcm-worklet.js', 'public/**/*-worklet.{js,ts}'],
+        languageOptions: {
+            globals: {
+                AudioWorkletProcessor: 'readonly',
+                registerProcessor: 'readonly',
+                currentTime: 'readonly',
+                currentFrame: 'readonly',
+                sampleRate: 'readonly',
+            },
         },
     },
 
