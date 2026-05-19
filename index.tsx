@@ -97,6 +97,43 @@ if (Capacitor.isNativePlatform()) {
     });
 }
 
+// ── Block whole-page pinch-zoom everywhere except the chart map ──
+// Added 2026-05-20. The viewport meta intentionally omits
+// `maximum-scale=1` (that's an accessibility anti-pattern Apple
+// ignores anyway), so iOS WKWebView allowed two-finger pinch to zoom
+// the entire page on the Plan / Log / Vessel scroll views — content
+// would balloon and the user had to fiddle to get back to 1×.
+//
+// iOS fires the non-standard `gesturestart` / `gesturechange` /
+// `gestureend` events for a two-finger pinch. Preventing their
+// default stops the page zoom. We bail out early when the gesture
+// originates inside `.mapboxgl-map` so the CHARTS page keeps its
+// pinch-to-zoom — Mapbox GL drives map zoom from raw touch events
+// (touchstart/move), independent of these gesture events, so the map
+// is doubly safe. Double-tap zoom is already neutralised by the
+// 16px input font-size rule + the SPA's own tap handlers.
+if (typeof document !== 'undefined') {
+    const blockPageZoom = (e: Event) => {
+        const target = e.target as HTMLElement | null;
+        // Allow the gesture through when it starts inside a map canvas.
+        // .mapboxgl-map = charts page (Mapbox GL); .leaflet-container =
+        // any Leaflet surface. Both drive their own zoom.
+        if (
+            target &&
+            typeof target.closest === 'function' &&
+            (target.closest('.mapboxgl-map') || target.closest('.leaflet-container'))
+        ) {
+            return;
+        }
+        e.preventDefault();
+    };
+    // gesturestart/change/end are WebKit-only; the string form keeps
+    // TypeScript happy without a lib.dom gesture-event typings dependency.
+    document.addEventListener('gesturestart', blockPageZoom, { passive: false });
+    document.addEventListener('gesturechange', blockPageZoom, { passive: false });
+    document.addEventListener('gestureend', blockPageZoom, { passive: false });
+}
+
 // Wire Apple Watch reverse-direction events (mob trigger, alarm ack)
 // + the weather snapshot push pipeline. No-op on web / Android.
 // Lazy-imported so the watchBridge plugin doesn't load on web bundles.
