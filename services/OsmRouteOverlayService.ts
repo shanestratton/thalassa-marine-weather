@@ -40,6 +40,15 @@ export interface OsmRouteOverlay {
      *  this field to be populated; older Pi versions return [] which is
      *  fine (router falls through to chart-only for the airport area). */
     aeroway: FeatureCollection;
+    /** waterway=canal/fairway/dock LineStrings from OSM — navigable
+     *  dredged-channel centrelines (marina exit channels, port approach
+     *  cuts). Bresenham-rasterised into a 1-cell navigable corridor by
+     *  the engine so canal estates connect to open water across chart
+     *  LNDARE that tessellates the channel banks as land at 50 m.
+     *  Added 2026-05-20 for the Newport Marina exit. Pi must be on cache
+     *  schema v3+; older Pi returns [] → router degrades to chart-only,
+     *  the canal estate stays islanded (origin snap stays large). */
+    canalLines: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -50,6 +59,7 @@ function emptyOverlay(): OsmRouteOverlay {
         marina: { type: 'FeatureCollection', features: [] },
         breakwater: { type: 'FeatureCollection', features: [] },
         aeroway: { type: 'FeatureCollection', features: [] },
+        canalLines: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -108,8 +118,9 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
             marina: raw.marina ?? { type: 'FeatureCollection', features: [] },
             breakwater: raw.breakwater ?? { type: 'FeatureCollection', features: [] },
             aeroway: raw.aeroway ?? { type: 'FeatureCollection', features: [] },
+            canalLines: raw.canalLines ?? { type: 'FeatureCollection', features: [] },
         };
-        const counts = `water=${data.water.features.length} reef=${data.reef.features.length} coast=${data.coastline.features.length} marina=${data.marina.features.length} bw=${data.breakwater.features.length} aeroway=${data.aeroway.features.length}`;
+        const counts = `water=${data.water.features.length} reef=${data.reef.features.length} coast=${data.coastline.features.length} marina=${data.marina.features.length} bw=${data.breakwater.features.length} aeroway=${data.aeroway.features.length} canalLines=${data.canalLines.features.length}`;
         log.warn(`OSM overlay fetched in ${Date.now() - t0}ms — ${counts}`);
         memCache.set(key, { ts: Date.now(), data });
         return data;
