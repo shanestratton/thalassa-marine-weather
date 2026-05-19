@@ -1707,13 +1707,56 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // chart-says-land-but-really-water river/harbour interior cells get
     // traversed, flagged red in the polyline so the user verifies.
     const strict = routeInshoreOnce(layers, req, false);
-    if (!('error' in strict)) return strict;
-    if (strict.code !== 'destination-disconnected') return strict;
+    if ('error' in strict) {
+        if (strict.code !== 'destination-disconnected') return strict;
+        console.warn(
+            '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed to CAUTION',
+        );
+        return routeInshoreOnce(layers, req, true);
+    }
+
+    // Strict succeeded — but did it start/end where the user actually
+    // tapped? When an endpoint sits in a pocket cut off from the routable
+    // water body (Newport Marina's shallow canal estate, a drying inlet),
+    // the shared-component snap silently drags that endpoint to the
+    // nearest big-water cell — Newport snaps the origin 2 km out into
+    // Bramble Bay, so the visible route starts 2 km from the berth and
+    // the impassable stretch is hidden in an invisible bridge segment.
+    //
+    // Honest fix (Shane's call 2026-05-20): if an endpoint snapped far,
+    // retry with LNDARE relaxed to CAUTION. That makes the barrier
+    // traversable at 500× cost so A* starts at the ACTUAL berth and
+    // threads the impassable shallow/drying stretch — which the polyline
+    // flags in cautionMask and the renderer draws RED as a "verify
+    // pilotage / your draft won't clear this" warning. No fake deep water
+    // is carved; the marginal water is shown honestly in red.
+    //
+    // We only swap to the relaxed route if it genuinely starts closer to
+    // the user's tap — otherwise the strict (all-real-water) route stands.
+    const FAR_SNAP_M = 500;
+    const strictWorstSnapM = Math.max(
+        strict.debug?.originSnap?.snapDistanceM ?? 0,
+        strict.debug?.destinationSnap?.snapDistanceM ?? 0,
+    );
+    if (strictWorstSnapM <= FAR_SNAP_M) return strict;
     console.warn(
-        '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed to CAUTION',
+        `[inshoreEngine] strict endpoint snapped ${Math.round(strictWorstSnapM)}m from tap — retrying relaxed so the route starts at the real berth (barrier shown red)`,
     );
     const relaxed = routeInshoreOnce(layers, req, true);
-    return relaxed;
+    if ('error' in relaxed) return strict;
+    const relaxedWorstSnapM = Math.max(
+        relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
+        relaxed.debug?.destinationSnap?.snapDistanceM ?? Infinity,
+    );
+    // Require a meaningful improvement (≥200 m) before swapping, so we
+    // don't trade an all-real-water route for a red-flagged one on a tie.
+    if (relaxedWorstSnapM < strictWorstSnapM - 200) {
+        console.warn(
+            `[inshoreEngine] relaxed route starts ${Math.round(relaxedWorstSnapM)}m from tap (vs ${Math.round(strictWorstSnapM)}m strict) — using relaxed, marginal water flagged red`,
+        );
+        return relaxed;
+    }
+    return strict;
 }
 
 function routeInshoreOnce(
