@@ -483,6 +483,28 @@ interface CachedNavGrid {
 const navGridCache = new Map<string, CachedNavGrid>();
 const NAV_GRID_CACHE_MAX = 5;
 
+/**
+ * A circular zone (tap centre + radius) within which LNDARE/coastline
+ * cells are relaxed to CAUTION (traversable at 500× cost, flagged red)
+ * instead of hard-blocked. Used by the far-snap retry to thread the
+ * charted-land barrier islanding an endpoint (Newport's canal estate)
+ * WITHOUT relaxing the whole grid — global relaxation let A* shortcut
+ * straight across the mainland (verified land-crossing 2026-05-20).
+ * Confining relaxation to a bounded zone around the problem endpoint
+ * keeps every mid-route mainland cell hard-blocked, so the only red
+ * cells are the genuine barrier the user must pilot through.
+ */
+export interface RelaxZone {
+    lat: number;
+    lon: number;
+    radiusM: number;
+}
+
+function relaxZonesKey(relaxZones: RelaxZone[]): string {
+    if (relaxZones.length === 0) return 'none';
+    return relaxZones.map((z) => `${z.lat.toFixed(3)},${z.lon.toFixed(3)},${Math.round(z.radiusM)}`).join('|');
+}
+
 function buildNavGridCached(
     layers: InshoreLayers,
     bbox: [number, number, number, number],
@@ -491,6 +513,7 @@ function buildNavGridCached(
     safetyM: number,
     obstructionBufferM: number,
     relaxedLndare: boolean = false,
+    relaxZones: RelaxZone[] = [],
 ): { grid: NavGrid; cacheHit: boolean } {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -505,13 +528,22 @@ function buildNavGridCached(
         layers.COASTLINE?.features.length ?? 0,
         layers.CANAL?.features.length ?? 0,
     ].join(',');
-    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_${sig}`;
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${sig}`;
     const cached = navGridCache.get(key);
     if (cached) {
         cached.ts = Date.now();
         return { grid: cached.grid, cacheHit: true };
     }
-    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM, relaxedLndare);
+    const grid = buildNavGrid(
+        layers,
+        bbox,
+        resolutionM,
+        draftM,
+        safetyM,
+        obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
+    );
     if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
         let oldestKey: string | null = null;
         let oldestTs = Infinity;
@@ -540,12 +572,23 @@ function buildNavGrid(
     safetyM: number,
     obstructionBufferM: number,
     /**
-     * When true, LNDARE cells become CAUTION (high-cost 500× traversable)
-     * instead of BLOCKED. Set by the destination-disconnected retry path —
-     * lets A* navigate through the rare case where a chart's mainland
-     * LNDARE polygon includes a river course without a proper hole.
+     * When true, ALL LNDARE cells become CAUTION (high-cost 500×
+     * traversable) instead of BLOCKED, grid-wide. Reserved for the
+     * destination-disconnected last-resort retry — the rare case where a
+     * chart's mainland LNDARE polygon includes a river course without a
+     * proper hole and strict routing finds NO path at all. A* still
+     * prefers real water (8×) over relaxed land (40×) so it only crosses
+     * land where no water route exists.
      */
     relaxedLndare: boolean = false,
+    /**
+     * Bounded zones within which LNDARE/coastline relax to CAUTION even
+     * when `relaxedLndare` is false. Used by the far-snap retry to thread
+     * the charted-land barrier islanding an endpoint (Newport) while
+     * keeping every mid-route mainland cell hard-blocked. Empty = no
+     * localized relaxation.
+     */
+    relaxZones: RelaxZone[] = [],
 ): NavGrid {
     // Per-pass timing — a single Newport→Brisbane build was clocked at
     // 37.8 s and accounted for 97% of the route compute. Without per-
@@ -596,6 +639,33 @@ function buildNavGrid(
     // few ms here points to wasted re-work (we already pay for this on
     // each call — buildNavGridCached is a separate concern).
     markPass('setup', buildT0, width * height);
+
+    // Localized LNDARE relaxation mask. A cell with relaxMask[idx]===1
+    // gets CAUTION instead of BLOCKED in the LNDARE (Pass 2) and
+    // coastline (Pass 2b) passes, and is exempt from the Pass 6 buffer —
+    // so a far-snapped endpoint can thread the charted-land barrier that
+    // islands it, flagged red, while every cell OUTSIDE the zone stays
+    // hard-blocked. This is the bounded replacement for the old
+    // grid-wide `relaxedLndare` far-snap retry, which let A* cut straight
+    // across the mainland. Building the mask is O(cells inside the
+    // zones) — a few thousand cells per zone, cheap.
+    const relaxMask = new Uint8Array(width * height);
+    for (const z of relaxZones) {
+        const dLatR = z.radiusM / M_PER_DEG_LAT;
+        const dLonR = z.radiusM / mPerLon;
+        const zx0 = Math.max(0, Math.floor((z.lon - dLonR - minLon) / dLon));
+        const zx1 = Math.min(width - 1, Math.ceil((z.lon + dLonR - minLon) / dLon));
+        const zy0 = Math.max(0, Math.floor((z.lat - dLatR - minLat) / dLat));
+        const zy1 = Math.min(height - 1, Math.ceil((z.lat + dLatR - minLat) / dLat));
+        for (let y = zy0; y <= zy1; y++) {
+            const cellLat = minLat + (y + 0.5) * dLat;
+            for (let x = zx0; x <= zx1; x++) {
+                const cellLon = minLon + (x + 0.5) * dLon;
+                if (haversineM(cellLat, cellLon, z.lat, z.lon) > z.radiusM) continue;
+                relaxMask[y * width + x] = 1;
+            }
+        }
+    }
 
     // Helper to convert a polygon bbox to grid coordinate range.
     const polyToCellRange = (
@@ -808,7 +878,7 @@ function buildNavGrid(
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             if (protectedCells[idx]) return;
-            if (relaxedLndare) {
+            if (relaxedLndare || relaxMask[idx] === 1) {
                 // CAUTION-mode: A* can traverse at 500× cost. Don't set
                 // hardBlocked so FAIRWY/DRGARE rescue still applies.
                 if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
@@ -858,7 +928,7 @@ function buildNavGrid(
                     if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
                     const idx = c.y * width + c.x;
                     if (protectedCells[idx]) continue;
-                    if (relaxedLndare) {
+                    if (relaxedLndare || relaxMask[idx] === 1) {
                         if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
                     } else {
                         cells[idx] = BLOCKED;
@@ -1090,6 +1160,11 @@ function buildNavGrid(
                 const idx = y * width + x;
                 if (lndareSeed[idx] === 1) continue;
                 if (preferred[idx] === 1) continue;
+                // Don't re-seal a localized relax corridor: cells inside a
+                // relax zone are intentionally CAUTION (the barrier we're
+                // threading red); buffering them shut would re-island the
+                // far-snapped endpoint we're trying to reach.
+                if (relaxMask[idx] === 1) continue;
                 const prior = cells[idx];
                 if (prior > 0) continue; // chart DEPARE-claimed deep water
 
@@ -1709,8 +1784,14 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const strict = routeInshoreOnce(layers, req, false);
     if ('error' in strict) {
         if (strict.code !== 'destination-disconnected') return strict;
+        // Last resort: strict found NO path because the destination is
+        // inside a giant mainland LNDARE with no inner-ring hole. Relax
+        // GRID-WIDE — A* still prefers real water (8×) over relaxed land
+        // (40×), so it only crosses land where no water route exists at
+        // all. This is the only place we relax globally; the far-snap
+        // path below uses bounded zones instead.
         console.warn(
-            '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed to CAUTION',
+            '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed grid-wide to CAUTION (last resort)',
         );
         return routeInshoreOnce(layers, req, true);
     }
@@ -1719,30 +1800,48 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // tapped? When an endpoint sits in a pocket cut off from the routable
     // water body (Newport Marina's shallow canal estate, a drying inlet),
     // the shared-component snap silently drags that endpoint to the
-    // nearest big-water cell — Newport snaps the origin 2 km out into
+    // nearest big-water cell — Newport snaps the origin ~2 km out into
     // Bramble Bay, so the visible route starts 2 km from the berth and
     // the impassable stretch is hidden in an invisible bridge segment.
     //
     // Honest fix (Shane's call 2026-05-20): if an endpoint snapped far,
-    // retry with LNDARE relaxed to CAUTION. That makes the barrier
-    // traversable at 500× cost so A* starts at the ACTUAL berth and
-    // threads the impassable shallow/drying stretch — which the polyline
+    // retry with LNDARE relaxed to CAUTION — but ONLY inside a bounded
+    // zone around that endpoint's tap, NOT grid-wide. The first cut at
+    // this relaxed the whole grid; A* then found cheaper CAUTION (40×)
+    // shortcuts straight across the mainland mid-route and the route
+    // crossed land (verified 2026-05-20: "that went sideways. it crossed
+    // land"). Confining relaxation to a circle around the problem
+    // endpoint lets A* thread the local barrier — which the polyline
     // flags in cautionMask and the renderer draws RED as a "verify
-    // pilotage / your draft won't clear this" warning. No fake deep water
-    // is carved; the marginal water is shown honestly in red.
+    // pilotage / your draft won't clear this" warning — while every
+    // mid-route mainland cell stays hard-blocked, so the route cannot
+    // shortcut across land. No fake deep water is carved; the marginal
+    // barrier is shown honestly in red.
     //
-    // We only swap to the relaxed route if it genuinely starts closer to
-    // the user's tap — otherwise the strict (all-real-water) route stands.
+    // The zone radius scales with how far the endpoint snapped (the
+    // barrier is at least that wide) plus margin, capped at 4 km so the
+    // relaxed region never spans far enough to reach a competing water
+    // body that would let A* shortcut. We only relax around an endpoint
+    // that actually snapped far — a well-connected endpoint (Rivergate
+    // dest snapped 3 m) gets no zone.
     const FAR_SNAP_M = 500;
-    const strictWorstSnapM = Math.max(
-        strict.debug?.originSnap?.snapDistanceM ?? 0,
-        strict.debug?.destinationSnap?.snapDistanceM ?? 0,
-    );
-    if (strictWorstSnapM <= FAR_SNAP_M) return strict;
+    const originSnapM = strict.debug?.originSnap?.snapDistanceM ?? 0;
+    const destSnapM = strict.debug?.destinationSnap?.snapDistanceM ?? 0;
+    const zoneRadiusFor = (snapM: number): number => Math.min(snapM * 1.5 + 500, 4000);
+    const relaxZones: RelaxZone[] = [];
+    if (originSnapM > FAR_SNAP_M) {
+        relaxZones.push({ lat: req.fromLat, lon: req.fromLon, radiusM: zoneRadiusFor(originSnapM) });
+    }
+    if (destSnapM > FAR_SNAP_M) {
+        relaxZones.push({ lat: req.toLat, lon: req.toLon, radiusM: zoneRadiusFor(destSnapM) });
+    }
+    if (relaxZones.length === 0) return strict;
+
+    const strictWorstSnapM = Math.max(originSnapM, destSnapM);
     console.warn(
-        `[inshoreEngine] strict endpoint snapped ${Math.round(strictWorstSnapM)}m from tap — retrying relaxed so the route starts at the real berth (barrier shown red)`,
+        `[inshoreEngine] endpoint snapped far (origin ${Math.round(originSnapM)}m / dest ${Math.round(destSnapM)}m) — retrying with ${relaxZones.length} localized relax zone(s) so the route starts at the real berth (barrier shown red, mainland stays blocked)`,
     );
-    const relaxed = routeInshoreOnce(layers, req, true);
+    const relaxed = routeInshoreOnce(layers, req, false, relaxZones);
     if ('error' in relaxed) return strict;
     const relaxedWorstSnapM = Math.max(
         relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
@@ -1752,7 +1851,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // don't trade an all-real-water route for a red-flagged one on a tie.
     if (relaxedWorstSnapM < strictWorstSnapM - 200) {
         console.warn(
-            `[inshoreEngine] relaxed route starts ${Math.round(relaxedWorstSnapM)}m from tap (vs ${Math.round(strictWorstSnapM)}m strict) — using relaxed, marginal water flagged red`,
+            `[inshoreEngine] localized-relaxed route starts ${Math.round(relaxedWorstSnapM)}m from tap (vs ${Math.round(strictWorstSnapM)}m strict) — using relaxed, barrier flagged red`,
         );
         return relaxed;
     }
@@ -1763,6 +1862,7 @@ function routeInshoreOnce(
     layers: InshoreLayers,
     req: RouteRequest,
     relaxedLndare: boolean,
+    relaxZones: RelaxZone[] = [],
 ): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
     const resolutionM = req.resolutionM ?? 50;
@@ -1822,6 +1922,7 @@ function routeInshoreOnce(
         safetyM,
         obstructionBufferM,
         relaxedLndare,
+        relaxZones,
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
