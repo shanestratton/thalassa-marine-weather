@@ -233,8 +233,18 @@ export const RoutePlanner: React.FC<{
                     document.body,
                 )}
 
-            {/* ═══ FORM INPUTS — always visible at top ═══ */}
-            <div className="shrink-0 px-4 pb-3">
+            {/* ═══ FORM INPUTS — always visible at top ═══
+                overflow-y-auto + maxHeight added 2026-05-19. The parent
+                page container is `overflow-hidden` (so the map's flex-1
+                gets a constrained height), which meant findScrollParent
+                in the keyboard-scroll helper walked all the way up and
+                found nothing scrollable — Capacitor's iOS scrollEnabled
+                is false so window.scrollBy is a no-op. The fix: give
+                the form section its OWN scroll context. Now on input
+                focus the helper scrolls the input to the top of THIS
+                container (well above the keyboard) and the map below
+                keeps its space when the form is closed. */}
+            <div className="shrink-0 overflow-y-auto px-4 pb-3" style={{ maxHeight: '60dvh' }}>
                 <div className="max-w-xl mx-auto w-full space-y-2.5">
                     {/* Comfort thresholds — collapsible accordion at the top
                         of the form. Sets settings.comfortParams (canonical
