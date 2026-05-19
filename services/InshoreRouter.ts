@@ -47,6 +47,26 @@ import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InshoreRouter');
 
+/**
+ * Master switch for the Pi-cache cloud A* path.
+ *
+ * 2026-05-19 TEMPORARILY FALSE: the iOS side has just gained three big
+ * routing fixes (OSM water tie-break in pair rejection, OSM water=river/
+ * harbour promotion to FAIRWY-class, aeroway polygons as LNDARE for
+ * reclaimed-land airports). The Pi-cache engine at
+ * `pi-cache/src/services/inshoreRouter.ts` does NOT yet have the
+ * `_promotePreferred` handling in its Pass 4, so when iOS sends the
+ * enhanced merged blob to the Pi for compute, the Pi ignores the river
+ * promotion and produces a worse route (visible in the 2026-05-19
+ * Newport→Rivergate test: Pi route cut 26 km straight across Brisbane
+ * Airport; iOS local route at least followed the east coast of Moreton
+ * Bay).
+ *
+ * Flip back to true once the Pi engine has the matching changes from
+ * commit 1f067060 ported across.
+ */
+const CLOUD_ROUTER_ENABLED = false;
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface InshoreOrigin {
@@ -406,6 +426,23 @@ async function tryInshoreRouteInner(
             merged.LNDARE = lndare;
             merged.COASTLINE = coast;
         }
+        // OSM aeroway polygons → LNDARE. Brisbane Airport's eastern runway
+        // is built on reclaimed land that postdates the AU SENC charts —
+        // the chart has water where there's now ~3 km of concrete and fill.
+        // Without this, A* threads a straight diagonal across the runway
+        // when routing from Moreton Bay into the river (Newport→Rivergate
+        // was cutting Pinkenba via the airport peninsula). Treating the
+        // aerodrome polygon as LNDARE forces A* to detour around — which
+        // is the actual river-mouth entrance any honest skipper takes.
+        if (osmOverlay.aeroway.features.length > 0) {
+            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.aeroway.features) {
+                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                    (lndare.features as unknown[]).push(f);
+                }
+            }
+            merged.LNDARE = lndare;
+        }
         // OSM coastline (natural=coastline) → COASTLINE layer. The engine's
         // pass 2b Bresenham-rasterises each segment as a thin LNDARE strip
         // so A* can't cut across the land/water boundary even where chart
@@ -421,7 +458,7 @@ async function tryInshoreRouteInner(
             (ff) => (ff.properties as Record<string, unknown> | null)?._promotePreferred === true,
         ).length;
         log.warn(
-            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} promotedFairwy=${promotedCount}`,
+            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} promotedFairwy=${promotedCount}`,
         );
         // DIAGNOSTIC — per-tag promotion breakdown. Tells us which OSM
         // tags are doing the work and which are silent. If `water=river`
@@ -612,8 +649,10 @@ async function tryInshoreRouteInner(
     let result: ReturnType<typeof routeInshore> | null = null;
     let routedOnCloud = false;
     const piAvailable = piCache.isAvailable();
-    log.warn(`STAGE: cloud router gate — piCache.isAvailable()=${piAvailable} baseUrl=${piCache.baseUrl}`);
-    if (piAvailable) {
+    log.warn(
+        `STAGE: cloud router gate — CLOUD_ROUTER_ENABLED=${CLOUD_ROUTER_ENABLED} piCache.isAvailable()=${piAvailable} baseUrl=${piCache.baseUrl}`,
+    );
+    if (CLOUD_ROUTER_ENABLED && piAvailable) {
         try {
             const cloudT0 = Date.now();
             const res = await CapacitorHttp.post({
@@ -690,6 +729,10 @@ async function tryInshoreRouteInner(
                 `cloud router request failed after ${cloudElapsed}ms — ${kind} — (${err instanceof Error ? err.message : String(err)}) — falling back to local`,
             );
         }
+    } else if (!CLOUD_ROUTER_ENABLED) {
+        log.warn(
+            `STAGE: cloud router skipped — CLOUD_ROUTER_ENABLED=false (iOS local A* is the source of truth until pi-cache engine is synced)`,
+        );
     } else {
         log.warn(`STAGE: cloud router skipped — piCache not available (probe failed or disabled in settings)`);
     }
