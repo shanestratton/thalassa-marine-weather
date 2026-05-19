@@ -1,19 +1,19 @@
 /**
- * Auto-sync ENC cells from the user's Bosun Pi on app launch.
+ * Auto-sync ENC cells from the user's Bosun Pi — runs on app mount AND
+ * periodically (every 10 min while the app is foregrounded), in the
+ * background, no UI required. If the Pi is reachable and has cells the
+ * device doesn't already have at the same edition + sizeBytes, they're
+ * pulled and `importCell()`d. The user just sees more cells appear in
+ * the layer FAB count and the chart rendering.
  *
- * Runs once per session, in the background, no UI required. If the Pi is
- * reachable and has cells the device doesn't already have at the same
- * edition, they're pulled and `importCell()`d. The user just sees more cells
- * appear in the layer FAB count and the chart rendering.
+ * If the Pi is unreachable (away from the boat, on cellular, offline),
+ * the function fails silently — never blocks the app. Manual sync via
+ * Settings → Vessel → ENC Cells stays as a fallback for explicit re-trigger.
  *
- * If the Pi is unreachable (away from the boat, on cellular, offline), the
- * function fails silently — never blocks the app's startup. Manual sync via
- * Settings → Vessel → ENC Cells stays as a fallback for re-triggering.
- *
- * This is the "wanker-proof" half of the chart distribution story: buy
- * charts in o-charts, OpenCPN downloads them on the Pi, Pi's filesystem
- * watcher decrypts them (separate work item), the phone picks them up on
- * next launch without anyone tapping anything.
+ * The polling means a user who buys a chart at the marina cafe and
+ * walks back to the boat will have the Pi auto-decrypt (via the
+ * filesystem watcher) and within 10 minutes the phone pulls it
+ * automatically. Zero taps.
  */
 import { createLogger } from '../../utils/createLogger';
 import { syncEncFromPi } from '../EncImportService';
@@ -22,24 +22,54 @@ import { GpsService } from '../GpsService';
 
 const log = createLogger('autoSyncFromPi');
 
-// In-process guard so multiple MapHub mounts in one session don't redundantly
-// hit the Pi. localStorage flag would persist across launches, which is wrong —
-// we want to re-check every launch in case the Pi has new cells.
-let attempted = false;
-
 /**
  * Cells pulled per auto-sync run. A typical AU fleet has 900+ decrypted
  * cells; pulling all of them on first launch is minutes of wifi + ~600 MB
  * of storage. We cap at 20 nearest-to-user — enough to cover a cruising
- * region of a few hundred nautical miles — and let later launches /
- * manual syncs pull the rest.
+ * region of a few hundred nautical miles — and let later polls fill out.
  */
 const AUTO_SYNC_MAX_CELLS = 20;
 
-export async function autoSyncFromPiIfPossible(): Promise<void> {
-    if (attempted) return;
-    attempted = true;
+/** Minimum gap between auto-sync attempts. Throttles repeated mounts
+ *  + the periodic poll so we don't hammer the Pi. */
+const AUTO_SYNC_MIN_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+/** Periodic re-poll interval while app foregrounded. */
+const AUTO_SYNC_POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
 
+let lastAttemptMs = 0;
+let inFlight: Promise<void> | null = null;
+let pollHandle: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Kick off auto-sync now AND set up a periodic poll. Idempotent — calling
+ * twice (MapHub re-mounts, app resume) just reuses the existing poller.
+ * Capacitor pauses JS timers when backgrounded, so the poll naturally
+ * pauses and resumes with the app lifecycle.
+ */
+export function startAutoSyncPolling(): void {
+    void autoSyncFromPiIfPossible();
+    if (!pollHandle) {
+        pollHandle = setInterval(() => {
+            void autoSyncFromPiIfPossible();
+        }, AUTO_SYNC_POLL_INTERVAL_MS);
+    }
+}
+
+export async function autoSyncFromPiIfPossible(): Promise<void> {
+    // Coalesce concurrent calls
+    if (inFlight) return inFlight;
+    // Throttle: skip if we ran very recently
+    const now = Date.now();
+    if (now - lastAttemptMs < AUTO_SYNC_MIN_INTERVAL_MS) return;
+    lastAttemptMs = now;
+
+    inFlight = runAutoSyncOnce().finally(() => {
+        inFlight = null;
+    });
+    return inFlight;
+}
+
+async function runAutoSyncOnce(): Promise<void> {
     try {
         if (!piCache.isAvailable()) {
             log.warn('auto-sync skipped — Pi not reachable (probe failed or disabled)');
@@ -62,7 +92,6 @@ export async function autoSyncFromPiIfPossible(): Promise<void> {
 
         const result = await syncEncFromPi(
             (p) => {
-                // Bubble up only meaningful phase changes — not every per-cell pulse.
                 if (p.phase === 'fetching' && p.cellId) {
                     log.warn(`  pulling ${p.cellId} (${p.cellsDone ?? 0}/${p.cellCount ?? 0})`);
                 } else if (p.phase === 'error') {
@@ -82,8 +111,6 @@ export async function autoSyncFromPiIfPossible(): Promise<void> {
             log.warn('auto-sync complete: nothing to pull');
         }
     } catch (err) {
-        // Never block app startup on a sync failure. Manual retry path still
-        // exists via Settings → Vessel → ENC Cells.
         log.warn(`auto-sync failed: ${err instanceof Error ? err.message : String(err)}`);
     }
 }
