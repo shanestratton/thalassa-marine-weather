@@ -83,23 +83,16 @@ import { Keyboard } from '@capacitor/keyboard';
 import { Capacitor } from '@capacitor/core';
 import { CrewCountProvider } from './contexts/CrewCountContext';
 
-// Hide the iOS keyboard accessory bar (the translucent strip with the
-// up/down field-navigation chevrons and a Done button that iOS attaches
-// to the top of the keyboard).
-//
-// We previously had this set to `true` for the Done-button convenience
-// (commit before 2026-05-19). The cost: on pages where a focused input
-// sits close to the top of the keyboard — RoutePlanner's destination
-// box being the canonical case — the accessory bar visually OVERLAYS
-// the input. The cyan focus border stays visible but the chevrons +
-// Done sit on top of the typing area, obscuring the placeholder and
-// the cursor.
-//
-// Trade-off accepted: no Done button. Dismiss paths still available
-// via (a) the input's own confirm-icon, (b) tapping outside the
-// input, (c) the keyboard's Return key.
+// Show the iOS keyboard accessory bar (the strip with the
+// up/down field-navigation chevrons and a Done button on the right).
+// The Done button is a universally-useful dismiss affordance that the
+// rest of the app's pages rely on. The Plan page used to look like
+// the bar was "covering" the destination input — that turned out to
+// be a form-sizing issue on that page (the form wasn't scrollable
+// enough to lift the input above the accessory bar). Solved at the
+// page level instead of by hiding the bar everywhere.
 if (Capacitor.isNativePlatform()) {
-    Keyboard.setAccessoryBarVisible({ isVisible: false }).catch(() => {
+    Keyboard.setAccessoryBarVisible({ isVisible: true }).catch(() => {
         /* Keyboard API unavailable on web */
     });
 }

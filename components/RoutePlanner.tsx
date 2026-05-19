@@ -90,6 +90,44 @@ export const RoutePlanner: React.FC<{
         scrollInputAboveKeyboard(e);
     }, []);
 
+    // ── Keyboard-aware bottom padding ──
+    // RoutePlanner's form lives in a `shrink-0` flex child with a
+    // `max-h: 60dvh` scroll context. The form's natural content height
+    // (~400 px) fits inside the maxHeight, so without intervention there
+    // is no scrollable room — meaning the keyboard-scroll helper can't
+    // lift the focused input above iOS's keyboard + accessory bar.
+    //
+    // When the keyboard opens, we add bottom padding equal to the
+    // keyboard's height. That extends the scrollHeight past maxHeight,
+    // makes the form scrollable, and lets the helper position the
+    // focused input at ~80 px from the form's top (well above the
+    // accessory bar). On keyboard hide the padding returns to 0 and
+    // the form goes back to a non-scrolling state. Other pages don't
+    // need this because their layouts are already scroll-friendly.
+    const [keyboardHeight, setKeyboardHeight] = useState(0);
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        let disposed = false;
+        const handles: Array<() => void> = [];
+        import('@capacitor/keyboard')
+            .then(({ Keyboard }) => {
+                if (disposed) return;
+                Keyboard.addListener('keyboardWillShow', (info) => {
+                    setKeyboardHeight(info.keyboardHeight ?? 0);
+                }).then((h) => handles.push(() => h.remove()));
+                Keyboard.addListener('keyboardWillHide', () => {
+                    setKeyboardHeight(0);
+                }).then((h) => handles.push(() => h.remove()));
+            })
+            .catch(() => {
+                /* Web — no native keyboard events */
+            });
+        return () => {
+            disposed = true;
+            handles.forEach((off) => off());
+        };
+    }, []);
+
     // departureTime state removed 2026-05-05 — see comment near the
     // date input above. Time-of-day is set in Passage Planning.
 
@@ -239,12 +277,23 @@ export const RoutePlanner: React.FC<{
                 gets a constrained height), which meant findScrollParent
                 in the keyboard-scroll helper walked all the way up and
                 found nothing scrollable — Capacitor's iOS scrollEnabled
-                is false so window.scrollBy is a no-op. The fix: give
-                the form section its OWN scroll context. Now on input
-                focus the helper scrolls the input to the top of THIS
-                container (well above the keyboard) and the map below
-                keeps its space when the form is closed. */}
-            <div className="shrink-0 overflow-y-auto px-4 pb-3" style={{ maxHeight: '60dvh' }}>
+                is false so window.scrollBy is a no-op.
+
+                The dynamic paddingBottom (set via keyboardHeight state
+                from Capacitor's keyboardWillShow/Hide events) extends
+                the form's scrollHeight past its maxHeight while the
+                keyboard is up. That makes the form scrollable just
+                enough for the helper to lift the focused input above
+                the keyboard + accessory bar. When the keyboard closes
+                the padding goes back to its natural value. */}
+            <div
+                className="shrink-0 overflow-y-auto px-4"
+                style={{
+                    maxHeight: '60dvh',
+                    paddingBottom: keyboardHeight > 0 ? `${keyboardHeight}px` : '0.75rem',
+                    transition: 'padding-bottom 200ms ease-out',
+                }}
+            >
                 <div className="max-w-xl mx-auto w-full space-y-2.5">
                     {/* Comfort thresholds — collapsible accordion at the top
                         of the form. Sets settings.comfortParams (canonical
