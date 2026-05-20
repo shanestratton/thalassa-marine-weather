@@ -553,6 +553,60 @@ async function tryInshoreRouteInner(
                 `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
             );
         }
+        // Connect DRGARE dredged-area polygons into a CONTINUOUS preferred
+        // channel. The AU SENC encodes the Brisbane dredged shipping
+        // channel as a CHAIN of DRGARE polygons (DRVAL1 10-14 m,
+        // authoritative) running from the river up into the bay. Pass 4
+        // already marks each polygon preferred — but they sit 1-2 km
+        // apart, so the corridor has GAPS and A* can't follow it; it cuts
+        // the shallow river-mouth bar instead. Connect each DRGARE
+        // centroid to its 2 nearest neighbours (<=4 km) and feed the
+        // connectors into NAVLINE so the engine fills the gaps, turning
+        // the dredged channel into one continuous deep preferred ribbon
+        // A* rides through the bar. (RECTRC recommended-tracks would be
+        // ideal but this SENC ships that layer empty — 2026-05-20.) The
+        // NAVLINE pass skips hardBlocked cells, so a connector that clips
+        // land marks only the water portion preferred — never carves land.
+        {
+            const drgareFeats = merged.DRGARE?.features ?? [];
+            const cents: { lat: number; lon: number }[] = [];
+            for (const f of drgareFeats) {
+                const dim = featureBboxAndSizeM(f as { geometry?: { type?: string; coordinates?: unknown } });
+                if (dim) cents.push({ lat: (dim.bbox[1] + dim.bbox[3]) / 2, lon: (dim.bbox[0] + dim.bbox[2]) / 2 });
+            }
+            if (cents.length >= 2) {
+                const MAX_LINK_M = 4000;
+                const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
+                let links = 0;
+                for (let i = 0; i < cents.length; i++) {
+                    const near = cents
+                        .map((c, j) => ({ j, d: haversineMetres(cents[i].lat, cents[i].lon, c.lat, c.lon) }))
+                        .filter((o) => o.j !== i && o.d <= MAX_LINK_M)
+                        .sort((a, b) => a.d - b.d)
+                        .slice(0, 2);
+                    for (const { j } of near) {
+                        (navline.features as unknown[]).push({
+                            type: 'Feature',
+                            properties: { _layer: 'NAVLINE', _source: 'drgare-channel-connector' },
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: [
+                                    [cents[i].lon, cents[i].lat],
+                                    [cents[j].lon, cents[j].lat],
+                                ],
+                            },
+                        });
+                        links++;
+                    }
+                }
+                if (links > 0) {
+                    merged.NAVLINE = navline;
+                    log.warn(
+                        `STAGE: connected ${cents.length} DRGARE polys → ${links} channel-corridor links → NAVLINE (continuous dredged channel)`,
+                    );
+                }
+            }
+        }
         // DIAGNOSTIC — what OSM water/canal/marina features sit near the
         // ORIGIN (±0.025° ≈ 2.5 km). Newport Marina canal estate stays a
         // 349-cell isolated component despite canalLines=65 captured — the
