@@ -126,6 +126,19 @@ export interface InshoreLayers {
      * dropped — origin tap snapped 2 km out into Bramble Bay.
      */
     CANAL?: FeatureCollection;
+    /**
+     * OSM navigation-line LineStrings (seamark leading/transit lines) —
+     * the charted dredged-channel centreline ships steer along. Unlike
+     * CANAL (which just carves navigable water to connect islanded
+     * pockets), NAVLINE is rasterised into a PREFERRED corridor (a few
+     * cells wide) AND rescues shallow/blocked cells to navigable, so A*
+     * is actively ATTRACTED onto the marked channel and rides it through
+     * bars/approaches the coarse bathymetry reads as too shallow. Added
+     * 2026-05-20 for the Brisbane River mouth bar (the dredged cut isn't
+     * in chart FAIRWY and the lateral markers are too sparse to stitch,
+     * but OSM has it as navigation_line).
+     */
+    NAVLINE?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -527,6 +540,7 @@ function buildNavGridCached(
         layers.BCNLAT?.features.length ?? 0,
         layers.COASTLINE?.features.length ?? 0,
         layers.CANAL?.features.length ?? 0,
+        layers.NAVLINE?.features.length ?? 0,
     ].join(',');
     const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${sig}`;
     const cached = navGridCache.get(key);
@@ -1133,6 +1147,72 @@ function buildNavGrid(
     for (const f of boylatFeatures) markMarkerRadius(f);
     for (const f of bcnlatFeatures) markMarkerRadius(f);
     markPass('pass5-markers', tPassMarkers, boylatFeatures.length + bcnlatFeatures.length);
+
+    // ── Pass 5b: OSM navigation lines → preferred channel corridor ───
+    // Charted leading/transit lines (seamark navigation_line) are the
+    // dredged-channel centreline ships steer along. Bresenham-rasterise
+    // each into a ~3-cell-wide PREFERRED corridor and rescue shallow
+    // (CAUTION) / unknown cells along it to navigable depth — so A* is
+    // attracted onto the marked channel AND can ride it through bars the
+    // 30 m bathymetry reads as too shallow. Never touches hardBlocked
+    // (real land / charted hazard) cells. Runs after Pass 2 (LNDARE, so
+    // hardBlocked is set) and before Pass 6 (buffer skips preferred cells,
+    // so the corridor isn't sealed). The Brisbane River mouth bar is the
+    // canonical case: the dredged cut isn't in chart FAIRWY and the
+    // lateral markers are too sparse to stitch, but OSM has it as
+    // navigation_line — without this the route cut a red CAUTION diagonal
+    // straight across the bar instead of riding the channel.
+    const navlineFeatures = layers.NAVLINE?.features ?? [];
+    const tPassNavline = Date.now();
+    const navDepth = Math.max(draftM + safetyM, 5.0);
+    const NAVLINE_BRUSH_CELLS = 1; // 1-cell Chebyshev radius → ~3-cell (≈150 m) wide corridor
+    let navlineCellsMarked = 0;
+    const stampNavlineCell = (cx: number, cy: number): void => {
+        for (let dy = -NAVLINE_BRUSH_CELLS; dy <= NAVLINE_BRUSH_CELLS; dy++) {
+            for (let dx = -NAVLINE_BRUSH_CELLS; dx <= NAVLINE_BRUSH_CELLS; dx++) {
+                const nx = cx + dx;
+                const ny = cy + dy;
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                const idx = ny * width + nx;
+                if (hardBlocked[idx] === 1) continue; // never carve real land
+                preferred[idx] = 1; // attract A* onto the marked channel
+                if (cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
+                    // Rescue a shallow-reading (CAUTION) or unknown cell on
+                    // the charted channel to navigable — the leading line
+                    // IS the dredged deep water.
+                    cells[idx] = navDepth;
+                    navlineCellsMarked++;
+                }
+            }
+        }
+    };
+    for (const f of navlineFeatures) {
+        const g = f.geometry;
+        if (!g) continue;
+        let lineRings: Position[][] = [];
+        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+        else continue;
+        for (const coords of lineRings) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon0, lat0] = coords[i];
+                const [lon1, lat1] = coords[i + 1];
+                const gx0 = Math.floor((lon0 - minLon) / dLon);
+                const gy0 = Math.floor((lat0 - minLat) / dLat);
+                const gx1 = Math.floor((lon1 - minLon) / dLon);
+                const gy1 = Math.floor((lat1 - minLat) / dLat);
+                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+                    stampNavlineCell(c.x, c.y);
+                }
+            }
+        }
+    }
+    markPass('pass5b-navline', tPassNavline, navlineFeatures.length);
+    if (navlineFeatures.length > 0) {
+        console.warn(
+            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
+        );
+    }
 
     // ── Pass 6: LNDARE 1-cell buffer ─────────────────────────────────
     // The scanline rasterizer marks cells whose centre is inside an

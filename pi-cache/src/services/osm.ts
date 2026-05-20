@@ -32,7 +32,9 @@ const OVERPASS_TIMEOUT_MS = 45_000;
 //   v1 — original (water/reef/coastline/marina/breakwater)
 //   v2 — adds aeroway (Brisbane Airport peninsula coverage)
 //   v3 — adds canalLines (marina exit channels as navigable corridors)
-const CACHE_SCHEMA_VERSION = 'v3';
+//   v4 — adds navLines (charted leading/transit navigation lines →
+//        preferred dredged-channel corridors, e.g. Brisbane River bar)
+const CACHE_SCHEMA_VERSION = 'v4';
 
 export interface OsmRouteOverlay {
     /** natural=water polygons (rivers, lakes, harbours, basins). Used as
@@ -69,6 +71,17 @@ export interface OsmRouteOverlay {
      *  2026-05-20 after Newport Marina canal interior was a 349-cell
      *  isolated component (origin tap snapped 2 km away). */
     canalLines: FeatureCollection;
+    /** seamark:type=navigation_line LineStrings — the charted leading &
+     *  transit lines ships steer along to stay in the dredged channel
+     *  (clearing lines are excluded — those mark danger limits, not the
+     *  path). Rasterised by the router into a PREFERRED channel corridor
+     *  that also rescues shallow-reading cells to navigable, so A* rides
+     *  the real channel through bars/approaches the 30 m bathymetry reads
+     *  as too shallow. Added 2026-05-20: Newport→Pinkenba was cutting a
+     *  red CAUTION diagonal across the Brisbane River mouth bar because
+     *  the dredged channel isn't in chart FAIRWY and the lateral markers
+     *  are too sparse to stitch — but OSM has it as navigation lines. */
+    navLines: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -80,6 +93,7 @@ function emptyOverlay(): OsmRouteOverlay {
         breakwater: { type: 'FeatureCollection', features: [] },
         aeroway: { type: 'FeatureCollection', features: [] },
         canalLines: { type: 'FeatureCollection', features: [] },
+        navLines: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -136,6 +150,7 @@ function buildQuery(bbox: [number, number, number, number]): string {
           way["waterway"~"^(canal|fairway|dock|river|riverbank)$"](${s},${w},${n},${e});
           way["aeroway"~"^(aerodrome|runway|taxiway|apron)$"](${s},${w},${n},${e});
           relation["aeroway"~"^(aerodrome|runway|taxiway|apron)$"](${s},${w},${n},${e});
+          way["seamark:type"="navigation_line"](${s},${w},${n},${e});
         );
         out geom;
     `.trim();
@@ -346,6 +361,16 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
                 // a separate `width=*` tag we'd have to buffer ourselves,
                 // not worth the complexity for now).
                 if (closed) overlay.aeroway.features.push(polyFeature());
+            } else if (tags['seamark:type'] === 'navigation_line') {
+                // Charted leading/transit lines = the channel centreline
+                // ships steer along. Exclude `clearing` lines — those mark
+                // a danger limit you stay clear of, not a path to follow.
+                // Uncategorised navigation lines are kept (still steer-
+                // along by definition). Router rasterises these into a
+                // preferred channel corridor.
+                if (tags['seamark:navigation_line:category'] !== 'clearing') {
+                    overlay.navLines.features.push(lineFeature());
+                }
             }
         } else if (el.type === 'relation') {
             const tags = el.tags ?? {};
