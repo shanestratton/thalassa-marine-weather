@@ -553,79 +553,21 @@ async function tryInshoreRouteInner(
                 `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
             );
         }
-        // Connect DRGARE dredged-area polygons into a preferred channel
-        // ribbon — but ONLY near the endpoints (river-mouth / marina
-        // approach), NOT across the open bay. The AU SENC encodes the
-        // Brisbane dredged channel as a chain of DRGARE polygons (DRVAL1
-        // 10-14 m, authoritative). Pass 4 already marks each preferred,
-        // but they're 1-2 km apart, so the corridor has gaps. Connecting
-        // them lets A* ride the dredged cut through the shallow bar.
-        //
-        // GATING (2026-05-20): the first cut connected ALL 49 DRGARE polys
-        // at 4 km — that built one continuous ribbon spanning the whole
-        // bay and A* rode the big-ship channel out east (a ~3.5 NM dogleg,
-        // Shane: "the main run through the bay no longer goes direct").
-        // For a yacht the channel only earns its keep where the DIRECT
-        // line would go shallow — i.e. the bar near the river mouth. So:
-        // (a) only connect DRGARE within DEST_CHANNEL_RADIUS_M of an
-        // endpoint, and (b) tighten the link distance. Open-bay DRGARE
-        // stay isolated-preferred (no ribbon), so the bay run stays
-        // direct. The NAVLINE pass skips hardBlocked cells — a connector
-        // that clips land marks only the water portion, never carves land.
-        {
-            const drgareFeats = merged.DRGARE?.features ?? [];
-            // Channel-following only matters on the DESTINATION approach
-            // (the river-mouth bar) — the origin side (Newport) is handled
-            // by the canal-mouth bridge and the open bay there is deep, so
-            // gating to the origin too left bay DRGARE connected near
-            // Newport and tugged the run east into a bulge (Shane: the bay
-            // "dog-legs the other way now"). Gate to the destination only:
-            // beyond this radius the route runs direct across deep water.
-            const DEST_CHANNEL_RADIUS_M = 12000;
-            const nearEndpoint = (lat: number, lon: number): boolean =>
-                haversineMetres(lat, lon, destination.lat, destination.lon) <= DEST_CHANNEL_RADIUS_M;
-            const cents: { lat: number; lon: number }[] = [];
-            for (const f of drgareFeats) {
-                const dim = featureBboxAndSizeM(f as { geometry?: { type?: string; coordinates?: unknown } });
-                if (!dim) continue;
-                const lat = (dim.bbox[1] + dim.bbox[3]) / 2;
-                const lon = (dim.bbox[0] + dim.bbox[2]) / 2;
-                if (!nearEndpoint(lat, lon)) continue;
-                cents.push({ lat, lon });
-            }
-            if (cents.length >= 2) {
-                const MAX_LINK_M = 2500;
-                const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
-                let links = 0;
-                for (let i = 0; i < cents.length; i++) {
-                    const near = cents
-                        .map((c, j) => ({ j, d: haversineMetres(cents[i].lat, cents[i].lon, c.lat, c.lon) }))
-                        .filter((o) => o.j !== i && o.d <= MAX_LINK_M)
-                        .sort((a, b) => a.d - b.d)
-                        .slice(0, 2);
-                    for (const { j } of near) {
-                        (navline.features as unknown[]).push({
-                            type: 'Feature',
-                            properties: { _layer: 'NAVLINE', _source: 'drgare-channel-connector' },
-                            geometry: {
-                                type: 'LineString',
-                                coordinates: [
-                                    [cents[i].lon, cents[i].lat],
-                                    [cents[j].lon, cents[j].lat],
-                                ],
-                            },
-                        });
-                        links++;
-                    }
-                }
-                if (links > 0) {
-                    merged.NAVLINE = navline;
-                    log.warn(
-                        `STAGE: connected ${cents.length} DRGARE polys → ${links} channel-corridor links → NAVLINE (continuous dredged channel)`,
-                    );
-                }
-            }
-        }
+        // NOTE (2026-05-20): a DRGARE dredged-area "channel connector" lived
+        // here — it stitched the chart's dredged-area polygons into one
+        // continuous preferred ribbon so A* would ride the dredged channel
+        // through the river-mouth bar. It worked, but for a Newport→Pinkenba
+        // YACHT it pulled the open-bay run into the big-ship-channel dogleg
+        // and added visible wiggle (Shane wanted a straight bay run —
+        // "punters will laugh"). Reverted to the straight direct-bay route +
+        // RED bar warning, which both sessions agreed is the right call for a
+        // yacht (it doesn't need the 10-14 m dredged cut across deep water,
+        // and a RED "verify depth at the bar" defers the tide/pilotage call
+        // to the skipper). The DRGARE polygons are still individually
+        // preferred (engine Pass 4) — we just no longer stitch them into a
+        // bay-spanning ribbon. The principled future polish is "lazy
+        // corridor": form the channel ONLY where the direct line would
+        // actually cross shallow/CAUTION (see docs/ROUTING_COLLAB.md).
         // DIAGNOSTIC — what OSM water/canal/marina features sit near the
         // ORIGIN (±0.025° ≈ 2.5 km). Newport Marina canal estate stays a
         // 349-cell isolated component despite canalLines=65 captured — the
