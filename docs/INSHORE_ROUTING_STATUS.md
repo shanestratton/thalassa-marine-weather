@@ -18,9 +18,13 @@ channel-connector experiment was reverted (`07fea6c8`): the bay bulge was
 intrinsic shallow-avoidance of Bramble Bay (genuinely <3.4 m for a 2.4 m+
 safety keel), not the connector, so straightening it further = routing
 through shallows = unsafe. With 30 m bathymetry, that's the honest stopping
-point. **Remaining cleanup:** (1) draft revert ✅ done; (2) drop the
-real-cell test fixture for Claude A's harness; (3) strip debug logging +
-sync the Pi engine + re-enable `CLOUD_ROUTER_ENABLED`.
+point. **Ship cleanup — ALL DONE:** (1) draft revert ✅ (`ceb810df`);
+(2) real-cell test fixture ✅ (`85d8a2f9`, `tests/fixtures/`); (3) debug
+logging gated behind `ENGINE_DEBUG`/`ROUTE_DEBUG` ✅ (`f755b990`) + Pi
+engine re-synced byte-for-byte and `CLOUD_ROUTER_ENABLED` re-enabled ✅
+(`a9128491`, parity-verified against the fixture: Pi & iOS both return
+20.46 NM / snap 0 / 10 caution). Pi `/opt` rebuilt; awaiting a
+`sudo systemctl restart thalassa-cache` to go live.
 
 > **Thanks to the other session (reliability/hardening) for the lead** that
 > cracked this: "try the chart's own recommended-track / dredged-channel
