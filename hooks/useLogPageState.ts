@@ -20,6 +20,7 @@ import { BgGeoManager } from '../services/BgGeoManager';
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
+import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
 import { LogFilters } from '../components/LogFilterToolbar';
@@ -814,8 +815,8 @@ export function useLogPageState() {
         const groups = groupEntriesByVoyage(state.entries);
         // Sort: planned routes first, then by newest timestamp
         return groups.sort((a, b) => {
-            const aPlanned = a.entries.some((e) => e.source === 'planned_route');
-            const bPlanned = b.entries.some((e) => e.source === 'planned_route');
+            const aPlanned = isPlannedRouteGroup(a);
+            const bPlanned = isPlannedRouteGroup(b);
             if (aPlanned && !bPlanned) return -1;
             if (!aPlanned && bPlanned) return 1;
             // Then by most recent timestamp
@@ -831,10 +832,9 @@ export function useLogPageState() {
     // NOT inflate the stats totals (top gauge tiles + the 3-dot Stats
     // sheet). They still appear in `voyageGroups` so the route cards
     // remain visible in the list — this is purely for stat aggregation.
-    const sailedVoyageGroups = useMemo(
-        () => voyageGroups.filter((g) => !g.entries.some((e) => e.source === 'planned_route')),
-        [voyageGroups],
-    );
+    // Predicate lives in utils/voyageStats so the rule stays testable
+    // and consistent across every stat surface.
+    const sailedVoyageGroups = useMemo(() => excludeSuggestedRoutes(voyageGroups), [voyageGroups]);
 
     const hasNonDeviceEntries = useMemo(() => {
         const targetEntries = state.selectedVoyageId
