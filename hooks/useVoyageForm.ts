@@ -445,7 +445,17 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         // straight in produces an absurd ~8 m safety cutoff
                         // on GMRT-derived charts and the router blocks the
                         // entire bay. Convert here.
-                        const draftMeters = vessel.draft && vessel.draft > 0 ? vessel.draft / 3.28084 : 2.5;
+                        const draftMetersFromProfile = vessel.draft && vessel.draft > 0 ? vessel.draft / 3.28084 : 2.5;
+                        // ⚠️ TEMPORARY HARD-CODE — REVERT BEFORE SHIP ⚠️
+                        // Shane's stored profile draft is a bad auto-estimate
+                        // (3 ft → 0.914 m, far too shallow for the 55' Tayana),
+                        // which made the router treat 2 m skinny water as
+                        // navigable. Pinning to the real 2.4 m for routing-
+                        // quality testing (2026-05-20). Once the draft
+                        // auto-estimate + feet/metres unit mess are fixed,
+                        // delete this line and use draftMetersFromProfile.
+                        const draftMeters = 2.4; // TODO(revert): = draftMetersFromProfile;
+                        void draftMetersFromProfile;
                         const inshoreRes = await tryInshoreRoute(
                             result.originCoordinates,
                             result.destinationCoordinates,
