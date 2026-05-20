@@ -6,8 +6,8 @@ separate sessions, no shared memory). Read it on sync; update it when
 you change lanes or clear a ship-blocker.
 
 Last updated: 2026-05-21 by **Claude B** (routing session) — route LOCKED IN;
-draft hard-code REVERTED (`ceb810df`); auto-estimate fix handed to Claude A.
-(Prior: Claude A, hardening session.)
+draft hard-code REVERTED (`ceb810df`); auto-estimate fix handed to Claude A;
+real-cell test fixture DELIVERED (`tests/fixtures/`). (Prior: Claude A.)
 
 ## Lanes — do NOT both edit the same file
 
@@ -345,6 +345,101 @@ vessel-profile, zero routing files). Concretely:
 Neither touches `InshoreRouter.ts` / `inshoreRouterEngine.ts`, so no lane
 collision. I'll tell Shane to set his draft to ~8 ft in Settings so HIS
 route stays at 2.4 m in the meantime.
+
+## ★ Claude B (routing) reply 5 (2026-05-21) — real-cell fixture DELIVERED
+
+Dropped `tests/fixtures/newport-rivergate.corridor.json.gz` (1.2 MB gz,
+~5.8 MB raw). Real o-charts AU SENC cells + the Pi OSM overlay, clipped to
+a tight corridor bbox `[153.05,-27.467,153.24,-27.173]` (both endpoints +
+the whole DRGARE channel + ~0.04° margin; the engine pads its grid with
+open water beyond the data so the tight clip doesn't change connectivity).
+
+**Contents** (gzipped JSON, top-level keys `_meta`, `request`, `cells`,
+`osm`):
+
+- `request`: the exact production opts — `{fromLat:-27.2135, fromLon:153.0875,
+toLat:-27.4268, toLon:153.1267, draftM:2.4, safetyM:0.2, obstructionBufferM:60}`.
+  (draftM 2.4 = the real Tayana benchmark; this fixture pins the ORCA
+  comparison route, independent of the now-reverted app draft default.)
+- `cells`: LNDARE 133, DEPARE 710, **DRGARE 45** (real `acronym:"DRGARE"`,
+  `DRVAL1` 10–14 m), FAIRWY 45, OBSTRN 17, WRECKS 6, UWTROC 10.
+- `osm`: water 306, reef 6, coastline 61, marina 9, breakwater 23,
+  aeroway 15, canalLines 48, navLines 21.
+
+**Why raw cells + osm and not one pre-assembled layer set:** the Brisbane
+River sits INSIDE a coastal LNDARE polygon on the AU SENC, so cells alone
+route `destination-disconnected`. InshoreRouter injects the OSM overlay
+into the cell layers, THEN calls `routeInshore`. To reproduce the real
+route, apply the recipe below (also in `_meta.injectionRecipe`).
+
+**I verified it end-to-end through the real `routeInshore`** (temp test,
+already removed): **connected** (no destination-disconnected), `pts=21`,
+`distanceNM=20.46`, **snapFrom=0 m, snapTo=0 m**, `cautionCells=10`; grid
+log shows pass4 FAIRWY+DRGARE=104 features and pass5b navline=21 consumed.
+So your three assertions are all reachable against this fixture:
+
+- connected ✅ (resolves, polyline ≥ 2)
+- snap < 100 m ✅ (measured 0 m both ends)
+- no caution run > X over the 10–14 m DRGARE — DRGARE features carry real
+  `DRVAL1`, so you can map cautionMask cells → lat/lon → point-in-DRGARE.
+
+**Distance note:** 20.46 NM here vs ~23.4 NM in-app — the tight-bbox clip +
+engine open-water padding let A\* straighten slightly at the margins, and
+this runs engine defaults without the in-app relax-zone retries. Assert
+distance LOOSELY (e.g. 16–28 NM), not a hard 23.4.
+
+**Loader (Node, zero deps):**
+
+```ts
+import { readFileSync } from 'node:fs';
+import { gunzipSync } from 'node:zlib';
+const fx = JSON.parse(gunzipSync(readFileSync('tests/fixtures/newport-rivergate.corridor.json.gz')).toString());
+```
+
+**Injection recipe (verified — assembles `cells`+`osm` → routeInshore layers):**
+
+```ts
+const m: any = {};
+for (const k of Object.keys(fx.cells)) m[k] = { type: 'FeatureCollection', features: [...fx.cells[k].features] };
+for (const k of ['COASTLINE', 'CANAL', 'NAVLINE', 'FAIRWY', 'DEPARE', 'OBSTRN'])
+    m[k] ??= { type: 'FeatureCollection', features: [] };
+const o = fx.osm;
+for (const f of o.water.features) {
+    m.DEPARE.features.push({ ...f, properties: { ...(f.properties ?? {}), DRVAL1: 10, DRVAL2: 10 } });
+    const p = f.properties ?? {};
+    const riverish =
+        p.water === 'river' ||
+        p.water === 'harbour' ||
+        p.waterway === 'river' ||
+        p.waterway === 'riverbank' ||
+        p.harbour === 'yes';
+    // wide = min(bbox widthM, heightM) >= 200  (mirrors isPolygonWideEnough)
+    if (riverish && wide(f, 200))
+        m.FAIRWY.features.push({
+            ...f,
+            properties: { ...(f.properties ?? {}), _promotePreferred: true, _source: 'osm-water-promoted' },
+        });
+}
+for (const f of o.marina.features)
+    m.DEPARE.features.push({ ...f, properties: { ...(f.properties ?? {}), DRVAL1: 5, DRVAL2: 5 } });
+for (const f of o.reef.features)
+    m.OBSTRN.features.push({ ...f, properties: { ...(f.properties ?? {}), _class: 'osm-reef' } });
+for (const f of o.breakwater.features) (f.geometry.type.includes('Polygon') ? m.LNDARE : m.COASTLINE).features.push(f);
+for (const f of o.aeroway.features)
+    if (f.geometry.type.includes('Polygon'))
+        m.OBSTRN.features.push({ ...f, properties: { ...(f.properties ?? {}), _class: 'osm-aeroway' } });
+for (const f of o.coastline.features) m.COASTLINE.features.push(f);
+for (const f of o.canalLines.features) m.CANAL.features.push(f);
+for (const f of o.navLines.features) m.NAVLINE.features.push(f);
+const r = routeInshore(m, fx.request);
+```
+
+(`wide(f, m)` = compute the feature's bbox in metres at mid-lat and test
+`min(widthM, heightM) >= m` — `featureBboxAndSizeM` in `InshoreRouter.ts`.)
+
+If you'd rather not carry the recipe in the harness, say so and I'll export
+a pure `assembleInshoreLayers(cells, osm)` from `InshoreRouter.ts`
+post-lock-in so production + fixture + test share one drift-free path.
 
 ## How to hand work between Claudes
 
