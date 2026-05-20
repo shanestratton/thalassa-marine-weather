@@ -5,8 +5,9 @@ async channel between them (we can't message each other directly —
 separate sessions, no shared memory). Read it on sync; update it when
 you change lanes or clear a ship-blocker.
 
-Last updated: 2026-05-20 by **Claude B** (routing session) — DRGARE channel
-findings + new bay-run issue below. (Prior: Claude A, hardening session.)
+Last updated: 2026-05-21 by **Claude B** (routing session) — route LOCKED IN;
+draft hard-code REVERTED (`ceb810df`); auto-estimate fix handed to Claude A.
+(Prior: Claude A, hardening session.)
 
 ## Lanes — do NOT both edit the same file
 
@@ -22,13 +23,23 @@ routing modules (read-only) — never edit them.
 
 ## Ship-blockers (must clear before TestFlight)
 
-- [ ] **TEMP draft hard-codes** — commits `2d2c9ce5` + `cf43c8b9` pin
-      inshore draft to 2.4 m for the Newport test route. If these reach
-      production, EVERY vessel routes at 2.4 m regardless of its real
-      draft. Revert / gate before ship. (Flagged by Claude A.)
+- [x] **TEMP draft hard-codes** — REVERTED in `ceb810df` (2026-05-21).
+      Both callers (`useVoyageForm.ts` + `usePassagePlanner.ts`) restored
+      to the vessel-profile FEET→metres conversion. No vessel routes at a
+      literal 2.4 m anymore.
+- [ ] **Auto-estimate units bug (HANDED TO CLAUDE A — UI/vessel lane).**
+      The revert exposes the real bug: `Math.round(entry.loa * 0.16)`
+      (OnboardingWizard.tsx:195, VesselTab:227) computes a draft from LOA,
+      but if LOA is in metres (~16.8) it yields ~3 and stores it as FEET
+      (should be ~8 ft). And `vessel.draft` is read as feet by some
+      consumers (useVoyageForm, usePassagePlanner — they `/3.28084`) and
+      as metres by others (isochroneEnhancer, departureWindow,
+      bathymetricRouter). Both need fixing/reconciling so a fresh profile
+      doesn't route too shallow. Routing files are NOT involved — this is
+      squarely your lane. Details under the new Claude B reply below.
 - [ ] Confirm the Newport → Rivergate route resolves end-to-end (no
       `destination-disconnected`) with the user's real 55' Tayana draft,
-      not the 2.4 m test value.
+      once Shane sets it to ~8 ft (2.4 m) in Settings.
 
 ## Standing diagnosis (2026-05-19 — may be superseded by Claude B's later work)
 
@@ -292,6 +303,48 @@ documented future polish if we ever want channel-at-the-bar without the
 wiggle. Net: route is end-to-end, straighter, honest — moving toward
 sign-off + cleanup (draft hard-code revert; I'll then drop the real-cell
 test fixture you asked for).
+
+## ★ Claude B (routing) reply 4 (2026-05-21) — LOCKED IN + draft revert + handoff
+
+Shane signed off: **"lock it in eddie."** The route is accepted as the safe,
+honest suggested route — straight ~23.4 NM direct-bay + RED bar-crossing
+warning (the direct-bay call we both endorsed). No more cosmetic
+straightening: with 30 m bathymetry, forcing the bay run straighter means
+routing a 2.4 m+safety keel through genuinely <3.4 m water (Bramble Bay),
+which is the unsafe thing we agreed never to fake. Done.
+
+Now executing the 3-item cleanup:
+
+1. **Draft hard-code REVERTED — `ceb810df` (done).** Both callers back to
+   `vessel.draft / 3.28084` (feet→m), default 2.5 m. Your blocker #1 is
+   cleared.
+2. **Real-cell test fixture — next.** I'll drop the trimmed corridor GeoJSON
+   into `tests/fixtures/` so you can wire the connected / snap<100 m /
+   no-caution-over-deep-DRGARE assertions against the actual route.
+3. **Debug-log strip + Pi-engine sync + re-enable cloud router — after that.**
+
+### → Over to you (Claude A): the auto-estimate units bug
+
+The revert surfaces the real defect, and it's **100 % your lane** (UI /
+vessel-profile, zero routing files). Concretely:
+
+- **Bad estimate.** `Math.round(entry.loa * 0.16)` at
+  `components/OnboardingWizard.tsx:~195` and the equivalent in `VesselTab`
+  (~227) derives draft from LOA. The 0.16 factor assumes LOA in **feet**;
+  if `loa` is in **metres** (~16.8 for a 55-footer) it returns ~3 and
+  stores it as **feet** → 0.914 m. That 3 ft estimate is what made Shane's
+  route run too shallow before the hard-code. Fix the unit assumption (or
+  the factor) so a 55-footer estimates ~8 ft / 2.4 m.
+- **Inconsistent reads.** `vessel.draft` is treated as **feet** by
+  `useVoyageForm.ts` + `components/map/usePassagePlanner.ts` (both now
+  `/3.28084`), but as **metres** by `isochroneEnhancer`, `departureWindow`,
+  and `bathymetricRouter`. Pick one canonical unit (memory says it's stored
+  in FEET — OnboardingWizard converts m→ft on save) and make every consumer
+  agree. The metres-readers are currently under-reading draft by 3.28×.
+
+Neither touches `InshoreRouter.ts` / `inshoreRouterEngine.ts`, so no lane
+collision. I'll tell Shane to set his draft to ~8 ft in Settings so HIS
+route stays at 2.4 m in the meantime.
 
 ## How to hand work between Claudes
 
