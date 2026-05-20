@@ -67,6 +67,15 @@ const log = createLogger('InshoreRouter');
  */
 const CLOUD_ROUTER_ENABLED = false;
 
+// Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
+// Scarborough/marker/midpoint traces, ribbon continuity, full polyline
+// coordinate dumps, phase timings). Gated OFF for production — the minifier
+// dead-code-eliminates `if (ROUTE_DEBUG)` so neither the logs nor their
+// (sometimes O(features)) compute ship. Flip true locally to debug a route.
+// Lifecycle (ENTRY/EXIT), GATE, cell-load, and cloud/error logs stay
+// unconditional so field failures remain diagnosable.
+const ROUTE_DEBUG = false;
+
 // ── Types ───────────────────────────────────────────────────────────
 
 export interface InshoreOrigin {
@@ -237,9 +246,10 @@ async function tryInshoreRouteInner(
         return null;
     }
 
-    log.warn(
-        `STAGE: computing inshore route across ${candidateCells.length} cell(s): ${candidateCells.map((c) => c.id).join(',')}`,
-    );
+    if (ROUTE_DEBUG)
+        log.warn(
+            `STAGE: computing inshore route across ${candidateCells.length} cell(s): ${candidateCells.map((c) => c.id).join(',')}`,
+        );
 
     // Merge candidate cells' layers. Pi-cache used to do this server-side;
     // we now do it on the device since iPhone CPU outpaces a Pi 5 several-
@@ -336,7 +346,7 @@ async function tryInshoreRouteInner(
         // promoted/synthetic ones don't carry an acronym) whose centroid
         // sits in the Newport→river corridor, so we can see whether a
         // continuous fairway exists through the bay approach.
-        {
+        if (ROUTE_DEBUG) {
             const corridor = { latMin: -27.43, latMax: -27.17, lonMin: 153.1, lonMax: 153.26 };
             const chartFairwyCentroids: string[] = [];
             let chartFairwyTotal = 0;
@@ -549,9 +559,10 @@ async function tryInshoreRouteInner(
                 (navline.features as unknown[]).push(f);
             }
             merged.NAVLINE = navline;
-            log.warn(
-                `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
-            );
+            if (ROUTE_DEBUG)
+                log.warn(
+                    `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
+                );
         }
         // NOTE (2026-05-20): a DRGARE dredged-area "channel connector" lived
         // here — it stitched the chart's dredged-area polygons into one
@@ -574,7 +585,7 @@ async function tryInshoreRouteInner(
         // carved canal cells are internal estate canals, not a continuous
         // channel bridging the estate to Hays Inlet/Bramble Bay. This dump
         // shows whether OSM even has the exit channel tagged, and as what.
-        {
+        if (ROUTE_DEBUG) {
             const oLat = origin.lat;
             const oLon = origin.lon;
             const near = (lat: number, lon: number): boolean =>
@@ -635,9 +646,10 @@ async function tryInshoreRouteInner(
         const promotedCount = fairwy.features.filter(
             (ff) => (ff.properties as Record<string, unknown> | null)?._promotePreferred === true,
         ).length;
-        log.warn(
-            `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} canalLines=${osmOverlay.canalLines.features.length} aerodromeBboxFill=${aerodromeBboxRectsAdded} promotedFairwy=${promotedCount}`,
-        );
+        if (ROUTE_DEBUG)
+            log.warn(
+                `STAGE: OSM overlay merged — water=${osmOverlay.water.features.length} marina=${osmOverlay.marina.features.length} reef=${osmOverlay.reef.features.length} breakwater=${osmOverlay.breakwater.features.length} coastline=${osmOverlay.coastline.features.length} aeroway=${osmOverlay.aeroway.features.length} canalLines=${osmOverlay.canalLines.features.length} aerodromeBboxFill=${aerodromeBboxRectsAdded} promotedFairwy=${promotedCount}`,
+            );
         // DIAGNOSTIC — per-tag promotion breakdown. Tells us which OSM
         // tags are doing the work and which are silent. If `water=river`
         // is missing/zero on a Brisbane route, the river is tagged some
@@ -649,9 +661,10 @@ async function tryInshoreRouteInner(
         const rejectSummary = Object.entries(tagRejectedByWidth)
             .map(([k, v]) => `${k}=${v}`)
             .join(' ');
-        log.warn(
-            `STAGE: OSM promotion by tag — ${tagSummary || '(none)'} | rejected-by-width(<200m): ${rejectSummary || '(none)'}`,
-        );
+        if (ROUTE_DEBUG)
+            log.warn(
+                `STAGE: OSM promotion by tag — ${tagSummary || '(none)'} | rejected-by-width(<200m): ${rejectSummary || '(none)'}`,
+            );
         // DIAGNOSTIC — top 3 promoted polygons by bbox area. Brisbane
         // River main multipolygon should be the biggest (~30 km long,
         // covering the whole tidal reach). If the biggest is just a
@@ -661,7 +674,7 @@ async function tryInshoreRouteInner(
             .filter((x): x is { f: typeof x.f; dim: NonNullable<typeof x.dim> } => x.dim != null)
             .sort((a, b) => b.dim.widthM * b.dim.heightM - a.dim.widthM * a.dim.heightM)
             .slice(0, 3);
-        if (promotedWithSize.length > 0) {
+        if (ROUTE_DEBUG && promotedWithSize.length > 0) {
             log.warn(`STAGE: top promoted polygons by bbox area:`);
             for (const { f, dim } of promotedWithSize) {
                 const props = (f as { properties?: Record<string, unknown> }).properties ?? {};
@@ -678,7 +691,7 @@ async function tryInshoreRouteInner(
         // that A* can route around). 2026-05-19: route still cuts the
         // Brisbane Airport peninsula despite aeroway=15 polygons being
         // injected — need to see what those 15 polygons actually cover.
-        if (osmOverlay.aeroway.features.length > 0) {
+        if (ROUTE_DEBUG && osmOverlay.aeroway.features.length > 0) {
             const aerowayWithSize = osmOverlay.aeroway.features
                 .map((f) => ({ f, dim: featureBboxAndSizeM(f) }))
                 .filter((x): x is { f: typeof x.f; dim: NonNullable<typeof x.dim> } => x.dim != null)
@@ -733,9 +746,10 @@ async function tryInshoreRouteInner(
             breakwater: osmOverlay.breakwater.features.filter((f) => overlapsDest(f) || lineStringInDestBbox(f)).length,
             coastline: osmOverlay.coastline.features.filter(lineStringInDestBbox).length,
         };
-        log.warn(
-            `STAGE: OSM coverage ±0.05° around dest (${destination.lat.toFixed(4)},${destination.lon.toFixed(4)}) — water=${destOsmCounts.water} marina=${destOsmCounts.marina} reef=${destOsmCounts.reef} breakwater=${destOsmCounts.breakwater} coastline=${destOsmCounts.coastline}`,
-        );
+        if (ROUTE_DEBUG)
+            log.warn(
+                `STAGE: OSM coverage ±0.05° around dest (${destination.lat.toFixed(4)},${destination.lon.toFixed(4)}) — water=${destOsmCounts.water} marina=${destOsmCounts.marina} reef=${destOsmCounts.reef} breakwater=${destOsmCounts.breakwater} coastline=${destOsmCounts.coastline}`,
+            );
     } catch (err) {
         log.warn(
             `OSM overlay fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
@@ -794,9 +808,10 @@ async function tryInshoreRouteInner(
                 (obstrn.features as unknown[]).push(...orientedHazards);
                 merged.OBSTRN = obstrn;
             }
-            log.warn(
-                `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} IALA-oriented hazards`,
-            );
+            if (ROUTE_DEBUG)
+                log.warn(
+                    `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} IALA-oriented hazards`,
+                );
         } catch (err) {
             log.warn(
                 `regional markers fetch failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
@@ -812,9 +827,10 @@ async function tryInshoreRouteInner(
     // a full extra metre of clearance the chart can't express. Tide
     // planning is the skipper's job — chart datum is already lowest
     // astronomical tide.
-    log.warn(
-        `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0} COASTLINE=${merged.COASTLINE?.features.length ?? 0}, calling routeInshore`,
-    );
+    if (ROUTE_DEBUG)
+        log.warn(
+            `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0} COASTLINE=${merged.COASTLINE?.features.length ?? 0}, calling routeInshore`,
+        );
     // 60 m hazard buffer (engine default 30 m).
     //
     // 100 m made things WORSE — at that radius, seaward hazards'
@@ -849,9 +865,10 @@ async function tryInshoreRouteInner(
     let result: ReturnType<typeof routeInshore> | null = null;
     let routedOnCloud = false;
     const piAvailable = piCache.isAvailable();
-    log.warn(
-        `STAGE: cloud router gate — CLOUD_ROUTER_ENABLED=${CLOUD_ROUTER_ENABLED} piCache.isAvailable()=${piAvailable} baseUrl=${piCache.baseUrl}`,
-    );
+    if (ROUTE_DEBUG)
+        log.warn(
+            `STAGE: cloud router gate — CLOUD_ROUTER_ENABLED=${CLOUD_ROUTER_ENABLED} piCache.isAvailable()=${piAvailable} baseUrl=${piCache.baseUrl}`,
+        );
     if (CLOUD_ROUTER_ENABLED && piAvailable) {
         try {
             const cloudT0 = Date.now();
@@ -892,7 +909,7 @@ async function tryInshoreRouteInner(
                         distanceNM: data.distanceNM,
                     } as ReturnType<typeof routeInshore>;
                     routedOnCloud = true;
-                    log.warn(`STAGE: cloud A* returned in ${cloudMs} ms (Pi-cache)`);
+                    if (ROUTE_DEBUG) log.warn(`STAGE: cloud A* returned in ${cloudMs} ms (Pi-cache)`);
                 }
             } else if (res.status === 422 && res.data && typeof res.data === 'object') {
                 // Pi-cache rejected the route (e.g. origin-on-land). Use
@@ -930,11 +947,13 @@ async function tryInshoreRouteInner(
             );
         }
     } else if (!CLOUD_ROUTER_ENABLED) {
-        log.warn(
-            `STAGE: cloud router skipped — CLOUD_ROUTER_ENABLED=false (iOS local A* is the source of truth until pi-cache engine is synced)`,
-        );
+        if (ROUTE_DEBUG)
+            log.warn(
+                `STAGE: cloud router skipped — CLOUD_ROUTER_ENABLED=false (iOS local A* is the source of truth until pi-cache engine is synced)`,
+            );
     } else {
-        log.warn(`STAGE: cloud router skipped — piCache not available (probe failed or disabled in settings)`);
+        if (ROUTE_DEBUG)
+            log.warn(`STAGE: cloud router skipped — piCache not available (probe failed or disabled in settings)`);
     }
 
     if (!result) {
@@ -957,24 +976,27 @@ async function tryInshoreRouteInner(
         };
     }
 
-    // Warn-level temporarily so the success path is visible in
-    // production builds during the on-device routing rollout. Drop
-    // back to info() once we trust the path.
-    log.warn(
+    // Success telemetry at info-level (no-op'd in production builds; the
+    // outer tryInshoreRoute wrapper logs a concise EXIT line at warn).
+    log.info(
         `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
     );
-    // DIAGNOSTIC (2026-05-14): dump every polyline vertex as lat,lon so
-    // we can see exactly where the route runs without guessing from the
-    // rendered map. Drop this once Newport channel-choice is settled.
-    log.warn(`STAGE: polyline — ${result.polyline.map((p) => `${p[1].toFixed(4)},${p[0].toFixed(4)}`).join('  →  ')}`);
+    // Full polyline vertex dump (lat,lon) — see exactly where the route
+    // runs without eyeballing the rendered map.
+    if (ROUTE_DEBUG)
+        log.warn(
+            `STAGE: polyline — ${result.polyline.map((p) => `${p[1].toFixed(4)},${p[0].toFixed(4)}`).join('  →  ')}`,
+        );
     // Per-phase timing breakdown from the engine (only for local
     // computes — cloud results don't pass timings through yet).
-    const phaseTimings = (result as { phaseTimings?: Record<string, number> }).phaseTimings;
-    if (phaseTimings && Object.keys(phaseTimings).length > 0) {
-        const breakdown = Object.entries(phaseTimings)
-            .map(([k, v]) => `${k}=${v}ms`)
-            .join(' ');
-        log.warn(`STAGE: engine phase timings — ${breakdown}`);
+    if (ROUTE_DEBUG) {
+        const phaseTimings = (result as { phaseTimings?: Record<string, number> }).phaseTimings;
+        if (phaseTimings && Object.keys(phaseTimings).length > 0) {
+            const breakdown = Object.entries(phaseTimings)
+                .map(([k, v]) => `${k}=${v}ms`)
+                .join(' ');
+            log.warn(`STAGE: engine phase timings — ${breakdown}`);
+        }
     }
     return {
         polyline: result.polyline,
@@ -1290,13 +1312,15 @@ function orientHazardsTowardLand(
             },
         });
     }
-    if (scarboroughDebug.length > 0) {
-        log.warn(`STAGE: Scarborough-area hazards (${scarboroughDebug.length}):`);
-        for (const line of scarboroughDebug) {
-            log.warn(`  • ${line}`);
+    if (ROUTE_DEBUG) {
+        if (scarboroughDebug.length > 0) {
+            log.warn(`STAGE: Scarborough-area hazards (${scarboroughDebug.length}):`);
+            for (const line of scarboroughDebug) {
+                log.warn(`  • ${line}`);
+            }
+        } else {
+            log.warn(`STAGE: NO hazards processed in Scarborough bbox (-27.22..-27.17, 153.07..153.12)`);
         }
-    } else {
-        log.warn(`STAGE: NO hazards processed in Scarborough bbox (-27.22..-27.17, 153.07..153.12)`);
     }
     return result;
 }
@@ -1809,7 +1833,7 @@ async function fetchRegionalMarkers(
             else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
             else droppedByClass.set(cls || '<empty>', (droppedByClass.get(cls || '<empty>') ?? 0) + 1);
         }
-        if (droppedByClass.size > 0) {
+        if (ROUTE_DEBUG && droppedByClass.size > 0) {
             const summary = [...droppedByClass.entries()]
                 .sort((a, b) => b[1] - a[1])
                 .map(([k, v]) => `${k}=${v}`)
@@ -1819,7 +1843,7 @@ async function fetchRegionalMarkers(
         // Same breakdown for the markers we ARE treating as
         // hazards — so we can see whether one class dominates
         // the OBSTRN count and tune from there.
-        if (directHazards.length > 0) {
+        if (ROUTE_DEBUG && directHazards.length > 0) {
             const byHazardClass = new Map<string, number>();
             for (const h of directHazards) {
                 byHazardClass.set(h.cls, (byHazardClass.get(h.cls) ?? 0) + 1);
@@ -1836,13 +1860,15 @@ async function fetchRegionalMarkers(
         // Reef marker is even in the source data and what `_class`
         // it carries. Compare against what shows up post-pairing in
         // the Scarborough-area hazards block from orientHazardsTowardLand.
-        if (scarboroughRawMarkers.length > 0) {
-            log.warn(`STAGE: Scarborough-area RAW markers (${scarboroughRawMarkers.length}):`);
-            for (const line of scarboroughRawMarkers) {
-                log.warn(`  • ${line}`);
+        if (ROUTE_DEBUG) {
+            if (scarboroughRawMarkers.length > 0) {
+                log.warn(`STAGE: Scarborough-area RAW markers (${scarboroughRawMarkers.length}):`);
+                for (const line of scarboroughRawMarkers) {
+                    log.warn(`  • ${line}`);
+                }
+            } else {
+                log.warn(`STAGE: NO raw markers in Scarborough bbox`);
             }
-        } else {
-            log.warn(`STAGE: NO raw markers in Scarborough bbox`);
         }
 
         // ── Step 2: Cluster markers into channel chains ────────
@@ -2078,19 +2104,20 @@ async function fetchRegionalMarkers(
             }
         }
 
-        log.warn(
-            `STAGE: pair-candidate diagnostics — considered=${pairDiag.considered} ` +
-                `rejectedByLandare=${pairDiag.rejectedByLandare} ` +
-                `acceptedByOsmWater=${pairDiag.acceptedByOsmWater} ` +
-                `wide(>300m): considered=${pairDiag.wideConsidered} accepted=${pairDiag.wideAccepted} rejected=${pairDiag.wideRejected}`,
-        );
-        if (osmSavedSamples.length > 0) {
+        if (ROUTE_DEBUG)
+            log.warn(
+                `STAGE: pair-candidate diagnostics — considered=${pairDiag.considered} ` +
+                    `rejectedByLandare=${pairDiag.rejectedByLandare} ` +
+                    `acceptedByOsmWater=${pairDiag.acceptedByOsmWater} ` +
+                    `wide(>300m): considered=${pairDiag.wideConsidered} accepted=${pairDiag.wideAccepted} rejected=${pairDiag.wideRejected}`,
+            );
+        if (ROUTE_DEBUG && osmSavedSamples.length > 0) {
             log.warn(`STAGE: sample midpoints saved by OSM water (${osmSavedSamples.length}):`);
             for (const s of osmSavedSamples) {
                 log.warn(`  • ${s.lat.toFixed(4)},${s.lon.toFixed(4)} pairDist=${Math.round(s.distM)}m`);
             }
         }
-        if (wideRejectedSamples.length > 0) {
+        if (ROUTE_DEBUG && wideRejectedSamples.length > 0) {
             log.warn(
                 `STAGE: sample wide(>300m) midpoints STILL rejected by LNDARE — these are channel pairs OSM water didn't rescue (${wideRejectedSamples.length}):`,
             );
@@ -2119,7 +2146,7 @@ async function fetchRegionalMarkers(
         const scarbMidpts = midpointCoords
             .filter((m) => m.lat >= -27.2 && m.lat <= -27.17 && m.lon >= 153.08 && m.lon <= 153.11)
             .sort((a, b) => a.chainId - b.chainId || a.chainOrder - b.chainOrder);
-        if (scarbMidpts.length > 0) {
+        if (ROUTE_DEBUG && scarbMidpts.length > 0) {
             log.warn(`STAGE: Scarborough-area midpoints (${scarbMidpts.length}) by chain:`);
             let lastChain = -1;
             for (const m of scarbMidpts) {
@@ -2248,7 +2275,7 @@ async function fetchRegionalMarkers(
                 });
                 emitted++;
             }
-            if (arr.length >= 2) {
+            if (ROUTE_DEBUG && arr.length >= 2) {
                 let cLat = 0;
                 let cLon = 0;
                 for (const m of arr) {
@@ -2262,9 +2289,10 @@ async function fetchRegionalMarkers(
                 );
             }
         }
-        log.warn(
-            `STAGE: ribbon continuity (${chainRibbonDiag.length} multi-pair chains): ${chainRibbonDiag.join(' || ')}`,
-        );
+        if (ROUTE_DEBUG)
+            log.warn(
+                `STAGE: ribbon continuity (${chainRibbonDiag.length} multi-pair chains): ${chainRibbonDiag.join(' || ')}`,
+            );
 
         // ── Step 6: Solo + direct-hazard markers → OBSTRN points ─
         // Solo lateral markers (unpaired in their cluster) join

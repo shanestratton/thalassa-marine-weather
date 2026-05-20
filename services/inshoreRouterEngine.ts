@@ -62,6 +62,14 @@ import { createLogger } from '../utils/createLogger';
 
 const engineLog = createLogger('inshoreEngine');
 
+// Verbose routing diagnostics (per-component dumps, cell-state traces,
+// phase timings, bridge/snap reasoning). Gated OFF for production: the
+// minifier dead-code-eliminates `if (ENGINE_DEBUG)` so neither the logs
+// NOR their (sometimes expensive grid-walking) compute ship. Flip to
+// true locally to debug a route. Operational fallback logs (destination-
+// disconnected relax, far-snap retry) stay unconditional below.
+const ENGINE_DEBUG = false;
+
 // ── Types ──────────────────────────────────────────────────────────
 
 /**
@@ -1208,7 +1216,7 @@ function buildNavGrid(
         }
     }
     markPass('pass5b-navline', tPassNavline, navlineFeatures.length);
-    if (navlineFeatures.length > 0) {
+    if (ENGINE_DEBUG && navlineFeatures.length > 0) {
         console.warn(
             `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
         );
@@ -1309,9 +1317,10 @@ function buildNavGrid(
     const breakdown = Object.entries(passTimings)
         .map(([k, v]) => `${k}=${v}ms(${featureCounts[k]}f)`)
         .join(' ');
-    console.warn(
-        `[inshoreEngine] buildNavGrid total=${buildTotal}ms grid=${width}x${height}(${(width * height).toLocaleString()}cells) — ${breakdown}`,
-    );
+    if (ENGINE_DEBUG)
+        console.warn(
+            `[inshoreEngine] buildNavGrid total=${buildTotal}ms grid=${width}x${height}(${(width * height).toLocaleString()}cells) — ${breakdown}`,
+        );
 
     return grid;
 }
@@ -2171,16 +2180,18 @@ function routeInshoreOnce(
                         grid.cells[idx] = carveValue;
                     }
                 }
-                engineLog.warn(
-                    `BRIDGE: carved comp ${small}(${smallSize} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m as ${asCaution ? 'CAUTION(red)' : 'navigable'}`,
-                );
+                if (ENGINE_DEBUG)
+                    engineLog.warn(
+                        `BRIDGE: carved comp ${small}(${smallSize} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m as ${asCaution ? 'CAUTION(red)' : 'navigable'}`,
+                    );
                 const relabeled = labelConnectedComponents(grid);
                 labels = relabeled.labels;
                 sizes = relabeled.sizes;
             } else {
-                engineLog.warn(
-                    `BRIDGE: origin comp ${lo} / dest comp ${ld} — nearest gap ${Math.round(bestGap * resolutionM)}m > ${searchCap * resolutionM}m, not bridged`,
-                );
+                if (ENGINE_DEBUG)
+                    engineLog.warn(
+                        `BRIDGE: origin comp ${lo} / dest comp ${ld} — nearest gap ${Math.round(bestGap * resolutionM)}m > ${searchCap * resolutionM}m, not bridged`,
+                    );
             }
         }
     }
@@ -2211,7 +2222,7 @@ function routeInshoreOnce(
     // algorithm below picks the component minimising combined snap
     // distance, so seeing all the candidates clarifies WHY it picks
     // what it picks.
-    {
+    if (ENGINE_DEBUG) {
         const sortedComponents = [...sizes.entries()]
             .filter(([, size]) => size >= minComponentCells)
             .sort((a, b) => b[1] - a[1])
@@ -2371,9 +2382,10 @@ function routeInshoreOnce(
     // across the map). The visible "bridge" segment from the route's
     // last cell to the user input is what looks like routing through
     // land but is actually post-snap fiction.
-    engineLog.warn(
-        `SNAP: origin ${haversineM(req.fromLat, req.fromLon, debug.originSnap?.snappedLat ?? 0, debug.originSnap?.snappedLon ?? 0).toFixed(0)}m  •  dest ${haversineM(req.toLat, req.toLon, debug.destinationSnap?.snappedLat ?? 0, debug.destinationSnap?.snappedLon ?? 0).toFixed(0)}m  •  componentSize=${bestComponentSize} cells`,
-    );
+    if (ENGINE_DEBUG)
+        engineLog.warn(
+            `SNAP: origin ${haversineM(req.fromLat, req.fromLon, debug.originSnap?.snappedLat ?? 0, debug.originSnap?.snappedLon ?? 0).toFixed(0)}m  •  dest ${haversineM(req.toLat, req.toLon, debug.destinationSnap?.snappedLat ?? 0, debug.destinationSnap?.snappedLon ?? 0).toFixed(0)}m  •  componentSize=${bestComponentSize} cells`,
+        );
 
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
@@ -2391,7 +2403,7 @@ function routeInshoreOnce(
     const breakdown = Object.entries(timings)
         .map(([k, v]) => `${k}=${v}ms`)
         .join(' ');
-    console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
+    if (ENGINE_DEBUG) console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
 
     // DEBUG 2026-05-19: trace cell-state along the final smoothed polyline.
     // For each adjacent waypoint pair, sample up to 6 evenly-spaced cells
@@ -2402,7 +2414,7 @@ function routeInshoreOnce(
     // the route through (rescued cells have positive depth AND
     // preferred=1, blocked cells have NaN). Remove once Brisbane Airport
     // routing is sorted.
-    if (smoothedCells.length >= 2) {
+    if (ENGINE_DEBUG && smoothedCells.length >= 2) {
         const traceLines: string[] = [];
         for (let i = 0; i < smoothedCells.length - 1; i++) {
             const a = smoothedCells[i];
