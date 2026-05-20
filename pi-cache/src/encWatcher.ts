@@ -36,7 +36,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, basename, dirname } from 'node:path';
 import chokidar, { type FSWatcher } from 'chokidar';
@@ -81,7 +81,7 @@ export function startEncWatcher(): void {
     watcher = chokidar.watch(WATCH_DIR, {
         // Match the .oesu chart files; ignore everything else.
         // Future: also watch for .oernc / .oesenc legacy formats.
-        ignored: (p, stats) => {
+        ignored: (p: string, stats?: Stats) => {
             if (!stats) return false; // allow directories through so we can recurse
             if (stats.isDirectory()) return false;
             return !p.toLowerCase().endsWith('.oesu');

@@ -50,22 +50,25 @@ const log = createLogger('InshoreRouter');
 /**
  * Master switch for the Pi-cache cloud A* path.
  *
- * 2026-05-19 TEMPORARILY FALSE: the iOS side has just gained three big
- * routing fixes (OSM water tie-break in pair rejection, OSM water=river/
- * harbour promotion to FAIRWY-class, aeroway polygons as LNDARE for
- * reclaimed-land airports). The Pi-cache engine at
- * `pi-cache/src/services/inshoreRouter.ts` does NOT yet have the
- * `_promotePreferred` handling in its Pass 4, so when iOS sends the
- * enhanced merged blob to the Pi for compute, the Pi ignores the river
- * promotion and produces a worse route (visible in the 2026-05-19
- * Newport→Rivergate test: Pi route cut 26 km straight across Brisbane
- * Airport; iOS local route at least followed the east coast of Moreton
- * Bay).
+ * 2026-05-21 RE-ENABLED: the Pi-cache engine
+ * (`pi-cache/src/services/inshoreRouter.ts`) has been re-synced
+ * byte-for-byte with the iOS engine (`services/inshoreRouterEngine.ts`)
+ * — relaxZones, the directed CAUTION component-bridge, NAVLINE Pass 5b,
+ * and the `_promotePreferred` FAIRWY handling are all present. Verified
+ * at parity against the real-cell corridor fixture
+ * (`tests/fixtures/newport-rivergate.corridor.json.gz`): both engines
+ * return the identical Newport→Rivergate route (connected, 20.46 NM,
+ * 21 pts, 0 m snap both ends, 10 caution cells).
  *
- * Flip back to true once the Pi engine has the matching changes from
- * commit 1f067060 ported across.
+ * Behaviour: cloud-first when the Pi probe succeeds (LAN), else the
+ * device runs the same pure function locally. Off-LAN (TestFlight) the
+ * probe fails fast and routing stays fully on-device.
+ *
+ * If the iOS engine changes again, re-sync the Pi copy (see the header
+ * of pi-cache/src/services/inshoreRouter.ts) before trusting this path,
+ * or set false until the Pi catches up.
  */
-const CLOUD_ROUTER_ENABLED = false;
+const CLOUD_ROUTER_ENABLED = true;
 
 // Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
 // Scarborough/marker/midpoint traces, ribbon continuity, full polyline
