@@ -308,7 +308,18 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             // failing with destination-disconnected even though the
             // chart was healthy.
             const draftFt = useSettingsStore.getState().settings.vessel?.draft;
-            const vesselDraftM = draftFt != null && draftFt > 0 ? draftFt / 3.28084 : 2.5;
+            const vesselDraftMFromProfile = draftFt != null && draftFt > 0 ? draftFt / 3.28084 : 2.5;
+            // ⚠️ TEMPORARY HARD-CODE — REVERT BEFORE SHIP ⚠️
+            // Shane's stored profile draft is a bad auto-estimate
+            // (3 ft → 0.914 m, far too shallow for the 55' Tayana). This is
+            // the CHART caller of the inshore router (the route you see on
+            // the map), so it must match the useVoyageForm hard-code or the
+            // chart renders the 0.914 m route. Pinning to the real 2.4 m for
+            // routing-quality testing (2026-05-20). Revert with the
+            // useVoyageForm hard-code once the draft estimate + feet/metres
+            // unit mess are fixed; then use vesselDraftMFromProfile.
+            const vesselDraftM = 2.4; // TODO(revert): = vesselDraftMFromProfile;
+            void vesselDraftMFromProfile;
             const inshoreRes = await tryInshoreRoute(
                 { lat: departure.lat, lon: departure.lon },
                 { lat: arrival.lat, lon: arrival.lon },
