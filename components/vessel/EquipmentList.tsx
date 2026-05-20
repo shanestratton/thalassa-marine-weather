@@ -189,9 +189,11 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
             .writeText(serial)
             .then(() => {
                 triggerHaptic('light');
+                toast.success('Serial number copied');
             })
             .catch((e) => {
                 log.warn(`[EquipmentList]`, e);
+                toast.error('Could not copy — copy it manually.');
             });
     };
 
@@ -389,9 +391,17 @@ export const EquipmentList: React.FC<EquipmentListProps> = ({ onBack }) => {
                                         <div className="absolute right-0 top-full mt-1 z-50 w-52 bg-slate-800 border border-white/10 rounded-xl shadow-2xl overflow-hidden">
                                             <button
                                                 aria-label="Export equipment register as PDF"
-                                                onClick={() => {
-                                                    exportEquipmentPdf(items);
+                                                onClick={async () => {
                                                     setMenuOpen(false);
+                                                    try {
+                                                        await exportEquipmentPdf(items);
+                                                    } catch (e) {
+                                                        // AbortError = user dismissed the share
+                                                        // sheet; anything else is a real failure.
+                                                        if (e instanceof Error && e.name === 'AbortError') return;
+                                                        log.warn('Equipment PDF export failed:', e);
+                                                        toast.error('Could not export the PDF — try again.');
+                                                    }
                                                 }}
                                                 className="w-full text-left px-4 py-3 text-sm text-white hover:bg-white/5 transition-colors flex items-center gap-3"
                                             >

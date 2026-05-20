@@ -33,6 +33,8 @@ import { SoundCheckModal } from './anchor-watch/SoundCheckModal';
 import { ShoreWatchModal } from './anchor-watch/ShoreWatchModal';
 import { AisStreamService } from '../services/AisStreamService';
 import { PageHeader } from './ui/PageHeader';
+import { toast } from './Toast';
+import { createLogger } from '../utils/createLogger';
 import { AnchorIcon, AlertTriangleIcon, MuteIcon, CheckIcon, PhoneIcon, PowerBoatIcon } from './Icons';
 
 import {
@@ -42,6 +44,8 @@ import {
     bearingToCardinal,
     formatElapsed,
 } from './anchor-watch/anchorUtils';
+
+const log = createLogger('AnchorWatch');
 
 // ------- TYPES -------
 
@@ -362,10 +366,18 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }, [rodeLength, waterDepth, rodeType, safetyMargin]);
 
     const handleStopWatch = useCallback(async () => {
-        await AnchorWatchService.stopWatch();
-        await AnchorWatchSyncService.leaveSession();
-        setViewMode('setup');
-        setShoreData(null);
+        // Safety action — must never fail silently. If the service
+        // throws, the watch may still be armed; tell the user so they
+        // can retry rather than walking away thinking it's off.
+        try {
+            await AnchorWatchService.stopWatch();
+            await AnchorWatchSyncService.leaveSession();
+            setViewMode('setup');
+            setShoreData(null);
+        } catch (e) {
+            log.error('Failed to stop anchor watch', e);
+            toast.error('Could not stop the anchor watch — it may still be armed. Try again.');
+        }
     }, []);
 
     const handleAcknowledgeAlarm = useCallback(() => {
@@ -373,14 +385,32 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }, []);
 
     const handleCreateSession = useCallback(async () => {
-        const code = await AnchorWatchSyncService.createSession();
-        if (code) setSessionCode(code);
+        try {
+            const code = await AnchorWatchSyncService.createSession();
+            if (code) {
+                setSessionCode(code);
+            } else {
+                toast.error('Could not start a shore-watch session — check your connection.');
+            }
+        } catch (e) {
+            log.error('createSession failed', e);
+            toast.error('Could not start a shore-watch session — check your connection.');
+        }
     }, []);
 
     const handleJoinShore = useCallback(async () => {
         if (sessionCode.length !== 6) return;
-        const joined = await AnchorWatchSyncService.joinSession(sessionCode);
-        if (joined) setViewMode('shore');
+        try {
+            const joined = await AnchorWatchSyncService.joinSession(sessionCode);
+            if (joined) {
+                setViewMode('shore');
+            } else {
+                toast.error('Could not join — check the 6-digit code and try again.');
+            }
+        } catch (e) {
+            log.error('joinSession failed', e);
+            toast.error('Could not join the shore watch — check your connection.');
+        }
     }, [sessionCode]);
     // Slide-to-confirm state (must be before any early returns — React Rules of Hooks)
     const slideTrackRef = useRef<HTMLDivElement>(null);

@@ -496,12 +496,15 @@ export function useLogPageState() {
         try {
             await ShipLogService.stopTracking();
         } catch (e) {
-            log.warn('swallow:', e);
+            log.warn('stopTracking failed:', e);
+            // Surface it — stopping a voyage that silently fails leaves
+            // the user unsure whether tracking is still running.
+            toast.error('Could not stop tracking cleanly — check the voyage status.');
         }
         // Clear the guard, then reload to pick up final state
         stoppingRef.current = false;
         await loadData();
-    }, [loadData]);
+    }, [loadData, toast]);
 
     // ── Entry CRUD ──────────────────────────────────────────────────────────
 
@@ -728,8 +731,16 @@ export function useLogPageState() {
         const voyageName = state.selectedVoyageId ? `Voyage ${state.selectedVoyageId.slice(0, 8)}` : 'All Voyages';
         const gpxXml = exportVoyageAsGPX(targetEntries, voyageName, settings.vessel?.name);
         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
-        await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
-    }, [state.selectedVoyageId, state.entries, settings.vessel?.name]);
+        try {
+            await shareGPXFile(gpxXml, `${voyageName.replace(/\s+/g, '_').toLowerCase()}.gpx`);
+        } catch (e) {
+            // AbortError = user dismissed the native share sheet — not a
+            // failure, stay silent. Anything else is a real export error.
+            if (e instanceof Error && e.name === 'AbortError') return;
+            log.warn('GPX export failed:', e);
+            toast.error('Could not export the GPX file — try again.');
+        }
+    }, [state.selectedVoyageId, state.entries, settings.vessel?.name, toast]);
 
     const handleImportGPXFile = useCallback(
         async (file: File) => {

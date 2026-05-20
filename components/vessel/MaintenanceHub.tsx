@@ -259,6 +259,8 @@ export const MaintenanceHub: React.FC<MaintenanceHubProps> = ({ onBack }) => {
             setShowHistory(true);
         } catch (e) {
             log.error('Failed to load history:', e);
+            // The History sheet just wouldn't open with no explanation.
+            toast.error('Could not load service history — try again.');
         }
     }, []);
 
