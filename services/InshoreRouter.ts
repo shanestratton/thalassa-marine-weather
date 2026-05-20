@@ -535,6 +535,24 @@ async function tryInshoreRouteInner(
             }
             merged.CANAL = canal;
         }
+        // OSM navigation lines (seamark leading/transit) → NAVLINE layer.
+        // The engine Bresenham-rasterises each segment into a PREFERRED
+        // channel corridor (wider than CANAL) and rescues shallow-reading
+        // cells to navigable — so A* rides the charted dredged channel
+        // through bars/approaches the 30 m bathymetry reads as too shallow
+        // (Brisbane River mouth bar, 2026-05-20). Unlike CANAL (which just
+        // connects islanded water), NAVLINE actively ATTRACTS A* onto the
+        // marked channel, weaving the markers like a real chartplotter.
+        if (osmOverlay.navLines.features.length > 0) {
+            const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.navLines.features) {
+                (navline.features as unknown[]).push(f);
+            }
+            merged.NAVLINE = navline;
+            log.warn(
+                `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
+            );
+        }
         // DIAGNOSTIC — what OSM water/canal/marina features sit near the
         // ORIGIN (±0.025° ≈ 2.5 km). Newport Marina canal estate stays a
         // 349-cell isolated component despite canalLines=65 captured — the
