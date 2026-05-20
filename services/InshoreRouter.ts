@@ -574,12 +574,15 @@ async function tryInshoreRouteInner(
         // that clips land marks only the water portion, never carves land.
         {
             const drgareFeats = merged.DRGARE?.features ?? [];
-            // Channel-following only matters near the approaches; beyond
-            // this radius of either endpoint the open water is deep and
-            // the route should run direct.
+            // Channel-following only matters on the DESTINATION approach
+            // (the river-mouth bar) — the origin side (Newport) is handled
+            // by the canal-mouth bridge and the open bay there is deep, so
+            // gating to the origin too left bay DRGARE connected near
+            // Newport and tugged the run east into a bulge (Shane: the bay
+            // "dog-legs the other way now"). Gate to the destination only:
+            // beyond this radius the route runs direct across deep water.
             const DEST_CHANNEL_RADIUS_M = 12000;
             const nearEndpoint = (lat: number, lon: number): boolean =>
-                haversineMetres(lat, lon, origin.lat, origin.lon) <= DEST_CHANNEL_RADIUS_M ||
                 haversineMetres(lat, lon, destination.lat, destination.lon) <= DEST_CHANNEL_RADIUS_M;
             const cents: { lat: number; lon: number }[] = [];
             for (const f of drgareFeats) {
