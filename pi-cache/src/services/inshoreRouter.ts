@@ -1,12 +1,16 @@
 /**
  * Inshore Router — A* pathfinding through ENC navigability grids.
  *
- * THIS IS THE PI-SIDE FALLBACK. The iOS app runs the same routing
- * pure function locally via `services/inshoreRouterEngine.ts` — those
- * two files are kept byte-identical apart from this docstring. The Pi
- * endpoint stays alive for direct HTTP consumers (curl, future
- * external integrations) and as a fallback if the device-side compute
- * breaks.
+ * THIS IS THE PI-SIDE COPY. The canonical source is the iOS engine at
+ * `services/inshoreRouterEngine.ts`; this file is kept in sync with it
+ * by hand. The body is identical apart from this header and the logger
+ * shim below (the Pi has no createLogger util, so engineLog → console).
+ * The iOS app runs the same pure function locally on the hot path; the
+ * Pi keeps `/api/enc/route` + `/api/enc/route-prepped` alive as the
+ * cloud router (used when CLOUD_ROUTER_ENABLED on the device) and for
+ * external/CLI consumers. To re-sync after an iOS engine change:
+ *   cp services/inshoreRouterEngine.ts pi-cache/src/services/inshoreRouter.ts
+ * then re-apply this header + the `const engineLog = console` shim.
  *
  * What this does
  * ──────────────
@@ -46,6 +50,19 @@ import type {
     Point,
     Position,
 } from 'geojson';
+
+// The Pi has no createLogger util (that lives in the iOS app tree); the
+// shared body logs via `engineLog`. Shim it to console so the body is
+// otherwise byte-identical to the iOS engine.
+const engineLog = console;
+
+// Verbose routing diagnostics (per-component dumps, cell-state traces,
+// phase timings, bridge/snap reasoning). Gated OFF by default. On the iOS
+// side the minifier dead-code-eliminates `if (ENGINE_DEBUG)`; here under
+// tsc it simply never executes. Flip true locally to debug a route.
+// Operational fallback logs (destination-disconnected relax, far-snap
+// retry) stay unconditional below.
+const ENGINE_DEBUG = false;
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -88,11 +105,42 @@ export interface InshoreLayers {
      */
     BCNLAT?: FeatureCollection;
     /**
-     * OSM coastline LineStrings (natural=coastline). Pass 2b Bresenham-
-     * rasterises each segment as a thin hardBlocked strip to plug gaps
-     * in chart LNDARE polygons (Newport canal-estate 2026-05-19 bug).
+     * OSM coastline LineStrings (natural=coastline). Used to plug
+     * LNDARE gaps where the chart's LNDARE tessellation misses the
+     * actual land boundary (Newport peninsula 2026-05-19: chart
+     * LNDARE was missing the canal-estate islands, so A* threaded
+     * a straight diagonal across them from the canal exit to the
+     * bay). Each LineString segment is Bresenham-rasterized as a
+     * thin hardBlocked strip — enough to stop A* from crossing the
+     * boundary even when the polygon LNDARE has the hole.
      */
     COASTLINE?: FeatureCollection;
+    /**
+     * OSM waterway=canal/fairway/dock LineStrings — the navigable
+     * centreline of dredged channels (marina exit channels, port
+     * approach cuts). The inverse of COASTLINE: each segment is
+     * Bresenham-rasterized as a 1-cell NAVIGABLE corridor (protected
+     * water) so canal estates connect to open water across chart
+     * LNDARE that tessellates the channel banks as land at 50 m
+     * resolution. Newport Marina 2026-05-20: the canal interior was
+     * a 349-cell isolated component because the exit channel (a
+     * waterway=canal LineString, not a closed polygon) was being
+     * dropped — origin tap snapped 2 km out into Bramble Bay.
+     */
+    CANAL?: FeatureCollection;
+    /**
+     * OSM navigation-line LineStrings (seamark leading/transit lines) —
+     * the charted dredged-channel centreline ships steer along. Unlike
+     * CANAL (which just carves navigable water to connect islanded
+     * pockets), NAVLINE is rasterised into a PREFERRED corridor (a few
+     * cells wide) AND rescues shallow/blocked cells to navigable, so A*
+     * is actively ATTRACTED onto the marked channel and rides it through
+     * bars/approaches the coarse bathymetry reads as too shallow. Added
+     * 2026-05-20 for the Brisbane River mouth bar (the dredged cut isn't
+     * in chart FAIRWY and the lateral markers are too sparse to stitch,
+     * but OSM has it as navigation_line).
+     */
+    NAVLINE?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -145,13 +193,18 @@ export interface RouteResult {
      * crosses one or more CAUTION cells — water that reads too shallow
      * for this vessel in our coarse bathymetry but is not land/hazard.
      * The renderer draws these segments red so the skipper verifies
-     * depth locally.
+     * depth locally. Absent on cloud results that predate this field.
      */
     cautionMask?: boolean[];
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
     debug?: RouteDebug;
+    /**
+     * Per-phase timing in ms. Useful for finding the bottleneck during
+     * speed optimisation. Keys: buildNavGrid, labelComponents,
+     * componentSnap, aStar, smoothPath.
+     */
     phaseTimings?: Record<string, number>;
 }
 
@@ -253,6 +306,112 @@ function geometryBbox(geom: Polygon | MultiPolygon): [number, number, number, nu
     return [minLon, minLat, maxLon, maxLat];
 }
 
+/**
+ * Scanline polygon rasterizer — visit every grid cell strictly inside
+ * a Polygon or MultiPolygon, calling `callback(x, y)` per cell.
+ *
+ * Why this exists
+ * ───────────────
+ * Pass 1 (DEPARE) was 97% of buildNavGrid in the wild (36.88 s of
+ * 38.27 s on a Newport → Brisbane route, May 2026). The previous
+ * implementation did one `pointInGeometry()` per cell × per polygon
+ * — for a 50-vertex DEPARE polygon covering a 50×50 cell range that's
+ * 125,000 ray-cast vertex ops. A scanline fill instead does ~edges
+ * per row + cells per row = ~5,000 ops on the same input. The bigger
+ * the polygon (more cells, more vertices), the bigger the win.
+ *
+ * Algorithm
+ * ─────────
+ * Classic even-odd scanline fill with hole support:
+ *   1. For each scanline row y, sweep ALL ring edges (outer + holes)
+ *      and collect x-coordinates where the edge crosses lat(y).
+ *   2. Sort the crossings ascending. Even-odd parity — between
+ *      [0,1], [2,3], [4,5]… is inside; in between is outside.
+ *   3. For each "inside" range, snap to cell columns and call the
+ *      visitor for each cell whose centre falls inside.
+ *
+ * Holes work naturally with parity: a hole edge contributes a
+ * crossing that flips the inside flag back to outside for that span.
+ *
+ * Vertex-exactly-on-scanline handling is the strict-greater test
+ * `(yi > lat) !== (yj > lat)` — same convention as the existing
+ * pointInRing, so the two paths agree on edge cases (cells whose
+ * centre lies on a polygon boundary).
+ *
+ * Cost vs old per-cell pointInGeometry:
+ *   • E vertices, R rows, W cells/row, polygon covers ~R×W cells
+ *   • Old: R × W × E ray-cast vertex ops
+ *   • New: R × E (edge scan) + R × W (fill) ≈ R × (E + W)
+ *   • Speedup ≈ W × E / (E + W). For W=E=50: 25×.
+ */
+function rasterizePolygonCells(
+    grid: { width: number; height: number; minLon: number; minLat: number; dLon: number; dLat: number },
+    geom: Polygon | MultiPolygon,
+    callback: (x: number, y: number) => void,
+): void {
+    const polygons: Position[][][] = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+    const { width, height, minLon, minLat, dLon, dLat } = grid;
+
+    for (const poly of polygons) {
+        // Per-polygon row range from the outer ring's lat extent.
+        // Inner rings (holes) live entirely inside the outer, so they
+        // can't extend the row range.
+        const outer = poly[0];
+        let minLatPoly = Infinity;
+        let maxLatPoly = -Infinity;
+        for (let i = 0; i < outer.length; i++) {
+            const lat = outer[i][1];
+            if (lat < minLatPoly) minLatPoly = lat;
+            if (lat > maxLatPoly) maxLatPoly = lat;
+        }
+        const y0 = Math.max(0, Math.floor((minLatPoly - minLat) / dLat));
+        const y1 = Math.min(height - 1, Math.ceil((maxLatPoly - minLat) / dLat));
+        if (y1 < y0) continue;
+
+        // Reuse one scratch array per polygon to avoid per-row GC churn.
+        const crossings: number[] = [];
+
+        for (let y = y0; y <= y1; y++) {
+            const lat = minLat + (y + 0.5) * dLat;
+            crossings.length = 0;
+
+            // Collect crossings from outer + holes alike. Even-odd
+            // parity below handles hole subtraction without needing
+            // an explicit "skip" pass.
+            for (const ring of poly) {
+                for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                    const yi = ring[i][1];
+                    const yj = ring[j][1];
+                    if (yi > lat !== yj > lat) {
+                        const xi = ring[i][0];
+                        const xj = ring[j][0];
+                        const x = ((xj - xi) * (lat - yi)) / (yj - yi) + xi;
+                        crossings.push(x);
+                    }
+                }
+            }
+            if (crossings.length < 2) continue;
+            crossings.sort((a, b) => a - b);
+
+            // Pair-fill: [0..1], [2..3], … are inside spans (even-odd).
+            for (let k = 0; k + 1 < crossings.length; k += 2) {
+                const lonStart = crossings[k];
+                const lonEnd = crossings[k + 1];
+                // First column whose cell-centre is ≥ lonStart, last
+                // whose centre is ≤ lonEnd. The centre-test is what
+                // matches the old per-cell pointInGeometry semantics
+                // exactly — we still classify by cell centre, just
+                // without paying the ray-cast on each one.
+                const xStart = Math.max(0, Math.ceil((lonStart - minLon) / dLon - 0.5));
+                const xEnd = Math.min(width - 1, Math.floor((lonEnd - minLon) / dLon - 0.5));
+                for (let x = xStart; x <= xEnd; x++) {
+                    callback(x, y);
+                }
+            }
+        }
+    }
+}
+
 // ── Grid ────────────────────────────────────────────────────────────
 
 /**
@@ -314,9 +473,23 @@ function latLonToGrid(grid: NavGrid, lat: number, lon: number): { x: number; y: 
 }
 
 /**
- * Build a navigability grid for the given bbox, draft, and resolution.
- * Time complexity is roughly O(featureCount × cellsPerFeatureBbox).
- * Polygons rasterize in their bbox slice rather than the whole grid.
+ * Process-wide cache for buildNavGrid output. Keyed by the inputs that
+ * deterministically produce a grid. Grid build is the routing pipeline's
+ * dominant cost (20+ s for the Brisbane test case at 50 m resolution) so
+ * even simple memoisation lets repeated routes against the same cell
+ * pack skip everything except A* (which is ~50 ms).
+ *
+ * Cache key composition:
+ *   - bbox, resolutionM, draftM, safetyM, obstructionBufferM (route params)
+ *   - feature-counts-per-layer signature (cheap fingerprint of the merged
+ *     layer data; sufficient given the layer data is deterministic upstream
+ *     from cell-pack + Supabase nav markers + iOS-side pairing)
+ *
+ * The signature is best-effort — distinct layer payloads with matching
+ * feature counts would collide. Fine for now; tighten with a content hash
+ * if we ever hit it.
+ *
+ * Hard size cap of 5 grids (≈1 MB at 200×400×4 bytes) to bound memory.
  */
 interface CachedNavGrid {
     grid: NavGrid;
@@ -325,6 +498,28 @@ interface CachedNavGrid {
 const navGridCache = new Map<string, CachedNavGrid>();
 const NAV_GRID_CACHE_MAX = 5;
 
+/**
+ * A circular zone (tap centre + radius) within which LNDARE/coastline
+ * cells are relaxed to CAUTION (traversable at 500× cost, flagged red)
+ * instead of hard-blocked. Used by the far-snap retry to thread the
+ * charted-land barrier islanding an endpoint (Newport's canal estate)
+ * WITHOUT relaxing the whole grid — global relaxation let A* shortcut
+ * straight across the mainland (verified land-crossing 2026-05-20).
+ * Confining relaxation to a bounded zone around the problem endpoint
+ * keeps every mid-route mainland cell hard-blocked, so the only red
+ * cells are the genuine barrier the user must pilot through.
+ */
+export interface RelaxZone {
+    lat: number;
+    lon: number;
+    radiusM: number;
+}
+
+function relaxZonesKey(relaxZones: RelaxZone[]): string {
+    if (relaxZones.length === 0) return 'none';
+    return relaxZones.map((z) => `${z.lat.toFixed(3)},${z.lon.toFixed(3)},${Math.round(z.radiusM)}`).join('|');
+}
+
 function buildNavGridCached(
     layers: InshoreLayers,
     bbox: [number, number, number, number],
@@ -332,6 +527,8 @@ function buildNavGridCached(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    relaxedLndare: boolean = false,
+    relaxZones: RelaxZone[] = [],
 ): { grid: NavGrid; cacheHit: boolean } {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -344,14 +541,25 @@ function buildNavGridCached(
         layers.BOYLAT?.features.length ?? 0,
         layers.BCNLAT?.features.length ?? 0,
         layers.COASTLINE?.features.length ?? 0,
+        layers.CANAL?.features.length ?? 0,
+        layers.NAVLINE?.features.length ?? 0,
     ].join(',');
-    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${sig}`;
+    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${sig}`;
     const cached = navGridCache.get(key);
     if (cached) {
         cached.ts = Date.now();
         return { grid: cached.grid, cacheHit: true };
     }
-    const grid = buildNavGrid(layers, bbox, resolutionM, draftM, safetyM, obstructionBufferM);
+    const grid = buildNavGrid(
+        layers,
+        bbox,
+        resolutionM,
+        draftM,
+        safetyM,
+        obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
+    );
     if (navGridCache.size >= NAV_GRID_CACHE_MAX) {
         let oldestKey: string | null = null;
         let oldestTs = Infinity;
@@ -367,6 +575,11 @@ function buildNavGridCached(
     return { grid, cacheHit: false };
 }
 
+/**
+ * Build a navigability grid for the given bbox, draft, and resolution.
+ * Time complexity is roughly O(featureCount × cellsPerFeatureBbox).
+ * Polygons rasterize in their bbox slice rather than the whole grid.
+ */
 function buildNavGrid(
     layers: InshoreLayers,
     bbox: [number, number, number, number],
@@ -374,7 +587,40 @@ function buildNavGrid(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    /**
+     * When true, ALL LNDARE cells become CAUTION (high-cost 500×
+     * traversable) instead of BLOCKED, grid-wide. Reserved for the
+     * destination-disconnected last-resort retry — the rare case where a
+     * chart's mainland LNDARE polygon includes a river course without a
+     * proper hole and strict routing finds NO path at all. A* still
+     * prefers real water (8×) over relaxed land (40×) so it only crosses
+     * land where no water route exists.
+     */
+    relaxedLndare: boolean = false,
+    /**
+     * Bounded zones within which LNDARE/coastline relax to CAUTION even
+     * when `relaxedLndare` is false. Used by the far-snap retry to thread
+     * the charted-land barrier islanding an endpoint (Newport) while
+     * keeping every mid-route mainland cell hard-blocked. Empty = no
+     * localized relaxation.
+     */
+    relaxZones: RelaxZone[] = [],
 ): NavGrid {
+    // Per-pass timing — a single Newport→Brisbane build was clocked at
+    // 37.8 s and accounted for 97% of the route compute. Without per-
+    // pass numbers we can't tell which polygon scanner is the
+    // bottleneck (DEPARE has 1500+ polygons but small grids; LNDARE has
+    // 200 polygons but huge bboxes; OBSTRN is 500+ points; FAIRWY is
+    // moderate). The summary at the bottom of this function logs the
+    // breakdown so the optimisation target is data-driven.
+    const buildT0 = Date.now();
+    const passTimings: Record<string, number> = {};
+    const featureCounts: Record<string, number> = {};
+    const markPass = (label: string, start: number, featureCount: number): void => {
+        passTimings[label] = Date.now() - start;
+        featureCounts[label] = featureCount;
+    };
+
     const [minLon, minLat, maxLon, maxLat] = bbox;
     const midLat = (minLat + maxLat) / 2;
     const mPerLon = mPerDegLon(midLat);
@@ -404,6 +650,38 @@ function buildNavGrid(
     // override a hard-blocked cell (actual land / charted hazard).
     const hardBlocked = new Uint8Array(width * height);
     const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred };
+
+    // Capture grid-build setup time separately. Anything north of a
+    // few ms here points to wasted re-work (we already pay for this on
+    // each call — buildNavGridCached is a separate concern).
+    markPass('setup', buildT0, width * height);
+
+    // Localized LNDARE relaxation mask. A cell with relaxMask[idx]===1
+    // gets CAUTION instead of BLOCKED in the LNDARE (Pass 2) and
+    // coastline (Pass 2b) passes, and is exempt from the Pass 6 buffer —
+    // so a far-snapped endpoint can thread the charted-land barrier that
+    // islands it, flagged red, while every cell OUTSIDE the zone stays
+    // hard-blocked. This is the bounded replacement for the old
+    // grid-wide `relaxedLndare` far-snap retry, which let A* cut straight
+    // across the mainland. Building the mask is O(cells inside the
+    // zones) — a few thousand cells per zone, cheap.
+    const relaxMask = new Uint8Array(width * height);
+    for (const z of relaxZones) {
+        const dLatR = z.radiusM / M_PER_DEG_LAT;
+        const dLonR = z.radiusM / mPerLon;
+        const zx0 = Math.max(0, Math.floor((z.lon - dLonR - minLon) / dLon));
+        const zx1 = Math.min(width - 1, Math.ceil((z.lon + dLonR - minLon) / dLon));
+        const zy0 = Math.max(0, Math.floor((z.lat - dLatR - minLat) / dLat));
+        const zy1 = Math.min(height - 1, Math.ceil((z.lat + dLatR - minLat) / dLat));
+        for (let y = zy0; y <= zy1; y++) {
+            const cellLat = minLat + (y + 0.5) * dLat;
+            for (let x = zx0; x <= zx1; x++) {
+                const cellLon = minLon + (x + 0.5) * dLon;
+                if (haversineM(cellLat, cellLon, z.lat, z.lon) > z.radiusM) continue;
+                relaxMask[y * width + x] = 1;
+            }
+        }
+    }
 
     // Helper to convert a polygon bbox to grid coordinate range.
     const polyToCellRange = (
@@ -439,20 +717,32 @@ function buildNavGrid(
         // Real navigable canals are tagged `waterway=canal` (also kept).
         const waterway = props['waterway'];
         const water = props['water'];
+        const natural = props['natural'];
         const harbour = props['harbour'];
         return (
             leisure === 'marina' ||
             waterway === 'dock' ||
             waterway === 'canal' ||
             waterway === 'fairway' ||
+            waterway === 'river' ||
+            waterway === 'riverbank' ||
+            // `water=*` subtags for marina contexts (Newport canals use
+            // these for the side arms branching off the main basin)
             water === 'canal' ||
             water === 'harbour' ||
             water === 'marina' ||
             water === 'dock' ||
+            water === 'river' ||
+            water === 'lake' ||
+            // OsmRouteOverlayService injects natural=water polygons into
+            // DEPARE for rivers / harbours / basins. They're OSM-derived
+            // navigable water — authoritative to override LNDARE-bleed.
+            natural === 'water' ||
             harbour === 'yes'
         );
     };
     const depare = layers.DEPARE?.features ?? [];
+    const tPassDepare = Date.now();
     for (const f of depare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
@@ -460,59 +750,112 @@ function buildNavGrid(
         const drval1 = props?.['DRVAL1'];
         // S-57 DRVAL1 is positive depth in meters.
         const drval1Num = typeof drval1 === 'number' ? drval1 : null;
-        const authoritative = isAuthoritativeDepare(props);
+        if (drval1Num == null) continue; // no depth → nothing to do
+        // Chart-source DEPARE (acronym='DEPARE' from senc-extractor) is
+        // hydrographic-survey data. With the Eulerian ring fix (2026-05-19)
+        // these polygons now have proper outer rings — they no longer
+        // bleed across the coastline as the triangle-soup did. So trust
+        // them to win against LNDARE on overlap (e.g. marina basins where
+        // chart has a tiny DEPARE inside a chunky mainland LNDARE).
+        // OSM-derived DEPARE (no acronym) still uses the old OSM-tag gate
+        // (Scarborough peninsula safeguard).
+        const isS57Depare = typeof props?.acronym === 'string';
+        const authoritative = isS57Depare || isAuthoritativeDepare(props);
+        const shallow = drval1Num < draftM + safetyM;
 
-        const pBbox = geometryBbox(g);
-        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-        if (x0 > x1 || y0 > y1) continue;
+        // Scanline-rasterize the polygon and apply cell updates inside
+        // the per-cell callback. ~25× faster than the old "per cell,
+        // pointInGeometry" loop on real DEPARE shapes (50+ vertex
+        // bathymetry contours covering 50×50+ cell ranges).
+        rasterizePolygonCells(grid, g, (x, y) => {
+            const idx = y * width + x;
 
-        for (let y = y0; y <= y1; y++) {
-            const lat = minLat + (y + 0.5) * dLat;
-            for (let x = x0; x <= x1; x++) {
-                const lon = minLon + (x + 0.5) * dLon;
-                if (!pointInGeometry(lon, lat, g)) continue;
-                const idx = y * width + x;
-
-                if (drval1Num == null) {
-                    // No depth value — keep "open unknown" unless already set deeper.
-                    continue;
+            if (shallow) {
+                // Shallow water — mark CAUTION (soft-block) UNLESS an
+                // authoritative engineered-water DEPARE already
+                // claimed this cell. Coarse public bathymetry (30 m
+                // AusBathyTopo) can't resolve dredged marina basins /
+                // canals or shallow tidal approaches: it reads them
+                // at the shallow surrounding-terrain depth. CAUTION
+                // keeps the cell *navigable* (A* may route through it
+                // at a steep cost, the renderer draws it red) instead
+                // of hard-BLOCKED — so canal estates and shallow
+                // approaches route end-to-end with an honest "verify
+                // depth" flag rather than the route snapping
+                // kilometres to the nearest surveyed-deep water.
+                // protectedCells guard keeps the outcome order-
+                // independent: once authoritative water claims a
+                // cell, no shallow band downgrades it.
+                if (protectedCells[idx] !== 1) {
+                    cells[idx] = CAUTION;
                 }
-                if (drval1Num < draftM + safetyM) {
-                    // Shallow water — mark CAUTION (soft-block) UNLESS an
-                    // authoritative engineered-water DEPARE already
-                    // claimed this cell. Coarse public bathymetry (30 m
-                    // AusBathyTopo) can't resolve dredged marina basins /
-                    // canals or shallow tidal approaches: it reads them
-                    // at the shallow surrounding-terrain depth. CAUTION
-                    // keeps the cell *navigable* (A* may route through it
-                    // at a steep cost, the renderer draws it red) instead
-                    // of hard-BLOCKED — so canal estates and shallow
-                    // approaches route end-to-end with an honest "verify
-                    // depth" flag rather than the route snapping
-                    // kilometres to the nearest surveyed-deep water.
-                    // protectedCells guard keeps the outcome order-
-                    // independent: once authoritative water claims a
-                    // cell, no shallow band downgrades it.
-                    if (protectedCells[idx] !== 1) {
-                        cells[idx] = CAUTION;
+            } else {
+                // Deep enough for this vessel.
+                const prior = cells[idx];
+                if (Number.isNaN(prior)) {
+                    // Cell hard-blocked by an earlier pass — only an
+                    // authoritative DEPARE un-blocks it.
+                    if (authoritative) cells[idx] = drval1Num;
+                } else if (prior === UNKNOWN_OPEN || prior === CAUTION || drval1Num < prior) {
+                    // Upgrade an unknown / caution cell to real depth,
+                    // or track the shallowest known real depth.
+                    cells[idx] = drval1Num;
+                }
+                if (authoritative) protectedCells[idx] = 1;
+            }
+        });
+    }
+
+    markPass('pass1-DEPARE', tPassDepare, depare.length);
+
+    // ── Pass 1b: OSM canal LineStrings — carve navigable corridors ───
+    // The inverse of the Pass 2b coastline strip. Each waterway=canal/
+    // fairway/dock LineString (a dredged-channel centreline) is
+    // Bresenham-rasterised as a 1-cell NAVIGABLE corridor: cells set to
+    // a safe depth and flagged protected. Runs BEFORE Pass 2 (LNDARE),
+    // Pass 2b (coastline) and Pass 6 (LNDARE buffer) so the protected
+    // flag makes all three skip these cells — the corridor survives even
+    // where chart LNDARE tessellates the canal banks as land.
+    //
+    // Newport Marina 2026-05-20: the marina basin polygon (OSM
+    // leisure=marina) is captured as authoritative water, but the
+    // ~600 m exit channel out to Hays Inlet is a waterway=canal
+    // LineString. Without this pass it was dropped, the canal estate
+    // was a 349-cell isolated component, and the origin tap snapped 2 km
+    // out into Bramble Bay. Carving the channel connects the estate to
+    // the bay so the route starts where the user actually tapped.
+    const canalFeatures = layers.CANAL?.features ?? [];
+    const tPassCanal = Date.now();
+    const canalDepth = Math.max(draftM + safetyM, 5.0);
+    for (const f of canalFeatures) {
+        const g = f.geometry;
+        if (!g) continue;
+        let lineRings: Position[][] = [];
+        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+        else continue;
+        for (const coords of lineRings) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon0, lat0] = coords[i];
+                const [lon1, lat1] = coords[i + 1];
+                const gx0 = Math.floor((lon0 - minLon) / dLon);
+                const gy0 = Math.floor((lat0 - minLat) / dLat);
+                const gx1 = Math.floor((lon1 - minLon) / dLon);
+                const gy1 = Math.floor((lat1 - minLat) / dLat);
+                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+                    if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+                    const idx = c.y * width + c.x;
+                    // Carve to a safe navigable depth unless an earlier
+                    // pass already claimed real (deeper) water here.
+                    if (Number.isNaN(cells[idx]) || cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
+                        cells[idx] = canalDepth;
                     }
-                } else {
-                    // Deep enough for this vessel.
-                    const prior = cells[idx];
-                    if (Number.isNaN(prior)) {
-                        // Cell hard-blocked by an earlier pass — only an
-                        // authoritative DEPARE un-blocks it.
-                        if (authoritative) cells[idx] = drval1Num;
-                    } else if (prior === UNKNOWN_OPEN || prior === CAUTION || drval1Num < prior) {
-                        // Upgrade an unknown / caution cell to real depth,
-                        // or track the shallowest known real depth.
-                        cells[idx] = drval1Num;
-                    }
-                    if (authoritative) protectedCells[idx] = 1;
+                    protectedCells[idx] = 1;
                 }
             }
         }
     }
+    markPass('pass1b-canal', tPassCanal, canalFeatures.length);
 
     // ── Pass 2: LNDARE — block land cells, except authoritative water ─
     // Earlier conflict rule was "DEPARE > 0 beats LNDARE", which let
@@ -535,36 +878,54 @@ function buildNavGrid(
     // long-term fix is OSM coastline as LNDARE so the land polygons
     // are accurate sub-10 m instead of 60 m-pixel chunky.
     const lndare = layers.LNDARE?.features ?? [];
+    const tPassLndare = Date.now();
     for (const f of lndare) {
         const g = f.geometry;
         if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') continue;
-        const pBbox = geometryBbox(g);
-        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-        if (x0 > x1 || y0 > y1) continue;
-
-        for (let y = y0; y <= y1; y++) {
-            const lat = minLat + (y + 0.5) * dLat;
-            for (let x = x0; x <= x1; x++) {
-                const lon = minLon + (x + 0.5) * dLon;
-                if (pointInGeometry(lon, lat, g)) {
-                    const idx = y * width + x;
-                    if (!protectedCells[idx]) {
-                        cells[idx] = BLOCKED;
-                        hardBlocked[idx] = 1;
-                    }
-                }
+        // NO rogue filter on LNDARE: real chart-source LNDARE for narrow
+        // land features (Redcliffe peninsula, river banks) naturally has
+        // long-edge fan triangles that LOOK rogue but are correctly
+        // covering the elongated polygon. Filtering them leaves big gaps
+        // (peninsula's rcid 4500 had 49% of its 3146 triangles flagged as
+        // rogue by edge/aspect heuristics) and A* threads through. Better
+        // to over-block (LNDARE bleeds across rivers → some water shows
+        // as land) and rely on S-57 DEPARE authoritative override in
+        // pass 1 to un-block actual surveyed water.
+        rasterizePolygonCells(grid, g, (x, y) => {
+            const idx = y * width + x;
+            if (protectedCells[idx]) return;
+            if (relaxedLndare || relaxMask[idx] === 1) {
+                // CAUTION-mode: A* can traverse at 500× cost. Don't set
+                // hardBlocked so FAIRWY/DRGARE rescue still applies.
+                if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+            } else {
+                cells[idx] = BLOCKED;
+                hardBlocked[idx] = 1;
             }
-        }
+        });
     }
 
-    // ── Pass 2b: OSM coastline (lines) — block thin land/water boundary ─
-    // Bresenham-rasterise each natural=coastline LineString so cells along
-    // the coast boundary are hardBlocked. Plugs gaps in chart LNDARE
-    // polygons (Newport canal estate, 2026-05-19). Same `protectedCells`
-    // guard so engineered water (marina/canal/dock) stays passable across
-    // a coastline misalignment.
-    const coastlineFeatures = layers.COASTLINE?.features ?? [];
-    for (const f of coastlineFeatures) {
+    markPass('pass2-LNDARE', tPassLndare, lndare.length);
+
+    // ── Pass 2b: OSM coastline (lines) — block the thin land/water boundary ─
+    // Rasterises each natural=coastline LineString with Bresenham so cells
+    // touched by the coast boundary are hardBlocked. Plugs gaps in chart
+    // LNDARE polygons — Newport canal-estate islands have working chart
+    // LNDARE for the suburb perimeter but no polygon for the small island
+    // between the marina canal and Bramble Bay, so A* threaded straight
+    // from the canal exit NE to the bay across "navigable" cells. With
+    // the coastline strip blocked, the Bresenham line-of-sight check in
+    // smoothPath now sees those cells as blocked and forces A* through
+    // the actual canal/bay corridor.
+    //
+    // Same `protectedCells` guard as Pass 2 so engineered water
+    // (leisure=marina, waterway=dock/canal) stays passable across a
+    // coastline alignment mistake. Same relaxedLndare bypass so the
+    // disconnected-destination retry isn't choked by coastline gaps.
+    const coastline = layers.COASTLINE?.features ?? [];
+    const tPassCoast = Date.now();
+    let coastCellsBlocked = 0;
+    for (const f of coastline) {
         const g = f.geometry;
         if (!g) continue;
         let lineRings: Position[][] = [];
@@ -583,12 +944,18 @@ function buildNavGrid(
                     if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
                     const idx = c.y * width + c.x;
                     if (protectedCells[idx]) continue;
-                    cells[idx] = BLOCKED;
-                    hardBlocked[idx] = 1;
+                    if (relaxedLndare || relaxMask[idx] === 1) {
+                        if (cells[idx] === UNKNOWN_OPEN) cells[idx] = CAUTION;
+                    } else {
+                        cells[idx] = BLOCKED;
+                        hardBlocked[idx] = 1;
+                        coastCellsBlocked++;
+                    }
                 }
             }
         }
     }
+    markPass('pass2b-coastline', tPassCoast, coastline.length);
 
     // ── Pass 3: point obstructions — block radius around each ──────
     const blockPointBuffer = (lat: number, lon: number): void => {
@@ -618,25 +985,22 @@ function buildNavGrid(
             blockPointBuffer(lat, lon);
         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
             // For polygon obstructions, treat the polygon area itself as blocked.
-            const g = f.geometry as Polygon | MultiPolygon;
-            const pBbox = geometryBbox(g);
-            const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-            for (let y = y0; y <= y1; y++) {
-                const lat = minLat + (y + 0.5) * dLat;
-                for (let x = x0; x <= x1; x++) {
-                    const lon = minLon + (x + 0.5) * dLon;
-                    if (pointInGeometry(lon, lat, g)) {
-                        cells[y * width + x] = BLOCKED;
-                        hardBlocked[y * width + x] = 1;
-                    }
-                }
-            }
+            rasterizePolygonCells(grid, f.geometry as Polygon | MultiPolygon, (x, y) => {
+                const idx = y * width + x;
+                cells[idx] = BLOCKED;
+                hardBlocked[idx] = 1;
+            });
         }
     };
 
-    for (const f of layers.OBSTRN?.features ?? []) handlePointFeature(f);
-    for (const f of layers.WRECKS?.features ?? []) handlePointFeature(f);
-    for (const f of layers.UWTROC?.features ?? []) handlePointFeature(f);
+    const tPassPoints = Date.now();
+    const obstrnFeatures = layers.OBSTRN?.features ?? [];
+    const wrecksFeatures = layers.WRECKS?.features ?? [];
+    const uwtrocFeatures = layers.UWTROC?.features ?? [];
+    for (const f of obstrnFeatures) handlePointFeature(f);
+    for (const f of wrecksFeatures) handlePointFeature(f);
+    for (const f of uwtrocFeatures) handlePointFeature(f);
+    markPass('pass3-points', tPassPoints, obstrnFeatures.length + wrecksFeatures.length + uwtrocFeatures.length);
 
     // ── Pass 4: FAIRWY + DRGARE — mark preferred channel cells ─────
     // We don't change the navigability of these cells (a navigable cell
@@ -648,41 +1012,52 @@ function buildNavGrid(
     const markChannelPreference = (f: Feature): void => {
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
         const g = f.geometry as Polygon | MultiPolygon;
-        const pBbox = geometryBbox(g);
-        const { x0, x1, y0, y1 } = polyToCellRange(pBbox);
-        if (x0 > x1 || y0 > y1) return;
-        for (let y = y0; y <= y1; y++) {
-            const lat = minLat + (y + 0.5) * dLat;
-            for (let x = x0; x <= x1; x++) {
-                const lon = minLon + (x + 0.5) * dLon;
-                if (pointInGeometry(lon, lat, g)) {
-                    const idx = y * width + x;
-                    preferred[idx] = 1;
-                    // Rescue: a marked fairway / dredged area is
-                    // navigable water by definition. If coarse public
-                    // bathymetry blocked this cell with a shallow
-                    // DEPARE band, un-block it — the channel markers
-                    // (placed by the harbour authority) are the
-                    // authoritative "navigable" signal, not the 30 m
-                    // raster. Never override a hard-blocked cell
-                    // (LNDARE / obstruction). (2026-05-14: Newport —
-                    // the marked exit channel was preferred-but-
-                    // blocked, so it couldn't connect the canal to
-                    // open water and the route snapped ~2 km across
-                    // the peninsula.)
-                    if ((Number.isNaN(cells[idx]) || cells[idx] < 0) && hardBlocked[idx] !== 1) {
-                        // Rescue a hard-blocked OR caution-marked cell to
-                        // real navigable depth — the marked channel is
-                        // authoritative over both a shallow bathymetry
-                        // reading and a coastline-buffer over-reach.
-                        cells[idx] = Math.max(draftM + safetyM, 5.0);
-                    }
-                }
-            }
-        }
+        const rescueDepth = Math.max(draftM + safetyM, 5.0);
+        // S-57 charted features carry an `acronym` property (e.g. 'DRGARE',
+        // 'FAIRWY') set by senc-extractor's geojsonEmitter. OSM-derived
+        // mock channels don't. A chart-authoritative dredged area or
+        // fairway is *surveyed navigable water* — when it overlaps an
+        // LNDARE polygon (which happens on real ENC charts because the
+        // SENC's GLU-tessellated LNDARE primitives can span across
+        // river concavities), the DRGARE/FAIRWY is the truth.
+        //
+        // This is the inverse of the 2026-05-14 Scarborough peninsula
+        // fix: that fix locked LNDARE down so bathymetry-derived DEPARE
+        // couldn't unblock real land. Chart DRGARE/FAIRWY are a different
+        // signal class — they exist because a harbour authority surveyed
+        // and dredged the channel, so they get the keys back. OSM-derived
+        // channel features (no `acronym`) still respect LNDARE's hard-block.
+        //
+        // EXTENSION (2026-05-19): OSM water polygons tagged `water=river`
+        // or `harbour=yes` and wider than ~200 m are promoted to this
+        // chart-authoritative class via `_promotePreferred` set in
+        // InshoreRouter.ts. Without this, the Brisbane River shipping
+        // channel cells (which sit inside an over-bleeding mainland
+        // LNDARE polygon on the AU SENC) couldn't be rescued by their
+        // own OSM water tag, and A* would route through Bramble Bay
+        // shallows instead of along the river. The promotion is gated
+        // on tag + minimum width to keep suburban ponds out.
+        const props = f.properties as Record<string, unknown> | null;
+        const isChartAuthoritative = typeof props?.acronym === 'string' || props?._promotePreferred === true;
+        rasterizePolygonCells(grid, g, (x, y) => {
+            const idx = y * width + x;
+            preferred[idx] = 1;
+            const blockedOrShallow = Number.isNaN(cells[idx]) || cells[idx] < 0;
+            if (!blockedOrShallow) return;
+            // Chart DRGARE/FAIRWY rescues hard-blocked cells too —
+            // LNDARE polygons on ENC charts span river concavities, and
+            // the dredged-channel polygon is the authoritative "this is
+            // navigable" overlay. OSM channels still respect hardBlocked.
+            if (hardBlocked[idx] === 1 && !isChartAuthoritative) return;
+            cells[idx] = rescueDepth;
+        });
     };
-    for (const f of layers.FAIRWY?.features ?? []) markChannelPreference(f);
-    for (const f of layers.DRGARE?.features ?? []) markChannelPreference(f);
+    const tPassFairwy = Date.now();
+    const fairwyFeatures = layers.FAIRWY?.features ?? [];
+    const drgareFeatures = layers.DRGARE?.features ?? [];
+    for (const f of fairwyFeatures) markChannelPreference(f);
+    for (const f of drgareFeatures) markChannelPreference(f);
+    markPass('pass4-FAIRWY+DRGARE', tPassFairwy, fairwyFeatures.length + drgareFeatures.length);
 
     // ── Pass 5: Lateral markers → preferred-cell radius ─────────────
     // When the iOS side pairs port+starboard markers and emits the
@@ -768,8 +1143,178 @@ function buildNavGrid(
             }
         }
     };
-    for (const f of layers.BOYLAT?.features ?? []) markMarkerRadius(f);
-    for (const f of layers.BCNLAT?.features ?? []) markMarkerRadius(f);
+    const tPassMarkers = Date.now();
+    const boylatFeatures = layers.BOYLAT?.features ?? [];
+    const bcnlatFeatures = layers.BCNLAT?.features ?? [];
+    for (const f of boylatFeatures) markMarkerRadius(f);
+    for (const f of bcnlatFeatures) markMarkerRadius(f);
+    markPass('pass5-markers', tPassMarkers, boylatFeatures.length + bcnlatFeatures.length);
+
+    // ── Pass 5b: OSM navigation lines → preferred channel corridor ───
+    // Charted leading/transit lines (seamark navigation_line) are the
+    // dredged-channel centreline ships steer along. Bresenham-rasterise
+    // each into a ~3-cell-wide PREFERRED corridor and rescue shallow
+    // (CAUTION) / unknown cells along it to navigable depth — so A* is
+    // attracted onto the marked channel AND can ride it through bars the
+    // 30 m bathymetry reads as too shallow. Never touches hardBlocked
+    // (real land / charted hazard) cells. Runs after Pass 2 (LNDARE, so
+    // hardBlocked is set) and before Pass 6 (buffer skips preferred cells,
+    // so the corridor isn't sealed). The Brisbane River mouth bar is the
+    // canonical case: the dredged cut isn't in chart FAIRWY and the
+    // lateral markers are too sparse to stitch, but OSM has it as
+    // navigation_line — without this the route cut a red CAUTION diagonal
+    // straight across the bar instead of riding the channel.
+    const navlineFeatures = layers.NAVLINE?.features ?? [];
+    const tPassNavline = Date.now();
+    const navDepth = Math.max(draftM + safetyM, 5.0);
+    const NAVLINE_BRUSH_CELLS = 1; // 1-cell Chebyshev radius → ~3-cell (≈150 m) wide corridor
+    let navlineCellsMarked = 0;
+    const stampNavlineCell = (cx: number, cy: number): void => {
+        for (let dy = -NAVLINE_BRUSH_CELLS; dy <= NAVLINE_BRUSH_CELLS; dy++) {
+            for (let dx = -NAVLINE_BRUSH_CELLS; dx <= NAVLINE_BRUSH_CELLS; dx++) {
+                const nx = cx + dx;
+                const ny = cy + dy;
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                const idx = ny * width + nx;
+                if (hardBlocked[idx] === 1) continue; // never carve real land
+                preferred[idx] = 1; // attract A* onto the marked channel
+                if (cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
+                    // Rescue a shallow-reading (CAUTION) or unknown cell on
+                    // the charted channel to navigable — the leading line
+                    // IS the dredged deep water.
+                    cells[idx] = navDepth;
+                    navlineCellsMarked++;
+                }
+            }
+        }
+    };
+    for (const f of navlineFeatures) {
+        const g = f.geometry;
+        if (!g) continue;
+        let lineRings: Position[][] = [];
+        if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
+        else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
+        else continue;
+        for (const coords of lineRings) {
+            for (let i = 0; i < coords.length - 1; i++) {
+                const [lon0, lat0] = coords[i];
+                const [lon1, lat1] = coords[i + 1];
+                const gx0 = Math.floor((lon0 - minLon) / dLon);
+                const gy0 = Math.floor((lat0 - minLat) / dLat);
+                const gx1 = Math.floor((lon1 - minLon) / dLon);
+                const gy1 = Math.floor((lat1 - minLat) / dLat);
+                for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+                    stampNavlineCell(c.x, c.y);
+                }
+            }
+        }
+    }
+    markPass('pass5b-navline', tPassNavline, navlineFeatures.length);
+    if (ENGINE_DEBUG && navlineFeatures.length > 0) {
+        console.warn(
+            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
+        );
+    }
+
+    // ── Pass 6: LNDARE 1-cell buffer ─────────────────────────────────
+    // The scanline rasterizer marks cells whose centre is inside an
+    // LNDARE polygon. Cells along the polygon boundary whose centre is
+    // OUTSIDE but pixels overlap stay navigable — A* can then thread a
+    // 50m water sliver hugging the coastline that visually looks like
+    // crossing land (verified on AU OC-61-10ENB5 Newport → Pinkenba
+    // 2026-05-19). Add a 1-cell skin so cells adjacent to any LNDARE-
+    // blocked cell are also blocked.
+    //
+    // Runs LAST so `preferred` flags from FAIRWY/DRGARE (pass 4) and
+    // marker-pair midpoints (pass 5) are already set — those cells are
+    // skipped to keep charted channels open. Also skips real-depth cells
+    // (chart DEPARE claimed them as deep water). Skipped entirely in
+    // relaxedLndare mode where the whole point is to thread "land" cells.
+    if (!relaxedLndare) {
+        const tPassBuffer = Date.now();
+        const lndareSeed = new Uint8Array(width * height);
+        for (let i = 0; i < cells.length; i++) {
+            if (hardBlocked[i] === 1) lndareSeed[i] = 1;
+        }
+        let bufferedCount = 0;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (lndareSeed[idx] === 1) continue;
+                if (preferred[idx] === 1) continue;
+                // Don't re-seal a localized relax corridor: cells inside a
+                // relax zone are intentionally CAUTION (the barrier we're
+                // threading red); buffering them shut would re-island the
+                // far-snapped endpoint we're trying to reach.
+                if (relaxMask[idx] === 1) continue;
+                const prior = cells[idx];
+                if (prior > 0) continue; // chart DEPARE-claimed deep water
+
+                // 2026-05-20: also skip cells that are 8-adjacent to any
+                // protectedCells (OSM marina/canal/water or chart S57
+                // DEPARE). This dilates protection by one cell so that
+                // narrow water passages at marina exits don't get sealed
+                // by the buffer.
+                //
+                // The Newport Marina case: chart LNDARE tessellates the
+                // canal banks at 50m resolution but the actual marina exit
+                // channel is 60-100m wide. The OSM marina polygon protects
+                // cells inside the marina basin, but cells just outside the
+                // basin (the exit channel itself) are CAUTION water that
+                // Pass 6 was buffering shut. Result: Newport canal interior
+                // was a 349-cell isolated component, origin tap snapped 2 km
+                // away to the big bay component, the visible route appeared
+                // to start 2 km from where the user tapped.
+                //
+                // By exempting cells adjacent to protected ones, the
+                // exit-channel buffer is suppressed and the canal connects
+                // to the bay through its natural opening. Pass 2 LNDARE
+                // still blocks the actual land cells unconditionally —
+                // only the 1-cell skin around them is relaxed near
+                // protected water.
+                let adjacentToProtected = false;
+                for (let dy = -1; dy <= 1 && !adjacentToProtected; dy++) {
+                    for (let dx = -1; dx <= 1 && !adjacentToProtected; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                        if (protectedCells[ny * width + nx] === 1) adjacentToProtected = true;
+                    }
+                }
+                if (adjacentToProtected) continue;
+
+                let neighborBlocked = false;
+                for (let dy = -1; dy <= 1 && !neighborBlocked; dy++) {
+                    for (let dx = -1; dx <= 1 && !neighborBlocked; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                        if (lndareSeed[ny * width + nx] === 1) neighborBlocked = true;
+                    }
+                }
+                if (neighborBlocked) {
+                    cells[idx] = BLOCKED;
+                    hardBlocked[idx] = 1;
+                    bufferedCount++;
+                }
+            }
+        }
+        markPass('pass6-LNDARE-buffer', tPassBuffer, bufferedCount);
+    }
+
+    // Per-pass breakdown — surfaces which polygon scanner is the hot
+    // path. Format: pass=Nms(F features) so the eye can pair time
+    // against feature count at a glance.
+    const buildTotal = Date.now() - buildT0;
+    const breakdown = Object.entries(passTimings)
+        .map(([k, v]) => `${k}=${v}ms(${featureCounts[k]}f)`)
+        .join(' ');
+    if (ENGINE_DEBUG)
+        console.warn(
+            `[inshoreEngine] buildNavGrid total=${buildTotal}ms grid=${width}x${height}(${(width * height).toLocaleString()}cells) — ${breakdown}`,
+        );
 
     return grid;
 }
@@ -984,6 +1529,16 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     // baseline cost regardless of depth band — that's how we get
     // A* to follow the channel instead of cutting across deeper
     // open water nearby.
+    //
+    // 2026-05-20: tried depth-grading this (deep 1.0× / shallow 2.5×) to
+    // make A* ride the deep dredged centre. It BACKFIRED — the Brisbane
+    // shipping channel reads as 2 m in the 30 m bathymetry, so penalising
+    // shallow preferred cells pushed A* OFF the channel onto a coast-
+    // hugging path with more caution (Shane: "brisbane end it hugging the
+    // coast now, it is not right"). The real lever is the vessel draft
+    // (it was coming through at 0.914 m / 3 ft, far too shallow for a
+    // 55' Tayana, so everything reads navigable) + FAIRWY coverage, NOT
+    // cost tuning. Reverted to flat 1.0×.
     if (preferred) return 1.0;
 
     // Outside marked channels, prefer deeper water but allow shallow
@@ -1308,10 +1863,107 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * before calling this.
  */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    // Try strict first — LNDARE blocks land. With proper ring assembly
+    // (Eulerian/linear-chain fix landed 2026-05-19) this gives accurate
+    // results for most routes. But certain charts represent rivers as
+    // "inside" a giant mainland LNDARE polygon with no inner-ring hole
+    // (verified on AU OC-61-351824 rcid 4500: Brisbane mainland is one
+    // 3503-vert polygon, no holes — the river course is inside it). For
+    // destinations inside such polygons, retry with LNDARE relaxed to
+    // CAUTION (cost 500× water). A* prefers actual water cells massively
+    // over caution, so it won't cross real land masses — only the
+    // chart-says-land-but-really-water river/harbour interior cells get
+    // traversed, flagged red in the polyline so the user verifies.
+    const strict = routeInshoreOnce(layers, req, false);
+    if ('error' in strict) {
+        if (strict.code !== 'destination-disconnected') return strict;
+        // Last resort: strict found NO path because the destination is
+        // inside a giant mainland LNDARE with no inner-ring hole. Relax
+        // GRID-WIDE — A* still prefers real water (8×) over relaxed land
+        // (40×), so it only crosses land where no water route exists at
+        // all. This is the only place we relax globally; the far-snap
+        // path below uses bounded zones instead.
+        console.warn(
+            '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed grid-wide to CAUTION (last resort)',
+        );
+        return routeInshoreOnce(layers, req, true);
+    }
+
+    // Strict succeeded — but did it start/end where the user actually
+    // tapped? When an endpoint sits in a pocket cut off from the routable
+    // water body (Newport Marina's shallow canal estate, a drying inlet),
+    // the shared-component snap silently drags that endpoint to the
+    // nearest big-water cell — Newport snaps the origin ~2 km out into
+    // Bramble Bay, so the visible route starts 2 km from the berth and
+    // the impassable stretch is hidden in an invisible bridge segment.
+    //
+    // Honest fix (Shane's call 2026-05-20): if an endpoint snapped far,
+    // retry with LNDARE relaxed to CAUTION — but ONLY inside a bounded
+    // zone around that endpoint's tap, NOT grid-wide. The first cut at
+    // this relaxed the whole grid; A* then found cheaper CAUTION (40×)
+    // shortcuts straight across the mainland mid-route and the route
+    // crossed land (verified 2026-05-20: "that went sideways. it crossed
+    // land"). Confining relaxation to a circle around the problem
+    // endpoint lets A* thread the local barrier — which the polyline
+    // flags in cautionMask and the renderer draws RED as a "verify
+    // pilotage / your draft won't clear this" warning — while every
+    // mid-route mainland cell stays hard-blocked, so the route cannot
+    // shortcut across land. No fake deep water is carved; the marginal
+    // barrier is shown honestly in red.
+    //
+    // The zone radius scales with how far the endpoint snapped (the
+    // barrier is at least that wide) plus margin, capped at 4 km so the
+    // relaxed region never spans far enough to reach a competing water
+    // body that would let A* shortcut. We only relax around an endpoint
+    // that actually snapped far — a well-connected endpoint (Rivergate
+    // dest snapped 3 m) gets no zone.
+    const FAR_SNAP_M = 500;
+    const originSnapM = strict.debug?.originSnap?.snapDistanceM ?? 0;
+    const destSnapM = strict.debug?.destinationSnap?.snapDistanceM ?? 0;
+    const zoneRadiusFor = (snapM: number): number => Math.min(snapM * 1.5 + 500, 4000);
+    const relaxZones: RelaxZone[] = [];
+    if (originSnapM > FAR_SNAP_M) {
+        relaxZones.push({ lat: req.fromLat, lon: req.fromLon, radiusM: zoneRadiusFor(originSnapM) });
+    }
+    if (destSnapM > FAR_SNAP_M) {
+        relaxZones.push({ lat: req.toLat, lon: req.toLon, radiusM: zoneRadiusFor(destSnapM) });
+    }
+    if (relaxZones.length === 0) return strict;
+
+    const strictWorstSnapM = Math.max(originSnapM, destSnapM);
+    console.warn(
+        `[inshoreEngine] endpoint snapped far (origin ${Math.round(originSnapM)}m / dest ${Math.round(destSnapM)}m) — retrying with ${relaxZones.length} localized relax zone(s) so the route starts at the real berth (barrier shown red, mainland stays blocked)`,
+    );
+    const relaxed = routeInshoreOnce(layers, req, false, relaxZones);
+    if ('error' in relaxed) return strict;
+    const relaxedWorstSnapM = Math.max(
+        relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
+        relaxed.debug?.destinationSnap?.snapDistanceM ?? Infinity,
+    );
+    // Require a meaningful improvement (≥200 m) before swapping, so we
+    // don't trade an all-real-water route for a red-flagged one on a tie.
+    if (relaxedWorstSnapM < strictWorstSnapM - 200) {
+        console.warn(
+            `[inshoreEngine] localized-relaxed route starts ${Math.round(relaxedWorstSnapM)}m from tap (vs ${Math.round(strictWorstSnapM)}m strict) — using relaxed, barrier flagged red`,
+        );
+        return relaxed;
+    }
+    return strict;
+}
+
+function routeInshoreOnce(
+    layers: InshoreLayers,
+    req: RouteRequest,
+    relaxedLndare: boolean,
+    relaxZones: RelaxZone[] = [],
+): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
     const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
+    // Per-phase timing — we have no idea where the 25-65 s on iOS is going
+    // without measuring. Once we have numbers we can stop guessing and
+    // attack the actual bottleneck.
     const timings: Record<string, number> = {};
     const t0Total = Date.now();
     const mark = (label: string, start: number): number => {
@@ -1330,17 +1982,28 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // bbox missed the deepwater channel entirely and the origin
     // snapped into a 5-cell marina basin.
     //
-    // Now: pad BOTH axes by 25% of the LARGER span (with a 0.05°≈5.5km
-    // floor). That gives lateral room equal to the route's longer
-    // dimension percentage — enough for harbour approaches that don't
-    // run along the great-circle line.
+    // 2026-05-19: bumped multiplier 0.25→0.5 and floor 0.05→0.08. The
+    // Newport→Pinkenba route was hitting the grid's east edge at exactly
+    // Luggage Point (Brisbane River mouth, lon ~153.18). The corridor
+    // east of Fisherman Islands that links north Moreton Bay to the
+    // river fell outside the grid, leaving the bay and river as two
+    // disconnected components (74,357 cells north / 4,592 cells south)
+    // with origin reaching only the north and destination only the
+    // south. The visible "route through the airport" was just the
+    // post-snap bridge segment. With 0.5×, this Newport route gets
+    // ~0.10° (~11 km) lateral padding — enough to include the corridor
+    // east of Fisherman Islands so the components merge.
+    //
+    // Short routes (maxSpan ≤ 0.16°) still hit the 0.08° floor; not
+    // dramatically larger than before but a touch more breathing room
+    // for marina exits.
     const minLat = Math.min(req.fromLat, req.toLat);
     const maxLat = Math.max(req.fromLat, req.toLat);
     const minLon = Math.min(req.fromLon, req.toLon);
     const maxLon = Math.max(req.fromLon, req.toLon);
     const maxSpan = Math.max(maxLat - minLat, maxLon - minLon);
-    const padLat = Math.max(maxSpan * 0.25, 0.05);
-    const padLon = Math.max(maxSpan * 0.25, 0.05);
+    const padLat = Math.max(maxSpan * 0.5, 0.08);
+    const padLon = Math.max(maxSpan * 0.5, 0.08);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();
@@ -1351,6 +2014,8 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         req.draftM,
         safetyM,
         obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
@@ -1361,6 +2026,43 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // reports "no-path" and we need to know whether the grid was
     // mostly land (bad chart for this route) or mostly navigable
     // with a topology issue.
+
+    // ── Endpoint carve ──────────────────────────────────────────────
+    // When the user picks an origin/destination, they're asserting "this
+    // is water". On ENC charts where LNDARE's GLU-tessellated TRIANGLE_FAN
+    // primitives can bleed across narrow rivers (Brisbane River + Rivergate
+    // marina is the verified case), the exact endpoint cell can end up
+    // hard-blocked even though it's a real marina. Carve a small radius
+    // around each endpoint as forced-navigable so the snap algorithm has
+    // a target and A* can connect through.
+    //
+    // 60 m radius — narrow enough to fit any sane marina basin / river
+    // bend without bleeding to the opposite shore on a 50 m grid; just
+    // big enough that even a slight position error puts the carve in the
+    // right water body.
+    const mPerLonHere = mPerDegLon((grid.minLat + grid.minLat + grid.height * grid.dLat) / 2);
+    const carveEndpoint = (lat: number, lon: number, radiusM: number): void => {
+        const dLatBuf = radiusM / M_PER_DEG_LAT;
+        const dLonBuf = radiusM / mPerLonHere;
+        const x0 = Math.max(0, Math.floor((lon - dLonBuf - grid.minLon) / grid.dLon));
+        const x1 = Math.min(grid.width - 1, Math.ceil((lon + dLonBuf - grid.minLon) / grid.dLon));
+        const y0 = Math.max(0, Math.floor((lat - dLatBuf - grid.minLat) / grid.dLat));
+        const y1 = Math.min(grid.height - 1, Math.ceil((lat + dLatBuf - grid.minLat) / grid.dLat));
+        const carveDepth = Math.max((req.draftM ?? 1.5) + 1.0, 5.0);
+        for (let y = y0; y <= y1; y++) {
+            const cellLat = grid.minLat + (y + 0.5) * grid.dLat;
+            for (let x = x0; x <= x1; x++) {
+                const cellLon = grid.minLon + (x + 0.5) * grid.dLon;
+                if (haversineM(cellLat, cellLon, lat, lon) > radiusM) continue;
+                const idx = y * grid.width + x;
+                grid.cells[idx] = carveDepth;
+                grid.preferred[idx] = 1; // attract A* to enter via the bubble
+            }
+        }
+    };
+    carveEndpoint(req.fromLat, req.fromLon, 60);
+    carveEndpoint(req.toLat, req.toLon, 60);
+
     let blocked = 0;
     for (let i = 0; i < grid.cells.length; i++) {
         if (Number.isNaN(grid.cells[i])) blocked++;
@@ -1375,8 +2077,118 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // ── Label connected components ──
     // One pass to bucket every navigable cell into its 8-connected
     // water body. Drives the shared-component snap below.
-    const { labels, sizes } = labelConnectedComponents(grid);
+    let { labels, sizes } = labelConnectedComponents(grid);
     tPhase = mark('labelComponents', tPhase);
+
+    // ── Component bridge ────────────────────────────────────────────
+    // Connect a small origin/destination component to the main routing
+    // component across a THIN barrier. Marina canal estates (Newport)
+    // sit a short distance from open water, separated by an entrance
+    // cut / seawall that chart LNDARE over-represents as land and that
+    // OSM canal LineStrings stop short of (they trace the residential
+    // canals up to the seawall and end). If origin and destination snap
+    // to different components but the shortest gap between them is short
+    // — a thin cut, not a real landmass — carve a 1-cell corridor across
+    // it so they merge into one navigable body.
+    //
+    // 2026-05-20: Newport Marina canal estate was a 361-cell isolated
+    // component, origin tap snapping 2 km out to the bay. The estate's
+    // entrance to open water is a sub-500 m cut that no data source
+    // captured cleanly. Capped at 10 cells (500 m) so we never bridge a
+    // genuine landmass — only an entrance-width barrier the boat really
+    // does pass through.
+    {
+        // Two-tier bridge:
+        //   • gap ≤ NAV cells (≤500 m): a real entrance cut the chart
+        //     over-represents as land. Carve NAVIGABLE — the boat does
+        //     pass through, it's just mischarted.
+        //   • NAV < gap ≤ CAUTION cells (≤2.5 km): a wider barrier we
+        //     can't confirm is passable from data (Newport canal estate
+        //     → bay: the entrance is a sub-2 km cut no source maps as
+        //     water). Carve CAUTION (red) — A* exits the islanded pocket
+        //     at the SHORTEST gap (geometrically the marina entrance, not
+        //     a goal-biased diagonal across the suburb), and the corridor
+        //     renders red as a "verify pilotage, draft may not clear"
+        //     warning. This replaces the localized relax-CIRCLE for the
+        //     islanded-endpoint case: a circle let A* cut goal-ward across
+        //     land (Shane 2026-05-20: "follow the canals until it runs out
+        //     of room — it is going the wrong way"); a single narrow
+        //     corridor at the shortest gap forces the correct exit.
+        const MAX_BRIDGE_CELLS = 10; // 500 m navigable
+        const MAX_CAUTION_BRIDGE_CELLS = 60; // 3 km red corridor
+        // The CAUTION search is O(smallCells × window²). Only run the
+        // wide (±50) window for genuinely small islanded pockets (marina
+        // canal estates ≤ a few thousand cells); for big components fall
+        // back to the cheap ±10 window so we never pay 100M+ iterations.
+        const SMALL_FOR_CAUTION_BRIDGE = 3000;
+        // Generous snap radius just to identify which component each
+        // endpoint belongs to (same 10 km used by the shared-component
+        // snap below).
+        const bridgeSnapCells = Math.ceil(10_000 / resolutionM);
+        const oCell = snapToNavigable(grid, req.fromLat, req.fromLon, bridgeSnapCells);
+        const dCell = snapToNavigable(grid, req.toLat, req.toLon, bridgeSnapCells);
+        const lo = oCell ? labels[oCell.y * grid.width + oCell.x] : 0;
+        const ld = dCell ? labels[dCell.y * grid.width + dCell.x] : 0;
+        if (lo > 0 && ld > 0 && lo !== ld) {
+            // Bridge the smaller component to the larger one.
+            const small = (sizes.get(lo) ?? 0) <= (sizes.get(ld) ?? 0) ? lo : ld;
+            const large = small === lo ? ld : lo;
+            const smallSize = sizes.get(small) ?? 0;
+            const searchCap = smallSize <= SMALL_FOR_CAUTION_BRIDGE ? MAX_CAUTION_BRIDGE_CELLS : MAX_BRIDGE_CELLS;
+            // Collect the small component's cells once, then probe each
+            // for a large-component cell within searchCap.
+            let bestGap = Infinity;
+            let bestSmall: { x: number; y: number } | null = null;
+            let bestLarge: { x: number; y: number } | null = null;
+            for (let y = 0; y < grid.height; y++) {
+                for (let x = 0; x < grid.width; x++) {
+                    if (labels[y * grid.width + x] !== small) continue;
+                    for (let dy = -searchCap; dy <= searchCap; dy++) {
+                        for (let dx = -searchCap; dx <= searchCap; dx++) {
+                            const nx = x + dx;
+                            const ny = y + dy;
+                            if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height) continue;
+                            if (labels[ny * grid.width + nx] !== large) continue;
+                            const gap = Math.hypot(dx, dy);
+                            if (gap < bestGap) {
+                                bestGap = gap;
+                                bestSmall = { x, y };
+                                bestLarge = { x: nx, y: ny };
+                            }
+                        }
+                    }
+                }
+            }
+            if (bestSmall && bestLarge && bestGap <= searchCap) {
+                // ≤ NAV gap → navigable (real entrance cut); wider →
+                // CAUTION (red, verify-pilotage barrier).
+                const asCaution = bestGap > MAX_BRIDGE_CELLS;
+                const carveDepth = Math.max((req.draftM ?? 1.5) + 1.0, 5.0);
+                const carveValue = asCaution ? CAUTION : carveDepth;
+                for (const c of bresenhamCells(bestSmall.x, bestSmall.y, bestLarge.x, bestLarge.y)) {
+                    if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
+                    const idx = c.y * grid.width + c.x;
+                    // Only fill blocked/unknown/caution cells — never
+                    // downgrade real charted water along the corridor.
+                    if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0 || grid.cells[idx] === UNKNOWN_OPEN) {
+                        grid.cells[idx] = carveValue;
+                    }
+                }
+                if (ENGINE_DEBUG)
+                    engineLog.warn(
+                        `BRIDGE: carved comp ${small}(${smallSize} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m as ${asCaution ? 'CAUTION(red)' : 'navigable'}`,
+                    );
+                const relabeled = labelConnectedComponents(grid);
+                labels = relabeled.labels;
+                sizes = relabeled.sizes;
+            } else {
+                if (ENGINE_DEBUG)
+                    engineLog.warn(
+                        `BRIDGE: origin comp ${lo} / dest comp ${ld} — nearest gap ${Math.round(bestGap * resolutionM)}m > ${searchCap * resolutionM}m, not bridged`,
+                    );
+            }
+        }
+    }
 
     // ── Shared-component snap ──────────────────────────────────────
     // For each sizeable component, find its nearest cell to origin AND
@@ -1396,6 +2208,70 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // couldn't reach it.
     const minComponentCells = req.minComponentCells ?? 25;
     const maxSnapCells = Math.ceil(10_000 / resolutionM);
+
+    // DEBUG 2026-05-19: dump the top 5 connected components by size,
+    // each with bbox + can-origin-snap-here + can-dest-snap-here. Tells
+    // us at a glance which component contains the river (vs the bay)
+    // and how far each endpoint is from each component. The snap
+    // algorithm below picks the component minimising combined snap
+    // distance, so seeing all the candidates clarifies WHY it picks
+    // what it picks.
+    if (ENGINE_DEBUG) {
+        const sortedComponents = [...sizes.entries()]
+            .filter(([, size]) => size >= minComponentCells)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+        engineLog.warn(`COMPONENTS top ${sortedComponents.length} (min size ${minComponentCells} cells):`);
+        for (const [label, size] of sortedComponents) {
+            let minX = Infinity;
+            let maxX = -Infinity;
+            let minY = Infinity;
+            let maxY = -Infinity;
+            for (let y = 0; y < grid.height; y++) {
+                for (let x = 0; x < grid.width; x++) {
+                    if (labels[y * grid.width + x] === label) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+            const [bboxWLon, bboxSLat] = gridToLatLon(grid, minX, minY);
+            const [bboxELon, bboxNLat] = gridToLatLon(grid, maxX, maxY);
+            const oSnap = snapWithPredicate(
+                grid,
+                req.fromLat,
+                req.fromLon,
+                maxSnapCells,
+                (idx) => labels[idx] === label,
+            );
+            const dSnap = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => labels[idx] === label);
+            const oDistM = oSnap
+                ? Math.round(
+                      haversineM(
+                          req.fromLat,
+                          req.fromLon,
+                          gridToLatLon(grid, oSnap.x, oSnap.y)[1],
+                          gridToLatLon(grid, oSnap.x, oSnap.y)[0],
+                      ),
+                  )
+                : null;
+            const dDistM = dSnap
+                ? Math.round(
+                      haversineM(
+                          req.toLat,
+                          req.toLon,
+                          gridToLatLon(grid, dSnap.x, dSnap.y)[1],
+                          gridToLatLon(grid, dSnap.x, dSnap.y)[0],
+                      ),
+                  )
+                : null;
+            engineLog.warn(
+                `  • label=${label} size=${size} bbox=[${bboxSLat.toFixed(3)},${bboxWLon.toFixed(3)} → ${bboxNLat.toFixed(3)},${bboxELon.toFixed(3)}]  origin-snap=${oDistM != null ? oDistM + 'm' : 'OUT-OF-RANGE'}  dest-snap=${dDistM != null ? dDistM + 'm' : 'OUT-OF-RANGE'}`,
+            );
+        }
+    }
 
     let bestStart: { x: number; y: number } | null = null;
     let bestEnd: { x: number; y: number } | null = null;
@@ -1489,10 +2365,25 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         };
     }
 
+    tPhase = mark('componentSnap', tPhase);
+
+    // DEBUG 2026-05-19: surface the snap distances so we can spot when
+    // the destination got pulled far from where the user actually
+    // tapped. A "12 km destination snap" is the smoking gun for the
+    // destination cell being in a different connected component than
+    // the origin (componentSnap then picks the largest component both
+    // endpoints can reach, even if it means dragging the destination
+    // across the map). The visible "bridge" segment from the route's
+    // last cell to the user input is what looks like routing through
+    // land but is actually post-snap fiction.
+    if (ENGINE_DEBUG)
+        engineLog.warn(
+            `SNAP: origin ${haversineM(req.fromLat, req.fromLon, debug.originSnap?.snappedLat ?? 0, debug.originSnap?.snappedLon ?? 0).toFixed(0)}m  •  dest ${haversineM(req.toLat, req.toLon, debug.destinationSnap?.snappedLat ?? 0, debug.destinationSnap?.snappedLon ?? 0).toFixed(0)}m  •  componentSize=${bestComponentSize} cells`,
+        );
+
     // A* must succeed because the destination cell is in the origin's
     // reachable component. Defensive: still handle null in case the
     // grid has a path-cost edge case I haven't anticipated.
-    tPhase = mark('componentSnap', tPhase);
     const cells = aStar(grid, startCell, endCell);
     tPhase = mark('aStar', tPhase);
     if (!cells) {
@@ -1506,7 +2397,49 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const breakdown = Object.entries(timings)
         .map(([k, v]) => `${k}=${v}ms`)
         .join(' ');
-    console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
+    if (ENGINE_DEBUG) console.warn(`[inshoreEngine] routeInshore total=${totalMs}ms — ${breakdown}`);
+
+    // DEBUG 2026-05-19: trace cell-state along the final smoothed polyline.
+    // For each adjacent waypoint pair, sample up to 6 evenly-spaced cells
+    // along the Bresenham line and log the cell's effective depth, the
+    // preferred flag, and the lat/lon. Tells us *directly* whether the
+    // OBSTRN-injected airport bbox is actually hard-blocking the cells
+    // the route claims to thread, or whether FAIRWY rescue is letting
+    // the route through (rescued cells have positive depth AND
+    // preferred=1, blocked cells have NaN). Remove once Brisbane Airport
+    // routing is sorted.
+    if (ENGINE_DEBUG && smoothedCells.length >= 2) {
+        const traceLines: string[] = [];
+        for (let i = 0; i < smoothedCells.length - 1; i++) {
+            const a = smoothedCells[i];
+            const b = smoothedCells[i + 1];
+            const cellsOnLine = Array.from(bresenhamCells(a.x, a.y, b.x, b.y));
+            const sampleCount = Math.min(6, cellsOnLine.length);
+            const step = Math.max(1, Math.floor(cellsOnLine.length / sampleCount));
+            const samples: { x: number; y: number }[] = [];
+            for (let s = 0; s < cellsOnLine.length; s += step) samples.push(cellsOnLine[s]);
+            if (cellsOnLine.length > 0 && samples[samples.length - 1] !== cellsOnLine[cellsOnLine.length - 1]) {
+                samples.push(cellsOnLine[cellsOnLine.length - 1]);
+            }
+            traceLines.push(`  seg ${i}→${i + 1} (${cellsOnLine.length} cells):`);
+            for (const s of samples) {
+                const idx = s.y * grid.width + s.x;
+                const depth = grid.cells[idx];
+                const pref = grid.preferred[idx];
+                const [lon, lat] = gridToLatLon(grid, s.x, s.y);
+                const depthStr = Number.isNaN(depth)
+                    ? 'NaN(BLOCKED)'
+                    : depth < 0
+                      ? `CAUTION(${depth})`
+                      : depth === 0
+                        ? 'UNKNOWN(0)'
+                        : `depth=${depth.toFixed(1)}m`;
+                traceLines.push(`    @${lat.toFixed(4)},${lon.toFixed(4)} ${depthStr} preferred=${pref}`);
+            }
+        }
+        engineLog.warn(`CELL TRACE along smoothed polyline (${smoothedCells.length - 1} segments):`);
+        for (const line of traceLines) engineLog.warn(line);
+    }
 
     // Convert grid path → polyline (cell centers). Keep each smoothed
     // cell's caution-state alongside so Douglas-Peucker can be run
@@ -1517,24 +2450,27 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
     const cautionRaw: boolean[] = smoothedCells.map((c) => grid.cells[c.y * grid.width + c.x] < 0);
 
-    // Splice the user's input lat/lon back into the polyline ONLY when
-    // the input is close enough to the snapped water cell that the
-    // bridging segment stays in water. If the input geocoded to land
-    // (city centres, marinas, suburbs) the snap moved hundreds of
-    // metres to find navigable water — overriding the polyline endpoint
-    // with that on-land input puts a visible "route crosses land"
-    // segment from input to first water cell.
-    //
-    // Threshold = 150 m. Bigger than typical chart-marker tap precision
-    // (~20 m) and the 50 m grid cell, smaller than the snap distances
-    // (300-700 m) we see for shore-side geocodes. Inside that radius
-    // the bridge segment is short enough we trust it doesn't cross
-    // land; outside, we leave the snapped water cell as the visible
-    // route start.
     // Always splice the input coords as the visible start/end of the
-    // polyline. The bridge segment is shown as part of the route.
-    // Visual feedback is the right primitive — if the bridge looks
-    // like it crosses land, the user knows the input wasn't ideal.
+    // polyline. The bridge segment from input → first water cell
+    // (and last water cell → input) is shown as part of the route.
+    //
+    // Earlier versions tried various gates (150 m threshold, LNDARE-
+    // crossing check) to hide the bridge when it would visually cross
+    // land — but that meant routes silently appeared to start/end
+    // somewhere different from where the user tapped. Confusing.
+    //
+    // User-visible behaviour now:
+    //   - tap in open water → route visibly starts at the tap, bridge
+    //     is short and over water, looks correct
+    //   - tap in marina canal / on dock → bridge segment visibly
+    //     crosses dock structures, signalling "your tap wasn't in
+    //     clean water — move the pin if you want a cleaner approach"
+    //   - tap miles inland → long bridge over land, obvious that the
+    //     input was wrong
+    //
+    // Visual feedback is the right primitive for this — we don't have
+    // the routing constraints to know whether the user *meant* a
+    // marina exit or a coastline tap.
     if (polylineRaw.length > 0) {
         polylineRaw[0] = [req.fromLon, req.fromLat];
         polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
