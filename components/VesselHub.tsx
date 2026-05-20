@@ -25,7 +25,7 @@ import { convertLength } from '../utils/units';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
 import { useRealtimeSync } from '../hooks/useRealtimeSync';
-import { mergeByUpdatedAt } from '../utils/mergeByUpdatedAt';
+import { useVesselReadinessCounts } from '../hooks/useVesselReadinessCounts';
 import { lazyRetry } from '../utils/lazyRetry';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
@@ -365,9 +365,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
     // counts now render as a status header above the voyage list.
     const [guardianArmed, setGuardianArmed] = useState<boolean>(false);
     const [guardianNearby, setGuardianNearby] = useState<number>(0);
-    const [overdueCount, setOverdueCount] = useState<number>(0);
-    const [expiringDocsCount, setExpiringDocsCount] = useState<number>(0);
-    const [expiringEquipCount, setExpiringEquipCount] = useState<number>(0);
 
     useEffect(() => {
         // Subscribe to Guardian for live armed-state + nearby-count.
@@ -391,124 +388,12 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
         };
     }, []);
 
-    // ── Live counts for Inventory & Maintenance row badges ──
-    //
-    // Maintenance overdue / Documents expiring / Equipment warranty
-    // counts all need to update the moment the user changes
-    // something elsewhere (ticks off a service, edits a document,
-    // adds equipment) — the user reported "1 Overdue" still showing
-    // after they ticked the task off, because these effects only
-    // ran on mount.
-    //
-    // Each fetch listens for its own data-change window event (fired
-    // from the corresponding service's mutations) AND for
-    // visibilitychange (so backgrounding + returning re-validates
-    // even when changes happened on another device). Combined Maint
-    // + Doc + Equip refetch in one effect to keep teardown clean.
-    useEffect(() => {
-        let cancelled = false;
-
-        const refetchMaintenance = async () => {
-            try {
-                // Pull from BOTH sources — local cache (offline-first
-                // primary) AND cloud — so the count reflects whichever
-                // store has the freshest state. Local mutations fire
-                // the event immediately; cloud-only mutations lag but
-                // catch up on the visibility tick.
-                const [{ LocalMaintenanceService }, { MaintenanceService }] = await Promise.all([
-                    import('../services/vessel/LocalMaintenanceService'),
-                    import('../services/MaintenanceService'),
-                ]);
-                if (cancelled) return;
-
-                const localTasks = LocalMaintenanceService.getTasks();
-                let cloudTasks: typeof localTasks = [];
-                try {
-                    cloudTasks = await MaintenanceService.getTasks();
-                } catch {
-                    /* offline — local-only count */
-                }
-
-                // Merge by id, NEWEST updated_at wins (see
-                // utils/mergeByUpdatedAt for the full rationale —
-                // the "cloud wins unconditionally" version stuck the
-                // overdue badge on stale data). Shared helper so any
-                // future local+cloud merge gets the correct behaviour.
-                const merged = mergeByUpdatedAt(localTasks, cloudTasks);
-
-                const now = Date.now();
-                const overdue = merged.filter(
-                    (t) => t.is_active && t.next_due_date && Date.parse(t.next_due_date) < now,
-                ).length;
-                if (!cancelled) setOverdueCount(overdue);
-            } catch {
-                /* both sources unavailable — leave previous count */
-            }
-        };
-
-        const refetchDocs = async () => {
-            try {
-                const { LocalDocumentService } = await import('../services/vessel/LocalDocumentService');
-                const docs = LocalDocumentService.getAll();
-                if (cancelled) return;
-                const cutoff = Date.now() + 30 * 86_400_000;
-                const expiring = docs.filter((d) => d.expiry_date && Date.parse(d.expiry_date) <= cutoff).length;
-                setExpiringDocsCount(expiring);
-            } catch {
-                /* offline — no badge */
-            }
-        };
-
-        const refetchEquip = async () => {
-            try {
-                const { LocalEquipmentService } = await import('../services/vessel/LocalEquipmentService');
-                const items = LocalEquipmentService.getAll();
-                if (cancelled) return;
-                const cutoff = Date.now() + 30 * 86_400_000;
-                const expiring = items.filter(
-                    (e) => e.warranty_expiry && Date.parse(e.warranty_expiry) <= cutoff,
-                ).length;
-                setExpiringEquipCount(expiring);
-            } catch {
-                /* offline — no badge */
-            }
-        };
-
-        // Initial fetch.
-        void refetchMaintenance();
-        void refetchDocs();
-        void refetchEquip();
-
-        // Per-source listeners — fire only when their data changes.
-        const onMaintenance = () => void refetchMaintenance();
-        const onDocs = () => void refetchDocs();
-        const onEquip = () => void refetchEquip();
-
-        // Visibility change refetches everything in case the user
-        // mutated state in a different tab / from a synced device.
-        const onVisibility = () => {
-            if (document.visibilityState !== 'visible') return;
-            void refetchMaintenance();
-            void refetchDocs();
-            void refetchEquip();
-        };
-
-        if (typeof window !== 'undefined') {
-            window.addEventListener('thalassa:maintenance-changed', onMaintenance);
-            window.addEventListener('thalassa:documents-changed', onDocs);
-            window.addEventListener('thalassa:equipment-changed', onEquip);
-            document.addEventListener('visibilitychange', onVisibility);
-        }
-        return () => {
-            cancelled = true;
-            if (typeof window !== 'undefined') {
-                window.removeEventListener('thalassa:maintenance-changed', onMaintenance);
-                window.removeEventListener('thalassa:documents-changed', onDocs);
-                window.removeEventListener('thalassa:equipment-changed', onEquip);
-                document.removeEventListener('visibilitychange', onVisibility);
-            }
-        };
-    }, []);
+    // ── Live counts for Boat Binder row badges ──
+    // Maintenance overdue / Documents expiring / Equipment warranty.
+    // Extracted to a hook (useVesselReadinessCounts) so the
+    // mutation→event→refetch propagation path — the one behind the
+    // "1 Overdue still showing" bug — is independently testable.
+    const { overdueCount, expiringDocsCount, expiringEquipCount } = useVesselReadinessCounts();
 
     // ── Draft passage plans ──
     const [passageCrewCount, setPassageCrewCount] = useState(0);
