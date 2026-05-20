@@ -328,6 +328,44 @@ async function tryInshoreRouteInner(
         // attracts A* INTO the river instead of letting it cut across
         // Bramble Bay / Moreton Bay through generic deep bathymetry.
         const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
+        // DIAGNOSTIC (#19, 2026-05-20): the route cuts a red CAUTION
+        // diagonal across Moreton Bay instead of riding the marked deep
+        // shipping channel. Is that channel charted as FAIRWY (then the
+        // fix is making A* use it) or absent from the chart (then we must
+        // synthesise it)? Log the CHART fairways (acronym-bearing — OSM-
+        // promoted/synthetic ones don't carry an acronym) whose centroid
+        // sits in the Newport→river corridor, so we can see whether a
+        // continuous fairway exists through the bay approach.
+        {
+            const corridor = { latMin: -27.43, latMax: -27.17, lonMin: 153.1, lonMax: 153.26 };
+            const chartFairwyCentroids: string[] = [];
+            let chartFairwyTotal = 0;
+            for (const f of fairwy.features as Array<{
+                geometry?: { type?: string; coordinates?: unknown };
+                properties?: Record<string, unknown> | null;
+            }>) {
+                if (typeof f.properties?.acronym !== 'string') continue; // skip promoted/synthetic
+                chartFairwyTotal++;
+                const dim = featureBboxAndSizeM(f);
+                if (!dim) continue;
+                const cLat = (dim.bbox[1] + dim.bbox[3]) / 2;
+                const cLon = (dim.bbox[0] + dim.bbox[2]) / 2;
+                if (
+                    cLat >= corridor.latMin &&
+                    cLat <= corridor.latMax &&
+                    cLon >= corridor.lonMin &&
+                    cLon <= corridor.lonMax &&
+                    chartFairwyCentroids.length < 30
+                ) {
+                    chartFairwyCentroids.push(
+                        `${cLat.toFixed(3)},${cLon.toFixed(3)}(${Math.round(Math.max(dim.widthM, dim.heightM))}m)`,
+                    );
+                }
+            }
+            log.warn(
+                `STAGE: chart FAIRWY total=${chartFairwyTotal}, in Newport→river corridor=${chartFairwyCentroids.length}: ${chartFairwyCentroids.join(' ') || '(none — bay channel not charted as fairway)'}`,
+            );
+        }
         // Per-tag promotion counters and the actual promoted features —
         // used by the OSM-promotion diagnostic line below to confirm
         // (a) which OSM tags are doing the work and which are silent,
