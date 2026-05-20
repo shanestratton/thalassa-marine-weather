@@ -17,6 +17,7 @@ import { ShimmerBlock } from './ui/ShimmerBlock';
 import { EmptyState } from './ui/EmptyState';
 import { timeAgo } from './chat/chatUtils';
 import { ChatIcon } from './Icons';
+import { FEATURE_VISIBILITY } from '../utils/featureVisibility';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -120,76 +121,82 @@ export const ChatHub: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full w-full">
-            {/* ═══ SEGMENTED CONTROL ═══ */}
-            <div className="px-4 pt-4 pb-2 shrink-0">
-                <div className="bg-white/[0.06] rounded-2xl p-1 flex relative overflow-hidden border border-white/[0.08]">
-                    {/* Sliding indicator */}
-                    <div
-                        className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl bg-white/[0.12] transition-transform duration-300 ease-out border border-white/[0.08]"
-                        style={{
-                            transform: activeTab === 'community' ? 'translateX(4px)' : 'translateX(calc(100% + 4px))',
-                        }}
-                    />
+            {/* ═══ SEGMENTED CONTROL ═══
+                Hidden when Marketplace is launch-gated off (see
+                utils/featureVisibility) — with no Chandlery tab the
+                toggle is pointless, so Community chat goes full-bleed. */}
+            {FEATURE_VISIBILITY.marketplace && (
+                <div className="px-4 pt-4 pb-2 shrink-0">
+                    <div className="bg-white/[0.06] rounded-2xl p-1 flex relative overflow-hidden border border-white/[0.08]">
+                        {/* Sliding indicator */}
+                        <div
+                            className="absolute top-1 bottom-1 w-[calc(50%-4px)] rounded-xl bg-white/[0.12] transition-transform duration-300 ease-out border border-white/[0.08]"
+                            style={{
+                                transform:
+                                    activeTab === 'community' ? 'translateX(4px)' : 'translateX(calc(100% + 4px))',
+                            }}
+                        />
 
-                    {/* Community tab */}
-                    <button
-                        aria-label="Switch to Community channels"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            setActiveTab('community');
-                        }}
-                        className={`relative z-10 flex-1 py-2.5 flex items-center justify-center gap-2 rounded-xl transition-colors duration-200 ${
-                            activeTab === 'community' ? 'text-white' : 'text-gray-400'
-                        }`}
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
+                        {/* Community tab */}
+                        <button
+                            aria-label="Switch to Community channels"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setActiveTab('community');
+                            }}
+                            className={`relative z-10 flex-1 py-2.5 flex items-center justify-center gap-2 rounded-xl transition-colors duration-200 ${
+                                activeTab === 'community' ? 'text-white' : 'text-gray-400'
+                            }`}
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 1.136.845 2.1 1.976 2.193 1.708.143 3.443.218 5.201.222l3.799 3.072V18a.75.75 0 01.75-.748 48.484 48.484 0 005.232-.307c1.136-.094 1.98-1.057 1.98-2.193v-4.286c0-1.136-.844-2.1-1.976-2.192a48.616 48.616 0 00-8.048 0z"
-                            />
-                        </svg>
-                        <span className="text-xs font-black uppercase tracking-widest">Community</span>
-                    </button>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 1.136.845 2.1 1.976 2.193 1.708.143 3.443.218 5.201.222l3.799 3.072V18a.75.75 0 01.75-.748 48.484 48.484 0 005.232-.307c1.136-.094 1.98-1.057 1.98-2.193v-4.286c0-1.136-.844-2.1-1.976-2.192a48.616 48.616 0 00-8.048 0z"
+                                />
+                            </svg>
+                            <span className="text-xs font-black uppercase tracking-widest">Community</span>
+                        </button>
 
-                    {/* Marketplace tab */}
-                    <button
-                        aria-label="Switch to Chandlery messages"
-                        onClick={() => {
-                            triggerHaptic('light');
-                            setActiveTab('marketplace');
-                        }}
-                        className={`relative z-10 flex-1 py-2.5 flex items-center justify-center gap-2 rounded-xl transition-colors duration-200 ${
-                            activeTab === 'marketplace' ? 'text-white' : 'text-gray-400'
-                        }`}
-                    >
-                        <svg
-                            className="w-4 h-4"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                            strokeWidth={1.5}
+                        {/* Marketplace tab */}
+                        <button
+                            aria-label="Switch to Chandlery messages"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setActiveTab('marketplace');
+                            }}
+                            className={`relative z-10 flex-1 py-2.5 flex items-center justify-center gap-2 rounded-xl transition-colors duration-200 ${
+                                activeTab === 'marketplace' ? 'text-white' : 'text-gray-400'
+                            }`}
                         >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
-                            />
-                        </svg>
-                        <span className="text-xs font-black uppercase tracking-widest">Chandlery</span>
-                    </button>
+                            <svg
+                                className="w-4 h-4"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M2.25 18.75a60.07 60.07 0 0115.797 2.101c.727.198 1.453-.342 1.453-1.096V18.75M3.75 4.5v.75A.75.75 0 013 6h-.75m0 0v-.375c0-.621.504-1.125 1.125-1.125H20.25M2.25 6v9m18-10.5v.75c0 .414.336.75.75.75h.75m-1.5-1.5h.375c.621 0 1.125.504 1.125 1.125v9.75c0 .621-.504 1.125-1.125 1.125h-.375m1.5-1.5H21a.75.75 0 00-.75.75v.75m0 0H3.75m0 0h-.375a1.125 1.125 0 01-1.125-1.125V15m1.5 1.5v-.75A.75.75 0 003 15h-.75M15 10.5a3 3 0 11-6 0 3 3 0 016 0zm3 0h.008v.008H18V10.5zm-12 0h.008v.008H6V10.5z"
+                                />
+                            </svg>
+                            <span className="text-xs font-black uppercase tracking-widest">Chandlery</span>
+                        </button>
+                    </div>
                 </div>
-            </div>
+            )}
 
             {/* ═══ CONTENT ═══ */}
             <div className="flex-1 overflow-hidden">
-                {activeTab === 'community' ? (
+                {activeTab === 'community' || !FEATURE_VISIBILITY.marketplace ? (
                     <ChatPage />
                 ) : (
                     <div className="h-full overflow-y-auto">
