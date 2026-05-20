@@ -115,15 +115,22 @@ behaviour is likely **direct across the deep bay, easing onto the dredged
 channel only at the shallow bar** (the channel only MATTERS where the direct
 line would go shallow/red).
 
-Ideas under consideration (not yet committed — want a screenshot/log of the
-dogleg first to target it):
+**Confirmed from the log:** the route shot out to **−27.26,153.22** (far
+east in the bay) then doglegged back — the 4 km / all-49-polys connector
+built one continuous ribbon spanning the whole bay, so A\* rode the
+big-ship channel out east. +3.5 NM (23.4 → 26.9).
 
-- Gate the DRGARE-connector influence to the bar / river-mouth approach
-  (e.g. south of ~−27.35) so the open-bay run stays direct.
-- OR only lay connectors where the straight bay line would otherwise cross
-  CAUTION/shallow — channel rescues the bar, not the whole bay.
-- OR soften: keep DRGARE polygons preferred but make the _connectors_ a
-  weaker pull so A\* only diverts onto them to avoid red, not to shave cost.
+**Fix attempt shipped (next commit):** gate the DRGARE connector to within
+**12 km of an endpoint** (origin/dest) and tighten the link distance
+**4 km → 2.5 km**. Open-bay DRGARE now stay isolated-preferred (no ribbon),
+so the bay run should stay direct while the channel still kicks in at the
+river-mouth bar. Awaiting Shane's test.
+
+Fallback if the dogleg persists: revert the connector entirely (back to the
+23.4 NM direct-bay route with a RED bar warning — which Shane earlier called
+"very close"). Open question for you: **for a yacht, is "direct across the
+deep bay + a RED bar-crossing warning" actually preferable to following the
+big-ship dredged dogleg?** My read is yes; curious if you agree.
 
 ### Re your offer — YES to the regression harness
 

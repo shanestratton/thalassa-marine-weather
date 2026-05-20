@@ -553,29 +553,45 @@ async function tryInshoreRouteInner(
                 `STAGE: injected ${osmOverlay.navLines.features.length} OSM navigation lines → NAVLINE (preferred channel)`,
             );
         }
-        // Connect DRGARE dredged-area polygons into a CONTINUOUS preferred
-        // channel. The AU SENC encodes the Brisbane dredged shipping
-        // channel as a CHAIN of DRGARE polygons (DRVAL1 10-14 m,
-        // authoritative) running from the river up into the bay. Pass 4
-        // already marks each polygon preferred — but they sit 1-2 km
-        // apart, so the corridor has GAPS and A* can't follow it; it cuts
-        // the shallow river-mouth bar instead. Connect each DRGARE
-        // centroid to its 2 nearest neighbours (<=4 km) and feed the
-        // connectors into NAVLINE so the engine fills the gaps, turning
-        // the dredged channel into one continuous deep preferred ribbon
-        // A* rides through the bar. (RECTRC recommended-tracks would be
-        // ideal but this SENC ships that layer empty — 2026-05-20.) The
-        // NAVLINE pass skips hardBlocked cells, so a connector that clips
-        // land marks only the water portion preferred — never carves land.
+        // Connect DRGARE dredged-area polygons into a preferred channel
+        // ribbon — but ONLY near the endpoints (river-mouth / marina
+        // approach), NOT across the open bay. The AU SENC encodes the
+        // Brisbane dredged channel as a chain of DRGARE polygons (DRVAL1
+        // 10-14 m, authoritative). Pass 4 already marks each preferred,
+        // but they're 1-2 km apart, so the corridor has gaps. Connecting
+        // them lets A* ride the dredged cut through the shallow bar.
+        //
+        // GATING (2026-05-20): the first cut connected ALL 49 DRGARE polys
+        // at 4 km — that built one continuous ribbon spanning the whole
+        // bay and A* rode the big-ship channel out east (a ~3.5 NM dogleg,
+        // Shane: "the main run through the bay no longer goes direct").
+        // For a yacht the channel only earns its keep where the DIRECT
+        // line would go shallow — i.e. the bar near the river mouth. So:
+        // (a) only connect DRGARE within DEST_CHANNEL_RADIUS_M of an
+        // endpoint, and (b) tighten the link distance. Open-bay DRGARE
+        // stay isolated-preferred (no ribbon), so the bay run stays
+        // direct. The NAVLINE pass skips hardBlocked cells — a connector
+        // that clips land marks only the water portion, never carves land.
         {
             const drgareFeats = merged.DRGARE?.features ?? [];
+            // Channel-following only matters near the approaches; beyond
+            // this radius of either endpoint the open water is deep and
+            // the route should run direct.
+            const DEST_CHANNEL_RADIUS_M = 12000;
+            const nearEndpoint = (lat: number, lon: number): boolean =>
+                haversineMetres(lat, lon, origin.lat, origin.lon) <= DEST_CHANNEL_RADIUS_M ||
+                haversineMetres(lat, lon, destination.lat, destination.lon) <= DEST_CHANNEL_RADIUS_M;
             const cents: { lat: number; lon: number }[] = [];
             for (const f of drgareFeats) {
                 const dim = featureBboxAndSizeM(f as { geometry?: { type?: string; coordinates?: unknown } });
-                if (dim) cents.push({ lat: (dim.bbox[1] + dim.bbox[3]) / 2, lon: (dim.bbox[0] + dim.bbox[2]) / 2 });
+                if (!dim) continue;
+                const lat = (dim.bbox[1] + dim.bbox[3]) / 2;
+                const lon = (dim.bbox[0] + dim.bbox[2]) / 2;
+                if (!nearEndpoint(lat, lon)) continue;
+                cents.push({ lat, lon });
             }
             if (cents.length >= 2) {
-                const MAX_LINK_M = 4000;
+                const MAX_LINK_M = 2500;
                 const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
                 let links = 0;
                 for (let i = 0; i < cents.length; i++) {
