@@ -15,7 +15,7 @@
  * Recipe Library has moved to the Galley; keeping it in two places
  * confused users and the Galley is the natural home for it.
  */
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnchorWatchService } from '../services/AnchorWatchService';
 import { ChatService } from '../services/ChatService';
 import { useSettings } from '../context/SettingsContext';
@@ -24,6 +24,8 @@ import { triggerHaptic } from '../utils/system';
 import { convertLength } from '../utils/units';
 import { supabase } from '../services/supabase';
 import { getPendingInviteCount, getMyCrew } from '../services/CrewService';
+import { useRealtimeSync } from '../hooks/useRealtimeSync';
+import { mergeByUpdatedAt } from '../utils/mergeByUpdatedAt';
 import { lazyRetry } from '../utils/lazyRetry';
 import { GpsService, type GpsPosition } from '../services/GpsService';
 import { getCachedActiveVoyage, type Voyage } from '../services/VoyageService';
@@ -427,36 +429,15 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                     /* offline — local-only count */
                 }
 
-                // Merge by id, NEWEST updated_at wins.
-                //
-                // Bug fix 2026-05-20: this used to be "cloud wins
-                // unconditionally," which broke the overdue badge.
-                // The MaintenanceHub writes ticks ONLY to the local
-                // store (offline-first), so right after the user
-                // services a task the local copy is fresh but the
-                // cloud copy is still the old overdue row (it hasn't
-                // synced up yet). Cloud-wins then overwrote the fresh
-                // local task with the stale cloud one → the badge kept
-                // showing "1 Overdue" forever. Comparing updated_at
-                // makes the genuinely-newer record win in both
-                // directions: a local tick beats stale cloud, and a
-                // change synced from another device beats stale local.
-                const merged = new Map<string, (typeof localTasks)[number]>();
-                const consider = (t: (typeof localTasks)[number]) => {
-                    const existing = merged.get(t.id);
-                    if (!existing) {
-                        merged.set(t.id, t);
-                        return;
-                    }
-                    const tTime = t.updated_at ? Date.parse(t.updated_at) : 0;
-                    const exTime = existing.updated_at ? Date.parse(existing.updated_at) : 0;
-                    if (tTime >= exTime) merged.set(t.id, t);
-                };
-                for (const t of localTasks) consider(t);
-                for (const t of cloudTasks) consider(t);
+                // Merge by id, NEWEST updated_at wins (see
+                // utils/mergeByUpdatedAt for the full rationale —
+                // the "cloud wins unconditionally" version stuck the
+                // overdue badge on stale data). Shared helper so any
+                // future local+cloud merge gets the correct behaviour.
+                const merged = mergeByUpdatedAt(localTasks, cloudTasks);
 
                 const now = Date.now();
-                const overdue = Array.from(merged.values()).filter(
+                const overdue = merged.filter(
                     (t) => t.is_active && t.next_due_date && Date.parse(t.next_due_date) < now,
                 ).length;
                 if (!cancelled) setOverdueCount(overdue);
@@ -531,9 +512,16 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
 
     // ── Draft passage plans ──
     const [passageCrewCount, setPassageCrewCount] = useState(0);
-    useEffect(() => {
-        getMyCrew().then((c) => {
-            // Crew count from vessel settings
+    // Refresh the crew count whenever vessel_crew changes (invite
+    // accepted / crew removed) — not just on mount. Added 2026-05-20
+    // in the staleness-hardening sweep: this tile was the one
+    // summary surface still reading once on mount with no refresh
+    // trigger, so the "{n} crew" planning hint could go stale while
+    // the Nav Station stayed open. useRealtimeSync mirrors the
+    // pattern the Documents / Equipment tiles already use.
+    const loadPassageCrew = useCallback(async () => {
+        try {
+            const c = await getMyCrew();
             let settingsCount = 2;
             try {
                 const raw = localStorage.getItem('CapacitorStorage.thalassa_settings');
@@ -547,8 +535,14 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
             // max(settings count, actual crew + captain)
             const actualWithCaptain = c.length + 1;
             setPassageCrewCount(Math.max(settingsCount, actualWithCaptain));
-        });
+        } catch {
+            /* offline — keep previous count */
+        }
     }, []);
+    useEffect(() => {
+        void loadPassageCrew();
+    }, [loadPassageCrew]);
+    useRealtimeSync('vessel_crew', loadPassageCrew);
 
     // ── Anchor display ──
     // anchorRadius comes from `snapshot.swingRadius`, which is computed
