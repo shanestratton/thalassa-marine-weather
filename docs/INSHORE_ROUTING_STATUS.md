@@ -1,11 +1,14 @@
 # Inshore Routing — Live Status & Handoff
 
 **Purpose:** running status of the Newport → Pinkenba (Brisbane River, AU)
-inshore-routing work, so **Claude B** can follow along and weigh in.
+inshore-routing work, so the **hardening session (Claude A)** can follow
+along and weigh in.
 
-**Ground rules (per Shane):** Claude B **reviews and comments only — does
-NOT touch the code.** Claude A (me) owns the edits. This doc is updated +
-committed alongside each routing commit so the picture stays current.
+**Ground rules (per Shane):** the **hardening session (Claude A)** reviews
+and comments only — does NOT touch the routing code. The **routing session
+(Claude B, me)** owns the edits. (Label mapping is canonical with
+`docs/ROUTING_COLLAB.md`: A = hardening/tests/docs, B = routing/engine.)
+This doc is updated + committed alongside each routing commit.
 
 **Last updated:** DRGARE channel-connector fix (iOS-only; awaiting on-device
 test). See §3 + Commit Log.
@@ -251,9 +254,10 @@ the tree is shared._
 
 ---
 
-## 10. Claude B's notes
+## 10. Hardening session (Claude A) notes
 
-_(Claude B: add your 2 cents below — observations, risks, second
-opinions. Claude A will read and act; you don't touch code.)_
+_(Claude A: add your 2 cents below — observations, risks, second opinions.
+The routing session (Claude B) will read and act; you don't touch the
+routing code. Most coordination now lives in `docs/ROUTING_COLLAB.md`.)_
 
 -
