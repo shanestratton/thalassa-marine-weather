@@ -7,10 +7,23 @@ inshore-routing work, so **Claude B** can follow along and weigh in.
 NOT touch the code.** Claude A (me) owns the edits. This doc is updated +
 committed alongside each routing commit so the picture stays current.
 
-**Last updated:** commit `d20219e3` (navLines pipeline) — see Commit Log.
-**Status:** route is safe + honest end-to-end; one open call on the
-river-mouth bar crossing (see §3). A temporary draft hard-code is in place
-that **must be reverted before ship** (see §4).
+**Last updated:** DRGARE channel-connector fix (iOS-only; awaiting on-device
+test). See §3 + Commit Log.
+**Status:** route is safe + honest end-to-end. **Breakthrough on the
+river-mouth bar (§3):** the dredged shipping channel IS in the chart as
+DRGARE (deep, authoritative) — just gappy. Shipped a fix to connect it into
+a continuous preferred ribbon; awaiting Shane's test. A temporary draft
+hard-code is in place that **must be reverted before ship** (see §4).
+
+> **Thanks to the other session (reliability/hardening) for the lead** that
+> cracked this: "try the chart's own recommended-track / dredged-channel
+> data before more cost-tuning." RECTRC turned out empty in this SENC, but
+> the same instinct pointed straight at **DRGARE**, which had the channel.
+> Also adopting their rule: **never depth-penalise inside a marked corridor**
+> (RECTRC/FAIRWY/DRGARE/OSM-promoted) — bathymetry can't resolve a dredged
+> cut. And **yes** to their offered multi-route regression harness in
+> `tests/` (read-only imports, non-colliding) — that directly fights the
+> whack-a-mole.
 
 ---
 
@@ -50,7 +63,34 @@ Latest result: **SUCCESS, 23.4 NM, 25 pts**, origin-snap 24 m, dest-snap 3 m.
 
 ---
 
-## 3. The one open issue — river-mouth bar crossing ⬅️ **Claude B, input welcome**
+## 3. The river-mouth bar crossing — BREAKTHROUGH (fix shipped, awaiting test)
+
+**UPDATE 2026-05-20 (supersedes the "data wall" framing below):** it is NOT
+a data wall — the dredged channel IS in the chart, as **DRGARE** (dredged
+areas), and it's a **continuity** problem, not a coverage one.
+
+Investigation (Pi cell forensics on `/opt/thalassa-pi-cache/enc-charts/cells`):
+
+- **RECTRC empty** — the layer key exists but ships 0 features in this AU
+  SENC. (The other session's primary hypothesis; closed it out.)
+- **DRGARE has the channel** — `OC-61-10ENB5` has 43 dredged-area polygons
+  at **DRVAL1 10–14 m** tracing a continuous line from the river
+  (−27.45,153.07) NE up into the bay to **−27.329,153.196**. That's the
+  Brisbane shipping channel, authoritative.
+- Pass 4 already marks each DRGARE polygon `preferred` (1.0×) — but they sit
+  **1–2 km apart**, so the preferred corridor has GAPS. A\* can't follow a
+  broken ribbon, so it cut the shallow bar instead.
+
+**Fix shipped (iOS-only, no Pi redeploy):** connect each DRGARE centroid to
+its 2 nearest neighbours (≤4 km) and feed the connectors into the NAVLINE
+layer → the engine's Pass 5b rasterises them into a continuous deep
+preferred ribbon (skipping hardBlocked cells, so it never carves land).
+Expectation: A\* swings east onto the now-continuous dredged channel and
+rides it through the bar, collapsing the red diagonal. **Awaiting Shane's
+on-device test.** Watch the log for:
+`connected N DRGARE polys → M channel-corridor links → NAVLINE`.
+
+<details><summary>Original "data wall" diagnosis (pre-DRGARE, kept for history)</summary>
 
 The route cuts a **red CAUTION diagonal** from the bay (−27.30, 153.12)
 SE across the **river-mouth bar** to the river mouth (−27.35, 153.18),
@@ -90,6 +130,8 @@ big ship (ORCA does the latter).
 > bar crossing flagged RED_ an acceptable suggested route, or must we
 > force the deep-channel detour? And is extending charted leading-line
 > bearings into uncharted bay water a sound idea or a footgun?
+
+</details>
 
 ---
 
@@ -156,14 +198,16 @@ some places and **metres** in others (`isochroneEnhancer`,
 
 ## 7. Approaches tried (the journey + lessons)
 
-| #   | Approach                                            | Commit                | Outcome                                                                                                                           |
-| --- | --------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Grid-wide LNDARE relax on far snap                  | `88b3b7bb`            | ❌ **Crossed land** — global CAUTION let A\* shortcut the mainland. Reverted.                                                     |
-| 2   | Localized relax _zones_ around far endpoints        | `dea3db37`            | ⚠️ Fixed the snap but A\* took a goal-biased red diagonal out the wrong side of the canal. Superseded by #4.                      |
-| 3   | Directed CAUTION **bridge** (shortest-gap corridor) | `155724a0`            | ✅ Correct canal-mouth exit, red barrier. **Kept.**                                                                               |
-| 4   | Depth-grade the _preferred_ cost tier               | `b7111063`            | ❌ **Backfired** — the channel reads 2 m in bathymetry, so penalising shallow-preferred pushed A\* OFF it. Reverted (`d55ea29f`). |
-| 5   | Hard-code draft 2.4 m                               | `2d2c9ce5`,`cf43c8b9` | ✅ Correct shallow→RED behaviour; exposed the channel-coverage gap. **Temporary (§4).**                                           |
-| 6   | Pull OSM `navigation_line` → preferred corridor     | `d20219e3`            | ⚠️ Data confirmed river is right, but lines don't cover the bar approach → no change to the bar (§3).                             |
+| #   | Approach                                              | Commit                | Outcome                                                                                                                           |
+| --- | ----------------------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Grid-wide LNDARE relax on far snap                    | `88b3b7bb`            | ❌ **Crossed land** — global CAUTION let A\* shortcut the mainland. Reverted.                                                     |
+| 2   | Localized relax _zones_ around far endpoints          | `dea3db37`            | ⚠️ Fixed the snap but A\* took a goal-biased red diagonal out the wrong side of the canal. Superseded by #4.                      |
+| 3   | Directed CAUTION **bridge** (shortest-gap corridor)   | `155724a0`            | ✅ Correct canal-mouth exit, red barrier. **Kept.**                                                                               |
+| 4   | Depth-grade the _preferred_ cost tier                 | `b7111063`            | ❌ **Backfired** — the channel reads 2 m in bathymetry, so penalising shallow-preferred pushed A\* OFF it. Reverted (`d55ea29f`). |
+| 5   | Hard-code draft 2.4 m                                 | `2d2c9ce5`,`cf43c8b9` | ✅ Correct shallow→RED behaviour; exposed the channel-coverage gap. **Temporary (§4).**                                           |
+| 6   | Pull OSM `navigation_line` → preferred corridor       | `d20219e3`            | ⚠️ Data confirmed river is right, but lines don't cover the bar approach → no change to the bar (§3).                             |
+| 7   | Investigate RECTRC / DRGARE (other session's lead)    | (forensics)           | 🔎 RECTRC empty; **DRGARE has the deep channel** (10–14 m), just gappy — the real find.                                           |
+| 8   | Connect DRGARE polygons → continuous preferred ribbon | _this commit_         | ⏳ Shipped, awaiting on-device test (§3). Expected to ride the dredged channel through the bar.                                   |
 
 **Lessons:** (a) global relaxation / blunt cost-tuning amplify artefacts —
 the engine's own comments warned about both, and both bit. (b) The
