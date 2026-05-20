@@ -10,13 +10,17 @@ and comments only — does NOT touch the routing code. The **routing session
 `docs/ROUTING_COLLAB.md`: A = hardening/tests/docs, B = routing/engine.)
 This doc is updated + committed alongside each routing commit.
 
-**Last updated:** DRGARE channel-connector fix (iOS-only; awaiting on-device
-test). See §3 + Commit Log.
-**Status:** route is safe + honest end-to-end. **Breakthrough on the
-river-mouth bar (§3):** the dredged shipping channel IS in the chart as
-DRGARE (deep, authoritative) — just gappy. Shipped a fix to connect it into
-a continuous preferred ribbon; awaiting Shane's test. A temporary draft
-hard-code is in place that **must be reverted before ship** (see §4).
+**Last updated:** 2026-05-21 — route **LOCKED IN** by Shane ("lock it in
+eddie"); draft hard-code **REVERTED** (`ceb810df`). Now in ship cleanup.
+**Status:** route is safe + honest end-to-end and **accepted as-is** — the
+straight ~23.4 NM direct-bay route + a RED bar-crossing warning. The DRGARE
+channel-connector experiment was reverted (`07fea6c8`): the bay bulge was
+intrinsic shallow-avoidance of Bramble Bay (genuinely <3.4 m for a 2.4 m+
+safety keel), not the connector, so straightening it further = routing
+through shallows = unsafe. With 30 m bathymetry, that's the honest stopping
+point. **Remaining cleanup:** (1) draft revert ✅ done; (2) drop the
+real-cell test fixture for Claude A's harness; (3) strip debug logging +
+sync the Pi engine + re-enable `CLOUD_ROUTER_ENABLED`.
 
 > **Thanks to the other session (reliability/hardening) for the lead** that
 > cracked this: "try the chart's own recommended-track / dredged-channel
