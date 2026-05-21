@@ -48,6 +48,10 @@ interface AskBody {
     context?: ThalassaContext;
     /** Prior turns in this console session, oldest first, for continuity. */
     history?: VoiceHistoryTurn[];
+    /** Skipper's knowledge-base block (top-tier "teach Calypso about your
+     *  boat") — fetched client-side under RLS and injected into the
+     *  fallback's system prompt so the degraded path knows the boat too. */
+    knowledge?: string;
 }
 
 async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
@@ -119,6 +123,17 @@ async function postToFallback(body: AskBody): Promise<VoiceQueryResponse> {
     };
 }
 
+/** Best-effort fetch of the skipper's knowledge block — never blocks a
+ *  query on it (memoised in the service; '' when none / offline). */
+async function knowledgeBlock(): Promise<string | undefined> {
+    try {
+        const { getKnowledgePromptBlock } = await import('../CalypsoKnowledgeService');
+        return (await getKnowledgePromptBlock()) || undefined;
+    } catch {
+        return undefined;
+    }
+}
+
 /** Send a typed-text query to the cloud Haiku fallback. */
 export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryResponse> {
     return postToFallback({
@@ -126,6 +141,7 @@ export async function askCloudText(req: VoiceQueryRequest): Promise<VoiceQueryRe
         session_id: req.sessionId,
         context: req.context,
         history: req.history,
+        knowledge: await knowledgeBlock(),
     });
 }
 
@@ -143,7 +159,13 @@ export async function askCloudVoice(
     if (!audio_b64) {
         throw new CloudFallbackError('Recorded audio is empty — try holding for a moment longer.');
     }
-    return postToFallback({ audio_b64, mime_type: audioBlob.type || 'audio/mp4', context, history });
+    return postToFallback({
+        audio_b64,
+        mime_type: audioBlob.type || 'audio/mp4',
+        context,
+        history,
+        knowledge: await knowledgeBlock(),
+    });
 }
 
 // ── backwards-compat alias for any callers still using askCloud(text) ──
