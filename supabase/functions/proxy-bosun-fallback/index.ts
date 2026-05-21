@@ -163,15 +163,20 @@ interface AnthropicResponse {
 
 // ── Anthropic call ─────────────────────────────────────────────────────
 
-async function callAnthropic(messages: AnthropicMessage[], stateBlock?: string): Promise<AnthropicResponse> {
+async function callAnthropic(
+    messages: AnthropicMessage[],
+    stateBlock?: string,
+    knowledgeBlock?: string,
+): Promise<AnthropicResponse> {
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-    // Two-block system: cached vessel profile + per-request Thalassa state.
-    // BP1 (vessel profile) carries cache_control so the static prefix hits
-    // the prompt cache on warm calls. BP2 (state) intentionally has no
-    // cache marker — it changes per request, and caching it would just
-    // burn write cost.
+    // System blocks: cached vessel profile + (optional) cached skipper
+    // knowledge base + per-request Thalassa state. BP1 (profile) and the
+    // knowledge block carry cache_control so the static prefix hits the
+    // prompt cache on warm calls; the knowledge block re-bills only when
+    // the skipper edits it. State has no cache marker — it changes per
+    // request, so caching it would just burn write cost.
     const systemBlocks: Array<Record<string, unknown>> = [
         {
             type: 'text',
@@ -179,6 +184,9 @@ async function callAnthropic(messages: AnthropicMessage[], stateBlock?: string):
             cache_control: { type: 'ephemeral' },
         },
     ];
+    if (knowledgeBlock && knowledgeBlock.length > 0) {
+        systemBlocks.push({ type: 'text', text: knowledgeBlock, cache_control: { type: 'ephemeral' } });
+    }
     if (stateBlock && stateBlock.length > 0) {
         systemBlocks.push({ type: 'text', text: stateBlock });
     }
@@ -215,6 +223,7 @@ async function callHaikuWithTools(
     userText: string,
     context: ThalassaContext | undefined,
     history: VoiceHistoryTurn[] | undefined,
+    knowledgeBlock?: string,
 ): Promise<{ answer: string; ms: number }> {
     const t0 = Date.now();
     const stateBlock = context ? formatStateBlock(context) : undefined;
@@ -253,7 +262,7 @@ async function callHaikuWithTools(
     };
 
     for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-        const response = await callAnthropic(messages, stateBlock);
+        const response = await callAnthropic(messages, stateBlock, knowledgeBlock);
         iters++;
         if (response.usage) {
             totalInput += response.usage.input_tokens ?? 0;
@@ -641,6 +650,9 @@ interface AskRequest {
     context?: ThalassaContext;
     /** Prior turns in this console session, oldest first. */
     history?: VoiceHistoryTurn[];
+    /** Skipper's knowledge-base block, built client-side under RLS and
+     *  injected as a cached system block so the fallback knows the boat. */
+    knowledge?: string;
 }
 
 /**
@@ -810,7 +822,7 @@ Deno.serve(async (req: Request) => {
     }
 
     try {
-        const { answer, ms: llmMs } = await callHaikuWithTools(transcript, body.context, body.history);
+        const { answer, ms: llmMs } = await callHaikuWithTools(transcript, body.context, body.history, body.knowledge);
         const { audio_b64, ms: ttsMs } = await callElevenLabs(answer);
 
         return new Response(

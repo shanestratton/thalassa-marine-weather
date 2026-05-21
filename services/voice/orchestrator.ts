@@ -28,6 +28,7 @@
  */
 
 import type { ThalassaContext, VoiceHistoryTurn } from '../../types/voice';
+import { getKnowledgePromptBlock } from '../CalypsoKnowledgeService';
 import { runThalassaWeather } from './cloudTools';
 import { executePiTool, isBosunWebReachable, isPiToolName } from './piTools';
 import { logEntry, passageEta, saveWaypoint } from './integrations/voyage';
@@ -1255,15 +1256,31 @@ export async function askHaiku(input: AskHaikuInput): Promise<OrchestratorResult
         // Defensive: settings unavailable → default persona, fine.
     }
 
+    // Skipper's knowledge base (top-tier "teach Calypso about your boat").
+    // Memoised in the service, so this is cheap to call per turn. Empty
+    // string when the user has no knowledge rows / isn't top-tier.
+    let knowledgeBlock = '';
+    try {
+        knowledgeBlock = await getKnowledgePromptBlock();
+    } catch {
+        // Knowledge unavailable (offline / not signed in) → skip the block.
+    }
+
     const systemBlocks: Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }> = [
         {
             type: 'text',
             text: STATIC_SYSTEM_PROMPT,
             cache_control: { type: 'ephemeral' as const },
         },
-        // BP2: per-request state. Not cached — changes every call.
-        { type: 'text', text: stateBlock },
     ];
+    // BP for the skipper's knowledge base — cached separately so it only
+    // re-bills when they edit it, not every turn. Placed before the
+    // per-request state so the cacheable prefix stays contiguous.
+    if (knowledgeBlock) {
+        systemBlocks.push({ type: 'text', text: knowledgeBlock, cache_control: { type: 'ephemeral' as const } });
+    }
+    // Per-request state. Not cached — changes every call.
+    systemBlocks.push({ type: 'text', text: stateBlock });
     if (personalityOverlay) {
         // Persona overlay block. Not cached separately — it changes
         // when the skipper picks a new voice, which is rare but
