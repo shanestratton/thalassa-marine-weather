@@ -640,13 +640,22 @@ function buildNavGrid(
     const cells = new Float32Array(width * height);
     cells.fill(UNKNOWN_OPEN); // permissive default — see header doc
     const preferred = new Uint8Array(width * height);
-    // Per-cell "protected" flag: 1 = DEPARE came from an authoritative
-    // engineered-water source (marina, basin, dock, canal) and the
-    // LNDARE pass MUST NOT re-block this cell, even if a chunky
-    // GMRT-derived LNDARE polygon covers it. Generic OSM `natural=water`
-    // and bathymetry-derived DEPARE do NOT get this protection — they
-    // can be erroneously placed and LNDARE should beat them.
+    // Per-cell "protected" flag: 1 = a DEPARE (chart S-57 OR authoritative
+    // OSM engineered water) claimed this cell as deep, so the LNDARE pass
+    // doesn't hard-block it. Generic OSM `natural=water` and bathymetry-
+    // derived DEPARE do NOT get this protection — LNDARE beats them.
     const protectedCells = new Uint8Array(width * height);
+    // Per-cell "OSM-vouched water" flag: 1 = the protection above came
+    // from an OSM-authoritative source (marina/canal/dock/river) or an
+    // OSM canal carve — NOT from a chart S-57 DEPARE. Used by Pass 2 to
+    // tell apart the two protected cases when a chart LNDARE collides:
+    //   • OSM-vouched (Newport canals, Brisbane River LNDARE-bleed) → keep
+    //     clean navigable; OSM is the trusted source over chunky LNDARE.
+    //   • chart-DEPARE-only (a coarse overview-cell landmask bulging over a
+    //     finer-survey deep channel — e.g. Tangalooma Roads off Moreton
+    //     Island) → the two chart layers DISAGREE, so flag CAUTION (red)
+    //     rather than draw confident clean water over charted land.
+    const osmWaterCells = new Uint8Array(width * height);
     // Per-cell "hard blocked" flag: 1 = blocked by LNDARE (land) or a
     // point obstruction (OBSTRN / WRECKS / UWTROC). A cell merely
     // blocked by a shallow DEPARE band has hardBlocked = 0. Pass 4
@@ -766,7 +775,12 @@ function buildNavGrid(
         // OSM-derived DEPARE (no acronym) still uses the old OSM-tag gate
         // (Scarborough peninsula safeguard).
         const isS57Depare = typeof props?.acronym === 'string';
-        const authoritative = isS57Depare || isAuthoritativeDepare(props);
+        // OSM-vouched = authoritative water that is NOT a chart S-57 DEPARE
+        // (marina/canal/dock/river injected by OsmRouteOverlayService). These
+        // keep clean navigable even under a chunky LNDARE; chart-DEPARE-only
+        // protection that collides with chart LNDARE is flagged CAUTION instead.
+        const osmVouched = !isS57Depare && isAuthoritativeDepare(props);
+        const authoritative = isS57Depare || osmVouched;
         const shallow = drval1Num < draftM + safetyM;
 
         // Scanline-rasterize the polygon and apply cell updates inside
@@ -808,6 +822,7 @@ function buildNavGrid(
                     cells[idx] = drval1Num;
                 }
                 if (authoritative) protectedCells[idx] = 1;
+                if (osmVouched) osmWaterCells[idx] = 1;
             }
         });
     }
@@ -857,6 +872,7 @@ function buildNavGrid(
                         cells[idx] = canalDepth;
                     }
                     protectedCells[idx] = 1;
+                    osmWaterCells[idx] = 1; // OSM canal carve — keep clean under LNDARE
                 }
             }
         }
@@ -899,7 +915,25 @@ function buildNavGrid(
         // pass 1 to un-block actual surveyed water.
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
-            if (protectedCells[idx]) return;
+            if (protectedCells[idx]) {
+                // This cell was claimed as deep water by a DEPARE pass, yet a
+                // chart LNDARE polygon also covers it. Two sub-cases:
+                //   • OSM-vouched water (Newport canals, Brisbane River
+                //     LNDARE-bleed) → trust OSM, keep clean navigable.
+                //   • chart-S57-DEPARE only → the chart's own DEPARE and
+                //     LNDARE layers DISAGREE here (typically a coarse
+                //     overview-cell landmask bulging over a finer-survey deep
+                //     channel — Tangalooma Roads off Moreton Island). Don't
+                //     present confident clean water over charted land:
+                //     downgrade to CAUTION so the renderer flags it red and
+                //     A* only crosses it absent an all-water alternative.
+                //     hardBlocked stays 0 so the route can still reach a
+                //     destination that genuinely sits in such a conflict zone.
+                if (osmWaterCells[idx] !== 1 && cells[idx] >= 0) {
+                    cells[idx] = CAUTION;
+                }
+                return;
+            }
             if (relaxedLndare || relaxMask[idx] === 1) {
                 // CAUTION-mode: A* can traverse at 500× cost. Don't set
                 // hardBlocked so FAIRWY/DRGARE rescue still applies.
