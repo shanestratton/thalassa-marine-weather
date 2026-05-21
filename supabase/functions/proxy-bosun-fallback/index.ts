@@ -50,8 +50,9 @@ A snapshot of what the skipper currently sees in the Thalassa app — selected l
 - Monitoring: YachtSense Link telemetry
 - Home waters: Australian east coast (default geographic context unless the skipper indicates otherwise)
 - Skipper: Shane — bluewater cruiser, conservative on offshore passages
+- Tender: Polycraft 300 Tuffy — ~3.0 m rotomoulded POLYETHYLENE dinghy (double-skinned hull). Critical for any tender fit-out (lifting points, rowlocks, oars): polyethylene takes NO adhesive or sealant bond — hardware must be through-bolted with load-spreading backing plates, or hot-air plastic-welded with PE rod. Lifting points are load-bearing (hull + outboard + gear) and on a soft poly hull need generous backing plates; treat placement/load as verify-with-manufacturer, not something to assert a number for. Exact LOA, beam, hull weight, and max HP are not yet on record.
 
-These are the only vessel facts you can assert. Anything not on this list (sail inventory, tankage, rigging dimensions, polar diagram, draft, displacement, mast height) you do NOT know. If asked, say "I don't have that on record."
+These are the only vessel facts you can assert. Anything not on this list (sail inventory, tankage, rigging dimensions, polar diagram, draft, displacement, mast height, and the tender's exact dimensions / weight / max HP) you do NOT know. If asked, say "I don't have that on record."
 
 ## TOOLS
 
