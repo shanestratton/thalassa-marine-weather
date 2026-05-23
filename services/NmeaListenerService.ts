@@ -16,6 +16,10 @@ import { AisHubService } from './AisHubService';
 import { NmeaRateTracker } from './NmeaRateTracker';
 const log = createLogger('NMEA');
 
+// Count of sentences dropped on checksum mismatch — surfaced occasionally
+// in the log so a corrupted NMEA link is diagnosable in the field.
+let _nmeaChecksumFails = 0;
+
 // ── Configuration ──
 const DEFAULT_HOST = '192.168.1.151';
 const DEFAULT_PORT = 1456; // YDWG-02 standard TCP port
@@ -343,6 +347,19 @@ class NmeaListenerServiceClass {
             return;
         }
 
+        // Drop corrupted sentences (present-but-mismatched checksum) BEFORE
+        // parsing any field — a flaky NMEA link (MFD Wi-Fi, spliced TCP
+        // reads) otherwise leaks garbage position/instrument values, which
+        // is the source of the occasional "weird coord" in the log. Lenient
+        // when no checksum is present.
+        if (!nmeaChecksumValid(sentence)) {
+            _nmeaChecksumFails++;
+            if (_nmeaChecksumFails % 50 === 1) {
+                log.warn(`dropped ${_nmeaChecksumFails} NMEA sentence(s) on checksum mismatch (corrupted link?)`);
+            }
+            return;
+        }
+
         // Strip checksum
         const raw = sentence.split('*')[0];
         const parts = raw.split(',');
@@ -490,8 +507,8 @@ class NmeaListenerServiceClass {
         if (!isNaN(cog)) this.accumulator.cog.push(cog);
 
         // Extract lat/lon (DDMM.MMMM format → decimal degrees)
-        const lat = nmeaLatLon(parts[3], parts[4]);
-        const lon = nmeaLatLon(parts[5], parts[6]);
+        const lat = nmeaLatLon(parts[3], parts[4], 90);
+        const lon = nmeaLatLon(parts[5], parts[6], 180);
         if (lat !== null && lon !== null) {
             this.accumulator.latitude = lat;
             this.accumulator.longitude = lon;
@@ -513,8 +530,8 @@ class NmeaListenerServiceClass {
         if (!isNaN(hdop)) this.accumulator.hdop = hdop;
 
         // Also extract position (may be more accurate than RMC on some receivers)
-        const lat = nmeaLatLon(parts[2], parts[3]);
-        const lon = nmeaLatLon(parts[4], parts[5]);
+        const lat = nmeaLatLon(parts[2], parts[3], 90);
+        const lon = nmeaLatLon(parts[4], parts[5], 180);
         if (lat !== null && lon !== null) {
             this.accumulator.latitude = lat;
             this.accumulator.longitude = lon;
@@ -601,16 +618,42 @@ function avg(arr: number[]): number | null {
     return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-/** Convert NMEA DDMM.MMMM + N/S/E/W to decimal degrees */
-function nmeaLatLon(value: string, hemisphere: string): number | null {
+/**
+ * Validate an NMEA 0183 checksum: XOR of every char between the leading
+ * `$`/`!` and the `*`, compared to the two hex digits after the `*`.
+ *
+ * Lenient when no checksum delimiter is present (some sources/sentences
+ * omit it) — but a PRESENT-and-MISMATCHED checksum means the sentence is
+ * corrupted (flaky MFD Wi-Fi, spliced TCP reads) and must be dropped, or
+ * its garbage fields (including position) leak into the store and show up
+ * as the occasional "weird coord" in the log.
+ */
+function nmeaChecksumValid(sentence: string): boolean {
+    const star = sentence.lastIndexOf('*');
+    if (star < 1) return true; // no checksum delimiter — accept leniently
+    const expected = sentence.slice(star + 1).trim();
+    if (!/^[0-9A-Fa-f]{2}$/.test(expected)) return true; // malformed field — don't over-reject
+    let cs = 0;
+    for (let i = 1; i < star; i++) cs ^= sentence.charCodeAt(i); // XOR body, skip leading $/!
+    return cs === parseInt(expected, 16);
+}
+
+/** Convert NMEA DDMM.MMMM + N/S/E/W to decimal degrees. Returns null for a
+ *  corrupted/out-of-range field (maxAbs = 90 for latitude, 180 for longitude). */
+function nmeaLatLon(value: string, hemisphere: string, maxAbs: number): number | null {
     if (!value || !hemisphere) return null;
     const v = parseFloat(value);
     if (isNaN(v)) return null;
     // NMEA format: DDMM.MMMM (lat) or DDDMM.MMMM (lon)
     const deg = Math.floor(v / 100);
     const min = v - deg * 100;
+    // Minutes must be 0–60; anything else is a misaligned/corrupted field
+    // (e.g. a truncated read splicing two sentences together).
+    if (min < 0 || min >= 60) return null;
     let result = deg + min / 60;
     if (hemisphere === 'S' || hemisphere === 'W') result = -result;
+    // Range sanity — rejects garbage that still parsed as a finite number.
+    if (!Number.isFinite(result) || Math.abs(result) > maxAbs) return null;
     return result;
 }
 

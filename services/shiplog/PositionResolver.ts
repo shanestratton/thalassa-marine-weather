@@ -23,6 +23,25 @@ const GPS_STALE_LIMIT_MS = 60_000;
 const GPS_VERY_STALE_MS = 5 * 60 * 1000;
 const MS_TO_KTS = 1.94384;
 
+/**
+ * Reject impossible / null-island fixes so a corrupted source never
+ * becomes a logged position. This is the single chokepoint every log
+ * entry's position flows through — belt-and-braces behind the NMEA
+ * checksum gate, and it also catches a bad phone-GPS fix or a (0,0)
+ * placeholder leaking into the log.
+ */
+function isPlausibleLatLon(lat: number | null | undefined, lon: number | null | undefined): boolean {
+    return (
+        typeof lat === 'number' &&
+        typeof lon === 'number' &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        Math.abs(lat) <= 90 &&
+        Math.abs(lon) <= 180 &&
+        !(lat === 0 && lon === 0)
+    );
+}
+
 export type GpsStatus = 'locked' | 'stale' | 'none';
 
 /**
@@ -43,7 +62,7 @@ export async function getBestPosition(
 ): Promise<CachedPosition | null> {
     // 1. NMEA / external GPS (the precision tracker prefers it)
     const nmeaPos = NmeaGpsProvider.getPosition();
-    if (nmeaPos) {
+    if (nmeaPos && isPlausibleLatLon(nmeaPos.latitude, nmeaPos.longitude)) {
         return {
             latitude: nmeaPos.latitude,
             longitude: nmeaPos.longitude,
@@ -58,7 +77,7 @@ export async function getBestPosition(
 
     // 2. Cached phone GPS (battery-friendly; the onLocation stream keeps
     //    this fresh while tracking is on).
-    if (cachedFix) {
+    if (cachedFix && isPlausibleLatLon(cachedFix.latitude, cachedFix.longitude)) {
         const age = Date.now() - cachedFix.receivedAt;
         if (age < GPS_STALE_LIMIT_MS) {
             return cachedFix;
@@ -70,13 +89,14 @@ export async function getBestPosition(
     //    re-exported from EntrySave to keep one source of truth for
     //    the navigator.geolocation prompt path.
     if (isNative) {
-        return BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
+        const fresh = await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 15);
+        return fresh && isPlausibleLatLon(fresh.latitude, fresh.longitude) ? fresh : null;
     }
     const webPos = await GpsService.getCurrentPosition({
         staleLimitMs: GPS_STALE_LIMIT_MS,
         timeoutSec: 15,
     });
-    if (!webPos) return null;
+    if (!webPos || !isPlausibleLatLon(webPos.latitude, webPos.longitude)) return null;
     return {
         latitude: webPos.latitude,
         longitude: webPos.longitude,
