@@ -73,10 +73,20 @@ class GpsServiceClass {
      * Native: Subscribes to BgGeoManager's onLocation stream (single CLLocationManager).
      * Web: Uses navigator.geolocation.watchPosition.
      * Returns an unsubscribe function.
+     *
+     * @param opts.ensureRunning  Native only. When true, the watcher
+     *   ref-count-STARTS the GPS engine for the lifetime of the watch
+     *   (and releases on unsubscribe). Use it for a screen that must show
+     *   a LIVE position even when nothing else is tracking — e.g. The
+     *   Glass location label. Without it the plugin is merely configured,
+     *   so `onLocation` only fires if some OTHER consumer (anchor watch /
+     *   ship log / MOB) already started the engine, and the stream is
+     *   silent otherwise. Defaults to false to keep passive watchers
+     *   (status indicators) from spinning GPS up app-wide.
      */
-    watchPosition(callback: GpsCallback): () => void {
+    watchPosition(callback: GpsCallback, opts: { ensureRunning?: boolean } = {}): () => void {
         if (this.isNative) {
-            return this._nativeWatch(callback);
+            return this._nativeWatch(callback, opts.ensureRunning === true);
         }
         return this._webWatch(callback);
     }
@@ -103,53 +113,75 @@ class GpsServiceClass {
         }
     }
 
-    private _nativeWatch(callback: GpsCallback): () => void {
+    private _nativeWatch(callback: GpsCallback, ensureRunning: boolean): () => void {
         // We need to lazy-import to avoid loading Transistorsoft on web
         let unsubscribe: (() => void) | null = null;
+        let releaseEngine: (() => void) | null = null;
         let cancelled = false;
 
-        import('./BgGeoManager')
-            .then(({ BgGeoManager }) => {
+        void (async () => {
+            try {
+                const { BgGeoManager } = await import('./BgGeoManager');
                 if (cancelled) return;
 
-                // Ensure the engine is ready (idempotent)
-                BgGeoManager.ensureReady()
-                    .then(() => {
-                        if (cancelled) return;
+                // Ensure the engine is ready (idempotent — configures only).
+                await BgGeoManager.ensureReady();
+                if (cancelled) return;
 
-                        unsubscribe = BgGeoManager.subscribeLocation((cached) => {
-                            callback({
-                                latitude: cached.latitude,
-                                longitude: cached.longitude,
-                                accuracy: cached.accuracy,
-                                altitude: cached.altitude,
-                                heading: cached.heading,
-                                speed: cached.speed,
-                                timestamp: cached.timestamp,
-                            });
-                        });
+                // `ensureReady` does NOT start location updates. A watcher
+                // that opts into `ensureRunning` actively needs a live fix
+                // stream, so ref-count-START the engine (coexists with
+                // anchor watch / ship log / MOB; the engine stops only when
+                // the last consumer releases). Race-safe: after the await,
+                // the cancelled-check + assignment run synchronously, so an
+                // unsubscribe that landed during the await still releases.
+                if (ensureRunning) {
+                    await BgGeoManager.requestStart();
+                    releaseEngine = () => void BgGeoManager.requestStop();
+                    if (cancelled) {
+                        releaseEngine();
+                        releaseEngine = null;
+                        return;
+                    }
+                }
 
-                        // Also emit the current cached position immediately if available
-                        const last = BgGeoManager.getLastPosition();
-                        if (last) {
-                            callback({
-                                latitude: last.latitude,
-                                longitude: last.longitude,
-                                accuracy: last.accuracy,
-                                altitude: last.altitude,
-                                heading: last.heading,
-                                speed: last.speed,
-                                timestamp: last.timestamp,
-                            });
-                        }
-                    })
-                    .catch((e) => log.warn('[GpsService] ensureReady failed:', e));
-            })
-            .catch((e) => log.warn('[GpsService] import BgGeoManager failed:', e));
+                unsubscribe = BgGeoManager.subscribeLocation((cached) => {
+                    callback({
+                        latitude: cached.latitude,
+                        longitude: cached.longitude,
+                        accuracy: cached.accuracy,
+                        altitude: cached.altitude,
+                        heading: cached.heading,
+                        speed: cached.speed,
+                        timestamp: cached.timestamp,
+                    });
+                });
+
+                // Also emit the current cached position immediately if available
+                const last = BgGeoManager.getLastPosition();
+                if (last) {
+                    callback({
+                        latitude: last.latitude,
+                        longitude: last.longitude,
+                        accuracy: last.accuracy,
+                        altitude: last.altitude,
+                        heading: last.heading,
+                        speed: last.speed,
+                        timestamp: last.timestamp,
+                    });
+                }
+            } catch (e) {
+                log.warn('[GpsService] native watch setup failed:', e);
+            }
+        })();
 
         return () => {
             cancelled = true;
             if (unsubscribe) unsubscribe();
+            if (releaseEngine) {
+                releaseEngine();
+                releaseEngine = null;
+            }
         };
     }
 

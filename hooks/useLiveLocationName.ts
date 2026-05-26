@@ -67,6 +67,14 @@ function formatCoords(lat: number, lon: number): string {
     return `${latPart}, ${lonPart}`;
 }
 
+// Cap each reverse-geocode so a flaky/absent connection (mid-ocean, bad
+// MFD Wi-Fi) degrades to a coordinate readout within a few seconds rather
+// than hanging and freezing the label on its last value.
+const GEOCODE_TIMEOUT_MS = 4_000;
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+    return Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error('geocode-timeout')), ms))]);
+}
+
 export function useLiveLocationName(): string | null {
     const [name, setName] = useState<string | null>(null);
 
@@ -83,8 +91,12 @@ export function useLiveLocationName(): string | null {
         // Shared worker fn — called from the first-fix callback and
         // from the 10s polling interval. Does the move-threshold check,
         // hits the geocoder, updates state + LocationStore.
+        // Guards against overlapping geocodes when the geocoder is slow
+        // (the 3s interval would otherwise stack requests on bad comms).
+        let geocoding = false;
+
         const tryReverseGeocode = async () => {
-            if (cancelled) return;
+            if (cancelled || geocoding) return;
 
             // Gate: only a user-placed map pin is a hard override.
             const storeSource = LocationStore.getState().source;
@@ -98,8 +110,9 @@ export function useLiveLocationName(): string | null {
                 return;
             }
 
+            geocoding = true;
             try {
-                const resolved = await reverseGeocode(latest.lat, latest.lon);
+                const resolved = await withTimeout(reverseGeocode(latest.lat, latest.lon), GEOCODE_TIMEOUT_MS);
                 if (cancelled) return;
                 const displayName = resolved || formatCoords(latest.lat, latest.lon);
                 lastGeocodedRef.current = { ...latest };
@@ -107,11 +120,15 @@ export function useLiveLocationName(): string | null {
                 LocationStore.setFromGPS(latest.lat, latest.lon, displayName);
             } catch (err) {
                 if (cancelled) return;
-                log.warn('reverseGeocode failed — falling back to coords', err);
+                // Timed out or failed — show coordinates so the label still
+                // tracks the boat (the open-ocean / no-comms case).
+                log.warn('reverseGeocode failed/timed out — falling back to coords', err);
                 const fallback = formatCoords(latest.lat, latest.lon);
                 lastGeocodedRef.current = { ...latest };
                 setName(fallback);
                 LocationStore.setFromGPS(latest.lat, latest.lon, fallback);
+            } finally {
+                geocoding = false;
             }
         };
 
@@ -120,19 +137,25 @@ export function useLiveLocationName(): string | null {
         // 10s interval handles the debouncing from there.
         let firstFixFired = false;
 
-        const unsub = GpsService.watchPosition((pos) => {
-            latestPosRef.current = { lat: pos.latitude, lon: pos.longitude };
-            // First fix ever this session → reverse-geocode immediately,
-            // don't wait for the interval. This is the bit that closes
-            // the 10-60s gap where the label sat on whatever the last
-            // cached weather report had (potentially a wrong geocoding
-            // result from onboarding, like 'Old Aust Road, England' for
-            // someone who typed 'Newport' and meant Newport QLD).
-            if (!firstFixFired) {
-                firstFixFired = true;
-                void tryReverseGeocode();
-            }
-        });
+        const unsub = GpsService.watchPosition(
+            (pos) => {
+                latestPosRef.current = { lat: pos.latitude, lon: pos.longitude };
+                // First fix ever this session → reverse-geocode immediately,
+                // don't wait for the interval. This is the bit that closes
+                // the 10-60s gap where the label sat on whatever the last
+                // cached weather report had (potentially a wrong geocoding
+                // result from onboarding, like 'Old Aust Road, England' for
+                // someone who typed 'Newport' and meant Newport QLD).
+                if (!firstFixFired) {
+                    firstFixFired = true;
+                    void tryReverseGeocode();
+                }
+                // ensureRunning: The Glass must show a LIVE location even when
+                // nothing else is tracking — actively start the GPS engine
+                // (ref-counted; released on unmount) so onLocation actually fires.
+            },
+            { ensureRunning: true },
+        );
 
         const intervalId = setInterval(tryReverseGeocode, POLL_INTERVAL_MS);
 
