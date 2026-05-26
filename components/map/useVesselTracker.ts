@@ -11,7 +11,6 @@ import mapboxgl from 'mapbox-gl';
 import { useEffect, useRef, useCallback, type MutableRefObject } from 'react';
 import { BgGeoManager, type CachedPosition } from '../../services/BgGeoManager';
 import { GpsService } from '../../services/GpsService';
-import { Capacitor } from '@capacitor/core';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('VesselTracker');
@@ -268,33 +267,27 @@ export function useVesselTracker(mapRef: MutableRefObject<mapboxgl.Map | null>, 
             return;
         }
 
-        let unsub: (() => void) | undefined;
-
-        if (Capacitor.isNativePlatform()) {
-            BgGeoManager.ensureReady()
-                .then(() => {
-                    const cached = BgGeoManager.getLastPosition();
-                    if (cached) updateMarker(cached);
-
-                    unsub = BgGeoManager.subscribeLocation((pos) => {
-                        updateMarker(pos);
-                    });
-                })
-                .catch((e) => log.warn('BgGeo not available:', e));
-        } else {
-            unsub = GpsService.watchPosition((pos) => {
+        // One watch path — GpsService abstracts BgGeo (native) vs browser
+        // geolocation (web). ensureRunning keeps the vessel marker live even
+        // when no voyage / anchor watch is tracking (ref-counted; released
+        // on unmount via the returned unsub). Previously the native branch
+        // subscribed to BgGeo without starting it, so the marker froze
+        // whenever nothing else had the engine running.
+        const unsub = GpsService.watchPosition(
+            (pos) => {
                 updateMarker({
                     latitude: pos.latitude,
                     longitude: pos.longitude,
                     accuracy: pos.accuracy ?? 50,
-                    altitude: null,
-                    heading: null,
-                    speed: 0,
-                    timestamp: Date.now(),
+                    altitude: pos.altitude ?? null,
+                    heading: pos.heading ?? null,
+                    speed: pos.speed ?? 0,
+                    timestamp: pos.timestamp ?? Date.now(),
                     receivedAt: Date.now(),
                 });
-            });
-        }
+            },
+            { ensureRunning: true },
+        );
 
         return () => {
             unsub?.();
