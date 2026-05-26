@@ -187,6 +187,23 @@ const App: React.FC = () => {
         };
     }, []);
 
+    // One-shot anchor-watch share restore. A device that joined a shared
+    // anchor watch persists the session; restoring it here on app startup
+    // means a backgrounded/closed FOLLOWER auto-reconnects to the host
+    // without re-entering the share code — regardless of which page the
+    // app reopens to. No-ops when there's no saved session. (The Anchor
+    // Watch page also restores on mount; restoreSession is idempotent.)
+    useEffect(() => {
+        (async () => {
+            try {
+                const { AnchorWatchSyncService } = await import('./services/AnchorWatchSyncService');
+                await AnchorWatchSyncService.restoreSession();
+            } catch {
+                /* non-critical — the Anchor Watch page restores on mount too */
+            }
+        })();
+    }, []);
+
     // Calypso "speak up" alerts — singleton AlertMonitorService runs as
     // long as the toggle is on AND the user has Skipper-tier access.
     // The service subscribes to NmeaStore and dispatches AlertEvents
