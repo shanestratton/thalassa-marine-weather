@@ -11,6 +11,7 @@
  * Presence tracks which devices are connected.
  */
 
+import { App } from '@capacitor/app';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { PushNotificationService } from './PushNotificationService';
 import type { AnchorPosition, VesselPosition, AnchorWatchConfig } from './AnchorWatchService';
@@ -110,6 +111,20 @@ class AnchorWatchSyncServiceClass {
                 }
             });
         }
+        // Native (iOS/Android) foreground signal. More reliable than the web
+        // `visibilitychange` event inside a Capacitor WKWebView, which often
+        // does NOT fire when the app returns from the background — which is
+        // why a backgrounded follower silently lost the share and had to
+        // re-enter the code.
+        void App.addListener('appStateChange', ({ isActive }) => {
+            if (isActive && !this.connected && this.sessionCode) {
+                log.info('App active (native) — attempting reconnect');
+                this.reconnectAttempts = 0;
+                this.scheduleReconnect();
+            }
+        }).catch(() => {
+            /* plugin unavailable (pure web) — visibilitychange covers it */
+        });
     }
 
     // ---- PUBLIC API ----
@@ -146,6 +161,11 @@ class AnchorWatchSyncServiceClass {
      */
     async restoreSession(): Promise<boolean> {
         if (!isSupabaseConfigured() || !supabase) return false;
+
+        // Idempotent: restore is now called both on app startup AND on
+        // Anchor Watch page mount. If we're already live on a session,
+        // there's nothing to do — don't tear down / re-join.
+        if (this.connected && this.sessionCode) return true;
 
         try {
             const raw = localStorage.getItem(SYNC_SESSION_KEY);
