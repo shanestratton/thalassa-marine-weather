@@ -158,6 +158,24 @@ class AnchorWatchSyncServiceClass {
     }
 
     /**
+     * The last joined/created session code — from memory, else the persisted
+     * session — even when not currently connected. Lets the UI offer a
+     * one-tap reconnect so the user never has to re-type the 6-digit code if
+     * the connection ever drops and doesn't auto-recover.
+     */
+    getLastSessionCode(): string | null {
+        if (this.sessionCode) return this.sessionCode;
+        try {
+            const raw = localStorage.getItem(SYNC_SESSION_KEY);
+            if (!raw) return null;
+            const persisted = JSON.parse(raw) as PersistedSyncSession;
+            return persisted.sessionCode || null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Restore a persisted sync session after app restart/crash.
      * Called during app initialization.
      * Returns true if a session was restored and reconnected.
@@ -176,28 +194,31 @@ class AnchorWatchSyncServiceClass {
 
             const persisted: PersistedSyncSession = JSON.parse(raw);
 
-            // Validate persisted data
+            // Validate persisted data (genuinely corrupt → clear).
             if (!persisted.sessionCode || !persisted.role) {
                 this.clearPersistedSession();
                 return false;
             }
 
-            // Sessions older than 24 hours are stale — don't reconnect
-            const ageMs = Date.now() - (persisted.savedAt || 0);
-            if (ageMs > 24 * 60 * 60 * 1000) {
-                this.clearPersistedSession();
-                return false;
-            }
-
-            // Restore state and reconnect
+            // Restore the code/role up front so it's available to the UI
+            // (getLastSessionCode → one-tap reconnect, code display) even if
+            // we don't auto-reconnect right now.
             this.role = persisted.role;
             this.sessionCode = persisted.sessionCode;
 
+            // Don't AUTO-rejoin a very old session, but KEEP the code so the
+            // user can still one-tap reconnect manually from the UI.
+            const ageMs = Date.now() - (persisted.savedAt || 0);
+            if (ageMs > 24 * 60 * 60 * 1000) {
+                return false;
+            }
+
             const joined = await this.joinChannel();
             if (!joined) {
-                // Channel might have been cleaned up — clear stale session
-                this.clearPersistedSession();
-                this.sessionCode = null;
+                // Transient failure (e.g. no comms this instant). joinChannel
+                // has already scheduled a backoff retry — KEEP the session so
+                // that retry (and the user's manual reconnect) still has the
+                // code. Don't wipe it.
                 return false;
             }
 

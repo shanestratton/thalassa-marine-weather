@@ -172,6 +172,16 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     // (e.g., stale anchor state was cleared but sync session still active)
                     setViewMode('watching');
                 }
+            } else {
+                // Auto-reconnect didn't land (no comms right now, session aged
+                // out, or it just didn't come back). If the last session was a
+                // SHORE (follower) join, pre-fill the code field so the punter
+                // reconnects in one tap — never re-typing the 6-digit number.
+                const last = AnchorWatchSyncService.getState();
+                const lastCode = AnchorWatchSyncService.getLastSessionCode();
+                if (last.role === 'shore' && lastCode) {
+                    setSessionCode(lastCode);
+                }
             }
         };
         restore();
