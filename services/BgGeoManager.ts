@@ -84,6 +84,23 @@ class BgGeoManagerClass {
     }
 
     /**
+     * Whether the native background-geolocation engine is currently ENABLED
+     * (actively tracking). This state persists natively across app
+     * suspension and termination (stopOnTerminate:false), so on a fresh
+     * JS-context reload it's the source of truth for "is a voyage's GPS
+     * capture genuinely still live?" — unlike any in-memory JS flag, which
+     * resets on reload. Returns false on web or if the plugin errors.
+     */
+    async isNativeTrackingEnabled(): Promise<boolean> {
+        try {
+            const state = await BackgroundGeolocation.getState();
+            return state?.enabled === true;
+        } catch {
+            return false;
+        }
+    }
+
+    /**
      * Ref-counted start. Multiple callers can request start; the engine only
      * stops when ALL callers have called `requestStop()`.
      */

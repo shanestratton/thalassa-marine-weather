@@ -57,6 +57,52 @@ export interface StoredPosition {
     speedKts?: number;
 }
 
+/**
+ * What `ShipLogService.initialize()` should do with a persisted tracking
+ * state on app start / JS-context reload.
+ *
+ * The hard case (root cause of the "track cut out / missing start / log
+ * says not-running after backgrounding" bug): the persisted state says we
+ * were tracking, but no scheduler is running in this fresh JS context.
+ * That happens BOTH when the app was genuinely force-closed long ago AND
+ * when iOS merely suspended/reloaded the WebView while the native GPS
+ * engine kept recording. We tell them apart by asking the native engine
+ * whether it's still enabled:
+ *
+ *   - native still enabled + we have a voyage id → `resume` the SAME
+ *     voyage in place (re-arm the JS side, do NOT mint a new id, do NOT
+ *     stamp an end time). Stranding the track under an ended voyage id is
+ *     exactly what dropped the start of the recorded track.
+ *   - otherwise (cold start / force-close, or no voyage id) →
+ *     `mark-stopped`, and let `autoStartIfEnabled()` decide whether to
+ *     resume.
+ *   - scheduler already running (in-session page nav) or simply
+ *     not-tracking/paused → `none` (nothing to reconcile).
+ *
+ * Pure — no I/O, no native calls — so the lifecycle branch is unit-tested.
+ */
+export type InitTrackingAction =
+    | { action: 'none' }
+    | { action: 'resume'; voyageId: string }
+    | { action: 'mark-stopped' };
+
+export function decideInitTrackingAction(opts: {
+    persistedIsTracking: boolean;
+    persistedIsPaused: boolean;
+    schedulerRunning: boolean;
+    nativeTrackingEnabled: boolean;
+    currentVoyageId?: string | null;
+}): InitTrackingAction {
+    const { persistedIsTracking, persistedIsPaused, schedulerRunning, nativeTrackingEnabled, currentVoyageId } = opts;
+    if (!persistedIsTracking || persistedIsPaused || schedulerRunning) {
+        return { action: 'none' };
+    }
+    if (nativeTrackingEnabled && currentVoyageId) {
+        return { action: 'resume', voyageId: currentVoyageId };
+    }
+    return { action: 'mark-stopped' };
+}
+
 /** Hydrate the persisted tracking state. Returns null if absent or unreadable. */
 export async function loadTrackingState(): Promise<TrackingState | null> {
     try {
