@@ -35,6 +35,7 @@ import {
     loadTrackingState,
     saveTrackingState as _saveTrackingState,
     clearVoyageState as _clearVoyageState,
+    decideInitTrackingAction,
     type TrackingState,
 } from './shiplog/TrackingStateStore';
 import { CourseChangeDetector } from './shiplog/CourseChangeDetector';
@@ -135,23 +136,50 @@ class ShipLogServiceClass {
             if (persisted) {
                 this.trackingState = persisted;
 
-                // STALE STATE DETECTION: If tracking was left on from a previous app session
-                // but no interval is running (scheduler is idle on cold start),
-                // this means the app was force-closed while tracking.
+                // Reconcile a persisted "tracking" state against this
+                // (possibly fresh) JS context. The decision is pure +
+                // unit-tested in TrackingStateStore.decideInitTrackingAction.
                 //
-                // Behavior depends on autoTrackEnabled:
-                // - OFF: Reset to stopped state so the Start button shows correctly.
-                // - ON:  Auto-resume the voyage (handled by autoStartIfEnabled called from App.tsx)
+                // The case that bit us: iOS suspends/reloads the WebView
+                // mid-voyage (an hour on another page / backgrounded) while
+                // the native GPS engine keeps recording. The old code blindly
+                // marked the voyage STOPPED + stamped an end time — which
+                // stranded the already-recorded track under a dead voyage id
+                // (the "missing start / 986 pts / it cut out / log says
+                // not-running" bug) and showed a false "not tracking" in the
+                // UI. We now ask the native engine whether it's still live and
+                // CONTINUE the same voyage in place when it is.
                 //
-                // IMPORTANT: When navigating between pages within an active session,
-                // the scheduler IS running, so this won't affect active tracking.
-                if (this.trackingState.isTracking && !this.trackingState.isPaused && !this.scheduler.isRunning()) {
-                    // Mark as stopped — autoStartIfEnabled() will restart if setting is on
+                // When navigating between pages within an active session the
+                // scheduler IS running, so the decision is 'none' and active
+                // tracking is untouched.
+                const decision = decideInitTrackingAction({
+                    persistedIsTracking: this.trackingState.isTracking,
+                    persistedIsPaused: this.trackingState.isPaused,
+                    schedulerRunning: this.scheduler.isRunning(),
+                    nativeTrackingEnabled: await BgGeoManager.isNativeTrackingEnabled(),
+                    currentVoyageId: this.trackingState.currentVoyageId,
+                });
+
+                if (decision.action === 'resume') {
+                    // Native GPS never stopped — re-arm the JS side onto the
+                    // SAME voyage. startTracking() guards on isTracking, so
+                    // release the (in-memory only) flag first; we deliberately
+                    // do NOT persist a stopped state or an end time here.
+                    log.warn(
+                        `[init] native GPS still live after JS reload — resuming voyage ${decision.voyageId.slice(0, 12)} in place (no stop, no new id)`,
+                    );
+                    this.trackingState.isTracking = false;
+                    await this.startTracking(true, decision.voyageId);
+                } else if (decision.action === 'mark-stopped') {
+                    // Genuine cold start / force-close — mark stopped so the
+                    // Start button shows correctly; autoStartIfEnabled() will
+                    // restart if the user's setting is on.
                     this.trackingState = {
                         isTracking: false,
                         isPaused: false,
                         isRapidMode: false,
-                        // Preserve voyage info so autoStartIfEnabled can decide to resume or start fresh
+                        // Preserve voyage info so autoStartIfEnabled can decide.
                         currentVoyageId: this.trackingState.currentVoyageId,
                         voyageStartTime: this.trackingState.voyageStartTime,
                         voyageEndTime: this.trackingState.voyageEndTime || new Date().toISOString(),
@@ -159,6 +187,7 @@ class ShipLogServiceClass {
                     await this.saveTrackingState();
                     this.notifyTrackingChanged();
                 }
+                // decision.action === 'none' → active in-session, leave as-is.
             }
 
             // Start sync interval to process offline queue
