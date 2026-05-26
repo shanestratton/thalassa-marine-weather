@@ -8,7 +8,7 @@
  * the passage planner computes a route on the Charts page).
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { triggerHaptic } from '../../utils/system';
 import { usePassageStore, type PassageLeg } from '../../stores/PassageStore';
 import { PassageRouteMap } from './PassageRouteMap';
@@ -259,6 +259,9 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     const [trackEntries, setTrackEntries] = useState<ShipLogEntry[] | null>(null);
     const [showTrackViewer, setShowTrackViewer] = useState(false);
     const [loadingTrack, setLoadingTrack] = useState(false);
+    // Ref mirror of the loaded track so the live-poll interval can read the
+    // latest without re-subscribing on every appended point.
+    const trackEntriesRef = useRef<ShipLogEntry[] | null>(null);
 
     const handleOpenTrackViewer = useCallback(async () => {
         triggerHaptic('light');
@@ -325,6 +328,57 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
             setLoadingTrack(false);
         }
     }, [trackEntries, voyageId, voyageName, departPort, destPort]);
+
+    useEffect(() => {
+        trackEntriesRef.current = trackEntries;
+    }, [trackEntries]);
+
+    // Almost-live cross-device: while the track viewer is open for an
+    // IN-PROGRESS voyage (newest point recorded within the active window),
+    // poll Supabase for newly-recorded points and append them — so a second
+    // device watching the recording device's voyage sees the track grow
+    // ~live. Cheap incremental query; stops when the viewer closes or the
+    // voyage goes idle. Needs both devices online (shared backend) — an
+    // offline boat LAN has nothing to poll.
+    useEffect(() => {
+        if (!showTrackViewer || !voyageId) return;
+        let stopped = false;
+        const POLL_MS = 15_000;
+        const ACTIVE_WINDOW_MS = 15 * 60_000;
+
+        const tick = async () => {
+            if (stopped) return;
+            const entries = trackEntriesRef.current;
+            if (!entries || entries.length === 0) return;
+            const newestMs = entries.reduce((m, e) => Math.max(m, Date.parse(e.timestamp)), 0);
+            if (!newestMs) return;
+            // Only poll while the voyage is still being recorded.
+            if (Date.now() - newestMs > ACTIVE_WINDOW_MS) {
+                stopped = true;
+                return;
+            }
+            try {
+                const { getVoyageEntriesSince } = await import('../../services/shiplog/EntryCrud');
+                const fresh = await getVoyageEntriesSince(voyageId, new Date(newestMs).toISOString());
+                if (stopped || fresh.length === 0) return;
+                setTrackEntries((prev) => {
+                    const merged = [...(prev ?? []), ...fresh];
+                    void import('../../services/shiplog/VoyageTrackCache').then(({ setCachedVoyageTrack }) =>
+                        setCachedVoyageTrack(voyageId, merged),
+                    );
+                    return merged;
+                });
+            } catch {
+                /* transient comms error — retry next tick */
+            }
+        };
+
+        const id = setInterval(tick, POLL_MS);
+        return () => {
+            stopped = true;
+            clearInterval(id);
+        };
+    }, [showTrackViewer, voyageId]);
 
     const effectiveTime = localTime || (departureTime ? departureTime.split('T')[1]?.slice(0, 5) : '');
 
