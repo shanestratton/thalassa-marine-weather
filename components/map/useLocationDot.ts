@@ -11,18 +11,24 @@ export function useLocationDot(
         const map = mapRef.current;
         if (!map || !mapReady) return;
 
-        const unsub = GpsService.watchPosition((pos) => {
-            const { latitude, longitude } = pos;
-            if (!locationDotRef.current) {
-                const el = document.createElement('div');
-                el.className = 'loc-dot';
-                locationDotRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
-                    .setLngLat([longitude, latitude])
-                    .addTo(map);
-            } else {
-                locationDotRef.current.setLngLat([longitude, latitude]);
-            }
-        });
+        const unsub = GpsService.watchPosition(
+            (pos) => {
+                const { latitude, longitude } = pos;
+                if (!locationDotRef.current) {
+                    const el = document.createElement('div');
+                    el.className = 'loc-dot';
+                    locationDotRef.current = new mapboxgl.Marker({ element: el, anchor: 'center' })
+                        .setLngLat([longitude, latitude])
+                        .addTo(map);
+                } else {
+                    locationDotRef.current.setLngLat([longitude, latitude]);
+                }
+                // ensureRunning: the boat dot must stay live on the map even
+                // when no voyage/anchor watch is tracking — actively run the
+                // GPS engine (ref-counted; released when the map unmounts).
+            },
+            { ensureRunning: true },
+        );
 
         return () => {
             unsub();
