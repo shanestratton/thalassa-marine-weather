@@ -263,43 +263,64 @@ export const PassageSummaryCard: React.FC<PassageSummaryCardProps> = ({
     const handleOpenTrackViewer = useCallback(async () => {
         triggerHaptic('light');
         setShowTrackViewer(true);
-        // Fetch is one-shot — once we have entries, reuse them on
-        // subsequent re-opens within the same mount. If the user wants
-        // fresh data they can close + reopen the readiness panel.
+        // One-shot per mount — reuse once loaded.
         if (trackEntries !== null) return;
-        setLoadingTrack(true);
+
+        const { getCachedVoyageTrack, setCachedVoyageTrack } = await import('../../services/shiplog/VoyageTrackCache');
+
+        // Local-first: paint the cached track instantly so a flaky boat
+        // connection — or a SECOND device viewing the recording device's
+        // voyage — never leaves the viewer spinning ("iPhone can't get the
+        // route up"). Then refresh from Supabase in the background and swap
+        // in fresher data if it lands.
+        const cached = await getCachedVoyageTrack(voyageId);
+        const haveCache = !!cached && cached.length >= 2;
+        if (haveCache) setTrackEntries(cached);
+        else setLoadingTrack(true);
+
+        // Timeout the (paginated, un-cancellable) Supabase fetch so a
+        // no-cache first view on bad comms shows an empty state instead of
+        // hanging forever. Generous budget when a cached track is already up.
+        const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+            Promise.race([
+                p,
+                new Promise<T>((_, reject) => setTimeout(() => reject(new Error('track-fetch-timeout')), ms)),
+            ]);
+
         try {
             const { getLogEntries } = await import('../../services/shiplog/EntryCrud');
-            const all = await getLogEntries(10_000);
+            const all = await withTimeout(getLogEntries(10_000), haveCache ? 30_000 : 8_000);
 
-            // Try the sailed track first — these are entries written
-            // by the GPS pipeline once the voyage casts off, keyed on
-            // the voyage's UUID. They'll have real telemetry.
+            // Sailed track first — entries written by the GPS pipeline once
+            // the voyage casts off, keyed on the voyage's UUID (real telemetry).
             const sailed = voyageId ? all.filter((e) => e.voyageId === voyageId) : [];
             if (sailed.length >= 2) {
                 setTrackEntries(sailed);
+                void setCachedVoyageTrack(voyageId, sailed);
                 return;
             }
 
-            // Fall back to the planned route. PassagePlanSave creates
-            // a separate batch of entries (voyageId starts with
-            // `planned_`) keyed on a generated id, with first/last
-            // waypointName set to the trimmed dep/arr names. Match by
-            // voyage_name → route label using the same scheme
-            // CrewManagement uses.
+            // Fall back to the planned route. PassagePlanSave creates a
+            // separate batch (voyageId starts with `planned_`); match by
+            // voyage_name → route label, same scheme CrewManagement uses.
             const expectedLabel = (voyageName || `${departPort ?? ''} → ${destPort ?? ''}`).trim().toLowerCase();
             if (expectedLabel) {
                 const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
                 const { routes } = await fetchRoutesAndTracks();
                 const matched = routes.find((r) => r.label.trim().toLowerCase() === expectedLabel);
                 if (matched) {
-                    setTrackEntries(all.filter((e) => e.voyageId === matched.id));
+                    const planned = all.filter((e) => e.voyageId === matched.id);
+                    setTrackEntries(planned);
+                    void setCachedVoyageTrack(voyageId, planned);
                     return;
                 }
             }
-            setTrackEntries([]);
+            // Nothing fresh resolved — keep any cached track rather than blanking.
+            if (!haveCache) setTrackEntries([]);
         } catch {
-            setTrackEntries([]);
+            // Timeout or fetch error — keep the cached track if we have one,
+            // otherwise show the empty state (never an infinite spinner).
+            if (!haveCache) setTrackEntries([]);
         } finally {
             setLoadingTrack(false);
         }
