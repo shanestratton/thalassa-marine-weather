@@ -78,6 +78,43 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
 }
 
 /**
+ * Fetch a voyage's entries recorded strictly AFTER `sinceIso`.
+ *
+ * A cheap incremental query for polling an IN-PROGRESS voyage's track so a
+ * second device watching the recording device's voyage sees it grow
+ * almost-live — without re-pulling the whole track each tick. Ordered
+ * oldest → newest; empty on no-auth / error / no new points.
+ *
+ * This is a cloud read: it only surfaces points the recording device has
+ * synced to Supabase. With no shared backend reachable (e.g. both devices
+ * on an offline boat LAN) there is nothing to poll.
+ */
+export async function getVoyageEntriesSince(voyageId: string, sinceIso: string): Promise<ShipLogEntry[]> {
+    if (!supabase || !voyageId || !sinceIso) return [];
+    try {
+        const {
+            data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) return [];
+
+        const { data, error } = await supabase
+            .from(SHIP_LOGS_TABLE)
+            .select('*')
+            .eq('voyage_id', voyageId)
+            .gt('timestamp', sinceIso)
+            .or('archived.is.null,archived.eq.false')
+            .order('timestamp', { ascending: true })
+            .limit(1000);
+
+        if (error) return [];
+        return (data || []).map((row) => fromDbFormat(row));
+    } catch (error) {
+        log.warn('getVoyageEntriesSince failed', error);
+        return [];
+    }
+}
+
+/**
  * Fetch archived log entries for current user.
  */
 export async function getArchivedEntries(limit: number = 10000): Promise<ShipLogEntry[]> {
