@@ -864,20 +864,45 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                     }
                 />
 
-                {/* Vessel Disconnection Banner */}
+                {/* Vessel connection banner. On the FIRST connect the channel
+                    is up but the vessel's first heartbeat hasn't landed yet —
+                    that's "connecting", not "lost". Only show the red "lost"
+                    state once we've actually seen the vessel and it dropped
+                    (peerDisconnectedAt is set). */}
                 {!syncState?.peerConnected && (
-                    <div className="shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 bg-red-500/[0.08] border border-red-500/25 rounded-xl">
-                        <span className="w-2.5 h-2.5 bg-red-500 rounded-full shrink-0 animate-pulse shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
-                        <span className="text-sm text-red-400 font-bold flex-1 inline-flex items-center gap-1.5">
-                            <AlertTriangleIcon className="w-4 h-4" />
+                    <div
+                        className={`shrink-0 mx-3 mt-1 px-3 py-2.5 flex items-center gap-2 rounded-xl border ${
+                            syncState?.peerDisconnectedAt
+                                ? 'bg-red-500/[0.08] border-red-500/25'
+                                : 'bg-amber-500/[0.08] border-amber-500/25'
+                        }`}
+                    >
+                        <span
+                            className={`w-2.5 h-2.5 rounded-full shrink-0 animate-pulse ${
+                                syncState?.peerDisconnectedAt
+                                    ? 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]'
+                                    : 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.5)]'
+                            }`}
+                        />
+                        <span
+                            className={`text-sm font-bold flex-1 inline-flex items-center gap-1.5 ${
+                                syncState?.peerDisconnectedAt ? 'text-red-400' : 'text-amber-400'
+                            }`}
+                        >
+                            {!!syncState?.peerDisconnectedAt && <AlertTriangleIcon className="w-4 h-4" />}
                             <span>
-                                Vessel connection lost
                                 {syncState?.peerDisconnectedAt
-                                    ? ` · ${formatElapsed(syncState.peerDisconnectedAt)} ago`
-                                    : ''}
+                                    ? `Vessel connection lost · ${formatElapsed(syncState.peerDisconnectedAt)} ago`
+                                    : 'Connecting to vessel…'}
                             </span>
                         </span>
-                        <span className="text-xs text-red-500/50 animate-pulse">Reconnecting...</span>
+                        <span
+                            className={`text-xs animate-pulse ${
+                                syncState?.peerDisconnectedAt ? 'text-red-500/50' : 'text-amber-500/60'
+                            }`}
+                        >
+                            {syncState?.peerDisconnectedAt ? 'Reconnecting...' : 'Connecting...'}
+                        </span>
                     </div>
                 )}
 
@@ -1106,12 +1131,11 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 <div className="shrink-0 mx-3 mb-1.5 px-3 py-2 flex items-center gap-2 bg-amber-500/[0.08] border border-amber-500/25 rounded-xl animate-pulse">
                     <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0" />
                     <span className="text-xs text-amber-400 font-bold flex-1 inline-flex items-center gap-1.5">
-                        <AlertTriangleIcon className="w-3.5 h-3.5" />
+                        {!!syncState.peerDisconnectedAt && <AlertTriangleIcon className="w-3.5 h-3.5" />}
                         <span>
-                            Shore device disconnected
                             {syncState.peerDisconnectedAt
-                                ? ` · Lost ${formatElapsed(syncState.peerDisconnectedAt)} ago`
-                                : ''}
+                                ? `Shore device disconnected · Lost ${formatElapsed(syncState.peerDisconnectedAt)} ago`
+                                : 'Waiting for shore device…'}
                         </span>
                     </span>
                     <span className="text-xs text-amber-500/60">Waiting...</span>
