@@ -89,6 +89,9 @@ class AnchorWatchSyncServiceClass {
     private peerTimeoutInterval: ReturnType<typeof setInterval> | null = null;
     private reconnectAttempts = 0;
     private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+    // One-shot guard so prolonged peer silence forces a single rejoin per
+    // disconnection episode (re-armed when the peer is heard again).
+    private rejoinedOnSilence = false;
 
     constructor() {
         // Auto-reconnect when app returns to foreground
@@ -453,6 +456,25 @@ class AnchorWatchSyncServiceClass {
         try {
             const channelName = `anchor-watch-${this.sessionCode}`;
 
+            // Tear down any prior channel + timers first, so a reconnect
+            // doesn't leak intervals or leave a dead half-open channel behind.
+            if (this.heartbeatInterval) {
+                clearInterval(this.heartbeatInterval);
+                this.heartbeatInterval = null;
+            }
+            if (this.peerTimeoutInterval) {
+                clearInterval(this.peerTimeoutInterval);
+                this.peerTimeoutInterval = null;
+            }
+            if (this.channel) {
+                try {
+                    await supabase.removeChannel(this.channel);
+                } catch {
+                    /* best effort — old channel may already be dead */
+                }
+                this.channel = null;
+            }
+
             this.channel = supabase.channel(channelName, {
                 config: {
                     broadcast: { self: false, ack: true },
@@ -530,15 +552,41 @@ class AnchorWatchSyncServiceClass {
                 });
             }, 10000);
 
-            // Monitor peer timeout (30s without heartbeat = disconnected)
+            // Monitor peer liveness. Heartbeats arrive every 10s, so silence
+            // means trouble. Two thresholds:
+            //   • 20s → force ONE channel rejoin. Prolonged silence usually
+            //     means OUR socket died (a WiFi→cell handoff leaves it
+            //     half-open: the peer's heartbeats stop arriving while
+            //     `connected` stays stale-true, and neither `online` nor a
+            //     foreground event fires mid-walk). Rejoining over the new
+            //     interface re-establishes; harmless if the peer is truly
+            //     gone (we just re-subscribe and wait). Kicking in before the
+            //     30s UI-disconnect makes a quick handoff often seamless.
+            //   • 30s → flag the peer disconnected in the UI.
             this.peerTimeoutInterval = setInterval(() => {
-                if (this.lastPeerUpdate && Date.now() - this.lastPeerUpdate > 30000) {
-                    if (this.peerConnected) {
-                        this.peerConnected = false;
-                        this.peerDisconnectedAt = Date.now();
-                        log.warn('Peer timed out (no heartbeat for 30s)');
-                        this.notifyState();
-                    }
+                const silentMs = this.lastPeerUpdate ? Date.now() - this.lastPeerUpdate : 0;
+                if (!this.lastPeerUpdate) return;
+
+                // Peer actively heard → re-arm the one-shot rejoin.
+                if (silentMs < 20000) {
+                    this.rejoinedOnSilence = false;
+                }
+
+                // Suspected dead socket → force a single fresh rejoin.
+                if (silentMs > 20000 && !this.rejoinedOnSilence) {
+                    this.rejoinedOnSilence = true;
+                    log.info('Peer silent 20s — forcing channel rejoin (suspected dead socket)');
+                    this.connected = false;
+                    this.reconnectAttempts = 0;
+                    this.scheduleReconnect();
+                }
+
+                // UI: peer disconnected.
+                if (silentMs > 30000 && this.peerConnected) {
+                    this.peerConnected = false;
+                    this.peerDisconnectedAt = Date.now();
+                    log.warn('Peer timed out (no heartbeat for 30s)');
+                    this.notifyState();
                 }
             }, 5000);
 
