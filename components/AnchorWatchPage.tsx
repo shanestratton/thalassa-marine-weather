@@ -376,9 +376,24 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     }, [rodeLength, waterDepth, rodeType, safetyMargin]);
 
     const handleStopWatch = useCallback(async () => {
-        // Safety action — must never fail silently. If the service
-        // throws, the watch may still be armed; tell the user so they
-        // can retry rather than walking away thinking it's off.
+        // Shore follower: there's no local anchor watch to stop — leaving just
+        // tears down the shared session, which CLEARS the saved code so it
+        // doesn't pre-fill (and confuse) on the next anchor. Do this
+        // independently of stopWatch() — a follower has no watch to stop, and
+        // previously a throw there skipped leaveSession() and stranded the code.
+        if (viewMode === 'shore') {
+            try {
+                await AnchorWatchSyncService.leaveSession();
+            } catch (e) {
+                log.warn('leaveSession (shore) failed', e);
+            }
+            setViewMode('setup');
+            setShoreData(null);
+            return;
+        }
+        // Vessel host: stopping is a SAFETY action — must never fail silently.
+        // If the service throws, the watch may still be armed; tell the user so
+        // they can retry rather than walking away thinking it's off.
         try {
             await AnchorWatchService.stopWatch();
             await AnchorWatchSyncService.leaveSession();
@@ -388,7 +403,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
             log.error('Failed to stop anchor watch', e);
             toast.error('Could not stop the anchor watch — it may still be armed. Try again.');
         }
-    }, []);
+    }, [viewMode]);
 
     const handleAcknowledgeAlarm = useCallback(() => {
         AnchorWatchService.acknowledgeAlarm();
