@@ -1871,12 +1871,10 @@ function smoothPath(grid: NavGrid, path: { x: number; y: number }[]): { x: numbe
 // validation failed → never fabricate, always defer to the proven A*).
 
 /** Keel-clearance margin in cells, derived from the grid resolution.
- *  Target ~8 m off a wall, min 1 cell so even a coarse grid keeps the
- *  route off the immediate bank. Slightly more than the spike's ~5 m so
- *  straight legs don't shave a bend's inside corner at the finer (but
- *  still 10-13 m) resolutions short marina routes now use. */
+ *  Target ~5 m off a wall (the spike's 3 px ≈ 5 m), min 1 cell so even a
+ *  coarse grid keeps the route off the immediate bank. */
 function keelCellsFor(resolutionM: number): number {
-    const KEEL_M = 8;
+    const KEEL_M = 5;
     return Math.max(1, Math.round(KEEL_M / Math.max(1, resolutionM)));
 }
 
@@ -2065,23 +2063,7 @@ function routeInshoreOnce(
     relaxZones: RelaxZone[] = [],
 ): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
-    // ── Adaptive grid resolution + padding for SHORT routes ──
-    // A fixed 50 m cell is WIDER than a 30 m marina canal, so it blurs
-    // bank into channel and any route clips land at the corners. For
-    // short routes (marina/canal scale) we tighten the padding floor and
-    // drop the cell size so the canals actually resolve, bounded to keep
-    // the cell count (and grid-build time) sane. LONG routes (e.g. the
-    // Brisbane River 20 NM benchmark) keep the previous 50 m / 0.08°
-    // behaviour byte-for-byte — they exceed the short threshold and use
-    // maxSpan-based padding, never the floor.
-    const spanLatDeg = Math.abs(req.toLat - req.fromLat);
-    const spanLonDeg = Math.abs(req.toLon - req.fromLon);
-    const maxSpanDeg = Math.max(spanLatDeg, spanLonDeg);
-    const isShortRoute = maxSpanDeg < 0.06; // ≈ 6.6 km / ~3.5 NM
-    const padFloorDeg = isShortRoute ? 0.015 : 0.08; // ≈ 1.6 km vs 8.8 km
-    const resolutionM =
-        req.resolutionM ??
-        (isShortRoute ? Math.max(10, Math.min(50, ((maxSpanDeg + 2 * padFloorDeg) * M_PER_DEG_LAT) / 500)) : 50);
+    const resolutionM = req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
     // Per-phase timing — we have no idea where the 25-65 s on iOS is going
@@ -2125,8 +2107,8 @@ function routeInshoreOnce(
     const minLon = Math.min(req.fromLon, req.toLon);
     const maxLon = Math.max(req.fromLon, req.toLon);
     const maxSpan = Math.max(maxLat - minLat, maxLon - minLon);
-    const padLat = Math.max(maxSpan * 0.5, padFloorDeg);
-    const padLon = Math.max(maxSpan * 0.5, padFloorDeg);
+    const padLat = Math.max(maxSpan * 0.5, 0.08);
+    const padLon = Math.max(maxSpan * 0.5, 0.08);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();
