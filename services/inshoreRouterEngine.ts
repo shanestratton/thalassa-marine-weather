@@ -1910,17 +1910,19 @@ function tryMarinaCenterline(
     });
     if (!result) return null;
 
-    // Validate the STRAIGHT LEGS against the grid — every sampled point
-    // must be confident water (not NaN, not caution). Belt-and-braces on
-    // top of routeMarina's own guarantee; if anything's off, fall back.
-    const wp = result.waypoints;
-    for (let k = 0; k < wp.length - 1; k++) {
-        for (const c of bresenhamCells(wp[k].x, wp[k].y, wp[k + 1].x, wp[k + 1].y)) {
-            const d = grid.cells[c.y * grid.width + c.x];
-            if (Number.isNaN(d) || d < 0) return null;
-        }
+    // Return the raw mid-channel centerline CELLS, not routeMarina's
+    // string-pulled waypoints. The engine's downstream Douglas-Peucker
+    // (¼-cell tolerance) simplifies these shape-preservingly — straight
+    // legs on straight runs — but, unlike the greedy line-of-sight
+    // string-pull, it NEVER shortcuts across a bend's inside corner (which
+    // shaved the canal corners). The cells all sit in the keel-eroded graph
+    // by construction; belt-and-braces check that none is land/caution.
+    const cells = result.cells;
+    for (const c of cells) {
+        const d = grid.cells[c.y * grid.width + c.x];
+        if (Number.isNaN(d) || d < 0) return null;
     }
-    return wp;
+    return cells;
 }
 
 // ── Polyline simplification (Douglas-Peucker) ───────────────────────
