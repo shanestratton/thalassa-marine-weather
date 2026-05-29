@@ -85,6 +85,12 @@ export const RoutePlanner: React.FC<{
     // below the keyboard line — the on-screen keyboard then covers
     // them and the user can't see what they're typing.
     const [comfortExpanded, setComfortExpanded] = React.useState(false);
+    /** True when the From input is auto-set from a previous leg's arrival
+     *  (Leg 2+ in a chained multi-leg trip). Locking the field guarantees
+     *  byte-identical port names between adjacent legs so the chain matcher
+     *  in LegPickerDropdown always reassembles the multi-leg trip. Reset
+     *  to false on "New trip" / Leg 1 picks. */
+    const [originLocked, setOriginLocked] = useState(false);
     const handleInputFocus = React.useCallback((e: React.FocusEvent<HTMLInputElement>) => {
         setComfortExpanded(false);
         scrollInputAboveKeyboard(e);
@@ -323,11 +329,26 @@ export const RoutePlanner: React.FC<{
                         eager-auto-calc kicked the user to the map
                         the moment they touched the trip dropdown,
                         which broke the multi-leg planning flow. */}
-                    <LegPickerDropdown onSelectDeparture={setOrigin} onSelectDestination={setDestination} />
+                    <LegPickerDropdown
+                        onSelectDeparture={setOrigin}
+                        onSelectDestination={setDestination}
+                        onLockDeparture={setOriginLocked}
+                    />
 
-                    {/* Origin */}
+                    {/* Origin
+                        When `originLocked` is true (Leg 2+ in a chained trip),
+                        the From box is read-only and the map/crosshair/saved-picker
+                        buttons collapse to a single Lock badge with an explainer.
+                        That blocks the only failure mode for the destination↔departure
+                        chain matcher in LegPickerDropdown: a typo on the departure
+                        port that doesn't byte-match the previous leg's arrival.
+                        The escape hatch is to pick a different leg (or "New trip")
+                        from the picker above — the lock is purely a guardrail on
+                        the input field, not on the user's overall freedom. */}
                     <div className="relative group">
-                        <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-emerald-400">
+                        <div
+                            className={`absolute inset-y-0 left-4 flex items-center pointer-events-none ${originLocked ? 'text-emerald-500/60' : 'text-emerald-400'}`}
+                        >
                             <MapPinIcon className="w-4 h-4" />
                         </div>
                         <input
@@ -335,30 +356,49 @@ export const RoutePlanner: React.FC<{
                             value={origin}
                             onChange={(e) => setOrigin(e.target.value)}
                             onFocus={handleInputFocus}
-                            placeholder="Type departure port or tap map…"
+                            readOnly={originLocked}
+                            aria-readonly={originLocked || undefined}
+                            placeholder={originLocked ? '' : 'Type departure port or tap map…'}
                             aria-label="Departure port or location"
-                            className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-32 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
+                            title={originLocked ? 'Auto-set from the previous leg — change Leg 1 to alter' : undefined}
+                            className={`w-full h-12 border rounded-xl pl-12 pr-32 text-sm font-medium placeholder-gray-500 outline-none transition-all shadow-inner ${
+                                originLocked
+                                    ? 'bg-slate-900/70 border-emerald-500/25 text-gray-300 cursor-not-allowed'
+                                    : 'bg-slate-900/50 border-white/10 focus:border-sky-500/50 text-white'
+                            }`}
                         />
                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                            <button
-                                type="button"
-                                onClick={() => openMap('origin')}
-                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
-                                title="Select on Map"
-                                aria-label="Select origin on map"
-                            >
-                                <MapIcon className="w-4 h-4" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={(e) => handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>)}
-                                className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
-                                title="Use Current Location"
-                                aria-label="Use Current Location"
-                            >
-                                <CrosshairIcon className="w-4 h-4" />
-                            </button>
-                            <SavedLocationsPicker value={origin} onPick={setOrigin} target="origin" />
+                            {originLocked ? (
+                                <div
+                                    className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-[10px] uppercase tracking-wide font-semibold"
+                                    title="Departure auto-set from the previous leg's arrival. Edit the previous leg's destination to change."
+                                >
+                                    <LockIcon className="w-3 h-3" />
+                                    <span>Auto</span>
+                                </div>
+                            ) : (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => openMap('origin')}
+                                        className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                        title="Select on Map"
+                                        aria-label="Select origin on map"
+                                    >
+                                        <MapIcon className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={(e) => handleOriginLocation(e as React.MouseEvent<HTMLButtonElement>)}
+                                        className="p-2 text-gray-400 hover:text-sky-400 transition-colors hover:bg-white/10 rounded-lg"
+                                        title="Use Current Location"
+                                        aria-label="Use Current Location"
+                                    >
+                                        <CrosshairIcon className="w-4 h-4" />
+                                    </button>
+                                    <SavedLocationsPicker value={origin} onPick={setOrigin} target="origin" />
+                                </>
+                            )}
                         </div>
                     </div>
 

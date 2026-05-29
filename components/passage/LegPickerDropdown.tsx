@@ -48,6 +48,14 @@ interface LegPickerDropdownProps {
      *  When the user picks a leg with a known arrival we fill it; for new legs we clear so they
      *  type the next hop fresh. */
     onSelectDestination?: (port: string) => void;
+    /** Optional setter for "is the departure field locked?". Fires `true` whenever the
+     *  selected leg is part of a chain (Leg N>1 with a known departure inherited from the
+     *  prior leg's arrival), and `false` for Leg 1 / "New trip" / ad-hoc starts. Locking
+     *  the From input guarantees the next leg's departure_port matches the previous leg's
+     *  destination_port byte-for-byte — which is what the chain matcher needs. Without
+     *  this, typos like "Nouméa" vs "Noumea" silently break the chain and the multi-leg
+     *  trip splits into two single-leg drafts. Optional so legacy consumers keep working. */
+    onLockDeparture?: (locked: boolean) => void;
 }
 
 /** Internal model — a "leg" of a trip as the picker sees it. */
@@ -260,7 +268,11 @@ const LEG_STATUS_LABEL: Record<UiLeg['status'], string> = {
     future: 'New leg',
 };
 
-export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDeparture, onSelectDestination }) => {
+export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
+    onSelectDeparture,
+    onSelectDestination,
+    onLockDeparture,
+}) => {
     const [trips, setTrips] = useState<UiTrip[]>([NEW_TRIP]);
     const [tripId, setTripId] = useState<string>(NEW_TRIP_ID);
     const [legNumber, setLegNumber] = useState<number>(1);
@@ -399,8 +411,18 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({ onSelectDe
                     onSelectDestination(leg.arrivalPort);
                 }
             }
+
+            // Lock the From field whenever this leg is a continuation
+            // of an earlier leg (legNumber > 1 with a known departure
+            // inherited from the chain). That removes the only failure
+            // mode for the destination↔departure chain matcher: typos.
+            // Leg 1 / "New trip" / orphaned drafts stay editable so
+            // ad-hoc trip starts still work.
+            if (onLockDeparture) {
+                onLockDeparture(leg.legNumber > 1 && leg.departurePort.trim().length > 0);
+            }
         },
-        [onSelectDeparture, onSelectDestination],
+        [onSelectDeparture, onSelectDestination, onLockDeparture],
     );
 
     // ── Auto-advance to the next future leg after save ──
