@@ -338,24 +338,38 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
         setChainsByTripId(chainMap);
     }, []);
 
+    /** When a passage-plan-saved event fires, remember the just-saved
+     *  voyage id so the post-refresh effect can jump the picker to the
+     *  chain that contains it. This is what closes the "I can't add a
+     *  Leg 2" gap: previously, after Leg 1 saved, the picker stayed on
+     *  NEW_TRIP and the user had to manually open the trip dropdown to
+     *  find their just-saved trip — non-obvious enough that most users
+     *  thought the multi-leg flow was broken. */
+    const pendingJumpVoyageIdRef = useRef<string | null>(null);
+
     useEffect(() => {
         refresh();
-        const handler = () => refresh();
-        window.addEventListener('thalassa:active-voyage-changed', handler);
+        const activeChanged = () => refresh();
+        const planSaved = (e: Event) => {
+            const detail = (e as CustomEvent).detail as { voyageId?: string } | undefined;
+            if (detail?.voyageId) pendingJumpVoyageIdRef.current = detail.voyageId;
+            refresh();
+        };
+        window.addEventListener('thalassa:active-voyage-changed', activeChanged);
         // Passage-plan-saved fires immediately after a Calculate + Save,
         // when a new draft voyage row has just been created. Without
         // this listener the picker would not pick up the new leg until
         // the 5 s polling interval fires — long enough that the user
         // assumes they're stuck and can't plan another leg. Wired in
         // 2026-05-19 alongside the auto-advance effect below.
-        window.addEventListener('thalassa:passage-plan-saved', handler);
+        window.addEventListener('thalassa:passage-plan-saved', planSaved);
         // VoyageLegService is localStorage-backed and silent — poll
         // every 5s so a Depart-Next-Leg / Arrive-at-Port action in
         // CastOffPanel reflects without a route planner remount.
         const t = setInterval(refresh, 5_000);
         return () => {
-            window.removeEventListener('thalassa:active-voyage-changed', handler);
-            window.removeEventListener('thalassa:passage-plan-saved', handler);
+            window.removeEventListener('thalassa:active-voyage-changed', activeChanged);
+            window.removeEventListener('thalassa:passage-plan-saved', planSaved);
             clearInterval(t);
         };
     }, [refresh]);
@@ -458,6 +472,57 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
         setLegNumber(nextFuture.legNumber);
         apply(selectedTrip, nextFuture);
     }, [selectedTrip, legNumber, apply]);
+
+    // ── Auto-jump from NEW_TRIP into the just-saved chain ──
+    // The auto-advance above handles "I'm already on a chain, I just
+    // saved Leg N, take me to Leg N+1". It does NOT handle the first
+    // save: user is on NEW_TRIP, saves Leg 1, gets a brand-new chain
+    // they're not pointed at. Previously the user had to manually open
+    // the trip dropdown and pick their just-saved trip to surface Leg 2,
+    // which felt like the multi-leg flow was broken.
+    //
+    // When refresh() runs after a passage-plan-saved event and the user
+    // is still on NEW_TRIP, find the freshly-built chain that contains
+    // the just-saved voyage id, switch to it, and pick its future leg.
+    // The future-leg pick fires apply() which fills From with the
+    // chain's last destination (locked) and clears To — ready for the
+    // user to type Leg 2's destination immediately.
+    //
+    // Only fires when the user is on NEW_TRIP. If they've already
+    // navigated to another trip we don't hijack their selection.
+    useEffect(() => {
+        const pending = pendingJumpVoyageIdRef.current;
+        if (!pending) return;
+        if (tripId !== NEW_TRIP_ID) {
+            // User moved on — drop the pending jump so a later save
+            // doesn't accidentally hijack their selection.
+            pendingJumpVoyageIdRef.current = null;
+            return;
+        }
+        // Find the chain that contains the just-saved voyage.
+        for (const [chainId, voyages] of chainsByTripId) {
+            if (!voyages.some((v) => v.id === pending)) continue;
+            const trip = trips.find((t) => t.id === chainId);
+            if (!trip) continue;
+            // Pick the future leg if there is one (most common case —
+            // the chain just got a fresh future-leg appended); else the
+            // last existing leg as a sane fallback.
+            const futureLeg = trip.legs.find((l) => l.status === 'future');
+            const defaultLeg = futureLeg ?? trip.legs[trip.legs.length - 1];
+            if (!defaultLeg) {
+                pendingJumpVoyageIdRef.current = null;
+                return;
+            }
+            setTripId(trip.id);
+            setLegNumber(defaultLeg.legNumber);
+            apply(trip, defaultLeg);
+            pendingJumpVoyageIdRef.current = null;
+            return;
+        }
+        // Voyage not in any chain yet — leave the pending id set, the
+        // next refresh tick will retry. Avoids losing the jump if the
+        // event fired before the draft propagated to getDraftVoyages.
+    }, [chainsByTripId, trips, tripId, apply]);
 
     /**
      *  Pick the "default leg" to surface when a trip is selected.
