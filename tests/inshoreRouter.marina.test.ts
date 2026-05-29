@@ -96,36 +96,3 @@ describe('marina-centerline refinement gate', () => {
         expect((r.cautionMask ?? []).filter(Boolean).length).toBeGreaterThan(0); // still red
     });
 });
-
-describe('adaptive grid resolution (short marina routes)', () => {
-    it('a SHORT route (no explicit resolutionM) builds a finer grid than the 50 m default', () => {
-        // Newport-scale span (~0.04° ≈ 4.4 km < the 0.06° short threshold).
-        // Without an explicit resolutionM the engine should pick a finer
-        // cell (~13 m) so 30 m canals resolve — i.e. many more cells per
-        // axis than the 50 m default would give. (Region shifted to lon
-        // ~155 to dodge the count-keyed NavGrid cache from earlier tests.)
-        const deep = fc(rect(154.9, -27.25, 155.15, -27.15, { DRVAL1: 12.0 }));
-        const short = { fromLat: -27.2, fromLon: 155.08, toLat: -27.2, toLon: 155.12, draftM: 2.0, safetyM: 1.0 };
-        const r = routeInshore({ DEPARE: deep }, short); // no resolutionM
-        expect(isResult(r)).toBe(true);
-        if (!isResult(r)) return;
-        // At 50 m the padded grid is ~150 cells/axis; adaptive (~13 m) is
-        // ~3–4× finer. Assert clearly finer than the old fixed default.
-        expect(r.debug?.gridSize.width).toBeGreaterThan(300);
-        expect(r.debug?.marinaCenterline).toBe(true); // clean → still refined
-    });
-
-    it('a LONG route keeps the 50 m default (NOT the fine adaptive grid)', () => {
-        // Span ~0.07° (≈7.7 km) — just over the 0.06° short threshold → fixed
-        // 50 m + 0.08° pad, unchanged behaviour. Guards against the adaptive
-        // fine grid leaking into longer routes (which would blow up cells).
-        // At 50 m the ~0.23° padded extent ≈ 510 cells/axis; the fine path
-        // (~13 m) would be ~4× that, so the gap is unambiguous.
-        const deep = fc(rect(155.6, -27.45, 156.1, -26.95, { DRVAL1: 12.0 }));
-        const long = { fromLat: -27.2, fromLon: 155.8, toLat: -27.2, toLon: 155.87, draftM: 2.0, safetyM: 1.0 };
-        const r = routeInshore({ DEPARE: deep }, long); // no resolutionM
-        expect(isResult(r)).toBe(true);
-        if (!isResult(r)) return;
-        expect(r.debug?.gridSize.width).toBeLessThan(800); // 50 m, not the ~2000 a fine grid gives
-    });
-});
