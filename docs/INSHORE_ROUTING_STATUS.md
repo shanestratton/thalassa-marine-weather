@@ -10,8 +10,10 @@ and comments only — does NOT touch the routing code. The **routing session
 `docs/ROUTING_COLLAB.md`: A = hardening/tests/docs, B = routing/engine.)
 This doc is updated + committed alongside each routing commit.
 
-**Last updated:** 2026-05-21 — route **LOCKED IN** by Shane ("lock it in
-eddie"); draft hard-code **REVERTED** (`ceb810df`). Now in ship cleanup.
+**Last updated:** 2026-05-30 — marina-centerline layer (MarinerEE port)
+proven + parity-tested in TS; engine integration scoped, not yet wired.
+See §9b. (Prev: 2026-05-21 — route **LOCKED IN** by Shane, draft
+hard-code **REVERTED** `ceb810df`.)
 **Status:** route is safe + honest end-to-end and **accepted as-is** — the
 straight ~23.4 NM direct-bay route + a RED bar-crossing warning. The DRGARE
 channel-connector experiment was reverted (`07fea6c8`): the bay bulge was
@@ -261,6 +263,39 @@ _Claude B's interleaved (non-routing) commits on master: `b5e99f17`
 the tree is shared._
 
 ---
+
+## 9b. Marina-centerline layer — MarinerEE port (2026-05-30, Claude B)
+
+New self-contained module `services/marinaCenterline.ts` — the marina/canal
+routing pipeline proven in the MarinerEE spike, ported to dependency-free TS:
+EDT → keel-clearance erosion → centerline Dijkstra → string-pull. Lands the
+algorithms behind a unit-tested boundary BEFORE touching the engine.
+
+Key result (settled in the spike, "Cand A"): navigable mask = **DEPARE −
+LNDARE**, and **keep ALL eroded components** — do NOT filter to the largest
+(that hides disconnection by teleporting an endpoint across land). A basin
+with no keel-safe connection returns null = "no safe passage", never a faked
+path. LNDARE carves the residential spits precisely; do NOT gate the mask
+through OSM (it discards the deep approach channel).
+
+Tests (all green): `marinaCenterline.test.ts` (7 unit, incl. disconnected→null),
+`marinaCenterline.parity.test.ts` (9 vs the REAL Newport ENC grid fixture
+`tests/fixtures/newport-marina.grid.bin.gz`) — 6 fingers→gate + reverse +
+cross-estate, all 0 land crossings, keel clearance held.
+
+Commits: `8849ac73` (module + unit), `23125119` (parity fixture + test).
+
+**NEXT — engine integration (NOT yet done; the careful bit):** thread the
+centerline step-cost + string-pull INTO `routeInshoreOnce`, swap `smoothPath`
+→ `stringPull`, add keel clearance as a SOFT penalty (NOT hard erosion — that
+would break the tuned relax-zone passes). Preserve every existing pass + the
+red caution-flagging. Step 1 of that pass: extract the ~250-line OSM-promotion
+block from `tryInshoreRouteInner` into a pure `applyOsmOverlay(merged, osm)` so
+the Newport→Rivergate golden route (20.46 NM vs ORCA) can be pinned from the
+`newport-rivergate.corridor.json.gz` fixture. Regression guard meanwhile:
+`inshoreRouter.regression.test.ts` (5 synthetic invariants — connectivity,
+caution-never-silent, detour-not-bulldoze, corridor-follow) — all green at
+baseline; the integration must keep them green.
 
 ## 10. Hardening session (Claude A) notes
 
