@@ -87,62 +87,81 @@ const NEW_TRIP: UiTrip = {
     legs: [{ legNumber: 1, departurePort: '', arrivalPort: null, status: 'future' }],
 };
 
-function buildTripFromActiveVoyage(voyage: Voyage, legs: PassageLeg[]): UiTrip {
-    const uiLegs: UiLeg[] = legs.map((l) => ({
+/**
+ * Build the active voyage's UI trip, optionally extended forward through
+ * matching draft voyages (Leg 2, 3, … saved in Passage Planning before
+ * the skipper Casts Off).
+ *
+ * Three sources of legs, in priority order:
+ *   1. `sailedLegs` — PassageLeg rows from VoyageLegService (the voyage
+ *      is actually being sailed; these are the ground-truth legs).
+ *   2. If no sailed legs, synthesise Leg 1 from the voyage row's
+ *      departure_port → destination_port (pre-Cast-Off planning state).
+ *   3. `chainedDrafts` — draft voyages (status='planning') whose
+ *      departure_port chain-links to the active voyage's destination
+ *      (or each other in turn). These render as Leg 2, 3, … so a
+ *      multi-leg plan saved across several drafts shows as ONE trip.
+ *
+ * Future leg N+1 is appended whenever the last known leg has an
+ * arrival_port — exactly the same rule the draft-chain path uses. The
+ * unknown-stopover safety check still applies: an in-progress sailed
+ * leg with arrival_port=null suppresses the future-leg stub.
+ */
+function buildTripFromActiveVoyage(voyage: Voyage, sailedLegs: PassageLeg[], chainedDrafts: Voyage[] = []): UiTrip {
+    const uiLegs: UiLeg[] = sailedLegs.map((l) => ({
         legNumber: l.leg_number,
         departurePort: l.departure_port,
         arrivalPort: l.arrival_port,
         status: l.status === 'completed' ? 'completed' : 'active',
     }));
 
-    if (uiLegs.length > 0) {
-        const last = uiLegs[uiLegs.length - 1];
-        // Only offer "+ Plan Leg N+1" when we KNOW where the previous
-        // leg ended. For an in-progress leg (arrival_port=null) the
-        // skipper hasn't decided their stopover yet, so prefilling
-        // departure with voyage.destination_port (the overall voyage
-        // end) would be wrong — they'd want the next intermediate
-        // stop, which the system doesn't know about. In that case we
-        // skip the future-leg option and let them use "New trip"
-        // for ad-hoc continuation planning.
-        if (last.arrivalPort) {
-            uiLegs.push({
-                legNumber: last.legNumber + 1,
-                departurePort: last.arrivalPort,
-                arrivalPort: null,
-                status: 'future',
-            });
-        }
-    } else {
-        // No PassageLeg rows yet — the skipper hasn't Cast Off. This is
-        // the common pre-departure planning state: the voyage row exists
-        // (so it's cached as the "active" pick) but Leg 1 hasn't been
-        // sailed. Synthesise Leg 1 from the voyage row's
-        // departure_port → destination_port, and ALSO append a future
-        // Leg 2 starting from the destination so the user can stack a
-        // continuation leg right from the picker — exactly the same
-        // affordance the draft-chain path offers. Previously this branch
-        // only pushed Leg 1, which is why "I can't add a Leg 2 to my
-        // active trip" happened.
+    // No PassageLeg rows yet — synthesise Leg 1 from the voyage row.
+    if (uiLegs.length === 0) {
         uiLegs.push({
             legNumber: 1,
             departurePort: voyage.departure_port ?? '',
             arrivalPort: voyage.destination_port,
             status: 'draft',
         });
-        if (voyage.destination_port) {
-            uiLegs.push({
-                legNumber: 2,
-                departurePort: voyage.destination_port,
-                arrivalPort: null,
-                status: 'future',
-            });
-        }
     }
+
+    // Append chained drafts as Leg 2, 3, … numbered sequentially after
+    // whatever the last known leg's number was.
+    let nextLegNum = uiLegs[uiLegs.length - 1].legNumber + 1;
+    for (const draft of chainedDrafts) {
+        uiLegs.push({
+            legNumber: nextLegNum++,
+            departurePort: draft.departure_port ?? '',
+            arrivalPort: draft.destination_port,
+            status: 'draft',
+        });
+    }
+
+    // Future leg N+1 stub — same rule as draft chain: needs a known
+    // arrival to seed the next departure from. An in-progress sailed
+    // leg (arrival_port=null) skips this, preserving the original
+    // "don't predict the stopover" safety.
+    const last = uiLegs[uiLegs.length - 1];
+    if (last.arrivalPort) {
+        uiLegs.push({
+            legNumber: nextLegNum,
+            departurePort: last.arrivalPort,
+            arrivalPort: null,
+            status: 'future',
+        });
+    }
+
+    // Trip name: active.departure → end-of-chain arrival, so a multi-leg
+    // active trip reads "Newport → Fiji" rather than "Newport → Noumea"
+    // once the Fiji draft has been chained on.
+    const lastArrival = chainedDrafts.length > 0 ? chainedDrafts[chainedDrafts.length - 1].destination_port : null;
+    const tripName = lastArrival
+        ? `${voyage.departure_port ?? '?'} → ${lastArrival}`
+        : voyage.voyage_name || `${voyage.departure_port ?? '?'} → ${voyage.destination_port ?? '?'}`;
 
     return {
         id: voyage.id,
-        name: voyage.voyage_name,
+        name: tripName,
         badge: 'active',
         legs: uiLegs,
     };
@@ -168,6 +187,49 @@ function buildTripFromDraftVoyage(voyage: Voyage): UiTrip {
 /** Lower-case + trim a port name for chain matching. */
 function normPort(s: string | null | undefined): string {
     return (s ?? '').trim().toLowerCase();
+}
+
+/**
+ * Extend the active voyage forward through any matching draft voyages.
+ * Drafts whose `departure_port` matches the active voyage's
+ * `destination_port` (or the previously-chained draft's destination)
+ * become Leg 2, 3, … of the same trip.
+ *
+ * Without this, an active "Newport → Noumea" trip and a subsequently-
+ * saved draft "Noumea → Fiji" show up as TWO separate trips in the
+ * picker — and the active trip's leg dropdown still offers Leg 2 as
+ * a future stub even though the user already saved Leg 2. Users see
+ * the trip name stuck at "Newport → Noumea" and can't find Leg 3.
+ *
+ * Returns the consumed drafts (chained onto active) and the remaining
+ * drafts (to be chained independently of the active trip).
+ */
+function chainDraftsOntoActive(active: Voyage, drafts: Voyage[]): { consumed: Voyage[]; remaining: Voyage[] } {
+    const consumed: Voyage[] = [];
+    const remaining = [...drafts].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+    // Seed the walk with the active voyage's destination. If the active
+    // voyage has no destination_port yet (rare — it'd mean a malformed
+    // row), bail out and let everything stay as standalone drafts.
+    let endpoint = normPort(active.destination_port);
+    if (!endpoint) return { consumed: [], remaining };
+
+    // Walk forward: keep finding the draft whose departure_port matches
+    // the current endpoint, then advance the endpoint to that draft's
+    // destination. Same greedy first-match policy as chainDrafts().
+    let extended = true;
+    while (extended) {
+        extended = false;
+        const idx = remaining.findIndex((d) => normPort(d.departure_port) === endpoint);
+        if (idx < 0) break;
+        const next = remaining.splice(idx, 1)[0];
+        consumed.push(next);
+        endpoint = normPort(next.destination_port);
+        if (!endpoint) break;
+        extended = true;
+    }
+
+    return { consumed, remaining };
 }
 
 /**
@@ -324,30 +386,42 @@ export const LegPickerDropdown: React.FC<LegPickerDropdownProps> = ({
         const seenIds = new Set<string>();
         const chainMap = new Map<string, Voyage[]>();
 
-        if (active) {
-            const legs = getLegsForVoyage(active.id);
-            built.push(buildTripFromActiveVoyage(active, legs));
-            // Active voyage is its own chain — single voyage entry.
-            // The trip overview will resolve legs from VoyageLegService
-            // separately when the active trip is selected; for now
-            // record the voyage row so the overview has something.
-            chainMap.set(active.id, [active]);
-            seenIds.add(active.id);
+        // Drafts first so we can chain matching ones onto the active
+        // voyage before treating the rest as standalone chains.
+        let drafts: Voyage[] = [];
+        try {
+            drafts = await getDraftVoyages();
+        } catch {
+            /* offline — work with whatever we already have */
         }
 
-        try {
-            const drafts = await getDraftVoyages();
-            const remainingDrafts = drafts.filter((d) => !seenIds.has(d.id));
-            const chains = chainDrafts(remainingDrafts);
-            for (const chain of chains) {
-                built.push(buildTripFromDraftChain(chain));
-                // The chain's id (per buildTripFromDraftChain) is the
-                // first draft's UUID — same key the trip dropdown uses.
-                chainMap.set(chain[0].id, chain);
-                for (const v of chain) seenIds.add(v.id);
-            }
-        } catch {
-            /* offline — show what we have */
+        if (active) {
+            const sailedLegs = getLegsForVoyage(active.id);
+            // Pull any drafts whose departure_port chain-links to the
+            // active voyage's destination. Those drafts become Leg 2, 3, …
+            // of the active trip — so a Newport → Noumea active voyage
+            // PLUS a Noumea → Fiji draft renders as one "Newport → Fiji"
+            // trip with both legs visible and a future Leg 3 stub.
+            const candidateDrafts = drafts.filter((d) => d.id !== active.id);
+            const { consumed, remaining } = chainDraftsOntoActive(active, candidateDrafts);
+            built.push(buildTripFromActiveVoyage(active, sailedLegs, consumed));
+            // Trip overview pulls the underlying voyage rows back out via
+            // chainMap. For the active trip the chain is [active, ...consumedDrafts]
+            // so a "View whole trip + export PDF" hit gets the full picture.
+            chainMap.set(active.id, [active, ...consumed]);
+            seenIds.add(active.id);
+            for (const v of consumed) seenIds.add(v.id);
+            drafts = remaining;
+        }
+
+        // Remaining drafts (not chained onto active) get the standalone
+        // chain treatment — same as before.
+        const remainingDrafts = drafts.filter((d) => !seenIds.has(d.id));
+        const chains = chainDrafts(remainingDrafts);
+        for (const chain of chains) {
+            built.push(buildTripFromDraftChain(chain));
+            chainMap.set(chain[0].id, chain);
+            for (const v of chain) seenIds.add(v.id);
         }
 
         setTrips(built);
