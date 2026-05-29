@@ -34,7 +34,6 @@ import { ShipLogEntry } from '../types';
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
-import { DiscoverVoyagesSection } from '../components/log/DiscoverVoyagesSection';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
 import { GpsDisclaimerModal } from './log/GpsDisclaimerModal';
@@ -936,16 +935,6 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         )}
                                     </div>
                                 )}
-
-                                {/* ── DISCOVER — public Voyage Logs from other
-                                    sailors. Surfaces the "Share it" pillar of
-                                    Plan it · Sail it · Share it that was
-                                    previously invisible inside the app. See
-                                    components/log/DiscoverVoyagesSection
-                                    + utils/featuredPublicVoyages for the
-                                    curated list. Renders nothing when the
-                                    featured list is empty. */}
-                                <DiscoverVoyagesSection />
                             </div>
 
                             {/* ── Slide to Start CTA — pinned at bottom ── */}
