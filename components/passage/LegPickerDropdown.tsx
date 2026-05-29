@@ -114,14 +114,30 @@ function buildTripFromActiveVoyage(voyage: Voyage, legs: PassageLeg[]): UiTrip {
             });
         }
     } else {
-        // No legs yet (rare — Cast Off creates Leg 1; this covers the
-        // pre-cast-off window or a manually-created active voyage row).
+        // No PassageLeg rows yet — the skipper hasn't Cast Off. This is
+        // the common pre-departure planning state: the voyage row exists
+        // (so it's cached as the "active" pick) but Leg 1 hasn't been
+        // sailed. Synthesise Leg 1 from the voyage row's
+        // departure_port → destination_port, and ALSO append a future
+        // Leg 2 starting from the destination so the user can stack a
+        // continuation leg right from the picker — exactly the same
+        // affordance the draft-chain path offers. Previously this branch
+        // only pushed Leg 1, which is why "I can't add a Leg 2 to my
+        // active trip" happened.
         uiLegs.push({
             legNumber: 1,
             departurePort: voyage.departure_port ?? '',
             arrivalPort: voyage.destination_port,
             status: 'draft',
         });
+        if (voyage.destination_port) {
+            uiLegs.push({
+                legNumber: 2,
+                departurePort: voyage.destination_port,
+                arrivalPort: null,
+                status: 'future',
+            });
+        }
     }
 
     return {
