@@ -59,6 +59,7 @@ import type {
 } from 'geojson';
 
 import { createLogger } from '../utils/createLogger';
+import { routeMarina, type Cell } from './marinaCenterline';
 
 const engineLog = createLogger('inshoreEngine');
 
@@ -189,6 +190,9 @@ export interface RouteDebug {
     originSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
     /** Destination snap result. */
     destinationSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
+    /** True when the marina-centerline pipeline refined a clean-water route
+     *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
+    marinaCenterline?: boolean;
 }
 
 export interface RouteResult {
@@ -1855,6 +1859,67 @@ function smoothPath(grid: NavGrid, path: { x: number; y: number }[]): { x: numbe
     return out;
 }
 
+// ── Marina-centerline refinement (MarinerEE port) ───────────────────
+//
+// Re-routes a CLEAN-water A* corridor with the centerline pipeline
+// (services/marinaCenterline.ts): rides mid-channel with keel clearance
+// and comes out as straight legs. Used only when the A* corridor has no
+// caution cells — the marina/canal/clean-bay case — so marginal-water
+// routes that must stay RED (the Brisbane bar) keep their tuned path.
+// Returns the centerline waypoints (cells), or null to fall back to
+// smoothPath (over-eroded / disconnected at the keel margin / leg
+// validation failed → never fabricate, always defer to the proven A*).
+
+/** Keel-clearance margin in cells, derived from the grid resolution.
+ *  Target ~5 m off a wall (the spike's 3 px ≈ 5 m), min 1 cell so even a
+ *  coarse grid keeps the route off the immediate bank. */
+function keelCellsFor(resolutionM: number): number {
+    const KEEL_M = 5;
+    return Math.max(1, Math.round(KEEL_M / Math.max(1, resolutionM)));
+}
+
+function tryMarinaCenterline(
+    grid: NavGrid,
+    start: { x: number; y: number },
+    end: { x: number; y: number },
+): { x: number; y: number }[] | null {
+    // Actual metres-per-cell from the built grid (req.resolutionM is
+    // optional; the grid's dLat is the ground truth).
+    const resolutionM = grid.dLat * M_PER_DEG_LAT;
+    // Build a depth array for the centerline pass: only CONFIDENT water is
+    // navigable. NaN (land/hazard) and negative (CAUTION) → blocked; 0
+    // (unknown/open) → nominal 1 m; positive → charted depth. Caution is
+    // blocked here because the centerline route is the "clean" route; any
+    // route that needs to touch caution water stays on the A* path with
+    // its red flags.
+    const n = grid.width * grid.height;
+    const depth = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+        const d = grid.cells[i];
+        depth[i] = Number.isNaN(d) || d < 0 ? NaN : d === 0 ? 1.0 : d;
+    }
+
+    const result = routeMarina(depth, { width: grid.width, height: grid.height }, start as Cell, end as Cell, {
+        keelCells: keelCellsFor(resolutionM),
+        depthWeight: 15.0,
+        canalHalfWidthCells: 12,
+        bias: 5.0,
+    });
+    if (!result) return null;
+
+    // Validate the STRAIGHT LEGS against the grid — every sampled point
+    // must be confident water (not NaN, not caution). Belt-and-braces on
+    // top of routeMarina's own guarantee; if anything's off, fall back.
+    const wp = result.waypoints;
+    for (let k = 0; k < wp.length - 1; k++) {
+        for (const c of bresenhamCells(wp[k].x, wp[k].y, wp[k + 1].x, wp[k + 1].y)) {
+            const d = grid.cells[c.y * grid.width + c.x];
+            if (Number.isNaN(d) || d < 0) return null;
+        }
+    }
+    return wp;
+}
+
 // ── Polyline simplification (Douglas-Peucker) ───────────────────────
 
 /**
@@ -2430,8 +2495,23 @@ function routeInshoreOnce(
         return { error: 'A* failed despite reachability flood-fill — should be impossible', code: 'no-path', debug };
     }
 
-    // String-pull the A* output to remove stair-step artifacts.
-    const smoothedCells = smoothPath(grid, cells);
+    // Marina-centerline refinement: when the A* corridor is entirely clean
+    // water (no caution cells — marina/canal/clean-bay), re-route it with
+    // the centerline pipeline so it rides mid-channel with keel clearance
+    // as straight legs. ANY caution in the corridor (the Brisbane bar etc.)
+    // or a failed/disconnected centerline pass → keep the proven A* path.
+    const aStarHasCaution = cells.some((c) => grid.cells[c.y * grid.width + c.x] < 0);
+    let smoothedCells: { x: number; y: number }[];
+    const marinaCells = aStarHasCaution ? null : tryMarinaCenterline(grid, startCell, endCell);
+    if (marinaCells && marinaCells.length >= 2) {
+        smoothedCells = marinaCells;
+        debug.marinaCenterline = true;
+        if (ENGINE_DEBUG)
+            engineLog.warn(`marina-centerline: ${cells.length} A* cells → ${marinaCells.length} centerline legs`);
+    } else {
+        // String-pull the A* output to remove stair-step artifacts.
+        smoothedCells = smoothPath(grid, cells);
+    }
     tPhase = mark('smoothPath', tPhase);
     const totalMs = Date.now() - t0Total;
     const breakdown = Object.entries(timings)
