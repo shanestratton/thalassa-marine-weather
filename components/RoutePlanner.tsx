@@ -85,6 +85,14 @@ export const RoutePlanner: React.FC<{
     // below the keyboard line — the on-screen keyboard then covers
     // them and the user can't see what they're typing.
     const [comfortExpanded, setComfortExpanded] = React.useState(false);
+    /** Ref to the Comfort accordion wrapper. Used by the form-level
+     *  pointer-down handler to decide whether a tap landed "inside the
+     *  Comfort box" (don't auto-collapse) or "on some other box" (do).
+     *  The `onFocus={handleInputFocus}` collapses cover keyboard inputs;
+     *  this handler covers everything else — buttons, the leg picker,
+     *  the map/crosshair/saved-locations icons — that don't fire focus
+     *  events but still feel like the user has moved on. */
+    const comfortRef = useRef<HTMLDivElement>(null);
     /** True when the From input is auto-set from a previous leg's arrival
      *  (Leg 2+ in a chained multi-leg trip). Locking the field guarantees
      *  byte-identical port names between adjacent legs so the chain matcher
@@ -95,6 +103,20 @@ export const RoutePlanner: React.FC<{
         setComfortExpanded(false);
         scrollInputAboveKeyboard(e);
     }, []);
+    /** Collapse the Comfort accordion when the user taps anything in the
+     *  form that ISN'T inside the Comfort wrapper. Capture phase so the
+     *  collapse fires before the underlying button/input processes its
+     *  own click — we don't swallow the event, just close the panel
+     *  while the original action still happens. Only collapses when
+     *  Comfort is actually expanded (no-op otherwise). */
+    const handleFormPointerDown = React.useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
+            if (!comfortExpanded) return;
+            if (comfortRef.current && comfortRef.current.contains(e.target as Node)) return;
+            setComfortExpanded(false);
+        },
+        [comfortExpanded],
+    );
 
     // ── Keyboard-aware bottom padding ──
     // RoutePlanner's form lives in a `shrink-0` flex child with a
@@ -300,7 +322,7 @@ export const RoutePlanner: React.FC<{
                     transition: 'padding-bottom 200ms ease-out',
                 }}
             >
-                <div className="max-w-xl mx-auto w-full space-y-2.5">
+                <div className="max-w-xl mx-auto w-full space-y-2.5" onPointerDownCapture={handleFormPointerDown}>
                     {/* Comfort thresholds — collapsible accordion at the top
                         of the form. Sets settings.comfortParams (canonical
                         store) which the isochrone router reads at compute
@@ -312,8 +334,13 @@ export const RoutePlanner: React.FC<{
 
                         Controlled by RoutePlanner so we can auto-collapse
                         on input focus (the on-screen keyboard otherwise
-                        covers the input the user just tapped into). */}
-                    <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
+                        covers the input the user just tapped into).
+                        Wrapped in a ref so handleFormPointerDown can tell
+                        "tap inside Comfort, keep it open" from "tap on
+                        another box, close it". */}
+                    <div ref={comfortRef}>
+                        <ComfortQuickConfig expanded={comfortExpanded} onExpandedChange={setComfortExpanded} />
+                    </div>
 
                     {/* Multi-leg passage helper — always visible.
                         Picking a trip selects which voyage we're
