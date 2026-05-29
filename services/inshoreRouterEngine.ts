@@ -193,6 +193,9 @@ export interface RouteDebug {
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;
+    /** True when the two-tier fine marina pass was accepted over the 50 m
+     *  main route (short routes that validated cleaner on a ~10 m grid). */
+    twoTierFine?: boolean;
 }
 
 export interface RouteResult {
@@ -1967,7 +1970,19 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
  * just need to concat features into a single InshoreLayers struct
  * before calling this.
  */
-export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+/** Grid overrides for the fine marina pass (two-tier routing). When set,
+ *  force a specific cell size + a fixed padding (small bbox) instead of the
+ *  defaults — used to resolve narrow canals the 50 m main grid can't. */
+interface GridOverride {
+    resolutionM: number;
+    padDeg: number;
+}
+
+function routeInshoreMain(
+    layers: InshoreLayers,
+    req: RouteRequest,
+    gridOverride?: GridOverride,
+): RouteResult | RouteFailure {
     // Try strict first — LNDARE blocks land. With proper ring assembly
     // (Eulerian/linear-chain fix landed 2026-05-19) this gives accurate
     // results for most routes. But certain charts represent rivers as
@@ -1979,7 +1994,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     // over caution, so it won't cross real land masses — only the
     // chart-says-land-but-really-water river/harbour interior cells get
     // traversed, flagged red in the polyline so the user verifies.
-    const strict = routeInshoreOnce(layers, req, false);
+    const strict = routeInshoreOnce(layers, req, false, [], gridOverride);
     if ('error' in strict) {
         if (strict.code !== 'destination-disconnected') return strict;
         // Last resort: strict found NO path because the destination is
@@ -1991,7 +2006,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
         console.warn(
             '[inshoreEngine] strict pass failed destination-disconnected — retrying with LNDARE relaxed grid-wide to CAUTION (last resort)',
         );
-        return routeInshoreOnce(layers, req, true);
+        return routeInshoreOnce(layers, req, true, [], gridOverride);
     }
 
     // Strict succeeded — but did it start/end where the user actually
@@ -2039,7 +2054,7 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     console.warn(
         `[inshoreEngine] endpoint snapped far (origin ${Math.round(originSnapM)}m / dest ${Math.round(destSnapM)}m) — retrying with ${relaxZones.length} localized relax zone(s) so the route starts at the real berth (barrier shown red, mainland stays blocked)`,
     );
-    const relaxed = routeInshoreOnce(layers, req, false, relaxZones);
+    const relaxed = routeInshoreOnce(layers, req, false, relaxZones, gridOverride);
     if ('error' in relaxed) return strict;
     const relaxedWorstSnapM = Math.max(
         relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
@@ -2056,14 +2071,80 @@ export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteRes
     return strict;
 }
 
+/**
+ * Public inshore router — TWO-TIER.
+ *
+ * 1. MAIN pass: routeInshoreMain at the default 50 m grid + full padding.
+ *    Carries all the tuned logic (strict/relax retries, far-snap zones, red
+ *    caution-flagging) and is the GUARANTEED result / fallback.
+ * 2. FINE pass (short routes only): re-route on a small fine-resolution grid
+ *    (~10 m, tight padding) so narrow marina/canal channels — which a 50 m
+ *    cell is too coarse to resolve — come out mid-channel and clean (the
+ *    MarinerEE marina-centerline then fires inside it). Used ONLY if it
+ *    VALIDATES against the main route (fineRefinementIsBetter): no endpoint
+ *    snaps further (the disconnection/dead-end signature), no new caution,
+ *    no wild detour. Otherwise we keep the main route.
+ *
+ * Worst case = the main 50 m route (today's 99/100). The fine pass can only
+ * improve the canal detail, never break the route — the failure mode that
+ * bit the earlier single-grid attempt (reverted 765046b3) is caught by the
+ * validation and falls back here.
+ */
+export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    const main = routeInshoreMain(layers, req);
+    if ('error' in main) return main;
+
+    // Long routes already route fine at 50 m, and a fine grid over their
+    // span would blow up the cell count — only short (marina/canal-scale)
+    // routes get the fine pass. A caller that pinned resolutionM keeps it.
+    const spanDeg = Math.max(Math.abs(req.toLat - req.fromLat), Math.abs(req.toLon - req.fromLon));
+    if (spanDeg >= 0.06 || req.resolutionM) return main; // 0.06° ≈ 3.5 NM
+
+    const fine = routeInshoreMain(layers, req, { resolutionM: 10, padDeg: 0.008 });
+    if ('error' in fine) return main;
+
+    if (fineRefinementIsBetter(fine, main, req)) {
+        if (ENGINE_DEBUG)
+            engineLog.warn(
+                `two-tier: fine marina pass accepted (${fine.gridSize.width}x${fine.gridSize.height}, ${fine.polyline.length} pts) over main (${main.gridSize.width}x${main.gridSize.height}, ${main.polyline.length} pts)`,
+            );
+        fine.debug = { ...(fine.debug as RouteDebug), twoTierFine: true } as RouteDebug;
+        return fine;
+    }
+    return main;
+}
+
+/** Accept the fine marina route only if it's at least as safe as the main
+ *  route AND doesn't dead-end short of where the user tapped. Because both
+ *  routes splice the input coords as their visible endpoints, truncation
+ *  shows up as a larger SNAP distance (the real water ends far from the tap
+ *  with a bridge segment), not in the polyline ends — so we gate on that. */
+function fineRefinementIsBetter(fine: RouteResult, main: RouteResult, _req: RouteRequest): boolean {
+    const SNAP_TOL_M = 200;
+    const worseSnap = (f?: number, m?: number): boolean => (f ?? 0) > (m ?? 0) + SNAP_TOL_M;
+    // 1. No endpoint snapped meaningfully FURTHER than main — the fine grid
+    //    disconnecting a narrow canal snaps the endpoint deep into the
+    //    estate (the truncation/dead-end signature). Reject that.
+    if (worseSnap(fine.debug?.originSnap?.snapDistanceM, main.debug?.originSnap?.snapDistanceM)) return false;
+    if (worseSnap(fine.debug?.destinationSnap?.snapDistanceM, main.debug?.destinationSnap?.snapDistanceM)) return false;
+    // 2. No NEW caution — never trade an all-clean route for a red-flagged one.
+    const fineCaution = (fine.cautionMask ?? []).filter(Boolean).length;
+    const mainCaution = (main.cautionMask ?? []).filter(Boolean).length;
+    if (fineCaution > mainCaution) return false;
+    // 3. Not a wild detour — much longer than main means it wandered.
+    if (fine.distanceNM > main.distanceNM * 1.5 + 0.1) return false;
+    return true;
+}
+
 function routeInshoreOnce(
     layers: InshoreLayers,
     req: RouteRequest,
     relaxedLndare: boolean,
     relaxZones: RelaxZone[] = [],
+    gridOverride?: GridOverride,
 ): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
-    const resolutionM = req.resolutionM ?? 50;
+    const resolutionM = gridOverride?.resolutionM ?? req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
     // Per-phase timing — we have no idea where the 25-65 s on iOS is going
@@ -2107,8 +2188,10 @@ function routeInshoreOnce(
     const minLon = Math.min(req.fromLon, req.toLon);
     const maxLon = Math.max(req.fromLon, req.toLon);
     const maxSpan = Math.max(maxLat - minLat, maxLon - minLon);
-    const padLat = Math.max(maxSpan * 0.5, 0.08);
-    const padLon = Math.max(maxSpan * 0.5, 0.08);
+    // Fine marina pass forces a small fixed padding (tight bbox keeps the
+    // fine-cell count bounded); otherwise the tuned generous padding.
+    const padLat = gridOverride ? gridOverride.padDeg : Math.max(maxSpan * 0.5, 0.08);
+    const padLon = gridOverride ? gridOverride.padDeg : Math.max(maxSpan * 0.5, 0.08);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
 
     let tPhase = Date.now();
