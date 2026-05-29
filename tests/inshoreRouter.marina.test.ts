@@ -96,3 +96,30 @@ describe('marina-centerline refinement gate', () => {
         expect((r.cautionMask ?? []).filter(Boolean).length).toBeGreaterThan(0); // still red
     });
 });
+
+describe('two-tier fine marina pass', () => {
+    it('SHORT route (no pinned resolutionM) → fine pass accepted, finer grid, still clean', () => {
+        // Marina-scale span (~0.04° < 0.06° threshold), no resolutionM → the
+        // two-tier orchestrator runs the 50 m main route AND a ~10 m fine
+        // pass, and (for clean open water that validates no-worse) keeps the
+        // fine one. Region ~155 to dodge the count-keyed NavGrid cache.
+        const deep = fc(rect(155.05, -27.25, 155.15, -27.15, { DRVAL1: 12.0 }));
+        const r = routeInshore(
+            { DEPARE: deep },
+            { fromLat: -27.2, fromLon: 155.08, toLat: -27.2, toLon: 155.12, draftM: 2.0, safetyM: 1.0 },
+        );
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.twoTierFine).toBe(true); // fine pass won
+        expect(r.debug?.gridSize.width).toBeGreaterThan(300); // ~10 m grid is fine
+        expect((r.cautionMask ?? []).filter(Boolean).length).toBe(0); // never trades clean for red
+    });
+
+    it('a pinned resolutionM skips the fine pass (caller stays in control)', () => {
+        const deep = fc(rect(155.5, -27.25, 155.6, -27.15, { DRVAL1: 12.0 }));
+        const r = routeInshore({ DEPARE: deep }, baseReq({ fromLon: 155.53, toLon: 155.57 })); // resolutionM:100
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.twoTierFine).toBeFalsy(); // explicit res → main only
+    });
+});
