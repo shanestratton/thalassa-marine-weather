@@ -53,6 +53,10 @@ const IOSInstallPrompt = lazyRetry(
     () => import('./components/IOSInstallPrompt').then((m) => ({ default: m.IOSInstallPrompt })),
     'IOSInstallPrompt',
 );
+const SettingsRestoredModal = lazyRetry(
+    () => import('./components/SettingsRestoredModal').then((m) => ({ default: m.SettingsRestoredModal })),
+    'SettingsRestoredModal',
+);
 const OnboardingOverlay = lazyRetry(
     () => import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
     'OnboardingOverlay',
@@ -335,6 +339,14 @@ const App: React.FC = () => {
 
             <Suspense fallback={null}>
                 <IOSInstallPrompt />
+            </Suspense>
+
+            {/* Welcome-back modal: self-listens for the
+                `thalassa:settings-restored-modal` CustomEvent fired
+                by settingsStore.pullFromCloud on a fresh-device
+                cloud restore. Renders nothing until the event lands. */}
+            <Suspense fallback={null}>
+                <SettingsRestoredModal />
             </Suspense>
             <NotificationManager onNotify={(msg) => toast.info(msg)} />
 

@@ -77,6 +77,15 @@ interface SettingsState {
 // Internal ref to avoid circular store deps
 let _userId: string | null = null;
 let _addDebugLog: (msg: string) => void = () => {};
+/**
+ * True if loadSettings() found existing `thalassa_settings` data in
+ * Capacitor Preferences at cold boot. Used by pullFromCloud to decide
+ * whether to fire the welcome-back modal — we only want it on a TRUE
+ * fresh-device restore (reinstall + sign-in or first sign-in on a new
+ * device), not every time someone signs out and back in on the same
+ * phone where their settings already live locally.
+ */
+let _localHadPriorData = false;
 
 /** Wire the debug log sink from uiStore (called once from ThalassaContext bridge) */
 export function setSettingsDebugSink(fn: (msg: string) => void) {
@@ -86,6 +95,70 @@ export function setSettingsDebugSink(fn: (msg: string) => void) {
 async function syncToCloud(userId: string, s: UserSettings) {
     if (!supabase) return;
     await supabase.from('profiles').upsert({ id: userId, settings: s, updated_at: new Date().toISOString() });
+}
+
+/**
+ * Build the summary object surfaced to the welcome-back modal. Pulls
+ * the user-visible fields that confirm "yes, your stuff came back":
+ * vessel name + a short type/length descriptor, units flavour,
+ * default location, subscription tier, count of armed notifications,
+ * count of saved locations. Greeting name prefers nickname → first
+ * name → null (caller falls back to a generic greeting).
+ */
+export interface RestoredSummary {
+    greetingName: string | null;
+    vesselName: string | null;
+    vesselDescriptor: string | null;
+    unitsFlavour: 'metric' | 'imperial' | 'mixed';
+    defaultLocation: string | null;
+    subscriptionTier: string;
+    armedNotifications: number;
+    savedLocationCount: number;
+}
+
+export function buildRestoredSummary(s: UserSettings): RestoredSummary {
+    const greetingName = s.nickname?.trim() || s.firstName?.trim() || null;
+
+    const vesselName = s.vessel?.name?.trim() || null;
+    let vesselDescriptor: string | null = null;
+    if (s.vessel) {
+        const parts: string[] = [];
+        if (s.vessel.type)
+            parts.push(s.vessel.type === 'sail' ? 'Sail' : s.vessel.type === 'power' ? 'Power' : 'Observer');
+        if (s.vessel.length) {
+            // settings.vessel.length is stored in feet (see vessel_draft_is_feet memory note)
+            parts.push(`${Math.round(s.vessel.length)}ft`);
+        }
+        if (parts.length) vesselDescriptor = parts.join(' · ');
+    }
+
+    // Units flavour — sample length + temp (the most "I notice
+    // immediately if these are wrong" knobs). "mixed" covers Aussie
+    // boats that set wind=kts (imperial) + everything-else metric —
+    // a common preference, not a bug.
+    const length = s.units?.length;
+    const temp = s.units?.temp;
+    const metricLength = length === 'm';
+    const metricTemp = temp === 'C';
+    let unitsFlavour: 'metric' | 'imperial' | 'mixed';
+    if (metricLength && metricTemp) unitsFlavour = 'metric';
+    else if (!metricLength && !metricTemp) unitsFlavour = 'imperial';
+    else unitsFlavour = 'mixed';
+
+    const armedNotifications = s.notifications
+        ? Object.values(s.notifications).filter((n) => (n as { enabled?: boolean })?.enabled).length
+        : 0;
+
+    return {
+        greetingName,
+        vesselName,
+        vesselDescriptor,
+        unitsFlavour,
+        defaultLocation: s.defaultLocation || null,
+        subscriptionTier: s.subscriptionTier,
+        armedNotifications,
+        savedLocationCount: Array.isArray(s.savedLocations) ? s.savedLocations.length : 0,
+    };
 }
 
 /**
@@ -210,6 +283,32 @@ async function pullFromCloud(userId: string): Promise<void> {
         await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(merged) });
         _addDebugLog('CLOUD PULL OK: settings merged from profiles + vessel_identity');
         manageScreenEffects(merged);
+
+        // ── Welcome-back modal ─────────────────────────────────────
+        // Fire ONCE per user per device, ONLY on a fresh-device
+        // restore (local Preferences was empty at boot). Otherwise
+        // users would see the modal every time they sign out and
+        // back in on their primary phone, which would be noise.
+        try {
+            if (!_localHadPriorData) {
+                const seenKey = `thalassa_restored_modal_seen_${userId}`;
+                const { value: alreadySeen } = await Preferences.get({ key: seenKey });
+                if (!alreadySeen) {
+                    const summary = buildRestoredSummary(merged);
+                    if (typeof window !== 'undefined') {
+                        window.dispatchEvent(
+                            new CustomEvent('thalassa:settings-restored-modal', {
+                                detail: { summary },
+                            }),
+                        );
+                    }
+                    await Preferences.set({ key: seenKey, value: '1' });
+                }
+            }
+        } catch (modalErr) {
+            // Non-fatal — modal is celebratory polish, not core data
+            log.warn(`[pullFromCloud] modal dispatch skipped: ${getErrorMessage(modalErr)}`);
+        }
 
         // Notify WeatherContext that settings just landed. The
         // orchestrator's normal init useEffect may have ALREADY fired
@@ -351,6 +450,10 @@ async function loadSettings() {
     try {
         const { value } = await Preferences.get({ key: 'thalassa_settings' });
         if (value) {
+            // Mark that this device had its own settings on disk
+            // before any cloud pull — gates the welcome-back modal so
+            // it only fires on true fresh-device restores.
+            _localHadPriorData = true;
             const parsed = JSON.parse(value);
             const validHeroWidgets =
                 Array.isArray(parsed.heroWidgets) && parsed.heroWidgets.length > 0
