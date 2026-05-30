@@ -1922,7 +1922,17 @@ function tryMarinaCenterline(
         const d = grid.cells[c.y * grid.width + c.x];
         if (Number.isNaN(d) || d < 0) return null;
     }
-    return cells;
+    // Smooth the 4-connected staircase BEFORE returning. The raw centerline
+    // steps N/S/E/W, so a diagonal channel renders as a "staticy" stairstep.
+    // A ~1.5-cell Douglas-Peucker in CELL space erases that jitter (each
+    // step deviates <1 cell from the diagonal) while preserving real bends —
+    // a sharp canal corner's apex deviates many cells, so DP keeps it (no
+    // corner shaving). The engine's downstream ¼-cell DP is then a no-op.
+    const simplified = douglasPeucker(
+        cells.map((c) => [c.x, c.y] as [number, number]),
+        1.5,
+    );
+    return simplified.map(([x, y]) => ({ x, y }));
 }
 
 // ── Polyline simplification (Douglas-Peucker) ───────────────────────
