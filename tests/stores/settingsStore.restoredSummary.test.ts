@@ -5,7 +5,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { buildRestoredSummary, DEFAULT_SETTINGS } from '../../stores/settingsStore';
+import {
+    buildRestoredSummary,
+    DEFAULT_SETTINGS,
+    awaitSettingsLoaded,
+    useSettingsStore,
+} from '../../stores/settingsStore';
 import type { UserSettings } from '../../types';
 
 describe('buildRestoredSummary', () => {
@@ -137,5 +142,44 @@ describe('buildRestoredSummary', () => {
         const summary = buildRestoredSummary(s);
         expect(summary.vesselName).toBe('Unnamed');
         expect(summary.vesselDescriptor).toBeNull();
+    });
+});
+
+/**
+ * awaitSettingsLoaded is the cold-boot race-fix primitive: it lets
+ * pullFromCloud wait for loadSettings()'s disk read to finish its
+ * `setState({..., loading: false})` before merging cloud data on
+ * top. Without this gate, a fast cloud round-trip + slow disk read
+ * would let loadSettings' setState land AFTER pullFromCloud's and
+ * silently roll the merge back.
+ *
+ * We can't reliably simulate the timing race itself inside vitest
+ * without resetting modules — but we CAN verify the contract that
+ * the gate exposes: a Promise that resolves only after the store
+ * has flipped out of `loading: true`.
+ */
+describe('awaitSettingsLoaded — cold-boot race gate', () => {
+    it('returns a Promise', () => {
+        expect(awaitSettingsLoaded()).toBeInstanceOf(Promise);
+    });
+
+    it('resolves; after resolution the store is no longer loading', async () => {
+        await awaitSettingsLoaded();
+        expect(useSettingsStore.getState().loading).toBe(false);
+    });
+
+    it('is idempotent — multiple concurrent calls all resolve cleanly', async () => {
+        await Promise.all([awaitSettingsLoaded(), awaitSettingsLoaded(), awaitSettingsLoaded()]);
+        expect(useSettingsStore.getState().loading).toBe(false);
+    });
+
+    it('resolves immediately on subsequent calls after initial load', async () => {
+        // Initial wait
+        await awaitSettingsLoaded();
+        // Second call should resolve in the same microtask
+        const start = performance.now();
+        await awaitSettingsLoaded();
+        const elapsed = performance.now() - start;
+        expect(elapsed).toBeLessThan(5); // ms — well under any real native bridge latency
     });
 });
