@@ -60,7 +60,6 @@ import type {
 
 import { createLogger } from '../utils/createLogger';
 import { routeMarina, type Cell } from './marinaCenterline';
-import { parseLateralMarks, refineWithFairlead, type LatLon } from './fairlead';
 
 const engineLog = createLogger('inshoreEngine');
 
@@ -197,9 +196,6 @@ export interface RouteDebug {
     /** True when the two-tier fine marina pass was accepted over the 50 m
      *  main route (short routes that validated cleaner on a ~10 m grid). */
     twoTierFine?: boolean;
-    /** Channel key when Fairlead spliced a buoyed-channel segment (the route
-     *  follows the lateral marks there), else absent. */
-    fairlead?: string;
 }
 
 export interface RouteResult {
@@ -2152,16 +2148,7 @@ function routeInshoreMain(
  * bit the earlier single-grid attempt (reverted 765046b3) is caught by the
  * validation and falls back here.
  */
-/**
- * Public inshore router: the two-tier grid route (MarinerEE marina layer),
- * then a Fairlead pass that snaps any buoyed-channel segment onto the lateral
- * marks. The chain: MarinerEE (canal) → Fairlead (marks) → coastal.
- */
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
-    return applyFairlead(routeInshoreTwoTier(layers, req), layers);
-}
-
-function routeInshoreTwoTier(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
     const main = routeInshoreMain(layers, req);
     if ('error' in main) return main;
 
@@ -2183,62 +2170,6 @@ function routeInshoreTwoTier(layers: InshoreLayers, req: RouteRequest): RouteRes
         return fine;
     }
     return main;
-}
-
-/**
- * Fairlead pass — where the route transits a buoyed channel, replace that
- * segment with the lateral-mark centreline (services/fairlead.ts) so the
- * route follows the red/green marks, not just the deepest water. Validated
- * against LNDARE: any centreline point on land aborts the splice and the grid
- * route stands. No marks / no channel transited → route returned unchanged.
- */
-function applyFairlead(result: RouteResult | RouteFailure, layers: InshoreLayers): RouteResult | RouteFailure {
-    if ('error' in result) return result;
-    const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
-    if (markFeatures.length < 3) return result;
-    const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
-    if (marks.length < 3) return result;
-
-    const poly: LatLon[] = result.polyline.map(([lon, lat]) => ({ lat, lon }));
-    const lndare = layers.LNDARE?.features ?? [];
-    const isLand = (p: LatLon): boolean => {
-        for (const f of lndare) {
-            const g = f.geometry;
-            if (g && (g.type === 'Polygon' || g.type === 'MultiPolygon') && pointInGeometry(p.lon, p.lat, g)) {
-                return true;
-            }
-        }
-        return false;
-    };
-
-    const refined = refineWithFairlead(poly, marks, isLand);
-    if (!refined.replacedRange) return result;
-
-    const [entrySeg, exitSeg] = refined.replacedRange;
-    const newPolyline: [number, number][] = refined.polyline.map((p) => [p.lon, p.lat]);
-
-    // Rebuild the per-segment cautionMask: the spliced channel is clean water
-    // (no caution); the prefix segments [0..entrySeg) and suffix segments
-    // (exitSeg..] keep their original flags so a real RED warning before or
-    // after the channel is never silently dropped. replacedRange is in
-    // polyline SEGMENT indices.
-    const oldCaution = result.cautionMask ?? [];
-    const total = newPolyline.length - 1;
-    const prefixSegs = Math.min(entrySeg, oldCaution.length);
-    const suffixSegs = Math.max(0, oldCaution.length - (exitSeg + 1));
-    const cleanSegs = Math.max(0, total - prefixSegs - suffixSegs);
-    const newCaution: boolean[] = [];
-    for (let i = 0; i < prefixSegs; i++) newCaution.push(oldCaution[i] ?? false);
-    for (let i = 0; i < cleanSegs; i++) newCaution.push(false);
-    for (let i = exitSeg + 1; i < oldCaution.length; i++) newCaution.push(oldCaution[i] ?? false);
-
-    if (ENGINE_DEBUG) engineLog.warn(`fairlead: spliced "${refined.channelKey}" channel centreline into the route`);
-    return {
-        ...result,
-        polyline: newPolyline,
-        cautionMask: newCaution,
-        debug: { ...(result.debug as RouteDebug), fairlead: refined.channelKey ?? undefined } as RouteDebug,
-    };
 }
 
 /** Accept the fine marina route only if it's at least as safe as the main
