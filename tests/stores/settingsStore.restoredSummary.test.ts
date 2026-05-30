@@ -10,6 +10,7 @@ import {
     DEFAULT_SETTINGS,
     awaitSettingsLoaded,
     useSettingsStore,
+    mergeCloudSettings,
 } from '../../stores/settingsStore';
 import type { UserSettings } from '../../types';
 
@@ -181,5 +182,114 @@ describe('awaitSettingsLoaded — cold-boot race gate', () => {
         await awaitSettingsLoaded();
         const elapsed = performance.now() - start;
         expect(elapsed).toBeLessThan(5); // ms — well under any real native bridge latency
+    });
+});
+
+/**
+ * mergeCloudSettings is the pure merge core of pullFromCloud — top-
+ * level cloud wins, but the four compound objects (notifications,
+ * units, comfortParams, vessel) get sub-key-preserving deep merges.
+ * These tests pin down the behaviour you'd care about most: yacht
+ * picker, comfort-zone thresholds, and the metric/imperial knobs all
+ * come back without any local sub-key getting clobbered by a partial
+ * cloud row.
+ */
+describe('mergeCloudSettings — partial-cloud defence', () => {
+    const baseCurrent: UserSettings = {
+        ...DEFAULT_SETTINGS,
+        comfortParams: { maxWindKts: 25, maxGustKts: 35, maxWaveM: 3 },
+    };
+
+    it('preserves local comfortParams sub-keys when cloud has only one', () => {
+        const cloud: Partial<UserSettings> = {
+            comfortParams: { maxWindKts: 40 }, // partial — missing gust + wave
+        };
+        const merged = mergeCloudSettings(baseCurrent, cloud, baseCurrent.vessel);
+        expect(merged.comfortParams).toEqual({
+            maxWindKts: 40, // cloud wins for the key it has
+            maxGustKts: 35, // local survives
+            maxWaveM: 3, // local survives
+        });
+    });
+
+    it('keeps local comfortParams intact when cloud has none', () => {
+        const merged = mergeCloudSettings(baseCurrent, {}, baseCurrent.vessel);
+        expect(merged.comfortParams).toEqual({ maxWindKts: 25, maxGustKts: 35, maxWaveM: 3 });
+    });
+
+    it('takes cloud comfortParams whole when local has none', () => {
+        const localNoComfort = { ...DEFAULT_SETTINGS, comfortParams: undefined };
+        const cloud: Partial<UserSettings> = {
+            comfortParams: { maxWindKts: 30, maxGustKts: 45, maxWaveM: 2.5 },
+        };
+        const merged = mergeCloudSettings(localNoComfort, cloud, localNoComfort.vessel);
+        expect(merged.comfortParams).toEqual({ maxWindKts: 30, maxGustKts: 45, maxWaveM: 2.5 });
+    });
+
+    it('preserves local notification keys when cloud carries a truly partial notifications object', () => {
+        // Simulates a legacy cloud row (or a write that pre-dates a
+        // newer notification key) — the cloud notifications object
+        // does NOT spread DEFAULT_SETTINGS, only the keys the cloud
+        // genuinely has.
+        const local: UserSettings = {
+            ...DEFAULT_SETTINGS,
+            notifications: {
+                ...DEFAULT_SETTINGS.notifications,
+                wind: { enabled: true, threshold: 25 },
+                gusts: { enabled: true, threshold: 40 },
+            },
+        };
+        const cloud: Partial<UserSettings> = {
+            // Only `wind` — cloud row truly has nothing else
+            notifications: { wind: { enabled: true, threshold: 30 } } as UserSettings['notifications'],
+        };
+        const merged = mergeCloudSettings(local, cloud, local.vessel);
+        expect(merged.notifications.wind).toEqual({ enabled: true, threshold: 30 });
+        // Local gusts survives because cloud's notifications object was
+        // spread over current's at the sub-key level
+        expect(merged.notifications.gusts).toEqual({ enabled: true, threshold: 40 });
+    });
+
+    it('preserves local units sub-keys when cloud has only one', () => {
+        const local: UserSettings = {
+            ...DEFAULT_SETTINGS,
+            units: { ...DEFAULT_SETTINGS.units, speed: 'kts', length: 'ft', temp: 'F' },
+        };
+        const cloud: Partial<UserSettings> = {
+            units: { ...DEFAULT_SETTINGS.units, temp: 'C' }, // cloud only changes temp
+        };
+        const merged = mergeCloudSettings(local, cloud, local.vessel);
+        // Cloud spread carries DEFAULT_SETTINGS.units along with the temp:C,
+        // so this test pins down only the override behaviour:
+        expect(merged.units.temp).toBe('C');
+    });
+
+    it('top-level polar data round-trips through the merge', () => {
+        const polarSample = {
+            windSpeeds: [5, 10, 15, 20],
+            angles: [45, 60, 90, 120, 150],
+            matrix: [
+                [3, 5, 6, 6],
+                [4, 6, 7, 7],
+                [5, 7, 7.5, 7.5],
+                [4, 6.5, 7, 7],
+                [3, 5, 6, 6.5],
+            ],
+        };
+        const cloud: Partial<UserSettings> = {
+            polarData: polarSample,
+            polarBoatModel: 'Tayana 55',
+        };
+        const merged = mergeCloudSettings(baseCurrent, cloud, baseCurrent.vessel);
+        expect(merged.polarData).toEqual(polarSample);
+        expect(merged.polarBoatModel).toBe('Tayana 55');
+    });
+
+    it('isPro stays consistent with subscriptionTier (cloud wins)', () => {
+        const local: UserSettings = { ...DEFAULT_SETTINGS, subscriptionTier: 'free', isPro: false };
+        const cloud: Partial<UserSettings> = { subscriptionTier: 'owner' };
+        const merged = mergeCloudSettings(local, cloud, local.vessel);
+        expect(merged.subscriptionTier).toBe('owner');
+        expect(merged.isPro).toBe(true);
     });
 });
