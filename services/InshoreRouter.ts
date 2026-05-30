@@ -68,7 +68,7 @@ const log = createLogger('InshoreRouter');
  * of pi-cache/src/services/inshoreRouter.ts) before trusting this path,
  * or set false until the Pi catches up.
  */
-const CLOUD_ROUTER_ENABLED = true;
+const CLOUD_ROUTER_ENABLED = false;
 
 // Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
 // Scarborough/marker/midpoint traces, ribbon continuity, full polyline
