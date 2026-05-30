@@ -86,10 +86,36 @@ let _addDebugLog: (msg: string) => void = () => {};
  * phone where their settings already live locally.
  */
 let _localHadPriorData = false;
+/**
+ * Promise that resolves once loadSettings() has finished its disk
+ * read and committed its `setState({ ..., loading: false })`.
+ *
+ * pullFromCloud awaits this BEFORE reading the store's current state,
+ * which removes a subtle cold-boot race: if Supabase's getSession()
+ * happened to resolve before Capacitor Preferences.get() did (rare
+ * but possible — both are native bridges), pullFromCloud would read
+ * DEFAULT_SETTINGS as `current`, merge cloud onto it, setState, and
+ * THEN loadSettings would land its own setState and silently roll
+ * the merge back. With this gate the order is enforced: local disk
+ * first, cloud merge second, both setStates land in the right order
+ * regardless of which native promise resolves first.
+ */
+let _loadSettingsPromise: Promise<void> | null = null;
 
 /** Wire the debug log sink from uiStore (called once from ThalassaContext bridge) */
 export function setSettingsDebugSink(fn: (msg: string) => void) {
     _addDebugLog = fn;
+}
+
+/**
+ * Returns a promise that resolves once the initial disk-load of
+ * settings has completed (or failed — the promise resolves either
+ * way so callers don't hang on a broken Preferences plugin).
+ *
+ * Exported so tests can synchronise against the init boundary.
+ */
+export function awaitSettingsLoaded(): Promise<void> {
+    return _loadSettingsPromise ?? Promise.resolve();
 }
 
 async function syncToCloud(userId: string, s: UserSettings) {
@@ -182,6 +208,21 @@ async function pullFromCloud(userId: string): Promise<void> {
         return;
     }
     log.warn(`[pullFromCloud] STARTING for userId=${userId.slice(0, 8)}`);
+    // Wait for the local disk read to finish committing its setState
+    // before we read `current` and merge cloud on top. Without this
+    // gate, a fast cloud round-trip + slow disk read would have us
+    // merging cloud onto DEFAULT_SETTINGS, only to have loadSettings'
+    // own setState land afterwards and silently roll the merge back.
+    // The await is a no-op once loadSettings has already resolved
+    // (the common case) — it's cheap insurance for the cold-boot edge.
+    if (_loadSettingsPromise) {
+        try {
+            await _loadSettingsPromise;
+        } catch {
+            // loadSettings already catches its own errors; this catch
+            // exists purely to keep us moving if the promise rejects.
+        }
+    }
     try {
         // 1. profiles.settings — the JSONB blob carrying everything
         // the user has changed via updateSettings.
@@ -499,4 +540,4 @@ async function loadSettings() {
     }
 }
 
-loadSettings();
+_loadSettingsPromise = loadSettings();
