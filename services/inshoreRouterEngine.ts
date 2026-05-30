@@ -61,6 +61,7 @@ import type {
 import { createLogger } from '../utils/createLogger';
 import { routeMarina, type Cell } from './marinaCenterline';
 import { parseLateralMarks, refineWithFairlead, type LatLon } from './fairlead';
+import { parseLeadingLines, snapToLeadingLines } from './leadingLine';
 
 const engineLog = createLogger('inshoreEngine');
 
@@ -200,6 +201,9 @@ export interface RouteDebug {
     /** Channel key when Fairlead spliced a buoyed-channel segment (the route
      *  follows the lateral marks there), else absent. */
     fairlead?: string;
+    /** Count of charted leading lines (navigation_line transits) the route was
+     *  snapped onto — "line up the marks" vessel procedure. Absent if none. */
+    leadingLine?: number;
 }
 
 export interface RouteResult {
@@ -2843,8 +2847,12 @@ function routeInshoreOnce(
     // drew straight lines across the canal). No marks / no along-channel
     // transit / would leave the water → route returned unchanged.
     const fl = applyFairleadAtGrid(polyline, cautionMask, grid, layers);
-    const finalPolyline = fl.polyline;
-    const finalCaution = fl.cautionMask;
+    // Leading-line snap: where the route transits a charted navigation_line,
+    // ride the transit itself (line up the marks) rather than the Pass-5b
+    // corridor band. Runs after Fairlead so the two refinements compose.
+    const ll = applyLeadingLineSnap(fl.polyline, fl.cautionMask, grid, layers);
+    const finalPolyline = ll.polyline;
+    const finalCaution = ll.cautionMask;
 
     // Compute total length in NM along the final polyline.
     let distM = 0;
@@ -2858,7 +2866,11 @@ function routeInshoreOnce(
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
-        debug: fl.fairlead ? ({ ...debug, fairlead: fl.fairlead } as RouteDebug) : debug,
+        debug: {
+            ...debug,
+            ...(fl.fairlead ? { fairlead: fl.fairlead } : {}),
+            ...(ll.leadingLines ? { leadingLine: ll.leadingLines } : {}),
+        } as RouteDebug,
         phaseTimings: timings,
     };
 }
@@ -2936,4 +2948,46 @@ function applyFairleadAtGrid(
     if (ENGINE_DEBUG)
         engineLog.warn(`fairlead: spliced "${refined.channelKey}" channel from open-water vertex ${fromIdx}`);
     return { polyline: newPolyline, cautionMask: newCaution, fairlead: refined.channelKey ?? undefined };
+}
+
+/**
+ * Leading-line snap at the grid stage — snaps the route onto the charted
+ * navigation_line transit it follows, so the track sits dead on the leading
+ * line ("line up the marks") instead of merely near the Pass-5b corridor band.
+ *
+ *  - isBlocked uses the GRID (NaN / out-of-bounds) so a transit never snaps
+ *    across solid land. Caution water is allowed (leading-line approaches are
+ *    often shallow), and the on-line segment keeps its red HONESTLY.
+ *  - Origin/destination are never moved; only the in-passage transit snaps.
+ */
+function applyLeadingLineSnap(
+    polyline: [number, number][],
+    cautionMask: boolean[],
+    grid: NavGrid,
+    layers: InshoreLayers,
+): { polyline: [number, number][]; cautionMask: boolean[]; leadingLines: number } {
+    const passthrough = { polyline, cautionMask, leadingLines: 0 };
+    const navFeatures = layers.NAVLINE?.features ?? [];
+    if (navFeatures.length === 0 || polyline.length < 4) return passthrough;
+    const lines = parseLeadingLines(navFeatures as Parameters<typeof parseLeadingLines>[0]);
+    if (lines.length === 0) return passthrough;
+
+    const w = grid.width;
+    const h = grid.height;
+    const cellAt = (p: LatLon): number => {
+        const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+        if (x < 0 || y < 0 || x >= w || y >= h) return NaN;
+        return grid.cells[y * w + x];
+    };
+    const isBlocked = (p: LatLon): boolean => Number.isNaN(cellAt(p));
+    const isCaution = (p: LatLon): boolean => cellAt(p) < 0; // negative = caution (NaN < 0 is false)
+
+    const poly: LatLon[] = polyline.map(([lon, lat]) => ({ lat, lon }));
+    const r = snapToLeadingLines(poly, cautionMask, lines, { isBlocked, isCaution });
+    if (r.snapped === 0) return passthrough;
+
+    const newPolyline: [number, number][] = r.polyline.map((p) => [p.lon, p.lat]);
+    if (ENGINE_DEBUG)
+        engineLog.warn(`leading-line: snapped route onto ${r.snapped} charted transit(s) (line up the marks)`);
+    return { polyline: newPolyline, cautionMask: r.cautionMask, leadingLines: r.snapped };
 }
