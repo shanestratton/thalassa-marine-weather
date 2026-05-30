@@ -297,3 +297,136 @@ export function routeFairlead(
     centre = directRoute(centre, handoff);
     return { centerline: centre, channel };
 }
+
+export interface RefineOptions extends FairleadOptions {
+    /** Max distance from the route to a mark for it to count as "near". */
+    traverseM?: number;
+    /** Only consider a channel transited at/after this polyline SEGMENT index
+     *  (the marina exit — Fairlead stays out of the canal). */
+    fromIdx?: number;
+    /** Min fraction of a channel's marks that must lie near the route for it
+     *  to count as a genuine transit (not two stray ends). Default 0.6. */
+    minAlongFraction?: number;
+}
+
+export interface RefineResult {
+    /** Route polyline with a transited buoyed channel replaced by the Fairlead
+     *  centreline; unchanged if nothing is transited / validates. */
+    polyline: LatLon[];
+    /** [entrySegIdx, exitSegIdx] polyline SEGMENT indices replaced, or null. */
+    replacedRange: [number, number] | null;
+    channelKey: string | null;
+}
+
+/** Project p onto segment a→b (local planar metres). */
+function projectPointToSegment(p: LatLon, a: LatLon, b: LatLon): { point: LatLon; t: number } {
+    const mLat = 110_540;
+    const mLon = 111_320 * Math.cos((a.lat * Math.PI) / 180);
+    const bx = (b.lon - a.lon) * mLon;
+    const by = (b.lat - a.lat) * mLat;
+    const px = (p.lon - a.lon) * mLon;
+    const py = (p.lat - a.lat) * mLat;
+    const len2 = bx * bx + by * by;
+    let t = len2 > 0 ? (px * bx + py * by) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return { point: { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t }, t };
+}
+
+/** Nearest point on a polyline to p (robust to sparse polylines). */
+function projectToPolyline(p: LatLon, poly: LatLon[]): { segIdx: number; along: number; point: LatLon; dist: number } {
+    let best = { segIdx: 0, along: 0, point: poly[0], dist: Infinity };
+    for (let i = 0; i < poly.length - 1; i++) {
+        const pr = projectPointToSegment(p, poly[i], poly[i + 1]);
+        const d = distM(p, pr.point);
+        if (d < best.dist) best = { segIdx: i, along: i + pr.t, point: pr.point, dist: d };
+    }
+    return best;
+}
+
+/** True if any point sampled densely (≈ every `stepM`) along the polyline
+ *  satisfies the predicate. */
+function anyAlong(pts: LatLon[], stepM: number, pred: (p: LatLon) => boolean): boolean {
+    for (let i = 0; i < pts.length - 1; i++) {
+        const a = pts[i];
+        const b = pts[i + 1];
+        const n = Math.max(1, Math.ceil(distM(a, b) / stepM));
+        for (let k = 0; k <= n; k++) {
+            const t = k / n;
+            if (pred({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t })) return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Splice the Fairlead centreline into a route where it genuinely transits a
+ * buoyed channel. A channel counts as transited only if:
+ *   • a good FRACTION of its marks (not just two stray ends) lie within
+ *     `traverseM` of the route — i.e. the route runs ALONG the channel; AND
+ *   • the transit begins at/after `fromIdx` (the marina exit — Fairlead never
+ *     touches the in-canal portion MarinerEE owns).
+ * The spliced segment (entry bridge + centreline + exit bridge) is validated
+ * end-to-end against `isLand`; ANY point on land aborts the splice and the
+ * route is returned unchanged (defer to the grid route — never fabricate).
+ */
+export function refineWithFairlead(
+    polyline: LatLon[],
+    marks: LateralMark[],
+    isLand?: (p: LatLon) => boolean,
+    opts: RefineOptions = {},
+): RefineResult {
+    const unchanged: RefineResult = { polyline, replacedRange: null, channelKey: null };
+    if (polyline.length < 2 || marks.length < 3) return unchanged;
+
+    const traverseM = opts.traverseM ?? 500;
+    const fromIdx = opts.fromIdx ?? 0;
+    const minFrac = opts.minAlongFraction ?? 0.6;
+    const channels = groupChannels(marks);
+
+    type Hit = ReturnType<typeof projectToPolyline>;
+    let best: { ch: LateralMark[]; entry: Hit; exit: Hit } | null = null;
+    let bestSpan = -1;
+    for (const ch of channels) {
+        // The route must run ALONG the channel: enough of its marks near the line.
+        let near = 0;
+        for (const m of ch) if (projectToPolyline(m, polyline).dist < traverseM) near++;
+        if (near / ch.length < minFrac) continue;
+
+        const seqSorted = ch.slice().sort((a, b) => a.seq - b.seq);
+        const p0 = projectToPolyline(seqSorted[0], polyline);
+        const p1 = projectToPolyline(seqSorted[seqSorted.length - 1], polyline);
+        if (p0.dist < traverseM && p1.dist < traverseM && Math.abs(p0.along - p1.along) > 1e-6) {
+            const [entry, exit] = p0.along <= p1.along ? [p0, p1] : [p1, p0];
+            if (entry.segIdx < fromIdx) continue; // before the marina exit → skip
+            const span = exit.along - entry.along;
+            if (span > bestSpan) {
+                bestSpan = span;
+                best = { ch, entry, exit };
+            }
+        }
+    }
+    if (!best) return unchanged;
+
+    const handoff = best.entry.point;
+    const fl = routeFairlead(marks, handoff, opts);
+    if (!fl) return unchanged;
+    let centre = fl.centerline;
+    if (distM(centre[0], handoff) > distM(centre[centre.length - 1], handoff)) {
+        centre = centre.slice().reverse();
+    }
+
+    // Validate the WHOLE spliced run (entry bridge + centreline + exit bridge)
+    // against land. The grid-based isLand catches estate land that LNDARE
+    // misses — the hole that drew straight lines across the canal.
+    const spliced = [best.entry.point, ...centre, best.exit.point];
+    if (isLand && anyAlong(spliced, 25, isLand)) return unchanged;
+
+    const refined = [
+        ...polyline.slice(0, best.entry.segIdx + 1),
+        best.entry.point,
+        ...centre,
+        best.exit.point,
+        ...polyline.slice(best.exit.segIdx + 1),
+    ];
+    return { polyline: refined, replacedRange: [best.entry.segIdx, best.exit.segIdx], channelKey: best.ch[0].key };
+}

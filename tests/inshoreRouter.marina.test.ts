@@ -123,3 +123,58 @@ describe('two-tier fine marina pass', () => {
         expect(r.debug?.twoTierFine).toBeFalsy(); // explicit res → main only
     });
 });
+
+describe('Fairlead — end-to-end through routeInshore (grid-validated, open-water)', () => {
+    function point(lon: number, lat: number, props: Record<string, unknown>): Feature {
+        return { type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } };
+    }
+
+    it('follows a buoyed channel in open water', () => {
+        // Wide open DEPARE (no land within 150 m → open water everywhere) with a
+        // buoyed channel along it (marks ~1 km apart). A route straight along
+        // the band transits the channel → Fairlead fires.
+        const deep = fc(rect(156.04, -27.206, 156.16, -27.194, { DRVAL1: 12.0 }));
+        const stbd: Feature[] = [156.08, 156.09, 156.1, 156.11].map((lon, i) =>
+            point(lon, -27.203, { CATLAM: 2, OBJNAM: `BC${2 * i + 1}` }),
+        );
+        const port: Feature[] = [156.085, 156.095, 156.105, 156.115].map((lon, i) =>
+            point(lon, -27.197, { CATLAM: 1, OBJNAM: `BC${2 * i + 2}` }),
+        );
+        const r = routeInshore(
+            { DEPARE: deep, BOYLAT: fc(...stbd, ...port) },
+            baseReq({ fromLon: 156.05, toLon: 156.15, fromLat: -27.2, toLat: -27.2 }),
+        );
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.fairlead).toBe('BC');
+    });
+
+    it('REGRESSION: marks whose centreline crosses LNDARE land → does NOT fire, route never on land', () => {
+        // The Newport failure shape: a buoyed "channel" whose midline cuts
+        // across a land block. The grid (LNDARE-rasterised) makes those cells
+        // land, so Fairlead's grid-validated splice must abort — no straight
+        // line across land. The route detours around the block in clean water.
+        const deep = fc(rect(156.34, -27.214, 156.46, -27.186, { DRVAL1: 12.0 }));
+        const land = fc(rect(156.38, -27.203, 156.42, -27.197)); // block straddling the midline
+        // Marks straddle the block (stbd south, port north) so their centreline
+        // (lat ~-27.20) runs straight THROUGH the land block.
+        const stbd: Feature[] = [156.36, 156.37, 156.43, 156.44].map((lon, i) =>
+            point(lon, -27.207, { CATLAM: 2, OBJNAM: `BC${2 * i + 1}` }),
+        );
+        const port: Feature[] = [156.365, 156.375, 156.425, 156.435].map((lon, i) =>
+            point(lon, -27.193, { CATLAM: 1, OBJNAM: `BC${2 * i + 2}` }),
+        );
+        const r = routeInshore(
+            { DEPARE: deep, LNDARE: land, BOYLAT: fc(...stbd, ...port) },
+            baseReq({ fromLon: 156.35, toLon: 156.45, fromLat: -27.2, toLat: -27.2 }),
+        );
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.fairlead).toBeUndefined(); // grid-validation aborted the across-land splice
+        // And no polyline point sits inside the land block.
+        for (const [lon, lat] of r.polyline) {
+            const inLand = lon >= 156.38 && lon <= 156.42 && lat >= -27.203 && lat <= -27.197;
+            expect(inLand).toBe(false);
+        }
+    });
+});
