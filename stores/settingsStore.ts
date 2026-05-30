@@ -142,6 +142,47 @@ export interface RestoredSummary {
     savedLocationCount: number;
 }
 
+/**
+ * Merge a cloud-side settings payload onto the current local state.
+ *
+ * Top-level cloud keys win (so polarData, polarBoatModel, etc. come
+ * back whole), but the four "compound" objects get sub-key-preserving
+ * deep merges so a partial cloud version can't clobber local sub-keys
+ * the cloud row hasn't heard about yet:
+ *
+ *   - notifications   — per-alert enable + threshold
+ *   - units           — speed / length / temp / etc.
+ *   - comfortParams   — maxWindKts / maxGustKts / maxWaveM / angles
+ *   - vessel          — handled by the caller (depends on vessel_identity
+ *                       row too), passed in pre-merged
+ *
+ * Exported for testability.
+ */
+export function mergeCloudSettings(
+    current: UserSettings,
+    cloudSettings: Partial<UserSettings> | null,
+    mergedVessel: UserSettings['vessel'],
+): UserSettings {
+    return {
+        ...current,
+        ...(cloudSettings ?? {}),
+        notifications: {
+            ...current.notifications,
+            ...(cloudSettings?.notifications ?? {}),
+        },
+        units: {
+            ...current.units,
+            ...(cloudSettings?.units ?? {}),
+        },
+        comfortParams: {
+            ...(current.comfortParams ?? {}),
+            ...(cloudSettings?.comfortParams ?? {}),
+        },
+        vessel: mergedVessel,
+        isPro: tierIsPro(cloudSettings?.subscriptionTier ?? current.subscriptionTier),
+    };
+}
+
 export function buildRestoredSummary(s: UserSettings): RestoredSummary {
     const greetingName = s.nickname?.trim() || s.firstName?.trim() || null;
 
@@ -269,20 +310,7 @@ async function pullFromCloud(userId: string): Promise<void> {
             }
         }
 
-        const merged: UserSettings = {
-            ...current,
-            ...(cloudSettings ?? {}),
-            notifications: {
-                ...current.notifications,
-                ...(cloudSettings?.notifications ?? {}),
-            },
-            units: {
-                ...current.units,
-                ...(cloudSettings?.units ?? {}),
-            },
-            vessel: mergedVessel,
-            isPro: tierIsPro(cloudSettings?.subscriptionTier ?? current.subscriptionTier),
-        };
+        const merged = mergeCloudSettings(current, cloudSettings, mergedVessel);
 
         // Fallback: if neither cloud nor local has a defaultLocation
         // we'd hand the weather flow nothing to fetch, and the Glass
