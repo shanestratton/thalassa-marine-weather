@@ -178,3 +178,32 @@ describe('Fairlead — end-to-end through routeInshore (grid-validated, open-wat
         }
     });
 });
+
+describe('marina-centerline — clean-prefix scoping on mixed routes', () => {
+    it('fires on the clean canal prefix even when the route later crosses caution', () => {
+        // The Newport->Scarborough shape: a deep (clean) canal prefix in the
+        // west + a shallow (caution) bay suffix in the east. The whole route
+        // used to fall back to corner-cutting A* because of the downstream
+        // caution; now the centerline owns the clean canal prefix and A* keeps
+        // the caution bay. Region ~157 + 2 DEPARE features (distinct count) to
+        // dodge the bbox+count-keyed NavGrid cache.
+        const deepCanal = rect(157.04, -27.205, 157.09, -27.195, { DRVAL1: 12.0 }); // clean prefix
+        const shallowBay = rect(157.09, -27.205, 157.13, -27.195, { DRVAL1: 1.0 }); // caution suffix
+        const r = routeInshore(
+            { DEPARE: fc(deepCanal, shallowBay) },
+            {
+                fromLat: -27.2,
+                fromLon: 157.05,
+                toLat: -27.2,
+                toLon: 157.12,
+                draftM: 2.0,
+                safetyM: 1.0,
+                resolutionM: 50,
+            },
+        );
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        expect(r.debug?.marinaCenterline).toBe(true); // fired on the clean prefix despite downstream caution
+        expect((r.cautionMask ?? []).filter(Boolean).length).toBeGreaterThan(0); // caution bay still flagged red
+    });
+});
