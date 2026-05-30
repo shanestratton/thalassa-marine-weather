@@ -60,6 +60,7 @@ import type {
 
 import { createLogger } from '../utils/createLogger';
 import { routeMarina, type Cell } from './marinaCenterline';
+import { parseLateralMarks, refineWithFairlead, type LatLon } from './fairlead';
 
 const engineLog = createLogger('inshoreEngine');
 
@@ -196,6 +197,9 @@ export interface RouteDebug {
     /** True when the two-tier fine marina pass was accepted over the 50 m
      *  main route (short routes that validated cleaner on a ~10 m grid). */
     twoTierFine?: boolean;
+    /** Channel key when Fairlead spliced a buoyed-channel segment (the route
+     *  follows the lateral marks there), else absent. */
+    fairlead?: string;
 }
 
 export interface RouteResult {
@@ -2775,19 +2779,104 @@ function routeInshoreOnce(
         }
     }
 
-    // Compute total length in NM along the simplified polyline.
+    // ── Fairlead: where the route transits a buoyed channel in OPEN water
+    // (past the marina/canal MarinerEE owns), follow the lateral marks.
+    // Validated against the navigable GRID — the real water mask, which
+    // catches the estate land the raw LNDARE polygons miss (the hole that
+    // drew straight lines across the canal). No marks / no along-channel
+    // transit / would leave the water → route returned unchanged.
+    const fl = applyFairleadAtGrid(polyline, cautionMask, grid, layers);
+    const finalPolyline = fl.polyline;
+    const finalCaution = fl.cautionMask;
+
+    // Compute total length in NM along the final polyline.
     let distM = 0;
-    for (let i = 1; i < polyline.length; i++) {
-        distM += haversineM(polyline[i - 1][1], polyline[i - 1][0], polyline[i][1], polyline[i][0]);
+    for (let i = 1; i < finalPolyline.length; i++) {
+        distM += haversineM(finalPolyline[i - 1][1], finalPolyline[i - 1][0], finalPolyline[i][1], finalPolyline[i][0]);
     }
 
     return {
-        polyline,
-        cautionMask,
+        polyline: finalPolyline,
+        cautionMask: finalCaution,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
-        debug,
+        debug: fl.fairlead ? ({ ...debug, fairlead: fl.fairlead } as RouteDebug) : debug,
         phaseTimings: timings,
     };
+}
+
+/**
+ * Fairlead at the grid stage — follows the lateral marks through a buoyed
+ * channel, scoped to OPEN water and validated against the real navigable grid.
+ *
+ *  - isLand uses the GRID (blocked OR caution cell), so it catches estate land
+ *    the raw LNDARE polygons miss — the gap that drew lines across the canal.
+ *  - The marina exit is the first route vertex in open water (no blocked cell
+ *    within ~150 m); Fairlead only acts from there on, never in the canal.
+ *  - refineWithFairlead requires a genuine along-channel transit and validates
+ *    the whole spliced run against isLand; any failure → route unchanged.
+ */
+function applyFairleadAtGrid(
+    polyline: [number, number][],
+    cautionMask: boolean[],
+    grid: NavGrid,
+    layers: InshoreLayers,
+): { polyline: [number, number][]; cautionMask: boolean[]; fairlead?: string } {
+    const passthrough = { polyline, cautionMask };
+    const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
+    if (markFeatures.length < 3 || polyline.length < 2) return passthrough;
+    const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
+    if (marks.length < 3) return passthrough;
+
+    const poly: LatLon[] = polyline.map(([lon, lat]) => ({ lat, lon }));
+    const w = grid.width;
+    const h = grid.height;
+
+    const isLand = (p: LatLon): boolean => {
+        const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+        if (x < 0 || y < 0 || x >= w || y >= h) return true;
+        const d = grid.cells[y * w + x];
+        return Number.isNaN(d) || d < 0;
+    };
+
+    const resM = grid.dLat * M_PER_DEG_LAT;
+    const openCells = Math.max(2, Math.round(150 / Math.max(1, resM)));
+    const isOpen = (p: LatLon): boolean => {
+        const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+        for (let dy = -openCells; dy <= openCells; dy++) {
+            for (let dx = -openCells; dx <= openCells; dx++) {
+                if (dx * dx + dy * dy > openCells * openCells) continue;
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h || Number.isNaN(grid.cells[ny * w + nx])) return false;
+            }
+        }
+        return true;
+    };
+    let fromIdx = poly.length; // never, unless open water is found
+    for (let i = 0; i < poly.length; i++) {
+        if (isOpen(poly[i])) {
+            fromIdx = i;
+            break;
+        }
+    }
+
+    const refined = refineWithFairlead(poly, marks, isLand, { fromIdx });
+    if (!refined.replacedRange) return passthrough;
+
+    const [entrySeg, exitSeg] = refined.replacedRange;
+    const newPolyline: [number, number][] = refined.polyline.map((p) => [p.lon, p.lat]);
+    const total = newPolyline.length - 1;
+    const prefixSegs = Math.min(entrySeg, cautionMask.length);
+    const suffixSegs = Math.max(0, cautionMask.length - (exitSeg + 1));
+    const cleanSegs = Math.max(0, total - prefixSegs - suffixSegs);
+    const newCaution: boolean[] = [];
+    for (let i = 0; i < prefixSegs; i++) newCaution.push(cautionMask[i] ?? false);
+    for (let i = 0; i < cleanSegs; i++) newCaution.push(false);
+    for (let i = exitSeg + 1; i < cautionMask.length; i++) newCaution.push(cautionMask[i] ?? false);
+
+    if (ENGINE_DEBUG)
+        engineLog.warn(`fairlead: spliced "${refined.channelKey}" channel from open-water vertex ${fromIdx}`);
+    return { polyline: newPolyline, cautionMask: newCaution, fairlead: refined.channelKey ?? undefined };
 }

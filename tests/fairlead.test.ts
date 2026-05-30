@@ -14,6 +14,7 @@ import {
     groupChannels,
     corridorCenterline,
     routeFairlead,
+    refineWithFairlead,
     distM,
     type LateralMark,
     type LatLon,
@@ -132,5 +133,59 @@ describe('routeFairlead — real BC channel', () => {
     it('returns null when there is no marked channel near the handoff', () => {
         const r = routeFairlead(BC, { lat: -27.0, lon: 153.6 }, { maxHandoffM: 3000 }); // ~50 km away
         expect(r).toBeNull();
+    });
+});
+
+describe('refineWithFairlead — splice with the three safety gates', () => {
+    // A route that runs ALONG the BC channel (tracks its centreline).
+    const routeAlongBC: LatLon[] = [
+        { lat: -27.305, lon: 153.21 },
+        { lat: -27.32, lon: 153.197 },
+        { lat: -27.34, lon: 153.183 },
+        { lat: -27.365, lon: 153.168 },
+    ];
+
+    it('legit along-channel transit in water → splices the centreline', () => {
+        const r = refineWithFairlead(routeAlongBC, BC, () => false); // nothing is land
+        expect(r.replacedRange).not.toBeNull();
+        expect(r.channelKey).toBe('BC');
+    });
+
+    it('GATE 1 land-validation: centreline would cross land → unchanged (the regression)', () => {
+        // This is the failure that drew straight lines across the canal: the
+        // spliced centreline crosses land. With a grid-based isLand it must
+        // abort and keep the route, NOT fabricate water.
+        const r = refineWithFairlead(routeAlongBC, BC, () => true); // everything is land
+        expect(r.replacedRange).toBeNull();
+        expect(r.polyline).toBe(routeAlongBC);
+    });
+
+    it('GATE 2 open-water scoping: transit before fromIdx → unchanged (stays out of the canal)', () => {
+        // fromIdx past the whole (4-point) route → the channel transit starts
+        // before the marina exit, so Fairlead must not touch it.
+        const r = refineWithFairlead(routeAlongBC, BC, () => false, { fromIdx: 99 });
+        expect(r.replacedRange).toBeNull();
+    });
+
+    it('GATE 3 strict transit: route only clips the channel ENDS → unchanged', () => {
+        // Near BC1 and BC21 but a huge detour through the middle — only the two
+        // end marks are near the line, so it is NOT a genuine transit.
+        const clipsEnds: LatLon[] = [
+            { lat: -27.305, lon: 153.21 }, // ~BC1
+            { lat: -27.5, lon: 153.5 }, // miles away
+            { lat: -27.365, lon: 153.168 }, // ~BC21
+        ];
+        const r = refineWithFairlead(clipsEnds, BC, () => false);
+        expect(r.replacedRange).toBeNull();
+    });
+
+    it('no channel near the route → unchanged', () => {
+        const away: LatLon[] = [
+            { lat: -27.0, lon: 153.6 },
+            { lat: -26.9, lon: 153.7 },
+        ];
+        const r = refineWithFairlead(away, BC, () => false);
+        expect(r.replacedRange).toBeNull();
+        expect(r.polyline).toBe(away);
     });
 });
