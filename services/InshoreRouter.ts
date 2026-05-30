@@ -275,7 +275,20 @@ async function tryInshoreRouteInner(
             log.warn(`cell ${cell.id} listed but GeoJSON not on device — sync via Pi Cache first`);
             continue;
         }
-        for (const layer of ['LNDARE', 'DEPARE', 'OBSTRN', 'WRECKS', 'UWTROC', 'FAIRWY', 'DRGARE'] as const) {
+        for (const layer of [
+            'LNDARE',
+            'DEPARE',
+            'OBSTRN',
+            'WRECKS',
+            'UWTROC',
+            'FAIRWY',
+            'DRGARE',
+            // Lateral marks (BOYLAT/BCNLAT) feed the Fairlead pass in
+            // routeInshore — where the route transits a buoyed channel it
+            // follows the red/green marks. Merged from the cells here.
+            'BOYLAT',
+            'BCNLAT',
+        ] as const) {
             const fc = blob.layers?.[layer];
             const target = merged[layer];
             if (fc?.features && Array.isArray(fc.features) && target) {
