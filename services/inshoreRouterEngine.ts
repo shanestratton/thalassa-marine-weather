@@ -2683,19 +2683,33 @@ function routeInshoreOnce(
         return { error: 'A* failed despite reachability flood-fill — should be impossible', code: 'no-path', debug };
     }
 
-    // Marina-centerline refinement: when the A* corridor is entirely clean
-    // water (no caution cells — marina/canal/clean-bay), re-route it with
-    // the centerline pipeline so it rides mid-channel with keel clearance
-    // as straight legs. ANY caution in the corridor (the Brisbane bar etc.)
-    // or a failed/disconnected centerline pass → keep the proven A* path.
-    const aStarHasCaution = cells.some((c) => grid.cells[c.y * grid.width + c.x] < 0);
+    // Marina-centerline refinement: ride mid-channel with keel clearance as
+    // straight legs through the marina/canal. The centerline pipeline owns the
+    // CLEAN PREFIX of the route (the marina/canal) — scoped at the first
+    // caution cell, so a downstream caution stretch (the bay channel, the
+    // Brisbane bar) no longer switches the centerline OFF for the canal too.
+    // The canal keeps its corner-respecting centerline; A* keeps the caution
+    // remainder. A failed/disconnected centerline pass → keep the proven A*.
     let smoothedCells: { x: number; y: number }[];
-    const marinaCells = aStarHasCaution ? null : tryMarinaCenterline(grid, startCell, endCell);
+    const firstCautionIdx = cells.findIndex((c) => grid.cells[c.y * grid.width + c.x] < 0);
+    const cleanPrefixEnd = firstCautionIdx === -1 ? cells.length - 1 : firstCautionIdx - 1;
+    // Need ≥2 clean cells (a real canal run) for the centerline to mean anything.
+    const marinaCells = cleanPrefixEnd >= 1 ? tryMarinaCenterline(grid, startCell, cells[cleanPrefixEnd]) : null;
     if (marinaCells && marinaCells.length >= 2) {
-        smoothedCells = marinaCells;
         debug.marinaCenterline = true;
+        if (firstCautionIdx === -1) {
+            // Entire route is clean → the centerline owns all of it.
+            smoothedCells = marinaCells;
+        } else {
+            // Stitch: centerline canal prefix + string-pulled A* caution
+            // suffix (they share the boundary cell cells[cleanPrefixEnd]).
+            const suffix = smoothPath(grid, cells.slice(cleanPrefixEnd));
+            smoothedCells = marinaCells.concat(suffix.slice(1));
+        }
         if (ENGINE_DEBUG)
-            engineLog.warn(`marina-centerline: ${cells.length} A* cells → ${marinaCells.length} centerline legs`);
+            engineLog.warn(
+                `marina-centerline: clean prefix ${cleanPrefixEnd + 1}/${cells.length} A* cells → ${marinaCells.length} centerline legs${firstCautionIdx === -1 ? '' : ' + A* caution suffix'}`,
+            );
     } else {
         // String-pull the A* output to remove stair-step artifacts.
         smoothedCells = smoothPath(grid, cells);
