@@ -14,6 +14,7 @@ import {
     groupChannels,
     corridorCenterline,
     routeFairlead,
+    refineWithFairlead,
     distM,
     type LateralMark,
     type LatLon,
@@ -132,5 +133,45 @@ describe('routeFairlead — real BC channel', () => {
     it('returns null when there is no marked channel near the handoff', () => {
         const r = routeFairlead(BC, { lat: -27.0, lon: 153.6 }, { maxHandoffM: 3000 }); // ~50 km away
         expect(r).toBeNull();
+    });
+});
+
+describe('refineWithFairlead — splice into a route', () => {
+    // A coarse grid route roughly transiting the BC channel (near BC1 → near BC21).
+    const routeThroughBC: LatLon[] = [
+        { lat: -27.3, lon: 153.215 },
+        { lat: -27.305, lon: 153.21 },
+        { lat: -27.33, lon: 153.19 },
+        { lat: -27.365, lon: 153.168 },
+        { lat: -27.37, lon: 153.16 },
+    ];
+
+    it('replaces the channel segment with the mark-following centreline', () => {
+        const r = refineWithFairlead(routeThroughBC, BC);
+        expect(r.replacedRange).not.toBeNull();
+        expect(r.channelKey).toBe('BC');
+        // The spliced route is longer (the dense centreline replaced 1 hop).
+        expect(r.polyline.length).toBeGreaterThan(routeThroughBC.length);
+        // A midpoint of the spliced segment is balanced between red and green.
+        const mid = r.polyline[Math.floor(r.polyline.length / 2)];
+        const dp = nearestSide(mid, BC, 'port');
+        const ds = nearestSide(mid, BC, 'stbd');
+        expect(Math.max(dp, ds) / Math.min(dp, ds)).toBeLessThan(2.4);
+    });
+
+    it('leaves a route that traverses no channel unchanged', () => {
+        const away: LatLon[] = [
+            { lat: -27.0, lon: 153.6 },
+            { lat: -26.9, lon: 153.7 },
+        ];
+        const r = refineWithFairlead(away, BC);
+        expect(r.replacedRange).toBeNull();
+        expect(r.polyline).toBe(away);
+    });
+
+    it('aborts the splice (unchanged) if the centreline would cross land', () => {
+        const r = refineWithFairlead(routeThroughBC, BC, () => true); // isLand: everything is land
+        expect(r.replacedRange).toBeNull();
+        expect(r.polyline).toBe(routeThroughBC);
     });
 });
