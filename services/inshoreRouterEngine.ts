@@ -650,6 +650,12 @@ function buildNavGrid(
 
     const cells = new Float32Array(width * height);
     cells.fill(UNKNOWN_OPEN); // permissive default — see header doc
+    // DEPARE-only verdict per cell (NaN = no DEPARE coverage): the depth the
+    // chart's depth areas assign here, IGNORING a later LNDARE override. Lets
+    // the synthetic lateral-mark ribbon (Pass 4) restore charted water that
+    // LNDARE *bleed* falsely hard-blocked — un-blocking the buoyed channel
+    // WITHOUT faking depth, and never touching real land (NaN → stays blocked).
+    const depareVerdict = new Float32Array(width * height).fill(NaN);
     const preferred = new Uint8Array(width * height);
     // Per-cell "protected" flag: 1 = a DEPARE (chart S-57 OR authoritative
     // OSM engineered water) claimed this cell as deep, so the LNDARE pass
@@ -800,6 +806,17 @@ function buildNavGrid(
         // bathymetry contours covering 50×50+ cell ranges).
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
+
+            // Record the DEPARE-only verdict (independent of any later LNDARE
+            // hard-block), tracking the shallowest real depth or CAUTION — so
+            // Pass 4 can restore charted water under LNDARE bleed for a marked
+            // channel without fabricating depth.
+            const prevV = depareVerdict[idx];
+            if (shallow) {
+                if (Number.isNaN(prevV)) depareVerdict[idx] = CAUTION;
+            } else if (Number.isNaN(prevV) || prevV === CAUTION || drval1Num < prevV) {
+                depareVerdict[idx] = drval1Num;
+            }
 
             if (shallow) {
                 // Shallow water — mark CAUTION (soft-block) UNLESS an
@@ -1060,6 +1077,7 @@ function buildNavGrid(
     // pass is the authoritative source for "is there enough depth").
     // We just flag cells that fall inside a marked channel so the A*
     // cost function can prefer them.
+    let ribbonUnblockedCells = 0; // synthetic mark-ribbon cells un-blocked from LNDARE bleed (DEPARE-vouched)
     const markChannelPreference = (f: Feature): void => {
         if (!f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon')) return;
         const g = f.geometry as Polygon | MultiPolygon;
@@ -1090,11 +1108,32 @@ function buildNavGrid(
         // on tag + minimum width to keep suburban ponds out.
         const props = f.properties as Record<string, unknown> | null;
         const isChartAuthoritative = typeof props?.acronym === 'string' || props?._promotePreferred === true;
+        // The synthetic lateral-mark ribbon (chain-ordered port/starboard
+        // midpoints from InshoreRouter Step 5). NOT a surveyed chart fairway,
+        // so it must not fabricate depth. But where it overlaps cells the
+        // chart's OWN DEPARE calls water, it restores that verdict to un-block
+        // LNDARE *bleed* (the AU SENC blocks the bay channel under a coastal
+        // land polygon) — the offline equivalent of a charted fairway. Cells
+        // with no DEPARE coverage are real land and stay blocked.
+        const isMarkRibbon = props?._class === 'synthetic-channel-segment';
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
             preferred[idx] = 1;
             const blockedOrShallow = Number.isNaN(cells[idx]) || cells[idx] < 0;
             if (!blockedOrShallow) return;
+            if (isMarkRibbon) {
+                // Restore the chart's DEPARE verdict (real depth, or CAUTION
+                // if genuinely shallow) ONLY where LNDARE bleed hard-blocked
+                // charted water. No DEPARE here → real land → leave blocked.
+                // Honest: a shallow marked channel stays CAUTION (red), it is
+                // never fabricated into deep water.
+                const v = depareVerdict[idx];
+                if (hardBlocked[idx] === 1 && !Number.isNaN(v)) {
+                    cells[idx] = v;
+                    ribbonUnblockedCells++;
+                }
+                return;
+            }
             // Chart DRGARE/FAIRWY rescues hard-blocked cells too —
             // LNDARE polygons on ENC charts span river concavities, and
             // the dredged-channel polygon is the authoritative "this is
@@ -1109,6 +1148,10 @@ function buildNavGrid(
     for (const f of fairwyFeatures) markChannelPreference(f);
     for (const f of drgareFeatures) markChannelPreference(f);
     markPass('pass4-FAIRWY+DRGARE', tPassFairwy, fairwyFeatures.length + drgareFeatures.length);
+    if (ENGINE_DEBUG)
+        engineLog.warn(
+            `pass4: lateral-mark ribbon un-blocked ${ribbonUnblockedCells} LNDARE-bleed cells (DEPARE-vouched, honest depth)`,
+        );
 
     // ── Pass 5: Lateral markers → preferred-cell radius ─────────────
     // When the iOS side pairs port+starboard markers and emits the

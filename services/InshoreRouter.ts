@@ -794,6 +794,12 @@ async function tryInshoreRouteInner(
                 regionalMarkersUrl,
                 merged.LNDARE?.features ?? [],
                 osmWaterForPairing,
+                // Charted water (DEPARE depth areas + DRGARE dredged areas) is
+                // the chart's own "this is navigable water" — it overrides the
+                // AU SENC's bleeding LNDARE so buoyed-channel pairs survive
+                // OFFLINE, when the Pi's OSM-water overlay is absent. ENC truth
+                // beats OSM. This is the Newport→Scarborough fix.
+                [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])],
             );
             if (midpoints.length > 0) {
                 const boylat = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
@@ -1774,6 +1780,7 @@ async function fetchRegionalMarkers(
     url: string,
     lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
     osmWaterFeatures: { geometry?: { type?: string; coordinates?: unknown } }[] = [],
+    chartedWaterFeatures: { geometry?: { type?: string; coordinates?: unknown } }[] = [],
 ): Promise<RegionalChannelData> {
     let dataPromise = rawMarkerFetchCache.get(url);
     if (!dataPromise) {
@@ -1977,6 +1984,7 @@ async function fetchRegionalMarkers(
             considered: 0,
             rejectedByLandare: 0,
             acceptedByOsmWater: 0, // would have been LNDARE-rejected, saved by OSM water tie-break
+            acceptedByDepare: 0, // LNDARE-rejected, saved by charted DEPARE/DRGARE (offline tie-break)
             wideConsidered: 0, // pairs > 300 m apart (only possible with PAIR_MAX_DIST > 300)
             wideAccepted: 0,
             wideRejected: 0,
@@ -2076,8 +2084,20 @@ async function fetchRegionalMarkers(
                     const midLat = (p.lat + s.lat) / 2;
                     const midLon = (p.lon + s.lon) / 2;
                     if (pointInAnyPolygon(midLon, midLat, lndareFeatures)) {
-                        if (pointInAnyPolygon(midLon, midLat, osmWaterFeatures)) {
-                            pairDiag.acceptedByOsmWater++;
+                        const inOsmWater = pointInAnyPolygon(midLon, midLat, osmWaterFeatures);
+                        // DEPARE/DRGARE rescue: a charted depth or dredged area
+                        // IS water — the chart's own bathymetry overrides its
+                        // own bleeding LNDARE polygon. Unlike the OSM-water
+                        // tie-break (which needs the Pi's overlay), this works
+                        // OFFLINE because DEPARE ships in the cell pack. Safe
+                        // against the canal-complex false pairs the LNDARE check
+                        // guards against: a midpoint on a building/spit is not
+                        // inside any DEPARE. This is what keeps the Newport bay-
+                        // channel gates alive with the Pi switched off.
+                        const inChartedWater = !inOsmWater && pointInAnyPolygon(midLon, midLat, chartedWaterFeatures);
+                        if (inOsmWater || inChartedWater) {
+                            if (inOsmWater) pairDiag.acceptedByOsmWater++;
+                            else pairDiag.acceptedByDepare++;
                             if (osmSavedSamples.length < SAMPLE_CAP) {
                                 osmSavedSamples.push({ lat: midLat, lon: midLon, distM: d });
                             }
@@ -2125,6 +2145,7 @@ async function fetchRegionalMarkers(
                 `STAGE: pair-candidate diagnostics — considered=${pairDiag.considered} ` +
                     `rejectedByLandare=${pairDiag.rejectedByLandare} ` +
                     `acceptedByOsmWater=${pairDiag.acceptedByOsmWater} ` +
+                    `acceptedByDepare=${pairDiag.acceptedByDepare} ` +
                     `wide(>300m): considered=${pairDiag.wideConsidered} accepted=${pairDiag.wideAccepted} rejected=${pairDiag.wideRejected}`,
             );
         if (ROUTE_DEBUG && osmSavedSamples.length > 0) {
