@@ -1881,6 +1881,54 @@ function keelCellsFor(resolutionM: number): number {
     return Math.max(1, Math.round(KEEL_M / Math.max(1, resolutionM)));
 }
 
+/**
+ * Clearance-aware Douglas-Peucker for the marina centerline. Collapses a
+ * run of cells to a straight chord ONLY when that chord (a) stays within
+ * tolerance of every intermediate point AND (b) crosses no land/caution
+ * cell. So grid stair-steps on the straights flatten to clean diagonals,
+ * but a corner — even a gentle one whose apex sits within the tolerance —
+ * is never shaved, because the shortcut chord would clip the bank and the
+ * clearance test forces the split. Operates in CELL space.
+ */
+function simplifyMarinaCells(cells: { x: number; y: number }[], grid: NavGrid): { x: number; y: number }[] {
+    if (cells.length < 3) return cells.slice();
+    const TOL = 1.6; // cells — generous; the clearance check is the safety net
+    const chordClear = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+        for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
+            const d = grid.cells[c.y * grid.width + c.x];
+            if (Number.isNaN(d) || d < 0) return false;
+        }
+        return true;
+    };
+    const out: { x: number; y: number }[] = [];
+    const rec = (lo: number, hi: number): void => {
+        if (hi <= lo + 1) {
+            out.push(cells[lo]);
+            return;
+        }
+        const a = cells[lo];
+        const b = cells[hi];
+        let maxDev = 0;
+        let idx = lo;
+        for (let i = lo + 1; i < hi; i++) {
+            const dev = perpendicularDistanceDeg([cells[i].x, cells[i].y], [a.x, a.y], [b.x, b.y]);
+            if (dev > maxDev) {
+                maxDev = dev;
+                idx = i;
+            }
+        }
+        if (maxDev <= TOL && chordClear(a, b)) {
+            out.push(cells[lo]); // chord is safe + straight enough → drop the middle
+        } else {
+            rec(lo, idx);
+            rec(idx, hi);
+        }
+    };
+    rec(0, cells.length - 1);
+    out.push(cells[cells.length - 1]);
+    return out;
+}
+
 function tryMarinaCenterline(
     grid: NavGrid,
     start: { x: number; y: number },
@@ -1922,17 +1970,15 @@ function tryMarinaCenterline(
         const d = grid.cells[c.y * grid.width + c.x];
         if (Number.isNaN(d) || d < 0) return null;
     }
-    // Smooth the 4-connected staircase BEFORE returning. The raw centerline
-    // steps N/S/E/W, so a diagonal channel renders as a "staticy" stairstep.
-    // A ~1.5-cell Douglas-Peucker in CELL space erases that jitter (each
-    // step deviates <1 cell from the diagonal) while preserving real bends —
-    // a sharp canal corner's apex deviates many cells, so DP keeps it (no
-    // corner shaving). The engine's downstream ¼-cell DP is then a no-op.
-    const simplified = douglasPeucker(
-        cells.map((c) => [c.x, c.y] as [number, number]),
-        1.5,
-    );
-    return simplified.map(([x, y]) => ({ x, y }));
+    // De-staircase BEFORE returning, but CLEARANCE-AWARE so it never shaves
+    // a corner. The raw centerline steps N/S/E/W (a "staticy" stairstep on
+    // diagonals); plain Douglas-Peucker smooths it but at a tolerance loose
+    // enough to remove the stairs it ALSO cuts a gentle bend whose apex sits
+    // within tolerance. simplifyMarinaCells collapses a stair-run to a
+    // straight chord ONLY when that chord stays in clear water — any chord
+    // that would clip land/caution is split and kept. Clean diagonals on the
+    // straights, every corner honoured.
+    return simplifyMarinaCells(cells, grid);
 }
 
 // ── Polyline simplification (Douglas-Peucker) ───────────────────────
