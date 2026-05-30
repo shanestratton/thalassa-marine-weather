@@ -291,10 +291,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <div
                     className={`${keyboardHeight > 0 ? 'p-4 pt-10' : 'p-8'} flex flex-col items-center text-center transition-all duration-200`}
                 >
-                    {/* Hero section — collapses when keyboard is open */}
+                    {/* Hero section — collapses to 0 when the on-screen
+                        keyboard appears. Previously the closed-state cap
+                        was 200 px, but icon + title + paragraph need
+                        ~220 px → the bottom of the description was clipped
+                        and the form slid up under it, making the layout
+                        read as jumbled. 'none' lets the hero size to its
+                        natural content when the keyboard isn't up. */}
                     <div
                         style={{
-                            maxHeight: keyboardHeight > 0 ? 0 : 200,
+                            maxHeight: keyboardHeight > 0 ? 0 : 'none',
                             opacity: keyboardHeight > 0 ? 0 : 1,
                             overflow: 'hidden',
                             transition: 'max-height 0.15s ease-out, opacity 0.1s ease-out',
