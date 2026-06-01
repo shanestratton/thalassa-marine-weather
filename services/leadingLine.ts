@@ -84,7 +84,7 @@ function projectToLine(p: LatLon, line: LatLon[]): { point: LatLon; dist: number
 }
 
 /** True if any point sampled ~every stepM along the polyline satisfies pred. */
-function anyAlong(pts: LatLon[], stepM: number, pred: (p: LatLon) => boolean): boolean {
+export function anyAlong(pts: LatLon[], stepM: number, pred: (p: LatLon) => boolean): boolean {
     for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i];
         const b = pts[i + 1];
@@ -246,4 +246,89 @@ export function snapToLeadingLines(
     }
 
     return { polyline: poly, cautionMask: caution, snapped };
+}
+
+export interface LeadingApproach {
+    /** Seaward end of the outermost serving leading line — the route's divert
+     *  target ("make the seaward mark"). */
+    anchor: LatLon;
+    /** The full transit run, seaward→landward, ending at the destination:
+     *  [anchor, outer.landward, …, inner.seaward, inner.landward, dest]. */
+    chain: LatLon[];
+    /** How many leading lines the approach chains through (1 = single transit,
+     *  2 = a dog-leg). */
+    lineCount: number;
+}
+
+/**
+ * Build the charted leading-line APPROACH to a destination: the seaward anchor
+ * the route should make for, plus the transit chain that runs the leads in.
+ *
+ * A leading line "serves" the destination when its LANDWARD end (the end nearer
+ * the destination) is within `maxDestM`. From the innermost serving line we
+ * chain OUTWARD — each next line's landward end links to the running seaward
+ * frontier within `linkM` — to follow a dog-leg out to the seaward mark. The
+ * route then approaches via that mark and steers each transit in, the way a
+ * skipper plans it: "make the seaward mark, get on the leads, run her in."
+ *
+ * Returns null when no leading line serves the destination (normal routing).
+ */
+export function buildLeadingApproach(
+    dest: LatLon,
+    lines: LeadingLine[],
+    opts: { maxDestM?: number; linkM?: number } = {},
+): LeadingApproach | null {
+    const maxDestM = opts.maxDestM ?? 1500;
+    const linkM = opts.linkM ?? 1800;
+    if (lines.length === 0) return null;
+
+    interface Oriented {
+        seaward: LatLon;
+        landward: LatLon;
+    }
+    // Orient each line: landward = the end nearer the destination.
+    const oriented: Oriented[] = lines
+        .filter((l) => l.pts.length >= 2)
+        .map((l) => {
+            const a = l.pts[0];
+            const b = l.pts[l.pts.length - 1];
+            return distM(a, dest) <= distM(b, dest) ? { landward: a, seaward: b } : { landward: b, seaward: a };
+        });
+
+    // Serving lines: landward end within maxDestM of the destination.
+    const serving = oriented.filter((o) => distM(o.landward, dest) <= maxDestM);
+    if (serving.length === 0) return null;
+
+    // Innermost = the serving line whose landward end is nearest the destination.
+    serving.sort((p, q) => distM(p.landward, dest) - distM(q.landward, dest));
+    const inner = serving[0];
+
+    // Chain outward from the seaward frontier through lines whose landward end
+    // links to it (the dog-leg).
+    const used = new Set<Oriented>([inner]);
+    const innerToOuter: Oriented[] = [inner];
+    let frontier = inner.seaward;
+    for (let guard = 0; guard < oriented.length; guard++) {
+        let best: Oriented | null = null;
+        let bestD = linkM;
+        for (const o of oriented) {
+            if (used.has(o)) continue;
+            const d = distM(o.landward, frontier);
+            if (d < bestD) {
+                bestD = d;
+                best = o;
+            }
+        }
+        if (!best) break;
+        used.add(best);
+        innerToOuter.push(best);
+        frontier = best.seaward;
+    }
+
+    const seawardToInner = innerToOuter.slice().reverse(); // [outermost, …, inner]
+    const anchor = seawardToInner[0].seaward;
+    const chain: LatLon[] = [];
+    for (const o of seawardToInner) chain.push(o.seaward, o.landward);
+    chain.push(dest);
+    return { anchor, chain, lineCount: seawardToInner.length };
 }

@@ -61,7 +61,13 @@ import type {
 import { createLogger } from '../utils/createLogger';
 import { routeMarina, type Cell } from './marinaCenterline';
 import { parseLateralMarks, refineWithFairlead, type LatLon } from './fairlead';
-import { parseLeadingLines, snapToLeadingLines } from './leadingLine';
+import {
+    parseLeadingLines,
+    snapToLeadingLines,
+    buildLeadingApproach,
+    distM as llDistM,
+    anyAlong as llAnyAlong,
+} from './leadingLine';
 
 const engineLog = createLogger('inshoreEngine');
 
@@ -204,6 +210,10 @@ export interface RouteDebug {
     /** Count of charted leading lines (navigation_line transits) the route was
      *  snapped onto — "line up the marks" vessel procedure. Absent if none. */
     leadingLine?: number;
+    /** Count of charted leading lines the route APPROACHED via (route-via-
+     *  transit: make the seaward mark, run the leads into the destination).
+     *  Absent if the destination isn't served by leading lines. */
+    leadingApproach?: number;
 }
 
 export interface RouteResult {
@@ -2851,8 +2861,12 @@ function routeInshoreOnce(
     // ride the transit itself (line up the marks) rather than the Pass-5b
     // corridor band. Runs after Fairlead so the two refinements compose.
     const ll = applyLeadingLineSnap(fl.polyline, fl.cautionMask, grid, layers);
-    const finalPolyline = ll.polyline;
-    const finalCaution = ll.cautionMask;
+    // Leading-line APPROACH: when the destination is served by charted leading
+    // line(s), re-route the final approach to come in VIA the transit — make
+    // the seaward mark, steer the leads in — instead of A*'s straight-in.
+    const la = applyLeadingLineApproach(ll.polyline, ll.cautionMask, grid, layers);
+    const finalPolyline = la.polyline;
+    const finalCaution = la.cautionMask;
 
     // Compute total length in NM along the final polyline.
     let distM = 0;
@@ -2870,6 +2884,7 @@ function routeInshoreOnce(
             ...debug,
             ...(fl.fairlead ? { fairlead: fl.fairlead } : {}),
             ...(ll.leadingLines ? { leadingLine: ll.leadingLines } : {}),
+            ...(la.leadingApproach ? { leadingApproach: la.leadingApproach } : {}),
         } as RouteDebug,
         phaseTimings: timings,
     };
@@ -2990,4 +3005,88 @@ function applyLeadingLineSnap(
     if (ENGINE_DEBUG)
         engineLog.warn(`leading-line: snapped route onto ${r.snapped} charted transit(s) (line up the marks)`);
     return { polyline: newPolyline, cautionMask: r.cautionMask, leadingLines: r.snapped };
+}
+
+/**
+ * Leading-line APPROACH at the grid stage — when the destination is served by
+ * charted leading line(s), re-route the final approach to come in VIA the
+ * transit: make the seaward mark, then steer each lead into the anchorage.
+ * Proper pilotage instead of A*'s shortest-path straight-in.
+ *
+ *  - Diverts at the route vertex nearest the seaward anchor (the boat heads for
+ *    the mark from there); leaves the route untouched if the route never comes
+ *    within MAX_BRIDGE_M of the anchor — those leads don't serve this passage.
+ *  - The spliced approach is validated against hard land; any crossing aborts.
+ *  - Caution carried honestly per the grid (clean where Pass 5b rescued the
+ *    leads, red where genuinely shallow).
+ */
+function applyLeadingLineApproach(
+    polyline: [number, number][],
+    cautionMask: boolean[],
+    grid: NavGrid,
+    layers: InshoreLayers,
+): { polyline: [number, number][]; cautionMask: boolean[]; leadingApproach: number } {
+    const passthrough = { polyline, cautionMask, leadingApproach: 0 };
+    const navFeatures = layers.NAVLINE?.features ?? [];
+    if (navFeatures.length === 0 || polyline.length < 2) return passthrough;
+    const lines = parseLeadingLines(navFeatures as Parameters<typeof parseLeadingLines>[0]);
+    if (lines.length === 0) return passthrough;
+
+    const last = polyline[polyline.length - 1];
+    const dest: LatLon = { lat: last[1], lon: last[0] };
+    const approach = buildLeadingApproach(dest, lines);
+    if (!approach) return passthrough;
+
+    const w = grid.width;
+    const h = grid.height;
+    const cellAt = (p: LatLon): number => {
+        const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+        if (x < 0 || y < 0 || x >= w || y >= h) return NaN;
+        return grid.cells[y * w + x];
+    };
+    const isBlocked = (p: LatLon): boolean => Number.isNaN(cellAt(p));
+    const isCautionOrBlocked = (p: LatLon): boolean => {
+        const d = cellAt(p);
+        return Number.isNaN(d) || d < 0;
+    };
+
+    const poly: LatLon[] = polyline.map(([lon, lat]) => ({ lat, lon }));
+
+    // Divert at the route vertex nearest the seaward anchor (never the dest
+    // itself). If the route never comes within MAX_BRIDGE_M of the anchor, the
+    // leads run the wrong way for this passage → leave the route alone.
+    const MAX_BRIDGE_M = 1500;
+    let divertIdx = -1;
+    let bestD = MAX_BRIDGE_M;
+    for (let i = 0; i < poly.length - 1; i++) {
+        const d = llDistM(poly[i], approach.anchor);
+        if (d < bestD) {
+            bestD = d;
+            divertIdx = i;
+        }
+    }
+    if (divertIdx < 0) return passthrough;
+
+    // Never route the approach across solid land (the leads themselves are
+    // navigable; the divert bridge must not cut a headland).
+    const spliced = [poly[divertIdx], ...approach.chain];
+    if (llAnyAlong(spliced, 25, isBlocked)) return passthrough;
+
+    // Keep the route up to the divert vertex, then the transit chain
+    // (anchor → leads → dest).
+    const newPoly = [...poly.slice(0, divertIdx + 1), ...approach.chain];
+    const newPolyline: [number, number][] = newPoly.map((p) => [p.lon, p.lat]);
+
+    // Rebuild caution: prefix preserved; each new approach segment flagged
+    // per the grid (clean on rescued leads, red where genuinely shallow).
+    const newCaution: boolean[] = cautionMask.slice(0, divertIdx);
+    for (let i = divertIdx; i < newPoly.length - 1; i++) {
+        newCaution.push(llAnyAlong([newPoly[i], newPoly[i + 1]], 25, isCautionOrBlocked));
+    }
+
+    if (ENGINE_DEBUG)
+        engineLog.warn(
+            `leading-line approach: routed via ${approach.lineCount} charted transit(s) — seaward anchor ${approach.anchor.lat.toFixed(4)},${approach.anchor.lon.toFixed(4)}, divert vertex ${divertIdx}`,
+        );
+    return { polyline: newPolyline, cautionMask: newCaution, leadingApproach: approach.lineCount };
 }
