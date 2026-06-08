@@ -275,6 +275,11 @@ export function useLogPageState() {
 
     // Guard: prevents loadData from overwriting optimistic tracking=false during stop
     const stoppingRef = useRef(false);
+    // Symmetric guard for START: keeps the optimistic isTracking=true pinned
+    // while startTracking()'s native GPS init runs, so an in-flight load
+    // (e.g. the one fired when you first open the Log) can't dispatch a
+    // stale isTracking=false and silently cancel the just-started voyage.
+    const startingRef = useRef(false);
 
     // Guard: prevents overlapping full reloads from stacking into a
     // storm. loadData is triggered from many places (mount, the 1.5s
@@ -301,8 +306,10 @@ export function useLogPageState() {
     // ── Initialization ──────────────────────────────────────────────────────
 
     const loadDataInner = useCallback(async () => {
-        const status = ShipLogService.getTrackingStatus();
-        const voyageId = ShipLogService.getCurrentVoyageId();
+        // voyageId AT START is only used to choose which voyage's points to
+        // fetch — the tracking STATUS we dispatch is re-read after the await
+        // (see below) to avoid clobbering an optimistic start/stop.
+        const voyageIdAtStart = ShipLogService.getCurrentVoyageId();
 
         // ── Summary-first load ──────────────────────────────────────────
         // The LIST renders from per-voyage SUMMARIES (one aggregated row
@@ -318,7 +325,7 @@ export function useLogPageState() {
         // merge preserves any voyage already lazy-loaded this session.
         const [summaries, activeEntries, offlineEntries] = await Promise.all([
             ShipLogService.getVoyageSummaries(),
-            voyageId ? ShipLogService.getVoyageEntries(voyageId) : Promise.resolve([] as ShipLogEntry[]),
+            voyageIdAtStart ? ShipLogService.getVoyageEntries(voyageIdAtStart) : Promise.resolve([] as ShipLogEntry[]),
             ShipLogService.getOfflineEntries(),
         ]);
 
@@ -329,12 +336,24 @@ export function useLogPageState() {
         // by real id — same primitive the live poll uses.
         const merged = mergeRecentEntries(entriesRef.current, [...activeEntries, ...offlineEntries]);
 
+        // Re-read tracking status + voyage NOW, AFTER the network fetch.
+        // Reading them at the top (pre-await) caused the first-start no-op:
+        // open Log → loadData starts + snapshots isTracking=false → user
+        // slides to Start (optimistic isTracking=true) → this load finishes
+        // and dispatched the STALE false, clobbering the start. Reading at
+        // dispatch time means a start that landed during the fetch sticks.
+        const status = ShipLogService.getTrackingStatus();
+        const voyageId = ShipLogService.getCurrentVoyageId();
+
         dispatch({
             type: 'LOAD_DATA',
             entries: merged,
-            // While stopping, keep tracked state as false to prevent UI bounce
-            isTracking: stoppingRef.current ? false : status.isTracking,
-            isPaused: stoppingRef.current ? false : status.isPaused,
+            // startingRef pins true (a start is in flight), stoppingRef pins
+            // false (a stop is in flight); otherwise trust the freshly-read
+            // status. This keeps an in-flight load from clobbering either
+            // optimistic transition.
+            isTracking: startingRef.current ? true : stoppingRef.current ? false : status.isTracking,
+            isPaused: startingRef.current || stoppingRef.current ? false : status.isPaused,
             isRapidMode: stoppingRef.current ? false : status.isRapidMode,
             isPrecisionMode: stoppingRef.current ? false : status.isPrecisionMode === true,
             currentVoyageId: voyageId,
@@ -345,13 +364,24 @@ export function useLogPageState() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Public loadData — wraps the heavy reload in an in-flight guard so
-    // overlapping triggers can't stack (see loadingRef above).
+    // Public loadData — in-flight guard so overlapping triggers can't stack
+    // into a storm. But a load REQUESTED while one is running (e.g. the
+    // refresh fired right after startTracking() resolves) must not be
+    // silently dropped — that would leave the just-started voyage's
+    // currentVoyageId unset. So we COALESCE: remember that another run was
+    // asked for and do exactly one more pass when the current one finishes.
+    const pendingReloadRef = useRef(false);
     const loadData = useCallback(async () => {
-        if (loadingRef.current) return;
+        if (loadingRef.current) {
+            pendingReloadRef.current = true;
+            return;
+        }
         loadingRef.current = true;
         try {
-            await loadDataInner();
+            do {
+                pendingReloadRef.current = false;
+                await loadDataInner();
+            } while (pendingReloadRef.current);
         } finally {
             loadingRef.current = false;
         }
@@ -543,34 +573,48 @@ export function useLogPageState() {
             dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
             return;
         }
-        // Instant UI response — dispatch first, service call is fire-and-forget
+        // Instant UI response — dispatch first, service call is fire-and-forget.
+        // startingRef pins the optimistic state through the native init.
+        startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking()
             .then(() => loadData())
+            .then(() => {
+                startingRef.current = false;
+            })
             .catch((error: unknown) => {
+                startingRef.current = false;
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
     }, [state.summaries, loadData, toast]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
-        // Instant UI response — dispatch first, service call is fire-and-forget
+        startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         ShipLogService.startTracking()
             .then(() => loadData())
+            .then(() => {
+                startingRef.current = false;
+            })
             .catch((error: unknown) => {
+                startingRef.current = false;
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
     }, [loadData, toast]);
 
     const continueLastVoyage = useCallback(async () => {
-        // Instant UI response — dispatch first, service call is fire-and-forget
+        startingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
         dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: false });
         ShipLogService.startTracking(false, state.lastVoyageId || undefined)
             .then(() => loadData())
+            .then(() => {
+                startingRef.current = false;
+            })
             .catch((error: unknown) => {
+                startingRef.current = false;
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to continue tracking');
             });
