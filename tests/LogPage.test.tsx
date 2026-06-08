@@ -60,8 +60,8 @@ vi.mock('../components/Icons', () => ({
 
 // Sub-components from pages/log/ — use path relative to test file
 vi.mock('../pages/log/LogSubComponents', () => ({
-    VoyageCard: ({ voyage }: { voyage: { voyageId: string } }) => (
-        <div data-testid={`voyage-${voyage.voyageId}`}>Voyage {voyage.voyageId}</div>
+    VoyageCard: ({ summary }: { summary: { voyageId: string } }) => (
+        <div data-testid={`voyage-${summary.voyageId}`}>Voyage {summary.voyageId}</div>
     ),
     StatBox: ({ label }: { label: string }) => <div data-testid="stat-box">{label}</div>,
     MenuBtn: ({ label, onClick }: { label: string; onClick: () => void }) => (
@@ -207,6 +207,48 @@ vi.mock('../hooks/useLogPageState', () => ({
                 ],
             },
         ],
+        // Summary-driven list + stats (the new Stage-2 contract)
+        summaries: [
+            { voyageId: 'v1', entryCount: 1, isPlannedRoute: false, isImported: false },
+            { voyageId: 'v2', entryCount: 1, isPlannedRoute: false, isImported: false },
+        ],
+        listVoyages: [
+            {
+                voyageId: 'v1',
+                entryCount: 1,
+                startedAt: '2026-01-01T00:00:00Z',
+                endedAt: '2026-01-01T02:00:00Z',
+                totalDistanceNM: 12,
+                avgSpeedKts: 6,
+                hasManual: false,
+                isPlannedRoute: false,
+                isImported: false,
+                firstLat: -27.5,
+                firstLon: 153,
+                lastLat: -27.6,
+                lastLon: 153.1,
+                firstIsOnWater: true,
+            },
+            {
+                voyageId: 'v2',
+                entryCount: 1,
+                startedAt: '2026-01-05T00:00:00Z',
+                endedAt: '2026-01-05T05:00:00Z',
+                totalDistanceNM: 50,
+                avgSpeedKts: 5,
+                hasManual: false,
+                isPlannedRoute: false,
+                isImported: false,
+                firstLat: -20,
+                firstLon: 148,
+                lastLat: -20.5,
+                lastLon: 148.5,
+                firstIsOnWater: true,
+            },
+        ],
+        voyageStats: { totalNm: 62, totalMs: 25200000, voyageCount: 2 },
+        loadVoyageEntries: vi.fn(),
+        loadAllEntries: vi.fn(),
         hasNonDeviceEntries: false,
         totalDistance: 62,
         avgSpeed: 5.5,

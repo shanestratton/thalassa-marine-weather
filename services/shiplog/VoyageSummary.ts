@@ -108,6 +108,50 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
     return summaries;
 }
 
+/**
+ * Overlay locally-held entries onto a server summary list.
+ *
+ * The list is driven by server `summaries`, but two kinds of voyage carry
+ * fresher truth in local `entries` than the server roll-up does:
+ *   - the ACTIVE live-tracking voyage (its points are streaming into
+ *     state, some not yet synced to the cloud), and
+ *   - any voyage the user EXPANDED (we lazy-loaded its full points).
+ *
+ * For every voyageId present in `entries`, recompute its summary from
+ * those points and replace the server copy (or insert it if the server
+ * hasn't seen the voyage yet — e.g. a brand-new active voyage). Voyages
+ * with no local entries pass through untouched. Result stays newest-first.
+ *
+ * Pure + testable.
+ */
+export function mergeSummariesWithLive(summaries: VoyageSummary[], entries: ShipLogEntry[]): VoyageSummary[] {
+    if (entries.length === 0) return summaries;
+
+    const liveByVoyage = new Map<string, VoyageSummary>();
+    for (const s of summarizeEntries(entries)) {
+        liveByVoyage.set(s.voyageId, s);
+    }
+
+    const out: VoyageSummary[] = [];
+    const usedLive = new Set<string>();
+    for (const s of summaries) {
+        const live = liveByVoyage.get(s.voyageId);
+        if (live) {
+            out.push(live);
+            usedLive.add(s.voyageId);
+        } else {
+            out.push(s);
+        }
+    }
+    // Voyages present locally but not (yet) in the server summary list.
+    for (const [vid, live] of liveByVoyage) {
+        if (!usedLive.has(vid)) out.push(live);
+    }
+
+    out.sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime());
+    return out;
+}
+
 // Once we learn the RPC isn't deployed, stop hammering it with calls that
 // will only 404 — flip to the fallback for the rest of the session.
 let rpcUnavailable = false;

@@ -26,11 +26,22 @@ export const StatsSheet: React.FC<StatsSheetProps> = ({
     voyageGroups,
 }) => {
     const effectiveVoyageId = selectedVoyageId || currentVoyageId || voyageGroups[0]?.voyageId || null;
-    const voyageEntryCount = effectiveVoyageId ? entries.filter((e) => e.voyageId === effectiveVoyageId).length : 0;
-    // All-Voyages aggregate count excludes suggested/planned routes
-    // (source='planned_route') so the "pts" total reflects sailed
-    // entries only. 2026-05-20 — matches the LogPage gauge tiles.
-    const sailedEntryCount = entries.filter((e) => e.source !== 'planned_route').length;
+    // Counts come from the voyage SUMMARIES (one row per voyage, carrying
+    // entryCount) so they're accurate across the whole history without the
+    // full point arrays resident. Falls back to counting resident `entries`
+    // for the selected voyage if the summary is somehow missing.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const summaryFor = (id: string | null) => (id ? voyageGroups.find((v: any) => v.voyageId === id) : undefined);
+    const voyageEntryCount =
+        summaryFor(effectiveVoyageId)?.entryCount ??
+        (effectiveVoyageId ? entries.filter((e) => e.voyageId === effectiveVoyageId).length : 0);
+    // All-Voyages aggregate count excludes suggested/planned routes so the
+    // "pts" total reflects sailed entries only (matches the gauge tiles).
+    const sailedEntryCount = voyageGroups
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .filter((v: any) => !v.isPlannedRoute)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .reduce((sum: number, v: any) => sum + (v.entryCount || 0), 0);
 
     return (
         <div className="fixed inset-0 z-[950] flex flex-col bg-slate-950 animate-[slideUp_0.3s_ease-out]">

@@ -107,8 +107,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         filteredEntries,
         groupedEntries: _groupedEntries,
         entryCounts: _entryCounts,
-        voyageGroups,
-        sailedVoyageGroups,
+        listVoyages,
+        voyageStats,
+        loadVoyageEntries,
+        loadAllEntries,
         hasNonDeviceEntries,
         totalDistance: _totalDistance,
         avgSpeed: _avgSpeed,
@@ -507,18 +509,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         (2026-05-20) so aspirational routes don't inflate
                         the distance / time / voyage totals. */}
                     {(() => {
-                        // Defensive: never let a missing/undefined groups
-                        // array hard-crash the whole Log page on render.
-                        const sailed = sailedVoyageGroups ?? [];
-                        const totalNmRaw = sailed.reduce((sum, g) => {
-                            const dist = Math.max(0, ...g.entries.map((e) => e.cumulativeDistanceNM || 0));
-                            return sum + dist;
-                        }, 0);
-                        const totalMs = sailed.reduce((sum, g) => {
-                            if (g.entries.length < 2) return sum;
-                            const times = g.entries.map((e) => new Date(e.timestamp).getTime());
-                            return sum + (Math.max(...times) - Math.min(...times));
-                        }, 0);
+                        // Aggregated server-side from voyage SUMMARIES (accurate
+                        // across the whole history, no points loaded). voyageStats
+                        // already excludes suggested/planned routes.
+                        const totalNmRaw = voyageStats.totalNm;
+                        const totalMs = voyageStats.totalMs;
                         const totalHrs = Math.round((totalMs / (1000 * 60 * 60)) * 10) / 10;
                         const atSeaValue = totalHrs < 24 ? totalHrs.toString() : Math.round(totalHrs / 24).toString();
                         const atSeaUnit = totalHrs < 24 ? 'hrs' : 'days';
@@ -612,10 +607,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white tabular-nums leading-none">
-                                                {(sailedVoyageGroups ?? []).length}
+                                                {voyageStats.voyageCount}
                                             </span>
                                             <span className="text-[11px] font-bold text-amber-300/60 uppercase tracking-wider">
-                                                {(sailedVoyageGroups ?? []).length === 1 ? 'log' : 'logs'}
+                                                {voyageStats.voyageCount === 1 ? 'log' : 'logs'}
                                             </span>
                                         </div>
                                     </div>
@@ -772,7 +767,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     live in one place: the gauge tile grid. */}
 
                                 {/* Past Voyage Cards */}
-                                {voyageGroups.length === 0 ? (
+                                {listVoyages.length === 0 ? (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
                                         {/* Decorative maritime line art */}
                                         <div className="relative w-24 h-24 mb-6">
@@ -822,22 +817,26 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </p>
                                     </div>
                                 ) : (
-                                    voyageGroups.map((voyage) => (
+                                    listVoyages.map((summary) => (
                                         <VoyageCard
-                                            key={voyage.voyageId}
-                                            voyage={voyage}
-                                            isSelected={selectedVoyageId === voyage.voyageId}
-                                            isExpanded={expandedVoyages.has(voyage.voyageId)}
-                                            onToggle={() => toggleVoyage(voyage.voyageId)}
-                                            onSelect={() =>
-                                                dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId })
-                                            }
-                                            onDelete={() => handleDeleteVoyageRequest(voyage.voyageId)}
-                                            onArchive={() => handleArchiveVoyage(voyage.voyageId)}
+                                            key={summary.voyageId}
+                                            summary={summary}
+                                            entries={entries.filter((e) => e.voyageId === summary.voyageId)}
+                                            isSelected={selectedVoyageId === summary.voyageId}
+                                            isExpanded={expandedVoyages.has(summary.voyageId)}
+                                            onToggle={() => toggleVoyage(summary.voyageId)}
+                                            onSelect={() => {
+                                                void loadVoyageEntries(summary.voyageId);
+                                                dispatch({ type: 'SELECT_VOYAGE', voyageId: summary.voyageId });
+                                            }}
+                                            onDelete={() => handleDeleteVoyageRequest(summary.voyageId)}
+                                            onArchive={() => handleArchiveVoyage(summary.voyageId)}
                                             onShowMap={() => {
-                                                dispatch({ type: 'SELECT_VOYAGE', voyageId: voyage.voyageId });
+                                                void loadVoyageEntries(summary.voyageId);
+                                                dispatch({ type: 'SELECT_VOYAGE', voyageId: summary.voyageId });
                                                 dispatch({ type: 'SHOW_TRACK_MAP', show: true });
                                             }}
+                                            onNeedEntries={() => loadVoyageEntries(summary.voyageId)}
                                             filteredEntries={filteredEntries}
                                             onDeleteEntry={handleDeleteEntry}
                                             onEditEntry={handleEditEntry}
@@ -1051,12 +1050,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {actionSheet === 'stats' && (
                 <StatsSheet
                     onClose={() => dispatch({ type: 'SET_ACTION_SHEET', sheet: null })}
-                    onSelectVoyage={(id) => dispatch({ type: 'SELECT_VOYAGE', voyageId: id })}
+                    onSelectVoyage={(id) => {
+                        // Stats need the full points: lazy-load the selected
+                        // voyage, or ALL voyages for the "All Voyages" deep-dive.
+                        if (id) void loadVoyageEntries(id);
+                        else void loadAllEntries();
+                        dispatch({ type: 'SELECT_VOYAGE', voyageId: id });
+                    }}
                     onShowStats={() => dispatch({ type: 'SHOW_STATS', show: true })}
                     entries={entries}
                     selectedVoyageId={selectedVoyageId}
                     currentVoyageId={currentVoyageId ?? null}
-                    voyageGroups={voyageGroups}
+                    voyageGroups={listVoyages}
                 />
             )}
 

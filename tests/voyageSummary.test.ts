@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { summarizeEntries } from '../services/shiplog/VoyageSummary';
+import { summarizeEntries, mergeSummariesWithLive, type VoyageSummary } from '../services/shiplog/VoyageSummary';
 import type { ShipLogEntry } from '../types';
 
 const mk = (o: Partial<ShipLogEntry>): ShipLogEntry =>
@@ -126,5 +126,73 @@ describe('summarizeEntries', () => {
     it('falls back to default_voyage bucket for entries with no voyageId', () => {
         const out = summarizeEntries([mk({ voyageId: undefined as unknown as string })]);
         expect(out[0].voyageId).toBe('default_voyage');
+    });
+});
+
+describe('mergeSummariesWithLive', () => {
+    const serverSummary = (voyageId: string, endedAt: string, dist: number): VoyageSummary => ({
+        voyageId,
+        entryCount: 10,
+        startedAt: '2026-02-01T00:00:00.000Z',
+        endedAt,
+        totalDistanceNM: dist,
+        avgSpeedKts: 5,
+        hasManual: false,
+        isPlannedRoute: false,
+        isImported: false,
+        firstLat: -27,
+        firstLon: 153,
+        lastLat: -20,
+        lastLon: 148,
+        firstIsOnWater: true,
+    });
+
+    it('passes summaries through untouched when there are no local entries', () => {
+        const summaries = [serverSummary('a', '2026-02-01T10:00:00.000Z', 50)];
+        expect(mergeSummariesWithLive(summaries, [])).toBe(summaries);
+    });
+
+    it('overlays a live recomputed summary for a loaded/active voyage', () => {
+        const summaries = [serverSummary('a', '2026-02-01T10:00:00.000Z', 50)];
+        // Active voyage 'a' has grown — local entries show more distance
+        const entries = [
+            mk({ voyageId: 'a', timestamp: '2026-02-01T10:00:00.000Z', cumulativeDistanceNM: 50 }),
+            mk({ voyageId: 'a', timestamp: '2026-02-01T11:30:00.000Z', cumulativeDistanceNM: 63 }),
+        ];
+        const merged = mergeSummariesWithLive(summaries, entries);
+        expect(merged).toHaveLength(1);
+        expect(merged[0].totalDistanceNM).toBeCloseTo(63); // live wins over stale 50
+        expect(merged[0].entryCount).toBe(2);
+        expect(merged[0].endedAt).toBe('2026-02-01T11:30:00.000Z');
+    });
+
+    it('inserts a brand-new active voyage the server has not seen yet', () => {
+        const summaries = [serverSummary('old', '2026-01-01T00:00:00.000Z', 20)];
+        const entries = [mk({ voyageId: 'new', timestamp: '2026-03-01T00:00:00.000Z', cumulativeDistanceNM: 4 })];
+        const merged = mergeSummariesWithLive(summaries, entries);
+        expect(merged.map((s) => s.voyageId)).toEqual(['new', 'old']); // newest-first
+        expect(merged.find((s) => s.voyageId === 'new')!.entryCount).toBe(1);
+    });
+
+    it('does not duplicate a voyage that exists both server-side and locally', () => {
+        const summaries = [
+            serverSummary('a', '2026-02-01T10:00:00.000Z', 50),
+            serverSummary('b', '2026-01-15T10:00:00.000Z', 30),
+        ];
+        const entries = [mk({ voyageId: 'a', cumulativeDistanceNM: 55 })];
+        const merged = mergeSummariesWithLive(summaries, entries);
+        expect(merged).toHaveLength(2);
+        expect(merged.filter((s) => s.voyageId === 'a')).toHaveLength(1);
+    });
+
+    it('leaves untouched voyages that have no local entries', () => {
+        const summaries = [
+            serverSummary('a', '2026-02-01T10:00:00.000Z', 50),
+            serverSummary('b', '2026-01-15T10:00:00.000Z', 30),
+        ];
+        const entries = [mk({ voyageId: 'a', cumulativeDistanceNM: 55 })];
+        const merged = mergeSummariesWithLive(summaries, entries);
+        const b = merged.find((s) => s.voyageId === 'b')!;
+        expect(b.totalDistanceNM).toBe(30); // server copy preserved
     });
 });
