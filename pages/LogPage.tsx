@@ -507,11 +507,14 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         (2026-05-20) so aspirational routes don't inflate
                         the distance / time / voyage totals. */}
                     {(() => {
-                        const totalNmRaw = sailedVoyageGroups.reduce((sum, g) => {
+                        // Defensive: never let a missing/undefined groups
+                        // array hard-crash the whole Log page on render.
+                        const sailed = sailedVoyageGroups ?? [];
+                        const totalNmRaw = sailed.reduce((sum, g) => {
                             const dist = Math.max(0, ...g.entries.map((e) => e.cumulativeDistanceNM || 0));
                             return sum + dist;
                         }, 0);
-                        const totalMs = sailedVoyageGroups.reduce((sum, g) => {
+                        const totalMs = sailed.reduce((sum, g) => {
                             if (g.entries.length < 2) return sum;
                             const times = g.entries.map((e) => new Date(e.timestamp).getTime());
                             return sum + (Math.max(...times) - Math.min(...times));
@@ -609,10 +612,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         </div>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white tabular-nums leading-none">
-                                                {sailedVoyageGroups.length}
+                                                {(sailedVoyageGroups ?? []).length}
                                             </span>
                                             <span className="text-[11px] font-bold text-amber-300/60 uppercase tracking-wider">
-                                                {sailedVoyageGroups.length === 1 ? 'log' : 'logs'}
+                                                {(sailedVoyageGroups ?? []).length === 1 ? 'log' : 'logs'}
                                             </span>
                                         </div>
                                     </div>
