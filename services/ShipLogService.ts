@@ -67,6 +67,11 @@ import {
     deleteEntry as _deleteEntry,
     importGPXVoyage as _importGPXVoyage,
 } from './shiplog/EntryCrud';
+import {
+    getVoyageSummaries as _getVoyageSummaries,
+    getVoyageEntries as _getVoyageEntries,
+    type VoyageSummary,
+} from './shiplog/VoyageSummary';
 
 const log = createLogger('ShipLog');
 
@@ -877,6 +882,20 @@ class ShipLogServiceClass {
 
     async getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
         return _getAllEntriesForCareer();
+    }
+
+    /**
+     * One aggregated row per voyage (no individual track points) — the
+     * Log list's data source. Server-side RPC with a lightweight
+     * client-side fallback. See services/shiplog/VoyageSummary.ts.
+     */
+    async getVoyageSummaries(includeArchived = false): Promise<VoyageSummary[]> {
+        return _getVoyageSummaries(includeArchived);
+    }
+
+    /** Lazy-load the FULL entry list for one voyage (expand / map open). */
+    async getVoyageEntries(voyageId: string, includeArchived = false): Promise<ShipLogEntry[]> {
+        return _getVoyageEntries(voyageId, includeArchived);
     }
 
     async archiveVoyage(voyageId: string): Promise<boolean> {
