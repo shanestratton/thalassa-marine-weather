@@ -6,7 +6,12 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { summarizeEntries, mergeSummariesWithLive, type VoyageSummary } from '../services/shiplog/VoyageSummary';
+import {
+    summarizeEntries,
+    mergeSummariesWithLive,
+    careerTotalsFromSummaries,
+    type VoyageSummary,
+} from '../services/shiplog/VoyageSummary';
 import type { ShipLogEntry } from '../types';
 
 const mk = (o: Partial<ShipLogEntry>): ShipLogEntry =>
@@ -110,6 +115,21 @@ describe('summarizeEntries', () => {
         expect(out[0].firstIsOnWater).toBe(true);
     });
 
+    it('computes landFraction over entries that carry water data', () => {
+        const out = summarizeEntries([
+            mk({ voyageId: 'a', isOnWater: false }),
+            mk({ voyageId: 'a', isOnWater: false }),
+            mk({ voyageId: 'a', isOnWater: true }),
+            mk({ voyageId: 'a', isOnWater: undefined }), // no data — excluded from denominator
+        ]);
+        expect(out[0].landFraction).toBeCloseTo(2 / 3);
+    });
+
+    it('reports landFraction null when no entry has water data', () => {
+        const out = summarizeEntries([mk({ voyageId: 'a', isOnWater: undefined })]);
+        expect(out[0].landFraction).toBeNull();
+    });
+
     it('returns voyages newest-first by latest entry', () => {
         const out = summarizeEntries([
             mk({ voyageId: 'old', timestamp: '2026-01-01T00:00:00.000Z' }),
@@ -145,6 +165,7 @@ describe('mergeSummariesWithLive', () => {
         lastLat: -20,
         lastLon: 148,
         firstIsOnWater: true,
+        landFraction: 0,
     });
 
     it('passes summaries through untouched when there are no local entries', () => {
@@ -194,5 +215,79 @@ describe('mergeSummariesWithLive', () => {
         const merged = mergeSummariesWithLive(summaries, entries);
         const b = merged.find((s) => s.voyageId === 'b')!;
         expect(b.totalDistanceNM).toBe(30); // server copy preserved
+    });
+});
+
+describe('careerTotalsFromSummaries', () => {
+    const summary = (over: Partial<VoyageSummary>): VoyageSummary => ({
+        voyageId: 'v',
+        entryCount: 10,
+        startedAt: '2026-02-01T00:00:00.000Z',
+        endedAt: '2026-02-01T05:00:00.000Z',
+        totalDistanceNM: 20,
+        avgSpeedKts: 5,
+        hasManual: false,
+        isPlannedRoute: false,
+        isImported: false,
+        firstLat: -27,
+        firstLon: 153,
+        lastLat: -20,
+        lastLon: 148,
+        firstIsOnWater: true,
+        landFraction: 0,
+        ...over,
+    });
+
+    it('sums distance, time and count over own maritime voyages', () => {
+        const totals = careerTotalsFromSummaries([
+            summary({
+                voyageId: 'a',
+                totalDistanceNM: 20,
+                startedAt: '2026-02-01T00:00:00Z',
+                endedAt: '2026-02-01T05:00:00Z',
+            }),
+            summary({
+                voyageId: 'b',
+                totalDistanceNM: 30,
+                startedAt: '2026-02-02T00:00:00Z',
+                endedAt: '2026-02-02T03:00:00Z',
+            }),
+        ]);
+        expect(totals.totalDistance).toBe(50);
+        expect(totals.totalTimeAtSeaHrs).toBe(8); // 5h + 3h
+        expect(totals.totalVoyages).toBe(2);
+    });
+
+    it('excludes imported and planned-route voyages', () => {
+        const totals = careerTotalsFromSummaries([
+            summary({ voyageId: 'own', totalDistanceNM: 20 }),
+            summary({ voyageId: 'imported', totalDistanceNM: 99, isImported: true }),
+            summary({ voyageId: 'planned', totalDistanceNM: 99, isPlannedRoute: true }),
+        ]);
+        expect(totals.totalVoyages).toBe(1);
+        expect(totals.totalDistance).toBe(20);
+    });
+
+    it('excludes land tracks (landFraction >= 0.6) but keeps coastal/jittery ones', () => {
+        const totals = careerTotalsFromSummaries([
+            summary({ voyageId: 'sea', totalDistanceNM: 20, landFraction: 0.1 }),
+            summary({ voyageId: 'coastal', totalDistanceNM: 15, landFraction: 0.59 }),
+            summary({ voyageId: 'cardrive', totalDistanceNM: 99, landFraction: 0.95 }),
+        ]);
+        expect(totals.totalVoyages).toBe(2);
+        expect(totals.totalDistance).toBe(35);
+    });
+
+    it('treats null landFraction as maritime (fail-open, no water data)', () => {
+        const totals = careerTotalsFromSummaries([summary({ voyageId: 'a', landFraction: null })]);
+        expect(totals.totalVoyages).toBe(1);
+    });
+
+    it('returns zeros for an empty history', () => {
+        expect(careerTotalsFromSummaries([])).toEqual({
+            totalDistance: 0,
+            totalTimeAtSeaHrs: 0,
+            totalVoyages: 0,
+        });
     });
 });

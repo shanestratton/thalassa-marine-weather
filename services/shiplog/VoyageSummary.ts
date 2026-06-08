@@ -43,6 +43,13 @@ export interface VoyageSummary {
     lastLon: number | null;
     /** is_on_water of the earliest entry (drives card title coloring). */
     firstIsOnWater: boolean | null;
+    /**
+     * Fraction of this voyage's entries (that carry is_on_water data) which
+     * are on LAND. null when no entry has water data. Used by the career
+     * roll-up to exclude land tracks (car drives) via majority vote —
+     * preserves the old per-entry filter now that the list is summary-driven.
+     */
+    landFraction: number | null;
 }
 
 /**
@@ -72,6 +79,8 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
         let hasManual = false;
         let isPlannedRoute = false;
         let isImported = false;
+        let waterDataCount = 0;
+        let landCount = 0;
 
         for (const e of list) {
             if (e.cumulativeDistanceNM && e.cumulativeDistanceNM > totalDistanceNM) {
@@ -84,6 +93,11 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
             if (e.entryType === 'manual') hasManual = true;
             if (e.source === 'planned_route') isPlannedRoute = true;
             else if (e.source && e.source !== 'device') isImported = true;
+            if (e.isOnWater === true) waterDataCount += 1;
+            else if (e.isOnWater === false) {
+                waterDataCount += 1;
+                landCount += 1;
+            }
         }
 
         summaries.push({
@@ -101,6 +115,7 @@ export function summarizeEntries(entries: ShipLogEntry[]): VoyageSummary[] {
             lastLat: last?.latitude ?? null,
             lastLon: last?.longitude ?? null,
             firstIsOnWater: first?.isOnWater ?? null,
+            landFraction: waterDataCount > 0 ? landCount / waterDataCount : null,
         });
     }
 
@@ -173,6 +188,51 @@ function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
         lastLat: row.last_lat == null ? null : Number(row.last_lat),
         lastLon: row.last_lon == null ? null : Number(row.last_lon),
         firstIsOnWater: row.first_is_on_water == null ? null : Boolean(row.first_is_on_water),
+        // land_fraction is added by a newer RPC revision; an older deployed
+        // function simply omits it → null → the voyage counts as maritime
+        // (fail-open), same as "no water data".
+        landFraction: row.land_fraction == null ? null : Number(row.land_fraction),
+    };
+}
+
+/** Career roll-up output — the shape the Log's career panel renders. */
+export interface CareerTotals {
+    totalDistance: number;
+    totalTimeAtSeaHrs: number;
+    totalVoyages: number;
+}
+
+/**
+ * Compute career totals from voyage SUMMARIES — accurate across the WHOLE
+ * history (no 10k-row cap). Counts only the sailor's own maritime voyages:
+ *   - own: not imported, not a planned/suggested route
+ *   - maritime: landFraction is null (no water data → assume water,
+ *     fail-open) OR < 0.6 (majority of fixes on water) — mirrors the old
+ *     per-entry majority vote that kept car drives out of sea miles.
+ *
+ * Pure + testable.
+ */
+export function careerTotalsFromSummaries(summaries: VoyageSummary[]): CareerTotals {
+    let totalDistance = 0;
+    let timeMs = 0;
+    let totalVoyages = 0;
+
+    for (const s of summaries) {
+        if (s.isImported || s.isPlannedRoute) continue;
+        const isMaritime = s.landFraction == null || s.landFraction < 0.6;
+        if (!isMaritime) continue;
+
+        totalVoyages += 1;
+        totalDistance += s.totalDistanceNM || 0;
+        const start = new Date(s.startedAt).getTime();
+        const end = new Date(s.endedAt).getTime();
+        if (isFinite(start) && isFinite(end) && end > start) timeMs += end - start;
+    }
+
+    return {
+        totalDistance,
+        totalTimeAtSeaHrs: Math.round((timeMs / (1000 * 60 * 60)) * 10) / 10,
+        totalVoyages,
     };
 }
 

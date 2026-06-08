@@ -14,14 +14,12 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('useLogPageState');
 
 /**
- * Upper bound on how many entries the list view pulls in one load.
- * The query is ordered newest-first, so this keeps the freshest
- * window. Career/voyage TOTALS are computed from a separate,
- * lightweight projection (getAllEntriesForCareer), so capping the
- * list fetch does not affect distance/time stats. 50k comfortably
- * covers years of normal logging while bounding the pathological
- * precision-GPS case (1–10 Hz capture → hundreds of thousands of
- * rows) that used to page the entire table on every load.
+ * Upper bound for the ONE remaining bulk-entry fetch: the opt-in
+ * "All Voyages" statistics deep-dive (loadAllEntries). The list itself
+ * and every stat tile now render from voyage SUMMARIES, so the default
+ * Log open never pulls this many rows. Ordered newest-first, so the cap
+ * keeps the freshest window; 50k bounds the pathological precision-GPS
+ * case (1–10 Hz capture → hundreds of thousands of rows).
  */
 const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
@@ -33,7 +31,11 @@ import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntries } from '../utils/voyageData';
 import { getVoyageEntriesSince } from '../services/shiplog/EntryCrud';
-import { mergeSummariesWithLive, type VoyageSummary } from '../services/shiplog/VoyageSummary';
+import {
+    mergeSummariesWithLive,
+    careerTotalsFromSummaries,
+    type VoyageSummary,
+} from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
@@ -270,7 +272,6 @@ export function useLogPageState() {
 
     // ── Archive state (separate from main state to avoid re-renders on every poll) ──
     const [archivedVoyages, setArchivedVoyages] = useState<ReturnType<typeof groupEntriesByVoyage>>([]);
-    const [careerEntries, setCareerEntries] = useState<ShipLogEntry[]>([]);
 
     // Guard: prevents loadData from overwriting optimistic tracking=false during stop
     const stoppingRef = useRef(false);
@@ -413,12 +414,12 @@ export function useLogPageState() {
     //   - be opt-in via a setting
     //   - announce itself with a toast / undo affordance
 
-    // Reusable career + archive data refresh
+    // Reusable archive-data refresh. (Career totals no longer need a
+    // separate entry fetch — they're derived from the voyage summaries.)
     const reloadCareerData = useCallback(() => {
-        Promise.all([ShipLogService.getArchivedEntries(), ShipLogService.getAllEntriesForCareer()])
-            .then(([archived, career]) => {
+        ShipLogService.getArchivedEntries()
+            .then((archived) => {
                 setArchivedVoyages(groupEntriesByVoyage(archived));
-                setCareerEntries(career);
             })
             .catch((e) => {
                 console.warn(`[useLogPageState]`, e);
@@ -1098,56 +1099,13 @@ export function useLogPageState() {
     }, [filteredEntries]);
 
     // ── Career Totals ───────────────────────────────────────────────────────
-    // Only counts the user's own maritime voyages:
-    //   1. Source must be 'device' (or undefined for legacy entries) — excludes imports & community
-    //   2. Voyage's first entry must not be explicitly marked as land (isOnWater !== false)
-
-    const careerTotals = useMemo(() => {
-        // Merge career DB entries + current state entries (which include offline queue),
-        // then deduplicate by entry ID. This ensures unsync'd entries still count.
-        const combined = new Map<string, ShipLogEntry>();
-        for (const e of careerEntries) {
-            if (e.id) combined.set(e.id, e);
-        }
-        for (const e of state.entries) {
-            if (e.id) combined.set(e.id, e);
-        }
-        const source = Array.from(combined.values());
-
-        // Step 1: Filter to device-only entries
-        const ownEntries = source.filter((e) => !e.source || e.source === 'device');
-
-        // Step 2: Group into voyages
-        const groups = groupEntriesByVoyage(ownEntries);
-
-        // Step 3: Filter out land-based voyages (majority vote)
-        // If ≥60% of entries with water data are on land, classify as land track.
-        // This prevents coastal GPS jitter from misclassifying car drives as maritime.
-        const maritimeGroups = groups.filter((g) => {
-            const withWaterData = g.entries.filter((e) => e.isOnWater !== undefined);
-            if (withWaterData.length === 0) return true; // No data → assume water (fail-open)
-            const landCount = withWaterData.filter((e) => e.isOnWater === false).length;
-            return landCount / withWaterData.length < 0.6; // ≥60% land → land track
-        });
-
-        let distance = 0;
-        let timeMs = 0;
-        maritimeGroups.forEach((g) => {
-            distance += Math.max(0, ...g.entries.map((e) => e.cumulativeDistanceNM || 0));
-            if (g.entries.length >= 2) {
-                const sorted = [...g.entries].sort(
-                    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-                );
-                timeMs +=
-                    new Date(sorted[sorted.length - 1].timestamp).getTime() - new Date(sorted[0].timestamp).getTime();
-            }
-        });
-        return {
-            totalDistance: distance,
-            totalTimeAtSeaHrs: Math.round((timeMs / (1000 * 60 * 60)) * 10) / 10,
-            totalVoyages: maritimeGroups.length,
-        };
-    }, [careerEntries, state.entries]);
+    // Aggregated from voyage SUMMARIES (one row per voyage) rather than the
+    // old getAllEntriesForCareer projection, which capped at 10k entries and
+    // silently under-counted heavy histories. listVoyages includes the live
+    // active voyage, so career miles tick up in real time. Only the sailor's
+    // own maritime voyages count — imports/planned routes excluded, land
+    // tracks filtered by landFraction majority vote. See VoyageSummary.ts.
+    const careerTotals = useMemo(() => careerTotalsFromSummaries(listVoyages), [listVoyages]);
 
     // ── Archive handlers ─────────────────────────────────────────────────────
 

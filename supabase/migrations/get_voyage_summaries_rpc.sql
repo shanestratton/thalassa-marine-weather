@@ -17,6 +17,11 @@
 -- ordered descending → element 1 is the latest. One pass, no self-join.
 -- ───────────────────────────────────────────────────────────────────────────
 
+-- Adding the land_fraction column changes the RETURNS TABLE signature, and
+-- Postgres won't let CREATE OR REPLACE change a function's return type — so
+-- drop the prior revision first. Safe to run repeatedly.
+DROP FUNCTION IF EXISTS public.get_voyage_summaries(boolean);
+
 CREATE OR REPLACE FUNCTION public.get_voyage_summaries(p_include_archived boolean DEFAULT false)
 RETURNS TABLE (
     voyage_id          text,
@@ -32,7 +37,8 @@ RETURNS TABLE (
     first_lon          double precision,
     last_lat           double precision,
     last_lon           double precision,
-    first_is_on_water  boolean
+    first_is_on_water  boolean,
+    land_fraction      double precision
 )
 LANGUAGE sql
 STABLE
@@ -54,7 +60,11 @@ AS $$
         (array_agg(longitude ORDER BY timestamp ASC))[1]                    AS first_lon,
         (array_agg(latitude  ORDER BY timestamp DESC))[1]                   AS last_lat,
         (array_agg(longitude ORDER BY timestamp DESC))[1]                   AS last_lon,
-        (array_agg(is_on_water ORDER BY timestamp ASC))[1]                  AS first_is_on_water
+        (array_agg(is_on_water ORDER BY timestamp ASC))[1]                  AS first_is_on_water,
+        -- fraction of water-data fixes that are on LAND (null if none have
+        -- data) — the career roll-up's land-track filter.
+        (count(*) FILTER (WHERE is_on_water = false))::double precision
+            / NULLIF(count(*) FILTER (WHERE is_on_water IS NOT NULL), 0)    AS land_fraction
     FROM public.ship_logs
     WHERE user_id = auth.uid()
       AND voyage_id IS NOT NULL
