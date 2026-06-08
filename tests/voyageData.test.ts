@@ -4,7 +4,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { groupEntriesByDate, calculateVoyageStats, filterEntriesByType, searchEntries } from '../utils/voyageData';
+import {
+    groupEntriesByDate,
+    calculateVoyageStats,
+    filterEntriesByType,
+    searchEntries,
+    mergeRecentEntries,
+} from '../utils/voyageData';
 import { ShipLogEntry } from '../types';
 
 // Mock data helper
@@ -277,6 +283,91 @@ describe('Voyage Data Utilities', () => {
             expect(grouped[0].entries[0].id).toBe('entry3');
             expect(grouped[0].entries[1].id).toBe('entry2');
             expect(grouped[0].entries[2].id).toBe('entry1');
+        });
+    });
+
+    describe('mergeRecentEntries — live-tracking incremental merge', () => {
+        it('appends genuinely new cloud points to the existing list', () => {
+            const prev = [
+                createMockEntry({ id: 'a', timestamp: '2026-02-01T00:00:00.000Z' }),
+                createMockEntry({ id: 'b', timestamp: '2026-02-01T00:01:00.000Z' }),
+            ];
+            const recent = [createMockEntry({ id: 'c', timestamp: '2026-02-01T00:02:00.000Z' })];
+            const merged = mergeRecentEntries(prev, recent);
+            expect(merged.map((e) => e.id)).toEqual(['c', 'b', 'a']); // newest-first
+        });
+
+        it('does not duplicate an entry already present (id wins, fresh copy)', () => {
+            const prev = [createMockEntry({ id: 'a', timestamp: '2026-02-01T00:00:00.000Z', speedKts: 5 })];
+            // Same id arrives again with a corrected speed
+            const recent = [createMockEntry({ id: 'a', timestamp: '2026-02-01T00:00:00.000Z', speedKts: 6 })];
+            const merged = mergeRecentEntries(prev, recent);
+            expect(merged).toHaveLength(1);
+            expect(merged[0].speedKts).toBe(6); // fresh copy wins
+        });
+
+        it('drops stale offline_* entries and re-adds the fresh queue snapshot', () => {
+            // Prior list held two offline points from last tick
+            const prev = [
+                createMockEntry({ id: 'offline_0', timestamp: '2026-02-01T00:00:00.000Z' }),
+                createMockEntry({ id: 'offline_1', timestamp: '2026-02-01T00:01:00.000Z' }),
+            ];
+            // This tick: the queue now only has ONE point (the other synced
+            // to the cloud and drained); offline ids got renumbered.
+            const recent = [createMockEntry({ id: 'offline_0', timestamp: '2026-02-01T00:01:00.000Z' })];
+            const merged = mergeRecentEntries(prev, recent);
+            // The two stale offline_* are purged; only the fresh queue
+            // snapshot remains — no phantom duplicates from id renumbering.
+            expect(merged).toHaveLength(1);
+            expect(merged[0].id).toBe('offline_0');
+            expect(merged[0].timestamp).toBe('2026-02-01T00:01:00.000Z');
+        });
+
+        it('reconciles an offline point that synced to a real cloud id', () => {
+            // Last tick: point was in the queue as offline_0
+            const prev = [
+                createMockEntry({ id: 'cloud_old', timestamp: '2026-02-01T00:00:00.000Z' }),
+                createMockEntry({ id: 'offline_0', timestamp: '2026-02-01T00:05:00.000Z' }),
+            ];
+            // This tick: it synced — arrives from the cloud with a real id,
+            // and the queue is now empty.
+            const recent = [createMockEntry({ id: 'real_synced', timestamp: '2026-02-01T00:05:00.000Z' })];
+            const merged = mergeRecentEntries(prev, recent);
+            const ids = merged.map((e) => e.id);
+            expect(ids).toContain('cloud_old');
+            expect(ids).toContain('real_synced');
+            expect(ids).not.toContain('offline_0'); // stale synthetic id gone
+            expect(merged).toHaveLength(2); // no duplicate of the same physical point
+        });
+
+        it('preserves older voyages already in state (only merges, never replaces)', () => {
+            const prev = [
+                createMockEntry({ id: 'v1-a', voyageId: 'v1', timestamp: '2026-01-01T00:00:00.000Z' }),
+                createMockEntry({ id: 'v2-a', voyageId: 'v2', timestamp: '2026-02-01T00:00:00.000Z' }),
+            ];
+            // Live poll brings a new point for the ACTIVE voyage v2 only
+            const recent = [createMockEntry({ id: 'v2-b', voyageId: 'v2', timestamp: '2026-02-01T00:01:00.000Z' })];
+            const merged = mergeRecentEntries(prev, recent);
+            const ids = merged.map((e) => e.id);
+            expect(ids).toContain('v1-a'); // old voyage's point survives
+            expect(ids).toContain('v2-a');
+            expect(ids).toContain('v2-b');
+            expect(merged).toHaveLength(3);
+        });
+
+        it('returns the existing list unchanged when there is nothing new', () => {
+            const prev = [createMockEntry({ id: 'a', timestamp: '2026-02-01T00:00:00.000Z' })];
+            const merged = mergeRecentEntries(prev, []);
+            expect(merged.map((e) => e.id)).toEqual(['a']);
+        });
+
+        it('skips entries with no id rather than throwing', () => {
+            const prev = [createMockEntry({ id: 'a', timestamp: '2026-02-01T00:00:00.000Z' })];
+            const recent = [
+                createMockEntry({ id: undefined as unknown as string, timestamp: '2026-02-01T00:02:00.000Z' }),
+            ];
+            const merged = mergeRecentEntries(prev, recent);
+            expect(merged.map((e) => e.id)).toEqual(['a']);
         });
     });
 });

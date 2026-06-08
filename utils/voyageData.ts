@@ -176,3 +176,58 @@ export function filterEntriesByDateRange(entries: ShipLogEntry[], startDate?: Da
         return true;
     });
 }
+
+/**
+ * Merge a small batch of freshly-fetched "recent" entries into the
+ * existing in-memory entry list WITHOUT re-pulling the whole history.
+ *
+ * Used by the live-tracking poll: while a voyage is recording we only
+ * need to surface the handful of new points captured since the last
+ * tick, not re-download and re-group every entry the user has ever
+ * logged (which, at 1–10 Hz precision capture, can be hundreds of
+ * thousands of rows — the old full-reload-per-second behaviour pegged
+ * the main thread and made the page unusable).
+ *
+ * Merge rules:
+ *  - Offline-queue entries carry synthetic, POSITIONAL ids
+ *    (`offline_0`, `offline_1`, …) that are regenerated on every read
+ *    and shift as the queue drains. They can never be reconciled by
+ *    id across reads, so we DROP all prior `offline_*` entries from
+ *    the previous list and re-add whatever the fresh batch carries.
+ *    (The caller passes the full current offline queue every tick, so
+ *    nothing is lost — a point that has since synced to the cloud
+ *    arrives in `recent` with a real id instead.)
+ *  - Everything else is keyed by `id`; the fresh copy wins (it may
+ *    carry a corrected position / backfilled distance).
+ *  - Result is sorted newest-first to match the rest of the pipeline.
+ *
+ * Pure + side-effect free so it can be unit-tested in isolation.
+ */
+const OFFLINE_ID_PREFIX = 'offline_';
+
+export function mergeRecentEntries(prev: ShipLogEntry[], recent: ShipLogEntry[]): ShipLogEntry[] {
+    const byId = new Map<string, ShipLogEntry>();
+
+    // Seed with prior entries, skipping the volatile offline_* set —
+    // the fresh batch re-supplies the current queue contents.
+    for (const e of prev) {
+        if (!e.id || e.id.startsWith(OFFLINE_ID_PREFIX)) continue;
+        byId.set(e.id, e);
+    }
+
+    // Overlay the fresh batch (cloud points with real ids + the
+    // current offline queue). Fresh copy wins for any shared id.
+    const offlineFresh: ShipLogEntry[] = [];
+    for (const e of recent) {
+        if (!e.id) continue;
+        if (e.id.startsWith(OFFLINE_ID_PREFIX)) {
+            offlineFresh.push(e);
+        } else {
+            byId.set(e.id, e);
+        }
+    }
+
+    const merged = [...byId.values(), ...offlineFresh];
+    merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return merged;
+}

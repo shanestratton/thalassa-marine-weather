@@ -171,6 +171,42 @@ vi.mock('../hooks/useLogPageState', () => ({
                 ],
             },
         ],
+        // sailedVoyageGroups: the SAILED subset used for the stats
+        // tiles. Both mock voyages are device-sourced (no planned_route),
+        // so it mirrors voyageGroups here. Added 2026-06-08 — the mock
+        // had drifted out of sync with the hook's public API after
+        // commit 51bbe6d2 introduced this field, which crashed the page
+        // (sailedVoyageGroups.reduce on undefined).
+        sailedVoyageGroups: [
+            {
+                voyageId: 'v1',
+                entries: [
+                    {
+                        id: 'e1',
+                        timestamp: '2026-01-01T00:00:00Z',
+                        voyageId: 'v1',
+                        lat: -27.5,
+                        lon: 153,
+                        speedKts: 6,
+                        cumulativeDistanceNM: 12,
+                    },
+                ],
+            },
+            {
+                voyageId: 'v2',
+                entries: [
+                    {
+                        id: 'e2',
+                        timestamp: '2026-01-05T00:00:00Z',
+                        voyageId: 'v2',
+                        lat: -20,
+                        lon: 148,
+                        speedKts: 5,
+                        cumulativeDistanceNM: 50,
+                    },
+                ],
+            },
+        ],
         hasNonDeviceEntries: false,
         totalDistance: 62,
         avgSpeed: 5.5,

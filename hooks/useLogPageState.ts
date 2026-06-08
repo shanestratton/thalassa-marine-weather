@@ -12,6 +12,18 @@ import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'r
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('useLogPageState');
+
+/**
+ * Upper bound on how many entries the list view pulls in one load.
+ * The query is ordered newest-first, so this keeps the freshest
+ * window. Career/voyage TOTALS are computed from a separate,
+ * lightweight projection (getAllEntriesForCareer), so capping the
+ * list fetch does not affect distance/time stats. 50k comfortably
+ * covers years of normal logging while bounding the pathological
+ * precision-GPS case (1–10 Hz capture → hundreds of thousands of
+ * rows) that used to page the entire table on every load.
+ */
+const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
 import { ShipLogService } from '../services/ShipLogService';
 import { supabase } from '../services/supabase';
@@ -19,7 +31,8 @@ import { BgGeoManager } from '../services/BgGeoManager';
 
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
-import { groupEntriesByDate, filterEntriesByType, searchEntries } from '../utils/voyageData';
+import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntries } from '../utils/voyageData';
+import { getVoyageEntriesSince } from '../services/shiplog/EntryCrud';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
@@ -239,18 +252,50 @@ export function useLogPageState() {
     // Guard: prevents loadData from overwriting optimistic tracking=false during stop
     const stoppingRef = useRef(false);
 
+    // Guard: prevents overlapping full reloads from stacking into a
+    // storm. loadData is triggered from many places (mount, the 1.5s
+    // auth-rehydrate retry, the SIGNED_IN/TOKEN_REFRESHED listener,
+    // pull-to-refresh, AND — historically — a 1-second poll while
+    // tracking). On an account with a long precision-GPS history each
+    // loadData paginates tens of thousands of rows from Supabase; if a
+    // second call starts before the first finishes they pile up and
+    // peg the main thread (the "5-minute load / can't start a track /
+    // can't delete" report). This ref makes loadData a no-op while one
+    // is already in flight.
+    const loadingRef = useRef(false);
+
+    // Mirror of state.entries for stable-identity callbacks (live poll
+    // refresh + soft-delete read the latest entries without re-subscribing).
+    const entriesRef = useRef(state.entries);
+    entriesRef.current = state.entries;
+
     // ── Initialization ──────────────────────────────────────────────────────
 
-    const loadData = useCallback(async () => {
+    const loadDataInner = useCallback(async () => {
         const status = ShipLogService.getTrackingStatus();
         const voyageId = ShipLogService.getCurrentVoyageId();
 
         // Fetch from BOTH sources and merge — ensures entries are visible
         // whether they're synced to Supabase or still in the offline queue.
+        //
+        // Bounded fetch: the list + stats only ever need a sane window
+        // of the most-recent entries (career totals come from the
+        // separate, lightweight getAllEntriesForCareer projection). The
+        // old 10_000_000 cap meant a heavy precision-GPS history paged
+        // the ENTIRE table 1000 rows at a time — hundreds of sequential
+        // round-trips. MAX_LIST_ENTRIES bounds the worst case; the query
+        // is ordered newest-first so the cap keeps the freshest data.
         const [dbEntries, offlineEntries] = await Promise.all([
-            ShipLogService.getLogEntries(10_000_000),
+            ShipLogService.getLogEntries(MAX_LIST_ENTRIES),
             ShipLogService.getOfflineEntries(),
         ]);
+
+        if (dbEntries.length >= MAX_LIST_ENTRIES) {
+            log.warn(
+                `getLogEntries hit the ${MAX_LIST_ENTRIES}-entry cap — oldest voyages may be truncated from the list. ` +
+                    `Career totals are unaffected (separate query).`,
+            );
+        }
 
         // Merge + deduplicate by entry ID (offline entries may not yet be in Supabase)
         const seen = new Set<string>();
@@ -280,6 +325,55 @@ export function useLogPageState() {
         // Load archived voyages and career entries in parallel (non-blocking)
         reloadCareerData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Public loadData — wraps the heavy reload in an in-flight guard so
+    // overlapping triggers can't stack (see loadingRef above).
+    const loadData = useCallback(async () => {
+        if (loadingRef.current) return;
+        loadingRef.current = true;
+        try {
+            await loadDataInner();
+        } finally {
+            loadingRef.current = false;
+        }
+    }, [loadDataInner]);
+
+    // Lightweight live-tracking refresh. Instead of re-pulling the whole
+    // history every poll tick (the old behaviour), this fetches ONLY the
+    // active voyage's new cloud points since the newest one we already
+    // hold, plus the (cheap, local) offline queue, and merges them into
+    // state. Bounded and fast regardless of total history size, so the
+    // 1-second burst poll no longer freezes the page.
+    const refreshActiveVoyage = useCallback(async () => {
+        const voyageId = ShipLogService.getCurrentVoyageId();
+        if (!voyageId) return;
+
+        // Newest cloud-sourced timestamp we currently hold for this
+        // voyage — the incremental query's lower bound. Offline entries
+        // (synthetic ids) are excluded so a not-yet-synced point doesn't
+        // advance the watermark past cloud rows we haven't seen.
+        const stateEntries = entriesRef.current;
+        let sinceIso = '1970-01-01T00:00:00.000Z';
+        for (const e of stateEntries) {
+            if (e.voyageId !== voyageId) continue;
+            if (e.id && e.id.startsWith('offline_')) continue;
+            if (e.timestamp > sinceIso) sinceIso = e.timestamp;
+        }
+
+        try {
+            const [newCloud, offlineEntries] = await Promise.all([
+                getVoyageEntriesSince(voyageId, sinceIso),
+                ShipLogService.getOfflineEntries(),
+            ]);
+            if (newCloud.length === 0 && offlineEntries.length === 0) return;
+            dispatch({
+                type: 'UPDATE_ENTRIES',
+                updater: (prev) => mergeRecentEntries(prev, [...newCloud, ...offlineEntries]),
+            });
+        } catch (e) {
+            log.warn('refreshActiveVoyage failed', e);
+        }
     }, []);
 
     // Auto-archive REMOVED 2026-05-05.
@@ -386,7 +480,13 @@ export function useLogPageState() {
     // ── Entry Refresh Polling — live updates while tracking ──────────────────
     // RAPID INITIAL POLL: Poll every 1s for the first 10s after tracking starts
     // so the first track card appears almost instantly. Then fall back to 5s/3s.
-    // This is lightweight — just reads from local DB, no GPS calls.
+    //
+    // Each tick now runs the LIGHTWEIGHT refreshActiveVoyage (active
+    // voyage's new points + local offline queue, merged in) rather than
+    // a full history reload. This is what the original "just reads from
+    // local DB, no GPS calls" comment intended — the prior loadData()
+    // call actually re-paginated the entire Supabase table every second,
+    // which is what made starting a track freeze the page.
 
     useEffect(() => {
         if (!state.isTracking) return;
@@ -397,14 +497,14 @@ export function useLogPageState() {
 
         // Start with rapid polling
         let currentId = setInterval(() => {
-            if (!document.hidden) loadData();
+            if (!document.hidden) refreshActiveVoyage();
         }, BURST_POLL_MS);
 
         // After burst period, switch to normal polling
         const burstTimeout = setTimeout(() => {
             clearInterval(currentId);
             currentId = setInterval(() => {
-                if (!document.hidden) loadData();
+                if (!document.hidden) refreshActiveVoyage();
             }, normalPollMs);
         }, BURST_DURATION_MS);
 
@@ -412,7 +512,7 @@ export function useLogPageState() {
             clearInterval(currentId);
             clearTimeout(burstTimeout);
         };
-    }, [state.isTracking, state.isRapidMode, loadData]);
+    }, [state.isTracking, state.isRapidMode, refreshActiveVoyage]);
 
     // ── Tracking Handlers ───────────────────────────────────────────────────
 
@@ -511,8 +611,6 @@ export function useLogPageState() {
     // ── Soft-delete with undo ──
     const [deletedEntry, setDeletedEntry] = useState<ShipLogEntry | null>(null);
     const deletingEntryRef = useRef(false);
-    const entriesRef = useRef(state.entries);
-    entriesRef.current = state.entries;
 
     const handleDeleteEntry = useCallback((entryId: string) => {
         // Guard: prevent double-fire from stale callbacks
