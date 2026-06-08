@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry, VoyagePlan } from '../../types';
+import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
@@ -116,9 +117,18 @@ const FollowRouteButton: React.FC<{
     voyage: { voyageId: string; entries: ShipLogEntry[] };
     startLabel: string | null;
     endLabel: string | null;
-}> = ({ voyage, startLabel, endLabel }) => {
+    onNeedEntries?: () => void;
+}> = ({ voyage, startLabel, endLabel, onNeedEntries }) => {
     const { isFollowing, voyageId: followingVoyageId, startFollowing } = useFollowRoute();
     const isThisFollowed = isFollowing && followingVoyageId === voyage.voyageId;
+
+    // Planned-route points may not be resident yet (the list is summary-
+    // driven). Request a lazy-load the first time this button mounts so
+    // the follow action has the waypoints it needs.
+    useEffect(() => {
+        if (voyage.entries.length === 0) onNeedEntries?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
     const handleFollow = useCallback(() => {
         if (isThisFollowed) return;
@@ -198,7 +208,10 @@ const FollowRouteButton: React.FC<{
 // ── VoyageCard — compact past voyage summary ──
 
 export const VoyageCard: React.FC<{
-    voyage: { voyageId: string; entries: ShipLogEntry[] };
+    /** Aggregated voyage roll-up — drives the collapsed card (no points). */
+    summary: VoyageSummary;
+    /** Resident points for THIS voyage (lazy-loaded on expand; may be []). */
+    entries: ShipLogEntry[];
     isSelected: boolean;
     isExpanded: boolean;
     onToggle: () => void;
@@ -206,12 +219,15 @@ export const VoyageCard: React.FC<{
     onDelete: () => void;
     onArchive: () => void;
     onShowMap: () => void;
+    /** Request this voyage's full points be lazy-loaded (planned actions). */
+    onNeedEntries?: () => void;
     filteredEntries: ShipLogEntry[];
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
 }> = React.memo(
     ({
-        voyage,
+        summary,
+        entries,
         isSelected,
         isExpanded,
         onToggle,
@@ -219,10 +235,12 @@ export const VoyageCard: React.FC<{
         onDelete,
         onArchive,
         onShowMap,
+        onNeedEntries,
         filteredEntries,
         onDeleteEntry,
         onEditEntry,
     }) => {
+        const voyageId = summary.voyageId;
         // --- Swipe-to-reveal actions ---
         const [swipeOffset, setSwipeOffset] = useState(0);
         const touchStartX = useRef(0);
@@ -238,32 +256,30 @@ export const VoyageCard: React.FC<{
             setSwipeOffset((s) => (s >= deleteThreshold ? deleteThreshold : 0));
         };
 
-        const sorted = [...voyage.entries].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-        );
-        const first = sorted[0];
-        const last = sorted[sorted.length - 1];
-        const dist = Math.max(0, ...voyage.entries.map((e) => e.cumulativeDistanceNM || 0));
-        const durationMs = first && last ? new Date(last.timestamp).getTime() - new Date(first.timestamp).getTime() : 0;
+        // ── Header stats — all from the aggregated summary (no points) ──
+        const dist = summary.totalDistanceNM;
+        const durationMs = Math.max(0, new Date(summary.endedAt).getTime() - new Date(summary.startedAt).getTime());
         const durationHrs = Math.floor(durationMs / 3600000);
         const durationMins = Math.floor((durationMs % 3600000) / 60000);
         const durationLabel =
             durationHrs >= 24 ? `${Math.ceil(durationHrs / 24)}d` : `${durationHrs}h ${durationMins}m`;
-        const dateLabel = first
-            ? new Date(first.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' })
+        const dateLabel = summary.startedAt
+            ? new Date(summary.startedAt).toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: '2-digit',
+              })
             : '';
-        const hasManual = voyage.entries.some((e) => e.entryType === 'manual');
-        const speedEntries = voyage.entries.filter((e) => e.speedKts);
-        const avgSpeed =
-            speedEntries.length > 0
-                ? speedEntries.reduce((sum, e) => sum + (e.speedKts || 0), 0) / speedEntries.length
-                : 0;
+        const hasManual = summary.hasManual;
+        const avgSpeed = summary.avgSpeedKts;
+        const isImported = summary.isImported;
+        const isPlannedRoute = summary.isPlannedRoute;
 
-        // Detect imported/community tracks (not official device data)
-        const isImported = voyage.entries.some(
-            (e) => e.source && e.source !== 'device' && e.source !== 'planned_route',
-        );
-        const isPlannedRoute = voyage.entries.some((e) => e.source === 'planned_route');
+        // Synthetic first/last coordinate carriers for geocoding + the
+        // FollowRoute plan (full points arrive lazily via `entries`).
+        const first =
+            summary.firstLat != null ? { latitude: summary.firstLat, longitude: summary.firstLon } : undefined;
+        const last = summary.lastLat != null ? { latitude: summary.lastLat, longitude: summary.lastLon } : undefined;
 
         // Reverse-geocode start and end locations for card title
         const [startLocName, setStartLocName] = useState<string | null>(null);
@@ -331,14 +347,14 @@ export const VoyageCard: React.FC<{
         }, [first?.latitude, first?.longitude, last?.latitude, last?.longitude]);
 
         // Use geocoded names, fall back to waypoint names, then DMS coords
-        const formatFallback = (e: ShipLogEntry | undefined) => {
-            if (!e || !e.latitude) return null;
-            return `${Math.abs(e.latitude).toFixed(1)}°${e.latitude >= 0 ? 'N' : 'S'}`;
+        const formatFallback = (c: { latitude: number; longitude: number | null } | undefined) => {
+            if (!c || !c.latitude) return null;
+            return `${Math.abs(c.latitude).toFixed(1)}°${c.latitude >= 0 ? 'N' : 'S'}`;
         };
         const startLabel = startLocName || formatFallback(first);
         const endLabel = endLocName || formatFallback(last);
 
-        const voyageFilteredEntries = voyage.entries.filter((e) => filteredEntries.some((f) => f.id === e.id));
+        const voyageFilteredEntries = entries.filter((e) => filteredEntries.some((f) => f.id === e.id));
 
         return (
             <div className="mb-3 relative overflow-hidden rounded-2xl snap-start">
@@ -500,7 +516,7 @@ export const VoyageCard: React.FC<{
                         {/* Badge row — entries count + source-type chips */}
                         <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
                             <span className="text-[10px] text-slate-500 tabular-nums">
-                                {voyage.entries.length} entries
+                                {summary.entryCount} entries
                             </span>
                             {hasManual && (
                                 <span className="px-1.5 py-0.5 rounded-full bg-purple-500/10 text-[9px] font-bold text-purple-400/80 uppercase tracking-wider">
@@ -563,10 +579,10 @@ export const VoyageCard: React.FC<{
                                         const { exportVoyageAsGPX, shareGPXFile } =
                                             await import('../../services/gpxService');
                                         const gpxXml = exportVoyageAsGPX(
-                                            voyage.entries,
+                                            entries,
                                             `Planned_${startLabel || 'Route'}_to_${endLabel || 'Destination'}`,
                                         );
-                                        await shareGPXFile(gpxXml, `planned_route_${voyage.voyageId}.gpx`);
+                                        await shareGPXFile(gpxXml, `planned_route_${voyageId}.gpx`);
                                     } catch (err) {
                                         log.error('GPX Export failed:', err);
                                     }
@@ -586,7 +602,12 @@ export const VoyageCard: React.FC<{
                             </button>
                         )}
                         {isPlannedRoute && (
-                            <FollowRouteButton voyage={voyage} startLabel={startLabel} endLabel={endLabel} />
+                            <FollowRouteButton
+                                voyage={{ voyageId, entries }}
+                                startLabel={startLabel}
+                                endLabel={endLabel}
+                                onNeedEntries={onNeedEntries}
+                            />
                         )}
                     </div>
                 </div>
@@ -595,22 +616,31 @@ export const VoyageCard: React.FC<{
                 {isExpanded && (
                     <>
                         {/* Inline map for planned routes */}
-                        {isPlannedRoute && voyage.entries.length >= 2 && (
+                        {isPlannedRoute && entries.length >= 2 && (
                             <div className="px-4 pt-3">
-                                <LiveMiniMap entries={voyage.entries} height={140} />
+                                <LiveMiniMap entries={entries} height={140} />
                             </div>
                         )}
-                        <div
-                            className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-purple-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}
-                        >
-                            <DateGroupedTimeline
-                                groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
-                                onDeleteEntry={onDeleteEntry}
-                                onEditEntry={onEditEntry}
-                                voyageFirstEntryId={voyage.entries[voyage.entries.length - 1]?.id}
-                                voyageLastEntryId={voyage.entries[0]?.id}
-                            />
-                        </div>
+                        {entries.length === 0 ? (
+                            // Points are lazy-loaded on expand — brief spinner
+                            // while this voyage's track streams in.
+                            <div className="flex items-center justify-center gap-2 py-6 text-slate-400">
+                                <span className="w-4 h-4 rounded-full border-2 border-sky-400/30 border-t-sky-400 animate-spin" />
+                                <span className="text-[12px]">Loading track…</span>
+                            </div>
+                        ) : (
+                            <div
+                                className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-purple-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}
+                            >
+                                <DateGroupedTimeline
+                                    groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
+                                    onDeleteEntry={onDeleteEntry}
+                                    onEditEntry={onEditEntry}
+                                    voyageFirstEntryId={entries[entries.length - 1]?.id}
+                                    voyageLastEntryId={entries[0]?.id}
+                                />
+                            </div>
+                        )}
                     </>
                 )}
             </div>

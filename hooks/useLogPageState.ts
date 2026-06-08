@@ -33,6 +33,7 @@ import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntries } from '../utils/voyageData';
 import { getVoyageEntriesSince } from '../services/shiplog/EntryCrud';
+import { mergeSummariesWithLive, type VoyageSummary } from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
@@ -54,6 +55,15 @@ interface LogPageState {
      */
     isPrecisionMode: boolean;
     loading: boolean;
+
+    /**
+     * Server-side voyage roll-ups — one per voyage, NO individual track
+     * points. This is the list's data source: cards render from these so
+     * opening the Log never has to download a whole history of GPS fixes.
+     * Full points for a single voyage are lazy-loaded into `entries` when
+     * the user expands or opens it.
+     */
+    summaries: VoyageSummary[];
 
     // UI modals / sheets
     showAddModal: boolean;
@@ -90,6 +100,8 @@ type LogPageAction =
           currentVoyageId: string | undefined;
       }
     | { type: 'SET_ENTRIES'; entries: ShipLogEntry[] }
+    | { type: 'SET_SUMMARIES'; summaries: VoyageSummary[] }
+    | { type: 'REMOVE_VOYAGE'; voyageId: string }
     | { type: 'UPDATE_ENTRIES'; updater: (prev: ShipLogEntry[]) => ShipLogEntry[] }
     | { type: 'SET_TRACKING'; isTracking: boolean; isPaused: boolean }
     | { type: 'SET_RAPID_MODE'; isRapidMode: boolean }
@@ -113,6 +125,7 @@ type LogPageAction =
 
 const initialState: LogPageState = {
     entries: [],
+    summaries: [],
     isTracking: false,
     isPaused: false,
     isRapidMode: false,
@@ -158,6 +171,16 @@ function logPageReducer(state: LogPageState, action: LogPageAction): LogPageStat
         }
         case 'SET_ENTRIES':
             return { ...state, entries: action.entries };
+        case 'SET_SUMMARIES':
+            return { ...state, summaries: action.summaries };
+        case 'REMOVE_VOYAGE':
+            // Optimistic removal from BOTH the summary list (drives the
+            // cards) and any lazy-loaded points for that voyage.
+            return {
+                ...state,
+                summaries: state.summaries.filter((s) => s.voyageId !== action.voyageId),
+                entries: state.entries.filter((e) => e.voyageId !== action.voyageId),
+            };
         case 'UPDATE_ENTRIES':
             return { ...state, entries: action.updater(state.entries) };
         case 'SET_TRACKING':
@@ -269,47 +292,41 @@ export function useLogPageState() {
     const entriesRef = useRef(state.entries);
     entriesRef.current = state.entries;
 
+    // Mirror of expandedVoyages so the (stable-identity) toggle handler can
+    // tell expand-from-collapse without re-subscribing.
+    const expandedRef = useRef(state.expandedVoyages);
+    expandedRef.current = state.expandedVoyages;
+
     // ── Initialization ──────────────────────────────────────────────────────
 
     const loadDataInner = useCallback(async () => {
         const status = ShipLogService.getTrackingStatus();
         const voyageId = ShipLogService.getCurrentVoyageId();
 
-        // Fetch from BOTH sources and merge — ensures entries are visible
-        // whether they're synced to Supabase or still in the offline queue.
+        // ── Summary-first load ──────────────────────────────────────────
+        // The LIST renders from per-voyage SUMMARIES (one aggregated row
+        // each, no individual track points). Opening the Log therefore no
+        // longer downloads a whole precision-GPS history just to draw the
+        // cards — the single biggest source of the old slow load.
         //
-        // Bounded fetch: the list + stats only ever need a sane window
-        // of the most-recent entries (career totals come from the
-        // separate, lightweight getAllEntriesForCareer projection). The
-        // old 10_000_000 cap meant a heavy precision-GPS history paged
-        // the ENTIRE table 1000 rows at a time — hundreds of sequential
-        // round-trips. MAX_LIST_ENTRIES bounds the worst case; the query
-        // is ordered newest-first so the cap keeps the freshest data.
-        const [dbEntries, offlineEntries] = await Promise.all([
-            ShipLogService.getLogEntries(MAX_LIST_ENTRIES),
+        // Into `entries` we now load ONLY the points we actually need
+        // resident: the ACTIVE live-tracking voyage (so its card grows and
+        // its expanded timeline works) plus the offline queue (unsynced
+        // points). Past voyages' full points are lazy-loaded on demand
+        // when the user expands or opens one (see loadVoyageEntries). The
+        // merge preserves any voyage already lazy-loaded this session.
+        const [summaries, activeEntries, offlineEntries] = await Promise.all([
+            ShipLogService.getVoyageSummaries(),
+            voyageId ? ShipLogService.getVoyageEntries(voyageId) : Promise.resolve([] as ShipLogEntry[]),
             ShipLogService.getOfflineEntries(),
         ]);
 
-        if (dbEntries.length >= MAX_LIST_ENTRIES) {
-            log.warn(
-                `getLogEntries hit the ${MAX_LIST_ENTRIES}-entry cap — oldest voyages may be truncated from the list. ` +
-                    `Career totals are unaffected (separate query).`,
-            );
-        }
+        dispatch({ type: 'SET_SUMMARIES', summaries });
 
-        // Merge + deduplicate by entry ID (offline entries may not yet be in Supabase)
-        const seen = new Set<string>();
-        const merged: ShipLogEntry[] = [];
-        for (const entry of [...dbEntries, ...offlineEntries]) {
-            const key = entry.id;
-            if (key && !seen.has(key)) {
-                seen.add(key);
-                merged.push(entry);
-            }
-        }
-
-        // Sort newest first
-        merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // Merge active + offline into whatever is already resident
+        // (expanded voyages), purging volatile offline_* ids and deduping
+        // by real id — same primitive the live poll uses.
+        const merged = mergeRecentEntries(entriesRef.current, [...activeEntries, ...offlineEntries]);
 
         dispatch({
             type: 'LOAD_DATA',
@@ -517,17 +534,13 @@ export function useLogPageState() {
     // ── Tracking Handlers ───────────────────────────────────────────────────
 
     const handleStartTracking = useCallback(async () => {
-        const voyages = groupEntriesByVoyage(state.entries);
-        // Only offer to continue real device-tracked voyages, not suggested/imported tracks
-        const realVoyages = voyages.filter(
-            (v) => !v.entries.some((e) => e.source === 'planned_route' || (e.source && e.source !== 'device')),
-        );
-        if (realVoyages.length > 0) {
-            const recentVoyageId = realVoyages[0]?.voyageId;
-            if (recentVoyageId) {
-                dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
-                return;
-            }
+        // Offer to continue the most recent REAL voyage (device-tracked, not
+        // suggested/imported). Sourced from summaries (newest-first) so it
+        // works without the full history resident in `entries`.
+        const recentVoyageId = state.summaries.find((s) => !s.isPlannedRoute && !s.isImported)?.voyageId;
+        if (recentVoyageId) {
+            dispatch({ type: 'SHOW_VOYAGE_CHOICE', show: true, lastVoyageId: recentVoyageId });
+            return;
         }
         // Instant UI response — dispatch first, service call is fire-and-forget
         dispatch({ type: 'SET_TRACKING', isTracking: true, isPaused: false });
@@ -537,7 +550,7 @@ export function useLogPageState() {
                 dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
                 toast.error(getErrorMessage(error) || 'Failed to start tracking');
             });
-    }, [state.entries, loadData, toast]);
+    }, [state.summaries, loadData, toast]);
 
     const startTrackingWithNewVoyage = useCallback(async () => {
         // Instant UI response — dispatch first, service call is fire-and-forget
@@ -672,14 +685,85 @@ export function useLogPageState() {
 
     // ── Voyage Management ───────────────────────────────────────────────────
 
-    const toggleVoyage = useCallback((voyageId: string) => {
-        dispatch({ type: 'TOGGLE_VOYAGE', voyageId });
+    // Tracks which voyages have had their full points lazy-loaded this
+    // session, so we don't re-fetch on every expand toggle.
+    const loadedVoyagesRef = useRef<Set<string>>(new Set());
+    const loadingVoyagesRef = useRef<Set<string>>(new Set());
+
+    /**
+     * Lazy-load a single voyage's FULL points (the list itself only holds
+     * summaries). Called when the user expands a card or opens its map /
+     * stats / export. Idempotent: skips voyages already loaded or in
+     * flight, and the active live-tracking voyage (already resident).
+     */
+    const loadVoyageEntries = useCallback(async (voyageId: string) => {
+        if (!voyageId) return;
+        if (loadedVoyagesRef.current.has(voyageId) || loadingVoyagesRef.current.has(voyageId)) return;
+        // Already resident (active voyage or previously merged)? Mark loaded.
+        if (entriesRef.current.some((e) => e.voyageId === voyageId)) {
+            loadedVoyagesRef.current.add(voyageId);
+            return;
+        }
+        loadingVoyagesRef.current.add(voyageId);
+        try {
+            const voyageEntries = await ShipLogService.getVoyageEntries(voyageId);
+            if (voyageEntries.length > 0) {
+                dispatch({
+                    type: 'UPDATE_ENTRIES',
+                    updater: (prev) => mergeRecentEntries(prev, voyageEntries),
+                });
+            }
+            loadedVoyagesRef.current.add(voyageId);
+        } catch (e) {
+            log.warn('loadVoyageEntries failed', e);
+        } finally {
+            loadingVoyagesRef.current.delete(voyageId);
+        }
+    }, []);
+
+    const toggleVoyage = useCallback(
+        (voyageId: string) => {
+            // Expanding (it wasn't already expanded) → lazy-load its points.
+            if (!expandedRef.current.has(voyageId)) {
+                void loadVoyageEntries(voyageId);
+            }
+            dispatch({ type: 'TOGGLE_VOYAGE', voyageId });
+        },
+        [loadVoyageEntries],
+    );
+
+    // Opt-in heavy load: pulls a bounded window of ALL entries into state.
+    // Used only by the "All Voyages" statistics deep-dive (an explicit
+    // user action), so the default Log open never pays this cost.
+    const allEntriesLoadedRef = useRef(false);
+    const loadAllEntries = useCallback(async () => {
+        if (allEntriesLoadedRef.current || loadingRef.current) return;
+        loadingRef.current = true;
+        try {
+            const [dbEntries, offlineEntries] = await Promise.all([
+                ShipLogService.getLogEntries(MAX_LIST_ENTRIES),
+                ShipLogService.getOfflineEntries(),
+            ]);
+            dispatch({
+                type: 'UPDATE_ENTRIES',
+                updater: (prev) => mergeRecentEntries(prev, [...dbEntries, ...offlineEntries]),
+            });
+            allEntriesLoadedRef.current = true;
+        } catch (e) {
+            log.warn('loadAllEntries failed', e);
+        } finally {
+            loadingRef.current = false;
+        }
     }, []);
 
     // ── Soft-delete voyage with undo ──
+    // Holds the removed voyage's summary (so the card can be restored even
+    // when its points were never lazy-loaded) plus whatever points were
+    // resident at delete time.
     const [deletedVoyage, setDeletedVoyage] = useState<{
         voyageId: string;
         entries: ShipLogEntry[];
+        summary: VoyageSummary | null;
     } | null>(null);
 
     const handleDeleteVoyageRequest = useCallback(
@@ -698,12 +782,15 @@ export function useLogPageState() {
                 log.warn('shared track check failed:', e);
             }
 
-            // Soft-delete: remove from UI, UndoToast owns the 5s countdown
+            // Soft-delete: remove from UI, UndoToast owns the 5s countdown.
+            // The card is summary-driven, so pull it from BOTH summaries and
+            // any resident points; stash the summary for a clean undo.
             const voyageEntries = state.entries.filter((e) => e.voyageId === voyageId);
-            dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.voyageId !== voyageId) });
-            setDeletedVoyage({ voyageId, entries: voyageEntries });
+            const summary = state.summaries.find((s) => s.voyageId === voyageId) ?? null;
+            dispatch({ type: 'REMOVE_VOYAGE', voyageId });
+            setDeletedVoyage({ voyageId, entries: voyageEntries, summary });
         },
-        [state.entries],
+        [state.entries, state.summaries],
     );
 
     // Called by UndoToast after 5s — performs the actual voyage delete
@@ -717,11 +804,22 @@ export function useLogPageState() {
 
     const handleUndoDeleteVoyage = useCallback(() => {
         if (deletedVoyage) {
-            dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, ...deletedVoyage.entries] });
+            // Restore resident points (if any were loaded)…
+            if (deletedVoyage.entries.length > 0) {
+                dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => [...prev, ...deletedVoyage.entries] });
+            }
+            // …and the summary card itself.
+            if (deletedVoyage.summary) {
+                const restored = deletedVoyage.summary;
+                dispatch({
+                    type: 'SET_SUMMARIES',
+                    summaries: [restored, ...state.summaries.filter((s) => s.voyageId !== restored.voyageId)],
+                });
+            }
             toast.success('Voyage restored');
         }
         setDeletedVoyage(null);
-    }, [deletedVoyage, toast]);
+    }, [deletedVoyage, toast, state.summaries]);
 
     // Track shared voyage warning state for ConfirmDialog in UI
     const [showSharedVoyageWarning, setShowSharedVoyageWarning] = useState<{
@@ -945,6 +1043,32 @@ export function useLogPageState() {
     // and consistent across every stat surface.
     const sailedVoyageGroups = useMemo(() => excludeSuggestedRoutes(voyageGroups), [voyageGroups]);
 
+    // ── Summary-driven list + stats ──────────────────────────────────────
+    // listVoyages drives the card list: server summaries, with the active
+    // live-tracking voyage and any lazy-loaded voyages overlaid live from
+    // their resident points (mergeSummariesWithLive). One row per voyage,
+    // no full point arrays — this is what makes the list render instantly.
+    const listVoyages = useMemo(
+        () => mergeSummariesWithLive(state.summaries, state.entries),
+        [state.summaries, state.entries],
+    );
+
+    // Top gauge tiles + voyage count, aggregated from summaries so they are
+    // accurate across the user's ENTIRE history without loading any points.
+    // Suggested/planned routes excluded (aspirational, not sailed miles).
+    const voyageStats = useMemo(() => {
+        const sailed = listVoyages.filter((v) => !v.isPlannedRoute);
+        let totalNm = 0;
+        let totalMs = 0;
+        for (const v of sailed) {
+            totalNm += v.totalDistanceNM || 0;
+            const start = new Date(v.startedAt).getTime();
+            const end = new Date(v.endedAt).getTime();
+            if (isFinite(start) && isFinite(end) && end > start) totalMs += end - start;
+        }
+        return { totalNm, totalMs, voyageCount: sailed.length };
+    }, [listVoyages]);
+
     const hasNonDeviceEntries = useMemo(() => {
         const targetEntries = state.selectedVoyageId
             ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
@@ -1031,8 +1155,9 @@ export function useLogPageState() {
         async (voyageId: string) => {
             const success = await ShipLogService.archiveVoyage(voyageId);
             if (success) {
-                // Immediately remove from active view
-                dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.voyageId !== voyageId) });
+                // Immediately remove from active view (summary card + any
+                // resident points for the voyage).
+                dispatch({ type: 'REMOVE_VOYAGE', voyageId });
                 toast.success('Voyage archived');
                 reloadCareerData();
             } else {
@@ -1110,6 +1235,12 @@ export function useLogPageState() {
         entryCounts,
         voyageGroups,
         sailedVoyageGroups,
+        // Summary-driven list + stats (the perf-critical path)
+        summaries: state.summaries,
+        listVoyages,
+        voyageStats,
+        loadVoyageEntries,
+        loadAllEntries,
         hasNonDeviceEntries,
         totalDistance,
         avgSpeed,
