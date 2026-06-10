@@ -59,8 +59,10 @@ describe('GpsPrecisionTracker', () => {
     // ── Precision detection ──
 
     it('detects precision GPS after sustained high-accuracy samples', () => {
-        // Feed enough precision samples (< 6m) to trigger hysteresis
-        for (let i = 0; i < 10; i++) {
+        // Feed enough precision samples (avg ≤ 3m AND range ≤ 2m) to clear
+        // the hysteresis: 4 warm-up samples (min window 5) + 8 confirmations
+        // (HYSTERESIS_ENTER) = 12 feeds minimum. Use 15 for headroom.
+        for (let i = 0; i < 15; i++) {
             GpsPrecision.feed(2.0);
         }
         expect(GpsPrecision.isPrecision()).toBe(true);
@@ -68,14 +70,14 @@ describe('GpsPrecisionTracker', () => {
     });
 
     it('detects degraded GPS after sustained low-accuracy samples', () => {
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 15; i++) {
             GpsPrecision.feed(25.0);
         }
         expect(GpsPrecision.getQuality()).toBe('degraded');
     });
 
     it('stays standard with moderate accuracy', () => {
-        for (let i = 0; i < 10; i++) {
+        for (let i = 0; i < 15; i++) {
             GpsPrecision.feed(10.0);
         }
         expect(GpsPrecision.getQuality()).toBe('standard');
@@ -103,8 +105,8 @@ describe('GpsPrecisionTracker', () => {
     it('precision mode tightens thresholds', () => {
         const standardThresholds = GpsPrecision.getAdaptedThresholds();
 
-        // Switch to precision
-        for (let i = 0; i < 10; i++) GpsPrecision.feed(2.0);
+        // Switch to precision (12 feeds minimum — see hysteresis note above)
+        for (let i = 0; i < 15; i++) GpsPrecision.feed(2.0);
 
         const precisionThresholds = GpsPrecision.getAdaptedThresholds();
         expect(precisionThresholds.courseChangeMinMovementM).toBeLessThanOrEqual(
@@ -115,7 +117,7 @@ describe('GpsPrecisionTracker', () => {
     // ── Reset ──
 
     it('reset clears all state', () => {
-        for (let i = 0; i < 10; i++) GpsPrecision.feed(2.0);
+        for (let i = 0; i < 15; i++) GpsPrecision.feed(2.0);
         expect(GpsPrecision.isPrecision()).toBe(true);
 
         GpsPrecision.reset();
@@ -129,12 +131,11 @@ describe('GpsPrecisionTracker', () => {
         const callback = vi.fn();
         const unsub = GpsPrecision.onQualityChange(callback);
 
-        for (let i = 0; i < 10; i++) GpsPrecision.feed(2.0);
+        for (let i = 0; i < 15; i++) GpsPrecision.feed(2.0);
 
-        // Should have been called at least once with 'precision'
-        if (callback.mock.calls.length > 0) {
-            expect(callback).toHaveBeenCalledWith('precision', expect.any(Number));
-        }
+        // 15 feeds clears the 12-feed hysteresis, so the transition to
+        // 'precision' must have fired the listener.
+        expect(callback).toHaveBeenCalledWith('precision', expect.any(Number));
 
         unsub();
     });

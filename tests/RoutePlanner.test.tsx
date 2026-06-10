@@ -8,7 +8,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../utils/createLogger', () => ({
     createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }),
 }));
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', () => ({
+    triggerHaptic: vi.fn(),
+    // settingsStore calls getSystemUnits() at module init via the utils barrel —
+    // return the real metric defaults so the store builds deterministically.
+    getSystemUnits: () => ({
+        speed: 'kts',
+        length: 'm',
+        waveHeight: 'm',
+        tideHeight: 'm',
+        temp: 'C',
+        distance: 'nm',
+        visibility: 'nm',
+        volume: 'l',
+    }),
+}));
 vi.mock('../utils/keyboardScroll', () => ({
     scrollInputAboveKeyboard: vi.fn(),
 }));

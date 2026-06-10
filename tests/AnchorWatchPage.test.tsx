@@ -60,6 +60,10 @@ vi.mock('../services/AnchorWatchSyncService', () => ({
         disconnect: vi.fn(),
         subscribe: vi.fn().mockReturnValue(vi.fn()),
         getState: vi.fn().mockReturnValue({ connected: false }),
+        // Newer API used by AnchorWatchPage's shore-session restore effect —
+        // missing from this mock it threw 3 unhandled rejections per run
+        // (tests passed but vitest exited 1).
+        getLastSessionCode: vi.fn().mockReturnValue(null),
         onStateChange: vi.fn().mockReturnValue(vi.fn()),
         onPosition: vi.fn().mockReturnValue(vi.fn()),
         onBroadcast: vi.fn().mockReturnValue(vi.fn()),

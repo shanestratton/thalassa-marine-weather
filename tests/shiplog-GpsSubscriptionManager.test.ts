@@ -132,12 +132,19 @@ describe('GpsSubscriptionManager', () => {
             expect(trackBuffer.length).toBe(0);
         });
 
-        it('rejects fixes with GPS speed > 25 kts', () => {
-            capturedLocationHandler!(makeFix({ speed: 14 })); // 14 m/s ≈ 27 kts
+        it('rejects fixes with GPS speed > 100 kts', () => {
+            // Cap raised 25 → 100 kn (commit 1dfc7fad): the 25 kn cap
+            // rejected every driving fix above ~46 km/h. Real GPS speed
+            // glitches look like 500+ kn, so 100 kn still catches them.
+            capturedLocationHandler!(makeFix({ speed: 60 })); // 60 m/s ≈ 117 kts → rejected
             expect(trackBuffer.length).toBe(0);
+            // Driving speed is now ACCEPTED — the regression that
+            // motivated raising the cap.
+            capturedLocationHandler!(makeFix({ speed: 14 })); // 14 m/s ≈ 27 kts → accepted
+            expect(trackBuffer.length).toBe(1);
         });
 
-        it('rejects fixes implying > 37.5 kts via Haversine ÷ Δt', () => {
+        it('rejects fixes implying > 150 kts via Haversine ÷ Δt', () => {
             // First fix: seed the buffer at lat 0, lon 0, t=now
             capturedLocationHandler!(makeFix({ latitude: 0, longitude: 0, timestamp: Date.now(), speed: 0 }));
             expect(trackBuffer.length).toBe(1);

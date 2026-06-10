@@ -199,7 +199,7 @@ describe('captureLog — DEDUP threshold (~5m / 0.005nm)', () => {
 });
 
 describe('captureLog — speed sanity', () => {
-    it('rejects entries with implied speed > 25 kts (drops, returns null)', async () => {
+    it('rejects entries with implied speed > 100 kts (drops, returns null)', async () => {
         // Last fix 1 min ago → 1° lat = 60nm in 1 min = 3600 kts
         lastPosition.mockResolvedValueOnce({
             latitude: -28.5,
@@ -214,20 +214,25 @@ describe('captureLog — speed sanity', () => {
         expect(saveLastPos).not.toHaveBeenCalled();
     });
 
-    it('rejects acceleration spike (delta > 8 kts)', async () => {
-        // Last position was at 1 kt; this fix implies > 9 kts
+    it('rejects acceleration spike (delta > 50 kts)', async () => {
+        // Last position was at 1 kt; this fix implies ~60 kts — under the
+        // 100 kn absolute cap (Layer 1) but a +59 kn jump, well over the
+        // 50 kn per-fix acceleration gate (Layer 2, raised from 8 kn on
+        // 2026-05-19 to stop rejecting legitimate driving fixes).
         lastPosition.mockResolvedValueOnce({
-            latitude: -27.4998,
+            latitude: -27.5166667,
             longitude: 153.0,
             timestamp: new Date(Date.now() - 60_000).toISOString(),
             cumulativeDistanceNM: 0,
             speedKts: 1,
         });
         const ctx = makeCtx();
-        // Fix moved ~0.18nm in 60s = 10.8 kts implied → +9.8 kt accel
-        bestPosition.mockResolvedValueOnce(makeFix(-27.5, 153.003, 5));
+        // Fix moved ~1nm in 60s = ~60 kts implied → +59 kt accel
+        bestPosition.mockResolvedValueOnce(makeFix(-27.5, 153.0, 5));
         const result = await captureLog(ctx);
         expect(result).toBeNull();
+        // Critical: NEVER write the spike's coords to last-position
+        expect(saveLastPos).not.toHaveBeenCalled();
     });
 
     it('zeros speed when last position was the 0,0 placeholder from captureImmediate', async () => {
