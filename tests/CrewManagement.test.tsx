@@ -46,7 +46,21 @@ vi.mock('../services/CrewService', () => ({
     leaveVessel: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../utils/system', () => ({ triggerHaptic: vi.fn() }));
+vi.mock('../utils/system', () => ({
+    triggerHaptic: vi.fn(),
+    // settingsStore imports getSystemUnits via the ../utils barrel, which
+    // re-exports ./system — a whole-module mock must keep this export alive.
+    getSystemUnits: vi.fn(() => ({
+        speed: 'kts',
+        length: 'm',
+        waveHeight: 'm',
+        tideHeight: 'm',
+        temp: 'C',
+        distance: 'nm',
+        visibility: 'nm',
+        volume: 'l',
+    })),
+}));
 vi.mock('../utils/keyboardScroll', () => ({ scrollInputAboveKeyboard: vi.fn() }));
 vi.mock('../utils/lazyRetry', () => ({
     lazyRetry: (fn: () => Promise<any>) => React.lazy(fn),

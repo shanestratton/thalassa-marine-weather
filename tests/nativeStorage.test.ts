@@ -235,6 +235,13 @@ describe('deleteLargeData', () => {
     beforeEach(() => vi.clearAllMocks());
 
     it('calls Filesystem.deleteFile with correct path', async () => {
+        // deleteLargeData probes the Documents listing first and only calls
+        // deleteFile when the file actually exists (avoids native ERROR log
+        // spam for missing files). Make the listing contain the file, and
+        // bust the module's memoised listing via a write (writes invalidate it).
+        mockReaddir.mockResolvedValue({ files: [{ name: 'old_data.json' }] });
+        await saveLargeDataImmediate('old_data', { stale: true });
+
         await deleteLargeData('old_data');
         expect(mockDeleteFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'old_data.json' }));
     });

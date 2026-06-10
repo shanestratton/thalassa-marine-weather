@@ -44,6 +44,20 @@ vi.mock('../../context/WeatherContext', () => ({
     }),
 }));
 
+// Override the global @capacitor/app mock from tests/setup.ts: Capacitor 8's
+// App.addListener returns Promise<PluginListenerHandle>, and the
+// AnchorWatchSyncService singleton (pulled in via HeroSlide's import chain)
+// calls .catch() on it at module load. The global mock still returns a
+// synchronous handle, which crashes the suite before any test runs.
+vi.mock('@capacitor/app', () => ({
+    App: {
+        addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
+        removeAllListeners: vi.fn().mockResolvedValue(undefined),
+        getInfo: vi.fn().mockResolvedValue({ name: 'Thalassa', id: 'dev.thalassa.app', build: '1', version: '1.0.0' }),
+        exitApp: vi.fn(),
+    },
+}));
+
 import { HeroSlide } from './HeroSlide';
 
 const baseData = {

@@ -5,7 +5,23 @@
  * drag detection logic, and jitter filtering.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+// AnchorWatchService transitively imports AnchorWatchSyncService, whose
+// module-level singleton calls `App.addListener(...).catch(...)`. The global
+// mock in tests/setup.ts returns a synchronous handle (the pre-Capacitor-3
+// contract), but @capacitor/app v8 returns Promise<PluginListenerHandle>, so
+// the import crashes before any test runs. Override locally with the real
+// async contract.
+vi.mock('@capacitor/app', () => ({
+    App: {
+        addListener: vi.fn().mockResolvedValue({ remove: vi.fn() }),
+        removeAllListeners: vi.fn().mockResolvedValue(undefined),
+        getInfo: vi.fn().mockResolvedValue({ name: 'Thalassa', id: 'dev.thalassa.app', build: '1', version: '1.0.0' }),
+        exitApp: vi.fn(),
+    },
+}));
+
 import { haversineDistance, bearing, calculateSwingRadius } from '../services/AnchorWatchService';
 
 // ── Haversine Distance ──
