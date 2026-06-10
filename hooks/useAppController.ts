@@ -11,6 +11,7 @@ import { DisplayMode, WeatherConditionKey, UserSettings } from '../types';
 import { toast } from '../components/Toast';
 import { GpsService } from '../services/GpsService';
 import { useAuthStore } from '../stores/authStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { supabase } from '../services/supabase';
 import { Geolocation } from '@capacitor/geolocation';
 // Sample/dummy location data removed 2026-05-17 — painting Sydney
@@ -252,6 +253,13 @@ export const useAppController = () => {
         GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 }).then(async (pos) => {
             if (!pos) return; // GPS denied or timed out — keep saved location
 
+            // GPS-follow mode owns boot positioning now (the follower in
+            // WeatherContext renames + refetches without leaving GPS mode).
+            // This boot override is only for users locked to a NAMED home
+            // port who've travelled — read the LIVE store, not the mount-
+            // time closure (settings may still be loading at mount).
+            if (useSettingsStore.getState().settings.defaultLocation === 'Current Location') return;
+
             const { latitude, longitude } = pos;
 
             const saved = weatherData?.coordinates;
@@ -312,42 +320,21 @@ export const useAppController = () => {
         if (!coords || (coords.lat === 0 && coords.lon === 0)) return;
 
         reverseGeocodeRanRef.current = true;
-        (async () => {
-            try {
-                const name = await reverseGeocode(coords.lat, coords.lon);
-                if (!name) return;
-                log.info(`Reverse-geocoded Current Location → ${name}`);
-                // Promote the friendly name via selectLocation. This:
-                //   1. Flips locationMode 'gps' → 'selected' so the
-                //      30-second auto-refresh stops calling
-                //      fetchWeather('Current Location', ...) which
-                //      was clobbering weatherData.locationName back
-                //      to the literal string every refresh. That was
-                //      the bug behind "name reverts to Current
-                //      Location after restart" — local Preferences
-                //      did save the friendly name, but the refresh
-                //      kept resetting it. (Drift detection in
-                //      WeatherContext still picks up real movement
-                //      and re-runs reverseGeocode → selectLocation
-                //      with the new name, so users underway still
-                //      see their actual position.)
-                //   2. Calls updateSettings({defaultLocation: name})
-                //      internally so the cloud-sync persists the
-                //      friendly name.
-                //   3. Hits the history cache for the just-loaded
-                //      weather, no extra network round-trip.
-                await selectLocation(name, { lat: coords.lat, lon: coords.lon });
-                // Persist coords too — selectLocation only writes the
-                // name. Coords let future cold boots skip the Mapbox
-                // forward-geocode round-trip on the saved name.
-                updateSettings({ defaultLocationCoords: { lat: coords.lat, lon: coords.lon } });
-                setQuery(name);
-            } catch (err) {
-                log.warn('reverseGeocode failed:', err);
-                // Reset the ref so a future weatherData update can retry.
-                reverseGeocodeRanRef.current = false;
-            }
-        })();
+        // GPS-FOLLOW MODE IS STICKY (2026-06-12). This effect previously
+        // promoted the geocoded name via selectLocation(name) — which
+        // flipped locationMode 'gps' → 'selected' and permanently killed
+        // the GPS follower in WeatherContext (the "position never updates
+        // underway" bug; the follower only runs in 'gps' mode). The two
+        // problems it was solving are now owned elsewhere:
+        //   - pretty display name: the follower prettifies the literal
+        //     'Current Location' label on its first tick (and keeps it
+        //     live as the boat moves), without touching settings;
+        //   - refresh clobber: the smart-refresh GPS branch now labels
+        //     its fetches with the current friendly name instead of the
+        //     literal string.
+        // All that remains here: persist coords so future cold boots can
+        // skip a forward-geocode round-trip.
+        updateSettings({ defaultLocationCoords: { lat: coords.lat, lon: coords.lon } });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation, weatherData?.coordinates?.lat, weatherData?.coordinates?.lon]);
 
