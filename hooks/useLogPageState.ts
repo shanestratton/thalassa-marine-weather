@@ -30,7 +30,6 @@ import { BgGeoManager } from '../services/BgGeoManager';
 import { useToast } from '../components/Toast';
 import { useSettings } from '../context/SettingsContext';
 import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntries } from '../utils/voyageData';
-import { getVoyageEntriesSince } from '../services/shiplog/EntryCrud';
 import {
     mergeSummariesWithLive,
     careerTotalsFromSummaries,
@@ -392,37 +391,23 @@ export function useLogPageState() {
         }
     }, [loadDataInner]);
 
-    // Lightweight live-tracking refresh. Instead of re-pulling the whole
-    // history every poll tick (the old behaviour), this fetches ONLY the
-    // active voyage's new cloud points since the newest one we already
-    // hold, plus the (cheap, local) offline queue, and merges them into
-    // state. Bounded and fast regardless of total history size, so the
-    // 1-second burst poll no longer freezes the page.
+    // Lightweight live-tracking refresh — DEVICE-ONLY. While a voyage is
+    // recording, local-first capture writes every point to the offline
+    // queue (nothing lands in the cloud until the voyage stops), so the
+    // live card refreshes purely from the local queue: zero network on
+    // the 1–5 s poll, instant, and identical on a dead link offshore.
+    // This poll only runs on the RECORDING device (gated on isTracking +
+    // getCurrentVoyageId), so no other surface loses cloud freshness.
     const refreshActiveVoyage = useCallback(async () => {
         const voyageId = ShipLogService.getCurrentVoyageId();
         if (!voyageId) return;
 
-        // Newest cloud-sourced timestamp we currently hold for this
-        // voyage — the incremental query's lower bound. Offline entries
-        // (synthetic ids) are excluded so a not-yet-synced point doesn't
-        // advance the watermark past cloud rows we haven't seen.
-        const stateEntries = entriesRef.current;
-        let sinceIso = '1970-01-01T00:00:00.000Z';
-        for (const e of stateEntries) {
-            if (e.voyageId !== voyageId) continue;
-            if (e.id && e.id.startsWith('offline_')) continue;
-            if (e.timestamp > sinceIso) sinceIso = e.timestamp;
-        }
-
         try {
-            const [newCloud, offlineEntries] = await Promise.all([
-                getVoyageEntriesSince(voyageId, sinceIso),
-                ShipLogService.getOfflineEntries(),
-            ]);
-            if (newCloud.length === 0 && offlineEntries.length === 0) return;
+            const offlineEntries = await ShipLogService.getOfflineEntries();
+            if (offlineEntries.length === 0) return;
             dispatch({
                 type: 'UPDATE_ENTRIES',
-                updater: (prev) => mergeRecentEntries(prev, [...newCloud, ...offlineEntries]),
+                updater: (prev) => mergeRecentEntries(prev, offlineEntries),
             });
         } catch (e) {
             log.warn('refreshActiveVoyage failed', e);

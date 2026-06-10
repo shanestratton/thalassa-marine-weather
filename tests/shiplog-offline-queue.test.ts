@@ -32,6 +32,8 @@ vi.mock('@capacitor/preferences', () => ({
 // Mock supabase (not used in offline queue tests, but imported by module)
 vi.mock('../services/supabase', () => ({
     supabase: null,
+    getCurrentUser: vi.fn(async () => null),
+    getCurrentUserId: vi.fn(async () => null),
 }));
 
 // Mock logger
