@@ -22,6 +22,7 @@ import {
 } from '../services/WeatherOrchestrator';
 
 import { createLogger } from '../utils/createLogger';
+import { decideFollowAction, haversineNM, GPS_FOLLOW_POLL_MS } from '../utils/gpsFollow';
 import { useWeatherStore } from '../stores/weatherStore';
 
 const log = createLogger('WeatherContext');
@@ -435,13 +436,17 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 if (locationMode === 'gps') {
                     GpsService.getCurrentPosition({ staleLimitMs: 30_000 }).then((pos) => {
                         if (pos) {
-                            fetchWeather(
-                                'Current Location',
-                                true,
-                                { lat: pos.latitude, lon: pos.longitude },
-                                false,
-                                true,
-                            );
+                            // Refresh AT the boat's position, labelled with
+                            // the current friendly name. Passing the literal
+                            // 'Current Location' string here used to clobber
+                            // weatherData.locationName on every refresh —
+                            // the clobber that useAppController's old
+                            // mode-flip "fix" was working around. The GPS
+                            // follower owns display naming now.
+                            const currentName = weatherDataRef.current?.locationName;
+                            const label =
+                                currentName && currentName !== 'Current Location' ? currentName : 'Current Location';
+                            fetchWeather(label, true, { lat: pos.latitude, lon: pos.longitude }, false, true);
                         } else {
                             const loc = weatherDataRef.current?.locationName || settingsRef.current.defaultLocation;
                             const coords = weatherDataRef.current?.coordinates;
@@ -564,69 +569,82 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
     }, [fetchWeather, locationMode]);
 
-    // ── GPS DRIFT DETECTOR ──────────────────────────────────
+    // ── GPS FOLLOW — live position every 5 s, weather every 30 NM ──
+    // While defaultLocation is 'Current Location' the Glass page FOLLOWS
+    // the boat: position checked every 5 s; once you've drifted ≥0.5 NM
+    // from what's on screen the displayed name/coords update (reverse-
+    // geocoded); once you're ≥30 NM from the point the FORECAST was
+    // fetched for, fresh weather is pulled for where you actually are.
+    // Decision logic + thresholds live in utils/gpsFollow (unit-tested).
+    //
+    // CRITICAL INVARIANT: nothing in this effect may call selectLocation()
+    // or write settings.defaultLocation — both flip locationMode to
+    // 'selected' (via the sync effect above), which unmounts this very
+    // effect. That self-kill was the original "position never updates
+    // underway" bug: the old drift detector promoted its first geocoded
+    // name into settings and died. GPS-follow mode is STICKY until the
+    // user manually picks a port.
+    //
+    // The 30 NM baseline is the last REAL fetch point, tracked via
+    // generatedAt (display renames preserve generatedAt; real fetches
+    // change it). Measuring against displayed coords instead would let
+    // 0.5 NM renames keep resetting the baseline — a boat could cross an
+    // ocean in small hops without ever tripping a forecast refresh.
+    const weatherPointRef = useRef<{ lat: number; lon: number; generatedAt: string } | null>(null);
+    useEffect(() => {
+        const d = weatherData;
+        if (!d?.coordinates || !d.generatedAt) return;
+        if (weatherPointRef.current?.generatedAt !== d.generatedAt) {
+            weatherPointRef.current = { lat: d.coordinates.lat, lon: d.coordinates.lon, generatedAt: d.generatedAt };
+        }
+    }, [weatherData]);
+
     useEffect(() => {
         if (locationMode !== 'gps') return;
 
-        const NAME_CHECK_NM = 0.5;
-        const WEATHER_REFRESH_NM = 5;
-        // Big-jump threshold — above this we ALWAYS refetch, ignoring
-        // the cold-start debounce. Covers the 'punter caught a flight'
-        // case where cached weather is for a location hundreds of km
-        // away. 25nm ≈ 46km, comfortably bigger than normal coastal
-        // drift but smaller than inter-city flights.
-        const TELEPORT_NM = 25;
-        const POLL_MS = 30_000;
+        const cardinalName = (lat: number, lon: number) =>
+            `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'}, ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
 
-        const haversineNM = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-            const R = 3440.065;
-            const dLat = ((lat2 - lat1) * Math.PI) / 180;
-            const dLon = ((lon2 - lon1) * Math.PI) / 180;
-            const a =
-                Math.sin(dLat / 2) ** 2 +
-                Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-            return 2 * R * Math.asin(Math.sqrt(a));
-        };
-
-        const runDriftCheck = () => {
+        const tick = () => {
             if (document.hidden) return;
-            if (!navigator.onLine || isFetchingRef.current) return;
+            if (isFetchingRef.current) return;
 
-            const current = weatherDataRef.current?.coordinates;
-            if (!current) return;
-
-            // Cold-start debounce — don't fire a duplicate fetch within
-            // 60s of the initial one. Skipped for TELEPORT-scale jumps
-            // (e.g. flight home between sessions) where we absolutely
-            // need fresh weather regardless of when the last fetch ran.
-            const generatedTs = weatherDataRef.current?.generatedAt
-                ? new Date(weatherDataRef.current.generatedAt).getTime()
-                : 0;
-            const isRecent = Date.now() - generatedTs < 60_000;
+            const displayed = weatherDataRef.current?.coordinates;
+            const weatherPoint = weatherPointRef.current;
+            if (!displayed || !weatherPoint) return;
 
             GpsService.getCurrentPosition({ staleLimitMs: 10_000 }).then(async (pos) => {
                 if (!pos) return;
                 const { latitude, longitude } = pos;
-                const dist = haversineNM(current.lat, current.lon, latitude, longitude);
 
-                if (dist < NAME_CHECK_NM) return;
+                const action = decideFollowAction({
+                    weatherPoint,
+                    displayed,
+                    position: { lat: latitude, lon: longitude },
+                    // Boot case: prettify the literal placeholder name even
+                    // at zero drift — without leaving GPS mode.
+                    displayedNameIsPlaceholder: weatherDataRef.current?.locationName === 'Current Location',
+                });
+                if (action === 'none') return;
 
-                // Respect cold-start debounce for small-to-medium drift,
-                // but always refetch on teleport-scale jumps.
-                if (isRecent && dist < TELEPORT_NM) return;
-
-                let name = `${Math.abs(latitude).toFixed(2)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(2)}°${longitude >= 0 ? 'E' : 'W'}`;
+                let name = cardinalName(latitude, longitude);
                 try {
                     const geo = await reverseGeocode(latitude, longitude);
                     if (geo) name = geo;
-                } catch (e) {
-                    log.warn('[WeatherContext] fallback to cardinal coords:', e);
+                } catch {
+                    /* offshore — cardinal coords are an honest label */
                 }
 
-                if (dist >= WEATHER_REFRESH_NM) {
-                    log.info(`[WeatherContext] GPS drift ${dist.toFixed(1)}nm — refetching weather`);
-                    selectLocation(name, { lat: latitude, lon: longitude });
-                } else if (name !== weatherDataRef.current?.locationName) {
+                if (action === 'refetch') {
+                    if (!navigator.onLine) return; // retry next tick when the link returns
+                    const dist = haversineNM(weatherPoint.lat, weatherPoint.lon, latitude, longitude);
+                    log.warn(
+                        `[WeatherContext] GPS follow: ${dist.toFixed(1)} NM from forecast point — refetching for ${name}`,
+                    );
+                    fetchWeather(name, true, { lat: latitude, lon: longitude }, false, true);
+                } else {
+                    // Inside the 30 NM bubble: keep the DISPLAYED position
+                    // live. No settings write, no refetch — just the label.
                     const existing = weatherDataRef.current;
                     if (existing) {
                         setWeatherData({
@@ -634,22 +652,18 @@ export const WeatherProvider: React.FC<{ children: React.ReactNode }> = ({ child
                             locationName: name,
                             coordinates: { lat: latitude, lon: longitude },
                         });
-                        updateSettings({ defaultLocation: name });
                     }
                 }
             });
         };
 
-        // Run the check IMMEDIATELY on mount — don't wait 30s for the
-        // first interval tick. This is the 'opened app after a flight'
-        // case: cached weather is for Brisbane, phone is in Sydney;
-        // without the immediate run the user stares at wrong-location
-        // weather for up to 30s before the detector catches it.
-        runDriftCheck();
-        const driftCheck = setInterval(runDriftCheck, POLL_MS);
+        // Immediate first tick — covers 'opened the app after a flight'
+        // (≥30 NM → instant refetch) and boot-time name prettify.
+        tick();
+        const followTimer = setInterval(tick, GPS_FOLLOW_POLL_MS);
 
-        return () => clearInterval(driftCheck);
-    }, [locationMode, selectLocation, setWeatherData, updateSettings]);
+        return () => clearInterval(followTimer);
+    }, [locationMode, fetchWeather, setWeatherData]);
 
     // ── LIVE OVERLAY (delegates to orchestrator) ────────────
     useEffect(() => {
