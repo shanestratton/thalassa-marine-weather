@@ -323,11 +323,16 @@ export function useLogPageState() {
         // points). Past voyages' full points are lazy-loaded on demand
         // when the user expands or opens one (see loadVoyageEntries). The
         // merge preserves any voyage already lazy-loaded this session.
+        const t0 = performance.now();
         const [summaries, activeEntries, offlineEntries] = await Promise.all([
             ShipLogService.getVoyageSummaries(),
             voyageIdAtStart ? ShipLogService.getVoyageEntries(voyageIdAtStart) : Promise.resolve([] as ShipLogEntry[]),
             ShipLogService.getOfflineEntries(),
         ]);
+        log.warn(
+            `[perf] loadData network: ${Math.round(performance.now() - t0)}ms ` +
+                `(${summaries.length} voyages, ${activeEntries.length} active pts)`,
+        );
 
         dispatch({ type: 'SET_SUMMARIES', summaries });
 
@@ -467,6 +472,21 @@ export function useLogPageState() {
         BgGeoManager.ensureReady().catch((e) => {
             console.warn(`[useLogPageState]`, e);
         });
+        // ── INSTANT PAINT ───────────────────────────────────────────────
+        // Boot the list from the LOCAL summary cache before any network
+        // call — the Log appears immediately (online, offline, cold start),
+        // then loadData() refreshes it from the cloud in the background.
+        (async () => {
+            try {
+                const cached = await ShipLogService.getCachedVoyageSummaries();
+                if (mounted && cached.length > 0) {
+                    dispatch({ type: 'SET_SUMMARIES', summaries: cached });
+                    dispatch({ type: 'DONE_LOADING' });
+                }
+            } catch {
+                /* cache miss — the network load below fills it */
+            }
+        })();
         (async () => {
             try {
                 await ShipLogService.initialize();

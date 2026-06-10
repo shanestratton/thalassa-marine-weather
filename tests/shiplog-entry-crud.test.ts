@@ -30,6 +30,17 @@ vi.mock('../services/supabase', () => ({
             getUser: () => mockGetUser(),
         },
     },
+    // EntryCrud now resolves the user via the fast local helpers (getSession-
+    // backed) instead of auth.getUser(). Derive them from the same mock so
+    // existing per-test mockGetUser setups keep driving behaviour.
+    getCurrentUser: async () => {
+        const res = await mockGetUser();
+        return res?.data?.user ?? null;
+    },
+    getCurrentUserId: async () => {
+        const res = await mockGetUser();
+        return res?.data?.user?.id ?? null;
+    },
 }));
 
 // Mock logger

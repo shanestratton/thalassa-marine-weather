@@ -9,7 +9,7 @@
  * This module consolidates it into a single function.
  */
 
-import { supabase } from '../supabase';
+import { supabase, getCurrentUser } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { toDbFormat, fromDbFormat, formatPositionDMS, SHIP_LOGS_TABLE } from './helpers';
 import { queueOfflineEntry } from './OfflineQueue';
@@ -60,9 +60,7 @@ export async function saveEntryOnlineOrOffline(
         try {
             const saveResult = await Promise.race([
                 (async () => {
-                    const {
-                        data: { user },
-                    } = await supabase.auth.getUser();
+                    const user = await getCurrentUser();
                     if (user) {
                         const { data, error } = await supabase
                             .from(SHIP_LOGS_TABLE)
@@ -163,9 +161,7 @@ export async function webGetFreshPosition(): Promise<CachedPosition | null> {
 export async function demotePreviousAutoWaypoint(voyageId: string): Promise<void> {
     if (!supabase || !voyageId) return;
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return;
 
         // Find the most recent 'Latest Position' waypoint in this voyage
