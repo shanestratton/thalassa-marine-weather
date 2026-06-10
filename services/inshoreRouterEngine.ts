@@ -77,7 +77,7 @@ const engineLog = createLogger('inshoreEngine');
 // NOR their (sometimes expensive grid-walking) compute ship. Flip to
 // true locally to debug a route. Operational fallback logs (destination-
 // disconnected relax, far-snap retry) stay unconditional below.
-const ENGINE_DEBUG = true;
+const ENGINE_DEBUG = false;
 
 // ── Types ──────────────────────────────────────────────────────────
 
