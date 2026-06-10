@@ -12,7 +12,7 @@
 import { supabase, getCurrentUser } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { toDbFormat, fromDbFormat, formatPositionDMS, SHIP_LOGS_TABLE } from './helpers';
-import { queueOfflineEntry } from './OfflineQueue';
+import { queueOfflineEntry, demoteLatestPositionInQueue } from './OfflineQueue';
 import { BgGeoManager, CachedPosition } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { Capacitor } from '@capacitor/core';
@@ -43,6 +43,27 @@ export function isOnlineAndNotSatellite(): boolean {
     return typeof navigator !== 'undefined' && navigator.onLine && !isSatelliteMode();
 }
 
+// ── LOCAL-ONLY CAPTURE MODE ─────────────────────────────────────────
+// While a voyage is actively recording, every captured point is written
+// to the DEVICE only (offline queue) — zero network on the capture path.
+// The whole voyage uploads to Supabase in the background once tracking
+// stops. This is "satellite mode, automatically, for the duration of a
+// log": capture latency stays flat regardless of connectivity, the radio
+// isn't hammered every few seconds for hours, and a dropout mid-passage
+// can't stall or reorder the pipeline.
+//
+// ShipLogService.startTracking() turns it on; stopTracking() turns it
+// off and fires syncOfflineQueue() in the background.
+let captureLocalOnly = false;
+
+export function setCaptureLocalOnly(enabled: boolean): void {
+    captureLocalOnly = enabled;
+}
+
+export function isCaptureLocalOnly(): boolean {
+    return captureLocalOnly;
+}
+
 /**
  * Save-or-Queue Pipeline.
  *
@@ -54,6 +75,14 @@ export function isOnlineAndNotSatellite(): boolean {
 export async function saveEntryOnlineOrOffline(
     entry: Partial<ShipLogEntry>,
 ): Promise<{ saved: ShipLogEntry | null; entryId: string | null; wasOffline: boolean }> {
+    // Active voyage → device only. No Supabase attempt, no 5 s timeout
+    // race, no auth resolution — just an instant local append. The voyage
+    // syncs as one batch when tracking stops.
+    if (captureLocalOnly) {
+        await queueOfflineEntry(entry);
+        return { saved: null, entryId: null, wasOffline: true };
+    }
+
     const isOnline = isOnlineAndNotSatellite();
 
     if (supabase && isOnline) {
@@ -159,7 +188,18 @@ export async function webGetFreshPosition(): Promise<CachedPosition | null> {
  * manual entries, and user-placed waypoints are never demoted.
  */
 export async function demotePreviousAutoWaypoint(voyageId: string): Promise<void> {
-    if (!supabase || !voyageId) return;
+    if (!voyageId) return;
+
+    // Local-only capture: the previous 'Latest Position' entry is sitting
+    // in the offline queue, not the DB — demote it there (instant, no
+    // network). syncOfflineQueue also normalises duplicates per voyage at
+    // upload time as a belt-and-braces.
+    if (captureLocalOnly) {
+        await demoteLatestPositionInQueue(voyageId);
+        return;
+    }
+
+    if (!supabase) return;
     try {
         const user = await getCurrentUser();
         if (!user) return;

@@ -52,6 +52,7 @@ import {
     type AddManualOptions,
 } from './shiplog/CapturePipeline';
 import { getGpsStatus as _getGpsStatus, getGpsNavData as _getGpsNavData } from './shiplog/PositionResolver';
+import { setCaptureLocalOnly } from './shiplog/EntrySave';
 import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
@@ -199,8 +200,12 @@ class ShipLogServiceClass {
             // Start sync interval to process offline queue
             this.startSyncInterval();
 
-            // Try initial sync
-            await this.syncOfflineQueue();
+            // Try initial sync — but NOT if a voyage resumed recording (or
+            // sits paused) above. Local-first capture: the queue is the live
+            // store mid-voyage; it uploads as one batch when the voyage stops.
+            if (!this.trackingState.isTracking && !this.trackingState.isPaused) {
+                await this.syncOfflineQueue();
+            }
 
             // BACKGROUND RESUME HANDLER: Catch up on missed entries when app wakes up
             // Uses Capacitor App listener for native iOS/Android
@@ -391,6 +396,12 @@ class ShipLogServiceClass {
         };
 
         await this.saveTrackingState();
+
+        // LOCAL-FIRST CAPTURE: while this voyage records, every entry is
+        // written to the device only (offline queue) — zero network on the
+        // capture path. The whole voyage uploads in the background at stop.
+        setCaptureLocalOnly(true);
+
         this.notifyTrackingChanged();
 
         // Flip the GPS plugin into precision sampling mode immediately.
@@ -588,6 +599,20 @@ class ShipLogServiceClass {
         await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err) => {
             log.warn(``, err);
         });
+
+        // Voyage complete → exit local-only capture and upload the whole
+        // recorded voyage to Supabase in the background. Fire-and-forget:
+        // the UI never waits on this, and if it fails (offshore, no link)
+        // the 2-minute sync interval + app-launch sync retry until it lands.
+        setCaptureLocalOnly(false);
+        void this.syncOfflineQueue()
+            .then((n) => {
+                if (n > 0) {
+                    log.warn(`[ShipLog] voyage upload complete: ${n} entries synced in background`);
+                    this.notifyTrackingChanged(); // nudge UI to refresh from cloud
+                }
+            })
+            .catch((e) => log.warn('[ShipLog] background voyage upload failed (will retry on interval):', e));
 
         // NOW clean up GPS stream subscriptions (after final entry has GPS)
         this.gpsSubs.stop();
@@ -937,6 +962,12 @@ class ShipLogServiceClass {
         if (this.syncIntervalId) return;
         this.syncIntervalId = setInterval(
             () => {
+                // While a voyage is RECORDING (or paused mid-voyage) the
+                // queue is the live store (local-first capture) — don't
+                // upload an incomplete voyage. The flush happens at
+                // stopTracking; this interval is the retry net for
+                // completed voyages that failed to sync.
+                if (this.trackingState.isTracking || this.trackingState.isPaused) return;
                 this.syncOfflineQueue();
             },
             2 * 60 * 1000,
