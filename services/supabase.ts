@@ -175,6 +175,46 @@ export const supabase =
 
 export const isSupabaseConfigured = () => !!supabase;
 
+/**
+ * Fast, LOCAL current-user-id resolver.
+ *
+ * `auth.getUser()` round-trips to the Supabase auth server to re-validate
+ * the token — 1–3 s on a cold start or a flaky boat connection, and it
+ * returns null while the session is still rehydrating from storage (the
+ * cause of "the first action after opening the app does nothing").
+ *
+ * `auth.getSession()` returns the session straight from local storage
+ * (Capacitor Preferences, configured above) — instant, offline-safe — and
+ * the client's autoRefreshToken keeps the JWT fresh in the background. For
+ * everything we do (RLS-scoped reads/writes that just need `user.id` for an
+ * `.eq('user_id', …)` filter) the local session id is exactly right; RLS
+ * still enforces ownership server-side regardless.
+ *
+ * Use this in hot paths instead of getUser(). Returns null if unauthenticated.
+ */
+export async function getCurrentUserId(): Promise<string | null> {
+    if (!supabase) return null;
+    try {
+        const {
+            data: { session },
+        } = await supabase.auth.getSession();
+        return session?.user?.id ?? null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Same fast local resolver as getCurrentUserId, but returns a minimal
+ * `{ id }` user object (or null) so call sites that previously did
+ * `const { data: { user } } = await supabase.auth.getUser()` can swap to
+ * `const user = await getCurrentUser()` with zero downstream changes.
+ */
+export async function getCurrentUser(): Promise<{ id: string } | null> {
+    const id = await getCurrentUserId();
+    return id ? { id } : null;
+}
+
 // --- TYPED PROFILE HELPERS ---
 
 export interface UserProfile {

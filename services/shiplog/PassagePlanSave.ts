@@ -5,7 +5,7 @@
  * to Supabase (or offline queue). Self-contained, no class dependency.
  */
 
-import { supabase } from '../supabase';
+import { supabase, getCurrentUser } from '../supabase';
 import { ShipLogEntry } from '../../types';
 import { calculateDistanceNM, calculateBearing, formatPositionDMS, toDbFormat, SHIP_LOGS_TABLE } from './helpers';
 import { queueOfflineEntry } from './OfflineQueue';
@@ -300,9 +300,7 @@ export async function savePassagePlanToLogbook(plan: import('../../types').Voyag
         let savedOnline = false;
         if (supabase) {
             try {
-                const {
-                    data: { user },
-                } = await supabase.auth.getUser();
+                const user = await getCurrentUser();
                 if (user) {
                     const dbEntries = entries.map((e) => toDbFormat({ ...e, userId: user.id }));
                     const { error } = await supabase.from(SHIP_LOGS_TABLE).insert(dbEntries);

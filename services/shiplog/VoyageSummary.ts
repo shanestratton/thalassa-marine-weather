@@ -16,7 +16,8 @@
  */
 
 import { ShipLogEntry } from '../../types';
-import { supabase } from '../supabase';
+import { supabase, getCurrentUser, getCurrentUserId } from '../supabase';
+import { getCachedSummaries, setCachedSummaries } from './VoyageSummaryCache';
 import { createLogger } from '../../utils/logger';
 import { SHIP_LOGS_TABLE, fromDbFormat } from './helpers';
 
@@ -254,6 +255,8 @@ const FALLBACK_MAX_ROWS = 200_000;
 export async function getVoyageSummaries(includeArchived = false): Promise<VoyageSummary[]> {
     if (!supabase) return [];
 
+    let result: VoyageSummary[] | null = null;
+
     if (!rpcUnavailable) {
         try {
             const { data, error } = await supabase.rpc('get_voyage_summaries', {
@@ -268,23 +271,43 @@ export async function getVoyageSummaries(includeArchived = false): Promise<Voyag
                     log.warn('get_voyage_summaries RPC error, falling back:', error.message);
                 }
             } else if (Array.isArray(data)) {
-                return data.map((r) => fromRpcRow(r as Record<string, unknown>));
+                result = data.map((r) => fromRpcRow(r as Record<string, unknown>));
             }
         } catch (e) {
             log.warn('get_voyage_summaries RPC threw, falling back:', e);
         }
     }
 
-    return summariesFromProjection(includeArchived);
+    if (result === null) {
+        result = await summariesFromProjection(includeArchived);
+    }
+
+    // Write-through to the local cache so the NEXT Log open paints instantly
+    // from the phone before this network fetch returns. Only the default
+    // (non-archived) list is cached — that's the hot Log path.
+    if (!includeArchived) {
+        const userId = await getCurrentUserId();
+        void setCachedSummaries(userId, result);
+    }
+
+    return result;
+}
+
+/**
+ * INSTANT local read of the last-cached voyage summaries (no network).
+ * The Log boots from this on mount to paint the list immediately, then
+ * calls getVoyageSummaries() to refresh from the cloud in the background.
+ */
+export async function getCachedVoyageSummaries(): Promise<VoyageSummary[]> {
+    const userId = await getCurrentUserId();
+    return (await getCachedSummaries(userId)) ?? [];
 }
 
 /** Fallback path: paginate the lightweight projection, aggregate locally. */
 async function summariesFromProjection(includeArchived: boolean): Promise<VoyageSummary[]> {
     if (!supabase) return [];
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return [];
 
         const rows: Record<string, unknown>[] = [];
@@ -324,9 +347,7 @@ async function summariesFromProjection(includeArchived: boolean): Promise<Voyage
 export async function getVoyageEntries(voyageId: string, includeArchived = false): Promise<ShipLogEntry[]> {
     if (!supabase || !voyageId) return [];
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return [];
 
         const all: ShipLogEntry[] = [];

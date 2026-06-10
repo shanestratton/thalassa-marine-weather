@@ -69,6 +69,7 @@ import {
 } from './shiplog/EntryCrud';
 import {
     getVoyageSummaries as _getVoyageSummaries,
+    getCachedVoyageSummaries as _getCachedVoyageSummaries,
     getVoyageEntries as _getVoyageEntries,
     type VoyageSummary,
 } from './shiplog/VoyageSummary';
@@ -345,8 +346,14 @@ class ShipLogServiceClass {
         // Initialize GPS engine (native-only: Transistorsoft BgGeo).
         // On web, GPS is started via navigator.geolocation in gpsSubs.start().
         if (this.isNative) {
+            const tg = performance.now();
             await BgGeoManager.ensureReady();
+            const tReady = performance.now();
             await BgGeoManager.requestStart();
+            log.warn(
+                `[perf] startTracking GPS: ensureReady ${Math.round(tReady - tg)}ms + ` +
+                    `requestStart ${Math.round(performance.now() - tReady)}ms`,
+            );
         }
 
         // GPS engine confirmed running — NOW commit tracking state.
@@ -891,6 +898,11 @@ class ShipLogServiceClass {
      */
     async getVoyageSummaries(includeArchived = false): Promise<VoyageSummary[]> {
         return _getVoyageSummaries(includeArchived);
+    }
+
+    /** INSTANT local read of cached summaries (no network) — Log boot path. */
+    async getCachedVoyageSummaries(): Promise<VoyageSummary[]> {
+        return _getCachedVoyageSummaries();
     }
 
     /** Lazy-load the FULL entry list for one voyage (expand / map open). */

@@ -6,7 +6,7 @@
  */
 
 import { ShipLogEntry } from '../../types';
-import { supabase } from '../supabase';
+import { supabase, getCurrentUser } from '../supabase';
 import { createLogger } from '../../utils/logger';
 import { SHIP_LOGS_TABLE, toDbFormat, fromDbFormat } from './helpers';
 import { deleteVoyageFromOfflineQueue, deleteEntryFromOfflineQueue } from './OfflineQueue';
@@ -35,9 +35,7 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
 
     try {
         // Check if user is authenticated
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) {
             return [];
         }
@@ -92,9 +90,7 @@ export async function getLogEntries(limit: number = 50): Promise<ShipLogEntry[]>
 export async function getVoyageEntriesSince(voyageId: string, sinceIso: string): Promise<ShipLogEntry[]> {
     if (!supabase || !voyageId || !sinceIso) return [];
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -120,9 +116,7 @@ export async function getVoyageEntriesSince(voyageId: string, sinceIso: string):
 export async function getArchivedEntries(limit: number = 10000): Promise<ShipLogEntry[]> {
     if (!supabase) return [];
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return [];
 
         // Paginate to fetch all archived entries
@@ -162,9 +156,7 @@ export async function getArchivedEntries(limit: number = 10000): Promise<ShipLog
 export async function getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
     if (!supabase) return [];
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return [];
 
         const { data, error } = await supabase
@@ -188,9 +180,7 @@ export async function getAllEntriesForCareer(): Promise<ShipLogEntry[]> {
 export async function archiveVoyage(voyageId: string): Promise<boolean> {
     if (!supabase) return false;
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return false;
 
         const { error } = await supabase
@@ -216,9 +206,7 @@ export async function archiveVoyage(voyageId: string): Promise<boolean> {
 export async function unarchiveVoyage(voyageId: string): Promise<boolean> {
     if (!supabase) return false;
     try {
-        const {
-            data: { user },
-        } = await supabase.auth.getUser();
+        const user = await getCurrentUser();
         if (!user) return false;
 
         const { error } = await supabase
@@ -257,9 +245,7 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
     const planDay = planTs !== null ? new Date(planTs).toISOString().slice(0, 10) : null;
     if (planDay !== null && supabase) {
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
+            const user = await getCurrentUser();
             if (user) {
                 const { data: rows } = await supabase
                     .from(SHIP_LOGS_TABLE)
@@ -289,9 +275,7 @@ export async function deleteVoyage(voyageId: string): Promise<boolean> {
     // If Supabase is available, also delete from there
     if (supabase) {
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
+            const user = await getCurrentUser();
             if (user) {
                 let query = supabase.from(SHIP_LOGS_TABLE).delete().eq('user_id', user.id);
 
@@ -366,9 +350,7 @@ export async function deleteEntry(entryId: string): Promise<boolean> {
     // If Supabase is available, also delete from there
     if (supabase) {
         try {
-            const {
-                data: { user },
-            } = await supabase.auth.getUser();
+            const user = await getCurrentUser();
             if (user) {
                 const { error } = await supabase
                     .from(SHIP_LOGS_TABLE)
@@ -406,9 +388,7 @@ export async function importGPXVoyage(
         throw new Error('Database not available — connect to import tracks');
     }
 
-    const {
-        data: { user },
-    } = await supabase.auth.getUser();
+    const user = await getCurrentUser();
     if (!user) {
         throw new Error('Login required to import tracks');
     }
