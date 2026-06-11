@@ -36,6 +36,7 @@ import { Capacitor } from '@capacitor/core';
 import { supabase } from '../services/supabase';
 import { YachtDatabaseSearch as _YachtDatabaseSearch } from './settings/YachtDatabaseSearch';
 import type { PolarDatabaseEntry } from '../data/polarDatabase';
+import { FEET_PER_METRE } from '../services/units';
 
 interface OnboardingWizardProps {
     onComplete: (settings: Partial<UserSettings>) => void;
@@ -190,9 +191,18 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
         setSelectedPolar({ data: entry.polar, model: entry.model });
         // Don't auto-fill the model name into vessel name — user should name their own boat
         // if (!name) setName(entry.model);
-        if (!length) setLength(String(entry.loa));
-        if (!beam) setBeam(String(Math.round(entry.loa * 0.32)));
-        if (!draft) setDraft(String(Math.round(entry.loa * 0.16)));
+        //
+        // polarDatabase LOA is in FEET, but each dimension field holds
+        // whatever unit its toggle says (seeded from user prefs at step 4).
+        // handleFinish converts field → feet via that toggle, so dropping a
+        // raw feet estimate into a metres field double-converts on save
+        // (8.8 ft of draft labelled "m" saves as 28.9 ft). Convert each
+        // estimate into its field's current unit first.
+        const estimateInUnit = (ft: number, unit: LengthUnit) =>
+            unit === 'm' ? String(Math.round((ft / FEET_PER_METRE) * 10) / 10) : String(Math.round(ft));
+        if (!length) setLength(estimateInUnit(entry.loa, lengthUnit));
+        if (!beam) setBeam(estimateInUnit(entry.loa * 0.32, beamUnit));
+        if (!draft) setDraft(estimateInUnit(entry.loa * 0.16, draftUnit));
     };
 
     const handleNext = () => {
@@ -424,9 +434,12 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
     const handleFinish = () => {
         let finalVesselType = vesselType;
-        let l_ft = length ? (lengthUnit === 'm' ? parseFloat(length) * 3.28084 : parseFloat(length)) : 0;
-        let b_ft = beam ? (beamUnit === 'm' ? parseFloat(beam) * 3.28084 : parseFloat(beam)) : 0;
-        let d_ft = draft ? (draftUnit === 'm' ? parseFloat(draft) * 3.28084 : parseFloat(draft)) : 0;
+        // VesselProfile dimensions are stored in FEET — this is THE
+        // conversion point that establishes the convention every consumer
+        // (vesselDraftMetres in services/units.ts) relies on.
+        let l_ft = length ? (lengthUnit === 'm' ? parseFloat(length) * FEET_PER_METRE : parseFloat(length)) : 0;
+        let b_ft = beam ? (beamUnit === 'm' ? parseFloat(beam) * FEET_PER_METRE : parseFloat(beam)) : 0;
+        let d_ft = draft ? (draftUnit === 'm' ? parseFloat(draft) * FEET_PER_METRE : parseFloat(draft)) : 0;
 
         let disp_lbs = displacement ? parseFloat(displacement) : 0;
         if (dispUnit === 'kg') disp_lbs = disp_lbs * 2.20462;
@@ -472,7 +485,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = React.memo(({ o
 
         const ad_ft = airDraft
             ? airDraftUnit === 'm'
-                ? parseFloat(airDraft) * 3.28084
+                ? parseFloat(airDraft) * FEET_PER_METRE
                 : parseFloat(airDraft)
             : undefined;
 

@@ -29,6 +29,7 @@
 
 import type { VoyagePlan, VesselProfile } from '../types';
 import { createLogger } from '../utils/createLogger';
+import { vesselDraftMetres } from './units';
 
 const log = createLogger('IsoEnhancer');
 
@@ -371,7 +372,9 @@ export async function enhanceVoyagePlanWithIsochrone(
                 polar,
                 windField,
                 {
-                    vesselDraft: vessel.draft || 2.5,
+                    // Isochrone options take METRES; vessel.draft is FEET
+                    // (see services/units.ts).
+                    vesselDraft: vesselDraftMetres(vessel),
                     motoringSpeed: vessel.cruisingSpeed || 6,
                     // No minDepthM for ocean passages — the engine still
                     // checks reef rejection and isLand from the bathy grid.
@@ -415,7 +418,9 @@ export async function enhanceVoyagePlanWithIsochrone(
             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
             const validated = await Promise.race([
                 validateRouteSegments(isoResult.route, {
-                    vesselDraftM: vessel.draft,
+                    // The field name says M — vessel.draft is FEET. Raw
+                    // feet here was the "bathymetry is sometimes off" bug.
+                    vesselDraftM: vesselDraftMetres(vessel),
                     departureTimeMs,
                 }),
                 new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),

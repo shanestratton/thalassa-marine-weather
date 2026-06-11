@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { createLogger } from '../utils/createLogger';
+import { vesselDraftMetres } from '../services/units';
 
 const _log = createLogger('VoyageResults');
 import { toast as _toast } from './Toast';
@@ -412,7 +413,12 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                                 return d.shallowSegments > 0 ? `${d.shallowSegments} shallow` : 'All Clear';
                             })()}
                         >
-                            <DepthSummaryCard data={voyagePlan.__depthSummary} vesselDraft={vessel.draft} />
+                            {/* vessel.draft is stored in FEET — the card renders metres + computes
+                                under-keel clearance, so convert via the single authority. */}
+                            <DepthSummaryCard
+                                data={voyagePlan.__depthSummary}
+                                vesselDraft={vesselDraftMetres(vessel)}
+                            />
                         </AccordionSection>
                     )}
                     {/* MULTI-MODEL WEATHER COMPARISON */}

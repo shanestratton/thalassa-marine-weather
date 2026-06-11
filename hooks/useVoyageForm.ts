@@ -10,6 +10,7 @@ import { getErrorMessage } from '../utils/logger';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
+import { vesselDraftMetres } from '../services/units';
 
 export const LOADING_PHASES = [
     'Querying Hydrographic Data...',
@@ -439,13 +440,13 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     if (result.originCoordinates && result.destinationCoordinates) {
                         console.warn(`[useVoyageForm] inshore step: importing InshoreRouter…`);
                         const { tryInshoreRoute, inshoreRouteToGeoJSON } = await import('../services/InshoreRouter');
-                        // vessel.draft is stored in FEET (OnboardingWizard
-                        // converts metres → feet before saving, line 423).
-                        // tryInshoreRoute works in metres — feeding feet
-                        // straight in produces an absurd ~8 m safety cutoff
-                        // on GMRT-derived charts and the router blocks the
-                        // entire bay. Convert here.
-                        const draftMeters = vessel.draft && vessel.draft > 0 ? vessel.draft / 3.28084 : 2.5;
+                        // tryInshoreRoute works in metres but vessel.draft
+                        // is stored in FEET — feeding feet straight in
+                        // produces an absurd ~8 m safety cutoff on
+                        // GMRT-derived charts and the router blocks the
+                        // entire bay. vesselDraftMetres() is the single
+                        // conversion authority (services/units.ts).
+                        const draftMeters = vesselDraftMetres(vessel);
                         const inshoreRes = await tryInshoreRoute(
                             result.originCoordinates,
                             result.destinationCoordinates,
@@ -632,11 +633,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         }
 
                         if (depthWaypoints.length >= 2) {
+                            // computeRt/enhanceRouteWithDepth expect METRES;
+                            // vessel.draft is FEET (see services/units.ts).
+                            const draftM = vesselDraftMetres(vessel);
                             const routeAnalysis = computeRt(depthWaypoints, {
                                 speed: vessel.cruisingSpeed || 6,
-                                vesselDraft: vessel.draft || 2.5,
+                                vesselDraft: draftM,
                             });
-                            const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, vessel.draft || 2.5);
+                            const depthEnhanced = await enhanceRouteWithDepth(routeAnalysis, draftM);
                             enhancedPlan.__depthSummary = {
                                 minDepth: depthEnhanced.minDepth,
                                 shallowSegments: depthEnhanced.shallowSegments,

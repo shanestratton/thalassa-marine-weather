@@ -46,6 +46,7 @@ import { triggerHaptic } from '../../utils/system';
 import { Preferences } from '@capacitor/preferences';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
+import { vesselDraftMetres } from '../../services/units';
 
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
@@ -298,17 +299,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // for a 6-NM trip up the Savannah River.
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
-            // vessel.draft is stored in FEET in the settings store
-            // (OnboardingWizard converts whatever the user enters to
-            // d_ft before saving — see components/OnboardingWizard.tsx).
-            // tryInshoreRoute / the engine work in metres. A Tayana 55's
+            // tryInshoreRoute / the engine work in metres but vessel.draft
+            // is stored in FEET (see services/units.ts). A Tayana 55's
             // 7.87 ft draft becoming 7.87 m means safetyM=0.2 + draft
             // gives an 8.07 m navigability cutoff, blocking every DEPARE
             // band below 8 m — which is why Newport→Brisbane kept
             // failing with destination-disconnected even though the
             // chart was healthy.
-            const draftFt = useSettingsStore.getState().settings.vessel?.draft;
-            const vesselDraftM = draftFt != null && draftFt > 0 ? draftFt / 3.28084 : 2.5;
+            const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
             const inshoreRes = await tryInshoreRoute(
                 { lat: departure.lat, lon: departure.lon },
                 { lat: arrival.lat, lon: arrival.lon },
@@ -1021,7 +1019,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             parentIndex: null,
                             distance: 0,
                         })) as unknown as IsochroneNode[];
-                        const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
+                        // validateRouteSegments wants METRES; vessel.draft is FEET
+                        // (see services/units.ts).
+                        const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
                         const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
                         const validated = await Promise.race([
                             validateRouteSegments(seedNodes, { vesselDraftM, departureTimeMs }),
@@ -1441,7 +1441,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     (async () => {
                         try {
                             const { validateRouteSegments } = await import('../../services/isochrone/landAvoidance');
-                            const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
+                            // validateRouteSegments wants METRES; vessel.draft is FEET
+                            // (see services/units.ts).
+                            const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
                             const departureTimeMs = departureTime ? new Date(departureTime).getTime() : undefined;
                             const validated = await Promise.race([
                                 validateRouteSegments(isoResult.route, { vesselDraftM, departureTimeMs }),
@@ -1736,7 +1738,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                                         distance: 0,
                                                     }) as IsochroneNode,
                                             );
-                                            const vesselDraftM = useSettingsStore.getState().settings.vessel?.draft;
+                                            // validateRouteSegments wants METRES; vessel.draft is FEET
+                                            // (see services/units.ts).
+                                            const vesselDraftM = vesselDraftMetres(
+                                                useSettingsStore.getState().settings.vessel,
+                                            );
                                             const departureTimeMs = departureTime
                                                 ? new Date(departureTime).getTime()
                                                 : undefined;
