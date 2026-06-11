@@ -401,3 +401,47 @@ export function getSpeedTierLabel(tier: SpeedTier): string {
             return 'Fast (30s intervals)';
     }
 }
+
+// ── Track-polyline membership ───────────────────────────────────────
+
+/**
+ * Plausible chart coordinate — finite, in range, and not null island.
+ * (0,0) is the captureImmediate/addManual "Acquiring position..."
+ * placeholder; a polyline vertex there draws a phantom line across the
+ * planet.
+ */
+export function isPlausibleTrackPoint(lat: number | null | undefined, lon: number | null | undefined): boolean {
+    return (
+        typeof lat === 'number' &&
+        typeof lon === 'number' &&
+        Number.isFinite(lat) &&
+        Number.isFinite(lon) &&
+        Math.abs(lat) <= 90 &&
+        Math.abs(lon) <= 180 &&
+        !(lat === 0 && lon === 0)
+    );
+}
+
+/**
+ * Whether an entry belongs on the track POLYLINE (as a vertex), as
+ * opposed to being a pin/marker drawn beside the line.
+ *
+ * Course-change pins are excluded: they're stamped at the geometric
+ * MIDPOINT of the turn (a position the boat occupied earlier) with a
+ * detection-time timestamp, so a timestamp-sorted polyline doubles
+ * back to them — the zig-zag artifact. They stay on the map as
+ * waypoint markers; they just don't bend the line.
+ *
+ * Manual entries are excluded for the same class of reason: their
+ * position can be a cached fix up to 60 s old, i.e. behind the boat.
+ */
+export function isTrackworthyEntry(
+    entry: Pick<ShipLogEntry, 'latitude' | 'longitude' | 'entryType' | 'waypointName' | 'notes'>,
+): boolean {
+    if (!isPlausibleTrackPoint(entry.latitude, entry.longitude)) return false;
+    if (entry.entryType === 'manual') return false;
+    const name = entry.waypointName ?? '';
+    const notes = entry.notes ?? '';
+    if (name.startsWith('COG ') || notes.startsWith('Auto: COG')) return false; // turn pin
+    return true;
+}

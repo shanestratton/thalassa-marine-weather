@@ -52,6 +52,12 @@ const MAX_PLAUSIBLE_SPEED_KTS = 100;
 const GPS_WARMUP_MS = 5_000;
 const SPEED_TIER_DEBOUNCE = 3;
 const WEB_HEARTBEAT_MS = 60_000;
+// While the external/NMEA source has buffered a fix this recently, phone
+// GPS fixes are published for the UI but NOT buffered — two receivers
+// offset 10–50 m alternating into one polyline draw a sawtooth no
+// implied-speed cap can catch. Matches PositionResolver's NMEA-first
+// resolution order.
+const NMEA_PRIORITY_WINDOW_MS = 5_000;
 
 export interface GpsSubscriptionOptions {
     isNative: boolean;
@@ -92,6 +98,19 @@ export class GpsSubscriptionManager {
      */
     private warmupStartTime = 0;
 
+    /**
+     * Last fix ACCEPTED into the buffer this session. The Layer-3
+     * position-spike gate used trackBuffer.peek(), which goes empty on
+     * every flush drain — so the first fix after EVERY interval tick was
+     * exempt from the jump check (and an accepted outlier then made the
+     * next genuine fix look like the spike). This survives drains; reset
+     * only on start().
+     */
+    private lastAcceptedFix: CachedPosition | null = null;
+
+    /** Epoch-ms of the last NMEA fix accepted into the buffer. */
+    private lastNmeaBufferedAt = 0;
+
     // Speed-tier debounce state. `currentSpeedTier` is the committed tier;
     // `pendingSpeedTier` is the one we've seen recently but not committed
     // until we get SPEED_TIER_DEBOUNCE consecutive readings.
@@ -109,6 +128,8 @@ export class GpsSubscriptionManager {
         this.currentSpeedTier = null;
         this.pendingSpeedTier = null;
         this.speedTierConfirmCount = 0;
+        this.lastAcceptedFix = null;
+        this.lastNmeaBufferedAt = 0;
 
         const onAnyFix = (pos: CachedPosition) => this.handleIncomingFix(pos, opts);
 
@@ -163,6 +184,8 @@ export class GpsSubscriptionManager {
             // source of polyline hops when an external chartplotter glitched.)
             if (opts.isActive() && this.acceptFix(cached, opts.trackBuffer)) {
                 opts.trackBuffer.push(cached);
+                this.lastAcceptedFix = cached;
+                this.lastNmeaBufferedAt = Date.now();
             }
         });
         this.unsubscribers.push(unsubNmea);
@@ -266,8 +289,14 @@ export class GpsSubscriptionManager {
         // at any speed, ~72 k fixes per 4-day passage which is fine
         // (~3.5 MB stored). isPrecisionMode() is still called by callers
         // but no longer changes ingest behaviour.
-        if (opts.isActive() && this.acceptFix(pos, opts.trackBuffer)) {
+        //
+        // Single-source arbitration: while the NMEA source is live,
+        // phone fixes stay UI-only — interleaving two receivers into
+        // one polyline draws a sawtooth.
+        const nmeaIsLive = Date.now() - this.lastNmeaBufferedAt < NMEA_PRIORITY_WINDOW_MS;
+        if (opts.isActive() && !nmeaIsLive && this.acceptFix(pos, opts.trackBuffer)) {
             opts.trackBuffer.push(pos);
+            this.lastAcceptedFix = pos;
         }
 
         // Altitude → EnvironmentService for on-water/on-land detection.
@@ -277,9 +306,15 @@ export class GpsSubscriptionManager {
     }
 
     /**
-     * Three-layer fix-acceptance gate. Returns true to push the fix into
+     * Four-layer fix-acceptance gate. Returns true to push the fix into
      * the buffer (and therefore eventually onto the polyline).
      *
+     *   0. The fix's OWN timestamp must postdate this session's start —
+     *      BgGeo replays the previous session's location on engine start
+     *      with a fresh receivedAt, so receivedAt-based checks (and the
+     *      5 s wall-clock warm-up, if the replay arrives late) can't
+     *      catch it. That replay anchored voyages at a teleport-stale
+     *      position and drew the cold-start straight line.
      *   1. Accuracy ≤ 100m — drop fixes the device flags as fuzzy.
      *   2. GPS-self-reported speed ≤ MAX_PLAUSIBLE_SPEED_KTS — catches
      *      device glitches where the speed channel goes haywire.
@@ -291,6 +326,16 @@ export class GpsSubscriptionManager {
      *      spikes.
      */
     private acceptFix(pos: CachedPosition, trackBuffer: GpsTrackBuffer): boolean {
+        // Layer 0 — last-session replay. Allow a small slack for fixes
+        // produced moments before Start was tapped (NMEA stamps arrival
+        // time, so external fixes always pass).
+        if (pos.timestamp < this.warmupStartTime - 10_000) {
+            log.warn(
+                `GPS rejected: fix timestamp ${new Date(pos.timestamp).toISOString()} predates session start — last-session replay`,
+            );
+            return false;
+        }
+
         // Layer 1 — accuracy. Don't log; fringe-coverage rejections are
         // routine and would flood the log.
         if ((pos.accuracy ?? 999) > 100) return false;
@@ -302,8 +347,11 @@ export class GpsSubscriptionManager {
             return false;
         }
 
-        // Layer 3 — position-spike vs last buffered fix.
-        const lastFix = trackBuffer.peek();
+        // Layer 3 — position-spike vs last ACCEPTED fix. (peek() falls
+        // back to the session-persistent lastAcceptedFix: the buffer
+        // empties on every flush drain, which used to exempt the first
+        // fix after each tick from this check.)
+        const lastFix = trackBuffer.peek() ?? this.lastAcceptedFix;
         if (lastFix) {
             const dtSec = (pos.timestamp - lastFix.timestamp) / 1000;
             if (dtSec > 0.1) {

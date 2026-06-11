@@ -21,6 +21,7 @@
  */
 import { getLogEntries } from './EntryCrud';
 import { getOfflineEntries } from './OfflineQueue';
+import { isTrackworthyEntry } from './helpers';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
 import type { ShipLogEntry } from '../../types/navigation';
 
@@ -152,9 +153,11 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
     const items: RouteOrTrack[] = [];
     for (const [id, arr] of groups) {
         // Sort entries by timestamp ascending so the polyline reads
-        // departure → arrival.
+        // departure → arrival. Trackworthy-only: turn pins sit at PAST
+        // positions (zig-zag vertices), manual entries can carry a
+        // stale fix, and (0,0) placeholders draw across the planet.
         const sorted = arr
-            .filter((e) => typeof e.latitude === 'number' && typeof e.longitude === 'number')
+            .filter(isTrackworthyEntry)
             .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         if (sorted.length < 2) continue; // Need at least 2 points to draw a line.
 
@@ -179,7 +182,11 @@ export function groupByVoyage(entries: ShipLogEntry[], cloudVoyageIds: Set<strin
         const arrival = (last as unknown as { notes?: string; waypointName?: string }).waypointName ?? 'Arrival';
         const label = isPlanned(id) ? `${departure} → ${arrival}` : `${fmtDate(new Date(first.timestamp).getTime())}`;
 
-        const distanceNm = sorted.reduce((acc, e) => acc + (e.distanceNM ?? 0), 0);
+        // MAX cumulative beats summing per-leg distanceNM: legs are
+        // stored rounded to 2 dp, and at 5 s cadence most legs round to
+        // 0.00 — a long high-frequency track summed to ~0 NM.
+        const maxCumulative = sorted.reduce((acc, e) => Math.max(acc, e.cumulativeDistanceNM ?? 0), 0);
+        const distanceNm = maxCumulative > 0 ? maxCumulative : sorted.reduce((acc, e) => acc + (e.distanceNM ?? 0), 0);
         const ts = new Date(first.timestamp).getTime();
         // Derive duration from the entry timestamp spread. For planned
         // routes this equals plan.durationApprox (PassagePlanSave spreads

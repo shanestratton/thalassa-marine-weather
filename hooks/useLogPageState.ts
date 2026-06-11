@@ -461,15 +461,21 @@ export function useLogPageState() {
         // Boot the list from the LOCAL summary cache before any network
         // call — the Log appears immediately (online, offline, cold start),
         // then loadData() refreshes it from the cloud in the background.
+        // DONE_LOADING fires even on a cache MISS: the page (and the
+        // Start control) must never sit behind a spinner waiting for
+        // auth rehydrate + a Supabase fetch — first-ever opens and
+        // pre-auth cold starts paint the empty shell and the list
+        // hydrates when loadData lands.
         (async () => {
             try {
                 const cached = await ShipLogService.getCachedVoyageSummaries();
                 if (mounted && cached.length > 0) {
                     dispatch({ type: 'SET_SUMMARIES', summaries: cached });
-                    dispatch({ type: 'DONE_LOADING' });
                 }
             } catch {
                 /* cache miss — the network load below fills it */
+            } finally {
+                if (mounted) dispatch({ type: 'DONE_LOADING' });
             }
         })();
         (async () => {

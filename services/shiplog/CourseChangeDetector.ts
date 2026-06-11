@@ -120,6 +120,15 @@ export interface TurnEvent {
     lat: number;
     /** Longitude of the geometric midpoint of the turn. */
     lon: number;
+    /**
+     * Epoch-ms timestamp matching the midpoint POSITION — average of
+     * when the drift started and when the fire threshold was crossed.
+     * The log entry for the pin must carry this, not "now": the pin
+     * sits spatially behind the boat, so stamping it with the
+     * detection time makes every timestamp-sorted polyline double
+     * back to it (the zig-zag artifact).
+     */
+    timestamp: number;
 }
 
 /**
@@ -146,6 +155,8 @@ export class CourseChangeDetector {
      * `delta` falling back below the start threshold (false-start).
      */
     private turnStartPos: { lat: number; lon: number } | null = null;
+    /** Epoch-ms when `turnStartPos` was anchored — pairs with it for the pin timestamp. */
+    private turnStartAt: number | null = null;
 
     /**
      * Start the 15s detection loop. Subsequent calls clear the existing
@@ -173,6 +184,7 @@ export class CourseChangeDetector {
         this.lastValidPos = null;
         this.baselineHeading = null;
         this.turnStartPos = null;
+        this.turnStartAt = null;
     }
 
     private tick(opts: CourseChangeOptions): void {
@@ -224,10 +236,12 @@ export class CourseChangeDetector {
         if (delta >= TURN_START_THRESHOLD_DEG) {
             if (!this.turnStartPos) {
                 this.turnStartPos = previousAnchor;
+                this.turnStartAt = Date.now();
             }
         } else if (this.turnStartPos) {
             // False start — boat steadied back inside the start band.
             this.turnStartPos = null;
+            this.turnStartAt = null;
         }
 
         if (delta < COURSE_CHANGE_THRESHOLD_DEG) return;
@@ -243,11 +257,16 @@ export class CourseChangeDetector {
         // helm input, no intermediate "started drifting" sample). Even
         // then start ≈ end so the result reads correctly.
         const pinPos = this.turnStartPos ? lonLatMidpoint(this.turnStartPos, currentPos) : currentPos;
+        // Time matching the midpoint position: halfway between drift
+        // start and fire. Sharp single-tick turns have no start anchor —
+        // midpoint ≈ current position, so "now" is correct there.
+        const pinTime = this.turnStartAt !== null ? Math.round((this.turnStartAt + Date.now()) / 2) : Date.now();
 
         // Lock baseline to the new direction for the next leg. Clear
         // the turn-start anchor — the next turn starts fresh.
         this.baselineHeading = newDeg;
         this.turnStartPos = null;
+        this.turnStartAt = null;
 
         log.info(
             `Turn detected: ${oldCardinal} → ${newCardinal} (Δ${delta.toFixed(1)}°) ` +
@@ -263,6 +282,7 @@ export class CourseChangeDetector {
                 deltaDeg: delta,
                 lat: pinPos.lat,
                 lon: pinPos.lon,
+                timestamp: pinTime,
             });
         } catch (e) {
             // Defensive: an exception inside onTurn would kill the timer

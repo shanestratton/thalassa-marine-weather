@@ -115,7 +115,8 @@ export async function captureImmediate(
     voyageId?: string,
     waypointLabel: string = 'Voyage Start',
 ): Promise<ShipLogEntry | null> {
-    const timestamp = new Date().toISOString();
+    const startedAtMs = Date.now();
+    const timestamp = new Date(startedAtMs).toISOString();
     const effectiveVoyageId = voyageId || ctx.trackingState.currentVoyageId || `voyage_${Date.now()}`;
 
     const weatherSnapshot = getWeatherSnapshot();
@@ -135,24 +136,55 @@ export async function captureImmediate(
         source: 'device',
     };
 
-    // GPS COLD-START WARM-UP. If no cached fix is fresh, do a single
-    // 500ms wait for the onLocation stream to produce one. If that
-    // also misses, fall back to a blocking getCurrentPosition.
+    // A fix anchors the voyage pin only if the GPS PRODUCED it recently —
+    // judged by the fix's own timestamp, never receivedAt. BgGeo replays
+    // the previous session's location at engine start with a fresh
+    // receivedAt, and getCurrentPosition can serve the OS's cached
+    // last-known sample the same way: both pass any receivedAt check
+    // while being spatially stale — that's how voyages opened with a
+    // teleport-stale anchor and drew a phantom straight line to the
+    // first real fix.
+    const isFreshFix = (pos: CachedPosition | null): pos is CachedPosition =>
+        !!pos &&
+        !(pos.latitude === 0 && pos.longitude === 0) &&
+        pos.timestamp >= startedAtMs - GPS_STALE_LIMIT_MS &&
+        Date.now() - pos.receivedAt < GPS_STALE_LIMIT_MS;
+
+    // GPS COLD-START WARM-UP. Poll the onLocation stream for a fix that
+    // passes the freshness gate; halfway through, also try one blocking
+    // fetch (its result goes through the same gate). Voyage Start is
+    // fire-and-forget from startTracking, so a long wait never blocks
+    // the UI; Voyage End IS awaited by stopTracking, so it gets a short
+    // window — the last track point already marks where the boat ended.
+    const GPS_WARMUP_POLL_MS = 500;
+    const GPS_WARMUP_MAX_MS = waypointLabel === 'Voyage Start' ? 30_000 : 5_000;
     let needsGpsRetry = false;
-    const GPS_WARMUP_DELAY_MS = 500;
     let bestPos = ctx.getCachedFix();
-    if (!bestPos || Date.now() - bestPos.receivedAt > GPS_STALE_LIMIT_MS) {
-        await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_DELAY_MS));
-        bestPos = ctx.getCachedFix();
-        if (!bestPos || Date.now() - bestPos.receivedAt >= GPS_STALE_LIMIT_MS) {
-            // Final fallback — blocking fresh fetch.
-            bestPos = ctx.isNative
-                ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
-                : await webGetFreshPosition();
+    if (!isFreshFix(bestPos)) {
+        bestPos = null;
+        let triedBlockingFetch = false;
+        const deadline = startedAtMs + GPS_WARMUP_MAX_MS;
+        while (Date.now() < deadline) {
+            await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_POLL_MS));
+            const cached = ctx.getCachedFix();
+            if (isFreshFix(cached)) {
+                bestPos = cached;
+                break;
+            }
+            if (!triedBlockingFetch && Date.now() - startedAtMs > GPS_WARMUP_MAX_MS / 2) {
+                triedBlockingFetch = true;
+                const fetched = ctx.isNative
+                    ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
+                    : await webGetFreshPosition();
+                if (isFreshFix(fetched)) {
+                    bestPos = fetched;
+                    break;
+                }
+            }
         }
     }
 
-    if (bestPos && Date.now() - bestPos.receivedAt < GPS_STALE_LIMIT_MS) {
+    if (isFreshFix(bestPos)) {
         entry.latitude = bestPos.latitude;
         entry.longitude = bestPos.longitude;
         entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);
@@ -161,11 +193,35 @@ export async function captureImmediate(
             entry.courseDeg = Math.round(bestPos.heading);
         }
 
+        // Cumulative distance: carry the accumulator forward when the
+        // stored position belongs to THIS voyage (resume after a JS
+        // reload, and the 'Voyage End' pin — which used to hardcode 0
+        // and made every completed voyage's map header read "0.0 NM").
+        // A different voyageId means a genuinely new voyage: start the
+        // accumulator at zero. A MISSING voyageId is legacy data — for
+        // 'Voyage End' it was necessarily written during this voyage
+        // (the key clears at every stop), so it still carries; for
+        // 'Voyage Start' it could be a crashed prior voyage's leftover,
+        // so it conservatively resets.
+        const lastPos = await getLastPosition();
+        const sameVoyage =
+            !!lastPos &&
+            (lastPos.voyageId === effectiveVoyageId ||
+                (lastPos.voyageId === undefined && waypointLabel !== 'Voyage Start'));
+        let cumulativeDistanceNM = 0;
+        if (lastPos && sameVoyage) {
+            const legNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, bestPos.latitude, bestPos.longitude);
+            cumulativeDistanceNM = lastPos.cumulativeDistanceNM + legNM;
+            entry.distanceNM = Math.round(legNM * 100) / 100;
+        }
+        entry.cumulativeDistanceNM = Math.round(cumulativeDistanceNM * 100) / 100;
+
         await saveLastPosition({
             latitude: bestPos.latitude,
             longitude: bestPos.longitude,
             timestamp,
-            cumulativeDistanceNM: 0,
+            cumulativeDistanceNM,
+            voyageId: effectiveVoyageId,
         });
 
         // On-water check (fail-open: assume water if check throws,
@@ -224,14 +280,27 @@ export interface CaptureLogOptions {
      */
     skipDedup?: boolean;
     /**
-     * Optional explicit lat/lon override for the entry. Used by the
-     * CourseChangeDetector so waypoint pins land at the geometric
+     * Optional explicit lat/lon(/time) override for the entry. Used by
+     * the CourseChangeDetector so waypoint pins land at the geometric
      * midpoint of the turn (computed inside the detector) rather than
-     * at whatever the current cached GPS fix happens to be. All other
-     * entry fields (timestamp, speed, weather, etc.) still come from
-     * the live position resolver. Added 2026-05-19.
+     * at whatever the current cached GPS fix happens to be. The
+     * timestamp travels WITH the position: the midpoint is a place the
+     * boat occupied earlier, and stamping it with detection time made
+     * timestamp-sorted polylines double back to it (the zig-zag bug).
+     * Other entry fields (speed, weather, etc.) still come from the
+     * live position resolver. Added 2026-05-19; timestamp 2026-06-12.
      */
-    positionOverride?: { lat: number; lon: number };
+    positionOverride?: { lat: number; lon: number; timestamp?: number };
+    /**
+     * Use THIS fix verbatim instead of live position resolution. Used by
+     * flushBufferedTrack when replaying buffered historical points:
+     * routing them through getBestPosition let a live NMEA fix (checked
+     * first, unconditionally) or the 60 s receivedAt staleness check
+     * silently replace a historical point's coordinates with the
+     * current position — teleporting early-batch points to the flush
+     * location (another zig-zag source). Added 2026-06-12.
+     */
+    fixOverride?: CachedPosition;
 }
 
 /**
@@ -249,26 +318,32 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
         voyageId,
         skipDedup,
         positionOverride,
+        fixOverride,
     } = opts;
 
     try {
-        const bestPos = await getBestPosition(ctx.getCachedFix(), ctx.isNative);
+        const bestPos = fixOverride ?? (await getBestPosition(ctx.getCachedFix(), ctx.isNative));
         if (!bestPos) {
             // No GPS — skip this auto entry (will retry on next tick).
             // Manual entries can proceed with zero position.
             if (entryType === 'auto') return null;
         }
 
+        const entryVoyageId = voyageId || ctx.trackingState.currentVoyageId || `voyage_${Date.now()}`;
+
         // positionOverride wins for lat/lon (used by midpoint waypoint
         // pins from CourseChangeDetector). Speed, heading, weather still
-        // come from the live fix — only the spatial coords are overridden.
+        // come from the live fix — only the spatial coords (and their
+        // matching time, when supplied) are overridden.
         const latitude = positionOverride?.lat ?? bestPos?.latitude ?? 0;
         const longitude = positionOverride?.lon ?? bestPos?.longitude ?? 0;
         const heading = bestPos?.heading ?? null;
+        const isPinOverride = positionOverride !== undefined;
 
         // Quarter-hour timestamp snap for offshore auto entries (rapid
         // mode + nearshore/coastal use shorter intervals so keep exact ts).
-        const entryTime = new Date(bestPos?.timestamp ?? Date.now());
+        const exactTimeMs = positionOverride?.timestamp ?? bestPos?.timestamp ?? Date.now();
+        const entryTime = new Date(exactTimeMs);
         const isOffshoreMode = !ctx.trackingState.isRapidMode && ctx.trackingState.loggingZone === 'offshore';
         if (entryType === 'auto' && isOffshoreMode) {
             const minutes = entryTime.getMinutes();
@@ -278,15 +353,35 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
                 entryTime.setHours(entryTime.getHours() + 1);
                 entryTime.setMinutes(0, 0, 0);
             }
+            // Never snap BACKWARD past the previous entry — "nearest"
+            // can rewind up to 7.5 min, colliding/reordering timestamps
+            // and destabilising every timestamp-sorted polyline.
+            const lastEntryMs = ctx.trackingState.lastEntryTime ? Date.parse(ctx.trackingState.lastEntryTime) : 0;
+            if (entryTime.getTime() < lastEntryMs) {
+                entryTime.setTime(exactTimeMs);
+            }
         }
         const timestamp = entryTime.toISOString();
 
-        const lastPos = await getLastPosition();
+        let lastPos = await getLastPosition();
+        // A stored position from a DIFFERENT voyage is not a valid delta
+        // reference — distance/speed must never bleed across voyages.
+        // A MISSING voyageId is legacy data written during the active
+        // voyage (pre-stamping builds): still a valid reference.
+        if (lastPos && lastPos.voyageId !== undefined && lastPos.voyageId !== entryVoyageId) {
+            lastPos = null;
+        }
         let distanceNM = 0;
         let speedKts = 0;
         let cumulativeDistanceNM = 0;
 
-        if (lastPos) {
+        if (lastPos && isPinOverride) {
+            // Turn pins mark a PAST position. They carry the running
+            // total but contribute no distance — measuring lastPos →
+            // midpoint-behind-the-boat → next fix would double-count
+            // the backtrack and inflate the voyage total.
+            cumulativeDistanceNM = lastPos.cumulativeDistanceNM;
+        } else if (lastPos) {
             distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
 
             // DEDUP: skip if vessel hasn't actually moved (auto entries only).
@@ -353,13 +448,13 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
         const effectiveWaypointName = entryType === 'auto' ? 'Latest Position' : waypointName;
 
         if (entryType === 'auto') {
-            demotePreviousAutoWaypoint(voyageId || ctx.trackingState.currentVoyageId || '').catch(() => {
+            demotePreviousAutoWaypoint(entryVoyageId).catch(() => {
                 /* best effort */
             });
         }
 
         const entry: Partial<ShipLogEntry> = {
-            voyageId: voyageId || ctx.trackingState.currentVoyageId || `voyage_${Date.now()}`,
+            voyageId: entryVoyageId,
             timestamp,
             latitude,
             longitude,
@@ -379,15 +474,27 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
 
         const { saved } = await saveEntryOnlineOrOffline(entry);
 
-        await saveLastPosition({
-            latitude,
-            longitude,
-            timestamp,
-            cumulativeDistanceNM,
-            speedKts,
-        });
+        // Turn pins never advance the delta reference — their position
+        // is BEHIND the boat, and anchoring lastPos there would measure
+        // the next real fix against the past (phantom distance + a
+        // corrupted speed/acceleration gate).
+        if (!isPinOverride) {
+            await saveLastPosition({
+                latitude,
+                longitude,
+                timestamp,
+                cumulativeDistanceNM,
+                speedKts,
+                voyageId: entryVoyageId,
+            });
+        }
 
-        ctx.trackingState.lastEntryTime = timestamp;
+        // Pins carry a backdated timestamp — rewinding lastEntryTime to
+        // it would distort the heartbeat's elapsed check and the snap
+        // clamp's monotonic reference.
+        if (!isPinOverride) {
+            ctx.trackingState.lastEntryTime = timestamp;
+        }
         ctx.trackingState.lastCheckTime = Date.now();
         ctx.trackingState.lastCheckDeduped = false;
         await ctx.saveTrackingState();
@@ -465,7 +572,9 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
             }
 
             const lastPos = await getLastPosition();
-            if (lastPos) {
+            // Only delta against a position from THIS voyage (missing
+            // voyageId = legacy data written mid-voyage — still valid).
+            if (lastPos && (lastPos.voyageId === undefined || lastPos.voyageId === effectiveVoyageId)) {
                 const distanceNM = calculateDistanceNM(lastPos.latitude, lastPos.longitude, latitude, longitude);
                 entry.distanceNM = Math.round(distanceNM * 100) / 100;
                 entry.cumulativeDistanceNM = Math.round((lastPos.cumulativeDistanceNM + distanceNM) * 100) / 100;
@@ -476,6 +585,7 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
                 longitude,
                 timestamp,
                 cumulativeDistanceNM: entry.cumulativeDistanceNM || 0,
+                voyageId: effectiveVoyageId,
             });
         }
     } catch (gpsError) {
@@ -493,9 +603,23 @@ export async function addManual(ctx: CaptureContext, opts: AddManualOptions = {}
  * significant point. Wired into the AdaptiveScheduler as the onTick
  * callback.
  */
+// Re-entrancy latch: the scheduler tick and the heartbeat catch-up can
+// both call flushBufferedTrack; two interleaved drains would split one
+// batch across two out-of-order replay loops.
+let isFlushing = false;
+
 export async function flushBufferedTrack(ctx: CaptureContext): Promise<void> {
     if (!ctx.trackingState.isTracking || ctx.trackingState.isPaused) return;
+    if (isFlushing) return;
+    isFlushing = true;
+    try {
+        await flushBufferedTrackInner(ctx);
+    } finally {
+        isFlushing = false;
+    }
+}
 
+async function flushBufferedTrackInner(ctx: CaptureContext): Promise<void> {
     const rawPoints = ctx.trackBuffer.drain();
 
     // Empty buffer → fall back to single capture (heartbeat catch-up).
@@ -511,8 +635,15 @@ export async function flushBufferedTrack(ctx: CaptureContext): Promise<void> {
     // BgGeo 1 m distanceFilter already removes stationary jitter at
     // ingest. CourseChangeDetector still emits the visible turn pins
     // at 30°+ — that pipeline is independent of track storage.
+    //
+    // 2026-06-12: each buffered point now travels as an explicit
+    // fixOverride. The old setCachedFix + getBestPosition route let a
+    // live NMEA fix (always preferred) or the 60 s receivedAt check
+    // replace HISTORICAL points with the current position — early-batch
+    // points teleported to the flush location (zig-zag). It also left
+    // lastBgLocation pinned to a stale replay point after the loop;
+    // the live cache now stays live.
     for (const pos of rawPoints) {
-        ctx.setCachedFix(pos);
-        await captureLog(ctx, { skipDedup: true });
+        await captureLog(ctx, { skipDedup: true, fixOverride: pos });
     }
 }

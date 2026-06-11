@@ -10,6 +10,7 @@ import { ShipLogEntry } from '../types';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { createLogger } from '../utils/logger';
+import { isTrackworthyEntry } from './shiplog/helpers';
 
 const log = createLogger('GPX');
 
@@ -29,11 +30,13 @@ export function exportVoyageAsGPX(entries: ShipLogEntry[], voyageName: string, v
     }
 
     const _firstEntry = sorted[0];
-    const lastEntry = sorted[sorted.length - 1];
-    const totalDistanceNM = lastEntry.cumulativeDistanceNM || 0;
+    const totalDistanceNM = sorted.reduce((acc, e) => Math.max(acc, e.cumulativeDistanceNM || 0), 0);
 
-    // Build trackpoints
+    // Build trackpoints — trackworthy entries only. Turn pins (past
+    // positions) and (0,0) placeholders become <wpt> markers below, not
+    // <trkseg> vertices, so exported tracks don't zig-zag in OpenCPN.
     const trackpoints = sorted
+        .filter(isTrackworthyEntry)
         .map((entry) => {
             const time = new Date(entry.timestamp).toISOString();
             const extensions = buildExtensions(entry);
