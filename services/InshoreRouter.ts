@@ -1380,6 +1380,18 @@ interface RegionalChannelData {
     midpoints: unknown[];
     segments: unknown[];
     hazards: unknown[];
+    /** Pairing diagnostics (considered/rejected/rescued counters). Surfaced
+     *  for the route-quality scorecard + pairing regression tests — the
+     *  masterplan's "diff pairDiag before merging a pairing change" check. */
+    diag?: {
+        considered: number;
+        rejectedByLandare: number;
+        acceptedByOsmWater: number;
+        acceptedByDepare: number;
+        wideConsidered: number;
+        wideAccepted: number;
+        wideRejected: number;
+    };
 }
 
 /**
@@ -1776,7 +1788,11 @@ const rawMarkerFetchCache = new Map<
     }>
 >();
 
-async function fetchRegionalMarkers(
+/**
+ * Exported for the pairing regression/scorecard tests (read-only import —
+ * see docs/ROUTING_COLLAB.md lanes). Production callers stay internal.
+ */
+export async function fetchRegionalMarkers(
     url: string,
     lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
     osmWaterFeatures: { geometry?: { type?: string; coordinates?: unknown } }[] = [],
@@ -1980,6 +1996,32 @@ async function fetchRegionalMarkers(
         // shipping-channel candidates. Most of those rejections
         // are actually in water per OSM.
         const PAIR_MAX_DIST_M = 600;
+        // Max ALONG-CHANNEL station difference for a port+starboard to form a
+        // gate. A real gate's two marks sit nearly abeam (station diff ~0);
+        // this rejects diagonal pairings with the next gate up the channel,
+        // whose midpoints sit BETWEEN gates and skew the ribbon.
+        //
+        // Replaces a unit-blind `projDiff > 0.01` DEGREE gate (masterplan §3
+        // Phase 2). That old gate was effectively DEAD CODE: 0.01° ≈ 1.1 km,
+        // but stagger ≤ pairDist ≤ PAIR_MAX_DIST_M (600 m) ≈ 0.006°, so it
+        // could never fire — the distance cap was the only real constraint.
+        // This metre gate is the first time stagger is actually enforced.
+        //
+        // Why 500 and not the plan's 250/400: measured end-to-end on the real
+        // SE-QLD marker set + the Rivergate fixture (2026-06-11), tighter
+        // gates DON'T fail on pairing quality — they fail on the solo-hazard
+        // coupling: each killed pair's marks become 'lateral-marker-as-hazard'
+        // half-discs, and two such discs at the river mouth detoured the
+        // locked Newport→Rivergate route +2 NM (20.37→22.42, +1 caution) at
+        // 250/400/450. Final config (500 + the 2-mark axis-flip guard below):
+        // 268 → 263 accepted pairs (the 5 lost are all >500 m-stagger
+        // diagonals in ≥3-mark clusters), Scarborough 7→7, corridor 44→43,
+        // Rivergate polyline byte-IDENTICAL to baseline. RETIGHTEN toward
+        // 250 once Phase 3 pair-wings / Phase 5 no-solo-hazard semantics land
+        // (an unpaired channel mark should degrade to caution, not a wall) —
+        // and when retightening, gate on the local inter-pair bearing, not
+        // the cluster-global PCA axis (bent reaches flip true-gate stagger).
+        const PAIR_PROJ_MAX_M = 500;
         const pairDiag = {
             considered: 0,
             rejectedByLandare: 0,
@@ -2031,8 +2073,16 @@ async function fetchRegionalMarkers(
 
             // Sort each list along the cluster's principal axis so
             // index i corresponds to chain-position i.
+            //
+            // PCA + projections in LOCAL PLANAR METRES. The old version ran
+            // both in raw degree space, which (a) mixed anisotropic units
+            // (at -27° one degree of lon ≈ 98.9 km vs lat ≈ 110.5 km, so the
+            // fitted axis was rotated vs the true metre-space axis) and
+            // (b) gated the along-axis pairing at a unit-blind 0.01° ≈ 1.1 km
+            // — wide enough to pair a port mark with a starboard mark a full
+            // gate ahead (diagonal pairs → midpoints between gates, skewed
+            // ribbon). Masterplan §3 Phase 2.
             const allPts = [...clusterPorts, ...clusterStbds];
-            const axis = principalAxis(allPts);
             let meanLat = 0;
             let meanLon = 0;
             for (const p of allPts) {
@@ -2041,10 +2091,28 @@ async function fetchRegionalMarkers(
             }
             meanLat /= allPts.length;
             meanLon /= allPts.length;
-            const projection = (p: { lat: number; lon: number }): number =>
-                (p.lon - meanLon) * axis.lon + (p.lat - meanLat) * axis.lat;
+            const mPerLat = 110_540;
+            const mPerLon = 111_320 * Math.cos((meanLat * Math.PI) / 180);
+            const toMetres = (p: { lat: number; lon: number }): { lat: number; lon: number } => ({
+                lat: (p.lat - meanLat) * mPerLat,
+                lon: (p.lon - meanLon) * mPerLon,
+            });
+            const axis = principalAxis(allPts.map(toMetres));
+            const projection = (p: { lat: number; lon: number }): number => {
+                const m = toMetres(p);
+                return m.lon * axis.lon + m.lat * axis.lat;
+            };
             clusterPorts.sort((a, b) => projection(a) - projection(b));
             clusterStbds.sort((a, b) => projection(a) - projection(b));
+            // Axis-flip guard: a lone 2-mark cluster (1 port + 1 stbd — an
+            // isolated entrance gate) has its PCA axis EQUAL to the
+            // cross-channel mark→mark line, so the "along-channel stagger"
+            // projection reads the full gate width and would reject the one
+            // legitimate pair (whose marks would then become blocking
+            // half-disc hazards). With only 2 points no along-channel axis is
+            // estimable — skip the stagger gate; the distance + land checks
+            // still apply. (Adversarial-review finding, 2026-06-11.)
+            const staggerGateActive = allPts.length > 2;
 
             // Pair each port with the chain-nearest starboard.
             // Track which ports and starboards actually got into a
@@ -2060,8 +2128,8 @@ async function fetchRegionalMarkers(
                 let bestDist = Infinity;
                 let bestS: { lat: number; lon: number } | null = null;
                 for (const s of clusterStbds) {
-                    const projDiff = Math.abs(projection(s) - pProj);
-                    if (projDiff > 0.01) continue;
+                    const projDiff = Math.abs(projection(s) - pProj); // metres along the channel axis
+                    if (staggerGateActive && projDiff > PAIR_PROJ_MAX_M) continue;
                     const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
                     if (d >= bestDist || d > PAIR_MAX_DIST_M) continue;
                     pairDiag.considered++;
@@ -2357,6 +2425,6 @@ async function fetchRegionalMarkers(
             })),
         ];
 
-        return { midpoints, segments, hazards };
+        return { midpoints, segments, hazards, diag: pairDiag };
     })();
 }
