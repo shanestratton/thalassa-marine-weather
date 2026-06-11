@@ -177,6 +177,25 @@ export interface RouteRequest {
      * Lower for tight harbour entrances, raise to demand bigger water.
      */
     minComponentCells?: number;
+    /**
+     * Uncharted-space policy (field bug 2026-06-12, Newport→Mooloolaba:
+     * with the corridor's layers empty the engine returned a dead-
+     * straight 32.7 NM line over Bribie Island with ZERO caution flags —
+     * UNKNOWN_OPEN's permissive default means uncharted islands don't
+     * exist; see ROUTING_COLLAB reply 16).
+     *
+     *   'permissive' (default) — legacy behaviour: no-evidence space is
+     *     freely navigable at 500× cost and the output mask stays clean.
+     *     Correct for unit fixtures that lay only the features under
+     *     test, and for fully-charted harbour corridors.
+     *   'strict' — the LIVE orchestrator setting. Cells with NO water
+     *     evidence (no DEPARE verdict, not FAIRWY/DRGARE-preferred, no
+     *     OSM water) are flagged in `cautionMask` when crossed, and a
+     *     route whose longest contiguous no-evidence run exceeds
+     *     UNCHARTED_MAX_RUN_M is refused with code 'uncharted-corridor'
+     *     — uncharted ≠ open, structurally, not as a cost knob.
+     */
+    unchartedPolicy?: 'permissive' | 'strict';
 }
 
 /**
@@ -214,6 +233,11 @@ export interface RouteDebug {
      *  transit: make the seaward mark, run the leads into the destination).
      *  Absent if the destination isn't served by leading lines. */
     leadingApproach?: number;
+    /** Longest contiguous no-water-evidence run along the final polyline in
+     *  metres (strict unchartedPolicy only). The refusal threshold is
+     *  UNCHARTED_MAX_RUN_M — present on success AND on 'uncharted-corridor'
+     *  failures so the caller can see how close/far the route was. */
+    unchartedMaxRunM?: number;
 }
 
 export interface RouteResult {
@@ -249,7 +273,8 @@ export interface RouteFailure {
         | 'no-path'
         | 'origin-out-of-bounds'
         | 'destination-out-of-bounds'
-        | 'empty-grid';
+        | 'empty-grid'
+        | 'uncharted-corridor';
     debug?: RouteDebug;
 }
 
@@ -492,7 +517,31 @@ interface NavGrid {
      * still never crossing land. Optional for cached-grid back-compat.
      */
     landBlocked?: Uint8Array;
+    /**
+     * Per-cell NO-WATER-EVIDENCE flag (1 = at the end of the grid build the
+     * cell was still UNKNOWN_OPEN with no DEPARE verdict, no FAIRWY/DRGARE
+     * preference, no OSM water and no protection — nothing in any source
+     * vouches there is water here). Evidence-based, NOT coverage-bbox-based:
+     * the Sunshine Coast ribbon cells' bboxes cover Bribie Island while
+     * containing zero LNDARE (reply 16 cause #3), so bbox containment proves
+     * nothing. Under unchartedPolicy 'strict' these cells flag caution when
+     * crossed and long runs refuse the route. A post-build rescue (endpoint
+     * carve, bridges) clears the flag implicitly: readers must pair it with
+     * `cells[idx] === UNKNOWN_OPEN`. Optional for cached-grid back-compat.
+     */
+    unvouched?: Uint8Array;
 }
+
+/**
+ * Refusal threshold for unchartedPolicy 'strict': the longest contiguous
+ * run of no-evidence cells the final polyline may cross, in metres. 1 NM —
+ * generous against false positives (ogr2ogr sliver gaps between DEPARE
+ * bands are 1-3 cells ≈ 50-150 m and merely flag red; marina basins are
+ * OSM-vouched; the endpoint carve vouches 60 m around each tap) while any
+ * genuine chart-coverage hole is tens of kilometres (Bribie: a 32.7 NM
+ * route with ~0% evidence). One knob, one fixture: inshoreRouter.uncharted.
+ */
+export const UNCHARTED_MAX_RUN_M = 1852;
 
 function isNavigable(grid: NavGrid, x: number, y: number): boolean {
     if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
@@ -1492,6 +1541,30 @@ function buildNavGrid(
             }
         }
         markPass('pass6-LNDARE-buffer', tPassBuffer, bufferedCount);
+    }
+
+    // ── No-water-evidence mask (see NavGrid.unvouched) ───────────────
+    // Computed AFTER every pass so any rescue/promotion above counts as
+    // evidence. Derived purely from this build's inputs, so it caches
+    // with the grid — no cache-key change.
+    {
+        const tPassUnvouched = Date.now();
+        const unvouched = new Uint8Array(width * height);
+        let unvouchedCount = 0;
+        for (let idx = 0; idx < cells.length; idx++) {
+            if (
+                cells[idx] === UNKNOWN_OPEN &&
+                preferred[idx] === 0 &&
+                Number.isNaN(depareVerdict[idx]) &&
+                osmWaterCells[idx] === 0 &&
+                protectedCells[idx] === 0
+            ) {
+                unvouched[idx] = 1;
+                unvouchedCount++;
+            }
+        }
+        grid.unvouched = unvouched;
+        markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
     }
 
     // Per-pass breakdown — surfaces which polygon scanner is the hot
@@ -2925,6 +2998,52 @@ function routeInshoreOnce(
         smoothedCells = smoothPath(grid, cells);
     }
     tPhase = mark('smoothPath', tPhase);
+
+    // Strict unchartedPolicy: a no-evidence cell reads as caution too —
+    // "nothing says there is water here" renders red exactly like "our
+    // bathymetry says too shallow". Paired with cells === UNKNOWN_OPEN so
+    // post-build rescues (endpoint carve, bridges) clear it implicitly.
+    const strictUncharted = req.unchartedPolicy === 'strict';
+    const isUnvouchedIdx = (idx: number): boolean =>
+        strictUncharted &&
+        grid.unvouched !== undefined &&
+        grid.unvouched[idx] === 1 &&
+        grid.cells[idx] === UNKNOWN_OPEN &&
+        grid.preferred[idx] === 0;
+
+    // Re-anchor state boundaries the smoother legally erased: smoothPath
+    // may collapse a COST-EQUAL chord across a caution/no-evidence patch
+    // when the A* path through it was equally straight — the patch then
+    // hides inside one waypoint segment, and endpoint-sampled cautionRaw
+    // below can't see it. Walk each smoothed segment's Bresenham line and
+    // re-insert a waypoint at every effective-state flip, so red runs
+    // start and end at the real boundaries (and the clean parts of a long
+    // chord stay clean instead of the whole leg flagging red). Inserted
+    // points lie ON the chord — geometry and distance are unchanged.
+    if (strictUncharted && smoothedCells.length >= 2) {
+        const stateAt = (cx: number, cy: number): boolean => {
+            const idx = cy * grid.width + cx;
+            return grid.cells[idx] < 0 || isUnvouchedIdx(idx);
+        };
+        const rebuilt: { x: number; y: number }[] = [smoothedCells[0]];
+        for (let i = 1; i < smoothedCells.length; i++) {
+            const a = smoothedCells[i - 1];
+            const b = smoothedCells[i];
+            let prev = stateAt(a.x, a.y);
+            for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
+                if (c.x === a.x && c.y === a.y) continue;
+                const s = stateAt(c.x, c.y);
+                if (s !== prev) {
+                    const last = rebuilt[rebuilt.length - 1];
+                    if (last.x !== c.x || last.y !== c.y) rebuilt.push({ x: c.x, y: c.y });
+                    prev = s;
+                }
+            }
+            const lastW = rebuilt[rebuilt.length - 1];
+            if (lastW.x !== b.x || lastW.y !== b.y) rebuilt.push(b);
+        }
+        smoothedCells = rebuilt;
+    }
     const totalMs = Date.now() - t0Total;
     const breakdown = Object.entries(timings)
         .map(([k, v]) => `${k}=${v}ms`)
@@ -2980,7 +3099,10 @@ function routeInshoreOnce(
     // adjacent deep run and the route draws a long mostly-deep leg
     // entirely red (the Brisbane "red but could go another way" bug).
     const polylineRaw: [number, number][] = smoothedCells.map((c) => gridToLatLon(grid, c.x, c.y));
-    const cautionRaw: boolean[] = smoothedCells.map((c) => grid.cells[c.y * grid.width + c.x] < 0);
+    const cautionRaw: boolean[] = smoothedCells.map((c) => {
+        const idx = c.y * grid.width + c.x;
+        return grid.cells[idx] < 0 || isUnvouchedIdx(idx);
+    });
 
     // Always splice the input coords as the visible start/end of the
     // polyline. The bridge segment from input → first water cell
@@ -3070,6 +3192,49 @@ function routeInshoreOnce(
         distM += haversineM(finalPolyline[i - 1][1], finalPolyline[i - 1][0], finalPolyline[i][1], finalPolyline[i][0]);
     }
 
+    // ── Engine-boundary water-vouched sweep (strict policy only) ─────
+    // The FINAL polyline (post smoothing / fairlead / leading-line
+    // splices) is geometry-sampled at half-cell steps against the
+    // no-evidence mask. Runs accumulate ACROSS vertices — a coverage
+    // hole doesn't reset at a turn. Longest run beyond UNCHARTED_MAX_
+    // RUN_M ⇒ refuse: no source vouches there is water for >1 NM of
+    // this route, and "no data" must never render as confident clean
+    // water (Bribie field bug, reply 16). Short runs were already
+    // caution-flagged red by cautionRaw above. Out-of-grid samples
+    // can't occur for A*-derived geometry and are ignored if splices
+    // produce one. The GEBCO caller-side backstop remains the third net.
+    let unchartedMaxRunM = 0;
+    if (strictUncharted && finalPolyline.length >= 2) {
+        const tSweep = Date.now();
+        const stepM = Math.max(25, resolutionM / 2);
+        let runM = 0;
+        for (let i = 1; i < finalPolyline.length; i++) {
+            const [lonA, latA] = finalPolyline[i - 1];
+            const [lonB, latB] = finalPolyline[i];
+            const segM = haversineM(latA, lonA, latB, lonB);
+            const steps = Math.max(1, Math.ceil(segM / stepM));
+            for (let s = 1; s <= steps; s++) {
+                const t = s / steps;
+                const { x, y } = latLonToGrid(grid, latA + (latB - latA) * t, lonA + (lonB - lonA) * t);
+                const inGrid = x >= 0 && y >= 0 && x < grid.width && y < grid.height;
+                if (inGrid && isUnvouchedIdx(y * grid.width + x)) {
+                    runM += segM / steps;
+                    if (runM > unchartedMaxRunM) unchartedMaxRunM = runM;
+                } else {
+                    runM = 0;
+                }
+            }
+        }
+        mark('unchartedSweep', tSweep);
+        if (unchartedMaxRunM > UNCHARTED_MAX_RUN_M) {
+            return {
+                error: `Route crosses ${(unchartedMaxRunM / 1852).toFixed(1)} NM of uncharted water — no installed chart covers that stretch`,
+                code: 'uncharted-corridor',
+                debug: { ...debug, unchartedMaxRunM: Math.round(unchartedMaxRunM) } as RouteDebug,
+            };
+        }
+    }
+
     return {
         polyline: finalPolyline,
         cautionMask: finalCaution,
@@ -3081,6 +3246,7 @@ function routeInshoreOnce(
             ...(fl.fairlead ? { fairlead: fl.fairlead } : {}),
             ...(ll.leadingLines ? { leadingLine: ll.leadingLines } : {}),
             ...(la.leadingApproach ? { leadingApproach: la.leadingApproach } : {}),
+            ...(strictUncharted ? { unchartedMaxRunM: Math.round(unchartedMaxRunM) } : {}),
         } as RouteDebug,
         phaseTimings: timings,
     };

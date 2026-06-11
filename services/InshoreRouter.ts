@@ -38,7 +38,8 @@
  */
 
 import { CapacitorHttp } from '@capacitor/core';
-import { cellsForBBox } from './enc/EncCellMetadata';
+import { cellsForBBox, listCells } from './enc/EncCellMetadata';
+import type { EncCell } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { piCache } from './PiCacheService';
@@ -150,6 +151,67 @@ export function hasEncCoverageForRoute(origin: InshoreOrigin, destination: Insho
     return cellsForDest.length > 0;
 }
 
+// ── Corridor coverage gate ──────────────────────────────────────────
+// Field bug 2026-06-12 (Newport→Mooloolaba, ROUTING_COLLAB reply 16):
+// the endpoint check above passed because BOTH ends had cells, while
+// the corridor between them crossed a chart-coverage hole — and the
+// engine's permissive UNKNOWN_OPEN default routed dead-straight over
+// Bribie Island. This gate samples the DIRECT line between the
+// endpoints and refuses inshore routing when any interior sample falls
+// outside every routing-grade installed cell. Fails in milliseconds
+// with an actionable message instead of after a 20 s grid build.
+
+/** Along-corridor sampling interval. */
+const CORRIDOR_SAMPLE_NM = 1.0;
+/**
+ * Cells sparser than this (features per square degree of bbox) don't
+ * count as corridor coverage. An overview-class cell proves you OWN a
+ * chart of the area, not that the area is charted to routing grade —
+ * the 1°×1° cell 351724 carries 48 features total and Bribie Island is
+ * not among them, so its bbox blanketing the corridor must not satisfy
+ * this gate. Harbour/approach/ribbon cells run 10³–10⁶ features per
+ * square degree; genuinely skeletal cells sit one to two orders of
+ * magnitude below this floor.
+ */
+const ROUTING_GRADE_MIN_FEATURES_PER_SQDEG = 200;
+
+export interface CorridorCoverageGap {
+    lat: number;
+    lon: number;
+    /** Distance from the origin along the direct line, in NM. */
+    atNM: number;
+}
+
+/**
+ * First interior sample of the direct origin→destination line not
+ * covered by any routing-grade installed cell, or null when the whole
+ * corridor is covered. Endpoints are NOT tested here — they keep
+ * hasEncCoverageForRoute's margin semantics (city-centre geocodes land
+ * just outside coastal cell bboxes). Pure — pass listCells() live,
+ * fixtures in tests.
+ */
+export function findCorridorCoverageGap(
+    origin: InshoreOrigin,
+    destination: InshoreOrigin,
+    cells: EncCell[],
+): CorridorCoverageGap | null {
+    const grade = cells.filter((c) => {
+        const [minLon, minLat, maxLon, maxLat] = c.bbox;
+        const areaSqDeg = Math.max(1e-6, (maxLon - minLon) * (maxLat - minLat));
+        return c.hazardCount / areaSqDeg >= ROUTING_GRADE_MIN_FEATURES_PER_SQDEG;
+    });
+    const totalNM = straightLineNM(origin, destination);
+    const steps = Math.max(1, Math.ceil(totalNM / CORRIDOR_SAMPLE_NM));
+    for (let s = 1; s < steps; s++) {
+        const t = s / steps;
+        const lat = origin.lat + (destination.lat - origin.lat) * t;
+        const lon = origin.lon + (destination.lon - origin.lon) * t;
+        const covered = grade.some((c) => lon >= c.bbox[0] && lon <= c.bbox[2] && lat >= c.bbox[1] && lat <= c.bbox[3]);
+        if (!covered) return { lat, lon, atNM: totalNM * t };
+    }
+    return null;
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
@@ -235,6 +297,17 @@ async function tryInshoreRouteInner(
     if (!hasEncCoverageForRoute(origin, destination)) {
         log.warn('GATE: No ENC coverage at one or both endpoints — skipping inshore router');
         return null;
+    }
+
+    const corridorGap = findCorridorCoverageGap(origin, destination, listCells());
+    if (corridorGap) {
+        log.warn(
+            `GATE: corridor coverage gap ${corridorGap.atNM.toFixed(1)} NM along the direct line, near ${corridorGap.lat.toFixed(3)},${corridorGap.lon.toFixed(3)} — refusing inshore (coverage-gap)`,
+        );
+        return {
+            error: `Inshore charts don't cover the full passage yet — coverage gap ~${corridorGap.atNM.toFixed(0)} NM along the route (near ${corridorGap.lat.toFixed(2)}, ${corridorGap.lon.toFixed(2)}). Sync the missing cells via Pi Cache.`,
+            code: 'coverage-gap',
+        };
     }
 
     // Find every installed cell whose bbox intersects the route's lat/lon
@@ -881,6 +954,11 @@ async function tryInshoreRouteInner(
         draftM,
         safetyM: 0.2,
         obstructionBufferM: 60,
+        // LIVE routes never treat no-evidence space as clean water: cells
+        // nothing vouches for flag red, and >1 NM unvouched runs refuse
+        // with 'uncharted-corridor' (reply 16 structural fix; the engine
+        // default stays permissive for fixtures/harbour-corridor callers).
+        unchartedPolicy: 'strict',
     } as const;
 
     // ── Cloud-first: try Pi-cache before falling back to on-device ──

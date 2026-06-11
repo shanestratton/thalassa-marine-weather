@@ -24,7 +24,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
 vi.mock('@capacitor/core', () => ({ CapacitorHttp: { get: async () => ({ status: 599, data: null }) } }));
-vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: async () => [] }));
+vi.mock('../services/enc/EncCellMetadata', () => ({ cellsForBBox: async () => [], listCells: () => [] }));
 vi.mock('../services/enc/EncCellStore', () => ({ loadCellGeoJSON: async () => null }));
 vi.mock('../services/PiCacheService', () => ({
     piCache: { isAvailable: () => false, baseUrl: 'http://test.invalid' },
