@@ -54,15 +54,12 @@ export function isOnlineAndNotSatellite(): boolean {
 //
 // ShipLogService.startTracking() turns it on; stopTracking() turns it
 // off and fires syncOfflineQueue() in the background.
-let captureLocalOnly = false;
-
-export function setCaptureLocalOnly(enabled: boolean): void {
-    captureLocalOnly = enabled;
-}
-
-export function isCaptureLocalOnly(): boolean {
-    return captureLocalOnly;
-}
+//
+// The state itself lives in OfflineQueue (so syncOfflineQueue can refuse
+// to touch the queue mid-voyage without a circular import); re-exported
+// here for the existing callers.
+export { setCaptureLocalOnly, isCaptureLocalOnly } from './OfflineQueue';
+import { isCaptureLocalOnly as captureIsLocalOnly } from './OfflineQueue';
 
 /**
  * Save-or-Queue Pipeline.
@@ -78,7 +75,7 @@ export async function saveEntryOnlineOrOffline(
     // Active voyage → device only. No Supabase attempt, no 5 s timeout
     // race, no auth resolution — just an instant local append. The voyage
     // syncs as one batch when tracking stops.
-    if (captureLocalOnly) {
+    if (captureIsLocalOnly()) {
         await queueOfflineEntry(entry);
         return { saved: null, entryId: null, wasOffline: true };
     }
@@ -194,7 +191,7 @@ export async function demotePreviousAutoWaypoint(voyageId: string): Promise<void
     // in the offline queue, not the DB — demote it there (instant, no
     // network). syncOfflineQueue also normalises duplicates per voyage at
     // upload time as a belt-and-braces.
-    if (captureLocalOnly) {
+    if (captureIsLocalOnly()) {
         await demoteLatestPositionInQueue(voyageId);
         return;
     }

@@ -9,9 +9,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ---- Spies for queue ops ----
 const mockQueueOfflineEntry = vi.fn(async (_e: unknown) => {});
 const mockDemoteInQueue = vi.fn(async (_v: string) => {});
+// The capture-local-only flag lives in OfflineQueue (EntrySave re-exports
+// it); mirror its real behaviour so the round-trip tests stay meaningful.
+const mockLocalOnlyFlag = { value: false };
 vi.mock('../services/shiplog/OfflineQueue', () => ({
     queueOfflineEntry: (e: unknown) => mockQueueOfflineEntry(e),
     demoteLatestPositionInQueue: (v: string) => mockDemoteInQueue(v),
+    setCaptureLocalOnly: (enabled: boolean) => {
+        mockLocalOnlyFlag.value = enabled;
+    },
+    isCaptureLocalOnly: () => mockLocalOnlyFlag.value,
 }));
 
 // ---- Supabase mock: track whether the network path was touched ----

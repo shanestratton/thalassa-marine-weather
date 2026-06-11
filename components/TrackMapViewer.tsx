@@ -22,6 +22,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
 import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, DeviceIcon, WindIcon } from './Icons';
+import { isTrackworthyEntry, isPlausibleTrackPoint, calculateDistanceNM } from '../services/shiplog/helpers';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -75,7 +76,11 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     const sortedEntriesRef = useRef<ShipLogEntry[]>([]);
 
     const sortedEntries = useMemo(() => {
-        const valid = entries.filter((e) => e.latitude && e.longitude);
+        // Playback follows the track LINE — turn pins (past positions)
+        // and manual entries (possibly stale cached fix) are markers,
+        // not vertices; including them made the playback vessel (and the
+        // polyline) zig-zag to positions out of sequence.
+        const valid = entries.filter(isTrackworthyEntry);
         const sorted = [...valid].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
         sortedEntriesRef.current = sorted;
         return sorted;
@@ -199,23 +204,21 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
         layerGroup.clearLayers();
 
-        const validEntries = entries.filter((e) => e.latitude && e.longitude);
+        // Markers may come from any plausible entry (turn pins, manual
+        // entries); polyline VERTICES only from trackworthy ones — pins
+        // sit at past positions and bend the line backwards (zig-zag).
+        const validEntries = entries.filter((e) => isPlausibleTrackPoint(e.latitude, e.longitude));
         if (validEntries.length < 2) return;
 
         const sorted = [...validEntries].sort(
             (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
+        const lineEntries = sorted.filter(isTrackworthyEntry);
+        if (lineEntries.length < 2) return;
 
-        const trackCoords = sorted.map((e) => [e.latitude!, e.longitude!] as [number, number]);
+        const trackCoords = lineEntries.map((e) => [e.latitude!, e.longitude!] as [number, number]);
 
-        // Detect if this is a planned route
-        const isPlannedRoute = sorted.some((e) => e.source === 'planned_route');
-
-        // Color-segmented polylines
-        let currentSegment: [number, number][] = [];
-        let currentIsWater = sorted[0].isOnWater ?? true;
-
-        const addSegment = (coords: [number, number][], isWater: boolean) => {
+        const addSegment = (coords: [number, number][], isWater: boolean, isPlannedRoute: boolean) => {
             if (coords.length < 2) return;
             const color = isPlannedRoute ? '#a78bfa' : isWater ? '#38bdf8' : '#34d399';
 
@@ -233,23 +236,46 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 opacity: 1,
                 lineCap: 'round',
                 lineJoin: 'round',
+                ...(isPlannedRoute ? { dashArray: '6 8' } : {}),
             }).addTo(layerGroup);
         };
 
-        sorted.forEach((entry) => {
-            const isWater = entry.isOnWater ?? true;
-            const coord: [number, number] = [entry.latitude!, entry.longitude!];
+        // Partition by voyage — drawing one line through several
+        // voyages (the kebab "Track Map" path passes everything
+        // resident, planned routes included) connected them with
+        // phantom diagonals and let a single planned route recolor the
+        // whole set purple. Each voyage now gets its own polyline and
+        // its own planned-route styling.
+        const voyageGroups = new Map<string, ShipLogEntry[]>();
+        for (const e of lineEntries) {
+            const key = e.voyageId || 'default_voyage';
+            const arr = voyageGroups.get(key);
+            if (arr) arr.push(e);
+            else voyageGroups.set(key, [e]);
+        }
 
-            if (isWater !== currentIsWater && currentSegment.length > 0) {
-                currentSegment.push(coord);
-                addSegment(currentSegment, currentIsWater);
-                currentSegment = [coord];
-                currentIsWater = isWater;
-            } else {
-                currentSegment.push(coord);
-            }
-        });
-        addSegment(currentSegment, currentIsWater);
+        for (const groupEntries of voyageGroups.values()) {
+            if (groupEntries.length < 2) continue;
+            const isPlannedRoute = groupEntries.some((e) => e.source === 'planned_route');
+
+            let currentSegment: [number, number][] = [];
+            let currentIsWater = groupEntries[0].isOnWater ?? true;
+
+            groupEntries.forEach((entry) => {
+                const isWater = entry.isOnWater ?? true;
+                const coord: [number, number] = [entry.latitude!, entry.longitude!];
+
+                if (isWater !== currentIsWater && currentSegment.length > 0) {
+                    currentSegment.push(coord);
+                    addSegment(currentSegment, currentIsWater, isPlannedRoute);
+                    currentSegment = [coord];
+                    currentIsWater = isWater;
+                } else {
+                    currentSegment.push(coord);
+                }
+            });
+            addSegment(currentSegment, currentIsWater, isPlannedRoute);
+        }
 
         // Start marker
         const startIcon = L.divIcon({
@@ -258,7 +284,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             iconAnchor: [12, 12],
             className: '',
         });
-        L.marker([sorted[0].latitude!, sorted[0].longitude!], { icon: startIcon }).addTo(layerGroup);
+        L.marker([lineEntries[0].latitude!, lineEntries[0].longitude!], { icon: startIcon }).addTo(layerGroup);
 
         // End marker
         const endIcon = L.divIcon({
@@ -267,7 +293,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             iconAnchor: [12, 12],
             className: '',
         });
-        const lastEntry = sorted[sorted.length - 1];
+        const lastEntry = lineEntries[lineEntries.length - 1];
         L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon }).addTo(layerGroup);
 
         // Waypoint markers
@@ -309,7 +335,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 iconAnchor: [10, 10],
                 className: '',
             });
-            const marker = L.marker([sorted[0].latitude!, sorted[0].longitude!], {
+            const marker = L.marker([lineEntries[0].latitude!, lineEntries[0].longitude!], {
                 icon: vesselIcon,
                 zIndexOffset: 1000,
             });
@@ -515,11 +541,27 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
     if (!isOpen) return null;
 
-    // Stats
-    const totalDistance =
-        sortedEntries.length > 0
-            ? (sortedEntries[sortedEntries.length - 1].cumulativeDistanceNM || 0).toFixed(1)
-            : '0.0';
+    // Stats. Distance = MAX cumulative, matching every other surface
+    // (VoyageHeader, voyage cards) — the last-sorted entry is the
+    // 'Voyage End' pin, which historically carried cumulative 0 and
+    // made every completed voyage read "0.0 NM" here. Fallback for
+    // voyages whose stored cumulatives are all zero (legacy data):
+    // haversine-sum the polyline.
+    const totalDistance = (() => {
+        if (sortedEntries.length === 0) return '0.0';
+        let nm = Math.max(0, ...sortedEntries.map((e) => e.cumulativeDistanceNM || 0));
+        if (nm === 0 && sortedEntries.length > 1) {
+            for (let i = 1; i < sortedEntries.length; i++) {
+                nm += calculateDistanceNM(
+                    sortedEntries[i - 1].latitude!,
+                    sortedEntries[i - 1].longitude!,
+                    sortedEntries[i].latitude!,
+                    sortedEntries[i].longitude!,
+                );
+            }
+        }
+        return nm.toFixed(1);
+    })();
     const waypointCount = entries.filter((e) => e.entryType === 'waypoint').length;
 
     // Current entry for scrubber label + HUD

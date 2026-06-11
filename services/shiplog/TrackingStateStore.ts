@@ -55,6 +55,14 @@ export interface StoredPosition {
     cumulativeDistanceNM: number;
     /** Last recorded speed — used for acceleration-based spike filtering */
     speedKts?: number;
+    /**
+     * Voyage this position belongs to. captureLog ignores a stored
+     * position from a DIFFERENT voyage (no distance/speed deltas across
+     * voyage boundaries), and captureImmediate uses the match to decide
+     * whether to carry the cumulative-distance accumulator forward
+     * (resume / Voyage End) or start it at zero (new voyage).
+     */
+    voyageId?: string;
 }
 
 /**

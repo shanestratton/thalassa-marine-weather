@@ -156,16 +156,41 @@ describe('captureImmediate', () => {
 
     it('persists with placeholder coords when no fix is available', async () => {
         const ctx = makeCtx({ getCachedFix: () => null });
-        // captureImmediate has a 500ms warm-up setTimeout — advance through
-        // it so the await resolves under fake timers.
+        // captureImmediate polls the fix cache for up to 30s (Voyage
+        // Start) before falling back to the placeholder — advance fake
+        // timers through the whole warm-up window.
         const promise = captureImmediate(ctx);
-        await vi.advanceTimersByTimeAsync(600);
+        await vi.advanceTimersByTimeAsync(31_000);
         const entry = await promise;
         expect(entry).not.toBeNull();
         // Placeholder lat/lon are 0 because the warm-up loop didn't find a fix.
         expect(entry!.latitude).toBe(0);
         expect(entry!.longitude).toBe(0);
         expect(entry!.positionFormatted).toContain('Acquiring');
+    });
+
+    it('rejects a teleport-stale fix (own GPS timestamp predates start) and stamps from the first fresh fix', async () => {
+        // BgGeo replays the previous session's location with a fresh
+        // receivedAt at engine start — the gate must judge the fix by
+        // its OWN timestamp and keep waiting for a real one.
+        const staleFix = {
+            ...makeFix(-27.0, 152.5),
+            timestamp: Date.now() - 10 * 60 * 1000, // produced 10 min ago, elsewhere
+            receivedAt: Date.now(), // ...but delivered just now
+        } as CachedPosition;
+        let currentFix: CachedPosition = staleFix;
+        const ctx = makeCtx({ getCachedFix: () => currentFix });
+
+        const promise = captureImmediate(ctx, undefined, 'Voyage Start');
+        // After 2s of warm-up polling, a genuine fix arrives.
+        await vi.advanceTimersByTimeAsync(2_000);
+        currentFix = { ...makeFix(-27.5, 153.0), timestamp: Date.now(), receivedAt: Date.now() } as CachedPosition;
+        await vi.advanceTimersByTimeAsync(1_000);
+        const entry = await promise;
+
+        expect(entry).not.toBeNull();
+        expect(entry!.latitude).toBeCloseTo(-27.5);
+        expect(entry!.longitude).toBeCloseTo(153.0);
     });
 });
 

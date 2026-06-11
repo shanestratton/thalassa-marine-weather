@@ -18,6 +18,24 @@ const log = createLogger('OfflineQueue');
 const OFFLINE_QUEUE_KEY = 'ship_log_offline_queue';
 const MAX_OFFLINE_QUEUE = 50_000;
 
+// ── LOCAL-ONLY CAPTURE MODE ─────────────────────────────────────────
+// While a voyage is actively recording, every captured point is written
+// to the DEVICE only (this queue) — zero network on the capture path.
+// The whole voyage uploads to Supabase in the background once tracking
+// stops. State lives HERE (not EntrySave) because the queue is the
+// thing being protected: syncOfflineQueue refuses to run while the
+// queue is the live store for a recording voyage.
+// EntrySave re-exports the accessors for its existing callers.
+let captureLocalOnly = false;
+
+export function setCaptureLocalOnly(enabled: boolean): void {
+    captureLocalOnly = enabled;
+}
+
+export function isCaptureLocalOnly(): boolean {
+    return captureLocalOnly;
+}
+
 /**
  * Queue entry for offline sync.
  * Caps queue at 50,000 entries — enough for weeks of offshore tracking
@@ -102,6 +120,12 @@ export function normalizeLatestPositions(queue: Partial<ShipLogEntry>[]): Partia
 /** Insert batch size — matches the GPX importer's chunking. */
 const SYNC_CHUNK_SIZE = 500;
 
+// In-flight latch — overlapping sync triggers (page mount, 2-min interval,
+// stop-tracking flush, app resume) must not race each other. Without it,
+// two concurrent runs each snapshot the queue, both upload, both rewrite
+// the key → duplicated rows AND lost live-voyage points.
+let isSyncing = false;
+
 /**
  * Sync offline queue to Supabase — the upload half of local-first capture.
  *
@@ -111,7 +135,16 @@ const SYNC_CHUNK_SIZE = 500;
  * queue, so the next sync attempt (stop-tracking flush, 2-minute interval,
  * or app launch) picks up exactly where this one left off.
  *
- * NOTE: the previous implementation inserted the raw camelCase objects
+ * CONCURRENCY: the queue is append-only between snapshot and rewrite, so
+ * the uploaded snapshot is always a PREFIX of the live queue. After
+ * uploading we RE-READ the queue and slice off only what was uploaded —
+ * never wipe the whole key. Points a recording voyage appended while the
+ * upload was in flight survive. The previous implementation's
+ * unconditional `Preferences.remove()` destroyed them (start tracking
+ * while the page-mount sync is uploading → first minutes of the new
+ * track gone).
+ *
+ * NOTE: the original implementation inserted the raw camelCase objects
  * with no user_id — Postgres rejected every batch and the queue never
  * drained. If a long-queued backlog suddenly appears in your log after
  * this fix, that's it finally syncing.
@@ -120,7 +153,12 @@ const SYNC_CHUNK_SIZE = 500;
  */
 export async function syncOfflineQueue(): Promise<number> {
     if (!supabase) return 0;
+    if (isSyncing) return 0; // another sync is already running
+    // Mid-voyage the queue IS the live store — never upload (or rewrite)
+    // it until the voyage stops and stopTracking flips this off.
+    if (captureLocalOnly) return 0;
 
+    isSyncing = true;
     try {
         const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
         if (!value) return 0;
@@ -133,6 +171,20 @@ export async function syncOfflineQueue(): Promise<number> {
 
         const normalized = normalizeLatestPositions(queue);
 
+        // Rewrite the queue as (live queue) minus (synced prefix). The
+        // queue only ever grows by appends, so entries [0, syncedCount)
+        // of the re-read queue are exactly what we uploaded.
+        const commitProgress = async (syncedCount: number) => {
+            const { value: nowValue } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
+            const liveQueue: Partial<ShipLogEntry>[] = nowValue ? JSON.parse(nowValue) : [];
+            const remainder = liveQueue.slice(syncedCount);
+            if (remainder.length === 0) {
+                await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
+            } else {
+                await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(remainder) });
+            }
+        };
+
         let synced = 0;
         for (let i = 0; i < normalized.length; i += SYNC_CHUNK_SIZE) {
             const chunk = normalized.slice(i, i + SYNC_CHUNK_SIZE).map((e) => {
@@ -144,21 +196,20 @@ export async function syncOfflineQueue(): Promise<number> {
             const { error } = await supabase.from(SHIP_LOGS_TABLE).insert(chunk);
             if (error) {
                 log.warn(`syncOfflineQueue: chunk failed after ${synced} synced — keeping remainder`, error.message);
-                // Preserve everything not yet inserted (original objects, not mapped rows)
-                const remainder = normalized.slice(i);
-                await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(remainder) });
+                await commitProgress(synced);
                 return synced;
             }
             synced += chunk.length;
         }
 
-        // Everything inserted — clear the queue
-        await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
+        await commitProgress(synced);
         if (synced > 0) log.warn(`syncOfflineQueue: uploaded ${synced} entries`);
         return synced;
     } catch (error) {
         log.error('syncOfflineQueue failed', error);
         return 0;
+    } finally {
+        isSyncing = false;
     }
 }
 

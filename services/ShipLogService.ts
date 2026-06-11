@@ -137,7 +137,16 @@ class ShipLogServiceClass {
      * handlers, and restores persisted tracking state from Preferences.
      * Safe to call multiple times — subsequent calls are no-ops.
      */
+    private initialized = false;
+
     async initialize(): Promise<void> {
+        // The docstring always promised idempotency; now it's true. Without
+        // this guard every Log-page mount re-ran the state reconcile,
+        // re-awaited an offline-queue upload, and registered ANOTHER
+        // appStateChange + visibilitychange listener — duplicate
+        // checkMissedEntries captures on every foreground resume.
+        if (this.initialized) return;
+        this.initialized = true;
         try {
             const persisted = await loadTrackingState();
             if (persisted) {
@@ -203,8 +212,14 @@ class ShipLogServiceClass {
             // Try initial sync — but NOT if a voyage resumed recording (or
             // sits paused) above. Local-first capture: the queue is the live
             // store mid-voyage; it uploads as one batch when the voyage stops.
+            // FIRE-AND-FORGET: the Log page awaits initialize() before its
+            // first data load — awaiting a whole-voyage upload here was the
+            // single biggest source of the "open Log → spinner for ages →
+            // can't start a track" report. syncOfflineQueue now also has its
+            // own in-flight latch + live-voyage refusal, and the 2-minute
+            // interval retries anything this pass doesn't land.
             if (!this.trackingState.isTracking && !this.trackingState.isPaused) {
-                await this.syncOfflineQueue();
+                void this.syncOfflineQueue().catch((e) => log.warn('initial queue sync failed (will retry):', e));
             }
 
             // BACKGROUND RESUME HANDLER: Catch up on missed entries when app wakes up
@@ -449,19 +464,22 @@ class ShipLogServiceClass {
         this.courseDetector.start({
             getPos: () => this.lastBgLocation,
             isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
-            onTurn: ({ oldCardinal, newCardinal, lat, lon }) => {
+            onTurn: ({ oldCardinal, newCardinal, lat, lon, timestamp }) => {
                 // Fire-and-forget waypoint entry on detected turn. The
                 // detector hands us the geometric midpoint of the turn —
                 // we route through _captureLog directly with the
                 // positionOverride option so the pin lands at the
                 // midpoint rather than the current GPS fix (which would
                 // be the END of the turn for long gradual drifts).
+                // The override carries the matching midpoint TIME too:
+                // a past position stamped "now" makes every timestamp-
+                // sorted polyline double back to it (zig-zag artifact).
                 _captureLog(this._captureCtx(), {
                     entryType: 'waypoint',
                     notes: `Auto: COG ${oldCardinal} → ${newCardinal}`,
                     waypointName: `COG ${oldCardinal} → ${newCardinal}`,
                     eventCategory: 'navigation',
-                    positionOverride: { lat, lon },
+                    positionOverride: { lat, lon, timestamp },
                 }).catch(() => {
                     /* best effort */
                 });

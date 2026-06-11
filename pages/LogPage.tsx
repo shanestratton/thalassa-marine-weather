@@ -125,6 +125,16 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [showMenu, setShowMenu] = useState(false);
     const [showArchived, setShowArchived] = useState(false);
 
+    // Stable identity for the TrackMapViewer prop — the old inline
+    // .filter() minted a new array every render, defeating the viewer's
+    // React.memo and forcing a full Leaflet layer rebuild on every
+    // 1–5 s live-tracking poll tick.
+    const trackMapEntries = React.useMemo(
+        () =>
+            state.selectedVoyageId ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId) : state.entries,
+        [state.entries, state.selectedVoyageId],
+    );
+
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
     const pendingStartRef = useRef<(() => void) | null>(null);
@@ -301,13 +311,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         })();
     }, [actionSheet, selectedVoyageId, entries]);
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-full">
-                <div className="w-8 h-8 border-2 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
-            </div>
-        );
-    }
+    // No full-page spinner: the page shell + the Start control render
+    // immediately (starting a track is network-free), and only the
+    // voyage LIST shows a skeleton while history loads. The old
+    // early-return here held the entire page — Start button included —
+    // hostage to auth rehydrate + the Supabase summaries fetch.
 
     return (
         <div className="relative h-full bg-slate-950 overflow-hidden">
@@ -403,7 +411,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         }`}
                                     />
                                     <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">
-                                        Recording
+                                        {gpsStatus === 'locked' ? 'Recording' : 'Acquiring GPS fix…'}
                                     </span>
                                 </div>
                             ) : (
@@ -680,9 +688,24 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
                                                 </div>
                                             </div>
-                                            {/* Live Mini Map — grows to fill all remaining space */}
-                                            <div className="mt-3 flex-1 min-h-[100px]">
+                                            {/* Live Mini Map — grows to fill all remaining space.
+                                                Until the first accepted fix lands there's nothing
+                                                to draw, so say what's happening instead of
+                                                showing a silent empty map. */}
+                                            <div className="mt-3 flex-1 min-h-[100px] relative">
                                                 <LiveMiniMap entries={activeEntries} height="100%" isLive={true} />
+                                                {activeEntries.filter((e) => e.latitude && e.longitude).length ===
+                                                    0 && (
+                                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px]">
+                                                        <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                                                        <span className="text-[11px] font-bold text-amber-300/90 uppercase tracking-widest">
+                                                            Acquiring GPS fix…
+                                                        </span>
+                                                        <span className="text-[10px] text-white/40">
+                                                            Recording starts at the first clean fix
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
                                     );
@@ -767,7 +790,24 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     live in one place: the gauge tile grid. */}
 
                                 {/* Past Voyage Cards */}
-                                {listVoyages.length === 0 ? (
+                                {loading && listVoyages.length === 0 ? (
+                                    /* History still hydrating (cache miss / first network
+                                       load) — skeleton cards, NOT the "Begin Your Log"
+                                       empty state, and never a page-wide spinner: the
+                                       Start control below is live the whole time. */
+                                    <div className="space-y-3 px-1 py-2" aria-label="Loading voyages">
+                                        {[0, 1, 2].map((i) => (
+                                            <div
+                                                key={i}
+                                                className="rounded-2xl bg-slate-900/40 border border-white/5 p-4 animate-pulse"
+                                            >
+                                                <div className="h-3 w-28 bg-white/10 rounded mb-3" />
+                                                <div className="h-2.5 w-44 bg-white/5 rounded mb-2" />
+                                                <div className="h-2.5 w-36 bg-white/5 rounded" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : listVoyages.length === 0 ? (
                                     <div className="flex-1 flex flex-col items-center justify-center text-slate-400 px-6 py-12">
                                         {/* Decorative maritime line art */}
                                         <div className="relative w-24 h-24 mb-6">
@@ -985,7 +1025,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             <TrackMapViewer
                 isOpen={showTrackMap}
                 onClose={() => dispatch({ type: 'SHOW_TRACK_MAP', show: false })}
-                entries={selectedVoyageId ? entries.filter((e) => e.voyageId === selectedVoyageId) : entries}
+                entries={trackMapEntries}
             />
 
             {/* Community Track Browser */}
