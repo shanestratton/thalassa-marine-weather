@@ -24,6 +24,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { vesselDraftMetres } from './units';
 import type { VesselProfile } from '../types';
 import type {
     WindField,
@@ -227,7 +228,9 @@ export async function planDepartureWindow(
                 polar,
                 windField,
                 {
-                    vesselDraft: vessel.draft || 2.5,
+                    // Isochrone options take METRES; vessel.draft is FEET
+                    // (see services/units.ts).
+                    vesselDraft: vesselDraftMetres(vessel),
                     motoringSpeed: vessel.cruisingSpeed || 6,
                     minDepthM: null,
                     // Coarser config to keep total compute time reasonable —

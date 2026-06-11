@@ -14,6 +14,7 @@
 import { VoyagePlan, Waypoint, VesselProfile } from '../types';
 
 import { createLogger } from '../utils/createLogger';
+import { vesselDraftMetres } from './units';
 
 const log = createLogger('bathymetricRouter');
 
@@ -170,7 +171,8 @@ export async function enhanceVoyagePlanWithBathymetry(
         return voyagePlan;
     }
 
-    const draft = vessel.draft ?? 2.5;
+    // Routers take METRES; vessel.draft is FEET (see services/units.ts).
+    const draft = vesselDraftMetres(vessel);
 
     const bathyRoute = await fetchBathymetricRoute(
         voyagePlan.originCoordinates,
