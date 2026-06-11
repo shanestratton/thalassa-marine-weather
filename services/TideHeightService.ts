@@ -1,7 +1,7 @@
 /**
- * Tide Height Service — fetches tide curves from pi-cache (or
- * Supabase fallback) and exposes a synchronous interpolated lookup
- * for use by the routing validator and hazard query path.
+ * Tide Height Service — routing-grade tide height lookup. Exposes a
+ * synchronous interpolated heightAt() for the routing validator and
+ * hazard query path.
  *
  * Why this exists separately from the other tide consumers:
  *   - Voice integrations (services/voice/integrations/tides.ts)
@@ -12,47 +12,61 @@
  *     different access pattern (curve interpolation, not extremes
  *     listing).
  *
- * Architecture:
- *   1. fetchTideCurve(lat, lon, startMs, endMs) does a single
- *      pi-cache call covering the requested time range.
- *   2. Returned TideCurve carries the heights array and an
- *      interpolation function the routing engine calls per-waypoint.
- *   3. In-memory session cache so a single planning session doesn't
- *      hit the API once per route segment.
+ * Source tiers (provenance carried on the returned curve):
+ *   - 'STATION_HEIGHTS' — dense WorldTides station heights, linearly
+ *     interpolated. No Thalassa fetch path requests heights today
+ *     (extremes are 1 credit; dense heights cost per-day), so this
+ *     tier is dormant — the branch stays so a future paid path can
+ *     light it up without touching consumers.
+ *   - 'EXTREMES_INTERP' — half-cosine interpolation between the HW/LW
+ *     extremes the app already fetches everywhere (free, and served
+ *     from the pi/proxy caches offline). Accurate to roughly ±0.3 m
+ *     in semidiurnal regimes; Phase 7 labels windows built on these
+ *     curves "approx".
+ *
+ * Datum guard: under-keel clearance maths assumes heights above LAT
+ * (chart datum). Every fetch path requests datum=LAT and WorldTides
+ * echoes requestDatum/responseDatum back (verified on both the pi
+ * and proxy paths 2026-06-11); hydration REFUSES (null + warn) any
+ * response that doesn't explicitly confirm LAT. Converting datums
+ * client-side is how groundings happen — we never do it.
  *
  * Limitations (documented honestly):
  *   - Single station per curve. For routes >100 NM that cross
  *     significant tide-phase boundaries (e.g. Cook Strait), the
  *     midpoint station is approximate. Phase 7 will compute a
  *     piecewise curve from multiple stations along the route.
- *   - Pi-cache is preferred when available; falls back to Supabase
- *     edge function `proxy-tides` directly.
  *   - Returns null when no tide data is available; caller should
  *     degrade to the static tideOffsetM in HazardQueryOptions.
  */
 
-import { CapacitorHttp } from '@capacitor/core';
-
 import { createLogger } from '../utils/createLogger';
-import { piCache } from './PiCacheService';
+import { fetchWorldTides } from './weather/api/worldtides';
+import { buildExtremesLookup, TideExtremePoint } from './tides/extremesInterp';
 import type { WorldTidesHeight, WorldTidesResponse } from '../types/api';
 
 const log = createLogger('TideHeightService');
 
 // ── Types ──────────────────────────────────────────────────────────
 
+export type TideCurveProvenance = 'STATION_HEIGHTS' | 'EXTREMES_INTERP';
+
 export interface TideCurve {
     /**
-     * Heights array sorted ascending by `dt` (unix seconds). May be
-     * empty if the source returned no data — caller should null-
-     * check via `heightAt`.
+     * Dense station heights sorted ascending by `dt` (unix seconds).
+     * Populated only for 'STATION_HEIGHTS' curves; empty for
+     * 'EXTREMES_INTERP' — interpolate via `heightAt`, not this array.
      */
     heights: WorldTidesHeight[];
     /**
-     * Synchronous lookup. Returns metres above chart datum at
-     * `timeMs`, linearly interpolated between the two surrounding
-     * heights. Returns `null` when the time is outside the curve's
-     * range (the caller should not extrapolate guess-tides).
+     * How the curve was built. 'EXTREMES_INTERP' is approximate
+     * (±0.3 m-ish) — Phase 7 uses this to label tide windows "approx".
+     */
+    provenance: TideCurveProvenance;
+    /**
+     * Synchronous lookup. Returns metres above LAT at `timeMs`.
+     * Returns `null` when the time is outside the curve's range (the
+     * caller should not extrapolate guess-tides).
      */
     heightAt(timeMs: number): number | null;
     /** [start, end] inclusive in millis. */
@@ -87,11 +101,10 @@ function cacheKey(lat: number, lon: number, startMs: number, endMs: number): str
 // ── Interpolation ─────────────────────────────────────────────────
 
 /**
- * Build a heightAt() function over the heights array. Encapsulates
- * the binary search + linear interpolation so callers don't have
- * to reimplement it.
+ * Build a heightAt() over dense station heights (linear interpolation
+ * — points are ~30 min apart, so linear is within a centimetre).
  */
-function buildLookup(heights: WorldTidesHeight[]): TideCurve['heightAt'] {
+function buildHeightsLookup(heights: WorldTidesHeight[]): TideCurve['heightAt'] {
     return (timeMs: number): number | null => {
         if (heights.length === 0) return null;
         const t = timeMs / 1000;
@@ -114,71 +127,79 @@ function buildLookup(heights: WorldTidesHeight[]): TideCurve['heightAt'] {
     };
 }
 
-// ── Pi-cache fetch ─────────────────────────────────────────────────
+// ── Hydration ──────────────────────────────────────────────────────
+
+const ROUTING_SAFE_DATUM = 'LAT';
 
 /**
- * Fetch via pi-cache. Returns null on any failure so the caller
- * can fall back to the Supabase direct path.
+ * Build a TideCurve from a raw WorldTides response. Exported for unit
+ * tests and for Phase 7 to hydrate piecewise curves from per-station
+ * cached responses.
+ *
+ * Returns null when the datum isn't explicitly LAT, or when the
+ * response carries neither dense heights nor ≥2 extremes.
  */
-async function fetchViaPi(lat: number, lon: number, days: number): Promise<WorldTidesResponse | null> {
-    if (!piCache.isAvailable()) return null;
-    try {
-        const url = `${piCache.baseUrl}/api/tides/predictions?lat=${lat}&lon=${lon}&days=${days}`;
-        const res = await CapacitorHttp.get({
-            url,
-            connectTimeout: 5000,
-            readTimeout: 10000,
-            responseType: 'json',
-        });
-        if (res.status < 200 || res.status >= 300) return null;
-        return res.data as WorldTidesResponse;
-    } catch (err) {
-        log.warn('pi-cache tide fetch failed', err);
+export function buildTideCurve(response: WorldTidesResponse): TideCurve | null {
+    // Datum guard — refuse rather than convert. An MSL (or unknown)
+    // curve fed into under-keel clearance maths reads roughly half the
+    // tide range too optimistic.
+    const datum = response.responseDatum ?? response.requestDatum;
+    if (datum !== ROUTING_SAFE_DATUM) {
+        log.warn(`refusing tide curve on datum '${datum ?? 'unknown'}' — only ${ROUTING_SAFE_DATUM} is routing-safe`);
         return null;
     }
-}
 
-/**
- * Fallback: Supabase edge function. Same wire format. Used only
- * when pi-cache is unreachable.
- */
-async function fetchViaSupabase(lat: number, lon: number, days: number): Promise<WorldTidesResponse | null> {
-    try {
-        const supabaseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) || '';
-        const supabaseKey = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_KEY) || '';
-        if (!supabaseUrl || !supabaseKey) return null;
-        const url = `${supabaseUrl}/functions/v1/proxy-tides?lat=${lat}&lon=${lon}&days=${days}`;
-        const res = await CapacitorHttp.get({
-            url,
-            headers: {
-                Authorization: `Bearer ${supabaseKey}`,
-                apikey: supabaseKey,
-            },
-            connectTimeout: 5000,
-            readTimeout: 15000,
-            responseType: 'json',
-        });
-        if (res.status < 200 || res.status >= 300) return null;
-        return res.data as WorldTidesResponse;
-    } catch (err) {
-        log.warn('Supabase tide fetch failed', err);
-        return null;
+    const station = {
+        stationName: response.station?.name,
+        stationLat: response.station?.lat,
+        stationLon: response.station?.lon,
+    };
+
+    // Tier 1: dense station heights (paid path, currently dormant).
+    if (response.heights && response.heights.length > 0) {
+        const heights = [...response.heights].sort((a, b) => a.dt - b.dt);
+        return {
+            heights,
+            provenance: 'STATION_HEIGHTS',
+            heightAt: buildHeightsLookup(heights),
+            rangeMs: [heights[0].dt * 1000, heights[heights.length - 1].dt * 1000],
+            ...station,
+        };
     }
+
+    // Tier 2: half-cosine between the cached HW/LW extremes (free path).
+    if (response.extremes && response.extremes.length >= 2) {
+        const points: TideExtremePoint[] = response.extremes
+            .map((e) => ({ timeMs: e.dt * 1000, heightM: e.height, type: e.type }))
+            .sort((a, b) => a.timeMs - b.timeMs);
+        return {
+            heights: [],
+            provenance: 'EXTREMES_INTERP',
+            heightAt: buildExtremesLookup(points),
+            rangeMs: [points[0].timeMs, points[points.length - 1].timeMs],
+            ...station,
+        };
+    }
+
+    return null;
 }
 
 // ── Public API ─────────────────────────────────────────────────────
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Fetch (or cached-return) a tide curve covering the requested
  * range at the requested location.
  *
- * `startMs` / `endMs` are in milliseconds since epoch. We round
- * the curve to whole-day boundaries inside the API params so we
- * always grab a cache-friendly window.
+ * `startMs` / `endMs` are in milliseconds since epoch. Data comes
+ * through fetchWorldTides — the same pi-cache → Supabase proxy →
+ * direct pipeline every other tide consumer uses — so a curve is
+ * available wherever the app already shows tide extremes.
  *
  * Returns null when no tide data is available at all (failed
- * upstream, no station nearby). Caller should fall back to the
- * static tideOffsetM in HazardQueryOptions.
+ * upstream, no station nearby, non-LAT datum). Caller should fall
+ * back to the static tideOffsetM in HazardQueryOptions.
  */
 export async function fetchTideCurve(
     lat: number,
@@ -195,32 +216,31 @@ export async function fetchTideCurve(
         return hit.curve;
     }
 
-    // Round the requested span up to whole days for the API call;
-    // callers asking for 4 h get the same fetch as callers asking
-    // for the same 4 h overlapping a 24 h window.
-    const days = Math.max(1, Math.ceil((endMs - startMs) / (24 * 60 * 60 * 1000)) + 1);
+    // The proxy anchors the WorldTides window at yesterday 00:00, so
+    // coverage must be measured from *now*, not from startMs — a
+    // passage departing in 3 days needs 3 + duration days of window,
+    // not just the duration. +2 covers the yesterday-anchor and
+    // partial-day rounding; clamp to the 14-day window the rest of
+    // the app requests.
+    const daysAhead = Math.ceil((endMs - Date.now()) / DAY_MS) + 2;
+    const days = Math.min(14, Math.max(1, daysAhead));
 
-    const response = (await fetchViaPi(lat, lon, days)) ?? (await fetchViaSupabase(lat, lon, days));
-    if (!response || !response.heights || response.heights.length === 0) {
+    const response = await fetchWorldTides(lat, lon, days);
+    if (!response) {
         log.info(`no tide data for ${lat.toFixed(2)},${lon.toFixed(2)} — caller should fall back`);
         return null;
     }
 
-    const heights = [...response.heights].sort((a, b) => a.dt - b.dt);
-    const rangeMs: [number, number] = [heights[0].dt * 1000, heights[heights.length - 1].dt * 1000];
+    const curve = buildTideCurve(response);
+    if (!curve) {
+        log.info(`tide response unusable for ${lat.toFixed(2)},${lon.toFixed(2)} — caller should fall back`);
+        return null;
+    }
 
-    const curve: TideCurve = {
-        heights,
-        heightAt: buildLookup(heights),
-        rangeMs,
-        stationName: response.station?.name,
-        stationLat: response.station?.lat,
-        stationLon: response.station?.lon,
-    };
     cache.set(key, { fetchedAt: Date.now(), curve });
     log.info(
         `fetched tide curve at ${lat.toFixed(2)},${lon.toFixed(2)}: ` +
-            `${heights.length} points, ${response.station?.name ?? 'station unknown'}`,
+            `${curve.provenance}, ${curve.stationName ?? 'station unknown'}`,
     );
     return curve;
 }
