@@ -20,6 +20,13 @@ export interface WorldTidesExtreme {
 export interface WorldTidesResponse {
     status: number;
     error?: string;
+    /**
+     * Vertical datum echoed back by WorldTides (e.g. 'LAT'). Every
+     * Thalassa fetch path requests datum=LAT; TideHeightService refuses
+     * curves that don't explicitly confirm it (never converts datums).
+     */
+    requestDatum?: string;
+    responseDatum?: string;
     heights?: WorldTidesHeight[];
     extremes?: WorldTidesExtreme[];
     callCount?: number;

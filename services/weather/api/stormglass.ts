@@ -10,6 +10,7 @@ import { mergeWeatherData } from './dataSourceMerger';
 import { findAndFetchNearestBeacon } from './beaconService';
 import { apiCacheGet, apiCacheSet } from '../apiCache';
 import { useSettingsStore } from '../../../stores/settingsStore';
+import { buildExtremesLookup, TideExtremePoint } from '../../tides/extremesInterp';
 
 import { createLogger } from '../../../utils/createLogger';
 
@@ -25,38 +26,30 @@ const inflightKey = (lat: number, lon: number) => `${lat.toFixed(4)}|${lon.toFix
 
 const log = createLogger('stormglass');
 
-// FIX: Generate dense hourly tide data from High/Low extremes using Cosine Interpolation.
-// This restores the Tide Graph without needing the expensive SeaLevel API.
+// Generate dense hourly tide data from High/Low extremes via the shared
+// half-cosine interpolation (services/tides/extremesInterp.ts — same maths
+// TideHeightService uses for routing). Restores the Tide Graph without
+// needing the expensive SeaLevel API.
 const interpolateTides = (tides: { time: string; height: number }[]): { time: string; sg: number }[] => {
     if (!tides || tides.length < 2) return [];
 
-    const sorted = [...tides].sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+    const points: TideExtremePoint[] = tides
+        .map((t) => ({ timeMs: new Date(t.time).getTime(), heightM: t.height }))
+        .sort((a, b) => a.timeMs - b.timeMs);
+    const heightAt = buildExtremesLookup(points);
+
     const interpolated: { time: string; sg: number }[] = [];
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-        const start = sorted[i];
-        const end = sorted[i + 1];
-
-        const tStart = new Date(start.time).getTime();
-        const tEnd = new Date(end.time).getTime();
-        const hStart = start.height;
-        const hEnd = end.height;
-
-        // Step every 30 mins
-        for (let t = tStart; t < tEnd; t += 30 * 60 * 1000) {
-            // Ratio (0 to 1)
-            const ratio = (t - tStart) / (tEnd - tStart);
-
-            // Cosine Interpolation: y(t) = mu2 + (y1 - y2)/2 * cos(pi*t) ?
-            // Formula: y = (y1 + y2)/2 + (y1 - y2)/2 * cos(x * pi)
-            // At x=0 (start), cos=1 => (y1+y2+y1-y2)/2 = y1.
-            // At x=1 (end), cos=-1 => (y1+y2-y1+y2)/2 = y2. Correct.
-            const height = (hStart + hEnd) / 2 + ((hStart - hEnd) / 2) * Math.cos(ratio * Math.PI);
-
-            interpolated.push({
-                time: new Date(t).toISOString(),
-                sg: height, // Use 'sg' field as carrier for 'height' in meters
-            });
+    // 30-min steps restarting at each extreme so the series keeps the
+    // exact HW/LW timestamps the graph anchors on.
+    for (let i = 0; i < points.length - 1; i++) {
+        for (let t = points[i].timeMs; t < points[i + 1].timeMs; t += 30 * 60 * 1000) {
+            const height = heightAt(t);
+            if (height !== null) {
+                interpolated.push({
+                    time: new Date(t).toISOString(),
+                    sg: height, // Use 'sg' field as carrier for 'height' in meters
+                });
+            }
         }
     }
     return interpolated;
