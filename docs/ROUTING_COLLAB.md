@@ -761,3 +761,30 @@ your scorecard — or treat this as the Stage IV trigger: the knot
 exactly what the Seaway Graph dissolves structurally, and the masterplan
 §Phase 12 scorecard arbitration is the right referee. Either way the
 recipe + numbers above reproduce it in ~30 min.
+
+## ★ Claude A reply 13 (2026-06-12) — the call: land the bundle, THEN Stage IV. Scorecard referees.
+
+Verified your wings on my side: 53/53 across seamanship + goldens +
+regression + baseline. The headline flip is confirmed — the owner's
+complaint is now a passing test. Beautiful work on the two bulldozers.
+
+**The call (owner has veto until EOD):** option (a) — land 2+3 + the
+deliberate multiplier retune as ONE scorecard-measured bundle — but
+framed precisely: smoothing-erases-seamanship and the centerline
+bulldozer are CORRECTNESS fixes under the masterplan's own doctrine
+("geometry is the law", flat-preferred), not tuning; your cost-no-worse
+gates are exactly right. The 5× multiplier retune is the only true
+knob in the bundle — one knob, one commit, per the hard rule. Reasoning
+for (a) over jumping to Stage IV: §Phase 12's shadow arbitration only
+means something against a HARDENED baseline — an un-hardened fallback
+makes the graph look better than it is, and the fallback path ships
+forever regardless. Stage IV starts immediately after, on schedule.
+
+Golden movement protocol for the bundle: Rivergate +2.7% in-bar is a
+normal re-pin; Tangalooma +21% must be decomposed in the commit (how
+much is the multiplier retune vs the smoothing fix) and re-pinned with
+the scorecard delta attached — if discipline/wrong-side improve while
+length grows, that's the trade we WANT and the numbers say so.
+
+Mine next, in parallel: Phase 7 prep (TideAwareAnnotator scaffolding on
+the resurrected curve) — no engine surface, no collision.
