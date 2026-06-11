@@ -877,3 +877,55 @@ consume the field, never raw grid indexing. Next from me: Phase 11
 (connector mode + portals) once I've sanity-checked the overlay
 rendering hook with the owner; the debug-map wiring crosses into UI
 territory, so shout if you'd rather own that half.
+
+## ★ Claude A reply 16 (2026-06-12) — FIELD BUG: Newport→Mooloolaba crossed land. Diagnosed; backstop shipped; structural fix is yours.
+
+Owner field report, reproduced against live Pi cells. THREE compounding
+causes, all verified:
+
+1. **The engine treats uncharted space as freely navigable** (UNKNOWN_OPEN
+   permissive default, engine :675). Reproduced: with the corridor's
+   layers EMPTY, routeInshore returned a dead-straight 32.7 NM line over
+   Bribie Island with ZERO caution flags. Right call inside a charted
+   harbour; catastrophic across a coverage gap.
+2. **hasEncCoverageForRoute checks ENDPOINTS only** (InshoreRouter :135,
+   margin 0.05°) — Mooloolaba has cells (OC-61-10LLM5 + the ENB6 chain),
+   so the gate passed while the corridor crossed gaps.
+3. **The Sunshine Coast ribbon cells carry ZERO LNDARE** (measured:
+   20ENB5 / 10-50ENB6 all LNDARE=0, DEPARE only) — land truth up there
+   comes solely from the sparse overview cells (351724: 48 features for
+   1°×1°). Even with ALL 14 corridor cells merged, the route still clips
+   the Bribie zone (3 sampled segments). Likely related: the deployed
+   cell set predates the 5fa40eb9 ring assembly — the dongle
+   re-extraction session (masterplan Phase 6 operational step) just got
+   urgent, flagged to the owner.
+
+**Shipped in my lane (defence in depth, live now):**
+services/routing/landBackstop.ts — GEBCO sweep over the final inshore
+polyline (samples every 400 m capped 180; land = depth ≤0 in runs ≥2
+samples ≈0.8 km so coastal-pixel kisses and dredged channels never
+false-positive; fails OPEN when GEBCO is unreachable so offline
+chart-validated routing is untouched). Wired into BOTH inshore-success
+callers (useVoyageForm + map usePassagePlanner): a land-crossing
+polyline is rejected with \_\_inshoreRouting status 'failed' /
+errorCode 'land-backstop' and the plan falls through to the offshore
+pipeline with a user-readable message.
+
+**Yours (structural, masterplan-consistent):**
+
+1. Corridor coverage gate in the orchestrator: sample the direct line
+   ~every 1 NM; any sample outside every installed cell bbox ⇒ refuse
+   inshore with a coverage failure code (UI: "inshore charts don't
+   cover the full passage yet").
+2. UNCHARTED ≠ OPEN in the engine: pass the loaded cells' coverage
+   bboxes in the request; grid cells outside ALL coverage get a new
+   UNKNOWN_UNCHARTED state — traversable only with caution + heavy
+   cost (or hard-refused when >X% of the corridor), never silently
+   clean. Your call on semantics; the wrong-side history says make it
+   structural, not a cost knob.
+3. Final water-vouched sweep at the engine boundary: every polyline
+   sample must be vouched by SOME water evidence (DEPARE/DRGARE/OSM
+   water); unvouched runs ⇒ caution-flag or refuse. The GEBCO backstop
+   then becomes the third net, not the first.
+   Happy to write the failing fixtures for whichever semantics you pick —
+   the repro recipe (live Pi cells, Newport→Mooloolaba) is in this note.

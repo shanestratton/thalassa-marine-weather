@@ -319,153 +319,169 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         `(cells: ${inshoreRes.cellsUsed.join(',')}, ${inshoreRes.elapsedMs} ms)`,
                 );
 
-                // Build a RouteAnalysis from the polyline so the rest of
-                // the UI (save/export/banner buttons) lights up. Save
-                // and Export are gated on routeAnalysis !== null — without
-                // this they stay hidden after an inshore-only route.
-                const inshoreSpeed = speed > 0 ? speed : 6;
-                const departureDate = departureTime ? new Date(departureTime) : new Date();
-                const inshoreSegments: RouteSegment[] = [];
-                let cumDist = 0;
-                for (let i = 1; i < inshoreRes.polyline.length; i++) {
-                    const [aLon, aLat] = inshoreRes.polyline[i - 1];
-                    const [bLon, bLat] = inshoreRes.polyline[i];
-                    // Haversine in NM
-                    const R_NM_LOC = 3440.065;
-                    const dLatR = ((bLat - aLat) * Math.PI) / 180;
-                    const dLonR = ((bLon - aLon) * Math.PI) / 180;
-                    const lat1R = (aLat * Math.PI) / 180;
-                    const lat2R = (bLat * Math.PI) / 180;
-                    const hh = Math.sin(dLatR / 2) ** 2 + Math.cos(lat1R) * Math.cos(lat2R) * Math.sin(dLonR / 2) ** 2;
-                    const segNM = R_NM_LOC * 2 * Math.atan2(Math.sqrt(hh), Math.sqrt(1 - hh));
-                    cumDist += segNM;
-                    // Bearing
-                    const y = Math.sin(dLonR) * Math.cos(lat2R);
-                    const x = Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLonR);
-                    const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
-                    inshoreSegments.push({
-                        startLat: aLat,
-                        startLon: aLon,
-                        endLat: bLat,
-                        endLon: bLon,
-                        bearing,
-                        distance: segNM,
-                        cumulativeDistance: cumDist,
-                    });
-                }
-                const inshoreDuration = inshoreRes.distanceNM / inshoreSpeed; // hours
-                const arrivalDate = new Date(departureDate.getTime() + inshoreDuration * 3600_000);
-                setRouteAnalysis({
-                    waypoints: [
-                        { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
-                        { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
-                    ],
-                    segments: inshoreSegments,
-                    totalDistance: inshoreRes.distanceNM,
-                    estimatedDuration: inshoreDuration,
-                    departureTime: departureDate.toISOString(),
-                    arrivalTime: arrivalDate.toISOString(),
-                    averageSpeed: inshoreSpeed,
-                    fuelEstimate: null,
-                    maxWindSpeed: null,
-                    maxWaveHeight: null,
-                    headwindPercentage: 0,
-                    favorablePercentage: 0,
-                    minDepth: null,
-                    shallowSegments: 0,
-                    routeCoordinates: inshoreRes.polyline,
-                });
-
-                // Render the polyline as a single safe-water route line.
-                // No sea buoy gates, no harbour legs, no isochrone — the
-                // ENC chart already encoded all the channel knowledge we
-                // need. The line goes straight on the channel.
-                // Split the polyline into runs of consecutive segments
-                // that share the same caution state. Each run becomes one
-                // LineString feature: normal water keeps safety:'green'
-                // (the cyan inshore-route default), caution water — water
-                // our coarse bathymetry reads as too shallow for this
-                // vessel but which is NOT land/hazard — gets
-                // safety:'danger' so the route-line layer draws it red.
-                // The skipper verifies depth on those red stretches.
-                const inshorePoly = inshoreRes.polyline;
-                const cautionMask = inshoreRes.cautionMask;
-                const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-                if (!cautionMask || cautionMask.length !== inshorePoly.length - 1 || inshorePoly.length < 2) {
-                    // No (or mismatched) caution data — single green line.
-                    inshoreFeatures.push({
-                        type: 'Feature',
-                        properties: { safety: 'green', source: 'inshore-router' },
-                        geometry: { type: 'LineString', coordinates: inshorePoly },
-                    });
+                // LAND BACKSTOP (2026-06-12 Newport→Mooloolaba field bug):
+                // uncharted space is engine-navigable, so a mid-corridor
+                // chart gap can yield a confident route across an island.
+                // Reject and fall through to the offshore pipeline; fails
+                // open when GEBCO is unreachable.
+                const { inshoreRouteCrossesLand } = await import('../../services/routing/landBackstop');
+                const backstop = await inshoreRouteCrossesLand(inshoreRes.polyline);
+                if (gen !== computeGenRef.current) return; // user moved on, abort
+                if (backstop.crossesLand) {
+                    log.warn(
+                        `[Passage] inshore route REJECTED by land backstop (${backstop.runs.length} land run(s)) — falling back`,
+                    );
                 } else {
-                    let runStart = 0;
-                    for (let i = 0; i <= cautionMask.length; i++) {
-                        const atEnd = i === cautionMask.length;
-                        if (atEnd || cautionMask[i] !== cautionMask[runStart]) {
-                            inshoreFeatures.push({
-                                type: 'Feature',
-                                properties: {
-                                    safety: cautionMask[runStart] ? 'danger' : 'green',
-                                    source: 'inshore-router',
-                                },
-                                // run = segments [runStart, i) → points [runStart, i]
-                                geometry: {
-                                    type: 'LineString',
-                                    coordinates: inshorePoly.slice(runStart, i + 1),
-                                },
-                            });
-                            runStart = i;
+                    // Build a RouteAnalysis from the polyline so the rest of
+                    // the UI (save/export/banner buttons) lights up. Save
+                    // and Export are gated on routeAnalysis !== null — without
+                    // this they stay hidden after an inshore-only route.
+                    const inshoreSpeed = speed > 0 ? speed : 6;
+                    const departureDate = departureTime ? new Date(departureTime) : new Date();
+                    const inshoreSegments: RouteSegment[] = [];
+                    let cumDist = 0;
+                    for (let i = 1; i < inshoreRes.polyline.length; i++) {
+                        const [aLon, aLat] = inshoreRes.polyline[i - 1];
+                        const [bLon, bLat] = inshoreRes.polyline[i];
+                        // Haversine in NM
+                        const R_NM_LOC = 3440.065;
+                        const dLatR = ((bLat - aLat) * Math.PI) / 180;
+                        const dLonR = ((bLon - aLon) * Math.PI) / 180;
+                        const lat1R = (aLat * Math.PI) / 180;
+                        const lat2R = (bLat * Math.PI) / 180;
+                        const hh =
+                            Math.sin(dLatR / 2) ** 2 + Math.cos(lat1R) * Math.cos(lat2R) * Math.sin(dLonR / 2) ** 2;
+                        const segNM = R_NM_LOC * 2 * Math.atan2(Math.sqrt(hh), Math.sqrt(1 - hh));
+                        cumDist += segNM;
+                        // Bearing
+                        const y = Math.sin(dLonR) * Math.cos(lat2R);
+                        const x =
+                            Math.cos(lat1R) * Math.sin(lat2R) - Math.sin(lat1R) * Math.cos(lat2R) * Math.cos(dLonR);
+                        const bearing = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+                        inshoreSegments.push({
+                            startLat: aLat,
+                            startLon: aLon,
+                            endLat: bLat,
+                            endLon: bLon,
+                            bearing,
+                            distance: segNM,
+                            cumulativeDistance: cumDist,
+                        });
+                    }
+                    const inshoreDuration = inshoreRes.distanceNM / inshoreSpeed; // hours
+                    const arrivalDate = new Date(departureDate.getTime() + inshoreDuration * 3600_000);
+                    setRouteAnalysis({
+                        waypoints: [
+                            { id: 'dep', lat: departure.lat, lon: departure.lon, name: departure.name },
+                            { id: 'arr', lat: arrival.lat, lon: arrival.lon, name: arrival.name },
+                        ],
+                        segments: inshoreSegments,
+                        totalDistance: inshoreRes.distanceNM,
+                        estimatedDuration: inshoreDuration,
+                        departureTime: departureDate.toISOString(),
+                        arrivalTime: arrivalDate.toISOString(),
+                        averageSpeed: inshoreSpeed,
+                        fuelEstimate: null,
+                        maxWindSpeed: null,
+                        maxWaveHeight: null,
+                        headwindPercentage: 0,
+                        favorablePercentage: 0,
+                        minDepth: null,
+                        shallowSegments: 0,
+                        routeCoordinates: inshoreRes.polyline,
+                    });
+
+                    // Render the polyline as a single safe-water route line.
+                    // No sea buoy gates, no harbour legs, no isochrone — the
+                    // ENC chart already encoded all the channel knowledge we
+                    // need. The line goes straight on the channel.
+                    // Split the polyline into runs of consecutive segments
+                    // that share the same caution state. Each run becomes one
+                    // LineString feature: normal water keeps safety:'green'
+                    // (the cyan inshore-route default), caution water — water
+                    // our coarse bathymetry reads as too shallow for this
+                    // vessel but which is NOT land/hazard — gets
+                    // safety:'danger' so the route-line layer draws it red.
+                    // The skipper verifies depth on those red stretches.
+                    const inshorePoly = inshoreRes.polyline;
+                    const cautionMask = inshoreRes.cautionMask;
+                    const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+                    if (!cautionMask || cautionMask.length !== inshorePoly.length - 1 || inshorePoly.length < 2) {
+                        // No (or mismatched) caution data — single green line.
+                        inshoreFeatures.push({
+                            type: 'Feature',
+                            properties: { safety: 'green', source: 'inshore-router' },
+                            geometry: { type: 'LineString', coordinates: inshorePoly },
+                        });
+                    } else {
+                        let runStart = 0;
+                        for (let i = 0; i <= cautionMask.length; i++) {
+                            const atEnd = i === cautionMask.length;
+                            if (atEnd || cautionMask[i] !== cautionMask[runStart]) {
+                                inshoreFeatures.push({
+                                    type: 'Feature',
+                                    properties: {
+                                        safety: cautionMask[runStart] ? 'danger' : 'green',
+                                        source: 'inshore-router',
+                                    },
+                                    // run = segments [runStart, i) → points [runStart, i]
+                                    geometry: {
+                                        type: 'LineString',
+                                        coordinates: inshorePoly.slice(runStart, i + 1),
+                                    },
+                                });
+                                runStart = i;
+                            }
                         }
                     }
-                }
-                const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
-                if (routeSrc) {
-                    routeSrc.setData({ type: 'FeatureCollection', features: inshoreFeatures });
-                }
-                const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
-                if (wpSource) {
-                    wpSource.setData({
-                        type: 'FeatureCollection',
-                        features: [
-                            {
-                                type: 'Feature' as const,
-                                properties: { name: departure.name || 'Departure', color: '#10b981' },
-                                geometry: { type: 'Point' as const, coordinates: [departure.lon, departure.lat] },
-                            },
-                            {
-                                type: 'Feature' as const,
-                                properties: { name: arrival.name || 'Arrival', color: '#ef4444' },
-                                geometry: { type: 'Point' as const, coordinates: [arrival.lon, arrival.lat] },
-                            },
-                        ],
-                    });
-                }
+                    const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
+                    if (routeSrc) {
+                        routeSrc.setData({ type: 'FeatureCollection', features: inshoreFeatures });
+                    }
+                    const wpSource = map.getSource('waypoints') as mapboxgl.GeoJSONSource;
+                    if (wpSource) {
+                        wpSource.setData({
+                            type: 'FeatureCollection',
+                            features: [
+                                {
+                                    type: 'Feature' as const,
+                                    properties: { name: departure.name || 'Departure', color: '#10b981' },
+                                    geometry: { type: 'Point' as const, coordinates: [departure.lon, departure.lat] },
+                                },
+                                {
+                                    type: 'Feature' as const,
+                                    properties: { name: arrival.name || 'Arrival', color: '#ef4444' },
+                                    geometry: { type: 'Point' as const, coordinates: [arrival.lon, arrival.lat] },
+                                },
+                            ],
+                        });
+                    }
 
-                // Fit bounds to the route extent.
-                const bounds = new mapboxgl.LngLatBounds();
-                for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
-                map.fitBounds(bounds, { padding: 80, duration: 1000 });
+                    // Fit bounds to the route extent.
+                    const bounds = new mapboxgl.LngLatBounds();
+                    for (const [lon, lat] of inshoreRes.polyline) bounds.extend([lon, lat]);
+                    map.fitBounds(bounds, { padding: 80, duration: 1000 });
 
-                // Surface a route-summary event so PassageBanner can show
-                // distance/cells used. Same shape as deep-water route, just
-                // sourced from the ENC router.
-                try {
-                    window.dispatchEvent(
-                        new CustomEvent('thalassa:passage-inshore-route', {
-                            detail: {
-                                distanceNM: inshoreRes.distanceNM,
-                                cellsUsed: inshoreRes.cellsUsed,
-                                elapsedMs: inshoreRes.elapsedMs,
-                                pointCount: inshoreRes.polyline.length,
-                            },
-                        }),
-                    );
-                } catch (_) {
-                    /* not fatal */
-                }
+                    // Surface a route-summary event so PassageBanner can show
+                    // distance/cells used. Same shape as deep-water route, just
+                    // sourced from the ENC router.
+                    try {
+                        window.dispatchEvent(
+                            new CustomEvent('thalassa:passage-inshore-route', {
+                                detail: {
+                                    distanceNM: inshoreRes.distanceNM,
+                                    cellsUsed: inshoreRes.cellsUsed,
+                                    elapsedMs: inshoreRes.elapsedMs,
+                                    pointCount: inshoreRes.polyline.length,
+                                },
+                            }),
+                        );
+                    } catch (_) {
+                        /* not fatal */
+                    }
 
-                return; // skip the rest of the deep-water compute
+                    return; // skip the rest of the deep-water compute
+                } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
                 log.warn(
                     `[Passage] inshore router could not produce a route: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
