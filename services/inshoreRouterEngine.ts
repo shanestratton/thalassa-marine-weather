@@ -1565,7 +1565,9 @@ interface HeapEntry {
     idx: number; // grid index
 }
 
-class MinHeap {
+/** Exported for the heap-invariant unit test (tests/minHeap.test.ts) —
+ *  the 2026-06-11 sinkDown bug silently degraded every A* route. */
+export class MinHeap {
     private a: HeapEntry[] = [];
     push(e: HeapEntry): void {
         this.a.push(e);
@@ -1597,13 +1599,27 @@ class MinHeap {
     private sinkDown(i: number): void {
         const item = this.a[i];
         const n = this.a.length;
+        // Hole pattern: children are hoisted up and `item` is placed last, so
+        // every comparison must be against ITEM's priority — never against
+        // this.a[i], which after the first hoist holds the hoisted child.
+        // (The old version compared a[smallest] with smallest=i: the loop
+        // terminated early and `item` landed above smaller children, breaking
+        // the heap invariant — A* popped non-minimal nodes and returned
+        // measurably suboptimal routes. Found 2026-06-11 via the seamanship
+        // fixtures: 289,493 m-eq path on a grid with a 73,048 m-eq optimum.)
         while (true) {
             const l = 2 * i + 1;
             const r = 2 * i + 2;
-            let smallest = i;
-            if (l < n && this.a[l].f < this.a[smallest].f) smallest = l;
-            if (r < n && this.a[r].f < this.a[smallest].f) smallest = r;
-            if (smallest === i) break;
+            let smallest = -1;
+            let smallestF = item.f;
+            if (l < n && this.a[l].f < smallestF) {
+                smallest = l;
+                smallestF = this.a[l].f;
+            }
+            if (r < n && this.a[r].f < smallestF) {
+                smallest = r;
+            }
+            if (smallest === -1) break;
             this.a[i] = this.a[smallest];
             i = smallest;
         }

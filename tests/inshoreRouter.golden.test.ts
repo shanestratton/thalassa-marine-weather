@@ -69,16 +69,18 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
         expectConnected(r);
     });
 
-    // 22.64 NM measured at lock-in (2026-06-12). Claude B's capture-time
-    // measurement (2026-05-21) was 20.46 NM; the leading-line follower +
-    // buoyed-channel + marina-scope commits landed since and lengthened the
-    // fixture route toward the ~23.4 NM observed in-app — i.e. MORE
-    // channel-faithful. The golden pins TODAY's behaviour; re-pin only with
-    // an explicit masterplan-phase justification in the commit message.
-    it('distance pinned at 22.64 NM ±2%', () => {
+    // RE-PIN 22.64 → 21.89 NM (2026-06-11, MinHeap correctness fix): the A*
+    // open-set heap's sinkDown broke the heap invariant (compared children
+    // against the hoisted child instead of the sinking item — see
+    // tests/minHeap.test.ts), so A* popped non-minimal nodes and every route
+    // carried silent detour fat. With a correct heap the SAME chart data
+    // routes 0.75 NM shorter. Prior history: 20.46 NM at capture (2026-05-21)
+    // → 22.64 at lock-in (channel-faithfulness commits) → 21.89 (heap fix).
+    // Re-pin only with an explicit masterplan-phase justification.
+    it('distance pinned at 21.89 NM ±2%', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(22.64 * 0.98);
-        expect(r.distanceNM).toBeLessThan(22.64 * 1.02);
+        expect(r.distanceNM).toBeGreaterThan(21.89 * 0.98);
+        expect(r.distanceNM).toBeLessThan(21.89 * 1.02);
     });
 
     it('endpoint snap < 100 m both ends', () => {
@@ -114,10 +116,10 @@ describe('GOLDEN: Newport → Rivergate at the REAL Tayana draft (2.44 m / 8 ft)
         expectConnected(r);
     });
 
-    it('distance within 10% of the 2.40 m benchmark (22.64 NM)', () => {
+    it('distance within 10% of the 2.40 m benchmark (21.89 NM post-heap-fix)', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(22.64 * 0.9);
-        expect(r.distanceNM).toBeLessThan(22.64 * 1.1);
+        expect(r.distanceNM).toBeGreaterThan(21.89 * 0.9);
+        expect(r.distanceNM).toBeLessThan(21.89 * 1.1);
     });
 
     it('endpoint snap < 100 m both ends', () => {
