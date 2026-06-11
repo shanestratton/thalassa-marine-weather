@@ -1696,6 +1696,12 @@ export class MinHeap {
 
 // ── A* ───────────────────────────────────────────────────────────────
 
+/** Metres-equivalent surcharge for stepping OFF a preferred corridor
+ *  (preferred=1 → preferred=0). Wired through aStar AND chainCostM so the
+ *  search and the smoothing price edges identically. 0 = inert; flipped to
+ *  the masterplan Phase 3 value (250) in its own knob commit. */
+const EXIT_PENALTY_M = 250;
+
 /**
  * Cost multiplier per cell based on its known depth.
  *
@@ -1777,8 +1783,21 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     // beat the channel detour. Pairing this with the iOS-side
     // ribbon widening (30 → 100 m half-width) plus a stiffer 5×
     // gradient makes the channel route win even at 60% coverage.
-    if (depth >= 10) return 5.0;
-    if (depth >= 5) return 6.0;
+    //
+    // RETUNED 5/6/8 → 4/4.8/6.4 (2026-06-12, the Phase 3b bundle's one
+    // knob, swept with the scorecard — ROUTING_COLLAB replies 12–13).
+    // The 5× era was partly masked by the cost-blind smoother erasing
+    // corridor detours; once smoothing/centerline became cost-no-worse,
+    // honest geometry exposed 5× as over-aggressive (Tangalooma golden
+    // +21%). Sweep at {2.5, 3, 4, 5} × all fixtures + goldens:
+    //   2.5 → gate-shortcut un-flips (0/5 gates);
+    //   3   → staggered ≥90% discipline un-flips (79.7);
+    //   4   → ALL flips hold (GS 5/5, STAG 92.6, MID 10/11) and
+    //         Tangalooma settles at +14.5% (18.43 NM) vs +21% at 5×;
+    //   5   → same flips, Tangalooma +21%.
+    // 4 is the smallest value that keeps every seamanship flip.
+    if (depth >= 10) return 4.0;
+    if (depth >= 5) return 4.8;
     // depth ∈ (0, 5) — shallow but passes the draft+safety cutoff.
     // Tried 18× on 2026-05-15 to push A* harder toward deep water at
     // Brisbane (user: "we will need to get out and push"). Combined
@@ -1789,7 +1808,7 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
     // mouth is what the 30 m AusBathyTopo actually reads; the deep
     // shipping channel needs FAIRWY coverage to win) than a cost-
     // tuning one — pushing cost further amplifies routing artefacts.
-    if (depth > 0) return 8.0;
+    if (depth > 0) return 6.4;
     // CAUTION (depth < 0, the -1 sentinel) — soft-blocked: too shallow
     // for this vessel per our coarse bathymetry, but not land/hazard.
     // 40× — A* strongly prefers real water (5× the worst real-water
@@ -1889,6 +1908,7 @@ function aStar(
         const cx = idx % w;
         const cy = Math.floor(idx / w);
         const curG = gScore[idx];
+        const curPreferred = grid.preferred[idx] === 1;
 
         for (let n = 0; n < NEIGHBORS.length; n++) {
             const { dx, dy } = NEIGHBORS[n];
@@ -1900,7 +1920,11 @@ function aStar(
             if (Number.isNaN(cellDepth)) continue; // blocked
 
             const cellPreferred = grid.preferred[nIdx] === 1;
-            const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred);
+            // Corridor-exit surcharge (additive ≥0 → the distance heuristic
+            // stays admissible; cellCostMultiplier untouched, flat-preferred
+            // doctrine preserved). See EXIT_PENALTY_M.
+            const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
+            const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) + exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
                 gScore[nIdx] = tentativeG;
@@ -1988,6 +2012,31 @@ function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: nu
 }
 
 /**
+ * Total traversal cost (metres-equivalent) of a chain of 8-neighbour grid
+ * cells, priced EXACTLY like A*'s neighbour expansion: step length ×
+ * destination-cell multiplier, plus EXIT_PENALTY_M on every
+ * preferred→non-preferred transition. Used by smoothPath's cost-no-worse
+ * rule and the marina-centerline acceptance gate, so no post-A* refinement
+ * can silently undo a cost-optimal detour.
+ */
+function chainCostM(grid: NavGrid, chain: { x: number; y: number }[]): number {
+    const mPerLonG = M_PER_DEG_LAT * Math.cos(((grid.minLat + (grid.height * grid.dLat) / 2) * Math.PI) / 180);
+    const stepLonM = grid.dLon * mPerLonG;
+    const stepLatM = grid.dLat * M_PER_DEG_LAT;
+    let cost = 0;
+    for (let i = 1; i < chain.length; i++) {
+        const dx = Math.abs(chain[i].x - chain[i - 1].x);
+        const dy = Math.abs(chain[i].y - chain[i - 1].y);
+        const stepM = Math.hypot(dx * stepLonM, dy * stepLatM);
+        cost += stepM * cellCostAt(grid, chain[i].x, chain[i].y);
+        const fromPref = grid.preferred[chain[i - 1].y * grid.width + chain[i - 1].x] === 1;
+        const toPref = grid.preferred[chain[i].y * grid.width + chain[i].x] === 1;
+        if (fromPref && !toPref) cost += EXIT_PENALTY_M;
+    }
+    return cost;
+}
+
+/**
  * "String-pulling" smoothing on the A* output path.
  *
  * Why: A* on an 8-neighbor grid with diagonal cost = sqrt(2) finds
@@ -2004,15 +2053,31 @@ function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: nu
  */
 function smoothPath(grid: NavGrid, path: { x: number; y: number }[]): { x: number; y: number }[] {
     if (path.length < 3) return path;
+    // Prefix sums of the path's TRUE cost, so any subpath's cost is O(1).
+    // A chord may only replace a subpath when the chord's own cost is no
+    // worse — without this, a route whose ENDS sit in expensive open water
+    // (budget = max(endpoints)) could have its entire cost-optimal channel
+    // detour collapsed into a straight expensive chord, silently undoing the
+    // gate-following A* just paid for. (Found 2026-06-11 calibrating the
+    // Phase 3 gate-shortcut fixture: A* threaded the marked dog-leg; the
+    // smoother returned the straight line. Landed per ROUTING_COLLAB
+    // reply 13 — a correctness fix under the geometry-is-the-law doctrine.)
+    const prefix: number[] = [0];
+    for (let k = 1; k < path.length; k++) {
+        prefix.push(prefix[k - 1] + chainCostM(grid, [path[k - 1], path[k]]));
+    }
     const out: { x: number; y: number }[] = [path[0]];
     let i = 0;
     while (i < path.length - 1) {
         let j = path.length - 1;
-        // Binary-search-ish: find the furthest j with a clear line.
         // Linear scan from the back is cheap because clears happen
         // most of the time on long open stretches.
         while (j > i + 1) {
-            if (lineOfSightClear(grid, path[i], path[j])) break;
+            if (lineOfSightClear(grid, path[i], path[j])) {
+                const chord = Array.from(bresenhamCells(path[i].x, path[i].y, path[j].x, path[j].y));
+                const chordCost = chainCostM(grid, chord);
+                if (chordCost <= (prefix[j] - prefix[i]) * 1.0001 + 1e-6) break;
+            }
             j--;
         }
         out.push(path[j]);
@@ -2806,7 +2871,40 @@ function routeInshoreOnce(
     const firstCautionIdx = cells.findIndex((c) => grid.cells[c.y * grid.width + c.x] < 0);
     const cleanPrefixEnd = firstCautionIdx === -1 ? cells.length - 1 : firstCautionIdx - 1;
     // Need ≥2 clean cells (a real canal run) for the centerline to mean anything.
-    const marinaCells = cleanPrefixEnd >= 1 ? tryMarinaCenterline(grid, startCell, cells[cleanPrefixEnd]) : null;
+    let marinaCells = cleanPrefixEnd >= 1 ? tryMarinaCenterline(grid, startCell, cells[cleanPrefixEnd]) : null;
+    if (marinaCells && marinaCells.length >= 2) {
+        // Cost-no-worse gate: the centerline pipeline routes on the WATER
+        // MASK alone — preferred corridors, marker ribbons, wings and exit
+        // penalties are invisible to it. In a canal that's fine (the
+        // centerline IS the corridor, near-identical cost); on open clean
+        // water it would replace A*'s gate-threading dog-leg with a straight
+        // line, bulldozing the seamanship the cost model just paid for
+        // (Claude A's "marinaCenterline=true on a straight line" note —
+        // confirmed against the Phase 3 gate-shortcut fixture). Accept the
+        // centerline only when its true-grid cost is within 5% of the A*
+        // prefix it replaces. Landed per ROUTING_COLLAB reply 13.
+        const centreChain: { x: number; y: number }[] = [];
+        for (let k = 0; k < marinaCells.length - 1; k++) {
+            for (const c of bresenhamCells(
+                marinaCells[k].x,
+                marinaCells[k].y,
+                marinaCells[k + 1].x,
+                marinaCells[k + 1].y,
+            )) {
+                const last = centreChain[centreChain.length - 1];
+                if (!last || last.x !== c.x || last.y !== c.y) centreChain.push(c);
+            }
+        }
+        const centreCost = chainCostM(grid, centreChain);
+        const prefixCost = chainCostM(grid, cells.slice(0, cleanPrefixEnd + 1));
+        if (centreCost > prefixCost * 1.05 + 1e-6) {
+            if (ENGINE_DEBUG)
+                engineLog.warn(
+                    `marina-centerline: REJECTED by cost gate (centerline ${Math.round(centreCost)} m-eq vs A* prefix ${Math.round(prefixCost)}) — keeping the A* corridor`,
+                );
+            marinaCells = null;
+        }
+    }
     if (marinaCells && marinaCells.length >= 2) {
         debug.marinaCenterline = true;
         if (firstCautionIdx === -1) {

@@ -69,18 +69,17 @@ describe('GOLDEN: Newport → Rivergate (Brisbane River, real AU cells)', () => 
         expectConnected(r);
     });
 
-    // RE-PIN 22.64 → 21.89 NM (2026-06-11, MinHeap correctness fix): the A*
-    // open-set heap's sinkDown broke the heap invariant (compared children
-    // against the hoisted child instead of the sinking item — see
-    // tests/minHeap.test.ts), so A* popped non-minimal nodes and every route
-    // carried silent detour fat. With a correct heap the SAME chart data
-    // routes 0.75 NM shorter. Prior history: 20.46 NM at capture (2026-05-21)
-    // → 22.64 at lock-in (channel-faithfulness commits) → 21.89 (heap fix).
+    // RE-PIN 21.89 → 22.26 NM (2026-06-12, Phase 3b bundle — ROUTING_COLLAB
+    // replies 12–13, owner-approved). Decomposition: the cost-no-worse
+    // smoothing/centerline correctness pair alone measured 22.48 (+2.7% —
+    // the cost-blind smoother had been shaving real corridor adherence);
+    // the bundle's one knob (deep tier 5→4) settles it at 22.26 (+1.7%).
+    // Pin history: 20.46 capture → 22.64 lock-in → 21.89 heap fix → 22.26.
     // Re-pin only with an explicit masterplan-phase justification.
-    it('distance pinned at 21.89 NM ±2%', () => {
+    it('distance pinned at 22.26 NM ±2%', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(21.89 * 0.98);
-        expect(r.distanceNM).toBeLessThan(21.89 * 1.02);
+        expect(r.distanceNM).toBeGreaterThan(22.26 * 0.98);
+        expect(r.distanceNM).toBeLessThan(22.26 * 1.02);
     });
 
     it('endpoint snap < 100 m both ends', () => {
@@ -116,10 +115,10 @@ describe('GOLDEN: Newport → Rivergate at the REAL Tayana draft (2.44 m / 8 ft)
         expectConnected(r);
     });
 
-    it('distance within 10% of the 2.40 m benchmark (21.89 NM post-heap-fix)', () => {
+    it('distance within 10% of the 2.40 m benchmark (22.26 NM post-bundle)', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(21.89 * 0.9);
-        expect(r.distanceNM).toBeLessThan(21.89 * 1.1);
+        expect(r.distanceNM).toBeGreaterThan(22.26 * 0.9);
+        expect(r.distanceNM).toBeLessThan(22.26 * 1.1);
     });
 
     it('endpoint snap < 100 m both ends', () => {
@@ -139,11 +138,19 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         expectConnected(r);
     });
 
-    // 16.09 NM / caution 10 measured at lock-in (2026-06-12).
-    it('distance pinned at 16.09 NM ±2%', () => {
+    // RE-PIN 16.09 → 18.43 NM (+14.5%, 2026-06-12 Phase 3b bundle —
+    // owner-approved trade per ROUTING_COLLAB reply 13's protocol).
+    // Decomposition: +21% (19.47) came ENTIRELY from the cost-no-worse
+    // smoothing correctness fix at the old 5× deep tier — the cost-blind
+    // smoother had been straight-lining across the leading-line/promoted-
+    // river corridors this route now honestly follows; the bundle's 4×
+    // retune claws back 1.04 NM. What the +14.5% buys (scorecard): gate-
+    // shortcut 0/5→5/5 gates, staggered discipline 79.7→92.6%, midspan
+    // 7/11→10/11 gates — length grew where corridor adherence grew.
+    it('distance pinned at 18.43 NM ±2%', () => {
         expectConnected(r);
-        expect(r.distanceNM).toBeGreaterThan(16.09 * 0.98);
-        expect(r.distanceNM).toBeLessThan(16.09 * 1.02);
+        expect(r.distanceNM).toBeGreaterThan(18.43 * 0.98);
+        expect(r.distanceNM).toBeLessThan(18.43 * 1.02);
     });
 
     it('caution cells at or below the lock-in baseline (10)', () => {
