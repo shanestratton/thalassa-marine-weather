@@ -83,4 +83,10 @@ export const ROUTING_CLASSES = new Set([
     'BOYCAR',
     'BCNCAR',
     'LIGHTS',
+    // Leading lines / transits (masterplan Phase 6 — offline leads):
+    // NAVLNE = navigation line (the charted lead), RECTRC = recommended
+    // track. RECTRC is known-empty in the current AU SENC set
+    // (PHASE_14_SPIKE) — emitted anyway for future cells.
+    'NAVLNE',
+    'RECTRC',
 ]);
