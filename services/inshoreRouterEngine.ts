@@ -1076,6 +1076,11 @@ function buildNavGrid(
 
     const handlePointFeature = (f: Feature): void => {
         if (!f.geometry) return;
+        // Pair-wings (Step 4.5, masterplan Phase 3) travel in OBSTRN but are
+        // NOT obstructions: Pass 5c rasterises them to CAUTION + preferred=0.
+        // Hard-blocking them here would turn a mispair into no-path instead
+        // of a red wiggle.
+        if ((f.properties as { _class?: string } | null)?._class === 'pair-wing') return;
         if (f.geometry.type === 'Point') {
             const [lon, lat] = (f.geometry as Point).coordinates;
             blockPointBuffer(lat, lon);
@@ -1336,6 +1341,68 @@ function buildNavGrid(
         console.warn(
             `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
         );
+    }
+
+    // ── Pass 5c: pair-wings → outboard CAUTION ──────────────────────
+    // Masterplan §3 Phase 3. Each accepted port/stbd pair carries two
+    // `_class:'pair-wing'` rectangles extending OUTBOARD from its marks
+    // (Step 4.5 in InshoreRouter; geometry in services/pairWings.ts —
+    // matches the scorecard's audit wings). Rasterised to CAUTION +
+    // preferred=0 so passing outside a mark costs 500× — the cost-level
+    // encoding of "the gate is BETWEEN the marks".
+    //
+    // Ordering is load-bearing: AFTER Pass 5 marker radii and Pass 5b's
+    // ribbon/navline rescue, so neither can re-clean a wing cell on
+    // channels narrower than ~2× the preferred radius. Never touches
+    // hardBlocked or NaN cells (a mispaired wing must degrade the route
+    // to a red wiggle, not carve land or create no-path).
+    const tPassWings = Date.now();
+    let wingCellsMarked = 0;
+    let wingFeatureCount = 0;
+    for (const f of layers.OBSTRN?.features ?? []) {
+        const props = f.properties as { _class?: string; _spine?: [number, number][] } | null;
+        if (props?._class !== 'pair-wing') continue;
+        const spine = props._spine;
+        if (!spine || spine.length < 2) continue;
+        wingFeatureCount++;
+        // Stamp the wing's SPINE via Bresenham — the 30 m-wide polygon can
+        // straddle zero cell centres on a 50–100 m grid, so the spine is the
+        // rasterisation contract (same reasoning as the NAVLINE pass). But
+        // only poison cells whose CENTRE is strictly OUTBOARD of the mark:
+        // Bresenham's first cell contains the mark itself, and at 100 m
+        // resolution that cell is often the gate's edge — stamping it
+        // caution-stripes the very gate the wing exists to protect.
+        const [markLon, markLat] = spine[0];
+        const [endLon, endLat] = spine[spine.length - 1];
+        const mPerLonW = M_PER_DEG_LAT * Math.cos((markLat * Math.PI) / 180);
+        const wx = (endLon - markLon) * mPerLonW;
+        const wy = (endLat - markLat) * M_PER_DEG_LAT;
+        const wLen = Math.hypot(wx, wy);
+        if (wLen < 1) continue;
+        const uxW = wx / wLen;
+        const uyW = wy / wLen;
+        const gx0 = Math.floor((markLon - minLon) / dLon);
+        const gy0 = Math.floor((markLat - minLat) / dLat);
+        const gx1 = Math.floor((endLon - minLon) / dLon);
+        const gy1 = Math.floor((endLat - minLat) / dLat);
+        for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
+            if (c.x < 0 || c.y < 0 || c.x >= width || c.y >= height) continue;
+            const idx = c.y * width + c.x;
+            if (hardBlocked[idx] === 1 || Number.isNaN(cells[idx])) continue; // never touch land/blocked
+            // Outboard test: project the cell CENTRE onto the wing axis.
+            const cLon = minLon + (c.x + 0.5) * dLon;
+            const cLat = minLat + (c.y + 0.5) * dLat;
+            const s = (cLon - markLon) * mPerLonW * uxW + (cLat - markLat) * M_PER_DEG_LAT * uyW;
+            if (s <= 0) continue; // centre inboard of (or at) the mark — the gate's own cell
+            if (cells[idx] === CAUTION && preferred[idx] === 0) continue; // already stamped
+            cells[idx] = CAUTION;
+            preferred[idx] = 0;
+            wingCellsMarked++;
+        }
+    }
+    markPass('pass5c-wings', tPassWings, wingFeatureCount);
+    if (ENGINE_DEBUG && wingFeatureCount > 0) {
+        engineLog.warn(`pass5c: ${wingFeatureCount} pair-wings → ${wingCellsMarked} outboard CAUTION cells`);
     }
 
     // ── Pass 6: LNDARE 1-cell buffer ─────────────────────────────────

@@ -43,6 +43,7 @@ import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
+import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('InshoreRouter');
@@ -790,7 +791,7 @@ async function tryInshoreRouteInner(
             // polygon BUT also inside an OSM water polygon (river /
             // marina basin), trust OSM and accept the pair.
             const osmWaterForPairing = osmOverlay ? [...osmOverlay.water.features, ...osmOverlay.marina.features] : [];
-            const { midpoints, segments, hazards } = await fetchRegionalMarkers(
+            const { midpoints, segments, hazards, wings } = await fetchRegionalMarkers(
                 regionalMarkersUrl,
                 merged.LNDARE?.features ?? [],
                 osmWaterForPairing,
@@ -830,9 +831,17 @@ async function tryInshoreRouteInner(
                 (obstrn.features as unknown[]).push(...orientedHazards);
                 merged.OBSTRN = obstrn;
             }
+            if (wings.length > 0) {
+                // Step 4.5 outboard CAUTION wings (masterplan Phase 3). They
+                // travel in OBSTRN but the engine's Pass 3 skips them — only
+                // Pass 5c rasterises them, to CAUTION + preferred=0.
+                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+                (obstrn.features as unknown[]).push(...wings);
+                merged.OBSTRN = obstrn;
+            }
             if (ROUTE_DEBUG)
                 log.warn(
-                    `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} IALA-oriented hazards`,
+                    `STAGE: merged ${midpoints.length} midpoints + ${segments.length} FAIRWY segments + ${hazards.length} IALA-oriented hazards + ${wings.length} pair-wings`,
                 );
         } catch (err) {
             log.warn(
@@ -1380,6 +1389,9 @@ interface RegionalChannelData {
     midpoints: unknown[];
     segments: unknown[];
     hazards: unknown[];
+    /** Outboard CAUTION wing rectangles per accepted pair (Step 4.5,
+     *  masterplan Phase 3) — merged into OBSTRN, rasterised by Pass 5c. */
+    wings: unknown[];
     /** Pairing diagnostics (considered/rejected/rescued counters). Surfaced
      *  for the route-quality scorecard + pairing regression tests — the
      *  masterplan's "diff pairDiag before merging a pairing change" check. */
@@ -2046,6 +2058,9 @@ export async function fetchRegionalMarkers(
         const wideRejectedSamples: Array<{ lat: number; lon: number; distM: number }> = [];
         const SAMPLE_CAP = 15;
         const midpointCoords: Midpoint[] = [];
+        // Accepted pair endpoints — Step 4.5 emits outboard CAUTION wings
+        // from these (masterplan Phase 3; geometry in services/pairWings.ts).
+        const acceptedPairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }> = [];
         const soloMarkers: Marker[] = [];
 
         for (let chainId = 0; chainId < clusters.length; chainId++) {
@@ -2192,6 +2207,7 @@ export async function fetchRegionalMarkers(
                 if (!bestS) continue;
                 pairedPorts.add(p);
                 pairedStbds.add(bestS);
+                acceptedPairs.push({ port: p, stbd: bestS });
                 midpointCoords.push({
                     lat: (p.lat + bestS.lat) / 2,
                     lon: (p.lon + bestS.lon) / 2,
@@ -2243,6 +2259,12 @@ export async function fetchRegionalMarkers(
             },
             geometry: { type: 'Point', coordinates: [m.lon, m.lat] },
         }));
+
+        // ── Step 4.5: Outboard CAUTION wings per accepted pair ───
+        // Masterplan §3 Phase 3: the water outboard of each mark is the
+        // side you must not pass on. Engine Pass 5c rasterises these to
+        // CAUTION + preferred=0 (never hardBlocked); Pass 3 skips them.
+        const wings: unknown[] = acceptedPairs.flatMap((pr) => pairWingFeatures(pr.port, pr.stbd));
 
         // DEBUG — dump midpoint chain order for the Scarborough area
         // so we can see whether the chain is laying out N-S along the
@@ -2425,6 +2447,6 @@ export async function fetchRegionalMarkers(
             })),
         ];
 
-        return { midpoints, segments, hazards, diag: pairDiag };
+        return { midpoints, segments, hazards, wings, diag: pairDiag };
     })();
 }
