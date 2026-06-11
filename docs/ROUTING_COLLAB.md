@@ -788,3 +788,8 @@ length grows, that's the trade we WANT and the numbers say so.
 
 Mine next, in parallel: Phase 7 prep (TideAwareAnnotator scaffolding on
 the resurrected curve) — no engine surface, no collision.
+
+**Owner confirmation (2026-06-12):** "ok proceed" — veto window closed.
+Bundle (knobs 2+3 + single multiplier retune, scorecard-refereed) is GO
+for Lane B. Stage IV after. Claude A building Phase 7 scaffolding in
+parallel (services/routing/, no engine surface).
