@@ -372,12 +372,12 @@ describe('inshore router seamanship — Scenario 3: wrong-side temptation (gate 
         expect(audit.gatesPassed).toBe(1);
     });
 
-    // Masterplan Phase 3 flips this too. The gate water itself is deep,
-    // connected and preferred-rescued (followable), yet today even a transit
-    // whose endpoints snap INSIDE the gate band drifts off-axis in the
-    // clean-route centerline refinement and grazes 9.5 m OUTSIDE the stbd
-    // mark (measured): wrongSidePasses 1, gatesPassed 0.
-    it.fails('Phase 3 target: a transit aimed dead through the gate threads it', () => {
+    // FLIPPED EARLY by the 2026-06-11 MinHeap fix (tests/minHeap.test.ts):
+    // the 9.5 m wrong-side graze was the broken A* open set popping
+    // non-minimal nodes, not a preference-tuning gap — with a correct heap
+    // a transit aimed dead through the gate threads it. (The main
+    // temptation fixture above still needs Phase 3 wings.)
+    it('a transit aimed dead through the gate threads it (flipped by the heap fix)', () => {
         const probe = routeInshore(layers, {
             fromLat: -27.2107,
             fromLon: 158.19,
@@ -486,16 +486,13 @@ describe('seamanship — buoyed channel through a shallow bar (lon 160.00–160.
     // (masterplan Phase 4, 'splices AND stays red'): take the marked channel
     // across WITH honest red flags over the shallow bar.
     //
-    // TODAY (calibrated 2026-06-11): the engine takes neither sensible line.
-    // A* returns a 20,495 m southern dogleg (3.45× the 5,937 m direct line),
-    // crossing the bar at its southern edge (lat −27.2796, ~8.8 km off the
-    // marked channel): gates 0/11 engaged, channel discipline 0%, the single
-    // caution run (1,098 m) nowhere near the channel. Root cause is upstream
-    // of the seamanship passes: MinHeap.sinkDown compares against the hoisted
-    // child instead of the sinking item, so A* pops out of order and commits
-    // to a grossly suboptimal path (probed: returned path cost 744,713 m-equiv
-    // where the straight channel line costs 48,800). A heap fix alone may
-    // flip the it.fails() pins below ahead of Phase 4 — re-calibrate then.
+    // HISTORY: as calibrated 2026-06-11 (pre-heap-fix) the engine returned a
+    // 20,495 m southern dogleg (3.45× direct) — root-caused to the broken
+    // MinHeap.sinkDown (A* popped non-minimal nodes; path cost 744,713
+    // m-equiv vs 48,800 optimal). The heap fix (same day,
+    // tests/minHeap.test.ts) flipped ALL FOUR targets below ahead of
+    // Phase 4: the route now rides the marked channel straight across the
+    // bar with the crossing honestly red — splices AND stays red.
     const FROM: LatLon = { lat: -27.2, lon: 160.1 };
     const TO: LatLon = { lat: -27.2, lon: 160.16 };
     const CHANNEL_LAT = -27.2;
@@ -573,38 +570,32 @@ describe('seamanship — buoyed channel through a shallow bar (lon 160.00–160.
         expect(ratio).toBeLessThan(5.0);
     });
 
-    // Masterplan Phase 4 ('splices AND stays red') targets. All four fail
-    // today because the A* dogleg never engages the marked channel — see the
-    // calibration note in the describe header for measured numbers.
+    // Former Phase 4 ('splices AND stays red') targets — ALL FOUR flipped to
+    // it() by the 2026-06-11 MinHeap fix (the A* dogleg was heap breakage,
+    // not a seamanship-pass gap). Now permanent regression guards.
 
-    it.fails('TARGET Phase 4: rides the marked channel — discipline ≥ 80% of the midpoint chain', () => {
-        // Today: 0% (route runs ~8.8 km south of the chain).
+    it('rides the marked channel — discipline ≥ 80% of the midpoint chain (flipped by the heap fix)', () => {
         if (!isResult(route)) throw new Error('expected a route');
         expect(channelDisciplinePct(route.polyline, centreline)).toBeGreaterThanOrEqual(80);
     });
 
-    it.fails('TARGET Phase 3+4: passes every lateral gate between the marks', () => {
-        // Today: gatesPassed 0/11, gatesMissed 11 (Phase 3 wings/exit-penalty
-        // makes the gates binding; Phase 4 keeps the crossing on the channel).
+    it('passes every lateral gate between the marks (flipped by the heap fix)', () => {
         if (!isResult(route)) throw new Error('expected a route');
         const audit = auditGates(route.polyline, gates);
         expect(audit.gatesPassed).toBe(audit.gatesTotal);
         expect(audit.gatesMissed).toBe(0);
     });
 
-    it.fails('TARGET Phase 4: takes the direct marked crossing, not the long way round (ratio < 1.5)', () => {
-        // Today: 3.45× (20,495 m vs 5,937 m direct).
+    it('takes the direct marked crossing, not the long way round (ratio < 1.5, flipped by the heap fix)', () => {
         if (!isResult(route)) throw new Error('expected a route');
         const ratio = polylineLen(route.polyline) / haversineM(FROM, TO);
         expect(ratio).toBeLessThan(1.5);
     });
 
-    it.fails('TARGET Phase 4: the bar crossing is flagged red ON the marked channel — splices AND stays red', () => {
-        // Today the only caution run sits at lat −27.2796 (southern bar edge),
-        // 0.0796° ≈ 8.8 km south of the channel — honest red, wrong place.
-        // Target: ≥1 caution segment inside the bar within ~220 m of the
-        // channel line (Phase 4 must keep it red — midpoint rescue cells must
-        // not blank the warning where the chart genuinely reads 1.5 m).
+    it('the bar crossing is flagged red ON the marked channel — splices AND stays red (flipped by the heap fix)', () => {
+        // ≥1 caution segment inside the bar within ~220 m of the channel
+        // line — the rescue cells must not blank the warning where the
+        // chart genuinely reads 1.5 m.
         if (!isResult(route)) throw new Error('expected a route');
         const mask = route.cautionMask ?? [];
         const redOnChannel = route.polyline.slice(0, -1).some(([aLon, aLat], i) => {
@@ -701,17 +692,21 @@ describe('seamanship: mid-span shoal bar vs parallel marked channel (lon 161.00�
         expect(Math.abs(endLon - TO.lon)).toBeLessThan(0.02);
     });
 
-    it('TODAY (pinned): goes red across the bar instead of riding the marked channel', () => {
-        // Measured 2026-06-11: one 2,365 m caution run crossing the bar at
-        // lat ≈ −27.188 (~800 m north of the cut), channel discipline 7.5%,
-        // gates 1/11 passed, 2 wrong-side passes, 12.74 NM vs 10.68 direct.
+    it('TODAY (pinned, post-heap-fix): crosses via the dredged cut but rides its southern edge OUTSIDE the stbd marks', () => {
+        // RECALIBRATED after the 2026-06-11 MinHeap fix. Pre-fix the broken
+        // heap sent the route red across the raw bar (2,365 m caution run).
+        // Post-fix it correctly diverts to the dredged cut and crosses CLEAN
+        // (zero caution runs, 12.08 NM) — but hugs the cut's southern dredged
+        // edge ~70 m OUTBOARD of the green marks: gates 0/11, wrongSidePasses
+        // 8. Water-wise right, buoyage-wise wrong — the owner's complaint in
+        // its purest form, and exactly what Phase 3 wings + exit penalty fix.
         expect(isResult(route)).toBe(true);
         if (!isResult(route)) return;
         const runs = cautionRunsM(route.polyline, route.cautionMask);
-        expect(runs.length).toBeGreaterThanOrEqual(1);
-        expect(Math.max(...runs)).toBeGreaterThan(1500);
-        const disciplinePct = channelDisciplinePct(route.polyline, centreline, { halfWidthM: 150 });
-        expect(disciplinePct).toBeLessThan(30);
+        expect(runs).toHaveLength(0); // clean crossing via the cut
+        const audit = auditGates(route.polyline, gates);
+        expect(audit.gatesPassed).toBe(0);
+        expect(audit.wrongSidePasses).toBeGreaterThanOrEqual(1); // rides outboard of the marks
     });
 
     it('regression guard: a route entered at the cut mouth rides the marked channel cleanly', () => {
@@ -732,14 +727,13 @@ describe('seamanship: mid-span shoal bar vs parallel marked channel (lon 161.00�
     // the bar in dredged water — ≥70% channel discipline, no caution run
     // longer than 500 m, zero wrong-side passes.
     //
-    // Today it FAILS, and not because the corridor is too far off-axis: the
-    // grid is right (continuous preferred cut, Dijkstra-optimal path rides it
-    // at 73,048 m-eq). The engine's A* returns a 289,493 m-eq drunken-walk
-    // instead — MinHeap.sinkDown compares children against the hoisted child
-    // rather than the sinking item, so the heap invariant breaks and A* pops
-    // non-minimal nodes (engine lane: services/inshoreRouterEngine.ts ~1597).
-    // Fixing that heap may well flip this fixture before Phase 3 does.
-    it.fails('TARGET: diverts onto the marked channel and crosses the bar in dredged water', () => {
+    // 2026-06-11 heap fix got it HALFWAY: the drunken-walk is gone (the
+    // route now diverts to the cut and crosses clean), but it rides the
+    // dredged edge OUTBOARD of the green marks — wrongSidePasses 8,
+    // discipline 0% vs the buoyed centreline. The remaining gap is pure
+    // Phase 3: wings make outboard-of-mark water expensive, the exit
+    // penalty keeps the route inside the buoyed corridor.
+    it.fails('TARGET Phase 3: diverts onto the marked channel and crosses INSIDE the buoyed gates', () => {
         expect(isResult(route)).toBe(true);
         if (!isResult(route)) return;
         const runs = cautionRunsM(route.polyline, route.cautionMask);
