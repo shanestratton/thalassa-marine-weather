@@ -17,6 +17,11 @@
  *       - V component  (width × height floats)
  *       - Speed scalar (width × height floats)
  *
+ *   Optional trailer (totalHours × 4 bytes, detected by buffer length):
+ *     - float32 × totalHours: stepHours — forecast-hour offset per step.
+ *       GFS grids have non-uniform steps ([0,3,…,48,72]); files written
+ *       before this trailer existed are assumed hourly (no trailer).
+ *
  * Lat grid stored bottom-up (row 0 = south) for GL texture compatibility.
  */
 
@@ -67,6 +72,18 @@ export function parseWindBin(buffer: ArrayBuffer): WindGrid {
     for (let r = 0; r < height; r++) lats.push(south + r * latStep);
     for (let c = 0; c < width; c++) lons.push(west + c * lonStep);
 
+    // Optional stepHours trailer — pre-trailer files end exactly at the data
+    // block, so extra bytes of exactly totalHours×4 identify the trailer.
+    let stepHours: number[] | undefined;
+    const dataEnd = HEADER_BYTES + floatsPerHour * totalHours * 4;
+    if (buffer.byteLength === dataEnd + totalHours * 4) {
+        const trailer = new Float32Array(buffer, dataEnd, totalHours);
+        const candidate = Array.from(trailer);
+        // Strictly-increasing finite hours, or the trailer is garbage
+        const valid = candidate.every((h, i) => Number.isFinite(h) && (i === 0 || h > candidate[i - 1]));
+        if (valid) stepHours = candidate;
+    }
+
     return {
         u,
         v,
@@ -80,6 +97,7 @@ export function parseWindBin(buffer: ArrayBuffer): WindGrid {
         west,
         east,
         totalHours,
+        ...(stepHours ? { stepHours } : {}),
     };
 }
 
@@ -91,7 +109,11 @@ export function encodeWindBin(grid: WindGrid): ArrayBuffer {
     const cellsPerHour = grid.width * grid.height;
     const floatsPerHour = cellsPerHour * 3;
     const dataBytes = floatsPerHour * grid.totalHours * 4;
-    const buffer = new ArrayBuffer(HEADER_BYTES + dataBytes);
+    // Non-uniform grids (GFS) append a stepHours trailer so the temporal
+    // axis survives the offline cache round-trip
+    const stepHours = grid.stepHours && grid.stepHours.length === grid.totalHours ? grid.stepHours : null;
+    const trailerBytes = stepHours ? grid.totalHours * 4 : 0;
+    const buffer = new ArrayBuffer(HEADER_BYTES + dataBytes + trailerBytes);
 
     // Write header
     const header = new DataView(buffer, 0, HEADER_BYTES);
@@ -104,12 +126,16 @@ export function encodeWindBin(grid: WindGrid): ArrayBuffer {
     header.setUint32(24, grid.totalHours, true);
 
     // Write data: U, V, speed interleaved per hour
-    const data = new Float32Array(buffer, HEADER_BYTES);
+    const data = new Float32Array(buffer, HEADER_BYTES, floatsPerHour * grid.totalHours);
     for (let h = 0; h < grid.totalHours; h++) {
         const offset = h * floatsPerHour;
         data.set(grid.u[h], offset);
         data.set(grid.v[h], offset + cellsPerHour);
         data.set(grid.speed[h], offset + cellsPerHour * 2);
+    }
+
+    if (stepHours) {
+        new Float32Array(buffer, HEADER_BYTES + dataBytes, grid.totalHours).set(stepHours);
     }
 
     return buffer;

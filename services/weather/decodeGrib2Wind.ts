@@ -79,7 +79,22 @@ interface Grib2Message {
     lat2: number;
     lon1: number;
     lon2: number;
+    /** Forecast hour from Section 4 (PDS) — undefined when the template/unit is unrecognised */
+    forecastHour?: number;
 }
+
+/** GRIB2 Code Table 4.4 — multiplier converting "forecast time" units to hours.
+ *  Only point-in-time-compatible units are mapped; anything else (months,
+ *  years, …) means the message isn't a plain forecast step and is skipped. */
+const TIME_UNIT_TO_HOURS: Record<number, number> = {
+    0: 1 / 60, // minute
+    1: 1, // hour
+    2: 24, // day
+    10: 3, // 3 hours
+    11: 6, // 6 hours
+    12: 12, // 12 hours
+    13: 1 / 3600, // second
+};
 
 function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Message; nextOffset: number } {
     const view = new DataView(buffer);
@@ -110,6 +125,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
     let bitsPerValue = 0;
     let _numDataPoints = 0;
     let packedData: number[] = [];
+    let forecastHour: number | undefined;
 
     const endOfMessage = offset + totalLength;
 
@@ -184,6 +200,25 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
                 break;
             }
 
+            case 4: {
+                // Product Definition Section — carries the forecast step.
+                // Templates 4.0–4.2 (point-in-time analysis/forecast — what GFS
+                // UGRD/VGRD use) share the layout: octet 18 = time unit
+                // (Code Table 4.4), octets 19-22 = forecast time in that unit.
+                // Time-range templates (4.8+) put an interval there instead, so
+                // only point-in-time templates are read.
+                if (sectionLength >= 22) {
+                    const templateNum = view.getUint16(pos + 7, false);
+                    if (templateNum <= 2) {
+                        const unitToHours = TIME_UNIT_TO_HOURS[view.getUint8(pos + 17)];
+                        if (unitToHours !== undefined) {
+                            forecastHour = view.getUint32(pos + 18, false) * unitToHours;
+                        }
+                    }
+                }
+                break;
+            }
+
             case 5: {
                 // Data Representation Section
                 // Template 5.0: Simple packing
@@ -226,7 +261,7 @@ function parseGrib2Message(buffer: ArrayBuffer, offset: number): { msg: Grib2Mes
     }
 
     return {
-        msg: { data, width, height, lat1, lat2, lon1, lon2 },
+        msg: { data, width, height, lat1, lat2, lon1, lon2, forecastHour },
         nextOffset: offset + totalLength,
     };
 }
@@ -458,6 +493,25 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
         log.info(`[GRIB2-Wind] Model run refTime: ${refTime}`);
     }
 
+    // GFS deliveries are non-uniform ([0,3,…,48,72]) and the edge function
+    // drops hours NOAA fails to serve, so the temporal axis must come from
+    // the per-message PDS, not the step index. Each UGRD/VGRD pair shares a
+    // forecast hour — take it from the U message. Only attach when every
+    // step decoded and the sequence is strictly increasing (anything else
+    // means message pairing is off; legacy hourly fallback is safer).
+    const stepHours: number[] = [];
+    for (let hr = 0; hr < numHours; hr++) {
+        const fh = messages[hr * 2].forecastHour;
+        if (fh === undefined || !Number.isFinite(fh) || (hr > 0 && fh <= stepHours[hr - 1])) break;
+        stepHours.push(fh);
+    }
+    const stepHoursValid = stepHours.length === numHours;
+    if (stepHoursValid) {
+        log.info(`[GRIB2-Wind] Forecast steps: [${stepHours.join(',')}]h`);
+    } else {
+        log.warn('[GRIB2-Wind] Could not extract forecast steps from PDS — assuming hourly');
+    }
+
     return {
         u: uArrays,
         v: vArrays,
@@ -472,5 +526,6 @@ export function decodeGrib2WindMultiHour(buffer: ArrayBuffer): WindGrid {
         west: westDeg,
         totalHours: numHours,
         refTime,
+        ...(stepHoursValid ? { stepHours } : {}),
     };
 }

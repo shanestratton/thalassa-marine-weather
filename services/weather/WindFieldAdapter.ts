@@ -6,7 +6,10 @@
  *
  * Interpolation:
  *   - Spatial: bilinear interpolation between the 4 nearest grid points
- *   - Temporal: linear interpolation between bracketing forecast hours
+ *   - Temporal: linear interpolation between bracketing forecast STEPS.
+ *     When the grid carries stepHours (GFS GRIB: [0,3,6,9,12,18,24,36,48,72])
+ *     timeOffsetHours is mapped to a fractional step index via binary search;
+ *     without stepHours, steps are assumed hourly (Open-Meteo producers).
  *
  * Also supports multi-model stacking — combine multiple WindGrid instances
  * from different models (GFS, ECMWF, ICON) into an ensemble.
@@ -28,15 +31,26 @@ export function createWindFieldFromGrid(
     forecastBaseTime?: Date, // When the forecast starts (default: now)
 ): WindField {
     const _baseTime = forecastBaseTime ?? new Date();
-    const hoursPerStep = grid.totalHours > 1 ? 1 : 1; // Grid is hourly
+    // GFS grids deliver non-uniform forecast steps; stepHours maps step index →
+    // forecast-hour offset. A length mismatch means the metadata is unreliable —
+    // fall back to hourly rather than misalign the whole temporal axis.
+    const stepHours = grid.stepHours && grid.stepHours.length === grid.totalHours ? grid.stepHours : null;
 
     return {
         getWind(lat: number, lon: number, timeOffsetHours: number) {
-            // Temporal interpolation — find the hour bracket
-            const hourIdx = Math.max(0, Math.min(grid.totalHours - 1, timeOffsetHours / hoursPerStep));
-            const h0 = Math.floor(hourIdx);
-            const h1 = Math.min(h0 + 1, grid.totalHours - 1);
-            const tFrac = hourIdx - h0;
+            // Temporal interpolation — find the bracketing forecast steps
+            let h0: number;
+            let h1: number;
+            let tFrac: number;
+            if (stepHours) {
+                ({ h0, h1, tFrac } = bracketSteps(stepHours, timeOffsetHours));
+            } else {
+                // Legacy hourly grids: step index === forecast hour
+                const hourIdx = Math.max(0, Math.min(grid.totalHours - 1, timeOffsetHours));
+                h0 = Math.floor(hourIdx);
+                h1 = Math.min(h0 + 1, grid.totalHours - 1);
+                tFrac = hourIdx - h0;
+            }
 
             // Spatial interpolation — find the grid cell
             const latIdx = ((lat - grid.south) / (grid.north - grid.south)) * (grid.height - 1);
@@ -80,6 +94,30 @@ export function createWindFieldFromGrid(
             };
         },
     };
+}
+
+/**
+ * Map a forecast-hour offset onto the bracketing step indices of a
+ * non-uniform step axis (e.g. [0,3,6,9,12,18,24,36,48,72]).
+ * Clamps to the first/last step outside the covered range — same clamping
+ * the hourly path applies at the grid edges.
+ */
+function bracketSteps(stepHours: number[], timeOffsetHours: number): { h0: number; h1: number; tFrac: number } {
+    const last = stepHours.length - 1;
+    if (timeOffsetHours <= stepHours[0]) return { h0: 0, h1: 0, tFrac: 0 };
+    if (timeOffsetHours >= stepHours[last]) return { h0: last, h1: last, tFrac: 0 };
+
+    // Binary search: largest lo with stepHours[lo] <= timeOffsetHours
+    let lo = 0;
+    let hi = last;
+    while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (stepHours[mid] <= timeOffsetHours) lo = mid;
+        else hi = mid;
+    }
+
+    const span = stepHours[hi] - stepHours[lo];
+    return { h0: lo, h1: hi, tFrac: span > 0 ? (timeOffsetHours - stepHours[lo]) / span : 0 };
 }
 
 function bilinear(
