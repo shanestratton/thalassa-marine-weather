@@ -203,7 +203,7 @@ describe('DepartureSweepInshore — degradation ladder', () => {
             draftM: DRAFT_M,
             startMs: T0,
         });
-        expect(oneVertex).toEqual({ options: [], best: null });
+        expect(oneVertex).toEqual({ options: [], best: null, currentProvenance: 'NONE' });
         const stopped = sweepDepartures({
             polyline: route,
             speed: { stwMs: () => 0 },
@@ -212,7 +212,7 @@ describe('DepartureSweepInshore — degradation ladder', () => {
             draftM: DRAFT_M,
             startMs: T0,
         });
-        expect(stopped).toEqual({ options: [], best: null });
+        expect(stopped).toEqual({ options: [], best: null, currentProvenance: 'NONE' });
     });
 });
 

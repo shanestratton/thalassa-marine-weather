@@ -28,8 +28,8 @@
  * errs closed via computeTidalWindows (no windows there → blocked).
  */
 
-import { annotateRoute, type LonLat } from './TideAwareAnnotator';
-import type { SpeedModel, TideField } from './env/EnvFields';
+import { annotateRoute, type CurrentProvenance, type LonLat } from './TideAwareAnnotator';
+import type { CurrentField2D, SpeedModel, TideField } from './env/EnvFields';
 import { computeTidalWindows, type TidalWindow } from './tidalWindow';
 
 export const DEFAULT_SWEEP_COUNT = 25;
@@ -70,6 +70,9 @@ export interface DepartureOption {
     arriveMs: number;
     passageMs: number;
     status: DepartureStatus;
+    /** Count of legs with advisory cross-set warnings on this departure's
+     *  walk (|w⊥| > 0.25×STW). 0 when no current/wind fields given. */
+    steeringWarnings: number;
     /** Min over spots of (tideAtEta + minDepth − draft): the tightest
      *  ACTUAL under-keel clearance expected on passage — the safety
      *  margin gates the windows, it is NOT subtracted here. Null when
@@ -82,6 +85,8 @@ export interface DepartureOption {
 
 export interface DepartureSweep {
     options: DepartureOption[];
+    /** Provenance of the current source threaded into the ETA walks. */
+    currentProvenance: CurrentProvenance;
     /** Earliest 'clear' option (shortest passage among ties); null when
      *  nothing in the sweep is clear or the route input is degenerate. */
     best: DepartureOption | null;
@@ -97,6 +102,10 @@ export function sweepDepartures(opts: {
     polyline: LonLat[];
     speed: SpeedModel;
     tide: TideField | null;
+    /** Optional CMEMS field — refines per-departure ETAs via the vector
+     *  triangle (flood vs ebb passage-time asymmetry). ETA-ONLY per
+     *  doctrine: never enters the open/blocked decision. */
+    currents?: CurrentField2D | null;
     /** Charted chokepoints to gate; omitted/empty ⇒ nothing gates ('clear'). */
     shallowSpots?: ShallowSpot[];
     /** Vessel draft in METRES — vessel.draft is stored in FEET upstream,
@@ -117,17 +126,17 @@ export function sweepDepartures(opts: {
         typeof opts.stepMs === 'number' && isFinite(opts.stepMs) && opts.stepMs > 0
             ? opts.stepMs
             : DEFAULT_SWEEP_STEP_MS;
-    if (!isFinite(startMs)) return { options: [], best: null };
+    if (!isFinite(startMs)) return { options: [], best: null, currentProvenance: 'NONE' };
 
     const options: DepartureOption[] = [];
     let best: DepartureOption | null = null;
 
     for (let i = 0; i < count; i++) {
         const departMs = startMs + i * stepMs;
-        const route = annotateRoute({ polyline, departMs, speed, tide });
+        const route = annotateRoute({ polyline, departMs, speed, tide, currents: opts.currents ?? null });
         // Annotator nulls are departure-independent (degenerate polyline /
         // bad speed), so the whole sweep degrades rather than throwing.
-        if (!route) return { options: [], best: null };
+        if (!route) return { options: [], best: null, currentProvenance: 'NONE' };
 
         const spotWindows: SpotWindows[] = [];
         let allOpen = true;
@@ -211,6 +220,7 @@ export function sweepDepartures(opts: {
             arriveMs: route.arriveMs,
             passageMs: route.arriveMs - departMs,
             status,
+            steeringWarnings: route.steeringWarnings,
             minUkcM: ukcUnknown ? null : minUkcM,
             windows: spotWindows,
         };
@@ -226,5 +236,5 @@ export function sweepDepartures(opts: {
         }
     }
 
-    return { options, best };
+    return { options, best, currentProvenance: opts.currents?.provenance ?? 'NONE' };
 }
