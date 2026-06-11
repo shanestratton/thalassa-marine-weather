@@ -149,6 +149,11 @@ interface ChartModesProps {
      */
     encCellCount?: number;
     onPlanEncRoute?: () => Promise<{ ok: boolean; summary: string }>;
+
+    /** Seaway Graph debug overlay toggle (masterplan Stage IV Phase 10).
+     *  Shown beside the ENC route row, gated the same way. */
+    seawayDebugVisible?: boolean;
+    onToggleSeawayDebug?: () => void;
 }
 
 const STORAGE_KEY = 'thalassa_chart_mode';
@@ -199,6 +204,7 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
     const [encBusy, setEncBusy] = useState(false);
     const [encLastResult, setEncLastResult] = useState<string | null>(null);
     const showEncRouteRow = !!props.onPlanEncRoute && (props.encCellCount ?? 0) > 0;
+    const showSeawayRow = !!props.onToggleSeawayDebug && (props.encCellCount ?? 0) > 0;
     const runEncRoute = useCallback(async () => {
         if (!props.onPlanEncRoute || encBusy) return;
         setEncBusy(true);
@@ -475,6 +481,50 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 {encLastResult ?? 'Newport → Rivergate demo'}
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && showSeawayRow && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            props.onToggleSeawayDebug?.();
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.seawayDebugVisible
+                                                ? 'rgba(56, 189, 248, 0.18)'
+                                                : 'rgba(56, 189, 248, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(56, 189, 248, 0.25)',
+                                        }}
+                                        aria-label="Toggle the Seaway Graph debug overlay"
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#38bdf8' }}
+                                        >
+                                            <AnchorIcon className="w-[18px] h-[18px]" />
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#38bdf8', fontSize: 13 }}
+                                            >
+                                                Seaway Graph {props.seawayDebugVisible ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                gates + channel edges from your charts (debug)
                                             </span>
                                         </span>
                                     </button>
