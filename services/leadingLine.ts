@@ -249,46 +249,68 @@ export function snapToLeadingLines(
 }
 
 export interface LeadingApproach {
-    /** Seaward end of the outermost serving leading line — the route's divert
-     *  target ("make the seaward mark"). */
+    /** Capture point on the outermost transit's seaward extension — the
+     *  route's divert target ("stand off, then get on the leads"). */
     anchor: LatLon;
-    /** The full transit run, seaward→landward, ending at the destination:
-     *  [anchor, outer.landward, …, inner.seaward, inner.landward, dest]. */
+    /** The sailed transit run: [anchor, turn(s)…, breakOff, dest]. Every
+     *  vertex lies on a transit LINE in open water — never at a beacon. */
     chain: LatLon[];
-    /** How many leading lines the approach chains through (1 = single transit,
+    /** How many leading lines the approach uses (1 = single transit,
      *  2 = a dog-leg). */
     lineCount: number;
 }
 
 /**
- * Build the charted leading-line APPROACH to a destination: the seaward anchor
- * the route should make for, plus the transit chain that runs the leads in.
+ * Build the charted leading-line APPROACH to a destination as the skipper
+ * actually sails it. A leading line's charted geometry is the segment between
+ * its two BEACONS — which routinely stand ON shore or drying banks. You never
+ * sail to a beacon: you sail the transit LINE (the marks kept in line),
+ * offset seaward of them. So the approach is built from transit-line
+ * geometry, not mark positions:
  *
- * A leading line "serves" the destination when its LANDWARD end (the end nearer
- * the destination) is within `maxDestM`. From the innermost serving line we
- * chain OUTWARD — each next line's landward end links to the running seaward
- * frontier within `linkM` — to follow a dog-leg out to the seaward mark. The
- * route then approaches via that mark and steers each transit in, the way a
- * skipper plans it: "make the seaward mark, get on the leads, run her in."
+ *   • breakOff = the destination projected onto the inner transit line —
+ *     ride the lead until abeam the anchorage, then break off.
+ *   • For a dog-leg, the turn = the INTERSECTION of the two transit lines;
+ *     you ride the outer transit to the turn, then the inner transit in.
+ *   • anchor = a capture point `captureM` back along the outer transit's
+ *     seaward extension — where the route joins the lead.
  *
+ * A line "serves" the destination when its nearer end is within `maxDestM`.
  * Returns null when no leading line serves the destination (normal routing).
  */
 export function buildLeadingApproach(
     dest: LatLon,
     lines: LeadingLine[],
-    opts: { maxDestM?: number; linkM?: number } = {},
+    opts: { maxDestM?: number; linkM?: number; captureM?: number } = {},
 ): LeadingApproach | null {
     const maxDestM = opts.maxDestM ?? 1500;
     const linkM = opts.linkM ?? 1800;
+    const captureM = opts.captureM ?? 800;
     if (lines.length === 0) return null;
+
+    // Local planar metres around the destination (the whole approach spans a
+    // few km at most — equirectangular is plenty).
+    const mPerLat = 110_540;
+    const mPerLon = 111_320 * Math.cos((dest.lat * Math.PI) / 180);
+    const toM = (p: LatLon): { x: number; y: number } => ({
+        x: (p.lon - dest.lon) * mPerLon,
+        y: (p.lat - dest.lat) * mPerLat,
+    });
+    const fromM = (m: { x: number; y: number }): LatLon => ({
+        lat: dest.lat + m.y / mPerLat,
+        lon: dest.lon + m.x / mPerLon,
+    });
 
     interface Oriented {
         seaward: LatLon;
         landward: LatLon;
     }
-    // Orient each line: landward = the end nearer the destination.
+    // Orient each line: landward = the end nearer the destination. (Used for
+    // serving/chaining and the OUTER sail direction; the inner sail direction
+    // is derived from the turn geometry, which is robust even when the
+    // destination lies between the inner marks.)
     const oriented: Oriented[] = lines
-        .filter((l) => l.pts.length >= 2)
+        .filter((l) => l.pts.length >= 2 && distM(l.pts[0], l.pts[l.pts.length - 1]) > 10)
         .map((l) => {
             const a = l.pts[0];
             const b = l.pts[l.pts.length - 1];
@@ -303,32 +325,62 @@ export function buildLeadingApproach(
     serving.sort((p, q) => distM(p.landward, dest) - distM(q.landward, dest));
     const inner = serving[0];
 
-    // Chain outward from the seaward frontier through lines whose landward end
-    // links to it (the dog-leg).
-    const used = new Set<Oriented>([inner]);
-    const innerToOuter: Oriented[] = [inner];
-    let frontier = inner.seaward;
-    for (let guard = 0; guard < oriented.length; guard++) {
-        let best: Oriented | null = null;
-        let bestD = linkM;
-        for (const o of oriented) {
-            if (used.has(o)) continue;
-            const d = distM(o.landward, frontier);
-            if (d < bestD) {
-                bestD = d;
-                best = o;
-            }
+    // Find the OUTER lead of a dog-leg: the line whose landward end links to
+    // the inner's seaward end within linkM (the charted hand-off).
+    let outer: Oriented | null = null;
+    let outerD = linkM;
+    for (const o of oriented) {
+        if (o === inner) continue;
+        const d = distM(o.landward, inner.seaward);
+        if (d < outerD) {
+            outerD = d;
+            outer = o;
         }
-        if (!best) break;
-        used.add(best);
-        innerToOuter.push(best);
-        frontier = best.seaward;
     }
 
-    const seawardToInner = innerToOuter.slice().reverse(); // [outermost, …, inner]
-    const anchor = seawardToInner[0].seaward;
-    const chain: LatLon[] = [];
-    for (const o of seawardToInner) chain.push(o.seaward, o.landward);
-    chain.push(dest);
-    return { anchor, chain, lineCount: seawardToInner.length };
+    // Inner transit line (point + unit direction, metres).
+    const iA = toM(inner.seaward);
+    const iB = toM(inner.landward);
+    const iLen = Math.hypot(iB.x - iA.x, iB.y - iA.y);
+    const iDir = { x: (iB.x - iA.x) / iLen, y: (iB.y - iA.y) / iLen };
+    // breakOff = dest (origin) projected onto the inner transit line.
+    const tBreak = -(iA.x * iDir.x + iA.y * iDir.y);
+    const breakM = { x: iA.x + iDir.x * tBreak, y: iA.y + iDir.y * tBreak };
+    // Sanity: the lead must actually point at the anchorage.
+    if (Math.hypot(breakM.x, breakM.y) > maxDestM) return null;
+    const breakOff = fromM(breakM);
+
+    if (outer) {
+        // Dog-leg: turn at the intersection of the two transit lines.
+        const oA = toM(outer.seaward);
+        const oB = toM(outer.landward);
+        const oLen = Math.hypot(oB.x - oA.x, oB.y - oA.y);
+        const oDir = { x: (oB.x - oA.x) / oLen, y: (oB.y - oA.y) / oLen };
+        const denom = oDir.x * iDir.y - oDir.y * iDir.x;
+        if (Math.abs(denom) > 1e-6) {
+            // Solve oA + s·oDir = iA + t·iDir.
+            const dx = iA.x - oA.x;
+            const dy = iA.y - oA.y;
+            const s = (dx * iDir.y - dy * iDir.x) / denom;
+            const turnM = { x: oA.x + oDir.x * s, y: oA.y + oDir.y * s };
+            const turnToBreakM = Math.hypot(breakM.x - turnM.x, breakM.y - turnM.y);
+            // Course change at the turn: outer sail dir (toward its marks)
+            // onto the run-in dir (turn → breakOff).
+            const inDir = { x: (breakM.x - turnM.x) / turnToBreakM, y: (breakM.y - turnM.y) / turnToBreakM };
+            const cosTurn = oDir.x * inDir.x + oDir.y * inDir.y;
+            // A genuine dog-leg: a real run between turn and break-off, and a
+            // moderate course change (< ~120°). Degenerate → single-lead.
+            if (turnToBreakM > 50 && turnToBreakM < 5000 && cosTurn > -0.5) {
+                const anchorM = { x: turnM.x - oDir.x * captureM, y: turnM.y - oDir.y * captureM };
+                const anchor = fromM(anchorM);
+                return { anchor, chain: [anchor, fromM(turnM), breakOff, dest], lineCount: 2 };
+            }
+        }
+    }
+
+    // Single transit: capture point captureM seaward of the break-off along
+    // the inner transit's seaward extension.
+    const anchorM = { x: breakM.x - iDir.x * captureM, y: breakM.y - iDir.y * captureM };
+    const anchor = fromM(anchorM);
+    return { anchor, chain: [anchor, breakOff, dest], lineCount: 1 };
 }

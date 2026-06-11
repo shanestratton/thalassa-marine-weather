@@ -125,44 +125,72 @@ describe('snapToLeadingLines', () => {
     });
 });
 
-describe('buildLeadingApproach — route-via-transit', () => {
+describe('buildLeadingApproach — route-via-transit (transit LINES, never beacons)', () => {
     // The REAL Tangalooma leads (OSM navigation_line, Moreton Bay): a dog-leg —
-    // outer transit then turn onto the inner transit into the anchorage.
+    // ride the outer transit, turn at the line intersection, run the inner
+    // transit in, break off abeam the anchorage. Leading beacons routinely
+    // stand on shore/drying banks, so NO chain vertex may be a mark position.
     const INNER: LeadingLine = {
         pts: [
-            { lat: -27.1735, lon: 153.3714 }, // landward (near dest)
-            { lat: -27.1773, lon: 153.3712 }, // seaward
+            { lat: -27.1735, lon: 153.3714 },
+            { lat: -27.1773, lon: 153.3712 },
         ],
     };
     const OUTER: LeadingLine = {
         pts: [
-            { lat: -27.1894, lon: 153.3701 }, // landward
-            { lat: -27.1913, lon: 153.3644 }, // seaward (the outermost mark)
+            { lat: -27.1894, lon: 153.3701 },
+            { lat: -27.1913, lon: 153.3644 },
         ],
     };
     const DEST = { lat: -27.1704, lon: 153.3695 };
 
-    it('chains the dog-leg seaward→landward and anchors at the outermost mark', () => {
+    /** Cross-track distance (m) from p to the infinite line through a→b. */
+    const xtM = (p: LatLon, a: LatLon, b: LatLon): number => {
+        const mLat = 110_540;
+        const mLon = 111_320 * Math.cos((a.lat * Math.PI) / 180);
+        const ax = 0;
+        const ay = 0;
+        const bx = (b.lon - a.lon) * mLon;
+        const by = (b.lat - a.lat) * mLat;
+        const px = (p.lon - a.lon) * mLon;
+        const py = (p.lat - a.lat) * mLat;
+        const len = Math.hypot(bx - ax, by - ay);
+        return Math.abs(((bx - ax) * (ay - py) - (ax - px) * (by - ay)) / len);
+    };
+
+    it('dog-leg: anchor on the outer transit, turn at the intersection, break-off abeam dest', () => {
         const a = buildLeadingApproach(DEST, [INNER, OUTER]);
         expect(a).not.toBeNull();
         expect(a!.lineCount).toBe(2);
-        // Anchor = the outer line's seaward end (the seaward mark you make first).
-        expect(a!.anchor).toMatchObject({ lat: -27.1913, lon: 153.3644 });
-        expect(a!.chain[0]).toMatchObject({ lat: -27.1913, lon: 153.3644 });
-        expect(a!.chain[a!.chain.length - 1]).toMatchObject(DEST);
-        // The leads run IN: every step gets closer to the destination.
-        for (let i = 1; i < a!.chain.length; i++) {
-            expect(distM(a!.chain[i], DEST)).toBeLessThanOrEqual(distM(a!.chain[i - 1], DEST) + 1);
-        }
+        const [anchor, turn, breakOff, dest] = a!.chain;
+        expect(dest).toMatchObject(DEST);
+        // Anchor + turn lie ON the outer transit LINE (not at a beacon).
+        expect(xtM(anchor, OUTER.pts[0], OUTER.pts[1])).toBeLessThan(5);
+        expect(xtM(turn, OUTER.pts[0], OUTER.pts[1])).toBeLessThan(5);
+        // Turn + break-off lie ON the inner transit LINE.
+        expect(xtM(turn, INNER.pts[0], INNER.pts[1])).toBeLessThan(5);
+        expect(xtM(breakOff, INNER.pts[0], INNER.pts[1])).toBeLessThan(5);
+        // Anchor stands ~captureM seaward of the turn.
+        expect(distM(anchor, turn)).toBeGreaterThan(700);
+        expect(distM(anchor, turn)).toBeLessThan(900);
+        // Break-off is abeam the destination (dest projected onto the lead).
+        expect(distM(breakOff, dest)).toBeLessThan(400);
+        // And the run-in makes monotone progress toward the destination.
+        expect(distM(turn, dest)).toBeLessThan(distM(anchor, dest));
+        expect(distM(breakOff, dest)).toBeLessThan(distM(turn, dest));
     });
 
-    it('a single serving line → [seaward, landward, dest]', () => {
+    it('single serving line → [capture, breakOff, dest] along the transit', () => {
         const a = buildLeadingApproach(DEST, [INNER]);
         expect(a).not.toBeNull();
         expect(a!.lineCount).toBe(1);
         expect(a!.chain).toHaveLength(3);
-        expect(a!.anchor).toMatchObject({ lat: -27.1773, lon: 153.3712 }); // inner's seaward end
-        expect(a!.chain[2]).toMatchObject(DEST);
+        const [anchor, breakOff, dest] = a!.chain;
+        expect(dest).toMatchObject(DEST);
+        expect(xtM(anchor, INNER.pts[0], INNER.pts[1])).toBeLessThan(5);
+        expect(xtM(breakOff, INNER.pts[0], INNER.pts[1])).toBeLessThan(5);
+        expect(distM(anchor, breakOff)).toBeGreaterThan(700);
+        expect(distM(anchor, breakOff)).toBeLessThan(900);
     });
 
     it('returns null when no leading line serves the destination', () => {

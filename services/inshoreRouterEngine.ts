@@ -483,6 +483,15 @@ interface NavGrid {
      * generic deep water is available.
      */
     preferred: Uint8Array;
+    /**
+     * Per-cell LAND flag (1 = blocked by LNDARE / coastline / the LNDARE
+     * coastal buffer — actual terra firma). A point-hazard buffer (WRECKS /
+     * OBSTRN / UWTROC) blocks `cells` but does NOT set this. The leading-line
+     * splice validators use it so a charted lead is never vetoed by the very
+     * hazard it exists to guide past (the Tangalooma WRECKS veto), while
+     * still never crossing land. Optional for cached-grid back-compat.
+     */
+    landBlocked?: Uint8Array;
 }
 
 function isNavigable(grid: NavGrid, x: number, y: number): boolean {
@@ -695,7 +704,10 @@ function buildNavGrid(
     // channel is navigable water by definition — but must never
     // override a hard-blocked cell (actual land / charted hazard).
     const hardBlocked = new Uint8Array(width * height);
-    const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred };
+    // LAND-only subset of hardBlocked (LNDARE / coastline / coastal buffer —
+    // never point-hazard buffers). See NavGrid.landBlocked.
+    const landBlocked = new Uint8Array(width * height);
+    const grid: NavGrid = { width, height, minLon, minLat, dLon, dLat, cells, preferred, landBlocked };
 
     // Capture grid-build setup time separately. Anything north of a
     // few ms here points to wasted re-work (we already pay for this on
@@ -983,6 +995,7 @@ function buildNavGrid(
             } else {
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
+                landBlocked[idx] = 1;
             }
         });
     }
@@ -1031,6 +1044,7 @@ function buildNavGrid(
                     } else {
                         cells[idx] = BLOCKED;
                         hardBlocked[idx] = 1;
+                        landBlocked[idx] = 1;
                         coastCellsBlocked++;
                     }
                 }
@@ -1405,6 +1419,7 @@ function buildNavGrid(
                 if (neighborBlocked) {
                     cells[idx] = BLOCKED;
                     hardBlocked[idx] = 1;
+                    landBlocked[idx] = 1;
                     bufferedCount++;
                 }
             }
@@ -2994,8 +3009,18 @@ function applyLeadingLineSnap(
         if (x < 0 || y < 0 || x >= w || y >= h) return NaN;
         return grid.cells[y * w + x];
     };
-    const isBlocked = (p: LatLon): boolean => Number.isNaN(cellAt(p));
-    const isCaution = (p: LatLon): boolean => cellAt(p) < 0; // negative = caution (NaN < 0 is false)
+    // LAND-only veto: a charted lead is never vetoed by a point-hazard buffer
+    // (WRECKS/OBSTRN) — the lead exists to guide PAST those. Land still
+    // aborts. Hazard-buffer crossings stay honest via the caution flag.
+    const isBlocked = (p: LatLon): boolean => {
+        const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+        if (x < 0 || y < 0 || x >= w || y >= h) return true;
+        return grid.landBlocked ? grid.landBlocked[y * w + x] === 1 : Number.isNaN(grid.cells[y * w + x]);
+    };
+    const isCaution = (p: LatLon): boolean => {
+        const d = cellAt(p);
+        return Number.isNaN(d) || d < 0; // hazard-buffer (NaN) or shallow → red
+    };
 
     const poly: LatLon[] = polyline.map(([lon, lat]) => ({ lat, lon }));
     const r = snapToLeadingLines(poly, cautionMask, lines, { isBlocked, isCaution });
@@ -3028,14 +3053,26 @@ function applyLeadingLineApproach(
 ): { polyline: [number, number][]; cautionMask: boolean[]; leadingApproach: number } {
     const passthrough = { polyline, cautionMask, leadingApproach: 0 };
     const navFeatures = layers.NAVLINE?.features ?? [];
-    if (navFeatures.length === 0 || polyline.length < 2) return passthrough;
+    if (navFeatures.length === 0 || polyline.length < 2) {
+        if (ENGINE_DEBUG) engineLog.warn(`leading-line approach: SKIP — navFeatures=${navFeatures.length}`);
+        return passthrough;
+    }
     const lines = parseLeadingLines(navFeatures as Parameters<typeof parseLeadingLines>[0]);
-    if (lines.length === 0) return passthrough;
+    if (lines.length === 0) {
+        if (ENGINE_DEBUG) engineLog.warn('leading-line approach: SKIP — no parseable lines');
+        return passthrough;
+    }
 
     const last = polyline[polyline.length - 1];
     const dest: LatLon = { lat: last[1], lon: last[0] };
     const approach = buildLeadingApproach(dest, lines);
-    if (!approach) return passthrough;
+    if (!approach) {
+        if (ENGINE_DEBUG)
+            engineLog.warn(
+                `leading-line approach: SKIP — no serving lead within maxDestM of dest ${dest.lat.toFixed(4)},${dest.lon.toFixed(4)} (${lines.length} lines)`,
+            );
+        return passthrough;
+    }
 
     const w = grid.width;
     const h = grid.height;
@@ -3044,7 +3081,15 @@ function applyLeadingLineApproach(
         if (x < 0 || y < 0 || x >= w || y >= h) return NaN;
         return grid.cells[y * w + x];
     };
-    const isBlocked = (p: LatLon): boolean => Number.isNaN(cellAt(p));
+    // LAND-only veto — same rationale as the snap above: the Tangalooma
+    // WRECKS' buffer cells sit ON the charted approach line, and a lead must
+    // not be vetoed by the very hazard it exists to guide past. Land aborts;
+    // hazard-buffer crossings render caution (isCautionOrBlocked below).
+    const isBlocked = (p: LatLon): boolean => {
+        const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+        if (x < 0 || y < 0 || x >= w || y >= h) return true;
+        return grid.landBlocked ? grid.landBlocked[y * w + x] === 1 : Number.isNaN(grid.cells[y * w + x]);
+    };
     const isCautionOrBlocked = (p: LatLon): boolean => {
         const d = cellAt(p);
         return Number.isNaN(d) || d < 0;
@@ -3065,12 +3110,40 @@ function applyLeadingLineApproach(
             divertIdx = i;
         }
     }
-    if (divertIdx < 0) return passthrough;
+    if (divertIdx < 0) {
+        if (ENGINE_DEBUG)
+            engineLog.warn(
+                `leading-line approach: SKIP — route never within ${MAX_BRIDGE_M}m of anchor ${approach.anchor.lat.toFixed(4)},${approach.anchor.lon.toFixed(4)}`,
+            );
+        return passthrough;
+    }
 
     // Never route the approach across solid land (the leads themselves are
     // navigable; the divert bridge must not cut a headland).
     const spliced = [poly[divertIdx], ...approach.chain];
-    if (llAnyAlong(spliced, 25, isBlocked)) return passthrough;
+    if (llAnyAlong(spliced, 25, isBlocked)) {
+        if (ENGINE_DEBUG) {
+            // Pinpoint the first land crossing for diagnosis.
+            let hit = '';
+            outer: for (let i = 0; i < spliced.length - 1; i++) {
+                const a = spliced[i];
+                const b = spliced[i + 1];
+                const n = Math.max(1, Math.ceil(llDistM(a, b) / 25));
+                for (let k = 0; k <= n; k++) {
+                    const t = k / n;
+                    const p = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+                    if (isBlocked(p)) {
+                        hit = `seg ${i}→${i + 1} @ ${p.lat.toFixed(5)},${p.lon.toFixed(5)}`;
+                        break outer;
+                    }
+                }
+            }
+            engineLog.warn(
+                `leading-line approach: SKIP — spliced chain crosses LAND (divert ${divertIdx}, first land ${hit}; chain ${spliced.map((p) => `${p.lat.toFixed(4)},${p.lon.toFixed(4)}`).join(' → ')})`,
+            );
+        }
+        return passthrough;
+    }
 
     // Keep the route up to the divert vertex, then the transit chain
     // (anchor → leads → dest).
