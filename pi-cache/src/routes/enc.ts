@@ -144,6 +144,15 @@ const ENC_LAYERS = [
     'BCNLAT',
     'BCNCAR',
     'M_QUAL',
+    // Masterplan Phase 6: NAVLNE/RECTRC = charted leading lines /
+    // recommended tracks (offline leads for the routing engine), and
+    // FAIRWY/DRGARE were missing from THIS (ogr2ogr upload) path even
+    // though the SENC-extractor path emits them — S-57-uploaded cells
+    // could never drive corridor preference without them.
+    'NAVLNE',
+    'RECTRC',
+    'FAIRWY',
+    'DRGARE',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
