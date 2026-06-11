@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('RoutePlanner');
@@ -20,6 +20,7 @@ import {
 import { SlideToAction } from './ui/SlideToAction';
 import { MapHub } from './map/MapHub';
 import { DepartureWindowSheet } from './passage/DepartureWindowSheet';
+import { DepartureSweepSheet } from './passage/DepartureSweepSheet';
 import { ComfortQuickConfig } from './passage/ComfortQuickConfig';
 import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
@@ -77,6 +78,22 @@ export const RoutePlanner: React.FC<{
         isPro,
         mapboxToken,
     } = useVoyageForm(onTriggerUpgrade);
+
+    // Inshore departure sweep (Phase 8): button-gated, only meaningful when
+    // the plan's geometry came from the inshore router (locked polyline in
+    // routeGeoJSON). The sheet re-TIMES that polyline — it never re-routes.
+    const [showSweepSheet, setShowSweepSheet] = useState(false);
+    const inshoreSweepAvailable =
+        (voyagePlan as { __inshoreRouting?: { status?: string } } | null)?.__inshoreRouting?.status === 'success';
+    const acceptSweepDeparture = useCallback(
+        (departMs: number) => {
+            // Mirror acceptWindowScenario: the form carries a DATE; the
+            // precise time lives in the row the user just read.
+            setDepartureDate(new Date(departMs).toISOString().split('T')[0]);
+            setShowSweepSheet(false);
+        },
+        [setDepartureDate],
+    );
 
     // Comfort accordion expanded state lives here (lifted up from the
     // ComfortQuickConfig) so we can imperatively collapse the panel
@@ -576,6 +593,21 @@ export const RoutePlanner: React.FC<{
                                     )}
                                     <span>Window</span>
                                 </button>
+                                {/* Inshore Departure Sweep — re-times the locked
+                                    inshore polyline against tide + stream (Phase 8).
+                                    Only rendered when the inshore router produced
+                                    this plan's geometry. */}
+                                {inshoreSweepAvailable && (
+                                    <button
+                                        onClick={() => setShowSweepSheet(true)}
+                                        className="px-2 py-0.5 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[11px] font-bold border border-teal-500/20 transition-colors inline-flex items-center gap-1"
+                                        aria-label="Sweep inshore departure times against tide and stream"
+                                        title="Best time to leave (tide + stream)"
+                                    >
+                                        <ClockIcon className="w-3 h-3" />
+                                        <span>Tides</span>
+                                    </button>
+                                )}
                                 {/* View on main map */}
                                 <button
                                     onClick={() => {
@@ -731,6 +763,15 @@ export const RoutePlanner: React.FC<{
                 onAccept={acceptWindowScenario}
                 origin={voyagePlan?.origin || origin}
                 destination={voyagePlan?.destination || destination}
+            />
+
+            {/* ─── Inshore Departure Sweep Sheet (Phase 8) ─── */}
+            <DepartureSweepSheet
+                open={showSweepSheet}
+                onClose={() => setShowSweepSheet(false)}
+                voyagePlan={voyagePlan}
+                vessel={vessel}
+                onAccept={acceptSweepDeparture}
             />
         </div>
     );
