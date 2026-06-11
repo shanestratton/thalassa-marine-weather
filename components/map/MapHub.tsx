@@ -72,6 +72,7 @@ import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
+import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
@@ -409,6 +410,10 @@ export const MapHub: React.FC<MapHubProps> = ({
         false,
     );
     const [lightningVisible, setLightningVisible] = usePersistedState('thalassa_map_lightning_visible', false);
+    // Seaway Graph debug overlay (masterplan Stage IV Phase 10) — gates/
+    // edges compiled from installed ENC cells. Per-device flag, never
+    // cloud-synced (it's dev tooling, not a user setting).
+    const [seawayDebugVisible, setSeawayDebugVisible] = usePersistedState('thalassa_map_seaway_debug_visible', false);
     const [skChartIds, setSkChartIds] = usePersistedStringSet('thalassa_map_sk_chart_ids');
     const [skChartOpacity, setSkChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
     const [localChartIds, setLocalChartIds] = usePersistedStringSet('thalassa_map_local_chart_ids');
@@ -1248,6 +1253,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [encTestRoute, setEncTestRoute] = useState<EncTestRoute | null>(null);
     useEncTestRouteLayer(mapRef, mapReady, encTestRoute);
 
+    // Seaway Graph debug overlay — compiles gates/edges from the installed
+    // cells for the viewport whenever the toggle is on (Phase 10).
+    useSeawayDebugLayer(mapRef, mapReady, seawayDebugVisible);
+
     // ── Pending fit-to-bbox request ──
     // Used by EncCellManager (and any future "show me on the map"
     // entry point) to fit the viewport to a bbox after navigating
@@ -1917,6 +1926,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     mpaVisible={weather.mpaVisible}
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
                     encCellCount={encCellCount}
+                    seawayDebugVisible={seawayDebugVisible}
+                    onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}
                     onPlanEncRoute={async () => {
                         // Demo waypoints — hardcoded Newport → Rivergate
                         // until the full two-tap workflow lands. Tayana 55
