@@ -30,6 +30,44 @@ import { pairWingFeatures } from '../services/pairWings';
 const wingFeatures = (pairs: Array<{ port: LatLon; stbd: LatLon }>): Feature[] =>
     pairs.flatMap((p) => pairWingFeatures(p.port, p.stbd)) as unknown as Feature[];
 
+/** The orchestrator's Step-5 synthetic FAIRWY ribbon between consecutive
+ *  chained midpoints (InshoreRouter HALF_WIDTH_M=100, SEGMENT_MAX_M=1200):
+ *  production chains midpoints ≤1.2 km apart into a continuous preferred
+ *  corridor — engine input the gate fixtures previously omitted (unchained
+ *  80 m preferred islands can never out-pull a shorter unmarked line). */
+const ribbonSegments = (midpoints: LatLon[]): Feature[] => {
+    const out: Feature[] = [];
+    const HALF_W = 100;
+    for (let i = 0; i < midpoints.length - 1; i++) {
+        const a = midpoints[i];
+        const b = midpoints[i + 1];
+        const mPerLon = 111_320 * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+        const dxM = (b.lon - a.lon) * mPerLon;
+        const dyM = (b.lat - a.lat) * 110_540;
+        const lenM = Math.hypot(dxM, dyM);
+        if (lenM < 1 || lenM > 1200) continue;
+        const pDLon = ((-dyM / lenM) * HALF_W) / mPerLon;
+        const pDLat = ((dxM / lenM) * HALF_W) / 110_540;
+        out.push({
+            type: 'Feature',
+            properties: { _layer: 'FAIRWY', _class: 'synthetic-channel-segment', _source: 'chain-ordered' },
+            geometry: {
+                type: 'Polygon',
+                coordinates: [
+                    [
+                        [a.lon + pDLon, a.lat + pDLat],
+                        [a.lon - pDLon, a.lat - pDLat],
+                        [b.lon - pDLon, b.lat - pDLat],
+                        [b.lon + pDLon, b.lat + pDLat],
+                        [a.lon + pDLon, a.lat + pDLat],
+                    ],
+                ],
+            },
+        });
+    }
+    return out;
+};
+
 // ── Shared synthetic-chart helpers ──────────────────────────────────
 
 function rect(
@@ -115,6 +153,7 @@ describe('seamanship — gate shortcut: marked dog-leg vs tempting direct deep w
         ),
         BOYLAT: fc(...gatePairs.map((p) => midpointFeature(p.port, p.stbd))),
         OBSTRN: fc(...wingFeatures(gatePairs)),
+        FAIRWY: fc(...ribbonSegments(gatePairs.map((p) => ({ lat: (p.port.lat + p.stbd.lat) / 2, lon: p.port.lon })))),
     };
 
     const req: RouteRequest = {
@@ -141,37 +180,29 @@ describe('seamanship — gate shortcut: marked dog-leg vs tempting direct deep w
         haversineM(channelCentreline[1], channelCentreline[2]) +
         haversineM(channelCentreline[2], TO);
 
-    it('today: resolves the clean deep shortcut — shorter than the marked dog-leg, zero caution, gates ignored', () => {
-        // Pins today's truth so we NOTICE when gate-following lands. Measured
-        // 2026-06-11: straight line FROM→TO, 5,934 m (3.204 NM) vs 7,367 m
-        // dog-leg; caution 0; auditGates 0/5 passed, 5 missed, 0 wrong-side;
-        // channel discipline 5.0%. The midpoint radii (80 m preferred islands,
-        // ~693 m apart) are weak local attractors — nothing chains them, so
-        // A* never pays the ~24% detour to collect them.
+    it('takes the marked dog-leg, clean, near the channel path (flipped by the Phase 3b bundle)', () => {
+        // INVERTED from the pre-Phase-3 shortcut pin. History: the straight
+        // 5,934 m shortcut won until 2026-06-12 because (a) the fixture
+        // lacked the orchestrator's Step-5 ribbon (production chains these
+        // midpoints — added above), (b) the cost-blind smoother collapsed
+        // any A* dog-leg back to the straight chord, and (c) nothing priced
+        // leaving a corridor. With the bundle (ribbon + cost-no-worse
+        // smoothing + EXIT_PENALTY_M + 4× deep): 7,395 m ≈ the 7,367 m
+        // dog-leg centreline, zero caution, all 5 gates.
         expect(isResult(route)).toBe(true);
         if (!isResult(route)) return;
         expect((route.cautionMask ?? []).filter(Boolean).length).toBe(0);
-        expect(route.distanceNM * 1852).toBeLessThan(channelPathM - 500); // decisively the shortcut, not the gates
-        const audit = auditGates(route.polyline, gates);
-        expect(audit.gatesMissed).toBeGreaterThan(0); // today: all 5 missed
-        expect(audit.wrongSidePasses).toBe(0); // it misses cleanly — never on the wrong side of a mark
-        expect(channelDisciplinePct(route.polyline, channelCentreline, { halfWidthM: 100 })).toBeLessThan(30);
+        expect(route.distanceNM * 1852).toBeGreaterThan(channelPathM - 500); // the dog-leg, not the shortcut
+        expect(route.distanceNM * 1852).toBeLessThan(channelPathM + 500);
     });
 
-    // Masterplan Phase 3 (wings + corridor-exit penalty) target: chained
-    // midpoint gates must out-pull a 19%-shorter unmarked deep shortcut.
-    // Today the route is the straight line at lat -27.200, ~1.7 km north of
-    // the gate line — auditGates: gatesPassed 0/5, gatesMissed 5.
-    it.fails(
-        'masterplan: threads ALL marked gates in order instead of the unmarked shortcut (flips at Phase 3)',
-        () => {
-            expect(isResult(route)).toBe(true);
-            if (!isResult(route)) return;
-            const audit = auditGates(route.polyline, gates);
-            expect(audit.gatesPassed).toBe(audit.gatesTotal);
-            expect(audit.wrongSidePasses).toBe(0);
-        },
-    );
+    it('threads ALL marked gates in order instead of the unmarked shortcut (flipped by the Phase 3b bundle)', () => {
+        expect(isResult(route)).toBe(true);
+        if (!isResult(route)) return;
+        const audit = auditGates(route.polyline, gates);
+        expect(audit.gatesPassed).toBe(audit.gatesTotal);
+        expect(audit.wrongSidePasses).toBe(0);
+    });
 });
 
 describe('inshore router — staggered lateral pairs through an S-bend channel (scenario: staggered-pairs)', () => {
@@ -285,14 +316,12 @@ describe('inshore router — staggered lateral pairs through an S-bend channel (
         expect(channelDisciplinePct(route.polyline, midpoints, { halfWidthM: 100 })).toBeGreaterThanOrEqual(75);
     });
 
-    // Masterplan Phase 3 (gate wings + exit penalty) / Phase 4 (fairlead
-    // midpoint-chain following) target. Today the clean-corridor marina-
-    // centerline refinement string-pulls the path taut across both S-bend
-    // apexes — hugging the inside bank up to 139.5 m off the midpoint chain
-    // — so discipline measures 87.0% (< 90). wrongSidePasses is already 0
-    // (the banks make wrong-side geometrically impossible here); the
-    // discipline half of the target is what Phase 3/4 must flip.
-    it.fails('PHASE-3/4 TARGET: zero wrong-side passes AND ≥90% discipline on the midpoint chain', () => {
+    // FLIPPED by the Phase 3b bundle (2026-06-12): the marina-centerline
+    // cost gate now rejects the apex-cutting string-pulled centerline
+    // (its true-grid cost exceeds the A* corridor's), so the route keeps
+    // A*'s chain-following line — measured 92.6% discipline at the
+    // bundle's 4× deep tier (79.7 at 3×, which is why 4 is the floor).
+    it('zero wrong-side passes AND ≥90% discipline on the midpoint chain (flipped by the Phase 3b bundle)', () => {
         if (!isResult(route)) throw new Error('expected a route');
         const audit = auditGates(route.polyline, gates);
         expect(audit.wrongSidePasses).toBe(0);
@@ -697,21 +726,22 @@ describe('seamanship: mid-span shoal bar vs parallel marked channel (lon 161.00�
         expect(Math.abs(endLon - TO.lon)).toBeLessThan(0.02);
     });
 
-    it('TODAY (pinned, post-heap + Phase 3 wings): crosses via the cut INSIDE the marks, clean', () => {
-        // Pin history (all 2026-06-11): broken heap → 2,365 m red across the
-        // raw bar; heap fix → clean via the cut but riding its southern edge
-        // OUTBOARD of the greens (gates 0/11, wrongSidePasses 8); Phase 3
-        // wings → the outboard ride costs 500×, so the route crosses INSIDE
-        // the buoyed gates: measured 12.22 NM, zero caution runs, gates 7/11,
-        // wrongSidePasses 0. (It joins the channel near the cut mouth, so the
-        // westernmost open-water gates are legitimately not engaged.)
+    it('TODAY (pinned, Phase 3b bundle): engages 10/11 gates clean via the cut — one wrong-side left', () => {
+        // Pin history: broken heap → 2,365 m red across the raw bar (06-11);
+        // heap fix → clean via the cut but outboard of the greens (gates
+        // 0/11, wrongSidePasses 8); wings → inside the gates (7/11, wrong 0,
+        // 12.22 NM); Phase 3b bundle (06-12: cost-no-worse smoothing +
+        // centerline gate + EXIT_PENALTY_M=250 + 4× deep) → joins EARLY and
+        // engages 10/11 gates at 10.93 NM, zero caution runs, but the honest
+        // geometry clips ONE mark's wing line (wrongSidePasses 1). The
+        // remaining wrong-side is the TARGET below.
         expect(isResult(route)).toBe(true);
         if (!isResult(route)) return;
         const runs = cautionRunsM(route.polyline, route.cautionMask);
         expect(runs).toHaveLength(0); // clean crossing via the cut
         const audit = auditGates(route.polyline, gates);
-        expect(audit.gatesPassed).toBeGreaterThanOrEqual(6);
-        expect(audit.wrongSidePasses).toBe(0);
+        expect(audit.gatesPassed).toBeGreaterThanOrEqual(9);
+        expect(audit.wrongSidePasses).toBeLessThanOrEqual(1);
     });
 
     it('regression guard: a route entered at the cut mouth rides the marked channel cleanly', () => {
@@ -727,18 +757,17 @@ describe('seamanship: mid-span shoal bar vs parallel marked channel (lon 161.00�
         expect(audit.wrongSidePasses).toBe(0);
     });
 
-    // TARGET (masterplan Phase 3 exit-penalty / Stage IV Seaway Graph):
-    // engage the marked channel EARLY — ≥8 of 11 gates — with zero wrong-
-    // side passes and no caution run over 500 m.
+    // TARGET (Stage IV Seaway Graph territory now): ≥8 of 11 gates with
+    // ZERO wrong-side passes and no caution run over 500 m.
     //
-    // Recalibrated 2026-06-11: the original ≥70% channel-discipline clause
-    // was unreachable by construction (the centreline spans only the 8 km
-    // cut; the route is 19.8 km — global discipline tops out ≈40% even for
-    // the Dijkstra-optimal line) and is replaced by the gate count. Heap fix
-    // killed the drunken-walk; Phase 3 wings killed the outboard ride
-    // (wrongSidePasses 8 → 0, gates 0 → 7). The remaining gap to ≥8 is the
-    // late join at the cut mouth — the exit-penalty knob's case.
-    it.fails('TARGET Phase 3: engages the buoyed channel early — ≥8/11 gates, zero wrong-side, runs ≤500 m', () => {
+    // Recalibration history: the original ≥70% global-discipline clause was
+    // unreachable by construction (replaced by gate count, 06-11). Heap fix
+    // killed the drunken-walk; wings killed the outboard ride (wrong 8→0);
+    // the Phase 3b bundle's exit penalty bought the early join (gates
+    // 7→10/11) but its honest geometry clips ONE wing line (wrong 0→1).
+    // Killing that last wrong-side without losing the early join is gate
+    // cross-line validation — the Seaway Graph's by-construction guarantee.
+    it.fails('TARGET: engages the buoyed channel early — ≥8/11 gates, zero wrong-side, runs ≤500 m', () => {
         expect(isResult(route)).toBe(true);
         if (!isResult(route)) return;
         const runs = cautionRunsM(route.polyline, route.cautionMask);
