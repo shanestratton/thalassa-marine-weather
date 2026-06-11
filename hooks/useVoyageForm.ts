@@ -453,21 +453,47 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                             draftMeters,
                         );
                         if (inshoreRes && 'polyline' in inshoreRes) {
-                            enhancedPlan = {
-                                ...enhancedPlan,
-                                routeGeoJSON: inshoreRouteToGeoJSON(
-                                    inshoreRes,
-                                    result.originCoordinates,
-                                    result.destinationCoordinates,
-                                ),
-                                __inshoreRouting: {
-                                    status: 'success',
-                                    cellsUsed: inshoreRes.cellsUsed,
-                                    distanceNM: inshoreRes.distanceNM,
-                                },
-                            };
-                            inshoreSucceeded = true;
-                            saveIfActive(enhancedPlan);
+                            // LAND BACKSTOP (2026-06-12, Newport→Mooloolaba field
+                            // bug): the engine treats uncharted space as open
+                            // water, so a chart-coverage gap mid-corridor can
+                            // yield a confident polyline straight across an
+                            // island. Validate the final geometry against GEBCO
+                            // before accepting; fails OPEN when GEBCO is
+                            // unreachable (the backstop must not break offline
+                            // routing the chart layer validated properly).
+                            const { inshoreRouteCrossesLand } = await import('../services/routing/landBackstop');
+                            const backstop = await inshoreRouteCrossesLand(inshoreRes.polyline);
+                            if (backstop.crossesLand) {
+                                console.warn(
+                                    `[useVoyageForm] inshore route REJECTED by land backstop (${backstop.runs.length} land run(s)) — falling back to offshore pipeline`,
+                                );
+                                enhancedPlan = {
+                                    ...enhancedPlan,
+                                    __inshoreRouting: {
+                                        status: 'failed',
+                                        error: 'Inshore charts do not cover the full passage — route fell back to offshore planning.',
+                                        errorCode: 'land-backstop',
+                                        cellsUsed: inshoreRes.cellsUsed,
+                                    },
+                                };
+                                saveIfActive(enhancedPlan);
+                            } else {
+                                enhancedPlan = {
+                                    ...enhancedPlan,
+                                    routeGeoJSON: inshoreRouteToGeoJSON(
+                                        inshoreRes,
+                                        result.originCoordinates,
+                                        result.destinationCoordinates,
+                                    ),
+                                    __inshoreRouting: {
+                                        status: 'success',
+                                        cellsUsed: inshoreRes.cellsUsed,
+                                        distanceNM: inshoreRes.distanceNM,
+                                    },
+                                };
+                                inshoreSucceeded = true;
+                                saveIfActive(enhancedPlan);
+                            }
                         } else if (inshoreRes && 'error' in inshoreRes) {
                             // Pi answered but couldn't route. Tag the plan
                             // so the UI can show a useful warning instead
