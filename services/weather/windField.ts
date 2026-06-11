@@ -46,6 +46,13 @@ export interface WindGrid {
      *  3-hourly (waves) this is [0,3,6,…]. UI scrubber uses this to
      *  render "T+Xh" labels instead of step indices. */
     hourOffsets?: number[];
+    /** Forecast-hour offset of each time step (length === totalHours),
+     *  authoritative for temporal SAMPLING (vs hourOffsets, which only
+     *  drives UI labels). GFS GRIB deliveries are non-uniform
+     *  ([0,3,6,9,12,18,24,36,48,72], possibly with gaps when NOAA drops
+     *  an hour), so the step index must not be treated as an hour.
+     *  Absent ⇒ steps are genuinely hourly (Open-Meteo producers). */
+    stepHours?: number[];
 }
 
 /**
