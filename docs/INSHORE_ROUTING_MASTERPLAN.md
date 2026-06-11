@@ -246,10 +246,10 @@ Lanes per `docs/ROUTING_COLLAB.md`: **Claude A** = tests/docs/callers/UI/data pl
 
 ---
 
-## 8. Open questions for the owner
+## 8. Open questions for the owner — ANSWERED (Shane, 2026-06-12)
 
-1. **WorldTides heights billing:** heights are billed per datapoint. OK to enable the `mode=heights` proxy branch for routing calls (Phase 15 accuracy upgrade), or stay on free cosine-from-extremes (±0.3 m band) indefinitely? Changes how confident the UKC numbers in the UI can sound.
-2. **Compliant-vs-direct presentation:** when the graph route is up to 35% longer than the direct line, ship the channel-compliant route by default with a "direct" toggle, or show both and let you pick per-route? Changes the Phase 13 UI build and the DETOUR_CAP semantics.
-3. **Departure sweep trigger:** auto-run on every inshore route (always-current recommendation, battery cost on older phones) or explicit button like the offshore DepartureWindowSheet? Changes Phase 8 wiring.
-4. **`tideSafetyM` default (0.5 m proposed):** what under-keel clearance margin do you actually run the Tayana to over a bar on a rising tide? This number gates every amber window and every graph tide-gate, and it should be your number, not ours.
-5. **Pi AU-cell re-extraction window:** Phase 6 (offline leads) and the post-`5fa40eb9` ring-assembly confirmation both need a session on calypso with the SG-Lock dongle. When can that hardware time be scheduled — and if it slips, are you happy for leads to stay OSM/online-only until it lands?
+1. **WorldTides heights billing → APPROVED.** Already on a paid WorldTides tier — enable the `mode=heights` proxy branch for routing calls (Phase 15). Cosine-from-extremes still ships first in Phase 7 (free + offline path); heights mode is the accuracy upgrade, and UKC numbers may speak confidently once on it.
+2. **Compliant-vs-direct → (a) COMPLIANT BY DEFAULT,** with the direct route one tap away. "Navionics gives you the corner-cutter; we give you the pilot's plan, with the shortcut one tap away." Phase 13 UI builds the toggle; DETOUR_CAP stays the arbiter of when a compliant route exists at all.
+3. **Departure sweep trigger → EXPLICIT BUTTON first** (mirrors offshore DepartureWindowSheet); revisit auto-run after measuring on-device cost.
+4. **`tideSafetyM` default → 0.5 m CONFIRMED** by the owner as the Tayana's real rising-tide bar margin. Punter-adjustable setting; 0.5 m is the shipped default.
+5. **Pi AU-cell re-extraction → OPPORTUNISTIC, delegated to Claude A.** Leads stay OSM/online-only (status quo, zero risk) until the next natural calypso + SG-Lock session; target before Phase 6 merges, but Phase 6 explicitly does not block Stages I–III. Owner note: the Pi layer is being formalised as **"Pi in the Middle" (PIM)** — an optional middle tier: device → Supabase for everyone; device → Pi → Supabase for boat-equipped users (speed, stability, extra functionality). The masterplan already assumes exactly this shape (cloud router with on-device fallback, Pi-compiled marina grids with device fallback, Pi tide prefetch) — PIM is the name for the contract: **every Pi feature must have a device-or-cloud fallback; Supabase remains the single source of truth; the Pi is an accelerator and buffer, never a second master.**
