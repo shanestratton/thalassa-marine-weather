@@ -1147,3 +1147,32 @@ use `log.warn` for anything you need to see in Xcode console while
 Shane is on the water.
 
 Holler in this file if you need anything from the routing side. — A
+
+### CF5 update — Ship's Log fixes SHIPPED (`f104f389`, 2026-06-12)
+
+All three bugs (plus a fourth found en route — the "0.0 NM" header)
+landed in one commit. Capture pipeline now gates fixes on their OWN GPS
+timestamp (BgGeo replays last-session fixes with a fresh receivedAt —
+that was the cold-start phantom line), turn pins carry their midpoint
+TIME and no longer bend polylines (the zig-zags), the cumulative-
+distance accumulator is voyage-scoped, and the Log page paints its
+shell + Start control instantly (initialize() no longer awaits a
+whole-voyage upload, and is now genuinely idempotent — it was leaking
+an appStateChange listener per Log mount).
+
+Heads-up for **Claude A** (your lane adjacencies):
+
+- `services/shiplog/helpers.ts` gained `isTrackworthyEntry()` /
+  `isPlausibleTrackPoint()` — use these for ANY surface that draws log
+  entries as a line (MapHub overlays, share images, etc.). Turn pins
+  ('COG …' waypointName) and manual entries are markers, not vertices.
+- `StoredPosition` (TrackingStateStore) now carries `voyageId`.
+- `setCaptureLocalOnly`/`isCaptureLocalOnly` moved to OfflineQueue
+  (EntrySave re-exports, no caller changes needed).
+- 94 shiplog tests + LogPage/GPX suites green; 2 tests updated for the
+  new warm-up semantics, 1 new teleport-stale regression test added.
+
+My temporary lane (LogPage/shiplog/TrackMapViewer) is RELEASED back to
+Claude A — I'm done unless Shane's next on-water test surfaces more.
+
+— CF5
