@@ -6,10 +6,10 @@
  *                      parseLateralMarks + groupChannels, paired by
  *                      SEQUENCE ADJACENCY (confidence 0.95);
  *   tier 2 REGIONAL  — the orchestrator's cluster→PCA→pair pipeline
- *                      (confidence 0.7) — NOT lifted yet: extracting
- *                      Steps 1–3 of fetchRegionalMarkers is an
- *                      InshoreRouter refactor that lands as its own
- *                      commit (documented stub below);
+ *                      (confidence 0.7), consumed via the ACCEPTED PAIRS
+ *                      fetchRegionalMarkers exposes (regionalGates
+ *                      below; full Steps 1–3 purification deferred to
+ *                      the Phase 16 routing-core extraction);
  *   tier 3 GEOMETRIC — the TS port of MarinerEE's find_entrance_gate
  *                      (newport_demo.py:517-595), generalised from one
  *                      entrance to ALL unnumbered marks: mutual-best
@@ -273,10 +273,49 @@ export function dedupGates(gates: GateNode[]): GateNode[] {
     return kept;
 }
 
-// TIER 2 (regional, confidence 0.7) — deliberately NOT implemented here.
-// The orchestrator's cluster→PCA→pair pipeline (fetchRegionalMarkers
-// Steps 1–3, now metres-correct after Phase 2) must be LIFTED out of
-// InshoreRouter.ts into a pure module before this extractor can call it.
-// That lift touches the hot orchestrator file and lands as its own
-// commit; until then the regional tier reaches the engine through the
-// existing midpoint/wing pipeline, unchanged.
+/** A Step-3 accepted pair as the orchestrator exposes it
+ *  (RegionalChannelData.acceptedPairs). */
+export interface RegionalPair {
+    port: SeawayLatLon;
+    stbd: SeawayLatLon;
+}
+
+/**
+ * TIER 2 — regional gates from the orchestrator's ACCEPTED PAIRS
+ * (confidence 0.7). The pairs arrive pre-validated by fetchRegionalMarkers
+ * Steps 1–3 — metre-space PCA clustering, the 500 m stagger gate,
+ * LNDARE-between rejection with OSM/DEPARE water rescue — so this
+ * frontend only re-checks the width window and adapts shapes. The full
+ * Steps 1–3 purification (a ~400-line cut of the hot orchestrator file)
+ * is deferred to the Phase 16 routing-core extraction, where it has to
+ * happen anyway; consuming the exposed pairs delivers the tier NOW
+ * without duplicating the pipeline.
+ *
+ * Visible limitation: regional pairs carry no OBJNAM sequence, so each
+ * becomes a SINGLE-GATE channel (`regional#i`, station 1) — they merge
+ * with chart gates through dedup (chart wins geometry), serve as
+ * connector targets, and form no edge chains until a chaining pass
+ * exists. buoyageBearingDeg is the span-perpendicular — advisory only,
+ * like every inferred bearing (§4).
+ */
+export function regionalGates(pairs: RegionalPair[]): GateNode[] {
+    const gates: GateNode[] = [];
+    for (let i = 0; i < pairs.length; i++) {
+        const { port, stbd } = pairs[i];
+        const widthM = gateDistM(port, stbd);
+        if (widthM < MIN_GATE_WIDTH_M || widthM > MAX_GATE_WIDTH_M) continue;
+        const channelKey = `regional#${i}`;
+        gates.push({
+            id: `${channelKey}/g1`,
+            channelKey,
+            station: 1,
+            portMark: { lat: port.lat, lon: port.lon, side: 'port', source: 'regional' },
+            stbdMark: { lat: stbd.lat, lon: stbd.lon, side: 'stbd', source: 'regional' },
+            mid: { lat: (port.lat + stbd.lat) / 2, lon: (port.lon + stbd.lon) / 2 },
+            gateWidthM: metres(widthM),
+            buoyageBearingDeg: (bearingDeg(port, stbd) + 90) % 360,
+            confidence: REGIONAL_CONFIDENCE,
+        });
+    }
+    return gates;
+}

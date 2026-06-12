@@ -82,7 +82,7 @@ import {
 } from './crossLine';
 import { splitMarkFeatures, type PointFeatureLike } from './markSplit';
 import { compileSeawayGraph } from './graphCompiler';
-import { gateDistM } from './gateExtractor';
+import { gateDistM, type RegionalPair } from './gateExtractor';
 import type { GateNode, SeawayEdge, SeawayLatLon } from './types';
 
 export interface SeawayShadowRoute {
@@ -217,6 +217,7 @@ export function shadowCompare(
     layers: InshoreLayers,
     req: RouteRequest,
     direct: RouteResult,
+    opts: { regionalPairs?: RegionalPair[] } = {},
 ): SeawayShadowReport | null {
     const timings: Record<string, number> = {};
     let t = Date.now();
@@ -266,7 +267,12 @@ export function shadowCompare(
         if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false; // can't validate ≠ blocked
         return Number.isNaN(grid.cells[y * grid.width + x]);
     };
-    const { graph } = compileSeawayGraph({ chartFeatures, unnumberedMarks, isHardBlocked });
+    const { graph } = compileSeawayGraph({
+        chartFeatures,
+        unnumberedMarks,
+        regionalPairs: opts.regionalPairs,
+        isHardBlocked,
+    });
     mark('compile');
     const base = {
         gatesTotal: graph.gates.length,

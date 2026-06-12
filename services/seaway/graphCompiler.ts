@@ -1,8 +1,9 @@
 /**
  * graphCompiler — marks in, SeawayGraph out (Phase 10, §3).
  *
- * Pipeline: extract chart gates (tier 1) + geometric gates (tier 3) →
- * dedup (chart wins) → corridor edges per channel → confidence gating
+ * Pipeline: extract chart gates (tier 1) + regional pair-gates (tier 2)
+ * + geometric gates (tier 3) → dedup (chart wins) → corridor edges per
+ * channel → confidence gating
  * (sub-0.6 gates form edges only with charted corroboration) → land
  * validation. Output feeds the DEBUG OVERLAY only in Phase 10 — zero
  * routing change; the live engine is untouched.
@@ -15,7 +16,9 @@ import {
     dedupGates,
     extractChartGates,
     extractGeometricGates,
+    regionalGates,
     type GeometricGateOptions,
+    type RegionalPair,
     type UnnumberedMark,
 } from './gateExtractor';
 import { validateGraph, type ValidateResult } from './graphValidate';
@@ -26,6 +29,10 @@ export interface CompileOptions extends GeometricGateOptions {
     chartFeatures?: Parameters<typeof parseLateralMarks>[0];
     /** Unnumbered laterals (CATLAM only) for the geometric tier. */
     unnumberedMarks?: UnnumberedMark[];
+    /** Step-3 accepted pairs from the orchestrator (tier 2, 0.7) —
+     *  single-gate channels that dedup under chart gates and serve as
+     *  connector targets (no edge chains; see regionalGates). */
+    regionalPairs?: RegionalPair[];
     /** Hard land/hazard truth from the rasterised grid. Absent → land
      *  validation is skipped (pure-geometry compile, tests/overlay). */
     isHardBlocked?: (p: SeawayLatLon) => boolean;
@@ -44,8 +51,9 @@ export interface CompileResult extends ValidateResult {
 export function compileSeawayGraph(opts: CompileOptions): CompileResult {
     // ── Gates ────────────────────────────────────────────────────────
     const chart = opts.chartFeatures ? extractChartGates(opts.chartFeatures) : { gates: [], channels: new Map() };
+    const regional = opts.regionalPairs ? regionalGates(opts.regionalPairs) : [];
     const geometric = opts.unnumberedMarks ? extractGeometricGates(opts.unnumberedMarks, opts) : [];
-    const gates = dedupGates([...chart.gates, ...geometric]);
+    const gates = dedupGates([...chart.gates, ...regional, ...geometric]);
     const gateIds = new Set(gates.map((g) => g.id));
 
     // ── Channel edges (chart channels carry the corridor geometry) ───
@@ -80,9 +88,13 @@ export function compileSeawayGraph(opts: CompileOptions): CompileResult {
         }
     }
 
-    // Geometric-only gates form no channel edges in Phase 10 (no station
+    // Geometric-only and regional gates form no channel edges (no station
     // ordering without a corridor) — they render on the overlay and feed
-    // Phase 11's portal/connector synthesis.
+    // the connector as gate-mid targets. Regional single-gate channels are
+    // listed so portal synthesis and traversal bookkeeping see them.
+    for (const g of regional) {
+        if (gateIds.has(g.id)) channels.push({ key: g.channelKey, gateIds: [g.id] });
+    }
 
     const graph: SeawayGraph = { gates, edges, channels };
 
