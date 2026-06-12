@@ -111,6 +111,20 @@ export class GpsSubscriptionManager {
     /** Epoch-ms of the last NMEA fix accepted into the buffer. */
     private lastNmeaBufferedAt = 0;
 
+    /**
+     * First-fix consistency gate (phone path). The Layer-0 timestamp
+     * check assumes the plugin preserves a replayed fix's original
+     * timestamp — but engine-start replays can be RE-STAMPED with the
+     * current time, defeating every timestamp/receivedAt check. The one
+     * thing a stale replay can't fake is agreement with the fix after
+     * it: the boat is wherever the NEXT fix says, so the session's
+     * first fix is held back until a second fix lands within plausible
+     * travel distance of it. Disagreement discards the OLDER fix and
+     * holds the newer one. Costs one sample (~5 s) at session start.
+     */
+    private pendingFirstFix: CachedPosition | null = null;
+    private hasBufferedThisSession = false;
+
     // Speed-tier debounce state. `currentSpeedTier` is the committed tier;
     // `pendingSpeedTier` is the one we've seen recently but not committed
     // until we get SPEED_TIER_DEBOUNCE consecutive readings.
@@ -130,6 +144,8 @@ export class GpsSubscriptionManager {
         this.speedTierConfirmCount = 0;
         this.lastAcceptedFix = null;
         this.lastNmeaBufferedAt = 0;
+        this.pendingFirstFix = null;
+        this.hasBufferedThisSession = false;
 
         const onAnyFix = (pos: CachedPosition) => this.handleIncomingFix(pos, opts);
 
@@ -186,6 +202,10 @@ export class GpsSubscriptionManager {
                 opts.trackBuffer.push(cached);
                 this.lastAcceptedFix = cached;
                 this.lastNmeaBufferedAt = Date.now();
+                // NMEA timestamps are arrival time — replay-proof, so the
+                // session counts as opened and any held phone fix is moot.
+                this.hasBufferedThisSession = true;
+                this.pendingFirstFix = null;
             }
         });
         this.unsubscribers.push(unsubNmea);
@@ -295,8 +315,41 @@ export class GpsSubscriptionManager {
         // one polyline draws a sawtooth.
         const nmeaIsLive = Date.now() - this.lastNmeaBufferedAt < NMEA_PRIORITY_WINDOW_MS;
         if (opts.isActive() && !nmeaIsLive && this.acceptFix(pos, opts.trackBuffer)) {
-            opts.trackBuffer.push(pos);
-            this.lastAcceptedFix = pos;
+            if (this.hasBufferedThisSession) {
+                opts.trackBuffer.push(pos);
+                this.lastAcceptedFix = pos;
+            } else if (!this.pendingFirstFix) {
+                // First candidate of the session — hold it until a second
+                // fix corroborates (re-stamped engine-start replays pass
+                // every timestamp check; they only fail agreement with
+                // the fix that follows them).
+                this.pendingFirstFix = pos;
+            } else {
+                const dtSec = Math.max((pos.timestamp - this.pendingFirstFix.timestamp) / 1000, 0.1);
+                const distM = haversineMeters(
+                    this.pendingFirstFix.latitude,
+                    this.pendingFirstFix.longitude,
+                    pos.latitude,
+                    pos.longitude,
+                );
+                const impliedKts = (distM / dtSec) * MS_TO_KTS;
+                if (impliedKts <= MAX_PLAUSIBLE_SPEED_KTS * 1.5) {
+                    // Agreement — release both, in order.
+                    opts.trackBuffer.push(this.pendingFirstFix);
+                    opts.trackBuffer.push(pos);
+                    this.lastAcceptedFix = pos;
+                    this.hasBufferedThisSession = true;
+                    this.pendingFirstFix = null;
+                } else {
+                    // Teleport between the pair — the OLDER fix is the
+                    // suspect (stale replay); the newer one becomes the
+                    // held candidate.
+                    log.warn(
+                        `GPS first-fix gate: discarding held fix ${distM.toFixed(0)}m / ${impliedKts.toFixed(0)}kn from successor — stale-replay suspect`,
+                    );
+                    this.pendingFirstFix = pos;
+                }
+            }
         }
 
         // Altitude → EnvironmentService for on-water/on-land detection.

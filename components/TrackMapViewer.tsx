@@ -146,16 +146,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             maxZoom: 19,
         }).addTo(map);
 
-        // EMODnet Bathymetry overlay
-        L.tileLayer(
-            piCache.leafletTileTemplate(
-                'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
-            ),
-            {
-                maxZoom: 12,
-                opacity: 0.35,
-            },
-        ).addTo(map);
+        // EMODnet bathymetry overlay REMOVED 2026-06-12 — its "baselayer"
+        // tiles are a light, fully-painted basemap; blended at 35% below
+        // z12 (exactly the zoom a whole track fits at) it washed the dark
+        // map near-white and made the track line unreadable.
 
         // OpenSeaMap seamark overlay
         L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
@@ -296,21 +290,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const lastEntry = lineEntries[lineEntries.length - 1];
         L.marker([lastEntry.latitude!, lastEntry.longitude!], { icon: endIcon }).addTo(layerGroup);
 
-        // Waypoint markers
-        sorted
-            .filter((e) => e.entryType === 'waypoint')
-            .forEach((entry) => {
-                const wpIcon = L.divIcon({
-                    html: `<div style="width:16px;height:16px;background:#f59e0b;border:2px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.3)"></div>`,
-                    iconSize: [16, 16],
-                    iconAnchor: [8, 8],
-                    className: '',
-                });
-                L.marker([entry.latitude!, entry.longitude!], { icon: wpIcon }).addTo(layerGroup);
-            });
+        // Waypoint markers REMOVED 2026-06-12 (Shane: "do away with the
+        // wayward waypoints") — auto turn pins landed off-route and
+        // cluttered the track. Waypoint rendering returns when the
+        // waypoint feature is redesigned.
 
-        // GPS dots
-        sorted.forEach((entry) => {
+        // GPS dots — line entries only, so off-route manual/pin
+        // positions don't reappear as stray dots.
+        lineEntries.forEach((entry) => {
             if (entry.entryType === 'waypoint') return;
             L.circleMarker([entry.latitude!, entry.longitude!], {
                 radius: 2,
@@ -562,7 +549,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         }
         return nm.toFixed(1);
     })();
-    const waypointCount = entries.filter((e) => e.entryType === 'waypoint').length;
 
     // Current entry for scrubber label + HUD
     const currentEntry = sortedEntries[playbackIndex] || null;
@@ -602,7 +588,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                         <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
                             <span>{totalDistance} NM</span>
                             <span>{sortedEntries.length} pts</span>
-                            <span>{waypointCount} wpts</span>
                         </div>
                     </div>
                 </div>

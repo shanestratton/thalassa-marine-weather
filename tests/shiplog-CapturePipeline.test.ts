@@ -144,14 +144,26 @@ afterEach(() => {
 });
 
 describe('captureImmediate', () => {
-    it('uses the cached fix when fresh and saves the entry', async () => {
+    it('anchors Voyage Start on a buffer-accepted fix and saves the entry', async () => {
+        // Voyage Start trusts ONLY fixes that cleared the acceptance
+        // gate into the track buffer — the cached fix can be a
+        // re-stamped engine-start replay.
         const ctx = makeCtx();
+        ctx.trackBuffer.push(makeFix(-27.5, 153.0));
         const entry = await captureImmediate(ctx, undefined, 'Voyage Start');
         expect(entry).not.toBeNull();
         expect(entry!.waypointName).toBe('Voyage Start');
         expect(entry!.latitude).toBeCloseTo(-27.5);
         expect(entry!.longitude).toBeCloseTo(153.0);
         expect(saveEntry).toHaveBeenCalledTimes(1);
+    });
+
+    it('uses the cached fix for Voyage End when fresh', async () => {
+        const ctx = makeCtx();
+        const entry = await captureImmediate(ctx, undefined, 'Voyage End');
+        expect(entry).not.toBeNull();
+        expect(entry!.latitude).toBeCloseTo(-27.5);
+        expect(entry!.longitude).toBeCloseTo(153.0);
     });
 
     it('persists with placeholder coords when no fix is available', async () => {
@@ -169,22 +181,22 @@ describe('captureImmediate', () => {
         expect(entry!.positionFormatted).toContain('Acquiring');
     });
 
-    it('rejects a teleport-stale fix (own GPS timestamp predates start) and stamps from the first fresh fix', async () => {
-        // BgGeo replays the previous session's location with a fresh
-        // receivedAt at engine start — the gate must judge the fix by
-        // its OWN timestamp and keep waiting for a real one.
+    it('ignores a teleport-stale cached fix and stamps Voyage Start from the first buffer-accepted fix', async () => {
+        // BgGeo replays the previous session's location at engine start —
+        // possibly RE-STAMPED with a current timestamp, so no timestamp
+        // check can catch it. Voyage Start must ignore the cache entirely
+        // and wait for a fix vetted into the track buffer.
         const staleFix = {
             ...makeFix(-27.0, 152.5),
-            timestamp: Date.now() - 10 * 60 * 1000, // produced 10 min ago, elsewhere
-            receivedAt: Date.now(), // ...but delivered just now
+            timestamp: Date.now(), // re-stamped replay: looks brand new
+            receivedAt: Date.now(),
         } as CachedPosition;
-        let currentFix: CachedPosition = staleFix;
-        const ctx = makeCtx({ getCachedFix: () => currentFix });
+        const ctx = makeCtx({ getCachedFix: () => staleFix });
 
         const promise = captureImmediate(ctx, undefined, 'Voyage Start');
-        // After 2s of warm-up polling, a genuine fix arrives.
+        // After 2s of warm-up polling, a vetted fix lands in the buffer.
         await vi.advanceTimersByTimeAsync(2_000);
-        currentFix = { ...makeFix(-27.5, 153.0), timestamp: Date.now(), receivedAt: Date.now() } as CachedPosition;
+        ctx.trackBuffer.push(makeFix(-27.5, 153.0));
         await vi.advanceTimersByTimeAsync(1_000);
         const entry = await promise;
 

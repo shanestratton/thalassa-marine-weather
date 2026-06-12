@@ -150,41 +150,63 @@ export async function captureImmediate(
         pos.timestamp >= startedAtMs - GPS_STALE_LIMIT_MS &&
         Date.now() - pos.receivedAt < GPS_STALE_LIMIT_MS;
 
-    // GPS COLD-START WARM-UP. Poll the onLocation stream for a fix that
-    // passes the freshness gate; halfway through, also try one blocking
-    // fetch (its result goes through the same gate). Voyage Start is
-    // fire-and-forget from startTracking, so a long wait never blocks
-    // the UI; Voyage End IS awaited by stopTracking, so it gets a short
-    // window — the last track point already marks where the boat ended.
+    // GPS COLD-START WARM-UP.
+    //
+    // Voyage Start anchors ONLY on a buffer-accepted fix — one that
+    // cleared the full acceptance gate including the first-fix
+    // consistency check. The cached fix (lastBgLocation) and a blocking
+    // getCurrentPosition are both unvetted: engine-start replays can be
+    // RE-STAMPED with the current time, passing every timestamp and
+    // receivedAt check while being spatially stale (the cold-start
+    // phantom-line bug, round 2). If no vetted fix arrives in the
+    // window, the pin keeps the placeholder — the track itself opens at
+    // the first accepted fix, and the "Acquiring GPS fix…" UI explains
+    // the wait. Voyage Start is fire-and-forget from startTracking, so
+    // the wait never blocks the UI.
+    //
+    // Voyage End IS awaited by stopTracking, so it gets a short window
+    // and may use the cached fix / a blocking fetch — subscriptions
+    // have been live for the whole voyage, so replays aren't a concern.
+    const isVoyageStart = waypointLabel === 'Voyage Start';
     const GPS_WARMUP_POLL_MS = 500;
-    const GPS_WARMUP_MAX_MS = waypointLabel === 'Voyage Start' ? 30_000 : 5_000;
+    const GPS_WARMUP_MAX_MS = isVoyageStart ? 30_000 : 5_000;
     let needsGpsRetry = false;
-    let bestPos = ctx.getCachedFix();
-    if (!isFreshFix(bestPos)) {
-        bestPos = null;
+    let bestPos: CachedPosition | null = ctx.trackBuffer.peek();
+    if (!bestPos && !isVoyageStart) {
+        const cached = ctx.getCachedFix();
+        if (isFreshFix(cached)) bestPos = cached;
+    }
+    if (!bestPos) {
         let triedBlockingFetch = false;
         const deadline = startedAtMs + GPS_WARMUP_MAX_MS;
         while (Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, GPS_WARMUP_POLL_MS));
-            const cached = ctx.getCachedFix();
-            if (isFreshFix(cached)) {
-                bestPos = cached;
+            const buffered = ctx.trackBuffer.peek();
+            if (buffered) {
+                bestPos = buffered;
                 break;
             }
-            if (!triedBlockingFetch && Date.now() - startedAtMs > GPS_WARMUP_MAX_MS / 2) {
-                triedBlockingFetch = true;
-                const fetched = ctx.isNative
-                    ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
-                    : await webGetFreshPosition();
-                if (isFreshFix(fetched)) {
-                    bestPos = fetched;
+            if (!isVoyageStart) {
+                const cached = ctx.getCachedFix();
+                if (isFreshFix(cached)) {
+                    bestPos = cached;
                     break;
+                }
+                if (!triedBlockingFetch && Date.now() - startedAtMs > GPS_WARMUP_MAX_MS / 2) {
+                    triedBlockingFetch = true;
+                    const fetched = ctx.isNative
+                        ? await BgGeoManager.getFreshPosition(GPS_STALE_LIMIT_MS, 10)
+                        : await webGetFreshPosition();
+                    if (isFreshFix(fetched)) {
+                        bestPos = fetched;
+                        break;
+                    }
                 }
             }
         }
     }
 
-    if (isFreshFix(bestPos)) {
+    if (bestPos) {
         entry.latitude = bestPos.latitude;
         entry.longitude = bestPos.longitude;
         entry.positionFormatted = formatPositionDMS(bestPos.latitude, bestPos.longitude);

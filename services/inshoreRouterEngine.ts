@@ -489,7 +489,9 @@ const UNKNOWN_OPEN = 0;
 // from BLOCKED (NaN), UNKNOWN_OPEN (0), and any real depth (>= 0).
 const CAUTION = -1;
 
-interface NavGrid {
+// Exported for services/seaway/connector.ts (Phase 11) — the connector
+// runs on the SAME grid + cost function as the engine, by construction.
+export interface NavGrid {
     width: number;
     height: number;
     /** Geographic origin: bbox SW corner. */
@@ -1773,7 +1775,7 @@ export class MinHeap {
  *  (preferred=1 → preferred=0). Wired through aStar AND chainCostM so the
  *  search and the smoothing price edges identically. 0 = inert; flipped to
  *  the masterplan Phase 3 value (250) in its own knob commit. */
-const EXIT_PENALTY_M = 250;
+export const EXIT_PENALTY_M = 250;
 
 /**
  * Cost multiplier per cell based on its known depth.
@@ -1809,7 +1811,7 @@ const EXIT_PENALTY_M = 250;
  * A* will detour up to 50 cells through marked-deep water before
  * accepting a single unmarked cell.
  */
-function cellCostMultiplier(depth: number, preferred: boolean): number {
+export function cellCostMultiplier(depth: number, preferred: boolean): number {
     // Cells inside a marked fairway / dredged area always get the
     // baseline cost regardless of depth band — that's how we get
     // A* to follow the channel instead of cutting across deeper
@@ -1913,11 +1915,17 @@ function cellCostMultiplier(depth: number, preferred: boolean): number {
  * 8-neighbor A* on the navigability grid. Distance cost is meter-step
  * × cellCostMultiplier(depth). Heuristic = straight-line meter distance
  * to goal (admissible because all multipliers are ≥ 1.0).
+ *
+ * Exported for the Phase 11 connector parity fixture (K independent A*
+ * runs are the reference the multi-target search must match within 1%).
+ * `stats.popped`, when supplied, counts heap pops — the deterministic
+ * latency proxy the fixture asserts on (wall-clock flakes in CI).
  */
-function aStar(
+export function aStar(
     grid: NavGrid,
     start: { x: number; y: number },
     end: { x: number; y: number },
+    stats?: { popped: number },
 ): { x: number; y: number }[] | null {
     const w = grid.width;
     const h = grid.height;
@@ -1968,6 +1976,7 @@ function aStar(
 
     while (open.size > 0) {
         const { idx } = open.pop()!;
+        if (stats) stats.popped++;
         if (idx === endIdx) {
             // Reconstruct.
             const path: { x: number; y: number }[] = [];
@@ -2092,7 +2101,7 @@ function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: nu
  * rule and the marina-centerline acceptance gate, so no post-A* refinement
  * can silently undo a cost-optimal detour.
  */
-function chainCostM(grid: NavGrid, chain: { x: number; y: number }[]): number {
+export function chainCostM(grid: NavGrid, chain: { x: number; y: number }[]): number {
     const mPerLonG = M_PER_DEG_LAT * Math.cos(((grid.minLat + (grid.height * grid.dLat) / 2) * Math.PI) / 180);
     const stepLonM = grid.dLon * mPerLonG;
     const stepLatM = grid.dLat * M_PER_DEG_LAT;
