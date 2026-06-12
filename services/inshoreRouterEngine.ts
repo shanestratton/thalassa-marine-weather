@@ -238,6 +238,10 @@ export interface RouteDebug {
      *  UNCHARTED_MAX_RUN_M — present on success AND on 'uncharted-corridor'
      *  failures so the caller can see how close/far the route was. */
     unchartedMaxRunM?: number;
+    /** True when an 'uncharted-corridor' refusal came from the sub-second
+     *  400 m coarse pre-check instead of the full fine-grid pass (reply 19
+     *  fix 3 — strict refusals used to pay the whole 20-47 s build first). */
+    coarsePrecheck?: boolean;
 }
 
 export interface RouteResult {
@@ -2454,14 +2458,43 @@ function routeInshoreMain(
  * bit the earlier single-grid attempt (reverted 765046b3) is caught by the
  * validation and falls back here.
  */
+/** Coarse pre-check resolution (reply 19 fix 3). */
+const COARSE_PRECHECK_RES_M = 400;
+
 export function routeInshore(layers: InshoreLayers, req: RouteRequest): RouteResult | RouteFailure {
+    const spanDeg = Math.max(Math.abs(req.toLat - req.fromLat), Math.abs(req.toLon - req.fromLon));
+
+    // ── Strict coarse pre-check (field hang 2026-06-12, reply 19) ────
+    // A strict 'uncharted-corridor' refusal used to pay the full fine
+    // grid build + A* (20-47 s SYNCHRONOUS on device) before saying no —
+    // with stale/missing cells, the commonest outcome froze the UI
+    // longest. Run the same pipeline on a 400 m grid first (≈64× fewer
+    // cells, sub-second). Conservative-correct direction: a coarse cell
+    // is vouched if ANY evidence touches it, so coarse unvouched runs
+    // are a subset of fine ones and a coarse refusal implies the fine
+    // pass would refuse too. Pathological exception accepted: a charted
+    // ribbon narrower than 400 m flanked by void can close at coarse
+    // resolution — implying confidence through that is what honest-red
+    // exists to prevent. Any OTHER coarse failure (no-path etc.) is
+    // ignored: coarse topology is unreliable for success, only the
+    // unvouched measure is trusted.
+    if (req.unchartedPolicy === 'strict' && spanDeg > 0.02 && (req.resolutionM ?? 50) < COARSE_PRECHECK_RES_M) {
+        const coarse = routeInshoreMain(layers, req, {
+            resolutionM: COARSE_PRECHECK_RES_M,
+            padDeg: Math.max(spanDeg * 0.5, 0.08),
+        });
+        if ('error' in coarse && coarse.code === 'uncharted-corridor') {
+            coarse.debug = { ...(coarse.debug as RouteDebug), coarsePrecheck: true } as RouteDebug;
+            return coarse;
+        }
+    }
+
     const main = routeInshoreMain(layers, req);
     if ('error' in main) return main;
 
     // Long routes already route fine at 50 m, and a fine grid over their
     // span would blow up the cell count — only short (marina/canal-scale)
     // routes get the fine pass. A caller that pinned resolutionM keeps it.
-    const spanDeg = Math.max(Math.abs(req.toLat - req.fromLat), Math.abs(req.toLon - req.fromLon));
     if (spanDeg >= 0.06 || req.resolutionM) return main; // 0.06° ≈ 3.5 NM
 
     const fine = routeInshoreMain(layers, req, { resolutionM: 10, padDeg: 0.008 });

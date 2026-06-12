@@ -38,6 +38,7 @@
  */
 
 import { CapacitorHttp } from '@capacitor/core';
+import { DeadlineExceeded, withDeadline } from '../utils/deadline';
 import { cellsForBBox, listCells } from './enc/EncCellMetadata';
 import type { EncCell } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
@@ -253,7 +254,32 @@ export async function tryInshoreRoute(
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
         return inflight;
     }
-    const promise = tryInshoreRouteInner(origin, destination, draftM)
+    // Wall-clock watchdog (reply 19 fix 2): bounds every ASYNC await in
+    // the pipeline (cell loads, OSM overlay, marker fetch — AbortSignal
+    // is a no-op under the CapacitorHttp patch) so the .finally below
+    // ALWAYS runs and the dedupe map can't wedge on a dead socket. It
+    // cannot interrupt the synchronous engine compute (no JS timer fires
+    // mid-A*; a Worker thread is the eventual fix) — 85 s sits under
+    // Claude A's 90 s caller-side race so this one fires first and
+    // returns a skipper-readable failure instead of an opaque throw.
+    const INSHORE_WATCHDOG_MS = 85_000;
+    const promise = withDeadline(
+        tryInshoreRouteInner(origin, destination, draftM),
+        INSHORE_WATCHDOG_MS,
+        'inshore route',
+    )
+        .catch((err) => {
+            if (err instanceof DeadlineExceeded) {
+                log.warn(
+                    `WATCHDOG: inshore route exceeded ${INSHORE_WATCHDOG_MS}ms — failing so retries get a fresh run`,
+                );
+                return {
+                    error: 'Inshore routing timed out — check signal and chart sync, then try again',
+                    code: 'watchdog-timeout',
+                } as InshoreRouteFailure;
+            }
+            throw err;
+        })
         .then((res) => {
             // Loud paired exit log so every ENTRY has a visible
             // completion in the console. Three outcomes:
@@ -1882,6 +1908,14 @@ const rawMarkerFetchCache = new Map<
  * Exported for the pairing regression/scorecard tests (read-only import —
  * see docs/ROUTING_COLLAB.md lanes). Production callers stay internal.
  */
+/** JS-level bound on the ~1 MB nav_markers fetch. AbortSignal is a
+ *  silent no-op under the CapacitorHttp fetch patch (utils/deadline.ts
+ *  header) and the native default is 600 s — marine LTE is exactly where
+ *  sockets stall (field hang 2026-06-12, ROUTING_COLLAB reply 19). On
+ *  deadline the route continues without regional markers (the :867
+ *  caller's existing catch) instead of hanging the whole plan. */
+const MARKER_FETCH_DEADLINE_MS = 15_000;
+
 export async function fetchRegionalMarkers(
     url: string,
     lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
@@ -1891,7 +1925,7 @@ export async function fetchRegionalMarkers(
     let dataPromise = rawMarkerFetchCache.get(url);
     if (!dataPromise) {
         dataPromise = (async () => {
-            const res = await fetch(url);
+            const res = await withDeadline(fetch(url), MARKER_FETCH_DEADLINE_MS, 'nav_markers fetch');
             if (!res.ok) throw new Error(`HTTP ${res.status} fetching nav_markers`);
             return (await res.json()) as {
                 features?: {
@@ -1900,7 +1934,16 @@ export async function fetchRegionalMarkers(
                 }[];
             };
         })();
+        // Cache the in-flight promise so concurrent route calls share one
+        // fetch — but EVICT on rejection. Caching the unsettled promise
+        // with no eviction was the session-poisoning half of the field
+        // hang: one stalled socket and every retry (including the
+        // :233-281 in-flight dedupe's re-joins) awaited the same dead
+        // promise until app restart.
         rawMarkerFetchCache.set(url, dataPromise);
+        dataPromise.catch(() => {
+            if (rawMarkerFetchCache.get(url) === dataPromise) rawMarkerFetchCache.delete(url);
+        });
     }
     const data = await dataPromise;
     return (async () => {

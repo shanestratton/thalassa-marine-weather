@@ -125,6 +125,9 @@ describe('engine — strict unchartedPolicy across a chart-coverage hole (lon 16
         expect(r.debug?.unchartedMaxRunM ?? 0).toBeGreaterThan(UNCHARTED_MAX_RUN_M);
         expect(r.debug?.unchartedMaxRunM ?? 0).toBeGreaterThan(3000);
         expect(r.debug?.unchartedMaxRunM ?? 0).toBeLessThan(5500);
+        // ...and the refusal came from the sub-second 400 m pre-check,
+        // not a 20-47 s fine build (field hang, reply 19 fix 3).
+        expect(r.debug?.coarsePrecheck).toBe(true);
     });
 });
 
