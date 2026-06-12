@@ -16,6 +16,7 @@
 
 import { useState, useCallback, useRef, useEffect, type MutableRefObject } from 'react';
 import { createLogger } from '../../utils/createLogger';
+import { withDeadline, withTimeout } from '../../utils/deadline';
 
 const log = createLogger('usePassagePlanner');
 import mapboxgl from 'mapbox-gl';
@@ -57,6 +58,27 @@ export interface PassageState {
     routeAnalysis: RouteAnalysis | null;
     settingPoint: 'departure' | 'arrival' | null;
     showPassage: boolean;
+}
+
+/** Status/notice band content rendered by PassageBanner. */
+export interface PassageNotice {
+    severity: 'info' | 'warn';
+    title: string;
+    message: string;
+}
+
+/**
+ * Every inshore outcome must be user-visible (field bug 2026-06-12:
+ * strict-mode refusals and the too-short bail produced a blank map with
+ * no feedback — indistinguishable from a hang). MapHub listens and
+ * PassageBanner renders; null clears the band.
+ */
+function dispatchPassageNotice(notice: PassageNotice | null): void {
+    try {
+        window.dispatchEvent(new CustomEvent('thalassa:passage-notice', { detail: notice }));
+    } catch {
+        /* not fatal */
+    }
 }
 
 /** Push computed route data to the global PassageStore for the Nav Station page */
@@ -297,6 +319,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // If the router succeeds, render its polyline directly and
         // return — the rest of the deep-water pipeline is irrelevant
         // for a 6-NM trip up the Savannah River.
+        dispatchPassageNotice(null); // fresh compute, clear any stale band
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
             // tryInshoreRoute / the engine work in metres but vessel.draft
@@ -307,10 +330,31 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             // failing with destination-disconnected even though the
             // chart was healthy.
             const vesselDraftM = vesselDraftMetres(useSettingsStore.getState().settings.vessel);
-            const inshoreRes = await tryInshoreRoute(
-                { lat: departure.lat, lon: departure.lon },
-                { lat: arrival.lat, lon: arrival.lon },
-                vesselDraftM,
+            dispatchPassageNotice({
+                severity: 'info',
+                title: 'Computing inshore route…',
+                message: 'Checking charted channels for this passage — up to a minute on device.',
+            });
+            // Yield a frame so the notice paints before routeInshore
+            // blocks the main thread (synchronous A*, 20–47 s measured
+            // on iPhone — without this the map looks frozen).
+            await new Promise((r) => setTimeout(r, 80));
+            if (gen !== computeGenRef.current) return;
+            // 90 s wall-clock bound: tryInshoreRoute awaits network
+            // fetches (nav markers) that can stall indefinitely on
+            // marine LTE and wedge every retry via the in-flight cache.
+            // Must exceed worst-case legitimate A* compute (~47 s).
+            const inshoreRes = await withTimeout(
+                tryInshoreRoute(
+                    { lat: departure.lat, lon: departure.lon },
+                    { lat: arrival.lat, lon: arrival.lon },
+                    vesselDraftM,
+                ),
+                {
+                    error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
+                    code: 'timeout',
+                },
+                90_000,
             );
             if (gen !== computeGenRef.current) return; // user moved on, abort
             if (inshoreRes && 'polyline' in inshoreRes) {
@@ -331,6 +375,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     log.warn(
                         `[Passage] inshore route REJECTED by land backstop (${backstop.runs.length} land run(s)) — falling back`,
                     );
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Inshore route rejected — possible chart gap',
+                        message:
+                            'The charted route crossed land on satellite bathymetry. Sync ENC cells from Pi Cache for full coverage. Falling back to offshore planning.',
+                    });
                 } else {
                     // Build a RouteAnalysis from the polyline so the rest of
                     // the UI (save/export/banner buttons) lights up. Save
@@ -480,17 +530,32 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         /* not fatal */
                     }
 
+                    dispatchPassageNotice(null); // route rendered — clear the computing band
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
                 log.warn(
                     `[Passage] inshore router could not produce a route: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
                 );
+                // The engine's error strings are skipper-readable
+                // ("Inshore charts don't cover the full passage yet —
+                // sync the missing cells via Pi Cache"). Surface them;
+                // a silent refusal reads as a hang in the field.
+                dispatchPassageNotice({
+                    severity: 'warn',
+                    title: 'Inshore routing unavailable',
+                    message: inshoreRes.error + (straightLineNM >= 15 ? ' Planning an offshore route instead.' : ''),
+                });
                 // Fall through — for short routes this means the
                 // too-short check will bail with the friendly message.
             }
         } catch (err) {
             log.warn(`[Passage] inshore routing threw — falling through`, err);
+            dispatchPassageNotice({
+                severity: 'warn',
+                title: 'Inshore routing failed',
+                message: 'Continuing with offshore planning.',
+            });
         }
 
         // ── Too-short route detection: passage planning is for deep water only ──
@@ -603,8 +668,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 log.warn(`[SeaBuoy] Timeout — fallback ${brg}° at 25 NM`);
                 return _project(from.lat, from.lon, brg, 25);
             };
-            const withTimeout = <T>(promise: Promise<T>, fallback: T, ms: number): Promise<T> =>
-                Promise.race([promise, new Promise<T>((r) => setTimeout(() => r(fallback), ms))]);
             [depGate, arrGate] = await Promise.all([
                 withTimeout(findSeaBuoyGate(departure), oceanFallback(departure), 30_000),
                 withTimeout(findSeaBuoyGate(arrival), oceanFallback(arrival), 30_000),
@@ -1287,18 +1350,26 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 east: Math.min(180, routeMaxLon + 10),
                                 west: Math.max(-180, routeMinLon - 10),
                             };
-                            const resp = await fetch(`${supabaseUrl}/functions/v1/fetch-wind-grid`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                    ...(supabaseKey
-                                        ? { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
-                                        : {}),
-                                },
-                                body: JSON.stringify(fetchBounds),
-                            });
+                            // withDeadline, not AbortSignal — the CapacitorHttp
+                            // fetch patch ignores signals on device (see
+                            // utils/deadline.ts). Multi-MB GRIB on marine LTE
+                            // is exactly where this stalls.
+                            const resp = await withDeadline(
+                                fetch(`${supabaseUrl}/functions/v1/fetch-wind-grid`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        ...(supabaseKey
+                                            ? { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` }
+                                            : {}),
+                                    },
+                                    body: JSON.stringify(fetchBounds),
+                                }),
+                                30_000,
+                                'route-wind-grib',
+                            );
                             if (resp.ok) {
-                                const buffer = await resp.arrayBuffer();
+                                const buffer = await withDeadline(resp.arrayBuffer(), 60_000, 'route-wind-grib body');
                                 if (buffer.byteLength > 200) {
                                     const { decodeGrib2Wind } = await import('../../services/weather/decodeGrib2Wind');
                                     const grib = decodeGrib2Wind(buffer);
@@ -1343,6 +1414,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
                 if (!windGrid) {
                     log.info('[Isochrone BG] No wind data — keeping great-circle');
+                    // MUST dispatch complete: the first progress event
+                    // already raised the "Loading wind data…" band, and
+                    // PassageBanner hides stats/Save/Export while it
+                    // shows. Returning silently left it spinning forever
+                    // (field bug 2026-06-12, offline/marine LTE).
+                    window.dispatchEvent(
+                        new CustomEvent('thalassa:isochrone-complete', { detail: { success: false, noWind: true } }),
+                    );
                     return;
                 }
 

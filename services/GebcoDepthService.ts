@@ -19,6 +19,7 @@
 // ── Types ─────────────────────────────────────────────────────────
 
 import { createLogger } from '../utils/createLogger';
+import { withDeadline } from '../utils/deadline';
 
 const log = createLogger('GebcoDepthService');
 export interface DepthPoint {
@@ -195,22 +196,31 @@ class GebcoDepthServiceClass {
         const url = `${supabaseUrl}/functions/v1/gebco-depth`;
 
         try {
-            const resp = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-                },
-                body: JSON.stringify({ points }),
-                signal: AbortSignal.timeout(30_000),
-            });
+            // withDeadline, not AbortSignal: the CapacitorHttp fetch patch
+            // ignores options.signal on device (native default 600 s), so
+            // an AbortSignal.timeout here is a no-op exactly where it
+            // matters — stalled marine-LTE sockets. See utils/deadline.ts.
+            const resp = await withDeadline(
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+                    },
+                    body: JSON.stringify({ points }),
+                }),
+                30_000,
+                'gebco-depth',
+            );
 
             if (!resp.ok) {
                 log.error(`[GebcoDepth] Edge function error ${resp.status}`);
                 return points.map((pt) => ({ lat: pt.lat, lon: pt.lon, depth_m: null }));
             }
 
-            const data: DepthQueryResponse = await resp.json();
+            // Body read bounded separately — a trickling LTE body resets
+            // WKWebView's request timer byte-by-byte and can stall too.
+            const data: DepthQueryResponse = await withDeadline(resp.json(), 15_000, 'gebco-depth body');
             return data.depths;
         } catch (err) {
             log.error('[GebcoDepth] Fetch error:', err);

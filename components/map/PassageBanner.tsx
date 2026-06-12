@@ -10,6 +10,7 @@ import { exportPassageAsGPX, exportBasicPassageGPX } from '../../services/passag
 import { shareGPXFile } from '../../services/gpxService';
 import { DUPLICATE_PASSAGE_PLAN_ERROR } from '../../services/shiplog/PassagePlanSave';
 import { Share } from '@capacitor/share';
+import type { PassageNotice } from './usePassagePlanner';
 
 const log = createLogger('PassageBanner');
 
@@ -35,6 +36,8 @@ interface PassageBannerProps {
         frontSize?: number;
         phase?: string;
     } | null;
+    /** Routing status/refusal band — see dispatchPassageNotice. */
+    passageNotice?: PassageNotice | null;
     embedded: boolean;
     isPinView: boolean;
     deviceMode: 'deck' | 'helm';
@@ -43,6 +46,7 @@ interface PassageBannerProps {
 export const PassageBanner: React.FC<PassageBannerProps> = ({
     passage,
     isoProgress,
+    passageNotice = null,
     embedded,
     isPinView,
     deviceMode: _deviceMode,
@@ -331,6 +335,40 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                         {/* Indeterminate progress stripes */}
                         <div className="mt-2 h-1 rounded-full overflow-hidden bg-amber-500/10">
                             <div className="h-full w-1/3 bg-gradient-to-r from-transparent via-amber-400 to-transparent animate-[passageBannerCook_1.6s_ease-in-out_infinite]" />
+                        </div>
+                    </div>
+                )}
+
+                {/* ── Routing notice band ──
+                    Refusals, chart-gap rejections, too-short bails and
+                    the "computing inshore route" status. Field bug
+                    2026-06-12: these outcomes were invisible — a blank
+                    map that read as a hang. Suppressed while the
+                    cooking band is up (that band already says "busy"). */}
+                {passageNotice && !isoProgress && (
+                    <div
+                        className={`border-t px-3.5 py-2.5 ${
+                            passageNotice.severity === 'warn'
+                                ? 'border-orange-500/20 bg-orange-500/[0.07]'
+                                : 'border-sky-500/15 bg-sky-500/[0.05]'
+                        }`}
+                    >
+                        <div className="flex items-start gap-2">
+                            <span className="text-base" role="img" aria-label="notice">
+                                {passageNotice.severity === 'warn' ? '⚠️' : '🧭'}
+                            </span>
+                            <div className="min-w-0">
+                                <div
+                                    className={`text-[13px] font-bold ${
+                                        passageNotice.severity === 'warn' ? 'text-orange-200' : 'text-sky-200'
+                                    }`}
+                                >
+                                    {passageNotice.title}
+                                </div>
+                                <div className="mt-0.5 text-[11px] leading-snug text-slate-300">
+                                    {passageNotice.message}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}

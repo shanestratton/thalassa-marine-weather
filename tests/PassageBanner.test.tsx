@@ -79,4 +79,49 @@ describe('PassageBanner', () => {
             rerender(<PassageBanner {...baseProps} />);
         }).not.toThrow();
     });
+
+    // ── Routing notice band (field bug 2026-06-12: refusals were
+    //    invisible — blank map read as a hang) ──
+
+    it('renders a warn notice when no cooking band is up', () => {
+        render(
+            <PassageBanner
+                {...baseProps}
+                isoProgress={null}
+                passageNotice={{
+                    severity: 'warn',
+                    title: 'Inshore routing unavailable',
+                    message: 'Sync the missing cells via Pi Cache.',
+                }}
+            />,
+        );
+        expect(screen.getByText('Inshore routing unavailable')).toBeDefined();
+        expect(screen.getByText(/Pi Cache/)).toBeDefined();
+    });
+
+    it('suppresses the notice while the cooking band is showing', () => {
+        render(
+            <PassageBanner
+                {...baseProps}
+                passageNotice={{ severity: 'info', title: 'Computing inshore route…', message: 'Checking charts.' }}
+            />,
+        );
+        expect(screen.queryByText('Computing inshore route…')).toBeNull();
+    });
+
+    it('notice renders even with no routeAnalysis (the too-short case)', () => {
+        render(
+            <PassageBanner
+                {...baseProps}
+                passage={{ ...baseProps.passage, routeAnalysis: null as never }}
+                isoProgress={null}
+                passageNotice={{
+                    severity: 'warn',
+                    title: 'Route too short for passage planning (8 NM)',
+                    message: 'Try Community Routes.',
+                }}
+            />,
+        );
+        expect(screen.getByText(/Route too short/)).toBeDefined();
+    });
 });

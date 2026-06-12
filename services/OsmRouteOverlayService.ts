@@ -23,7 +23,7 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('OsmRouteOverlay');
 
 const MEM_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min in-process
-const FETCH_TIMEOUT_MS = 60_000; // first-time Overpass queries can be slow
+const FETCH_TIMEOUT_MS = 8_000; // a route attempt shouldn't wait more than seconds on a Pi that just went out of range — fail fast to chart-only
 
 export interface OsmRouteOverlay {
     water: FeatureCollection;

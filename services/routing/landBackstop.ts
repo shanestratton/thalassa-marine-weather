@@ -29,8 +29,17 @@
 
 import { GebcoDepthService, type DepthResult } from '../GebcoDepthService';
 import { createLogger } from '../../utils/createLogger';
+import { withTimeout } from '../../utils/deadline';
 
 const log = createLogger('landBackstop');
+
+/**
+ * Hard cap on how long a SUCCESSFUL inshore route may wait on this
+ * backstop before it renders. GebcoDepthService bounds its own fetch
+ * at 30 s, but a route sitting un-rendered behind a depth query is
+ * worse than skipping the check — fail open at 10 s.
+ */
+export const BACKSTOP_DEADLINE_MS = 10_000;
 
 export type LonLat = [number, number];
 
@@ -121,9 +130,13 @@ export interface LandBackstopResult {
 export async function inshoreRouteCrossesLand(polyline: LonLat[]): Promise<LandBackstopResult> {
     try {
         const samples = samplePolyline(polyline);
-        const depths = await GebcoDepthService.queryRouteDepths(
-            samples.map(([lon, lat]) => ({ lat, lon })),
-            MAX_SAMPLES,
+        const depths = await withTimeout(
+            GebcoDepthService.queryRouteDepths(
+                samples.map(([lon, lat]) => ({ lat, lon })),
+                MAX_SAMPLES,
+            ),
+            null,
+            BACKSTOP_DEADLINE_MS,
         );
         if (!depths || depths.length === 0) return { crossesLand: false, runs: [], samplesChecked: 0 };
         const runs = findLandRuns(depths).filter((r) => r.samples >= MIN_RUN_SAMPLES);

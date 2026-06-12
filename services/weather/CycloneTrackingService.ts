@@ -16,6 +16,7 @@
 // ── Types ──────────────────────────────────────────────────
 
 import { createLogger } from '../../utils/createLogger';
+import { withDeadline } from '../../utils/deadline';
 import { piCache } from '../PiCacheService';
 import type { WindGrid } from './windField';
 
@@ -171,7 +172,7 @@ async function fetchATCF(): Promise<ATCFStorm[]> {
         }
     }
 
-    const response = await fetch(ATCF_URL);
+    const response = await withDeadline(fetch(ATCF_URL), 15_000, 'ATCF fetch');
     if (!response.ok) {
         log.error(`[CYCLONE] ATCF fetch failed: HTTP ${response.status}`);
         return [];
@@ -200,7 +201,7 @@ interface NOAAForecastFeature {
 async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
     try {
         log.info('[CYCLONE] Fetching NOAA NHC forecast positions...');
-        const response = await fetch(NOAA_FORECAST_URL);
+        const response = await withDeadline(fetch(NOAA_FORECAST_URL), 15_000, 'NOAA forecast fetch');
         if (!response.ok) {
             log.warn(`[CYCLONE] NOAA forecast fetch HTTP ${response.status}`);
             return new Map();
@@ -263,7 +264,7 @@ async function fetchNOAAForecast(): Promise<Map<string, CyclonePosition[]>> {
 async function fetchNOAAObserved(): Promise<Map<string, CyclonePosition[]>> {
     try {
         log.info('[CYCLONE] Fetching NOAA NHC observed positions...');
-        const response = await fetch(NOAA_OBSERVED_URL);
+        const response = await withDeadline(fetch(NOAA_OBSERVED_URL), 15_000, 'NOAA observed fetch');
         if (!response.ok) {
             log.warn(`[CYCLONE] NOAA observed fetch HTTP ${response.status}`);
             return new Map();
@@ -300,7 +301,7 @@ async function fetchNOAAObserved(): Promise<Map<string, CyclonePosition[]>> {
 
 async function fetchIBTrACStracks(): Promise<Map<string, CyclonePosition[]>> {
     try {
-        const response = await fetch(IBTRACS_URL);
+        const response = await withDeadline(fetch(IBTRACS_URL), 15_000, 'IBTrACS fetch');
         if (!response.ok) return new Map();
         const csv = await response.text();
         return parseIBTrACStracks(csv);
@@ -486,15 +487,19 @@ export async function fetchPressureEye(approxLat: number, approxLon: number): Pr
         if (!supabaseUrl) return null;
 
         const url = `${supabaseUrl}/functions/v1/fetch-pressure-grid`;
-        const resp = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-            },
-            // Request 0.25° for cyclone eye precision
-            body: JSON.stringify({ north, south, east, west, hours: [0], resolution: '0p25' }),
-        });
+        const resp = await withDeadline(
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+                },
+                // Request 0.25° for cyclone eye precision
+                body: JSON.stringify({ north, south, east, west, hours: [0], resolution: '0p25' }),
+            }),
+            15_000,
+            'pressure eye fetch',
+        );
 
         if (!resp.ok) {
             log.info(`[CYCLONE] 👁️ Pressure fetch failed: ${resp.status}`);
@@ -917,7 +922,9 @@ export async function fetchGfsTrackerPositions(): Promise<Map<string, GfsTracker
             const url = `${supabaseUrl}/functions/v1/fetch-gfs-tracker`;
             log.info('[CYCLONE] 🎯 Fetching GFS tracker positions...');
 
-            const resp = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+            // withDeadline, not AbortSignal — the signal is a no-op under
+            // the CapacitorHttp fetch patch (see utils/deadline.ts).
+            const resp = await withDeadline(fetch(url), 15_000, 'GFS tracker fetch');
             if (!resp.ok) {
                 log.warn(`[CYCLONE] GFS tracker: ${resp.status} ${resp.statusText}`);
                 return cachedGfsTracker?.data ?? new Map<string, GfsTrackerPosition[]>();
