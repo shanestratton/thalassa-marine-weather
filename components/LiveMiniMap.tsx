@@ -23,14 +23,23 @@ interface LiveMiniMapProps {
     height?: number | string; // px number or CSS string like '100%'
     isLive?: boolean; // Show pulsing vessel dot at latest position
     className?: string;
+    /**
+     * Fired on a clean tap on the map (Leaflet's click — suppressed
+     * during pan/pinch, so navigation gestures don't trigger it).
+     * Used to expand the mini map to full screen and back.
+     */
+    onTap?: () => void;
 }
 
 export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
-    ({ entries, height = 160, isLive = false, className = '' }) => {
+    ({ entries, height = 160, isLive = false, className = '', onTap }) => {
         const containerRef = useRef<HTMLDivElement>(null);
         const mapRef = useRef<L.Map | null>(null);
         const layerGroupRef = useRef<L.LayerGroup | null>(null);
         const hasFitRef = useRef(false);
+        // Ref keeps the handler fresh without re-creating the map.
+        const onTapRef = useRef<(() => void) | undefined>(onTap);
+        onTapRef.current = onTap;
 
         // Create map once
         useEffect(() => {
@@ -69,6 +78,11 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             const layerGroup = L.layerGroup().addTo(map);
             layerGroupRef.current = layerGroup;
             mapRef.current = map;
+
+            // Tap-to-expand/collapse. Leaflet only fires 'click' on clean
+            // taps (pans and pinches are suppressed), so map navigation
+            // still works inside the expanded view.
+            map.on('click', () => onTapRef.current?.());
 
             // Default center while entries load
             map.setView([-27.207, 153.108], 12);
@@ -195,7 +209,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
         return (
             <div
                 ref={containerRef}
-                className={`w-full rounded-xl overflow-hidden border border-white/5 ${className}`}
+                className={`w-full rounded-xl overflow-hidden border border-white/5 ${onTap ? 'cursor-pointer' : ''} ${className}`}
                 style={{ height }}
             />
         );
