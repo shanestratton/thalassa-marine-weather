@@ -152,6 +152,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         [state.entries, state.currentVoyageId],
     );
 
+    // Live mini-map expansion — tap the little map to blow it up to a
+    // fullscreen live view (stats stay overlaid), tap again to shrink.
+    const [liveMapExpanded, setLiveMapExpanded] = useState(false);
+    useEffect(() => {
+        if (!state.isTracking) setLiveMapExpanded(false);
+    }, [state.isTracking]);
+
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
     const pendingStartRef = useRef<(() => void) | null>(null);
@@ -706,14 +713,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 </div>
                                             </div>
                                             {/* Live Mini Map — grows to fill all remaining space.
-                                                Until the first accepted fix lands there's nothing
-                                                to draw, so say what's happening instead of
-                                                showing a silent empty map. */}
+                                                Tap to expand fullscreen. Until the first accepted
+                                                fix lands there's nothing to draw, so say what's
+                                                happening instead of showing a silent empty map. */}
                                             <div className="mt-3 flex-1 min-h-[100px] relative">
-                                                <LiveMiniMap entries={activeEntries} height="100%" isLive={true} />
-                                                {activeEntries.filter((e) => e.latitude && e.longitude).length ===
-                                                    0 && (
-                                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px]">
+                                                <LiveMiniMap
+                                                    entries={activeEntries}
+                                                    height="100%"
+                                                    isLive={true}
+                                                    onTap={() => setLiveMapExpanded(true)}
+                                                />
+                                                {!hasRecordedFix && (
+                                                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
                                                         <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                                                         <span className="text-[11px] font-bold text-amber-300/90 uppercase tracking-widest">
                                                             Acquiring GPS fix…
@@ -724,6 +735,77 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     </div>
                                                 )}
                                             </div>
+
+                                            {/* ── Fullscreen live map — tap map (or chevron) to shrink ── */}
+                                            {liveMapExpanded && (
+                                                <div className="fixed inset-0 z-[9990] bg-slate-950">
+                                                    <LiveMiniMap
+                                                        entries={activeEntries}
+                                                        height="100%"
+                                                        isLive={true}
+                                                        onTap={() => setLiveMapExpanded(false)}
+                                                        className="!rounded-none !border-0"
+                                                    />
+
+                                                    {/* Top info bar — same stats as the card */}
+                                                    <div
+                                                        className="absolute top-0 left-0 right-0 z-[1001] px-4 pointer-events-none"
+                                                        style={{ paddingTop: 'max(16px, env(safe-area-inset-top))' }}
+                                                    >
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                                            <span className="text-xs font-bold text-red-400 uppercase tracking-wider drop-shadow-lg">
+                                                                Live Recording
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-[13px] text-white/90 flex gap-4 mt-1.5 font-bold drop-shadow-lg">
+                                                            <span>{(dist ?? 0).toFixed(1)} NM</span>
+                                                            <span>
+                                                                {durationHrs}h {durationMins}m
+                                                            </span>
+                                                            <span>{(liveAvgSpeed ?? 0).toFixed(1)} avg kts</span>
+                                                            <span>{activeEntries.length} pts</span>
+                                                        </div>
+                                                        <div className="text-[10px] text-white/40 mt-1 drop-shadow-lg">
+                                                            Tap map to shrink
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Explicit collapse affordance */}
+                                                    <button
+                                                        aria-label="Shrink map"
+                                                        onClick={() => setLiveMapExpanded(false)}
+                                                        className="absolute right-4 z-[1001] w-10 h-10 rounded-full bg-slate-900/80 border border-white/10 text-white/80 flex items-center justify-center active:scale-95 transition-transform"
+                                                        style={{ top: 'max(16px, env(safe-area-inset-top))' }}
+                                                    >
+                                                        <svg
+                                                            className="w-5 h-5"
+                                                            fill="none"
+                                                            viewBox="0 0 24 24"
+                                                            stroke="currentColor"
+                                                        >
+                                                            <path
+                                                                strokeLinecap="round"
+                                                                strokeLinejoin="round"
+                                                                strokeWidth={2}
+                                                                d="M9 9L4 4m0 0v4m0-4h4m7 5l5-5m0 0v4m0-4h-4M9 15l-5 5m0 0v-4m0 4h4m7-5l5 5m0 0v-4m0 4h-4"
+                                                            />
+                                                        </svg>
+                                                    </button>
+
+                                                    {!hasRecordedFix && (
+                                                        <div className="absolute inset-0 z-[1000] flex flex-col items-center justify-center gap-2 bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
+                                                            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
+                                                            <span className="text-[11px] font-bold text-amber-300/90 uppercase tracking-widest">
+                                                                Acquiring GPS fix…
+                                                            </span>
+                                                            <span className="text-[10px] text-white/40">
+                                                                Recording starts at the first clean fix
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
                                     );
                                 })()}

@@ -615,10 +615,10 @@ export const VoyageCard: React.FC<{
                 {/* Expanded: show full timeline */}
                 {isExpanded && (
                     <>
-                        {/* Inline map for planned routes */}
+                        {/* Inline map for planned routes — tap to open fullscreen */}
                         {isPlannedRoute && entries.length >= 2 && (
                             <div className="px-4 pt-3">
-                                <LiveMiniMap entries={entries} height={140} />
+                                <LiveMiniMap entries={entries} height={140} onTap={onShowMap} />
                             </div>
                         )}
                         {entries.length === 0 ? (
