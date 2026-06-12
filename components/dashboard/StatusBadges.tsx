@@ -4,6 +4,7 @@ import { useEnvironment } from '../../context/ThemeContext';
 import { MetricSource } from '../../types';
 import { useWeather } from '../../context/WeatherContext';
 import { piCache, type PiFetchStats } from '../../services/PiCacheService';
+import { triggerHaptic } from '../../utils/system';
 
 interface StatusBadgesProps {
     isLandlocked: boolean;
@@ -247,7 +248,10 @@ export const StatusBadges: React.FC<StatusBadgesProps> = React.memo(
                             animate-pulse fade — reads as an active 'loading
                             bar' rather than a tired blinker. */}
                         <button
-                            onClick={() => refreshData()}
+                            onClick={() => {
+                                void triggerHaptic('light');
+                                refreshData();
+                            }}
                             aria-label={hasError ? 'Retry failed refresh' : 'Refresh weather data'}
                             className={`px-2.5 py-1.5 rounded-lg border ${badgeTextSize} font-bold uppercase tracking-wider flex items-center gap-1.5 justify-center cursor-pointer active:scale-[0.95] transition-transform min-w-[82px] ${
                                 isSyncing

@@ -20,11 +20,11 @@
 import React, { useEffect, useState } from 'react';
 
 const PHASES = [
-    'Optimizing depth-safe path',
-    'Threading bathymetric corridor',
-    'Resolving weather window',
-    'Detecting bend waypoints',
-    'Stabilising final geometry',
+    'Finding deep water',
+    'Threading the channel',
+    'Checking the weather window',
+    'Marking the turns',
+    'Tidying the track',
 ];
 
 export const RouteEnhancementChip: React.FC = () => {
@@ -71,7 +71,7 @@ export const RouteEnhancementChip: React.FC = () => {
 
     return (
         <div
-            className="pointer-events-none fixed left-1/2 -translate-x-1/2 z-[2500] animate-in fade-in slide-in-from-top-2"
+            className="pointer-events-none fixed inset-x-0 z-[2500] flex justify-center animate-in fade-in slide-in-from-top-2 duration-200"
             style={{ top: 'calc(env(safe-area-inset-top) + 8px)' }}
             role="status"
             aria-live="polite"

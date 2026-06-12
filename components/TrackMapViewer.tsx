@@ -604,7 +604,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     })();
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden">
+        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200">
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (
                 <div
@@ -961,7 +961,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                     .track-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #22c55e; margin-top: -5.5px; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
                 `}</style>
                 <button
-                    aria-label="Go back"
+                    aria-label={isPlaying ? 'Pause playback' : 'Play track'}
                     onClick={togglePlayback}
                     className="p-2 -m-2 shrink-0 text-white/70 active:scale-90 transition-transform"
                 >

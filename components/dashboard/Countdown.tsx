@@ -10,6 +10,9 @@ export const Countdown = ({ targetTime }: { targetTime: number | null }) => {
             const diff = targetTime - now;
 
             if (diff <= 0) {
+                // No haptic here: this is an autonomous timer, not a touch —
+                // WeatherContext reschedules nextUpdate on retry/wake, so a
+                // buzz here would fire with nobody holding the phone.
                 // Show "Updating..." but with a safety net:
                 // If we've been stuck at "Updating..." for >60s, something went wrong.
                 // The WeatherContext should reschedule nextUpdate on failure,

@@ -5,6 +5,7 @@ const log = createLogger('CompactHeaderRow');
 import { t } from '../../theme';
 import { CheckIcon, AlertTriangleIcon, SunriseIcon, SunsetIcon } from '../Icons';
 import { useUI } from '../../context/UIContext';
+import { triggerHaptic } from '../../utils/system';
 import { isGoldenHour } from '../../utils/goldenHour';
 import type { DashboardMode } from '../../types';
 
@@ -60,7 +61,10 @@ export const CompactHeaderRow = ({
         <div className="w-full flex items-center gap-2" aria-live="polite" aria-atomic="true">
             {/* WARNINGS BUTTON - Expands to fill available space */}
             <button
-                onClick={() => setPage('warnings')}
+                onClick={() => {
+                    void triggerHaptic('light');
+                    setPage('warnings');
+                }}
                 aria-label={
                     hasWarnings ? `${activeAlerts.length} active weather warnings` : 'No active weather warnings'
                 }
@@ -68,7 +72,7 @@ export const CompactHeaderRow = ({
                     hasWarnings
                         ? 'bg-red-500 hover:bg-red-600 border-red-400/50'
                         : 'bg-emerald-500/10 border-emerald-500/20'
-                } transition-colors border rounded-xl px-3 h-[40px] flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
+                } transition-all active:scale-[0.97] border rounded-xl px-3 h-[40px] flex items-center gap-2 shadow-lg cursor-pointer group flex-1`}
             >
                 {hasWarnings ? (
                     <>

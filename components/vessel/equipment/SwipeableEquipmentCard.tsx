@@ -7,6 +7,7 @@
 import React from 'react';
 import type { EquipmentItem, EquipmentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
+import { triggerHaptic } from '../../../utils/system';
 
 export const CATEGORIES: { id: EquipmentCategory; label: string; icon: string }[] = [
     { id: 'Propulsion', label: 'Propulsion', icon: '⚙️' },
@@ -34,7 +35,9 @@ interface SwipeableCardProps {
 }
 
 export const SwipeableEquipmentCard: React.FC<SwipeableCardProps> = ({ item, onTap, onDelete, onContextMenu }) => {
-    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+        onSwipeComplete: () => void triggerHaptic('light'),
+    });
 
     const warrantyActive = item.warranty_expiry ? new Date(item.warranty_expiry).getTime() > Date.now() : null;
 

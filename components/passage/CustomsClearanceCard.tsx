@@ -134,7 +134,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
             <div className="flex gap-2 bg-white/[0.03] rounded-xl p-1 border border-white/[0.06]">
                 {departInput && (
                     <button
-                        aria-label="Active Tab"
+                        aria-label={`Departing ${departLabel}`}
                         onClick={() => setActiveTab('depart')}
                         className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                             activeTab === 'depart'
@@ -146,7 +146,7 @@ export const CustomsClearanceCard: React.FC<CustomsClearanceCardProps> = ({
                     </button>
                 )}
                 <button
-                    aria-label="Active Tab"
+                    aria-label={`Arriving ${arriveLabel}`}
                     onClick={() => setActiveTab('arrive')}
                     className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-bold uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${
                         activeTab === 'arrive'

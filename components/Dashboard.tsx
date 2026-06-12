@@ -700,42 +700,39 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // GUARD: All hooks above, early return here is safe
     if (!data || !current || !safeActive) {
         return (
-            <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-black text-white p-8">
-                <div className="text-center max-w-xs">
-                    {!navigator.onLine ? (
-                        <>
-                            <div className="w-10 h-10 mx-auto mb-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
-                                <svg
-                                    className="w-5 h-5 text-white/30"
-                                    fill="none"
-                                    viewBox="0 0 24 24"
-                                    stroke="currentColor"
-                                    strokeWidth={1.5}
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0"
-                                    />
-                                    <line x1="4" y1="4" x2="20" y2="20" strokeLinecap="round" />
-                                </svg>
-                            </div>
-                            <p className="text-sm text-white/40 font-medium mb-1">No connection</p>
-                            <p className="text-xs text-white/40 leading-relaxed">
-                                Cached data will appear when available
-                            </p>
-                        </>
-                    ) : (
-                        <>
-                            <div className="px-6 space-y-4 pt-2">
-                                <ShimmerBlock variant="hero" />
-                                <ShimmerBlock variant="card" />
-                                <ShimmerBlock variant="list" rows={3} />
-                            </div>
-                            <p className="text-sm text-white/40 font-medium text-center mt-4">Loading conditions…</p>
-                        </>
-                    )}
-                </div>
+            <div className="h-[100dvh] w-full flex flex-col items-center justify-center bg-black text-white px-4 py-8">
+                {!navigator.onLine ? (
+                    <div className="text-center max-w-xs">
+                        <div className="w-10 h-10 mx-auto mb-5 rounded-full bg-white/5 border border-white/10 flex items-center justify-center">
+                            <svg
+                                className="w-5 h-5 text-white/30"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0"
+                                />
+                                <line x1="4" y1="4" x2="20" y2="20" strokeLinecap="round" />
+                            </svg>
+                        </div>
+                        <p className="text-sm text-white/40 font-medium mb-1">No connection</p>
+                        <p className="text-xs text-white/40 leading-relaxed">Cached data will appear when available</p>
+                    </div>
+                ) : (
+                    /* Full-width skeleton mirroring the real dashboard column:
+                       hero card on top, sub-card, then a short list — same
+                       widths the loaded layout paints (full-bleed with px-4). */
+                    <div className="w-full max-w-2xl mx-auto space-y-4">
+                        <ShimmerBlock variant="hero" />
+                        <ShimmerBlock variant="card" />
+                        <ShimmerBlock variant="list" rows={3} />
+                        <p className="text-sm text-white/40 font-medium text-center mt-4">Loading conditions…</p>
+                    </div>
+                )}
             </div>
         );
     }
@@ -1043,8 +1040,8 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                             <div className="absolute inset-0 overflow-hidden">
                                 <React.Suspense
                                     fallback={
-                                        <div className="flex items-center justify-center h-full bg-black">
-                                            <div className="text-white/60 text-sm">Loading Log...</div>
+                                        <div className="flex items-center justify-center h-full bg-slate-950">
+                                            <div className="text-white/60 text-sm">Loading Log…</div>
                                         </div>
                                     }
                                 >

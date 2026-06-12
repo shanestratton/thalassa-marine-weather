@@ -452,7 +452,6 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                         {!minimal && !hideLayerControls && (
                             <div className="pointer-events-auto bg-slate-900/80 border border-white/10 rounded-full p-1 flex shadow-xl self-start">
                                 <button
-                                    aria-label="Active Layer"
                                     onClick={() => {
                                         setActiveLayer('wind');
                                         setPendingSelection(null);
@@ -462,7 +461,6 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     Wind
                                 </button>
                                 <button
-                                    aria-label="Active Layer"
                                     onClick={() => {
                                         setActiveLayer('rain');
                                         setPendingSelection(null);
@@ -472,7 +470,7 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     Rain
                                 </button>
                                 <button
-                                    aria-label="Active Layer"
+                                    aria-label="Global wind"
                                     onClick={() => {
                                         setActiveLayer('global-wind');
                                         setPendingSelection(null);
@@ -482,14 +480,14 @@ export const WeatherMap: React.FC<WeatherMapProps> = React.memo(
                                     <CompassIcon rotation={0} className="w-3 h-3" /> Global
                                 </button>
                                 <button
-                                    aria-label="Active Layer"
+                                    aria-label="Weather stations"
                                     onClick={() => setActiveLayer('buoys')}
                                     className={`px-4 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 ${activeLayer === 'buoys' ? 'bg-amber-600 text-white shadow-lg' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                                 >
                                     <RadioTowerIcon className="w-3 h-3" /> Stations
                                 </button>
                                 <button
-                                    aria-label="Active Layer"
+                                    aria-label="Velocity"
                                     onClick={() => {
                                         setActiveLayer('velocity');
                                         setPendingSelection(null);

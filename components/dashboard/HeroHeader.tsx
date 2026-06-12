@@ -6,6 +6,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { MetricPinSheet } from './MetricPinSheet';
 import { getPinnedMetricDisplay } from './metricDisplayHelpers';
 import { CoachMark } from '../ui/CoachMark';
+import { triggerHaptic } from '../../utils/system';
 import { useDroppable } from '@dnd-kit/core';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -118,6 +119,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
 
     const tapTrackRef = React.useRef<{ count: number; timer: number | null }>({ count: 0, timer: null });
     const handleHeroLeftTap = useCallback(() => {
+        void triggerHaptic('light');
         tapTrackRef.current.count += 1;
         if (tapTrackRef.current.timer != null) {
             window.clearTimeout(tapTrackRef.current.timer);
@@ -342,6 +344,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                 currentMetric={heroMetric}
                 locationType={locationType}
                 onPick={(id) => {
+                    void triggerHaptic('light');
                     updateSettings({ heroMetric: id });
                     setPinSheetOpen(false);
                 }}

@@ -9,6 +9,7 @@
 import React from 'react';
 import { DiaryEntry, MOOD_CONFIG } from '../../services/DiaryService';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { triggerHaptic } from '../../utils/system';
 import { Share } from '@capacitor/share';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Capacitor } from '@capacitor/core';
@@ -35,7 +36,9 @@ interface SwipeableDiaryCardProps {
 
 export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
     ({ entry, onTap, onDelete, onEdit, selected, onToggleSelect }) => {
-        const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+        const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+            onSwipeComplete: () => void triggerHaptic('light'),
+        });
         const moodCfg = MOOD_CONFIG[entry.mood] || MOOD_CONFIG.neutral;
         const entryHasCoords = entry.latitude != null && entry.longitude != null;
 

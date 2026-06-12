@@ -129,7 +129,7 @@ const _CommandDeck: React.FC<CommandDeckProps> = ({ payload, collapsed, onToggle
         >
             {/* Tappable Header — always visible */}
             <button
-                aria-label="Toggle option"
+                aria-label={collapsed ? 'Expand route summary' : 'Collapse route summary'}
                 onClick={onToggle}
                 style={{
                     display: 'flex',

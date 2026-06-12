@@ -17,9 +17,9 @@ import { createLogger } from '../../utils/createLogger';
 const log = createLogger('LogPage');
 
 export const StatBox: React.FC<{ label: string; value: string | number }> = React.memo(({ label, value }) => (
-    <div className="bg-slate-800 rounded-lg p-3 text-center">
-        <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">{label}</div>
-        <div className="text-xl font-bold text-white">{value}</div>
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-3 text-center">
+        <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">{label}</div>
+        <div className="text-xl font-bold text-white tabular-nums">{value}</div>
     </div>
 ));
 
@@ -93,7 +93,7 @@ export const MenuBtn: React.FC<{
     accent?: boolean;
 }> = React.memo(({ icon, label, onClick, disabled, danger, accent }) => (
     <button
-        aria-label="Help"
+        aria-label={label}
         onClick={onClick}
         disabled={disabled}
         className={`w-full px-4 py-3 text-left text-sm font-medium flex items-center gap-3 transition-colors ${
@@ -171,7 +171,7 @@ const FollowRouteButton: React.FC<{
 
     return (
         <button
-            aria-label="Help"
+            aria-label={isThisFollowed ? 'Currently following this route' : 'Follow this route'}
             onClick={handleFollow}
             disabled={isThisFollowed}
             className={`w-14 flex flex-col items-center justify-center py-2 border-t border-white/5 transition-colors ${
@@ -439,7 +439,6 @@ export const VoyageCard: React.FC<{
                 >
                     {/* LEFT — route info, date anchor with spine */}
                     <button
-                        aria-label="Toggle"
                         onClick={(e) => {
                             if (swipeOffset !== 0) {
                                 setSwipeOffset(0);
@@ -549,7 +548,7 @@ export const VoyageCard: React.FC<{
                     {/* RIGHT — action buttons */}
                     <div className="shrink-0 flex flex-col border-l border-white/5">
                         <button
-                            aria-label="Action"
+                            aria-label="View on map"
                             onClick={() => {
                                 if (swipeOffset === 0) onShowMap();
                                 else setSwipeOffset(0);

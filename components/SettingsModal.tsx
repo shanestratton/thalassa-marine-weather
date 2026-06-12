@@ -81,7 +81,7 @@ const _MobileNavTab = React.memo(
         label: string;
     }) => (
         <button
-            aria-label="Select this option"
+            aria-label={label}
             onClick={onClick}
             className={`flex items-center gap-2 px-4 py-2 rounded-full whitespace-nowrap transition-all duration-300 ${active ? 'bg-sky-500 text-white shadow-lg shadow-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}
         >

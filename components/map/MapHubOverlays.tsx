@@ -94,7 +94,7 @@ export const PointInput: React.FC<{
             <p className="text-xs text-white font-bold truncate">{point ? point.name : 'Not set'}</p>
         </div>
         <button
-            aria-label="Use Current"
+            aria-label="Use current location"
             onClick={onUseCurrent}
             className="text-[11px] text-sky-400 font-bold uppercase tracking-widest shrink-0 px-2 py-1 rounded-lg hover:bg-sky-500/10 inline-flex items-center gap-1"
         >
@@ -694,7 +694,7 @@ export const LayerFABMenu: React.FC<{
                                 const isSelected = cycloneVisible && cycloneStormName === storm.name;
                                 return (
                                     <button
-                                        aria-label="Select Storm"
+                                        aria-label={`Select ${storm.name}`}
                                         key={`${storm.sid}-${idx}`}
                                         onClick={() => {
                                             onSelectStorm?.(storm);

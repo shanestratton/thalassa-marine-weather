@@ -8,6 +8,7 @@ import React from 'react';
 import type { TaskWithStatus, TrafficLight } from '../../../services/MaintenanceService';
 import type { MaintenanceTriggerType } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
+import { triggerHaptic } from '../../../utils/system';
 import { CATEGORIES, TRIGGER_LABELS } from './constants';
 
 /** Map period triggers to their interval in days */
@@ -49,7 +50,9 @@ export const SwipeableTaskCard: React.FC<SwipeableTaskCardProps> = ({
     onTap,
     onDelete,
 }) => {
-    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+        onSwipeComplete: () => void triggerHaptic('light'),
+    });
     const light = lightColors[task.status];
     const catConfig = categories.find((c) => c.id === task.category);
 

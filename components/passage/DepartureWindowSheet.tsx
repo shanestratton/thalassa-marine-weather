@@ -25,7 +25,6 @@ interface VerdictStyle {
     border: string;
     text: string;
     label: string;
-    icon: string;
 }
 
 const VERDICT_STYLES: Record<DepartureScenario['verdict'], VerdictStyle> = {
@@ -34,28 +33,24 @@ const VERDICT_STYLES: Record<DepartureScenario['verdict'], VerdictStyle> = {
         border: 'border-emerald-500/30',
         text: 'text-emerald-400',
         label: 'GO',
-        icon: '✅',
     },
     maybe: {
         bg: 'bg-amber-500/10',
         border: 'border-amber-500/25',
         text: 'text-amber-400',
         label: 'MAYBE',
-        icon: '⚠️',
     },
     avoid: {
         bg: 'bg-orange-500/10',
         border: 'border-orange-500/25',
         text: 'text-orange-400',
         label: 'AVOID',
-        icon: '🚫',
     },
     'no-go': {
         bg: 'bg-red-500/10',
         border: 'border-red-500/25',
         text: 'text-red-400',
         label: 'NO-GO',
-        icon: '❌',
     },
 };
 
@@ -173,7 +168,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                     {planning && (
                         <div className="mt-3 flex items-center gap-2 text-[11px] text-sky-400">
                             <div className="w-1.5 h-1.5 bg-sky-400 rounded-full animate-pulse" />
-                            <span className="font-mono tracking-wide">
+                            <span className="font-mono tabular-nums tracking-wide">
                                 {progressLabel ?? `Computing… ${scenarios.length} of 14`}
                             </span>
                         </div>
@@ -207,9 +202,20 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                     style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
                 >
                     {sorted.length === 0 && planning && (
-                        <div className="px-3 py-12 text-center text-xs text-slate-500">
-                            Running first scenario… results will populate live as each completes.
-                        </div>
+                        <>
+                            {/* Skeleton rows mirroring scenario row geometry while the first scenario computes */}
+                            <div className="space-y-2" aria-hidden="true">
+                                {Array.from({ length: 3 }).map((_, i) => (
+                                    <div
+                                        key={i}
+                                        className="rounded-xl border border-white/[0.06] bg-white/[0.03] h-[64px] animate-pulse"
+                                    />
+                                ))}
+                            </div>
+                            <div className="px-3 py-6 text-center text-xs text-slate-500">
+                                Running first scenario… results will populate live as each completes.
+                            </div>
+                        </>
                     )}
                     {sorted.length === 0 && !planning && (
                         <div className="px-3 py-12 text-center text-xs text-slate-500">No scenarios available.</div>
@@ -246,7 +252,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                                                     </span>
                                                 </div>
                                                 {s.routeFound ? (
-                                                    <div className="mt-1 grid grid-cols-3 gap-x-3 gap-y-0.5 text-[11px]">
+                                                    <div className="mt-1 grid grid-cols-3 gap-x-3 gap-y-0.5 text-[11px] tabular-nums">
                                                         <span className="text-slate-300">
                                                             <span className="text-slate-500">ETA</span>{' '}
                                                             {formatDuration(s.durationHours)}
@@ -268,7 +274,6 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                                             <div
                                                 className={`shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold ${style.bg} ${style.text} border ${style.border}`}
                                             >
-                                                <span className="mr-1">{style.icon}</span>
                                                 {style.label}
                                             </div>
                                         </div>

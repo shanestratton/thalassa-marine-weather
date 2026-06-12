@@ -10,6 +10,7 @@ import type { PolarDatabaseEntry } from '../../data/polarDatabase';
 import { Capacitor } from '@capacitor/core';
 import { saveIdentity } from '../../services/VesselIdentityService';
 import { EyeIcon, CheckIcon } from '../Icons';
+import { triggerHaptic } from '../../utils/system';
 
 // ── MetricInput (vessel-specific helper) ─────────────────────
 function MetricInput({
@@ -796,6 +797,7 @@ export const VesselTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
                     <button
                         aria-label="Save vessel profile"
                         onClick={() => {
+                            void triggerHaptic('medium');
                             setSaved(true);
                             setTimeout(() => setSaved(false), 2000);
                         }}

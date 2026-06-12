@@ -327,7 +327,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     we don't have a numeric "% complete" (the wavefront
                     expansion doesn't have a clean monotonic %). */}
                 {isoProgress && (
-                    <div className="border-t border-amber-500/15 bg-amber-500/[0.05] px-3.5 py-2.5">
+                    <div className="border-t border-amber-500/15 bg-amber-500/[0.05] px-3.5 py-2.5 animate-in fade-in slide-in-from-top-2 duration-200">
                         <div className="flex items-center gap-2">
                             <span className="text-base animate-pulse" role="img" aria-label="cooking">
                                 🍳
@@ -350,7 +350,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                     cooking band is up (that band already says "busy"). */}
                 {passageNotice && !isoProgress && (
                     <div
-                        className={`border-t px-3.5 py-2.5 ${
+                        className={`border-t px-3.5 py-2.5 animate-in fade-in slide-in-from-top-2 duration-200 ${
                             passageNotice.severity === 'warn'
                                 ? 'border-orange-500/20 bg-orange-500/[0.07]'
                                 : 'border-sky-500/15 bg-sky-500/[0.05]'

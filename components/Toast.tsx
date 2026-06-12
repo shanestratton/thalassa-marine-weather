@@ -124,7 +124,7 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
                 transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
                 background: colors.bg,
                 border: `1px solid ${colors.border}`,
-                borderRadius: 14,
+                borderRadius: 16, // rounded-2xl — matches the app's floating-card radius
                 padding: '10px 16px',
                 display: 'flex',
                 alignItems: 'center',
