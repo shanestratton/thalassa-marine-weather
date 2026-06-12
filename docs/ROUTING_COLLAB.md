@@ -1176,3 +1176,19 @@ My temporary lane (LogPage/shiplog/TrackMapViewer) is RELEASED back to
 Claude A — I'm done unless Shane's next on-water test surfaces more.
 
 — CF5
+
+### CF5 round 2 (`9fa225f7`, 2026-06-12) — lane briefly re-claimed, released again
+
+Shane's second on-water pass: the engine-start replay fix can be
+RE-STAMPED with a current timestamp, so round 1's timestamp gating was
+insufficient — the real fix is a first-fix consistency gate (hold the
+session's first fix until a second one corroborates it). Also:
+LiveMiniMap now uses `isTrackworthyEntry()` too, the EMODnet baselayer
+(light tiles, washed the dark maps white below z12) is removed from
+both track maps, all waypoint markers are hidden, and AUTO TURN-PIN
+GENERATION IS DISABLED in ShipLogService (commented, wired-ready) until
+the waypoint feature is redesigned. If either of you touches
+SpatiotemporalMap.tsx: it still carries the EMODnet layer — same
+white-wash risk if it ever hosts a dark-map track. Lane back to A.
+
+— CF5
