@@ -82,45 +82,76 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
     const trackRef = useRef<HTMLDivElement>(null);
     const [slideX, setSlideX] = useState(0);
     const [isDragging, setIsDragging] = useState(false);
+    // Live offset alongside state: the threshold check on release must
+    // read the position of the LAST move, not the last render — a fast
+    // decisive flick could end before React flushed the final
+    // setSlideX, read a stale value just under the threshold, and snap
+    // back even though the finger reached the end.
+    const slideXRef = useRef(0);
 
     const colors = THEMES[theme];
 
-    const handleStart = useCallback(
-        (_clientX: number) => {
+    const setSlide = useCallback((v: number) => {
+        slideXRef.current = v;
+        setSlideX(v);
+    }, []);
+
+    const handlePointerDown = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
             if (disabled || loading) return;
+            // Capture the pointer: every subsequent move/up/cancel routes
+            // to this element no matter where the finger wanders. Without
+            // capture, touch sequences that left the element (or were
+            // cancelled by iOS for a system gesture/notification banner)
+            // never delivered their end event — the thumb froze
+            // mid-track (field bug 2026-06-13, Anchor Watch).
+            try {
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+            } catch {
+                /* capture is best-effort — jsdom and odd inputs lack it */
+            }
             setIsDragging(true);
         },
         [disabled, loading],
     );
 
-    const handleMove = useCallback(
-        (clientX: number) => {
+    const handlePointerMove = useCallback(
+        (e: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging || !trackRef.current) return;
             const rect = trackRef.current.getBoundingClientRect();
             const maxTravel = rect.width - THUMB_SIZE;
-            const offset = clientX - rect.left - THUMB_SIZE / 2;
-            setSlideX(Math.max(0, Math.min(offset, maxTravel)));
+            const offset = e.clientX - rect.left - THUMB_SIZE / 2;
+            setSlide(Math.max(0, Math.min(offset, maxTravel)));
         },
-        [isDragging],
+        [isDragging, setSlide],
     );
 
-    const handleEnd = useCallback(() => {
+    const handlePointerUp = useCallback(() => {
         if (!isDragging || !trackRef.current) return;
         setIsDragging(false);
         const rect = trackRef.current.getBoundingClientRect();
         const maxTravel = rect.width - THUMB_SIZE;
-        const ratio = slideX / maxTravel;
+        const ratio = slideXRef.current / maxTravel;
         if (ratio >= SLIDE_THRESHOLD) {
             triggerHaptic('medium');
             onConfirm();
         }
-        setSlideX(0);
-    }, [isDragging, slideX, onConfirm]);
+        setSlide(0);
+    }, [isDragging, onConfirm, setSlide]);
 
-    // Reset slide position when not dragging
+    const handlePointerCancel = useCallback(() => {
+        // iOS cancels (not ends) the touch for system gestures, incoming
+        // banners, palm rejection. Never confirm from a cancel — just
+        // spring back.
+        if (!isDragging) return;
+        setIsDragging(false);
+        setSlide(0);
+    }, [isDragging, setSlide]);
+
+    // Belt-and-braces reset: any path that clears dragging clears the thumb.
     useEffect(() => {
-        if (!isDragging) setSlideX(0);
-    }, [isDragging]);
+        if (!isDragging && slideXRef.current !== 0) setSlide(0);
+    }, [isDragging, setSlide]);
 
     if (loading) {
         return (
@@ -150,13 +181,10 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
                 touchAction: 'none',
                 opacity: disabled ? 0.4 : 1,
             }}
-            onMouseDown={(e) => handleStart(e.clientX)}
-            onMouseMove={(e) => handleMove(e.clientX)}
-            onMouseUp={handleEnd}
-            onMouseLeave={handleEnd}
-            onTouchStart={(e) => handleStart(e.touches[0].clientX)}
-            onTouchMove={(e) => handleMove(e.touches[0].clientX)}
-            onTouchEnd={handleEnd}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
         >
             {/* Shimmer animation */}
             <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
