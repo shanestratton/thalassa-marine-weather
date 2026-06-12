@@ -100,6 +100,9 @@ describe('pairing — along-channel stagger gate (PAIR_PROJ_MAX_M)', () => {
         }
         stubMarkers(feats);
         const r = await fetchRegionalMarkers('test://chain', []);
+        // Tier-2 surface: Step-3 accepted pairs are exposed for the Seaway
+        // Graph's regionalGates (one pair per midpoint, same count).
+        expect(r.acceptedPairs).toHaveLength(r.midpoints.length);
         expect(r.midpoints).toHaveLength(3);
         expect(r.diag?.considered).toBeGreaterThan(0);
     });

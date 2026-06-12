@@ -10,6 +10,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+    REGIONAL_CONFIDENCE,
+    regionalGates,
     extractChartGates,
     extractGeometricGates,
     dedupGates,
@@ -201,5 +203,83 @@ describe('dedupGates — chart wins geometry within 80 m', () => {
         const deduped = dedupGates([...chartGates, twin]);
         expect(deduped).toHaveLength(chartGates.length);
         expect(deduped.find((g) => g.id === 'geo#dup')).toBeUndefined();
+    });
+});
+
+describe('gateExtractor — tier 2 regional (accepted pairs → gates)', () => {
+    const M_LAT_DEG = 1 / 110_540;
+    const P = { lat: -27.4, lon: 153.3 };
+
+    it('maps an accepted pair to a single-gate channel at REGIONAL_CONFIDENCE', () => {
+        const pairs = [
+            { port: { lat: P.lat + 100 * M_LAT_DEG, lon: P.lon }, stbd: { lat: P.lat - 100 * M_LAT_DEG, lon: P.lon } },
+        ];
+        const gates = regionalGates(pairs);
+        expect(gates).toHaveLength(1);
+        const g = gates[0];
+        expect(g.confidence).toBe(REGIONAL_CONFIDENCE);
+        expect(g.portMark?.source).toBe('regional');
+        expect(g.channelKey).toBe('regional#0');
+        expect(g.station).toBe(1);
+        expect(g.mid.lat).toBeCloseTo(P.lat, 8);
+        expect(g.gateWidthM ?? 0).toBeGreaterThan(190);
+        expect(g.gateWidthM ?? 0).toBeLessThan(210);
+    });
+
+    it('re-checks the width window (a 700 m pair is dropped even though Step 3 accepted it)', () => {
+        const wide = [
+            { port: { lat: P.lat + 350 * M_LAT_DEG, lon: P.lon }, stbd: { lat: P.lat - 350 * M_LAT_DEG, lon: P.lon } },
+        ];
+        expect(regionalGates(wide)).toHaveLength(0);
+    });
+
+    it('compile: regional gates dedup UNDER coincident chart gates (chart wins) and list single-gate channels', () => {
+        // A 4-mark chart channel (2 gates — groupChannels needs ≥3 marks)
+        // + a regional pair at gate 1's midpoint + a second regional pair
+        // 1 km away from everything.
+        const lat0 = -27.4;
+        const mPerLonHere = 111_320 * Math.cos((lat0 * Math.PI) / 180);
+        const g2lon = 153.3 + 500 / mPerLonHere;
+        const chartFeatures = [
+            {
+                type: 'Feature',
+                properties: { CATLAM: 1, OBJNAM: 'R1' },
+                geometry: { type: 'Point', coordinates: [153.3, lat0 + 100 * M_LAT_DEG] },
+            },
+            {
+                type: 'Feature',
+                properties: { CATLAM: 2, OBJNAM: 'R2' },
+                geometry: { type: 'Point', coordinates: [153.3, lat0 - 100 * M_LAT_DEG] },
+            },
+            {
+                type: 'Feature',
+                properties: { CATLAM: 1, OBJNAM: 'R3' },
+                geometry: { type: 'Point', coordinates: [g2lon, lat0 + 100 * M_LAT_DEG] },
+            },
+            {
+                type: 'Feature',
+                properties: { CATLAM: 2, OBJNAM: 'R4' },
+                geometry: { type: 'Point', coordinates: [g2lon, lat0 - 100 * M_LAT_DEG] },
+            },
+        ];
+        const farLat = lat0 + 1000 * M_LAT_DEG;
+        const regionalPairs = [
+            { port: { lat: lat0 + 90 * M_LAT_DEG, lon: 153.3 }, stbd: { lat: lat0 - 90 * M_LAT_DEG, lon: 153.3 } }, // coincident mid
+            {
+                port: { lat: farLat + 100 * M_LAT_DEG, lon: 153.31 },
+                stbd: { lat: farLat - 100 * M_LAT_DEG, lon: 153.31 },
+            },
+        ];
+        const { graph } = compileSeawayGraph({ chartFeatures: chartFeatures as never, regionalPairs });
+        const regional = graph.gates.filter((g) => g.portMark?.source === 'regional');
+        const chart = graph.gates.filter((g) => g.portMark?.source === 'chart');
+        expect(chart).toHaveLength(2);
+        expect(regional).toHaveLength(1); // the coincident one deduped away, chart won
+        expect(regional[0].mid.lat).toBeCloseTo(farLat, 6);
+        // The surviving regional gate is listed as a single-gate channel.
+        const regChannel = graph.channels.find((c) => c.key === regional[0].channelKey);
+        expect(regChannel?.gateIds).toEqual([regional[0].id]);
+        // No edges from single-gate channels.
+        expect(graph.edges.every((e) => !e.id.includes('regional'))).toBe(true);
     });
 });

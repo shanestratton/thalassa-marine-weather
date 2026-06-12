@@ -889,6 +889,10 @@ async function tryInshoreRouteInner(
     // For now we only have one regional file (SE QLD). Future regions
     // will live at parallel URLs and the lookup table can grow.
     const regionalMarkersUrl = await pickRegionalMarkersUrl(origin, destination);
+    // Step-3 accepted pairs, captured for the Seaway shadow's tier-2
+    // gates (regionalGates, 0.7). Stays empty when the regional fetch is
+    // skipped or fails — the shadow compiles chart + geometric tiers only.
+    let regionalPairsForShadow: RegionalChannelData['acceptedPairs'] = [];
     if (regionalMarkersUrl) {
         try {
             // Combined OSM water+marina list. Used inside the pair loop
@@ -897,7 +901,7 @@ async function tryInshoreRouteInner(
             // polygon BUT also inside an OSM water polygon (river /
             // marina basin), trust OSM and accept the pair.
             const osmWaterForPairing = osmOverlay ? [...osmOverlay.water.features, ...osmOverlay.marina.features] : [];
-            const { midpoints, segments, hazards, wings } = await fetchRegionalMarkers(
+            const { midpoints, segments, hazards, wings, acceptedPairs } = await fetchRegionalMarkers(
                 regionalMarkersUrl,
                 merged.LNDARE?.features ?? [],
                 osmWaterForPairing,
@@ -908,6 +912,7 @@ async function tryInshoreRouteInner(
                 // beats OSM. This is the Newport→Scarborough fix.
                 [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])],
             );
+            regionalPairsForShadow = acceptedPairs;
             if (midpoints.length > 0) {
                 const boylat = merged.BOYLAT ?? { type: 'FeatureCollection' as const, features: [] };
                 (boylat.features as unknown[]).push(...midpoints);
@@ -1153,7 +1158,7 @@ async function tryInshoreRouteInner(
     if (SEAWAY_SHADOW_ENABLED && !routedOnCloud) {
         try {
             const tShadow = Date.now();
-            const report = shadowCompare(merged, routeOpts, result);
+            const report = shadowCompare(merged, routeOpts, result, { regionalPairs: regionalPairsForShadow });
             if (report) {
                 log.warn(`SEAWAY SHADOW: ${shadowSummary(report, result.distanceNM)} (${Date.now() - tShadow} ms)`);
             } else if (ROUTE_DEBUG) {
@@ -1521,10 +1526,15 @@ function haversineMetres(lat1: number, lon1: number, lat2: number, lon2: number)
  *   shows as deeper. Specifically catches the Scarborough Reef green
  *   marker case the user flagged 2026-05-12.
  */
-interface RegionalChannelData {
+export interface RegionalChannelData {
     midpoints: unknown[];
     segments: unknown[];
     hazards: unknown[];
+    /** Step-3 accepted port↔stbd pairs — the Seaway Graph's TIER 2 input
+     *  (gateExtractor regionalGates, confidence 0.7). Pre-validated by
+     *  the pipeline: metre-space PCA clustering, the 500 m stagger gate,
+     *  LNDARE-between rejection with OSM/DEPARE water rescue. */
+    acceptedPairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }>;
     /** Outboard CAUTION wing rectangles per accepted pair (Step 4.5,
      *  masterplan Phase 3) — merged into OBSTRN, rasterised by Pass 5c. */
     wings: unknown[];
@@ -2600,6 +2610,6 @@ export async function fetchRegionalMarkers(
             })),
         ];
 
-        return { midpoints, segments, hazards, wings, diag: pairDiag };
+        return { midpoints, segments, hazards, wings, acceptedPairs, diag: pairDiag };
     })();
 }
