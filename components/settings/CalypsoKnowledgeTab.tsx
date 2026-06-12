@@ -200,7 +200,14 @@ export const CalypsoKnowledgeTab: React.FC<SettingsTabProps> = ({ settings }) =>
 
             {/* List */}
             {loading ? (
-                <p className="text-sm text-slate-500 text-center py-8">Loading…</p>
+                <div className="space-y-3">
+                    {[0, 1, 2].map((i) => (
+                        <div
+                            key={i}
+                            className="h-24 rounded-2xl bg-white/[0.03] border border-white/[0.06] animate-pulse"
+                        />
+                    ))}
+                </div>
             ) : items.length === 0 && !draft ? (
                 <p className="text-sm text-slate-500 text-center py-8 leading-relaxed">
                     Nothing yet. Add your vessel specs, a few recipes, crew notes — whatever you'd want a sharp first

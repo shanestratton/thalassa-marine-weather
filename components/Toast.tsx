@@ -15,6 +15,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { FONT, SIZE } from '../styles/typeScale';
+import { triggerHaptic } from '../utils/system';
 
 // ── Types ──────────────────────────────────────────────────────────
 export type ToastType = 'success' | 'error' | 'loading' | 'info';
@@ -90,6 +91,15 @@ const SingleToast: React.FC<{ item: ToastItem; onClose: () => void }> = ({ item,
     useEffect(() => {
         // Animate in
         requestAnimationFrame(() => setVisible(true));
+        // Physical feedback on arrival — light for the good/neutral news,
+        // medium for errors. Loading toasts stay silent (they resolve into
+        // one of the others).
+        if (item.type === 'success' || item.type === 'info') {
+            triggerHaptic('light');
+        } else if (item.type === 'error') {
+            triggerHaptic('medium');
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only: type never changes per toast instance
     }, []);
 
     useEffect(() => {

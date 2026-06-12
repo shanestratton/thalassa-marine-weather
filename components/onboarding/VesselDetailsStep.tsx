@@ -69,9 +69,9 @@ const INPUT_CLASS =
 
 const UnitToggle: React.FC<{ value: string; onClick: () => void }> = ({ value, onClick }) => (
     <button
-        aria-label="Select vessel detail option"
+        aria-label={`Switch unit, currently ${value}`}
         onClick={onClick}
-        className="text-sky-400 hover:text-white uppercase"
+        className="px-2.5 py-1.5 -my-1.5 rounded-md bg-sky-500/10 text-sky-400 hover:text-white text-xs font-bold uppercase transition-colors active:scale-95"
     >
         {value}
     </button>
@@ -375,6 +375,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 </label>
                                 <input
                                     type="number"
+                                    inputMode="decimal"
                                     value={length}
                                     onChange={(e) => onLengthChange(e.target.value)}
                                     placeholder="0"
@@ -387,6 +388,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 </label>
                                 <input
                                     type="number"
+                                    inputMode="decimal"
                                     value={beam}
                                     onChange={(e) => onBeamChange(e.target.value)}
                                     placeholder="Auto"
@@ -409,6 +411,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 </label>
                                 <input
                                     type="number"
+                                    inputMode="decimal"
                                     value={draft}
                                     onChange={(e) => onDraftChange(e.target.value)}
                                     placeholder="Auto"
@@ -428,6 +431,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                 </label>
                                 <input
                                     type="number"
+                                    inputMode="decimal"
                                     value={displacement}
                                     onChange={(e) => onDisplacementChange(e.target.value)}
                                     placeholder="Auto"
@@ -469,6 +473,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                     </label>
                                     <input
                                         type="number"
+                                        inputMode="decimal"
                                         value={airDraft}
                                         onChange={(e) => onAirDraftChange(e.target.value)}
                                         placeholder="Height above waterline"
@@ -490,6 +495,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                         </label>
                                         <input
                                             type="number"
+                                            inputMode="decimal"
                                             value={fuel}
                                             onChange={(e) => onFuelChange(e.target.value)}
                                             placeholder="0"
@@ -505,6 +511,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                         </label>
                                         <input
                                             type="number"
+                                            inputMode="decimal"
                                             value={water}
                                             onChange={(e) => onWaterChange(e.target.value)}
                                             placeholder="0"
@@ -520,6 +527,7 @@ export const VesselDetailsStep: React.FC<VesselDetailsStepProps> = React.memo(
                                     </label>
                                     <input
                                         type="number"
+                                        inputMode="numeric"
                                         min="1"
                                         max="99"
                                         value={crewCount}

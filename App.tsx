@@ -241,18 +241,24 @@ const App: React.FC = () => {
     // Loading State
     if (settingsLoading) {
         return (
-            <div className="flex items-center justify-center h-screen w-full bg-slate-950 text-sky-500 flex-col gap-4">
-                <div className="w-10 h-10 border-4 border-sky-500 border-t-transparent rounded-full animate-spin"></div>
+            <div className="flex items-center justify-center h-screen w-full bg-slate-950 flex-col gap-4">
+                <img
+                    src="/thalassa-icon.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="w-16 h-16 rounded-2xl animate-pulse"
+                />
+                <p className="text-[11px] font-bold uppercase tracking-wider text-sky-300">Thalassa</p>
             </div>
         );
     }
 
     const containerClasses =
         effectiveMode === 'night'
-            ? 'bg-black text-red-600'
+            ? 'bg-slate-950 text-red-600'
             : isLight
               ? 'bg-slate-200 text-slate-900'
-              : 'bg-black text-white';
+              : 'bg-slate-950 text-white';
 
     // Header Title Logic
     // Show the location name as-is when it's a real place name.
@@ -386,9 +392,7 @@ const App: React.FC = () => {
                     <div className="absolute inset-0 bg-gradient-to-b from-slate-900/90 via-slate-900/40 to-slate-900/90"></div>
                 </div>
             ) : (
-                <div
-                    className={`absolute inset-0 z-0 ${isLight ? 'bg-slate-200' : effectiveMode === 'night' ? 'bg-black' : 'bg-slate-950'}`}
-                ></div>
+                <div className={`absolute inset-0 z-0 ${isLight ? 'bg-slate-200' : 'bg-slate-950'}`}></div>
             )}
 
             {loading && <ProcessOverlay message={loadingMessage} />}
@@ -657,7 +661,7 @@ const App: React.FC = () => {
                     >
                         <main
                             id="main-content"
-                            className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-black'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
+                            className={`flex-grow relative flex flex-col ${isLight ? 'bg-slate-200' : 'bg-slate-950'} ${!showHeader ? 'pt-[max(2rem,env(safe-area-inset-top))]' : 'pt-0'} ${['settings', 'warnings'].includes(currentView) ? 'overflow-y-auto' : 'overflow-hidden'}`}
                         >
                             <ErrorBoundary boundaryName="MainContent">
                                 <Suspense fallback={<SkeletonDashboard />}>
@@ -675,9 +679,12 @@ const App: React.FC = () => {
                                                         {error ? (
                                                             <div className="p-8 bg-red-500/20 border border-red-500/30 rounded-2xl text-center max-w-lg mx-auto mt-20">
                                                                 <h3 className="text-xl font-bold text-red-200 mb-2">
-                                                                    Error
+                                                                    Couldn't update conditions
                                                                 </h3>
-                                                                <p className="text-white/80">{error}</p>
+                                                                <p className="text-white/80">
+                                                                    Check your connection and try again.
+                                                                </p>
+                                                                <p className="mt-2 text-xs text-white/40">{error}</p>
                                                                 <button
                                                                     aria-label="Retry loading weather data"
                                                                     onClick={() =>
@@ -685,7 +692,7 @@ const App: React.FC = () => {
                                                                             query || settings.defaultLocation || '',
                                                                         )
                                                                     }
-                                                                    className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                                                                    className="mt-6 px-6 py-2 bg-white/10 hover:bg-white/20 rounded-full transition-colors active:scale-95"
                                                                 >
                                                                     Retry
                                                                 </button>
@@ -870,7 +877,7 @@ const App: React.FC = () => {
                             <div
                                 className="absolute z-[601] pointer-events-auto flex items-center gap-1.5 px-2 py-1.5 bg-amber-500/15 border border-amber-500/25 rounded-lg backdrop-blur-md text-amber-400"
                                 style={{
-                                    top: '56px',
+                                    top: 'calc(env(safe-area-inset-top) + 8px)',
                                     left: '16px',
                                 }}
                                 title="Offline — using cached charts"
@@ -899,7 +906,7 @@ const App: React.FC = () => {
                         <div
                             className="absolute z-[601] pointer-events-auto flex items-center gap-2"
                             style={{
-                                top: '56px',
+                                top: 'calc(env(safe-area-inset-top) + 8px)',
                                 right: '16px',
                             }}
                         >
@@ -982,7 +989,7 @@ const App: React.FC = () => {
                             background: 'rgba(10, 15, 20, 0.95)',
                             backdropFilter: 'blur(10px)',
                             WebkitBackdropFilter: 'blur(10px)',
-                            borderColor: 'rgba(0, 230, 118, 0.1)',
+                            borderColor: 'rgba(56, 189, 248, 0.12)',
                         }}
                         aria-label="Main"
                     >

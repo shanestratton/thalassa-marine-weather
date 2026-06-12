@@ -288,7 +288,10 @@ export const RoutePlanner: React.FC<{
                             />
                         </div>
 
-                        <div className="absolute top-6 left-4 z-[2200]">
+                        <div
+                            className="absolute left-4 z-[2200]"
+                            style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
+                        >
                             <button
                                 onClick={() => {
                                     setIsMapOpen(false);
@@ -540,7 +543,7 @@ export const RoutePlanner: React.FC<{
                     <>
                         {/* Route summary overlay */}
                         <div className="absolute top-3 left-3 right-3 z-10 pointer-events-none">
-                            <div className="pointer-events-auto inline-flex items-center gap-3 px-4 py-2.5 rounded-xl bg-slate-900/90 border border-white/10 backdrop-blur-sm shadow-2xl">
+                            <div className="pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-1.5 w-full px-4 py-2.5 rounded-xl bg-slate-900/90 border border-white/10 backdrop-blur-sm shadow-2xl">
                                 <div className="flex items-center gap-2">
                                     <div className="w-2 h-2 rounded-full bg-emerald-400" />
                                     <span className="text-[11px] font-bold text-white truncate max-w-[120px]">
@@ -582,7 +585,7 @@ export const RoutePlanner: React.FC<{
                                 <button
                                     onClick={() => handlePlanWindow()}
                                     disabled={planningWindow}
-                                    className="px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-[11px] font-bold border border-violet-500/20 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                                    className="relative before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] px-2 py-0.5 rounded-full bg-violet-500/10 hover:bg-violet-500/20 text-violet-300 text-[11px] font-bold border border-violet-500/20 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
                                     aria-label="Plan optimal departure window"
                                     title="Find best departure time"
                                 >
@@ -600,7 +603,7 @@ export const RoutePlanner: React.FC<{
                                 {inshoreSweepAvailable && (
                                     <button
                                         onClick={() => setShowSweepSheet(true)}
-                                        className="px-2 py-0.5 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[11px] font-bold border border-teal-500/20 transition-colors inline-flex items-center gap-1"
+                                        className="relative before:absolute before:-inset-y-3 before:-inset-x-1 before:content-[''] px-2 py-0.5 rounded-full bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 text-[11px] font-bold border border-teal-500/20 transition-colors inline-flex items-center gap-1"
                                         aria-label="Sweep inshore departure times against tide and stream"
                                         title="Best time to leave (tide + stream)"
                                     >

@@ -553,6 +553,11 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
     if (!isOpen) return null;
 
+    // Nothing to draw until at least two trackworthy entries hydrate —
+    // updateTrackLayers bails below 2 as well, so the map is genuinely
+    // blank. Show a loading state instead of '0.0 NM · 0 pts'.
+    const isTrackLoading = sortedEntries.length < 2;
+
     // Stats. Distance = MAX cumulative, matching every other surface
     // (VoyageHeader, voyage cards) — the last-sorted entry is the
     // 'Voyage End' pin, which historically carried cumulative 0 and
@@ -610,10 +615,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                         <h2 className="text-sm font-bold text-white uppercase tracking-widest drop-shadow-lg">
                             Voyage Track
                         </h2>
-                        <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
-                            <span>{totalDistance} NM</span>
-                            <span>{sortedEntries.length} pts</span>
-                        </div>
+                        {!isTrackLoading && (
+                            <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
+                                <span>{totalDistance} NM</span>
+                                <span>{sortedEntries.length} pts</span>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -641,6 +648,18 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             <div className="relative flex-1 min-h-0">
                 <div ref={mapRef} className="absolute inset-0" />
 
+                {/* Loading overlay — entries still hydrating, nothing on the map yet */}
+                {isTrackLoading && (
+                    <div className="absolute inset-0 z-[1000] flex items-center justify-center pointer-events-none">
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-900/80 border border-white/10 shadow-xl">
+                            <div className="w-4 h-4 rounded-full border-2 border-sky-400/30 border-t-sky-400 animate-spin" />
+                            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                Loading track…
+                            </span>
+                        </div>
+                    </div>
+                )}
+
                 {/* ═══ FLOATING WEATHER HUD ═══ */}
                 {showHUD && currentEntry && (
                     <div className="absolute top-3 left-3 right-3 z-[1000] pointer-events-none">
@@ -661,21 +680,23 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                     <button
                                         aria-label="Show HUD"
                                         onClick={() => setShowHUD(false)}
-                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-white/60 hover:text-white transition-colors pointer-events-auto"
+                                        className="p-2.5 -m-2.5 text-white/60 hover:text-white transition-colors pointer-events-auto"
                                     >
-                                        <svg
-                                            className="w-3 h-3"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
+                                        <span className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10">
+                                            <svg
+                                                className="w-3 h-3"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={2.5}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M6 18L18 6M6 6l12 12"
+                                                />
+                                            </svg>
+                                        </span>
                                     </button>
                                 </div>
                             </div>
@@ -878,21 +899,23 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                                     <button
                                         aria-label="Active Waypoint"
                                         onClick={() => setActiveWaypoint(null)}
-                                        className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10 text-amber-300/60 hover:text-white transition-colors shrink-0"
+                                        className="p-2.5 -m-2.5 text-amber-300/60 hover:text-white transition-colors shrink-0"
                                     >
-                                        <svg
-                                            className="w-3 h-3"
-                                            fill="none"
-                                            viewBox="0 0 24 24"
-                                            stroke="currentColor"
-                                            strokeWidth={2.5}
-                                        >
-                                            <path
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                d="M6 18L18 6M6 6l12 12"
-                                            />
-                                        </svg>
+                                        <span className="w-5 h-5 flex items-center justify-center rounded-full bg-white/10">
+                                            <svg
+                                                className="w-3 h-3"
+                                                fill="none"
+                                                viewBox="0 0 24 24"
+                                                stroke="currentColor"
+                                                strokeWidth={2.5}
+                                            >
+                                                <path
+                                                    strokeLinecap="round"
+                                                    strokeLinejoin="round"
+                                                    d="M6 18L18 6M6 6l12 12"
+                                                />
+                                            </svg>
+                                        </span>
                                     </button>
                                 </div>
                             </div>
@@ -912,7 +935,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                     </div>
                     <div className="flex items-center gap-1">
                         <div className="w-2 h-2 rounded-full bg-amber-500"></div>
-                        <span className="text-[11px] text-slate-400">Wpt</span>
+                        <span className="text-[11px] text-slate-400">Turn</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <div
@@ -940,18 +963,20 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 <button
                     aria-label="Go back"
                     onClick={togglePlayback}
-                    className="w-6 h-6 flex items-center justify-center shrink-0 text-white/70 active:scale-90 transition-transform"
+                    className="p-2 -m-2 shrink-0 text-white/70 active:scale-90 transition-transform"
                 >
-                    {isPlaying ? (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                            <rect x="1" y="1" width="3" height="8" rx="0.5" />
-                            <rect x="6" y="1" width="3" height="8" rx="0.5" />
-                        </svg>
-                    ) : (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
-                            <polygon points="2,1 9,5 2,9" />
-                        </svg>
-                    )}
+                    <span className="w-6 h-6 flex items-center justify-center">
+                        {isPlaying ? (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                                <rect x="1" y="1" width="3" height="8" rx="0.5" />
+                                <rect x="6" y="1" width="3" height="8" rx="0.5" />
+                            </svg>
+                        ) : (
+                            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                                <polygon points="2,1 9,5 2,9" />
+                            </svg>
+                        )}
+                    </span>
                 </button>
                 <input
                     type="range"

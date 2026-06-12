@@ -95,11 +95,11 @@ const THEME: Record<
         icon: 'text-amber-300',
     },
     old: {
-        bg: 'bg-yellow-500/15',
-        border: 'border-yellow-500/40',
-        text: 'text-yellow-200',
-        dot: 'bg-yellow-400',
-        icon: 'text-yellow-300',
+        bg: 'bg-amber-500/10',
+        border: 'border-amber-500/25',
+        text: 'text-amber-200',
+        dot: 'bg-amber-400',
+        icon: 'text-amber-300',
     },
 };
 

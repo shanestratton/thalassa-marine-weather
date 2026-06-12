@@ -14,20 +14,20 @@ import { resolveEffectiveVessel } from '../utils/defaultVessel';
 import { vesselDraftMetres } from '../services/units';
 
 export const LOADING_PHASES = [
-    'Querying Hydrographic Data...',
-    'Analyzing Tidal Streams...',
-    'Checking Notices to Mariners...',
-    'Plotting Waypoints...',
-    'Calculating ETAs...',
-    'Checking Depth Clearances...',
-    'Verifying Air Draft...',
-    'Route Optimization...',
-    'Weather Routing...',
-    'Checking Safety Constraints...',
-    'Reviewing Pilotage Notes...',
-    'Generating Passage Plan...',
-    'Finalizing Route...',
-    'Completing Analysis...',
+    'Reading the charts…',
+    'Reading tidal streams…',
+    'Checking notices to mariners…',
+    'Plotting waypoints…',
+    'Working out ETAs…',
+    'Checking depth clearances…',
+    'Checking air draft…',
+    'Optimising the route…',
+    'Weighing the weather…',
+    'Checking safety margins…',
+    'Reviewing pilotage notes…',
+    'Drafting the passage plan…',
+    'Finalising the route…',
+    'Nearly there…',
 ];
 
 export const useVoyageForm = (onTriggerUpgrade: () => void) => {
@@ -774,7 +774,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                     });
             }
         } catch (err: unknown) {
-            setError(getErrorMessage(err) || 'Calculation Systems Failure');
+            setError(getErrorMessage(err) || "Couldn't plot that passage — check signal and try again.");
             // If the pipeline aborted before kicking off enhancements
             // we never emit the start event; if it failed mid-way the
             // setTimeout owner is responsible for emitting :end. This
@@ -1000,7 +1000,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             );
             setWindowScenarios(final);
         } catch (err) {
-            setError(getErrorMessage(err) || 'Departure window planning failed.');
+            setError(getErrorMessage(err) || "Couldn't run the departure sweep — try again shortly.");
         } finally {
             window.removeEventListener('thalassa:departure-window-progress', progressHandler);
             setPlanningWindow(false);

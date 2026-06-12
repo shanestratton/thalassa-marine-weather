@@ -30,6 +30,7 @@ import {
 } from '../../services/routing/DepartureSweepInshore';
 import type { LonLat } from '../../services/routing/TideAwareAnnotator';
 import { createLogger } from '../../utils/createLogger';
+import { triggerHaptic } from '../../utils/system';
 
 const log = createLogger('DepartureSweepSheet');
 
@@ -208,7 +209,7 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 type="button"
                 aria-label="Close departure sweep panel"
                 onClick={onClose}
-                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
             />
 
             <div className="relative w-full max-w-2xl max-h-[90vh] flex flex-col bg-slate-950 border-t border-x border-white/10 rounded-t-3xl shadow-2xl animate-in slide-in-from-bottom duration-300">
@@ -295,10 +296,22 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                 )}
 
                 {/* Options list */}
-                <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-5 pt-2">
+                <div
+                    className="flex-1 min-h-0 overflow-y-auto px-3 pt-2"
+                    style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+                >
+                    {loading && (
+                        <ul className="space-y-2">
+                            {Array.from({ length: 5 }, (_, i) => (
+                                <li key={i}>
+                                    <div className="rounded-xl border border-white/10 bg-white/[0.04] h-[52px] animate-pulse" />
+                                </li>
+                            ))}
+                        </ul>
+                    )}
                     {!loading && options.length === 0 && (
                         <div className="px-3 py-12 text-center text-xs text-slate-500">
-                            No inshore route polyline to sweep — calculate a route first.
+                            No inshore route to sweep — plan a route first.
                         </div>
                     )}
                     <ul className="space-y-2">
@@ -310,12 +323,17 @@ export const DepartureSweepSheet: React.FC<DepartureSweepSheetProps> = ({
                                     <button
                                         type="button"
                                         onClick={() => {
+                                            triggerHaptic('medium');
                                             setSelectedIdx(idx);
                                             onAccept(o.departMs);
                                         }}
                                         aria-label={`Select departure ${fmtTime(o.departMs)}`}
                                         className={`w-full text-left rounded-xl border ${style.border} ${style.bg} px-3 py-2.5 transition-all hover:bg-white/5 active:scale-[0.98] ${
-                                            isBest ? 'ring-1 ring-emerald-400/40' : ''
+                                            idx === selectedIdx
+                                                ? 'ring-1 ring-sky-400/60'
+                                                : isBest
+                                                  ? 'ring-1 ring-emerald-400/40'
+                                                  : ''
                                         }`}
                                     >
                                         <div className="flex items-center justify-between gap-3">

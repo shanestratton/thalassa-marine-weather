@@ -27,6 +27,7 @@
  * uplift pass after the 68/100 UX score audit.
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { createLogger } from '../../utils/createLogger';
 import { triggerHaptic } from '../../utils/system';
 import { useDeviceClass, pickByDevice } from '../../utils/useDeviceClass';
 import {
@@ -39,6 +40,8 @@ import {
     CheckIcon,
     AnchorIcon,
 } from '../Icons';
+
+const log = createLogger('ChartModes');
 
 export type ChartMode = 'day-sail' | 'offshore' | 'storm-watch' | 'charts-only' | 'clear' | 'custom';
 
@@ -213,7 +216,8 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
             const result = await props.onPlanEncRoute();
             setEncLastResult(result.summary);
         } catch (err) {
-            setEncLastResult(`crash: ${err instanceof Error ? err.message : String(err)}`);
+            log.error('ENC route crashed:', err);
+            setEncLastResult('Routing failed — try again');
         } finally {
             setEncBusy(false);
         }

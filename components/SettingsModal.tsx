@@ -174,6 +174,7 @@ const MetricInput = ({
             >
                 <input
                     type="number"
+                    inputMode="decimal"
                     step="0.1"
                     value={localStr}
                     onChange={handleChange}
@@ -787,7 +788,7 @@ export const SettingsView: React.FC<SettingsViewProps> = React.memo(
                                         type="button"
                                         onClick={() => setTabQuery('')}
                                         aria-label="Clear search"
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 min-w-[44px] min-h-[44px] rounded-full bg-white/10 hover:bg-white/15 flex items-center justify-center text-slate-300"
                                     >
                                         <svg
                                             className="w-3.5 h-3.5"
