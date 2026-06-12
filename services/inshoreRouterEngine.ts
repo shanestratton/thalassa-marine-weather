@@ -3701,20 +3701,52 @@ function applyLeadingLineApproach(
     // Divert at the route vertex nearest the seaward anchor (never the dest
     // itself). If the route never comes within MAX_BRIDGE_M of the anchor, the
     // leads run the wrong way for this passage → leave the route alone.
+    //
+    // SPLICE-JUNCTION GUARD (field artefact 2026-06-13, Newport approach,
+    // ROUTING_COLLAB A-23/26: a ±171° spike-and-return at idx 148-150).
+    // Nearest-vertex divert had NO direction discipline: when the route's
+    // tail already sits ON the lead axis between anchor and dest, the
+    // splice yanked it BACKWARD to the anchor and ran forward again —
+    // out, ~180° turn, back. Both splice junctions (route→anchor at the
+    // divert, divert→anchor→turn at the anchor) now obey the same
+    // |turn| ≤ 120° family as buildLeadingApproach's internal dog-leg
+    // guard (cos > −0.5). Candidates are tried nearest-first; a route
+    // already lined up past the anchor finds NO compliant divert and the
+    // approach is skipped — it was already doing what the leads ask.
     const MAX_BRIDGE_M = 1500;
-    let divertIdx = -1;
-    let bestD = MAX_BRIDGE_M;
+    const APPROACH_TURN_MIN_COS = -0.5; // |turn| ≤ 120° at every splice junction
+    const turnCos = (a: LatLon, b: LatLon, c: LatLon): number => {
+        const mPerLon = mPerDegLon(b.lat);
+        const ux = (b.lon - a.lon) * mPerLon;
+        const uy = (b.lat - a.lat) * M_PER_DEG_LAT;
+        const vx = (c.lon - b.lon) * mPerLon;
+        const vy = (c.lat - b.lat) * M_PER_DEG_LAT;
+        const lu = Math.hypot(ux, uy);
+        const lv = Math.hypot(vx, vy);
+        if (lu < 1 || lv < 1) return 1; // degenerate legs can't reverse
+        return (ux * vx + uy * vy) / (lu * lv);
+    };
+    const candidates: Array<{ i: number; d: number }> = [];
     for (let i = 0; i < poly.length - 1; i++) {
         const d = llDistM(poly[i], approach.anchor);
-        if (d < bestD) {
-            bestD = d;
+        if (d < MAX_BRIDGE_M) candidates.push({ i, d });
+    }
+    candidates.sort((a, b) => a.d - b.d);
+    let divertIdx = -1;
+    for (const { i } of candidates) {
+        const atDivert = i === 0 ? 1 : turnCos(poly[i - 1], poly[i], approach.anchor);
+        const atAnchor = turnCos(poly[i], approach.anchor, approach.chain[1]);
+        if (atDivert >= APPROACH_TURN_MIN_COS && atAnchor >= APPROACH_TURN_MIN_COS) {
             divertIdx = i;
+            break;
         }
     }
     if (divertIdx < 0) {
         if (ENGINE_DEBUG)
             engineLog.warn(
-                `leading-line approach: SKIP — route never within ${MAX_BRIDGE_M}m of anchor ${approach.anchor.lat.toFixed(4)},${approach.anchor.lon.toFixed(4)}`,
+                candidates.length === 0
+                    ? `leading-line approach: SKIP — route never within ${MAX_BRIDGE_M}m of anchor ${approach.anchor.lat.toFixed(4)},${approach.anchor.lon.toFixed(4)}`
+                    : `leading-line approach: SKIP — every divert candidate (${candidates.length}) would splice a >120° reversal (route already lined up past the anchor)`,
             );
         return passthrough;
     }
