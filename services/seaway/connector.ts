@@ -239,14 +239,21 @@ function* bresenhamCells(x0: number, y0: number, x1: number, y1: number): Genera
  * (default 3 — half-cell rasterisation jitter, not a re-route; a portal
  * that needs more than that should have been deep-snapped at synthesis).
  * Results come back in input order.
+ *
+ * `blockedIdx` is the Phase 13 re-solve hook (crossLine.ts): extra cell
+ * indices the expansion must treat as blocked — an EXCLUSION SET, never
+ * a grid mutation (NavGrids are shared via the engine cache). It bounds
+ * expansion only; snapping and budget probes ignore it (a wing cell is
+ * a routing prohibition, not charted land).
  */
 export function connectToTargets(
     grid: NavGrid,
     origin: SeawayLatLon,
     targets: ConnectorTarget[],
-    opts: { snapRadiusCells?: number } = {},
+    opts: { snapRadiusCells?: number; blockedIdx?: ReadonlySet<number> } = {},
 ): ConnectorSearch {
     const snapR = opts.snapRadiusCells ?? 3;
+    const blockedIdx = opts.blockedIdx;
     const w = grid.width;
     const h = grid.height;
     const unreached = (t: ConnectorTarget, budgetM = Infinity): ConnectorResult => ({
@@ -377,6 +384,7 @@ export function connectToTargets(
             const nIdx = ny * w + nx;
             const cellDepth = grid.cells[nIdx];
             if (Number.isNaN(cellDepth)) continue; // blocked
+            if (blockedIdx !== undefined && blockedIdx.has(nIdx)) continue; // Phase 13 re-solve exclusion
             const cellPreferred = grid.preferred[nIdx] === 1;
             const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
             const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) + exitPenalty;
