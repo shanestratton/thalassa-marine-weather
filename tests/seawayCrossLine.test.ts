@@ -21,7 +21,14 @@
 import { describe, expect, it } from 'vitest';
 import { aStar, chainCostM, type NavGrid } from '../services/inshoreRouterEngine';
 import { connectToTargets, type ConnectorTarget } from '../services/seaway/connector';
-import { CROSS_LINE_WING_WIDTHS, validateAgainstCrossLines, wingBlockedCells } from '../services/seaway/crossLine';
+import {
+    CROSS_LINE_WING_WIDTHS,
+    halfGateKeepOuts,
+    keepOutBlockedCells,
+    validateAgainstCrossLines,
+    validateAgainstKeepOuts,
+    wingBlockedCells,
+} from '../services/seaway/crossLine';
 import type { GateNode, SeawayLatLon } from '../services/seaway/types';
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -186,5 +193,100 @@ describe('cross-line re-solve — validate → block wing → re-search converge
 
         // The shared cached grid was NEVER mutated by blocking.
         expect(g.cells).toEqual(cellsBefore);
+    });
+});
+
+describe('half-gate keep-outs (§3/§4 — pass seaward of a solo mark)', () => {
+    const SOLO_MID: SeawayLatLon = { lat: -27.2, lon: 165.3 };
+    const half = (id: string): GateNode => ({
+        id,
+        channelKey: 'H',
+        station: 1,
+        portMark: { lat: SOLO_MID.lat, lon: SOLO_MID.lon, side: 'port', source: 'chart' },
+        mid: SOLO_MID,
+        buoyageBearingDeg: 90,
+        confidence: 0.95,
+    });
+    // A land vertex 400 m NORTH of the mark — shore side is north.
+    const LAND: [number, number][] = [[SOLO_MID.lon, SOLO_MID.lat + 400 * M_LAT]];
+
+    it('infers the shore side from the nearest LNDARE vertex; reach = min(shoreDist, cap)', () => {
+        const kos = halfGateKeepOuts([half('H/h1')], LAND);
+        expect(kos).toHaveLength(1);
+        expect(kos[0].gateId).toBe('H/h1');
+        // Segment points north, 400 m (shoreDist < 800 cap).
+        expect(kos[0].toward.lat).toBeCloseTo(SOLO_MID.lat + 400 * M_LAT, 6);
+        expect(kos[0].toward.lon).toBeCloseTo(SOLO_MID.lon, 6);
+    });
+
+    it('no land within 5 km ⇒ no keep-out (orientation unreliable, same fallback as the orchestrator)', () => {
+        const farLand: [number, number][] = [[SOLO_MID.lon, SOLO_MID.lat + 6000 * M_LAT]];
+        expect(halfGateKeepOuts([half('H/h2')], farLand)).toHaveLength(0);
+        expect(halfGateKeepOuts([half('H/h3')], [])).toHaveLength(0);
+    });
+
+    it('full gates produce no keep-out (they have cross-lines instead)', () => {
+        expect(halfGateKeepOuts([G], LAND)).toHaveLength(0);
+    });
+
+    it("crossing between mark and shore ⇒ 'shore-side' violation; passing seaward ⇒ clean", () => {
+        const kos = halfGateKeepOuts([half('H/h4')], LAND);
+        const shoreward: SeawayLatLon[] = [
+            { lat: SOLO_MID.lat + 200 * M_LAT, lon: 165.29 },
+            { lat: SOLO_MID.lat + 200 * M_LAT, lon: 165.31 },
+        ];
+        const v = validateAgainstKeepOuts(shoreward, kos);
+        expect(v).toHaveLength(1);
+        expect(v[0].side).toBe('shore-side');
+        const seaward: SeawayLatLon[] = [
+            { lat: SOLO_MID.lat - 200 * M_LAT, lon: 165.29 },
+            { lat: SOLO_MID.lat - 200 * M_LAT, lon: 165.31 },
+        ];
+        expect(validateAgainstKeepOuts(seaward, kos)).toHaveLength(0);
+    });
+
+    it('re-solve: blocking the keep-out pushes the connector seaward of the mark', () => {
+        // Deep grid; solo port mark 100 m north of the straight
+        // origin→target line, land vertex 400 m further north. The
+        // straight line passes 100 m SHOREWARD-side... no: mark at +100,
+        // shore at +500 — the keep-out spans +100..+500; the straight
+        // line at 0 passes seaward already. Flip: put the mark SOUTH of
+        // the line (-100) with land far north (+500): keep-out runs from
+        // -100 up to +300, crossing the route line — pass 1 violates,
+        // blocking re-solves BELOW the mark (seaward = away from land).
+        const g = makeGrid(120, 80);
+        const origin = cellLatLon(g, 10, 40);
+        const targetCell = { x: 110, y: 40 };
+        const markPos: SeawayLatLon = { lat: origin.lat - 100 * M_LAT, lon: cellLatLon(g, 60, 40).lon };
+        const HG: GateNode = {
+            id: 'H/h5',
+            channelKey: 'H',
+            station: 1,
+            portMark: { ...markPos, side: 'port', source: 'chart' },
+            mid: markPos,
+            buoyageBearingDeg: 90,
+            confidence: 0.95,
+        };
+        const land: [number, number][] = [[markPos.lon, markPos.lat + 500 * M_LAT]];
+        const kos = halfGateKeepOuts([HG], land);
+        expect(kos).toHaveLength(1);
+
+        const target: ConnectorTarget = { id: 't', kind: 'gate-mid', ...cellLatLon(g, targetCell.x, targetCell.y) };
+        const first = connectToTargets(g, origin, [target]);
+        const path1 = first.results[0].path.map((c) => cellLatLon(g, c.x, c.y));
+        expect(validateAgainstKeepOuts(path1, kos)).not.toHaveLength(0);
+
+        const blocked = new Set<number>();
+        for (const idx of keepOutBlockedCells(g, kos[0])) blocked.add(idx);
+        const solved = connectToTargets(g, origin, [target], { blockedIdx: blocked });
+        expect(solved.results[0].reached).toBe(true);
+        const path2 = solved.results[0].path.map((c) => cellLatLon(g, c.x, c.y));
+        expect(validateAgainstKeepOuts(path2, kos)).toHaveLength(0);
+        // Re-solved SEAWARD: at the mark's longitude the route sits south
+        // of the mark (away from the land vertex).
+        const atMark = path2.reduce((best, p) =>
+            Math.abs(p.lon - markPos.lon) < Math.abs(best.lon - markPos.lon) ? p : best,
+        );
+        expect(atMark.lat).toBeLessThan(markPos.lat);
     });
 });

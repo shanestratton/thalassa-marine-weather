@@ -72,7 +72,7 @@ import {
     type ConnectorTarget,
     type SeawayPortal,
 } from './connector';
-import { validateAgainstCrossLines } from './crossLine';
+import { flattenLandVertices, halfGateKeepOuts, validateAgainstCrossLines, validateAgainstKeepOuts } from './crossLine';
 import { splitMarkFeatures, type PointFeatureLike } from './markSplit';
 import { compileSeawayGraph } from './graphCompiler';
 import { gateDistM } from './gateExtractor';
@@ -463,9 +463,16 @@ export function shadowCompare(
             .filter((n) => n.isGate)
             .map((n) => gatesById.get(n.id)!.channelKey),
     );
-    const channelFullGates = graph.gates.filter((g) => pathChannelKeys.has(g.channelKey) && g.portMark && g.stbdMark);
+    const channelGates = graph.gates.filter((g) => pathChannelKeys.has(g.channelKey));
+    const channelFullGates = channelGates.filter((g) => g.portMark && g.stbdMark);
     const cl = validateAgainstCrossLines(line, channelFullGates);
-    const gatesViolated = new Set(cl.violations.map((v) => v.gateId));
+    // Half-gates of the traversed channels carry §3 keep-out segments
+    // (mark → shore); crossing one is a 'shore-side' violation counted
+    // exactly like a wing crossing.
+    const keepOuts = halfGateKeepOuts(channelGates, flattenLandVertices(layers.LNDARE?.features ?? []));
+    const koViolations = validateAgainstKeepOuts(line, keepOuts);
+    const allViolations = [...cl.violations, ...koViolations];
+    const gatesViolated = new Set(allViolations.map((v) => v.gateId));
     const gatesCorrect = new Set(cl.crossings.map((c) => c.gateId).filter((id) => !gatesViolated.has(id)));
     const interactions = gatesCorrect.size + gatesViolated.size;
 
@@ -478,7 +485,7 @@ export function shadowCompare(
             gateCount: nodePath.slice(1, -1).filter((i) => nodes[i].isGate).length,
             channelGatesTotal: channelFullGates.length,
             gateCompliance: interactions > 0 ? gatesCorrect.size / interactions : null,
-            crossLineViolations: cl.violations.length,
+            crossLineViolations: allViolations.length,
             pctOnGraph: lengthM > 0 ? onGraphM / lengthM : 0,
             detourRatio: directLengthM > 0 ? lengthM / directLengthM : Infinity,
             entryNodeId: entryNode.id,
