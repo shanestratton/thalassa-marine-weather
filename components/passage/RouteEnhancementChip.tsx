@@ -56,6 +56,17 @@ export const RouteEnhancementChip: React.FC = () => {
         return () => clearInterval(id);
     }, [active]);
 
+    // Self-dismiss watchdog: if the end event never fires (a pipeline
+    // await stalled behind a dead socket — CapacitorHttp ignores
+    // AbortSignal on device), hide the chip after 3 minutes instead of
+    // spinning forever. The normal end event flips `active` and the
+    // cleanup clears the timer; ditto on unmount.
+    useEffect(() => {
+        if (!active) return;
+        const id = setTimeout(() => setActive(false), 180_000);
+        return () => clearTimeout(id);
+    }, [active]);
+
     if (!active) return null;
 
     return (

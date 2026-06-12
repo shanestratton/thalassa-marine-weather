@@ -7,6 +7,7 @@ import { formatLocationInput } from '../utils';
 import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/logger';
+import { withTimeout } from '../utils/deadline';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
@@ -376,17 +377,31 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
             // than a code-path issue. Both lines side-by-side make the
             // diagnosis trivial.
             console.warn(`[useVoyageForm] computeVoyagePlan input: origin="${fmtOrigin}" destination="${fmtDest}"`);
-            const result = await computeVoyagePlan(
-                fmtOrigin,
-                fmtDest,
-                vessel,
-                departureDate,
-                vesselUnits,
-                generalUnits,
-                fmtVia,
-                undefined,
-                userLocation,
+            // 45 s wall-clock watchdog: the geocoding chain inside
+            // computeVoyagePlan (Supabase ports → Mapbox → Nominatim →
+            // Gemini, sequential fallbacks) has no per-fetch bounds and
+            // AbortSignal is a no-op under CapacitorHttp (see
+            // utils/deadline.ts) — on stalled marine LTE the Calculate
+            // spinner cycled LOADING_PHASES forever. Timing out into the
+            // catch below gives the user a real error + working retry.
+            const result = await withTimeout(
+                computeVoyagePlan(
+                    fmtOrigin,
+                    fmtDest,
+                    vessel,
+                    departureDate,
+                    vesselUnits,
+                    generalUnits,
+                    fmtVia,
+                    undefined,
+                    userLocation,
+                ),
+                null,
+                45_000,
             );
+            if (!result) {
+                throw new Error('Route calculation timed out — check your connection and try again.');
+            }
 
             // ── Show the plan IMMEDIATELY — don't wait for enhancements ──
             saveIfActive(result);
@@ -447,10 +462,19 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         // entire bay. vesselDraftMetres() is the single
                         // conversion authority (services/units.ts).
                         const draftMeters = vesselDraftMetres(vessel);
-                        const inshoreRes = await tryInshoreRoute(
-                            result.originCoordinates,
-                            result.destinationCoordinates,
-                            draftMeters,
+                        // 90 s wall-clock bound (field bug 2026-06-12):
+                        // tryInshoreRoute awaits an untimed nav-markers
+                        // fetch that can stall on marine LTE and wedge
+                        // the enhancement pipeline forever. Timeout flows
+                        // into the existing failure branch → amber
+                        // "Inshore Routing Skipped" accordion.
+                        const inshoreRes = await withTimeout(
+                            tryInshoreRoute(result.originCoordinates, result.destinationCoordinates, draftMeters),
+                            {
+                                error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
+                                code: 'timeout',
+                            },
+                            90_000,
                         );
                         if (inshoreRes && 'polyline' in inshoreRes) {
                             // LAND BACKSTOP (2026-06-12, Newport→Mooloolaba field

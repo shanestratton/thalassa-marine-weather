@@ -44,7 +44,7 @@ import { getConnectionState, onConnectionChange } from '../../services/Connectio
 import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
 import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
-import { usePassagePlanner } from './usePassagePlanner';
+import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
 // useRouteNudge removed 2026-05-05 — long-press-to-drag the route line was
 // half-implemented (the dispatched 'route-nudge' just set arrival to the
 // via-point, dropping the actual destination) and unreliable in practice.
@@ -192,6 +192,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         frontSize?: number;
         phase?: string;
     } | null>(null);
+    const [passageNotice, setPassageNotice] = useState<PassageNotice | null>(null);
     const [showConsensus, setShowConsensus] = useState(false);
     const [consensusData, setConsensusData] = useState<ConsensusMatrixData | null>(null);
     const playheadMarkerRef = useRef<mapboxgl.Marker | null>(null);
@@ -284,6 +285,30 @@ export const MapHub: React.FC<MapHubProps> = ({
         return () => {
             window.removeEventListener('thalassa:isochrone-progress', onProgress);
             window.removeEventListener('thalassa:isochrone-complete', onComplete);
+        };
+    }, []);
+
+    // Passage notices — refusals, chart-gap rejections, too-short bails.
+    // Field bug 2026-06-12: these outcomes were dispatched (or only
+    // logged) with no listener, so the map stayed blank with zero
+    // feedback — indistinguishable from a hang.
+    useEffect(() => {
+        const onNotice = (e: Event) => {
+            setPassageNotice((e as CustomEvent).detail ?? null);
+        };
+        const onTooShort = (e: Event) => {
+            const d = (e as CustomEvent).detail;
+            setPassageNotice({
+                severity: 'warn',
+                title: `Route too short for passage planning (${d?.distanceNM ?? '?'} NM)`,
+                message: d?.message ?? 'Try Community Routes for local harbour exits and coastal legs.',
+            });
+        };
+        window.addEventListener('thalassa:passage-notice', onNotice);
+        window.addEventListener('thalassa:passage-too-short', onTooShort);
+        return () => {
+            window.removeEventListener('thalassa:passage-notice', onNotice);
+            window.removeEventListener('thalassa:passage-too-short', onTooShort);
         };
     }, []);
 
@@ -1537,6 +1562,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 <PassageBanner
                     passage={passage}
                     isoProgress={isoProgress}
+                    passageNotice={passageNotice}
                     embedded={embedded}
                     isPinView={isPinView}
                     deviceMode={deviceMode}

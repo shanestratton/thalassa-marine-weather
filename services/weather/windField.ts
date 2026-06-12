@@ -12,6 +12,7 @@
 
 import { getOpenMeteoKey } from './keys';
 import { piCache } from '../PiCacheService';
+import { withDeadline } from '../../utils/deadline';
 
 const WIND_FIELD_HOURS = 48;
 const MAX_SPEED = 60.0; // m/s — clamp range for texture encoding
@@ -112,7 +113,8 @@ export async function fetchWindGrid(
 
         // Route through Pi Cache when available (6h TTL matches GFS model runs)
         const fetchUrl = piCache.passthroughUrl(directUrl, 6 * 60 * 60 * 1000, 'wind-field') || directUrl;
-        const response = await fetch(fetchUrl);
+        // JS-level deadline — AbortSignal is a no-op under CapacitorHttp (see utils/deadline.ts)
+        const response = await withDeadline(fetch(fetchUrl), 30_000, 'open-meteo-wind-grid');
         if (!response.ok) return null;
 
         const data = await response.json();
@@ -264,14 +266,18 @@ async function _doFetchGlobal(): Promise<WindGrid | null> {
         const url = `${supabaseUrl}/functions/v1/fetch-wind-grid`;
         const body = { north: 90, south: -90, east: 180, west: -180 };
 
-        const resp = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
-            },
-            body: JSON.stringify(body),
-        });
+        const resp = await withDeadline(
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+                },
+                body: JSON.stringify(body),
+            }),
+            30_000,
+            'global-wind-grib',
+        );
 
         if (!resp.ok) {
             return _doFetchGlobalOpenMeteo();
@@ -340,7 +346,7 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
 
                 const url = `${baseUrl}?latitude=${latParam}&longitude=${lonParam}&hourly=wind_speed_10m,wind_direction_10m&forecast_hours=${GLOBAL_GRID_HOURS}&timezone=auto${keyParam}`;
 
-                const response = await fetch(url);
+                const response = await withDeadline(fetch(url), 30_000, 'open-meteo-global-batch');
                 if (!response.ok) {
                     return;
                 }

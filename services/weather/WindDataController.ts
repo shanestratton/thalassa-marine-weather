@@ -18,6 +18,7 @@ import { fetchWindGrid, fetchGlobalWindField } from './windField';
 import { loadLocalWindFile } from './GribWindParser';
 import { WindStore } from '../../stores/WindStore';
 import { piCache } from '../PiCacheService';
+import { withDeadline } from '../../utils/deadline';
 const log = createLogger('WindCtrl');
 
 // ── Bounds Cache (avoid redundant re-fetches) ──
@@ -172,19 +173,24 @@ export const WindDataController = {
             const usePi = piCache.isAvailable();
             const edgeUrl = usePi ? `${piCache.baseUrl}/api/grib/wind-grid` : directUrl;
 
-            const res = await fetch(edgeUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(usePi || !supabaseKey
-                        ? {}
-                        : {
-                              apikey: supabaseKey,
-                              Authorization: `Bearer ${supabaseKey}`,
-                          }),
-                },
-                body: JSON.stringify({ north, south, east, west }),
-            });
+            // JS-level deadline — AbortSignal is a no-op under CapacitorHttp (see utils/deadline.ts)
+            const res = await withDeadline(
+                fetch(edgeUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...(usePi || !supabaseKey
+                            ? {}
+                            : {
+                                  apikey: supabaseKey,
+                                  Authorization: `Bearer ${supabaseKey}`,
+                              }),
+                    },
+                    body: JSON.stringify({ north, south, east, west }),
+                }),
+                30_000,
+                'fetch-wind-grid',
+            );
 
             if (res.ok) {
                 const buffer = await res.arrayBuffer();
