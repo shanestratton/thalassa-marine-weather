@@ -27,7 +27,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Feature, FeatureCollection } from 'geojson';
 import { routeInshore, type RouteRequest } from '../services/inshoreRouterEngine';
-import { shadowCompare, shadowSummary } from '../services/seaway/seawayRouter';
+import { applyInnerPortalYield, shadowCompare, shadowSummary } from '../services/seaway/seawayRouter';
+import type { SeawayPortal } from '../services/seaway/connector';
 
 // ── Synthetic chart helpers (seamanship-suite conventions) ──────────
 
@@ -117,8 +118,11 @@ describe('shadow — on-axis channel: graph route exists, compliant, within the 
         const g = report.graph;
         expect(g).not.toBeNull();
         if (!g) return;
-        // §3 promotion-gate metrics, on this fixture's easy geometry:
-        expect(g.gateCompliance).toBe(1); // every full gate crossed between its marks
+        // §3 promotion-gate metrics, on this fixture's easy geometry.
+        // Compliance is MEASURED via cross-lines since Phase 13: all 8
+        // spans crossed between the marks, zero wing crossings.
+        expect(g.gateCompliance).toBe(1);
+        expect(g.crossLineViolations).toBe(0);
         expect(g.detourRatio).toBeLessThanOrEqual(1.35); // the §3 cap
         expect(g.detourRatio).toBeLessThan(1.1); // ...and here the channel IS the direct line
         expect(g.pctOnGraph).toBeGreaterThan(0.3); // ~3.5 km of channel in a ~9 km route
@@ -209,5 +213,41 @@ describe('shadow — corridors without marks or without access', () => {
         expect(report.reason).toBe('no-entry');
         expect(report.gatesTotal).toBe(4);
         expect(shadowSummary(report, direct.distanceNM)).toContain('no-entry');
+    });
+});
+
+describe('inner-portal yield (§3 Phase 13)', () => {
+    const portal = (
+        id: string,
+        kind: SeawayPortal['kind'],
+        channelKeys: string[],
+        end?: 'seaward' | 'inner',
+    ): SeawayPortal => ({
+        id,
+        kind,
+        lat: -27,
+        lon: 163,
+        channelKeys,
+        end,
+        snapped: true,
+    });
+
+    it("drops an end:'inner' portal when a junction serves the same channel; seaward and unrelated portals stay", () => {
+        const portals = [
+            portal('A/portal-seaward', 'portal', ['A'], 'seaward'),
+            portal('A/portal-inner', 'portal', ['A'], 'inner'),
+            portal('junction:A+B', 'junction', ['A', 'B']),
+            portal('C/portal-inner', 'portal', ['C'], 'inner'), // no junction owns C
+        ];
+        const kept = applyInnerPortalYield(portals).map((p) => p.id);
+        expect(kept).toContain('A/portal-seaward');
+        expect(kept).toContain('junction:A+B');
+        expect(kept).toContain('C/portal-inner');
+        expect(kept).not.toContain('A/portal-inner');
+    });
+
+    it('no junctions ⇒ nothing yields', () => {
+        const portals = [portal('A/portal-inner', 'portal', ['A'], 'inner')];
+        expect(applyInnerPortalYield(portals)).toHaveLength(1);
     });
 });
