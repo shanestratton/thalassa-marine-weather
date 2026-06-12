@@ -96,6 +96,7 @@ function MetricInput({
             <div className="flex gap-1.5 min-w-0">
                 <input
                     type="number"
+                    inputMode="decimal"
                     value={localVal}
                     onFocus={() => {
                         isFocusedRef.current = true;

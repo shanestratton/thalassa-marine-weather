@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { triggerHaptic } from '../../utils/system';
 
 interface SlideToActionProps {
     /** Text shown on the track (fades as thumb slides) */
@@ -110,6 +111,7 @@ export const SlideToAction: React.FC<SlideToActionProps> = ({
         const maxTravel = rect.width - THUMB_SIZE;
         const ratio = slideX / maxTravel;
         if (ratio >= SLIDE_THRESHOLD) {
+            triggerHaptic('medium');
             onConfirm();
         }
         setSlideX(0);

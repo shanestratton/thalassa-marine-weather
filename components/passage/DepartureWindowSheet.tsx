@@ -18,6 +18,7 @@
 
 import React from 'react';
 import type { DepartureScenario } from '../../services/departureWindow';
+import { triggerHaptic } from '../../utils/system';
 
 interface VerdictStyle {
     bg: string;
@@ -154,7 +155,7 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                             onClick={onClose}
                             type="button"
                             aria-label="Close"
-                            className="shrink-0 p-2 -mr-2 -mt-1 text-slate-400 hover:text-white"
+                            className="shrink-0 p-3 -m-1 text-slate-400 hover:text-white"
                         >
                             <svg
                                 className="w-5 h-5"
@@ -201,7 +202,10 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                 )}
 
                 {/* Scenarios list */}
-                <div className="flex-1 min-h-0 overflow-y-auto px-3 pb-5 pt-2">
+                <div
+                    className="flex-1 min-h-0 overflow-y-auto px-3 pt-2"
+                    style={{ paddingBottom: 'max(20px, env(safe-area-inset-bottom))' }}
+                >
                     {sorted.length === 0 && planning && (
                         <div className="px-3 py-12 text-center text-xs text-slate-500">
                             Running first scenario… results will populate live as each completes.
@@ -218,7 +222,11 @@ export const DepartureWindowSheet: React.FC<DepartureWindowSheetProps> = ({
                                 <li key={s.departureTime}>
                                     <button
                                         type="button"
-                                        onClick={() => s.routeFound && onAccept(s)}
+                                        onClick={() => {
+                                            if (!s.routeFound) return;
+                                            triggerHaptic('light');
+                                            onAccept(s);
+                                        }}
                                         disabled={!s.routeFound}
                                         aria-label={`Select departure ${formatDepartureRow(s.departureTime)}`}
                                         className={`w-full text-left rounded-xl border ${style.border} ${style.bg} px-3 py-3 transition-all ${

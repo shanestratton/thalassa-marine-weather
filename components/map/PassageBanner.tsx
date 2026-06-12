@@ -51,12 +51,13 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
     isPinView,
     deviceMode: _deviceMode,
 }) => {
-    const [passageToast, setPassageToast] = useState<string | null>(null);
+    const [passageToast, setPassageToast] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
 
     if (!passage.showPassage || embedded || isPinView) return null;
 
     // ── GPX Export ──
     const handleExportGPX = async () => {
+        triggerHaptic('light');
         try {
             let gpx: string;
             if (passage.isoResultRef.current && passage.turnWaypointsRef.current.length) {
@@ -79,13 +80,14 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             await shareGPXFile(gpx, `passage_${passage.departure!.name}_to_${passage.arrival!.name}.gpx`);
         } catch (err) {
             log.error('GPX Export failed:', err);
-            setPassageToast('Export failed');
+            setPassageToast({ text: 'Export failed', tone: 'err' });
             setTimeout(() => setPassageToast(null), 2000);
         }
     };
 
     // ── Save to Logbook ──
     const handleSaveToLog = async () => {
+        triggerHaptic('light');
         try {
             const { ShipLogService } = await import('../../services/ShipLogService');
             const dep = passage.departure!;
@@ -131,9 +133,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 // upstream in usePassagePlanner / event-detail handling.
                 const dep0 = (plan.origin as string).split(',')[0];
                 const arr0 = (plan.destination as string).split(',')[0];
-                setPassageToast(`Saved: ${dep0} → ${arr0}`);
+                triggerHaptic('medium');
+                setPassageToast({ text: `Saved: ${dep0} → ${arr0}`, tone: 'ok' });
             } else {
-                setPassageToast('Save failed — check sign-in');
+                setPassageToast({ text: 'Save failed — check sign-in', tone: 'err' });
             }
             setTimeout(() => setPassageToast(null), 4000);
         } catch (err) {
@@ -141,10 +144,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             // from a generic save failure so the user knows they can
             // fix it by changing the departure date.
             if (err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR) {
-                setPassageToast('Route exists for that day — change date');
+                setPassageToast({ text: 'Route exists for that day — change date', tone: 'err' });
             } else {
                 log.error('Failed to save planned route:', err);
-                setPassageToast('Save failed ✗');
+                setPassageToast({ text: 'Save failed — check sign-in', tone: 'err' });
             }
             setTimeout(() => setPassageToast(null), 3000);
         }
@@ -192,7 +195,7 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
             const errMsg = err instanceof Error ? err.message : '';
             if (errMsg?.includes('cancel') || errMsg?.includes('dismissed')) return;
             log.error('Share brief failed:', err);
-            setPassageToast('Share failed');
+            setPassageToast({ text: 'Share failed', tone: 'err' });
             setTimeout(() => setPassageToast(null), 2000);
         }
     };
@@ -465,8 +468,12 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
 
                 {/* Toast */}
                 {passageToast && (
-                    <div className="px-3 py-2 text-center text-[13px] font-bold text-emerald-300 border-t border-white/[0.06] animate-in fade-in duration-200">
-                        {passageToast}
+                    <div
+                        className={`px-3 py-2 text-center text-[13px] font-bold border-t border-white/[0.06] animate-in fade-in duration-200 ${
+                            passageToast.tone === 'ok' ? 'text-emerald-300' : 'text-red-300'
+                        }`}
+                    >
+                        {passageToast.text}
                     </div>
                 )}
             </div>

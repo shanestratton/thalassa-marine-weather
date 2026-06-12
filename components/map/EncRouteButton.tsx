@@ -10,6 +10,7 @@ import React, { useState } from 'react';
 
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { createLogger } from '../../utils/createLogger';
+import { triggerHaptic } from '../../utils/system';
 import type { EncTestRoute } from './useEncTestRouteLayer';
 
 const log = createLogger('EncRouteButton');
@@ -31,6 +32,7 @@ export const EncRouteButton: React.FC<Props> = ({ encCellCount, onRoute }) => {
     if (encCellCount === 0) return null;
 
     const run = async () => {
+        triggerHaptic('light');
         setBusy(true);
         setLastResult(null);
         log.warn(`button tap — Newport→Rivergate, draft ${DEMO_DRAFT_M} m`);
@@ -42,14 +44,17 @@ export const EncRouteButton: React.FC<Props> = ({ encCellCount, onRoute }) => {
                 setLastResult(`${res.distanceNM.toFixed(1)} NM · ${res.polyline.length} pts · ${cautionCount} caution`);
             } else if (res && 'error' in res) {
                 onRoute(null);
-                setLastResult(`failed: ${res.error}`);
+                log.warn(`route failed: ${res.error}`);
+                setLastResult('No safe route through charted water');
             } else {
                 onRoute(null);
-                setLastResult('no route (gated — see console)');
+                log.warn('no route — request gated outside charted cells');
+                setLastResult('Route outside charted cells');
             }
         } catch (err) {
             onRoute(null);
-            setLastResult(`crash: ${err instanceof Error ? err.message : String(err)}`);
+            log.error('route crashed:', err);
+            setLastResult('Routing failed — try again');
         } finally {
             setBusy(false);
         }
@@ -65,9 +70,9 @@ export const EncRouteButton: React.FC<Props> = ({ encCellCount, onRoute }) => {
                 aria-label="Plan ENC test route"
                 onClick={run}
                 disabled={busy}
-                className={`px-3 py-2 rounded-full backdrop-blur-md border text-[11px] font-bold uppercase tracking-wider shadow-lg transition-all ${
+                className={`min-h-[44px] px-3 py-2 rounded-full backdrop-blur-md border text-[11px] font-bold uppercase tracking-wider shadow-lg transition-all ${
                     busy
-                        ? 'bg-violet-500/30 text-violet-200 border-violet-400/40 cursor-wait'
+                        ? 'bg-violet-500/30 text-violet-200 border-violet-400/40'
                         : 'bg-black/60 text-violet-300 border-violet-400/30 hover:bg-violet-500/20 active:scale-95'
                 }`}
             >

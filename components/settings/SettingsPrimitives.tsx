@@ -3,6 +3,7 @@
  * Section, Row, Toggle — used by all settings tabs.
  */
 import React from 'react';
+import { triggerHaptic } from '../../utils/system';
 
 // ── Section ──────────────────────────────────────────────────
 export const Section = React.memo(({ title, children }: { title: string; children?: React.ReactNode }) => (
@@ -61,6 +62,7 @@ export const Toggle = React.memo(
             className="relative inline-flex items-center cursor-pointer p-2 -mr-2 group"
             onClick={(e) => {
                 e.stopPropagation();
+                void triggerHaptic('light');
                 onChange(!checked);
             }}
         >
@@ -70,7 +72,7 @@ export const Toggle = React.memo(
                 }`}
             >
                 <div
-                    className={`absolute top-3 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-6' : 'left-3'}`}
+                    className={`absolute top-3 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${checked ? 'left-8' : 'left-3'}`}
                 ></div>
             </div>
         </button>

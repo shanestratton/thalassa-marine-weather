@@ -618,7 +618,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
             // TODAY - offset by current hour
             const now = new Date();
             const currentHour = now.getHours();
-            const hour = currentHour + activeHour;
+            const hour = (currentHour + activeHour) % 24;
             const nextHour = (hour + 1) % 24;
             return `${String(hour).padStart(2, '0')}:00 - ${String(nextHour).padStart(2, '0')}:00`;
         } else {

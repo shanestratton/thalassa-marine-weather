@@ -25,7 +25,8 @@ export const CurrentConditionsCard: React.FC<CurrentConditionsCardProps> = React
     const windDir = data.windDirection || '--';
     const rainChance =
         data.precipitation !== null && data.precipitation !== undefined ? `${Math.round(data.precipitation)}%` : '--';
-    const uvIndex = data.uvIndex !== undefined ? Math.round(data.uvIndex) : '--';
+    const uvIndex =
+        data.uvIndex !== null && data.uvIndex !== undefined && !isNaN(data.uvIndex) ? Math.round(data.uvIndex) : '--';
     const humidity = data.humidity !== null && data.humidity !== undefined ? `${Math.round(data.humidity)}%` : '--';
     const visibility = (() => {
         if (data.visibility === null || data.visibility === undefined) return '--';

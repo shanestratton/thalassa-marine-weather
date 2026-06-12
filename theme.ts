@@ -335,6 +335,22 @@ export const animation = {
     spin: 'animate-spin',
 } as const;
 
+/* ── Touch targets ───────────────────────────────────────────────
+ * theme.ts is the SINGLE source of design tokens. The old CVA file
+ * (components/ui/variants.ts) had zero importers and was deleted
+ * 2026-06-12; its 44pt button-size guarantees survive here as plain
+ * token entries. Every tappable control should clear 44pt — `sm` is
+ * the one sanctioned exception for dense secondary rows.
+ * ─────────────────────────────────────────────────────────────── */
+export const touchTarget = {
+    /** Standard button — 44pt minimum height */
+    button: 'min-h-[44px]',
+    /** Compact button — 36pt, dense secondary rows only */
+    buttonSm: 'min-h-[36px]',
+    /** Square icon button — 44pt both axes */
+    icon: 'w-11 h-11 min-w-[44px] min-h-[44px]',
+} as const;
+
 // ── Theme Builder ───────────────────────────────────────────────
 
 function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {

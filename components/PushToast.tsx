@@ -112,6 +112,80 @@ function getToastStyle(type: string): {
     }
 }
 
+// ── Single toast card ────────────────────────────────────────────────
+// The transform is composed FULLY inline — an inline `transform` always
+// clobbers Tailwind translate/scale classes, so enter/exit must live in
+// the same place as the stacking scale. `entering` flips via double-rAF
+// (same pattern as SingleToast in Toast.tsx): first frame paints the
+// off-screen pose, second frame flips to resting so the CSS transition
+// animates between them.
+const PushToastCard: React.FC<{
+    toast: ToastItem;
+    index: number;
+    onTap: (toast: ToastItem) => void;
+    onDismiss: (id: string) => void;
+}> = ({ toast, index, onTap, onDismiss }) => {
+    const touchStartY = useRef(0);
+    const [entering, setEntering] = useState(true);
+
+    useEffect(() => {
+        let inner = 0;
+        const outer = requestAnimationFrame(() => {
+            inner = requestAnimationFrame(() => setEntering(false));
+        });
+        return () => {
+            cancelAnimationFrame(outer);
+            cancelAnimationFrame(inner);
+        };
+    }, []);
+
+    const style = getToastStyle(toast.type);
+    const isCritical = CRITICAL_TYPES.includes(toast.type);
+
+    const transform = toast.dismissing
+        ? 'translateY(-16px) scale(0.95)'
+        : entering
+          ? 'translateY(-16px) scale(0.97)'
+          : `scale(${1 - index * 0.03})`;
+
+    return (
+        <div
+            className={`
+                w-full max-w-md pointer-events-auto cursor-pointer
+                bg-gradient-to-r ${style.gradient} ${style.border}
+                border backdrop-blur-xl rounded-2xl
+                shadow-2xl shadow-black/40
+                transition-all duration-300 ease-out
+                ${toast.dismissing || entering ? 'opacity-0' : 'opacity-100'}
+                ${isCritical ? 'animate-pulse' : ''}
+            `}
+            style={{
+                animationDuration: isCritical ? '2s' : undefined,
+                transform,
+            }}
+            onClick={() => onTap(toast)}
+            onTouchStart={(e) => {
+                touchStartY.current = e.touches[0].clientY;
+            }}
+            onTouchEnd={(e) => {
+                const dy = e.changedTouches[0].clientY - touchStartY.current;
+                if (dy < -30) onDismiss(toast.id); // Swipe up
+            }}
+        >
+            <div className="flex items-start gap-3 p-3.5">
+                <span className="shrink-0 mt-0.5 text-white">{style.icon}</span>
+                <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-black text-white/90 uppercase tracking-wider truncate">
+                        {toast.title}
+                    </div>
+                    <div className="text-xs text-white/80 mt-0.5 line-clamp-2 font-medium">{toast.body}</div>
+                </div>
+                {isCritical && <div className="w-2 h-2 rounded-full bg-red-400 animate-ping shrink-0 mt-1" />}
+            </div>
+        </div>
+    );
+};
+
 // ── Singleton toast queue (accessible from PushNotificationService) ──
 type ToastPusher = (notification: { title?: string; body?: string; data?: Record<string, unknown> }) => void;
 let globalPushToast: ToastPusher | null = null;
@@ -122,7 +196,6 @@ export function pushForegroundToast(notification: { title?: string; body?: strin
 
 export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
     const [toasts, setToasts] = useState<ToastItem[]>([]);
-    const touchStartY = useRef(0);
 
     // Register the global push function
     const addToast = useCallback((notification: { title?: string; body?: string; data?: Record<string, unknown> }) => {
@@ -187,56 +260,9 @@ export const PushToast: React.FC<PushToastProps> = ({ onTap }) => {
             style={{ paddingTop: 'calc(env(safe-area-inset-top) + 8px)' }}
         >
             <div className="flex flex-col items-center gap-2 px-4">
-                {toasts.map((toast, index) => {
-                    const style = getToastStyle(toast.type);
-                    const isCritical = CRITICAL_TYPES.includes(toast.type);
-
-                    return (
-                        <div
-                            key={toast.id}
-                            className={`
-                                w-full max-w-md pointer-events-auto cursor-pointer
-                                bg-gradient-to-r ${style.gradient} ${style.border}
-                                border backdrop-blur-xl rounded-2xl
-                                shadow-2xl shadow-black/40
-                                transition-all duration-300 ease-out
-                                ${
-                                    toast.dismissing
-                                        ? 'opacity-0 -translate-y-4 scale-95'
-                                        : 'opacity-100 translate-y-0 scale-100'
-                                }
-                                ${isCritical ? 'animate-pulse' : ''}
-                            `}
-                            style={{
-                                animationDuration: isCritical ? '2s' : undefined,
-                                transform: `scale(${1 - index * 0.03})`,
-                            }}
-                            onClick={() => handleTap(toast)}
-                            onTouchStart={(e) => {
-                                touchStartY.current = e.touches[0].clientY;
-                            }}
-                            onTouchEnd={(e) => {
-                                const dy = e.changedTouches[0].clientY - touchStartY.current;
-                                if (dy < -30) dismiss(toast.id); // Swipe up
-                            }}
-                        >
-                            <div className="flex items-start gap-3 p-3.5">
-                                <span className="shrink-0 mt-0.5 text-white">{style.icon}</span>
-                                <div className="flex-1 min-w-0">
-                                    <div className="text-[11px] font-black text-white/90 uppercase tracking-wider truncate">
-                                        {toast.title}
-                                    </div>
-                                    <div className="text-xs text-white/80 mt-0.5 line-clamp-2 font-medium">
-                                        {toast.body}
-                                    </div>
-                                </div>
-                                {isCritical && (
-                                    <div className="w-2 h-2 rounded-full bg-red-400 animate-ping shrink-0 mt-1" />
-                                )}
-                            </div>
-                        </div>
-                    );
-                })}
+                {toasts.map((toast, index) => (
+                    <PushToastCard key={toast.id} toast={toast} index={index} onTap={handleTap} onDismiss={dismiss} />
+                ))}
             </div>
         </div>
     );

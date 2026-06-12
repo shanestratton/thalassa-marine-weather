@@ -440,10 +440,16 @@ export const LayerFABMenu: React.FC<{
     const [stormMenuOpen, setStormMenuOpen] = useState(false);
     const [showCharts, setShowCharts] = useState(false);
 
-    // Auto-dismiss menu after 8 seconds of inactivity
+    // Auto-dismiss menu after 8 seconds of inactivity. Any interaction
+    // with the expanded menu (tap, scroll, sub-toggle) bumps the timer
+    // so the menu never vanishes mid-use.
+    const bumpDismiss = () => {
+        if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 8000);
+    };
     useEffect(() => {
         if (!showLayerMenu) return;
-        dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 8000);
+        bumpDismiss();
         return () => {
             if (dismissTimer.current) clearTimeout(dismissTimer.current);
         };
@@ -583,6 +589,8 @@ export const LayerFABMenu: React.FC<{
                 <div
                     className="bg-slate-900/95 backdrop-blur-xl border border-white/[0.08] rounded-2xl overflow-hidden overflow-y-auto shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200"
                     style={{ maxHeight: 'calc(100vh - 240px)', minWidth: 260 }}
+                    onPointerDown={bumpDismiss}
+                    onScroll={bumpDismiss}
                 >
                     {/* Accent glow bar */}
                     <div className="h-[2px] bg-gradient-to-r from-transparent via-sky-500/40 to-transparent" />
@@ -1115,8 +1123,7 @@ export const LayerFABMenu: React.FC<{
                                 onClick={() => {
                                     setShowCharts(!showCharts);
                                     triggerHaptic('light');
-                                    if (dismissTimer.current) clearTimeout(dismissTimer.current);
-                                    dismissTimer.current = setTimeout(() => setShowLayerMenu(false), 8000);
+                                    bumpDismiss();
                                 }}
                                 className="w-full px-4 pt-3 pb-1.5 flex items-center gap-2 hover:bg-white/5 transition-colors"
                             >
@@ -1316,12 +1323,14 @@ export const LayerFABMenu: React.FC<{
                                                         onChange={(e) =>
                                                             onSkChartOpacityChange(parseFloat(e.target.value))
                                                         }
-                                                        className="flex-1 h-1 accent-emerald-400 cursor-pointer"
+                                                        className="flex-1 accent-emerald-400 cursor-pointer"
                                                         style={{
                                                             WebkitAppearance: 'none',
-                                                            background: `linear-gradient(to right, rgba(52,211,153,0.6) ${skChartOpacity * 100}%, rgba(255,255,255,0.1) ${skChartOpacity * 100}%)`,
+                                                            // 24px hit box, 4px visual track — the gradient is
+                                                            // painted centred at 4px tall so the look is identical.
+                                                            background: `linear-gradient(to right, rgba(52,211,153,0.6) ${skChartOpacity * 100}%, rgba(255,255,255,0.1) ${skChartOpacity * 100}%) center / 100% 4px no-repeat`,
                                                             borderRadius: 4,
-                                                            height: 4,
+                                                            height: 24,
                                                         }}
                                                     />
                                                     <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
@@ -1470,12 +1479,14 @@ export const LayerFABMenu: React.FC<{
                                                                             parseFloat(e.target.value),
                                                                         )
                                                                     }
-                                                                    className="flex-1 h-1 accent-sky-400 cursor-pointer"
+                                                                    className="flex-1 accent-sky-400 cursor-pointer"
                                                                     style={{
                                                                         WebkitAppearance: 'none',
-                                                                        background: `linear-gradient(to right, rgba(56,189,248,0.6) ${src.opacity * 100}%, rgba(255,255,255,0.1) ${src.opacity * 100}%)`,
+                                                                        // 24px hit box, 4px visual track — the gradient is
+                                                                        // painted centred at 4px tall so the look is identical.
+                                                                        background: `linear-gradient(to right, rgba(56,189,248,0.6) ${src.opacity * 100}%, rgba(255,255,255,0.1) ${src.opacity * 100}%) center / 100% 4px no-repeat`,
                                                                         borderRadius: 4,
-                                                                        height: 4,
+                                                                        height: 24,
                                                                     }}
                                                                 />
                                                                 <span className="text-[10px] text-gray-400 font-mono w-8 text-right">
@@ -1595,12 +1606,14 @@ export const LayerFABMenu: React.FC<{
                                                                             parseFloat(e.target.value),
                                                                         )
                                                                     }
-                                                                    className="flex-1 h-1 accent-purple-400 cursor-pointer"
+                                                                    className="flex-1 accent-purple-400 cursor-pointer"
                                                                     style={{
                                                                         WebkitAppearance: 'none',
-                                                                        background: `linear-gradient(to right, rgba(168,85,247,0.6) ${localChartOpacity * 100}%, rgba(255,255,255,0.1) ${localChartOpacity * 100}%)`,
+                                                                        // 24px hit box, 4px visual track — the gradient is
+                                                                        // painted centred at 4px tall so the look is identical.
+                                                                        background: `linear-gradient(to right, rgba(168,85,247,0.6) ${localChartOpacity * 100}%, rgba(255,255,255,0.1) ${localChartOpacity * 100}%) center / 100% 4px no-repeat`,
                                                                         borderRadius: 4,
-                                                                        height: 4,
+                                                                        height: 24,
                                                                     }}
                                                                 />
                                                                 <span className="text-[10px] text-gray-400 font-mono w-8 text-right">

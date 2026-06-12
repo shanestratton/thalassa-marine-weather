@@ -11,6 +11,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Preferences } from '@capacitor/preferences';
 import { createLogger } from '../utils/createLogger';
+import { triggerHaptic } from '../utils/system';
 
 const log = createLogger('LogPage');
 import { PlayIcon, StopIcon, MapPinIcon } from '../components/Icons';
@@ -434,7 +435,15 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                   : 'bg-red-500 animate-pulse'
                                         }`}
                                     />
-                                    <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">
+                                    <span
+                                        className={`text-[10px] font-bold uppercase tracking-widest ${
+                                            gpsStatus === 'locked'
+                                                ? 'text-emerald-400/80'
+                                                : gpsStatus === 'stale'
+                                                  ? 'text-amber-300/80'
+                                                  : 'text-red-400/80'
+                                        }`}
+                                    >
                                         {gpsStatus === 'locked' && hasRecordedFix ? 'Recording' : 'Acquiring GPS fix…'}
                                     </span>
                                 </div>
@@ -694,19 +703,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 )}
                                             <div className="grid grid-cols-3 gap-3 shrink-0">
                                                 <div>
-                                                    <div className="text-2xl font-extrabold text-emerald-400">
+                                                    <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
                                                         {(dist ?? 0).toFixed(1)}
                                                     </div>
                                                     <div className="text-[11px] text-slate-500 uppercase">NM</div>
                                                 </div>
                                                 <div>
-                                                    <div className="text-2xl font-extrabold text-emerald-400">
+                                                    <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
                                                         {durationHrs}h {durationMins}m
                                                     </div>
                                                     <div className="text-[11px] text-slate-500 uppercase">Duration</div>
                                                 </div>
                                                 <div>
-                                                    <div className="text-2xl font-extrabold text-emerald-400">
+                                                    <div className="text-2xl font-extrabold text-emerald-400 tabular-nums">
                                                         {(liveAvgSpeed ?? 0).toFixed(1)}
                                                     </div>
                                                     <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
@@ -758,7 +767,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                                 Live Recording
                                                             </span>
                                                         </div>
-                                                        <div className="text-[13px] text-white/90 flex gap-4 mt-1.5 font-bold drop-shadow-lg">
+                                                        <div className="text-[13px] text-white/90 flex gap-4 mt-1.5 font-bold drop-shadow-lg tabular-nums">
                                                             <span>{(dist ?? 0).toFixed(1)} NM</span>
                                                             <span>
                                                                 {durationHrs}h {durationMins}m
@@ -818,7 +827,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 <div className="flex gap-2">
                                     <button
                                         aria-label="Stop tracking"
-                                        onClick={handleStopTracking}
+                                        onClick={() => {
+                                            triggerHaptic('medium');
+                                            handleStopTracking();
+                                        }}
                                         className="flex-1 h-14 rounded-2xl font-extrabold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 bg-red-500/15 border border-red-500/30 text-red-400 hover:bg-red-500/25 active:scale-[0.97]"
                                     >
                                         <StopIcon className="w-4 h-4" />

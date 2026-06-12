@@ -67,8 +67,8 @@ export const VoyageStatsPanel: React.FC<VoyageStatsPanelProps> = ({ entries }) =
 // Compact stat card for main row
 const CompactStat = ({ label, value, unit }: { label: string; value: string | number; unit?: string }) => (
     <div className={`bg-slate-800/60 ${t.border.subtle} rounded-lg p-2 text-center`}>
-        <div className="text-sm text-slate-400 uppercase tracking-wider">{label}</div>
-        <div className="text-lg font-bold text-white leading-tight">
+        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</div>
+        <div className="text-lg font-bold text-white leading-tight font-mono tabular-nums">
             {value}
             {unit && <span className="text-sm ml-0.5 text-slate-400">{unit}</span>}
         </div>
@@ -78,8 +78,8 @@ const CompactStat = ({ label, value, unit }: { label: string; value: string | nu
 // Mini stat for secondary rows
 const MiniStat = ({ label, value, unit }: { label: string; value: string | number; unit?: string }) => (
     <div className="text-center">
-        <div className="text-sm text-slate-400 uppercase">{label}</div>
-        <div className="text-sm font-bold text-white">
+        <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">{label}</div>
+        <div className="text-sm font-bold text-white font-mono tabular-nums">
             {value}
             {unit && <span className="text-sm ml-0.5 text-slate-400">{unit}</span>}
         </div>

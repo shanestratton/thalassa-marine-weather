@@ -102,8 +102,8 @@ export const ConnectivityBanner: React.FC<ConnectivityBannerProps> = ({ variant 
             <div
                 className={
                     isFloating
-                        ? 'w-full h-12 flex items-center justify-center gap-2 px-3 bg-amber-500/15 border border-amber-500/25 rounded-2xl backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300'
-                        : 'w-full flex items-center justify-center gap-2 px-4 pb-1.5 bg-amber-500/10 border-b border-amber-500/15 animate-in fade-in slide-in-from-top duration-300'
+                        ? 'w-full h-12 flex items-center justify-center gap-2 px-3 bg-amber-500/15 border border-amber-500/30 rounded-xl backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-300'
+                        : 'w-full flex items-center justify-center gap-2 px-4 pb-1.5 bg-amber-500/10 border-b border-amber-500/30 animate-in fade-in slide-in-from-top duration-300'
                 }
                 style={stripSafeAreaStyle}
             >

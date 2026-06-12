@@ -18,7 +18,7 @@ const config: CapacitorConfig = {
         // url: 'http://192.168.50.159:3000',
         // cleartext: true,
     },
-    backgroundColor: '#0f172a', // Set app background to dark blue theme
+    backgroundColor: '#020617', // slate-950 — one continuous shell dark
     plugins: {
         CapacitorHttp: {
             enabled: true, // Patch fetch/XHR to use native HTTP — bypasses CORS

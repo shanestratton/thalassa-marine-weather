@@ -4,7 +4,7 @@ import { AnimatedRainIcon } from '../ui/AnimatedIcons';
 import { ModelComparisonMatrix } from './ModelComparisonMatrix';
 import { WeatherMetrics, UnitPreferences, HourlyForecast } from '../../types';
 import type { OffshoreModel } from '../../types';
-import { convertTemp, convertSpeed, convertLength, convertDistance } from '../../utils';
+import { convertTemp, convertSpeed, convertLength, convertDistance, convertPrecip } from '../../utils';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useDraggable } from '@dnd-kit/core';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -483,6 +483,12 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
             const todayTotal = hourly
                 .filter((h) => new Date(h.time).toLocaleDateString('en-CA') === todayStr)
                 .reduce((sum, h) => sum + (h.precipitation ?? 0), 0);
+            if (units.temp === 'F') {
+                // Imperial: convert mm → inches. convertPrecip returns a fully
+                // formatted string ('0.39"', '<0.01"', 'TRACE') with the inch
+                // mark embedded, so rainUnit is blank for this path.
+                return convertPrecip(todayTotal, 'F') ?? 0;
+            }
             return todayTotal > 0 ? Math.round(todayTotal) : 0;
         }
         if (!isLive && hourly?.length) {
@@ -498,8 +504,8 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
 
         if (data.precipChance !== undefined) return data.precipChance;
         return safeRound(data.precipitation);
-    }, [isLive, hourly, data.precipitation, data.precipChance, cardTime]);
-    const rainUnit = isLive ? (units.temp === 'F' ? 'in' : 'mm') : '%';
+    }, [isLive, hourly, data.precipitation, data.precipChance, cardTime, units.temp]);
+    const rainUnit = isLive ? (units.temp === 'F' ? '' : 'mm') : '%';
 
     const isOffshore = locationType === 'offshore';
 

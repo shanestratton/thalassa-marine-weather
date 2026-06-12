@@ -39,6 +39,16 @@ import { ExportButtons } from './voyage-results/DeepAnalysisSection';
 
 // getStatusClasses() moved to voyage-results/VoyageOverviewCard.tsx
 
+/** Deckhand-friendly badge labels for inshore-router error codes — raw
+ *  codes stay in the accordion body/logs, not on the badge. */
+const INSHORE_SKIP_BADGES: Record<string, string> = {
+    'origin-on-land': 'Origin ashore',
+    'destination-on-land': 'Destination ashore',
+    'no-path': 'No clear channel',
+    'land-backstop': 'Partial chart cover',
+    timeout: 'Network stall',
+};
+
 const _SystemSwitch = React.memo<{ label: string; checked: boolean; onChange: () => void }>(
     ({ label, checked, onChange }) => (
         <button
@@ -197,7 +207,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                         icon={<RouteIcon className="w-5 h-5" />}
                         accent="sky"
                         defaultOpen={false}
-                        badge={isRouteAnalyzed ? `${voyagePlan.waypoints?.length || 0} nodes` : 'Computing...'}
+                        badge={isRouteAnalyzed ? `${voyagePlan.waypoints?.length || 0} nodes` : 'Computing…'}
                     >
                         <RouteNodeGrid
                             voyagePlan={voyagePlan}
@@ -344,7 +354,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
                             badge={
                                 voyagePlan.__inshoreRouting.status === 'success'
                                     ? `${(voyagePlan.__inshoreRouting.distanceNM ?? 0).toFixed(1)} NM`
-                                    : voyagePlan.__inshoreRouting.errorCode || 'failed'
+                                    : (INSHORE_SKIP_BADGES[voyagePlan.__inshoreRouting.errorCode ?? ''] ?? 'Skipped')
                             }
                         >
                             <div className="space-y-2 text-sm">
