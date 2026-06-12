@@ -25,23 +25,21 @@
  *     of each channel's terminal gates (the low-station end is seaward
  *     by the IALA ascending-from-seaward numbering convention), snapped
  *     to vessel-deep water when a grid is supplied; junction portals
- *     where two channels' gates meet. Connectors attach ONLY at
- *     portal / junction / marina-entrance / gate-midpoint nodes — never
- *     mid-edge (§4); the ConnectorTarget kind union is that rule's
- *     type-level form.
+ *     where two channels' corridors meet (§3 says "channel/FAIRWAY
+ *     meets" — the Phase 10 graph carries no fairway entity yet, so this
+ *     is channel/channel only; fairway meets land with the fairway
+ *     skeleton, deferred VISIBLY in collab reply 18). Connectors attach
+ *     ONLY at portal / junction / marina-entrance / gate-midpoint nodes —
+ *     never mid-edge (§4); ConnectorTarget carries that node kind as
+ *     DECLARED INTENT (build via targetFromPortal/targetFromGate), and
+ *     Phase 12 validates attachments against real graph nodes.
  *
  * Zero routing change: nothing in the live engine calls this yet. The
  * Phase 12 shadow router composes graph edges + these connectors and
  * arbitrates against the legacy engine on the scorecard.
  */
 
-import {
-    EXIT_PENALTY_M,
-    MinHeap,
-    cellCostMultiplier,
-    chainCostM,
-    type NavGrid,
-} from '../inshoreRouterEngine';
+import { EXIT_PENALTY_M, MinHeap, cellCostMultiplier, chainCostM, type NavGrid } from '../inshoreRouterEngine';
 import { GATE_DEDUP_M, gateDistM } from './gateExtractor';
 import type { GateNode, SeawayGraph, SeawayLatLon } from './types';
 
@@ -56,19 +54,47 @@ const mPerDegLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) /
 export const CONNECTOR_BUDGET_FACTOR = 1.5;
 /** Worst REAL-water tier of the engine's cost ladder, read from the
  *  ladder itself so a retune can't desynchronise this module (depth in
- *  (0,5) non-preferred — 6.4× today). Used to budget targets whose
- *  direct line is blocked: "up to a 1.5× geometric detour through the
- *  worst honest water"; anything dearer is caution/uncharted territory a
- *  connector has no business crossing. */
+ *  (0,5) non-preferred — 6.4× today). Budgets PORTAL/JUNCTION targets:
+ *  those are deep-snapped open-water nodes, so caution-only access to
+ *  one is a mispair signal, not a route. */
 const WORST_REAL_WATER_TIER = cellCostMultiplier(0.1, false);
+/** CAUTION tier, ladder-derived (40× today). Budgets MARINA-ENTRANCE and
+ *  GATE-MID targets: the engine's canal-estate doctrine (CAUTION
+ *  docstring, inshoreRouterEngine) makes caution water deliberately
+ *  traversable — Newport's marina entrance is reachable ONLY through it,
+ *  and a connector that can't reach what the engine routes is a parity
+ *  gap (adversarial review, 2026-06-12). */
+const CAUTION_TIER = cellCostMultiplier(-1, false);
 
-/** The §4 attachment rule, type-level: connectors never join mid-edge. */
+/**
+ * The §4 attachment rule ("connectors attach only at portal / junction /
+ * marina-entrance / gate-midpoint nodes — never mid-edge") as DECLARED
+ * INTENT: the kind is a label this module carries through, not something
+ * it can verify — Phase 12 validates attachments against real graph
+ * nodes. Build targets from graph objects via targetFromPortal /
+ * targetFromGate so a bare mid-edge coordinate never acquires a kind by
+ * accident.
+ */
 export type ConnectorNodeKind = 'portal' | 'junction' | 'marina-entrance' | 'gate-mid';
 
 export interface ConnectorTarget extends SeawayLatLon {
     id: string;
     kind: ConnectorNodeKind;
 }
+
+export const targetFromPortal = (p: SeawayPortal): ConnectorTarget => ({
+    id: p.id,
+    kind: p.kind,
+    lat: p.lat,
+    lon: p.lon,
+});
+
+export const targetFromGate = (g: GateNode): ConnectorTarget => ({
+    id: g.id,
+    kind: 'gate-mid',
+    lat: g.mid.lat,
+    lon: g.mid.lon,
+});
 
 export interface ConnectorResult {
     targetId: string;
@@ -100,8 +126,7 @@ const cellOf = (grid: NavGrid, p: SeawayLatLon): { x: number; y: number } => ({
     y: Math.floor((p.lat - grid.minLat) / grid.dLat),
 });
 
-const inGrid = (grid: NavGrid, x: number, y: number): boolean =>
-    x >= 0 && y >= 0 && x < grid.width && y < grid.height;
+const inGrid = (grid: NavGrid, x: number, y: number): boolean => x >= 0 && y >= 0 && x < grid.width && y < grid.height;
 
 const isNavigableIdx = (grid: NavGrid, idx: number): boolean => !Number.isNaN(grid.cells[idx]);
 
@@ -141,29 +166,44 @@ function snapToCell(
 }
 
 /**
- * A target's termination budget. When the direct origin→target line is
- * fully navigable its TRUE engine cost (chainCostM over the Bresenham
- * chain) is the "direct" the masterplan caps against. When the line is
- * blocked (the normal case — a wall of land is why a detour exists), the
- * geometric detour is unknowable a priori, so the budget allows a 1.5×
- * geometric detour priced through the worst real-water tier.
+ * A target's termination budget. When the direct origin→target line runs
+ * entirely through HONEST water (every cell at or under the worst
+ * real-water tier — caution/uncharted cells make the line not-clear,
+ * exactly like land, so both branches share one meaning of "direct"),
+ * the budget caps against the line's TRUE engine cost (chainCostM over
+ * the Bresenham chain). Otherwise the geometric detour is unknowable a
+ * priori and the budget allows a 1.5× geometric detour priced through
+ * the target KIND's water tier:
+ *   portal/junction        → WORST_REAL_WATER_TIER (deep-snapped
+ *     open-water nodes; caution-only access is a mispair signal);
+ *   marina-entrance/gate-mid → CAUTION_TIER (canal-estate doctrine —
+ *     the engine deliberately routes caution water to reach these, and
+ *     the connector must reach what the engine reaches; the adversarial
+ *     review's Newport repro is pinned in tests/seawayConnector).
+ * Before the kind tier, identical topology connected or refused on
+ * whether the straight line happened to thread the caution canal — a
+ * geometry lottery, not doctrine.
  */
 function budgetForTarget(
     grid: NavGrid,
     origin: { x: number; y: number },
     target: { x: number; y: number },
     euclidM: number,
+    kind: ConnectorNodeKind,
 ): number {
     const chain: Array<{ x: number; y: number }> = [];
     let clear = true;
     for (const c of bresenhamCells(origin.x, origin.y, target.x, target.y)) {
-        if (!isNavigableIdx(grid, c.y * grid.width + c.x)) {
+        const idx = c.y * grid.width + c.x;
+        // cellCostMultiplier(NaN) = 500 → blocked cells fail this too.
+        if (cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1) > WORST_REAL_WATER_TIER) {
             clear = false;
             break;
         }
         chain.push({ x: c.x, y: c.y });
     }
-    const directM = clear ? chainCostM(grid, chain) : euclidM * WORST_REAL_WATER_TIER;
+    const kindTier = kind === 'marina-entrance' || kind === 'gate-mid' ? CAUTION_TIER : WORST_REAL_WATER_TIER;
+    const directM = clear ? chainCostM(grid, chain) : euclidM * kindTier;
     return CONNECTOR_BUDGET_FACTOR * directM;
 }
 
@@ -252,7 +292,7 @@ export function connectToTargets(
             target: t,
             cell,
             idx: cell.y * w + cell.x,
-            budgetM: budgetForTarget(grid, originCell, cell, euclidM),
+            budgetM: budgetForTarget(grid, originCell, cell, euclidM, t.kind),
             settledCostM: Infinity,
         };
     });
@@ -386,6 +426,17 @@ export interface SeawayPortal extends SeawayLatLon {
     channelKeys: string[];
     /** Terminal gate this portal extends (terminal portals only). */
     gateId?: string;
+    /**
+     * Which channel end a terminal portal extends (terminal portals
+     * only). 'seaward' = the low-station end (IALA numbering ascends
+     * from seaward) — the one §3 mandates. 'inner' = the landward end, a
+     * documented §3 EXTENSION (§4's grammar allows a portal as a channel
+     * terminator, and departures need an entry node): an inner portal
+     * can legitimately deep-snap INSIDE a dredged basin, so Phase 12
+     * MUST prefer a marina-entrance/junction node over an 'inner' portal
+     * when one exists — typed here precisely so that rule is writable.
+     */
+    end?: 'seaward' | 'inner';
     /** True when grid-snapping moved (or confirmed) the point onto
      *  vessel-deep water; false = no grid given, or nothing deep within
      *  one gate-spacing — Phase 12 must not connect to an unsnapped
@@ -423,10 +474,13 @@ const isDeepIdx = (grid: NavGrid, idx: number): boolean => grid.cells[idx] > 0;
  *    seaward numbering; the high-station portal serves departures).
  *    Single-gate channels get no portal — there is no along-channel
  *    direction to extend (they are mostly half-gate strays).
- *  • Junction portals where two channels MEET: gate mids of different
- *    channels within the smaller of the two channels' median spacings —
- *    one portal at the closest such pair's midpoint, deduped at
- *    GATE_DEDUP_M.
+ *  • Junction portals where two channels MEET: a gate of one on the
+ *    other's corridor (the post-dedup shared-gate signature) OR a
+ *    corridor×corridor segment intersection (mark-free mid-span
+ *    crossings); all meets kept, deduped at GATE_DEDUP_M with channel
+ *    keys MERGED on a dedup hit. §3 says "channel/FAIRWAY meets" —
+ *    channel/fairway junctions need a fairway entity the Phase 10 graph
+ *    doesn't carry yet (deferred visibly, collab reply 18).
  *  • With opts.grid, every portal snaps to the nearest vessel-deep cell
  *    within one gate-spacing (rasterised gates land on banks; a portal
  *    the connector can't stand on is useless); failure to find deep
@@ -492,50 +546,97 @@ export function synthesizePortals(graph: SeawayGraph, opts: { grid?: NavGrid } =
                 lon: pos.lon,
                 channelKeys: [ch.key],
                 gateId: gate.id,
+                end: tag as 'seaward' | 'inner',
                 snapped,
             });
         }
     }
 
     // ── Junction portals ─────────────────────────────────────────────
-    // Detected STRUCTURALLY, not by gate-to-gate radius: after the
-    // compiler's chart-wins dedup (GATE_DEDUP_M), a channel crossing
-    // survives as ONE gate that geometrically belongs to both channels —
-    // the other channel keeps a station hole there. So two channels MEET
-    // exactly when some gate of one lies ON the other's corridor
-    // polyline (its gate-mid chain) within that same dedup radius, and
-    // the junction portal sits AT that gate's midpoint. Offset-T meets
-    // whose terminal gate stands off the main corridor are out of Phase
-    // 11 scope (they need centreline extension — collab reply 18).
+    // Two detection paths, both structural (adversarial review
+    // 2026-06-12 — the first alone misses mark-free mid-span crossings):
+    //  (1) GATE-ON-CORRIDOR: after the compiler's chart-wins dedup
+    //      (GATE_DEDUP_M), a crossing that COINCIDES with a mark pair
+    //      survives as one gate belonging to both channels' geometry —
+    //      the other channel keeps a station hole there. A gate of one
+    //      channel within the dedup radius of the other's corridor
+    //      polyline is that signature; the junction sits AT the gate.
+    //  (2) CORRIDOR×CORRIDOR: channels that cross in open water between
+    //      their respective pairs (ferry channel across a main run) —
+    //      segment–segment intersection of the two gate-mid polylines;
+    //      the junction sits at the geometric intersection.
+    // All meets per pair are kept (a winding channel can cross the same
+    // cut twice), deduped at GATE_DEDUP_M — and a dedup hit MERGES the
+    // new pair's channel keys into the existing junction instead of
+    // dropping them (three channels radiating through one basin mouth
+    // must list all three). Offset-T meets whose terminal gate stands
+    // off the main corridor remain out of Phase 11 scope (centreline
+    // extension — collab reply 18).
     for (let a = 0; a < channels.length; a++) {
         for (let b = a + 1; b < channels.length; b++) {
-            let best: { d: number; mid: SeawayLatLon } | null = null;
             const corridorA = channels[a].gates.map((g) => g.mid);
             const corridorB = channels[b].gates.map((g) => g.mid);
-            const consider = (g: GateNode, corridor: SeawayLatLon[]): void => {
-                const d = distToPolylineM(g.mid, corridor);
-                if (d <= GATE_DEDUP_M && (!best || d < best.d)) best = { d, mid: g.mid };
+            const meets: SeawayLatLon[] = [];
+            const addMeet = (p: SeawayLatLon): void => {
+                if (!meets.some((m) => gateDistM(m, p) < GATE_DEDUP_M)) meets.push(p);
             };
-            for (const g of channels[a].gates) consider(g, corridorB);
-            for (const g of channels[b].gates) consider(g, corridorA);
-            if (!best) continue;
-            const meet: SeawayLatLon = (best as { d: number; mid: SeawayLatLon }).mid;
-            const dup = portals.some((p) => p.kind === 'junction' && gateDistM(p, meet) < GATE_DEDUP_M);
-            if (dup) continue;
-            const snapR = Math.min(channels[a].spacingM, channels[b].spacingM);
-            const { pos, snapped } = snapPortal(meet, snapR);
-            portals.push({
-                id: `junction:${channels[a].key}+${channels[b].key}`,
-                kind: 'junction',
-                lat: pos.lat,
-                lon: pos.lon,
-                channelKeys: [channels[a].key, channels[b].key],
-                snapped,
-            });
+            for (const g of channels[a].gates) {
+                if (distToPolylineM(g.mid, corridorB) <= GATE_DEDUP_M) addMeet(g.mid);
+            }
+            for (const g of channels[b].gates) {
+                if (distToPolylineM(g.mid, corridorA) <= GATE_DEDUP_M) addMeet(g.mid);
+            }
+            for (let i = 0; i < corridorA.length - 1; i++) {
+                for (let j = 0; j < corridorB.length - 1; j++) {
+                    const x = segIntersect(corridorA[i], corridorA[i + 1], corridorB[j], corridorB[j + 1]);
+                    if (x) addMeet(x);
+                }
+            }
+            const pairKeys = [channels[a].key, channels[b].key];
+            let n = 0;
+            for (const meet of meets) {
+                const existing = portals.find((p) => p.kind === 'junction' && gateDistM(p, meet) < GATE_DEDUP_M);
+                if (existing) {
+                    for (const k of pairKeys) {
+                        if (!existing.channelKeys.includes(k)) existing.channelKeys.push(k);
+                    }
+                    continue;
+                }
+                const snapR = Math.min(channels[a].spacingM, channels[b].spacingM);
+                const { pos, snapped } = snapPortal(meet, snapR);
+                portals.push({
+                    id: `junction:${channels[a].key}+${channels[b].key}${meets.length > 1 ? `#${n++}` : ''}`,
+                    kind: 'junction',
+                    lat: pos.lat,
+                    lon: pos.lon,
+                    channelKeys: [...pairKeys],
+                    snapped,
+                });
+            }
         }
     }
 
     return portals;
+}
+
+/** Proper segment–segment intersection in graph metre space (anchored at
+ *  a1). Returns the crossing point, or null for parallel/non-crossing
+ *  segments. Lat/lon linear interpolation is exact enough at corridor
+ *  segment lengths (≤ a few km). */
+function segIntersect(a1: SeawayLatLon, a2: SeawayLatLon, b1: SeawayLatLon, b2: SeawayLatLon): SeawayLatLon | null {
+    const mPerLon = graphMPerLon(a1.lat);
+    const rx = (a2.lon - a1.lon) * mPerLon;
+    const ry = (a2.lat - a1.lat) * GRAPH_M_PER_LAT;
+    const cx = (b1.lon - a1.lon) * mPerLon;
+    const cy = (b1.lat - a1.lat) * GRAPH_M_PER_LAT;
+    const sx = (b2.lon - b1.lon) * mPerLon;
+    const sy = (b2.lat - b1.lat) * GRAPH_M_PER_LAT;
+    const denom = rx * sy - ry * sx;
+    if (Math.abs(denom) < 1e-9) return null; // parallel/degenerate
+    const t = (cx * sy - cy * sx) / denom;
+    const u = (cx * ry - cy * rx) / denom;
+    if (t < 0 || t > 1 || u < 0 || u > 1) return null;
+    return { lat: a1.lat + (a2.lat - a1.lat) * t, lon: a1.lon + (a2.lon - a1.lon) * t };
 }
 
 /** Min distance from p to a polyline (graph metre space, point-to-

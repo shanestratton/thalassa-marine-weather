@@ -31,14 +31,23 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { aStar, chainCostM, type NavGrid } from '../services/inshoreRouterEngine';
+import { aStar, cellCostMultiplier, chainCostM, type NavGrid } from '../services/inshoreRouterEngine';
 import {
     CONNECTOR_BUDGET_FACTOR,
     connectToTargets,
     synthesizePortals,
+    type ConnectorNodeKind,
     type ConnectorTarget,
 } from '../services/seaway/connector';
 import { compileSeawayGraph } from '../services/seaway/graphCompiler';
+import type { GateNode, SeawayGraph } from '../services/seaway/types';
+
+// Ladder-derived tiers — NEVER hardcode 6.4/40 in assertions: connector.ts
+// deliberately derives them from cellCostMultiplier so a one-knob ladder
+// retune can't desync this module, and the fixtures must not reintroduce
+// the coupling (adversarial review, 2026-06-12).
+const WORST_REAL_WATER = cellCostMultiplier(0.1, false);
+const CAUTION_TIER = cellCostMultiplier(-1, false);
 
 // ── Synthetic grid (engine conventions: 50 m cells at lat ≈ -27.2) ──
 
@@ -48,7 +57,7 @@ const MIN_LON = 153.0;
 const MIN_LAT = -27.3;
 
 function makeGrid(width: number, height: number, depth = 12): NavGrid {
-    const midLat = MIN_LAT + ((height * RES_M) / M_PER_DEG_LAT) / 2;
+    const midLat = MIN_LAT + (height * RES_M) / M_PER_DEG_LAT / 2;
     const mPerLon = 111_320 * Math.cos((midLat * Math.PI) / 180);
     const cells = new Float32Array(width * height).fill(depth);
     return {
@@ -75,9 +84,9 @@ const preferRect = (g: NavGrid, x0: number, y0: number, x1: number, y1: number):
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) g.preferred[idx(g, x, y)] = 1;
 };
 
-const target = (g: NavGrid, id: string, x: number, y: number): ConnectorTarget => ({
+const target = (g: NavGrid, id: string, x: number, y: number, kind: ConnectorNodeKind = 'portal'): ConnectorTarget => ({
     id,
-    kind: 'portal',
+    kind,
     ...cellLatLon(g, x, y),
 });
 
@@ -161,9 +170,94 @@ describe('connector — budget termination (cost >1.5× direct)', () => {
         expect(w.reached).toBe(false);
         expect(w.costM).toBe(Infinity);
         // Sanity on the budget itself: direct line is blocked, so the
-        // budget is 1.5 × euclid × worst-real-water (6.4) ≈ 1.5×9.6×~1.5km.
+        // budget is factor × euclid × worst-real-water tier (ladder-
+        // derived — hardcoding 6.4 here would recreate the desync the
+        // implementation's derived constant exists to prevent).
         expect(w.budgetM).toBeGreaterThan(0);
-        expect(w.budgetM).toBeLessThan(CONNECTOR_BUDGET_FACTOR * 6.4 * 1700);
+        expect(w.budgetM).toBeLessThan(CONNECTOR_BUDGET_FACTOR * WORST_REAL_WATER * 1700);
+    });
+
+    it('KNIFE-EDGE low side: a detour measured just UNDER the factor connects within budget', () => {
+        // Deep 12 m grid; wall forces a detour calibrated to ~1.3× the
+        // blocked-line budget base (euclid × worst-real-water). The band
+        // assertion pins the geometry; reached pins the factor from
+        // below — drop CONNECTOR_BUDGET_FACTOR under the measured ratio
+        // and this flips red. Paired with the high-side case the factor
+        // is pinned to ≈1.5 (the masterplan's number), which the
+        // adversarial review showed was previously untested in [0.7, 4.2).
+        const g = makeGrid(120, 200);
+        fillRect(g, 60, 0, 62, 147, NaN); // gap above y=147
+        const t = target(g, 'knife-low', 90, 80);
+        const ref = aStar(g, { x: 10, y: 80 }, { x: 90, y: 80 });
+        const refCost = chainCostM(g, ref!);
+        const euclidM = 80 * RES_M;
+        const ratio = refCost / (euclidM * WORST_REAL_WATER);
+        expect(ratio).toBeGreaterThan(1.2);
+        expect(ratio).toBeLessThan(1.45);
+        const search = connectToTargets(g, cellLatLon(g, 10, 80), [t]);
+        expect(search.results[0].reached).toBe(true);
+        expect(search.results[0].withinBudget).toBe(true);
+        expect(search.results[0].costM).toBeCloseTo(refCost, 6);
+    });
+
+    it('KNIFE-EDGE high side: a detour measured just OVER the factor is refused', () => {
+        const g = makeGrid(120, 200);
+        fillRect(g, 60, 0, 62, 169, NaN); // gap above y=169 — longer detour
+        const t = target(g, 'knife-high', 90, 80);
+        const ref = aStar(g, { x: 10, y: 80 }, { x: 90, y: 80 });
+        const refCost = chainCostM(g, ref!);
+        const euclidM = 80 * RES_M;
+        const ratio = refCost / (euclidM * WORST_REAL_WATER);
+        expect(ratio).toBeGreaterThan(1.55);
+        expect(ratio).toBeLessThan(1.9);
+        const search = connectToTargets(g, cellLatLon(g, 10, 80), [t]);
+        expect(search.results[0].reached).toBe(false);
+    });
+});
+
+describe('connector — per-kind budget tiers (the Newport canal-estate repro)', () => {
+    // The adversarial review's verified scenario: a marina behind a land
+    // slab whose ONLY access is a CAUTION canal (the engine's canonical
+    // canal-estate doctrine — Newport). The engine routes it; a connector
+    // budgeted at the worst-REAL-water tier structurally never could.
+    // Per-kind tiers: marina-entrance/gate-mid budget through the CAUTION
+    // tier and connect; portal/junction keep the real-water tier (caution-
+    // only access to a deep-snapped open-water node is a mispair signal).
+    const buildCanalGrid = (): NavGrid => {
+        const g = makeGrid(140, 60);
+        fillRect(g, 50, 0, 79, 59, NaN); // land slab
+        fillRect(g, 50, 10, 79, 13, -1); // the caution canal through it
+        return g;
+    };
+
+    it('marina-entrance behind the canal CONNECTS, cost-par with the engine route', () => {
+        const g = buildCanalGrid();
+        const search = connectToTargets(g, cellLatLon(g, 10, 30), [target(g, 'marina', 120, 30, 'marina-entrance')]);
+        const r = search.results[0];
+        expect(r.reached).toBe(true);
+        expect(r.withinBudget).toBe(true);
+        const ref = aStar(g, { x: 10, y: 30 }, { x: 120, y: 30 });
+        expect(r.costM).toBeCloseTo(chainCostM(g, ref!), 6);
+        // The budget that made it possible is the CAUTION tier's.
+        expect(r.budgetM).toBeCloseTo(CONNECTOR_BUDGET_FACTOR * 110 * RES_M * CAUTION_TIER, 0);
+    });
+
+    it("the SAME coordinate as kind 'portal' is refused alone, and settles over-budget when a richer target keeps the search alive", () => {
+        const g = buildCanalGrid();
+        // Alone: the portal-tier budget terminates the search first.
+        const alone = connectToTargets(g, cellLatLon(g, 10, 30), [target(g, 'p', 120, 30, 'portal')]);
+        expect(alone.results[0].reached).toBe(false);
+        // Sharing a call with the marina target (same cell, bigger
+        // budget): the search runs on, the cell settles, and the portal
+        // target reports reached but OVER its own budget — withinBudget
+        // is Phase 12's accept filter, pinned here.
+        const both = connectToTargets(g, cellLatLon(g, 10, 30), [
+            target(g, 'marina', 120, 30, 'marina-entrance'),
+            target(g, 'p', 120, 30, 'portal'),
+        ]);
+        expect(both.results[0].withinBudget).toBe(true);
+        expect(both.results[1].reached).toBe(true);
+        expect(both.results[1].withinBudget).toBe(false);
     });
 });
 
@@ -278,5 +372,83 @@ describe('synthesizePortals — terminal portals one median spacing outward', ()
         expect(junctions[0].lat).toBeCloseTo(crossLat, 3);
         expect(junctions[0].lon).toBeCloseTo(153.05, 3);
         expect(junctions[0].channelKeys).toHaveLength(2);
+    });
+});
+
+// ── Junction detection paths (hand-built graphs — no compiler) ──────
+
+/** Hand-built channel: gates straight from midpoints, station = index+1. */
+function handChannel(
+    key: string,
+    mids: Array<{ lat: number; lon: number }>,
+): {
+    gates: GateNode[];
+    channel: { key: string; gateIds: string[] };
+} {
+    const gates: GateNode[] = mids.map((mid, i) => ({
+        id: `${key}/g${i + 1}`,
+        channelKey: key,
+        station: i + 1,
+        mid,
+        buoyageBearingDeg: 0,
+        confidence: 0.95,
+    }));
+    return { gates, channel: { key, gateIds: gates.map((g) => g.id) } };
+}
+const handGraph = (...chans: Array<ReturnType<typeof handChannel>>): SeawayGraph => ({
+    gates: chans.flatMap((c) => c.gates),
+    edges: [],
+    channels: chans.map((c) => c.channel),
+});
+
+describe('synthesizePortals — junction detection paths', () => {
+    const LAT0 = -27.25;
+    const mPerLonHere = 111_320 * Math.cos((LAT0 * Math.PI) / 180);
+    const north = (m: number): number => LAT0 + m * M_LAT;
+    const east = (m: number): number => 153.05 + m / mPerLonHere;
+
+    it('MID-SPAN crossing (no gate near the other corridor) is caught by segment intersection', () => {
+        // The adversarial review's verified miss: the crossing falls
+        // mid-span on BOTH chains — every gate ≥250 m from the other
+        // corridor (GATE_DEDUP_M is 80), so the gate-on-corridor path
+        // can't fire; the corridor×corridor path must.
+        const crossM = 1250; // between A's gates at 1000 m and 1500 m
+        const A = handChannel(
+            'A',
+            [0, 500, 1000, 1500, 2000].map((m) => ({ lat: north(m), lon: east(0) })),
+        );
+        const B = handChannel(
+            'B',
+            [-750, -250, 250, 750].map((m) => ({ lat: north(crossM), lon: east(m) })),
+        );
+        const junctions = synthesizePortals(handGraph(A, B)).filter((p) => p.kind === 'junction');
+        expect(junctions).toHaveLength(1);
+        expect(junctions[0].lat).toBeCloseTo(north(crossM), 5);
+        expect(junctions[0].lon).toBeCloseTo(east(0), 5);
+        expect(junctions[0].channelKeys.sort()).toEqual(['A', 'B']);
+    });
+
+    it('THREE channels through one meet → ONE junction listing all three keys (dedup merges, never drops)', () => {
+        // The review's verified data-loss bug: the old dedup `continue`
+        // kept channelKeys [A,B] and silently lost C. The merge must list
+        // every channel the junction serves — Phase 12 uses channelKeys
+        // to decide which channel edges a junction grants entry to.
+        const crossM = 1250;
+        const A = handChannel(
+            'A',
+            [0, 500, 1000, 1500, 2000].map((m) => ({ lat: north(m), lon: east(0) })),
+        );
+        const B = handChannel(
+            'B',
+            [-750, -250, 250, 750].map((m) => ({ lat: north(crossM), lon: east(m) })),
+        );
+        const diag = 353.55; // 500 m along the 45° axis → ±250 m in each component
+        const C = handChannel(
+            'C',
+            [-2, -1, 1, 2].map((k) => ({ lat: north(crossM + k * diag), lon: east(k * diag) })),
+        );
+        const junctions = synthesizePortals(handGraph(A, B, C)).filter((p) => p.kind === 'junction');
+        expect(junctions).toHaveLength(1);
+        expect(junctions[0].channelKeys.sort()).toEqual(['A', 'B', 'C']);
     });
 });
