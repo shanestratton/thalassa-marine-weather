@@ -461,30 +461,28 @@ class ShipLogServiceClass {
 
         // Reset position-based bearing tracker for new voyage
         this.courseDetector.reset();
-        this.courseDetector.start({
-            getPos: () => this.lastBgLocation,
-            isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
-            onTurn: ({ oldCardinal, newCardinal, lat, lon, timestamp }) => {
-                // Fire-and-forget waypoint entry on detected turn. The
-                // detector hands us the geometric midpoint of the turn —
-                // we route through _captureLog directly with the
-                // positionOverride option so the pin lands at the
-                // midpoint rather than the current GPS fix (which would
-                // be the END of the turn for long gradual drifts).
-                // The override carries the matching midpoint TIME too:
-                // a past position stamped "now" makes every timestamp-
-                // sorted polyline double back to it (zig-zag artifact).
-                _captureLog(this._captureCtx(), {
-                    entryType: 'waypoint',
-                    notes: `Auto: COG ${oldCardinal} → ${newCardinal}`,
-                    waypointName: `COG ${oldCardinal} → ${newCardinal}`,
-                    eventCategory: 'navigation',
-                    positionOverride: { lat, lon, timestamp },
-                }).catch(() => {
-                    /* best effort */
-                });
-            },
-        });
+        // AUTO TURN-PIN GENERATION DISABLED 2026-06-12 (Shane: "do away
+        // with the wayward waypoints — we will address that later").
+        // The midpoint pins landed visibly off-route and cluttered the
+        // track. The detector, the TurnEvent.timestamp plumbing, and
+        // captureLog's positionOverride all remain — re-wire the block
+        // below when the waypoint feature is redesigned.
+        //
+        // this.courseDetector.start({
+        //     getPos: () => this.lastBgLocation,
+        //     isActive: () => this.trackingState.isTracking && !this.trackingState.isPaused,
+        //     onTurn: ({ oldCardinal, newCardinal, lat, lon, timestamp }) => {
+        //         _captureLog(this._captureCtx(), {
+        //             entryType: 'waypoint',
+        //             notes: `Auto: COG ${oldCardinal} → ${newCardinal}`,
+        //             waypointName: `COG ${oldCardinal} → ${newCardinal}`,
+        //             eventCategory: 'navigation',
+        //             positionOverride: { lat, lon, timestamp },
+        //         }).catch(() => {
+        //             /* best effort */
+        //         });
+        //     },
+        // });
 
         // ADAPTIVE SCHEDULING: Always start at nearshore (30s) — the safest default.
         // rescheduleAdaptiveInterval() runs after every GPS fix and will refine the

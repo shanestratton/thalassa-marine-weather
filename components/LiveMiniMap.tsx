@@ -16,6 +16,7 @@ import { ShipLogEntry } from '../types';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
+import { isTrackworthyEntry } from '../services/shiplog/helpers';
 
 interface LiveMiniMapProps {
     entries: ShipLogEntry[];
@@ -53,16 +54,11 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 maxZoom: 19,
             }).addTo(map);
 
-            // EMODnet Bathymetry overlay
-            L.tileLayer(
-                piCache.leafletTileTemplate(
-                    'https://tiles.emodnet-bathymetry.eu/2020/baselayer/web_mercator/{z}/{x}/{y}.png',
-                ),
-                {
-                    maxZoom: 12,
-                    opacity: 0.35,
-                },
-            ).addTo(map);
+            // EMODnet bathymetry overlay REMOVED 2026-06-12 — its
+            // "baselayer" tiles are a light, fully-painted basemap, so
+            // blended at 35% below z12 (exactly where a whole track
+            // fits) they washed the dark map near-white and drowned the
+            // track line.
 
             // OpenSeaMap overlay
             L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
@@ -100,7 +96,10 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
 
             lg.clearLayers();
 
-            const valid = entries.filter((e) => e.latitude && e.longitude);
+            // Trackworthy entries only — turn pins sit at past positions
+            // and made the LIVE map zig-zag even after the full viewer
+            // was fixed; (0,0) placeholders draw across the planet.
+            const valid = entries.filter(isTrackworthyEntry);
             if (valid.length === 0) return;
 
             const sorted = [...valid].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -142,18 +141,10 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 weight: 1.5,
             }).addTo(lg);
 
-            // Waypoint dots
-            sorted
-                .filter((e) => e.entryType === 'waypoint')
-                .forEach((e) => {
-                    L.circleMarker([e.latitude!, e.longitude!], {
-                        radius: 3.5,
-                        fillColor: isPlanned ? '#c4b5fd' : '#f59e0b',
-                        fillOpacity: 1,
-                        color: 'white',
-                        weight: 1,
-                    }).addTo(lg);
-                });
+            // Waypoint dots REMOVED 2026-06-12 (Shane: "do away with the
+            // wayward waypoints") — auto turn pins landed off-route and
+            // cluttered the map. Waypoint rendering returns when the
+            // waypoint feature is redesigned.
 
             // End / live position
             const last = sorted[sorted.length - 1];

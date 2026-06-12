@@ -135,6 +135,23 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         [state.entries, state.selectedVoyageId],
     );
 
+    // "Recording" vs "Acquiring GPS fix…" — keyed on whether the active
+    // voyage has a real recorded position yet. gpsStatus alone can't be
+    // trusted for this: an engine-start replay fix makes it read
+    // 'locked' immediately while nothing trustworthy has been captured.
+    const hasRecordedFix = React.useMemo(
+        () =>
+            !!state.currentVoyageId &&
+            state.entries.some(
+                (e) =>
+                    e.voyageId === state.currentVoyageId &&
+                    !!e.latitude &&
+                    !!e.longitude &&
+                    !(e.latitude === 0 && e.longitude === 0),
+            ),
+        [state.entries, state.currentVoyageId],
+    );
+
     // GPS Disclaimer modal state
     const [showGpsDisclaimer, setShowGpsDisclaimer] = useState(false);
     const pendingStartRef = useRef<(() => void) | null>(null);
@@ -411,7 +428,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                         }`}
                                     />
                                     <span className="text-[10px] font-bold text-emerald-400/80 uppercase tracking-widest">
-                                        {gpsStatus === 'locked' ? 'Recording' : 'Acquiring GPS fix…'}
+                                        {gpsStatus === 'locked' && hasRecordedFix ? 'Recording' : 'Acquiring GPS fix…'}
                                     </span>
                                 </div>
                             ) : (

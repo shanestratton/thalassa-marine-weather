@@ -113,15 +113,50 @@ describe('GpsSubscriptionManager', () => {
             expect(trackBuffer.length).toBe(0);
         });
 
-        it('starts buffering after 5s', () => {
+        it('starts buffering after 5s once a second fix corroborates the first', () => {
             startMgr();
             vi.advanceTimersByTime(5_001);
+            // First-fix consistency gate: the session's first candidate is
+            // HELD (engine-start replays can be re-stamped with a current
+            // timestamp — only disagreement with the NEXT fix exposes them).
             capturedLocationHandler!(makeFix({ timestamp: Date.now() }));
-            expect(trackBuffer.length).toBe(1);
+            expect(trackBuffer.length).toBe(0);
+            // A nearby second fix corroborates — both release, in order.
+            capturedLocationHandler!(makeFix({ timestamp: Date.now() + 5_000, receivedAt: Date.now() + 5_000 }));
+            expect(trackBuffer.length).toBe(2);
+        });
+
+        it('discards a held first fix that the next fix contradicts (re-stamped stale replay)', () => {
+            startMgr();
+            vi.advanceTimersByTime(5_001);
+            const t0 = Date.now();
+            // Replayed last-session fix, re-stamped "now" — 11km from reality.
+            capturedLocationHandler!(makeFix({ latitude: 0.1, longitude: 0, timestamp: t0, speed: 0 }));
+            expect(trackBuffer.length).toBe(0);
+            // Real fix 5s later, far away → pair disagrees → replay discarded.
+            capturedLocationHandler!(
+                makeFix({ latitude: 0, longitude: 0, timestamp: t0 + 5_000, receivedAt: t0 + 5_000, speed: 0 }),
+            );
+            expect(trackBuffer.length).toBe(0);
+            // Next real fix agrees with the held one → session opens at reality.
+            capturedLocationHandler!(
+                makeFix({ latitude: 0.0001, longitude: 0, timestamp: t0 + 10_000, receivedAt: t0 + 10_000, speed: 0 }),
+            );
+            expect(trackBuffer.length).toBe(2);
+            expect(trackBuffer.peek()!.latitude).toBeCloseTo(0.0001);
         });
     });
 
     describe('fix-acceptance gate', () => {
+        // Open the first-fix consistency gate with two agreeing fixes so
+        // each test exercises its own layer, not the pair gate.
+        function openSession(t0: number) {
+            capturedLocationHandler!(makeFix({ latitude: 0, longitude: 0, timestamp: t0, receivedAt: t0, speed: 0 }));
+            capturedLocationHandler!(
+                makeFix({ latitude: 0.00001, longitude: 0, timestamp: t0 + 5_000, receivedAt: t0 + 5_000, speed: 0 }),
+            );
+        }
+
         beforeEach(() => {
             startMgr();
             vi.advanceTimersByTime(5_001); // exit warm-up
@@ -133,34 +168,56 @@ describe('GpsSubscriptionManager', () => {
         });
 
         it('rejects fixes with GPS speed > 100 kts', () => {
+            const t0 = Date.now();
+            openSession(t0);
+            expect(trackBuffer.length).toBe(2);
             // Cap raised 25 → 100 kn (commit 1dfc7fad): the 25 kn cap
             // rejected every driving fix above ~46 km/h. Real GPS speed
             // glitches look like 500+ kn, so 100 kn still catches them.
-            capturedLocationHandler!(makeFix({ speed: 60 })); // 60 m/s ≈ 117 kts → rejected
-            expect(trackBuffer.length).toBe(0);
-            // Driving speed is now ACCEPTED — the regression that
-            // motivated raising the cap.
-            capturedLocationHandler!(makeFix({ speed: 14 })); // 14 m/s ≈ 27 kts → accepted
-            expect(trackBuffer.length).toBe(1);
+            capturedLocationHandler!(makeFix({ speed: 60, timestamp: t0 + 10_000, receivedAt: t0 + 10_000 })); // ≈117 kts → rejected
+            expect(trackBuffer.length).toBe(2);
+            // Driving speed is ACCEPTED — the regression that motivated
+            // raising the cap. (Fix placed near the session anchor so the
+            // Layer-3 jump check passes too.)
+            capturedLocationHandler!(
+                makeFix({ latitude: 0.0001, longitude: 0, speed: 14, timestamp: t0 + 15_000, receivedAt: t0 + 15_000 }),
+            ); // ≈27 kts
+            expect(trackBuffer.length).toBe(3);
         });
 
         it('rejects fixes implying > 150 kts via Haversine ÷ Δt', () => {
-            // First fix: seed the buffer at lat 0, lon 0, t=now
-            capturedLocationHandler!(makeFix({ latitude: 0, longitude: 0, timestamp: Date.now(), speed: 0 }));
-            expect(trackBuffer.length).toBe(1);
-            // Second fix 1s later, but at lat 0.1 (≈11.1km away) → ~20,000 kts implied
-            const t1 = Date.now() + 1_000;
+            const t0 = Date.now();
+            openSession(t0);
+            expect(trackBuffer.length).toBe(2);
+            // Next fix 1s later at lat 0.1 (≈11.1km away) → ~20,000 kts implied
+            const t1 = t0 + 6_000;
             capturedLocationHandler!(makeFix({ latitude: 0.1, longitude: 0, timestamp: t1, receivedAt: t1, speed: 0 }));
-            expect(trackBuffer.length).toBe(1); // rejected
+            expect(trackBuffer.length).toBe(2); // rejected
         });
 
         it('skips position-spike check on <100ms duplicate fixes', () => {
             const t0 = Date.now();
-            capturedLocationHandler!(makeFix({ latitude: 0, longitude: 0, timestamp: t0, speed: 0 }));
-            // Same fix replayed 50ms later — would imply teleport speed but
-            // the dt-too-small guard skips the check.
-            capturedLocationHandler!(makeFix({ latitude: 0.001, longitude: 0, timestamp: t0 + 50, speed: 0 }));
+            openSession(t0);
             expect(trackBuffer.length).toBe(2);
+            // Near-duplicate fix 50ms after the last accepted one — would
+            // imply teleport speed but the dt-too-small guard skips the check.
+            capturedLocationHandler!(
+                makeFix({ latitude: 0.001, longitude: 0, timestamp: t0 + 5_050, receivedAt: t0 + 5_050, speed: 0 }),
+            );
+            expect(trackBuffer.length).toBe(3);
+        });
+
+        it('spike-gate memory survives a buffer drain (no post-flush amnesia)', () => {
+            const t0 = Date.now();
+            openSession(t0);
+            trackBuffer.drain(); // interval flush empties the buffer
+            expect(trackBuffer.length).toBe(0);
+            // Teleport fix right after the drain — the old peek()-based
+            // gate had no reference and accepted it; lastAcceptedFix
+            // keeps the memory.
+            const t1 = t0 + 6_000;
+            capturedLocationHandler!(makeFix({ latitude: 0.1, longitude: 0, timestamp: t1, receivedAt: t1, speed: 0 }));
+            expect(trackBuffer.length).toBe(0);
         });
 
         it('skips buffering entirely when isActive() returns false', () => {
