@@ -221,6 +221,12 @@ export const VoyageCard: React.FC<{
     onShowMap: () => void;
     /** Request this voyage's full points be lazy-loaded (planned actions). */
     onNeedEntries?: () => void;
+    /**
+     * Unmount the inline mini map while a fullscreen map is open. iOS
+     * WebKit composites Leaflet's transformed tile layers ABOVE fixed
+     * overlays regardless of z-index — the "two tracks on screen" bug.
+     */
+    suppressMiniMap?: boolean;
     filteredEntries: ShipLogEntry[];
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
@@ -236,6 +242,7 @@ export const VoyageCard: React.FC<{
         onArchive,
         onShowMap,
         onNeedEntries,
+        suppressMiniMap,
         filteredEntries,
         onDeleteEntry,
         onEditEntry,
@@ -614,8 +621,9 @@ export const VoyageCard: React.FC<{
                 {/* Expanded: show full timeline */}
                 {isExpanded && (
                     <>
-                        {/* Inline map for planned routes — tap to open fullscreen */}
-                        {isPlannedRoute && entries.length >= 2 && (
+                        {/* Inline map for planned routes — tap to open fullscreen.
+                            Unmounted while a fullscreen map is up (see suppressMiniMap). */}
+                        {isPlannedRoute && entries.length >= 2 && !suppressMiniMap && (
                             <div className="px-4 pt-3">
                                 <LiveMiniMap entries={entries} height={140} onTap={onShowMap} />
                             </div>

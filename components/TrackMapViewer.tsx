@@ -606,7 +606,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     })();
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu">
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (
                 <div

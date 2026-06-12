@@ -724,14 +724,20 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                             {/* Live Mini Map — grows to fill all remaining space.
                                                 Tap to expand fullscreen. Until the first accepted
                                                 fix lands there's nothing to draw, so say what's
-                                                happening instead of showing a silent empty map. */}
+                                                happening instead of showing a silent empty map.
+                                                UNMOUNTED while any fullscreen map is open — iOS
+                                                WebKit composites Leaflet's transformed layers above
+                                                fixed overlays regardless of z-index, so a live map
+                                                redrawing underneath bled through as a second track. */}
                                             <div className="mt-3 flex-1 min-h-[100px] relative">
-                                                <LiveMiniMap
-                                                    entries={activeEntries}
-                                                    height="100%"
-                                                    isLive={true}
-                                                    onTap={() => setLiveMapExpanded(true)}
-                                                />
+                                                {!liveMapExpanded && !showTrackMap && (
+                                                    <LiveMiniMap
+                                                        entries={activeEntries}
+                                                        height="100%"
+                                                        isLive={true}
+                                                        onTap={() => setLiveMapExpanded(true)}
+                                                    />
+                                                )}
                                                 {!hasRecordedFix && (
                                                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl bg-slate-950/60 backdrop-blur-[2px] pointer-events-none">
                                                         <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
@@ -745,9 +751,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                 )}
                                             </div>
 
-                                            {/* ── Fullscreen live map — tap map (or chevron) to shrink ── */}
+                                            {/* ── Fullscreen live map — tap map (or chevron) to shrink ──
+                                                transform-gpu promotes the overlay to its own composited
+                                                layer so iOS can't paint underlying map tiles above it. */}
                                             {liveMapExpanded && (
-                                                <div className="fixed inset-0 z-[9990] bg-slate-950">
+                                                <div className="fixed inset-0 z-[9990] bg-slate-950 transform-gpu">
                                                     <LiveMiniMap
                                                         entries={activeEntries}
                                                         height="100%"
@@ -970,6 +978,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                 ) : (
                                     listVoyages.map((summary) => (
                                         <VoyageCard
+                                            suppressMiniMap={showTrackMap || liveMapExpanded}
                                             key={summary.voyageId}
                                             summary={summary}
                                             entries={entries.filter((e) => e.voyageId === summary.voyageId)}
