@@ -6,14 +6,14 @@
  * paid for by the ENC chart layer whenever a cell is imported), filters
  * the BOYLAT/BCNLAT points to the viewport (+ padding so channels
  * straddling the edge keep their gate ordering), splits them into the
- * compiler's two tiers (numbered OBJNAM → chart tier; CATLAM-only →
- * geometric tier), and compiles. Pure & React-free: unit-testable, and
- * directly reusable when the graph feeds routing at Phase 12.
+ * compiler's two tiers via markSplit (shared with the Phase 12 shadow
+ * router — markSplit is a leaf module precisely so the routing pipeline
+ * never imports THIS file's EncHazardService dependency), and compiles.
  */
 
 import { getMergedVectorData } from '../enc/EncHazardService';
 import { compileSeawayGraph, type CompileResult } from './graphCompiler';
-import type { UnnumberedMark } from './gateExtractor';
+import { splitMarkFeatures, type PointFeatureLike } from './markSplit';
 import { seawayOverlayGeoJSON, type SeawayOverlayGeoJSON } from './overlayGeoJSON';
 
 export interface ViewportCompile extends CompileResult {
@@ -25,13 +25,6 @@ export interface ViewportCompile extends CompileResult {
 /** ~2.5 km padding keeps a channel's gate ordering intact when the
  *  viewport clips it mid-channel. */
 const PAD_DEG = 0.025;
-
-interface PointFeatureLike {
-    geometry?: { type?: string; coordinates?: number[] } | null;
-    properties?: Record<string, unknown> | null;
-}
-
-const NUMBERED = /^[A-Za-z]*\d+/;
 
 /**
  * Compile the Seaway Graph for a viewport bbox [minLon, minLat, maxLon,
@@ -51,25 +44,13 @@ export async function compileSeawayGraphForViewport(
         bbox[3] + PAD_DEG,
     ];
 
-    const all = [...merged.BOYLAT.features, ...merged.BCNLAT.features] as PointFeatureLike[];
-    const chartFeatures: PointFeatureLike[] = [];
-    const unnumberedMarks: UnnumberedMark[] = [];
-
-    for (const f of all) {
+    const all = ([...merged.BOYLAT.features, ...merged.BCNLAT.features] as PointFeatureLike[]).filter((f) => {
         const g = f.geometry;
-        if (!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) continue;
+        if (!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) return false;
         const [lon, lat] = g.coordinates;
-        if (lon < minLon || lon > maxLon || lat < minLat || lat > maxLat) continue;
-        const props = f.properties ?? {};
-        const cat = props.CATLAM;
-        if (cat !== 1 && cat !== 2) continue;
-        const name = typeof props.OBJNAM === 'string' ? props.OBJNAM : '';
-        if (NUMBERED.test(name)) {
-            chartFeatures.push(f); // tier 1 — sequence-adjacency pairing
-        } else {
-            unnumberedMarks.push({ lat, lon, side: cat === 1 ? 'port' : 'stbd' }); // tier 3
-        }
-    }
+        return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
+    });
+    const { chartFeatures, unnumberedMarks } = splitMarkFeatures(all);
 
     const markCount = chartFeatures.length + unnumberedMarks.length;
     if (markCount === 0) return null;

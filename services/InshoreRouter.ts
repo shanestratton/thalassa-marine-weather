@@ -43,6 +43,7 @@ import { cellsForBBox, listCells } from './enc/EncCellMetadata';
 import type { EncCell } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
+import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
 import { pairWingFeatures } from './pairWings';
@@ -72,6 +73,12 @@ const log = createLogger('InshoreRouter');
  * or set false until the Pi catches up.
  */
 const CLOUD_ROUTER_ENABLED = false;
+
+// Phase 12 shadow router (services/seaway/seawayRouter): logs a one-line
+// graph-vs-direct comparison after every successful LOCAL route. Telemetry
+// only — the user's route is untouched; flip off if the shadow ever shows
+// up in route latency (it rides the grid cache, so it shouldn't).
+const SEAWAY_SHADOW_ENABLED = true;
 
 // Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
 // Scarborough/marker/midpoint traces, ribbon continuity, full polyline
@@ -1133,6 +1140,31 @@ async function tryInshoreRouteInner(
             log.warn(`STAGE: engine phase timings — ${breakdown}`);
         }
     }
+
+    // ── Seaway SHADOW (masterplan Phase 12) ──────────────────────────
+    // Telemetry only: would the Seaway Graph have routed this passage
+    // better? The user gets `result` regardless; the shadow rides the
+    // grid cache (same bbox/params) so its cost is two connector
+    // searches + a tiny graph Dijkstra. warn-level so the numbers show
+    // up in the Xcode console on device — this log IS Phase 12's
+    // deliverable until the scorecard arbitration promotes (Phase 13).
+    // Local computes only (the prepped cloud path predates the seaway
+    // modules; CLOUD_ROUTER_ENABLED is false until Phase 9 anyway).
+    if (SEAWAY_SHADOW_ENABLED && !routedOnCloud) {
+        try {
+            const tShadow = Date.now();
+            const report = shadowCompare(merged, routeOpts, result);
+            if (report) {
+                log.warn(`SEAWAY SHADOW: ${shadowSummary(report, result.distanceNM)} (${Date.now() - tShadow} ms)`);
+            } else if (ROUTE_DEBUG) {
+                log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow');
+            }
+        } catch (err) {
+            // Shadow failures must never touch the live route.
+            log.warn(`SEAWAY SHADOW: failed (route unaffected): ${err instanceof Error ? err.message : String(err)}`);
+        }
+    }
+
     return {
         polyline: result.polyline,
         cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
