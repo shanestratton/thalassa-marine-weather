@@ -355,10 +355,12 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         }
     }, [entries]);
 
-    // Trigger layer update
+    // Trigger layer update. The debounce only needs to outlast React's
+    // commit — the old 300 ms was a visible beat of blank map on every
+    // open now that cached tracks arrive instantly.
     useEffect(() => {
         if (!isOpen) return;
-        const timer = setTimeout(updateTrackLayers, 300);
+        const timer = setTimeout(updateTrackLayers, 50);
         return () => clearTimeout(timer);
     }, [isOpen, updateTrackLayers]);
 
