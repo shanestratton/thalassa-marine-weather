@@ -24,6 +24,11 @@ const log = createLogger('useLogPageState');
 const MAX_LIST_ENTRIES = 50_000;
 import type { ShipLogEntry } from '../types';
 import { ShipLogService } from '../services/ShipLogService';
+import {
+    getCachedVoyageTrack,
+    setCachedVoyageTrack,
+    clearCachedVoyageTrack,
+} from '../services/shiplog/VoyageTrackCache';
 import { supabase } from '../services/supabase';
 import { BgGeoManager } from '../services/BgGeoManager';
 
@@ -761,16 +766,52 @@ export function useLogPageState() {
             return;
         }
         loadingVoyagesRef.current.add(voyageId);
+
+        // Replace-then-merge: swap THIS voyage's resident entries for the
+        // incoming batch (instead of accumulating), so a cached paint
+        // followed by the network refresh never doubles the points —
+        // cached entries carry trkc_* ids, fresh ones real DB ids.
+        const swapIn = (batch: ShipLogEntry[]) =>
+            dispatch({
+                type: 'UPDATE_ENTRIES',
+                updater: (prev) =>
+                    mergeRecentEntries(
+                        prev.filter((e) => e.voyageId !== voyageId),
+                        batch,
+                    ),
+            });
+
         try {
-            const voyageEntries = await ShipLogService.getVoyageEntries(voyageId);
+            // CACHE-FIRST: paint instantly from the local track cache
+            // (written when the voyage stopped, or on a previous view),
+            // then refresh from Supabase in the background.
+            const cached = await getCachedVoyageTrack(voyageId);
+            const haveCache = !!cached && cached.length >= 2;
+            if (haveCache) swapIn(cached);
+
+            // Timeout the (paginated, un-cancellable) fetch so a cold
+            // view on bad comms shows what we have instead of hanging.
+            // Generous budget when a cached track is already painted.
+            const timeoutMs = haveCache ? 30_000 : 8_000;
+            const voyageEntries = await Promise.race([
+                ShipLogService.getVoyageEntries(voyageId),
+                new Promise<ShipLogEntry[]>((_, reject) =>
+                    setTimeout(() => reject(new Error('voyage-fetch-timeout')), timeoutMs),
+                ),
+            ]);
+
             if (voyageEntries.length > 0) {
-                dispatch({
-                    type: 'UPDATE_ENTRIES',
-                    updater: (prev) => mergeRecentEntries(prev, voyageEntries),
-                });
+                swapIn(voyageEntries);
+                void setCachedVoyageTrack(voyageId, voyageEntries);
+                loadedVoyagesRef.current.add(voyageId);
+            } else if (haveCache) {
+                // Nothing in the cloud (yet) — the cached copy stands.
+                loadedVoyagesRef.current.add(voyageId);
             }
-            loadedVoyagesRef.current.add(voyageId);
         } catch (e) {
+            // Timeout / network failure: the cached paint (if any)
+            // stands, and NOT marking the voyage loaded means the next
+            // open retries the refresh.
             log.warn('loadVoyageEntries failed', e);
         } finally {
             loadingVoyagesRef.current.delete(voyageId);
@@ -920,6 +961,9 @@ export function useLogPageState() {
             if (success) {
                 dispatch({ type: 'UPDATE_ENTRIES', updater: (prev) => prev.filter((e) => e.voyageId !== voyageId) });
                 reloadCareerData();
+                // A deleted voyage's cached track must not resurrect it.
+                void clearCachedVoyageTrack(voyageId);
+                loadedVoyagesRef.current.delete(voyageId);
             } else {
                 toast.error('Failed to delete voyage');
             }

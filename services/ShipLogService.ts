@@ -58,6 +58,7 @@ import {
     getOfflineQueueCount as _getOfflineQueueCount,
     getOfflineEntries as _getOfflineEntries,
 } from './shiplog/OfflineQueue';
+import { setCachedVoyageTrack } from './shiplog/VoyageTrackCache';
 import {
     getLogEntries as _getLogEntries,
     getArchivedEntries as _getArchivedEntries,
@@ -615,6 +616,24 @@ class ShipLogServiceClass {
         await this.captureImmediateEntry(previousVoyageId, 'Voyage End').catch((err) => {
             log.warn(``, err);
         });
+
+        // LOCAL TRACK CACHE: snapshot the voyage from the offline queue
+        // BEFORE the background upload drains it. Viewing this voyage on
+        // the recording device is then instant forever — no Supabase
+        // round-trip, works fully offline. (Snapshot is awaited so the
+        // fire-and-forget sync below can't clear the queue first; the
+        // cache write itself runs in the background.)
+        if (previousVoyageId) {
+            try {
+                const queued = await _getOfflineEntries();
+                const voyageTrack = queued.filter((e) => e.voyageId === previousVoyageId);
+                void setCachedVoyageTrack(previousVoyageId, voyageTrack).catch(() => {
+                    /* best effort */
+                });
+            } catch (e) {
+                log.warn('voyage track cache snapshot failed (viewer will fetch from cloud):', e);
+            }
+        }
 
         // Voyage complete → exit local-only capture and upload the whole
         // recorded voyage to Supabase in the background. Fire-and-forget:
