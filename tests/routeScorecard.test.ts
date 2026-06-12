@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     auditGates,
+    auditStepping,
     channelDisciplinePct,
     xtePercentiles,
     turnCount,
@@ -179,5 +180,66 @@ describe('shape metrics', () => {
         ]);
         expect(len).toBeGreaterThan(1100);
         expect(len).toBeLessThan(1115);
+    });
+});
+
+describe('auditStepping — the marker-stepping signature (collab replies 23/26)', () => {
+    // Gates every ~500 m along an east-west channel at lat 0.
+    const gates: Gate[] = [0.005, 0.01, 0.015].map((lon) => ({
+        port: { lat: 0.0009, lon },
+        stbd: { lat: -0.0009, lon },
+    }));
+
+    it('a fair straight transit has zero kinks', () => {
+        const straight: Polyline = [
+            [0, 0],
+            [0.005, 0],
+            [0.01, 0],
+            [0.015, 0],
+            [0.02, 0],
+        ];
+        const a = auditStepping(straight, gates);
+        expect(a.kinkCount).toBe(0);
+        expect(a.kinksNearGate).toBe(0);
+        expect(a.alternationPairs).toBe(0);
+    });
+
+    it('bead-to-bead stair-stepping reads as alternating kinks AT the gates', () => {
+        // Path doglegs ~40 m off-axis between gates and bends at each
+        // midpoint — the Pass-5 disc signature from the field repro.
+        const step: Polyline = [
+            [0, 0.0013],
+            [0.005, 0], // kink at gate 1 midpoint (~55° turn)
+            [0.0075, 0.0013],
+            [0.01, 0], // kink at gate 2 midpoint
+            [0.0125, 0.0013],
+            [0.015, 0], // kink at gate 3 midpoint
+            [0.02, 0.0013],
+        ];
+        const a = auditStepping(step, gates);
+        expect(a.kinkCount).toBeGreaterThanOrEqual(3);
+        expect(a.kinksNearGate).toBeGreaterThanOrEqual(3);
+        expect(a.alternationPairs).toBeGreaterThanOrEqual(2);
+    });
+
+    it('a double-back registers as a ~180-degree max kink', () => {
+        const back: Polyline = [
+            [0, 0],
+            [0.01, 0],
+            [0.005, 0.00001],
+            [0.015, 0.0001],
+        ];
+        const a = auditStepping(back, []);
+        expect(a.maxKinkDeg).toBeGreaterThan(170);
+    });
+
+    it('threshold and proximity are tunable', () => {
+        const gentle: Polyline = [
+            [0, 0],
+            [0.005, 0.0008], // ~18° turn at the apex — under the default 20°
+            [0.01, 0],
+        ];
+        expect(auditStepping(gentle, gates).kinkCount).toBe(0);
+        expect(auditStepping(gentle, gates, { thresholdDeg: 8 }).kinkCount).toBeGreaterThan(0);
     });
 });
