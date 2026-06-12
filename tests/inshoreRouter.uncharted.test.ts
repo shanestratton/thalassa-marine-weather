@@ -225,3 +225,49 @@ describe('orchestrator — findCorridorCoverageGap (direct-line 1 NM sampling)',
         expect(findCorridorCoverageGap(a, b, [])).toBeNull();
     });
 });
+
+describe('smoothing — plain-CAUTION boundaries survive the smoother (audit close-out, lon 162.30–162.45)', () => {
+    // Reply-17 flagged a suspected latent: smoothPath collapsing a
+    // COST-EQUAL chord across a uniform CAUTION patch, hiding the
+    // boundary inside a waypoint segment (the mechanism that DID bite
+    // unvouched cells under strict, fixed by the boundary re-anchor).
+    // For plain CAUTION the suspicion is WRONG: lineOfSightClear refuses
+    // any chord whose cells differ in caution-state from the anchor
+    // ("never smooth ACROSS the CAUTION boundary"), so the runs stay
+    // split. This fixture pins that protection: if it ever erodes, the
+    // caution band below reads clean (or the whole route reads red) and
+    // this goes red.
+    const FROM_LON = 162.33;
+    const TO_LON = 162.42;
+    // Deep corridor with a full-height CAUTION band (DRVAL1 0.5 < draft
+    // 2.0 + safety 0.5) mid-route, ~990 m along-track. No way around —
+    // the route must cross it.
+    const layers = {
+        DEPARE: fc(
+            rect(162.3, -27.28, 162.45, -27.12, { DRVAL1: 12, DRVAL2: 20 }),
+            rect(162.37, -27.28, 162.38, -27.12, { DRVAL1: 0.5, DRVAL2: 2 }),
+        ),
+    };
+
+    it('the crossing is red exactly where the band is — boundaries not smoothed away', () => {
+        const r = routeInshore(layers, baseReq(FROM_LON, TO_LON));
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        const mask = r.cautionMask ?? [];
+        // Mixed route: both clean and caution segments exist.
+        expect(mask.some((c) => c)).toBe(true);
+        expect(mask.some((c) => !c)).toBe(true);
+        // Caution length ≈ the band width (0.01° ≈ 990 m), generously
+        // banded for transition segments and grid quantisation.
+        const mPerLonHere = 111_320 * Math.cos((-27.2 * Math.PI) / 180);
+        let cautionM = 0;
+        for (let i = 0; i < mask.length; i++) {
+            if (!mask[i]) continue;
+            const [lon0, lat0] = r.polyline[i];
+            const [lon1, lat1] = r.polyline[i + 1];
+            cautionM += Math.hypot((lon1 - lon0) * mPerLonHere, (lat1 - lat0) * 110_540);
+        }
+        expect(cautionM).toBeGreaterThan(700);
+        expect(cautionM).toBeLessThan(1600);
+    });
+});
