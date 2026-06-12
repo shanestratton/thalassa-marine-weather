@@ -23,6 +23,7 @@ import 'leaflet/dist/leaflet.css';
 import { piCache } from '../services/PiCacheService';
 import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, DeviceIcon, WindIcon } from './Icons';
 import { isTrackworthyEntry, isPlausibleTrackPoint, calculateDistanceNM } from '../services/shiplog/helpers';
+import { deriveTurnMarkers } from '../services/shiplog/turnMarkers';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -269,6 +270,30 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 }
             });
             addSegment(currentSegment, currentIsWater, isPlannedRoute);
+
+            // Turn markers — DERIVED from the track geometry at render
+            // time, never stored (the stored-pin system put waypoints
+            // off-route and was retired 2026-06-12). Small dots sit ON
+            // actual track points: one at a sharp corner, several spaced
+            // around a wide sweep, none on straights. Tap for the course
+            // change + time.
+            if (!isPlannedRoute) {
+                for (const m of deriveTurnMarkers(groupEntries)) {
+                    L.circleMarker([m.lat, m.lon], {
+                        radius: 4,
+                        fillColor: '#f59e0b',
+                        fillOpacity: 0.9,
+                        color: '#ffffff',
+                        weight: 1,
+                    })
+                        .bindPopup(
+                            `<div style="font-size:12px;font-weight:700">${m.fromCardinal} → ${m.toCardinal}</div>` +
+                                `<div style="font-size:11px;opacity:.7">${new Date(m.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}</div>`,
+                            { closeButton: false },
+                        )
+                        .addTo(layerGroup);
+                }
+            }
         }
 
         // Start marker
