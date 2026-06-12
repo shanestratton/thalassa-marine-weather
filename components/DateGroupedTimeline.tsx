@@ -263,7 +263,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                     >
                         {onEdit && (
                             <button
-                                aria-label="Swipe Offset"
+                                aria-label="Edit entry"
                                 onClick={() => {
                                     setSwipeOffset(0);
                                     onEdit!(entry);
@@ -290,7 +290,7 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                         )}
                         {onDelete && (
                             <button
-                                aria-label="Swipe Offset"
+                                aria-label="Delete entry"
                                 onClick={() => {
                                     setSwipeOffset(0);
                                     onDelete!(entry.id);
@@ -336,7 +336,6 @@ const CompactLogEntry: React.FC<CompactLogEntryProps> = React.memo(
                 >
                     {/* Compact Row - Always Visible */}
                     <button
-                        aria-label="Toggle option"
                         onClick={() => onToggle(entry.id)}
                         className="w-full px-2.5 py-2 flex items-center gap-2 text-left active:scale-[0.99] transition-transform"
                     >

@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { triggerHaptic } from '../../utils/system';
 import { type SharedRegister, REGISTER_LABELS, REGISTER_ICONS } from '../../services/CrewService';
 import { type CrewMember } from '../../services/CrewService';
 
@@ -16,7 +17,9 @@ export interface SwipeableCrewCardProps {
 }
 
 export const SwipeableCrewCard: React.FC<SwipeableCrewCardProps> = ({ member, mode, onDelete, onEdit }) => {
-    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+        onSwipeComplete: () => void triggerHaptic('light'),
+    });
 
     const isCaptain = mode === 'captain';
     const deleteLabel = isCaptain ? 'Remove' : 'Leave';

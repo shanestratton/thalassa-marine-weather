@@ -672,8 +672,27 @@ export const RoutePlanner: React.FC<{
                         />
                     </>
                 ) : (
-                    /* Empty state — subtle map placeholder */
-                    <div className="w-full h-full bg-slate-950" />
+                    /* Empty state — subtle map placeholder. Pre-calc, a
+                       static hint card fills the dead space; it yields to
+                       the loading indicator and to the computed plan. */
+                    <div className="w-full h-full bg-slate-950">
+                        {!loading && (
+                            <div className="px-4 pt-6">
+                                <div className="max-w-xl mx-auto bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 flex items-start gap-3 animate-in fade-in duration-300">
+                                    <span aria-hidden="true" className="shrink-0 mt-0.5">
+                                        <CompassIcon className="w-5 h-5 text-sky-400" rotation={0} />
+                                    </span>
+                                    <div className="min-w-0">
+                                        <h3 className="text-sm font-bold text-white">Plan a passage</h3>
+                                        <p className="text-[12px] text-slate-400 mt-1">
+                                            Enter origin and destination, then slide to calculate. Calypso checks
+                                            weather, tides and depths along the way.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
                 )}
             </div>
 

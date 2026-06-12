@@ -303,23 +303,6 @@ input[type='date']::-webkit-calendar-picker-indicator {
         border-color 500ms ease;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   ACCESSIBILITY — Global Focus Indicators
-   ═══════════════════════════════════════════════════════════════════ */
-
-/* Visible focus ring for keyboard navigation only */
-*:focus-visible {
-    outline: 2px solid rgba(56, 189, 248, 0.6);
-    /* sky-400 */
-    outline-offset: 2px;
-    border-radius: 4px;
-}
-
-/* Suppress outline for mouse clicks */
-*:focus:not(:focus-visible) {
-    outline: none;
-}
-
 /* ══════════════════════════════════════════════════════════════════
    DISPLAY LIGHT MODE — Inverts the dark maritime palette to light
    ══════════════════════════════════════════════════════════════════ */
@@ -1314,45 +1297,13 @@ body,
     }
 }
 
-/* ── Skip Navigation Link — keyboard accessibility ── */
-.skip-nav {
-    position: absolute;
-    top: -40px;
-    left: 0;
-    background: #0ea5e9;
-    color: white;
-    padding: 8px 16px;
-    z-index: 99999;
-    font-weight: 700;
-    font-size: 14px;
-    border-radius: 0 0 8px 0;
-    transition: top 0.2s;
-}
-
-.skip-nav:focus {
-    top: 0;
-}
-
-/* ── Focus-Visible — keyboard accessibility ring ── */
-/* Show a visible ring only for keyboard navigation (not mouse/touch) */
-*:focus-visible {
-    outline: 2px solid rgba(56, 189, 248, 0.8);
-    /* sky-400 */
-    outline-offset: 2px;
-    border-radius: 4px;
-}
-
-/* Dark background variant — stronger glow */
+/* Focus-visible base rules live at the top of this file (kept single-sourced).
+   Dark background variant — stronger glow */
 .bg-slate-900 *:focus-visible,
 .bg-slate-950 *:focus-visible,
 .bg-black *:focus-visible {
     outline-color: rgba(56, 189, 248, 0.9);
     box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.15);
-}
-
-/* Suppress outline for mouse/touch interactions */
-*:focus:not(:focus-visible) {
-    outline: none;
 }
 
 /* Action sheet slide-up animation */

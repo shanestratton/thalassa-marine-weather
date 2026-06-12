@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import { triggerHaptic } from '../../utils/system';
 
 interface MinutelyRain {
     time: string;
@@ -152,7 +153,10 @@ export const RainForecastCard: React.FC<RainForecastCardProps> = ({
     }, [isModalOpen]);
 
     const openModal = useCallback(() => {
-        if (data && data.length > 0) setIsModalOpen(true);
+        if (data && data.length > 0) {
+            void triggerHaptic('light');
+            setIsModalOpen(true);
+        }
     }, [data]);
 
     if (!analysis) return null;

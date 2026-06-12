@@ -252,7 +252,6 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                 {/* Browse / My Tracks tab toggle */}
                 <div className="flex gap-2 mb-3">
                     <button
-                        aria-label="Active Tab"
                         onClick={() => setActiveTab('browse')}
                         className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
                             activeTab === 'browse'
@@ -263,7 +262,6 @@ export const CommunityTrackBrowser: React.FC<CommunityTrackBrowserProps> = ({ is
                         Browse {total > 0 && `(${total})`}
                     </button>
                     <button
-                        aria-label="Active Tab"
                         onClick={() => setActiveTab('mine')}
                         className={`flex-1 py-2 rounded-lg text-sm font-bold transition-colors ${
                             activeTab === 'mine'
@@ -566,7 +564,7 @@ const MyTrackCard: React.FC<{
                 {confirmDelete ? (
                     <div className="flex items-center gap-1.5 shrink-0">
                         <button
-                            aria-label="Delete this item"
+                            aria-label="Confirm delete"
                             onClick={() => {
                                 onDelete();
                                 setConfirmDelete(false);
@@ -581,7 +579,7 @@ const MyTrackCard: React.FC<{
                             )}
                         </button>
                         <button
-                            aria-label="Delete this item"
+                            aria-label="Cancel delete"
                             onClick={() => setConfirmDelete(false)}
                             className="px-2 py-2 rounded-lg text-sm font-bold bg-slate-800/50 text-slate-400 hover:text-white transition-colors"
                         >

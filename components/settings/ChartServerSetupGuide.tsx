@@ -371,7 +371,9 @@ npm install signalk-charts-provider-simple
 
                         <div className="rounded-lg bg-white/[0.03] border border-white/[0.06] px-3 py-2.5">
                             <div className="flex items-center gap-2 mb-1">
-                                <span className="text-sm">🗺️</span>
+                                <span className="text-sm" aria-hidden="true">
+                                    🗺️
+                                </span>
                                 <span className="text-[11px] text-gray-300 font-bold">
                                     Thalassa Always Has OpenSeaMap
                                 </span>

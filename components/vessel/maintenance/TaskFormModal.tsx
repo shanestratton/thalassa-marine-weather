@@ -45,7 +45,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                         </label>
                         <div className="grid grid-cols-2 gap-2">
                             <button
-                                aria-label="Task Type"
+                                aria-label="Maintenance"
                                 onClick={() => {
                                     setTaskType('maintenance');
                                     setCategory('Engine');
@@ -59,7 +59,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                                 🔄 Maintenance
                             </button>
                             <button
-                                aria-label="Task Type"
+                                aria-label="Repair"
                                 onClick={() => {
                                     setTaskType('repair');
                                     setCategory('Repair');
@@ -129,7 +129,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                             <div className="grid grid-cols-3 gap-1.5">
                                 {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                                     <button
-                                        aria-label="Trigger action"
+                                        aria-label={TRIGGER_LABELS[t]}
                                         key={t}
                                         onClick={() => setTrigger(t)}
                                         className={`py-1 rounded-full text-label font-bold transition-all text-center ${
@@ -246,7 +246,7 @@ export const TaskFormModal: React.FC<TaskFormModalProps> = ({
                 <div className="grid grid-cols-3 gap-2">
                     {(Object.keys(TRIGGER_LABELS) as MaintenanceTriggerType[]).map((t) => (
                         <button
-                            aria-label="Trigger action"
+                            aria-label={TRIGGER_LABELS[t]}
                             key={t}
                             onClick={() => setTrigger(t)}
                             className={`py-2 rounded-full text-xs font-bold transition-all text-center ${form.trigger === t ? 'bg-sky-500/20 text-sky-400 border border-sky-500/30' : 'bg-white/5 text-gray-400 border border-white/5'}`}

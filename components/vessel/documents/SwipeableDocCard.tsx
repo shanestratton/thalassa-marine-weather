@@ -7,6 +7,7 @@
 import React from 'react';
 import type { ShipDocument, DocumentCategory } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
+import { triggerHaptic } from '../../../utils/system';
 
 // ── Expiry logic ──
 
@@ -56,7 +57,9 @@ export const SwipeableDocCard: React.FC<SwipeableDocCardProps> = ({
     selected,
     onToggleSelect,
 }) => {
-    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+        onSwipeComplete: () => void triggerHaptic('light'),
+    });
     const status = getExpiryStatus(doc.expiry_date);
     const colors = EXPIRY_COLORS[status];
 

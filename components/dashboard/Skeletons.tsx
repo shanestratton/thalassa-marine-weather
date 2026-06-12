@@ -3,41 +3,21 @@ import { t } from '../../theme';
 
 /**
  * Skeleton loader for HeroSlide cards
- * Shows animated placeholder while data loads
+ * Shows animated placeholder while data loads.
+ *
+ * Mirrors the real slide geometry (HeroSlide.tsx): a full-height flex
+ * column with one dominant flex-[2] rounded-2xl card (tide graph / map /
+ * instrument panel) — not the retired header + widget-grid + hourly-strip
+ * layout.
  */
 export const HeroSlideSkeleton: React.FC<{ count?: number }> = ({ count = 1 }) => {
     return (
         <>
             {Array.from({ length: count }).map((_, i) => (
-                <div key={i} className="w-full shrink-0 snap-center px-2">
-                    <div
-                        className={`bg-gradient-to-br from-slate-800/80 to-slate-900/80 rounded-2xl p-4 ${t.border.default} animate-pulse`}
-                    >
-                        {/* Header skeleton */}
-                        <div className="flex justify-between items-start mb-4">
-                            <div className="space-y-2">
-                                <div className="h-6 w-32 bg-white/10 rounded" />
-                                <div className="h-4 w-24 bg-white/5 rounded" />
-                            </div>
-                            <div className="h-12 w-20 bg-white/10 rounded" />
-                        </div>
-
-                        {/* Widget grid skeleton */}
-                        <div className="grid grid-cols-5 gap-2 mb-4">
-                            {Array.from({ length: 10 }).map((_, j) => (
-                                <div key={j} className="h-16 bg-white/5 rounded-lg" />
-                            ))}
-                        </div>
-
-                        {/* Tide graph skeleton */}
-                        <div className="h-24 bg-white/5 rounded-lg mb-4" />
-
-                        {/* Cards skeleton */}
-                        <div className="flex gap-2 overflow-hidden">
-                            {Array.from({ length: 6 }).map((_, j) => (
-                                <div key={j} className="w-20 h-32 shrink-0 bg-white/5 rounded-lg" />
-                            ))}
-                        </div>
+                <div key={i} className="w-full h-full shrink-0 snap-start pb-4 flex flex-col">
+                    <div className="relative w-full h-full flex flex-col gap-2 animate-pulse">
+                        {/* Dominant essential card — same box as the real flex-[2] card */}
+                        <div className="relative flex-[2] min-h-0 w-full rounded-2xl border border-white/[0.08] bg-white/[0.04]" />
                     </div>
                 </div>
             ))}

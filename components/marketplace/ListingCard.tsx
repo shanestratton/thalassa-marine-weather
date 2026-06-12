@@ -17,6 +17,7 @@ import { ChatService } from '../../services/ChatService';
 import { SellerRatingService, SellerReputation } from '../../services/SellerRatingService';
 import { t } from '../../theme';
 import { useSwipeable } from '../../hooks/useSwipeable';
+import { triggerHaptic } from '../../utils/system';
 import { scrollInputAboveKeyboard } from '../../utils/keyboardScroll';
 import { formatPrice, getConditionColor, getAvatarGradient, timeAgo } from './helpers';
 
@@ -39,7 +40,14 @@ export const ListingCard: React.FC<ListingCardProps> = React.memo(
         const [offerPrice, setOfferPrice] = useState('');
 
         // Swipe-to-delete (owner only)
-        const { swipeOffset, isSwiping, resetSwipe, ref: swipeRef } = useSwipeable();
+        const {
+            swipeOffset,
+            isSwiping,
+            resetSwipe,
+            ref: swipeRef,
+        } = useSwipeable({
+            onSwipeComplete: () => void triggerHaptic('light'),
+        });
 
         const isOwnerSwipeable = isOwn;
 

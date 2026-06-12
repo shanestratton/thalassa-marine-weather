@@ -7,6 +7,7 @@
 import React from 'react';
 import type { InventoryItem } from '../../../types';
 import { useSwipeable } from '../../../hooks/useSwipeable';
+import { triggerHaptic } from '../../../utils/system';
 
 interface SwipeableInventoryCardProps {
     item: InventoryItem;
@@ -25,7 +26,9 @@ export const SwipeableInventoryCard: React.FC<SwipeableInventoryCardProps> = ({
     onEdit,
     onQuantityAdjust,
 }) => {
-    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+        onSwipeComplete: () => void triggerHaptic('light'),
+    });
 
     const isLow = item.quantity <= item.min_quantity && item.min_quantity > 0;
     const expiryMs = item.expiry_date ? new Date(item.expiry_date).getTime() : null;

@@ -7,6 +7,7 @@
 import React from 'react';
 import type { ChecklistEntry } from '../../../services/vessel/LocalChecklistService';
 import { useSwipeable } from '../../../hooks/useSwipeable';
+import { triggerHaptic } from '../../../utils/system';
 
 interface SwipeableItemCardProps {
     entry: ChecklistEntry;
@@ -31,7 +32,9 @@ export const SwipeableItemCard: React.FC<SwipeableItemCardProps> = ({
     isFirst,
     isLast,
 }) => {
-    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable();
+    const { swipeOffset, isSwiping, resetSwipe, ref } = useSwipeable({
+        onSwipeComplete: () => void triggerHaptic('light'),
+    });
 
     return (
         <div className="relative overflow-hidden rounded-xl">

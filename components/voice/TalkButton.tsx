@@ -114,11 +114,12 @@ export const TalkButton: React.FC<TalkButtonProps> = ({ state, subtitle, disable
             {/* Pulse rings while recording */}
             {isRecording && (
                 <>
+                    {/* top-[80px] = centre of the 160px button — rings ping concentric with it */}
                     <span
-                        className={`absolute top-[88px] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200px] h-[200px] rounded-full ${ringColor} animate-ping pointer-events-none`}
+                        className={`absolute top-[80px] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[200px] h-[200px] rounded-full ${ringColor} animate-ping pointer-events-none`}
                     />
                     <span
-                        className={`absolute top-[88px] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[240px] h-[240px] rounded-full ${ringColor} opacity-50 animate-ping [animation-delay:0.4s] pointer-events-none`}
+                        className={`absolute top-[80px] left-1/2 -translate-x-1/2 -translate-y-1/2 w-[240px] h-[240px] rounded-full ${ringColor} opacity-50 animate-ping [animation-delay:0.4s] pointer-events-none`}
                     />
                 </>
             )}

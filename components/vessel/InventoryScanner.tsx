@@ -385,7 +385,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                         <div className="grid grid-cols-4 gap-1.5 mt-0.5">
                             {CATEGORIES.map((cat) => (
                                 <button
-                                    aria-label="New Item"
+                                    aria-label={cat}
                                     key={cat}
                                     onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
                                     className={`py-1 rounded-lg text-label font-bold transition-all text-center ${
@@ -672,7 +672,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                     {/* Quantity controls */}
                     <div className="flex items-center justify-center gap-6 py-4 bg-white/[0.03] border border-white/[0.06] rounded-2xl mb-4">
                         <button
-                            aria-label="Quantity Adjust"
+                            aria-label="Decrease quantity"
                             onClick={() => handleQuantityAdjust(-1)}
                             disabled={saving || foundItem.quantity <= 0}
                             className="w-14 h-14 rounded-2xl bg-red-500/20 border border-red-500/30 flex items-center justify-center text-red-400 text-2xl font-black hover:bg-red-500/30 transition-all active:scale-90 disabled:opacity-30"
@@ -684,7 +684,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             <p className="text-label text-gray-400 uppercase tracking-widest">In Stock</p>
                         </div>
                         <button
-                            aria-label="Quantity Adjust"
+                            aria-label="Increase quantity"
                             onClick={() => handleQuantityAdjust(1)}
                             disabled={saving}
                             className="w-14 h-14 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-2xl font-black hover:bg-emerald-500/30 transition-all active:scale-90"
@@ -731,7 +731,7 @@ export const InventoryScanner: React.FC<InventoryScannerProps> = ({
                             <div className="grid grid-cols-4 gap-1.5 mt-1">
                                 {CATEGORIES.map((cat) => (
                                     <button
-                                        aria-label="New Item"
+                                        aria-label={cat}
                                         key={cat}
                                         onClick={() => setNewItem((prev) => ({ ...prev, category: cat }))}
                                         className={`py-1.5 rounded-lg text-label font-bold transition-all text-center ${

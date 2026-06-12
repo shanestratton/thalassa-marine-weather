@@ -142,7 +142,9 @@ export const BlitzortungAttribution: React.FC<BlitzortungAttributionProps> = ({ 
                     <span className="font-semibold">{label}</span>
                 </div>
                 <div className="flex items-center gap-1 text-[10px] opacity-80">
-                    <span className="font-bold text-amber-300">⚡</span>
+                    <span className="font-bold text-amber-300" aria-hidden="true">
+                        ⚡
+                    </span>
                     <a
                         href="https://www.blitzortung.org"
                         target="_blank"

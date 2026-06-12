@@ -1513,7 +1513,7 @@ export const BosunConsole: React.FC<BosunConsoleProps> = ({ onBack }) => {
 
     return (
         <div
-            className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black"
+            className="flex flex-col h-full bg-gradient-to-b from-slate-900 via-slate-950 to-black animate-in fade-in duration-200"
             role="region"
             aria-label="Calypso voice console"
         >

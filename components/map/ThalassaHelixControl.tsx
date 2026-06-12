@@ -433,7 +433,7 @@ export const ThalassaHelixControl: React.FC<ThalassaHelixControlProps> = memo(
                         <div className="flex items-center gap-2">
                             {/* Play/Pause */}
                             <button
-                                aria-label="Toggle option"
+                                aria-label={isPlaying ? 'Pause' : 'Play'}
                                 onClick={() => {
                                     onPlayToggle();
                                     triggerHaptic('light');

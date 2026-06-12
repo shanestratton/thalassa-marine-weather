@@ -19,7 +19,9 @@ export const GpsDisclaimerModal: React.FC<GpsDisclaimerModalProps> = ({ isOpen, 
             <div className="bg-slate-900 border border-amber-500/20 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-[slideUp_0.2s_ease-out]">
                 <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
-                        <span className="text-xl">⚠️</span>
+                        <span className="text-xl" aria-hidden="true">
+                            ⚠️
+                        </span>
                     </div>
                     <h3 className="text-lg font-bold text-white">GPS Accuracy Notice</h3>
                 </div>
