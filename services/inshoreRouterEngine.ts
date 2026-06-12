@@ -242,6 +242,13 @@ export interface RouteDebug {
      *  400 m coarse pre-check instead of the full fine-grid pass (reply 19
      *  fix 3 — strict refusals used to pay the whole 20-47 s build first). */
     coarsePrecheck?: boolean;
+    /** Grid-relaxation params the ACCEPTED pass was built with (absent =
+     *  strict, no zones). The Phase 12 shadow router must look up the
+     *  SAME grid — the cache key includes both — or relax-zone routes
+     *  (canal-estate berth starts) read as phantom 'no-entry' connector
+     *  failures on the strict grid and poison the promotion dataset. */
+    relaxedLndare?: boolean;
+    relaxZones?: RelaxZone[];
 }
 
 export interface RouteResult {
@@ -615,16 +622,16 @@ function relaxZonesKey(relaxZones: RelaxZone[]): string {
     return relaxZones.map((z) => `${z.lat.toFixed(3)},${z.lon.toFixed(3)},${Math.round(z.radiusM)}`).join('|');
 }
 
-function buildNavGridCached(
+function navGridCacheKey(
     layers: InshoreLayers,
     bbox: [number, number, number, number],
     resolutionM: number,
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
-    relaxedLndare: boolean = false,
-    relaxZones: RelaxZone[] = [],
-): { grid: NavGrid; cacheHit: boolean } {
+    relaxedLndare: boolean,
+    relaxZones: RelaxZone[],
+): string {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
         layers.DEPARE?.features.length ?? 0,
@@ -639,7 +646,64 @@ function buildNavGridCached(
         layers.CANAL?.features.length ?? 0,
         layers.NAVLINE?.features.length ?? 0,
     ].join(',');
-    const key = `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${sig}`;
+    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${sig}`;
+}
+
+/**
+ * READ-ONLY cache lookup for the Phase 12 shadow router: returns the
+ * already-built grid for these exact params, or null — it NEVER builds.
+ * The shadow must never pay a synchronous grid build on the main thread
+ * (the adversarial review measured a guaranteed miss for fine-pass
+ * results: the fine bbox at 50 m is a key no live path ever builds, and
+ * the orphan entry would evict a hot grid from the 5-slot LRU). A null
+ * here becomes a reasoned 'grid-not-cached' report, never silent work.
+ */
+export function getCachedNavGrid(
+    layers: InshoreLayers,
+    bbox: [number, number, number, number],
+    resolutionM: number,
+    draftM: number,
+    safetyM: number,
+    obstructionBufferM: number,
+    relaxedLndare: boolean = false,
+    relaxZones: RelaxZone[] = [],
+): NavGrid | null {
+    const key = navGridCacheKey(
+        layers,
+        bbox,
+        resolutionM,
+        draftM,
+        safetyM,
+        obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
+    );
+    const cached = navGridCache.get(key);
+    if (!cached) return null;
+    cached.ts = Date.now();
+    return cached.grid;
+}
+
+function buildNavGridCached(
+    layers: InshoreLayers,
+    bbox: [number, number, number, number],
+    resolutionM: number,
+    draftM: number,
+    safetyM: number,
+    obstructionBufferM: number,
+    relaxedLndare: boolean = false,
+    relaxZones: RelaxZone[] = [],
+): { grid: NavGrid; cacheHit: boolean } {
+    const key = navGridCacheKey(
+        layers,
+        bbox,
+        resolutionM,
+        draftM,
+        safetyM,
+        obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
+    );
     const cached = navGridCache.get(key);
     if (cached) {
         cached.ts = Date.now();
@@ -2657,6 +2721,8 @@ function routeInshoreOnce(
         cellsTotal: grid.cells.length,
         cellsNavigable: grid.cells.length - blocked,
         cellsBlocked: blocked,
+        ...(relaxedLndare ? { relaxedLndare: true } : {}),
+        ...(relaxZones.length > 0 ? { relaxZones } : {}),
     };
 
     // ── Label connected components ──
