@@ -1,0 +1,33 @@
+{
+  "rows": [
+    {
+      "name": "newport-rivergate",
+      "directNM": 22.26,
+      "shadow": {
+        "kind": "no-marks"
+      }
+    },
+    {
+      "name": "newport-tangalooma",
+      "directNM": 18.43,
+      "shadow": {
+        "kind": "no-marks"
+      }
+    },
+    {
+      "name": "dog-leg-channel",
+      "directNM": 2.57,
+      "shadow": {
+        "kind": "graph",
+        "graphNM": 3.39,
+        "detourRatio": 1.319,
+        "pctOnGraph": 0.605,
+        "gateCount": 8,
+        "channelGatesTotal": 8,
+        "gateCompliance": 1,
+        "entryNodeId": "D#0/portal-seaward",
+        "exitNodeId": "D#0/portal-inner"
+      }
+    }
+  ]
+}
