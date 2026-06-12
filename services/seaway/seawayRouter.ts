@@ -72,7 +72,14 @@ import {
     type ConnectorTarget,
     type SeawayPortal,
 } from './connector';
-import { flattenLandVertices, halfGateKeepOuts, validateAgainstCrossLines, validateAgainstKeepOuts } from './crossLine';
+import {
+    flattenLandVertices,
+    halfGateKeepOuts,
+    keepOutBlockedCells,
+    validateAgainstCrossLines,
+    validateAgainstKeepOuts,
+    wingBlockedCells,
+} from './crossLine';
 import { splitMarkFeatures, type PointFeatureLike } from './markSplit';
 import { compileSeawayGraph } from './graphCompiler';
 import { gateDistM } from './gateExtractor';
@@ -103,6 +110,10 @@ export interface SeawayShadowRoute {
      *  re-solves these via connectToTargets' blockedIdx; the shadow
      *  reports them honestly instead. */
     crossLineViolations: number;
+    /** §3 re-solve rounds spent (0 = compliant first try; >0 with zero
+     *  violations = the loop converged; >0 with violations = gave up at
+     *  the cap and reports the best-effort route honestly). */
+    resolveRounds: number;
     /** Fraction of route length on channel-edge geometry. */
     pctOnGraph: number;
     /** lengthM / direct route's geometric length. */
@@ -111,7 +122,13 @@ export interface SeawayShadowRoute {
     exitNodeId: string;
 }
 
-export type ShadowFailReason = 'grid-not-cached' | 'no-graph-gates' | 'no-entry' | 'no-exit' | 'no-graph-path';
+export type ShadowFailReason =
+    | 'grid-not-cached'
+    | 'no-graph-gates'
+    | 'no-entry'
+    | 'no-exit'
+    | 'no-graph-path'
+    | 'no-compliant-path';
 
 export interface SeawayShadowReport {
     graph: SeawayShadowRoute | null;
@@ -127,6 +144,10 @@ export interface SeawayShadowReport {
 /** Per-endpoint cap on connector candidates (the goal-set heuristic
  *  costs O(K) per expansion — see header). */
 const MAX_CONNECTOR_TARGETS = 64;
+
+/** §3 re-solve cap: rounds of block-crossed-geometry → re-search before
+ *  the remaining violations are reported as-is. */
+const RESOLVE_MAX_ROUNDS = 3;
 
 /** Straight hop polyline sampled every ~25 m against hard-blocked cells.
  *  Portal/junction links are synthesized geometry, not charted corridor —
@@ -201,7 +222,7 @@ export function shadowCompare(
     let t = Date.now();
     const mark = (label: string): void => {
         const now = Date.now();
-        timings[label] = now - t;
+        timings[label] = (timings[label] ?? 0) + (now - t); // accumulates across re-solve rounds
         t = now;
     };
 
@@ -262,7 +283,7 @@ export function shadowCompare(
     const activePortals = applyInnerPortalYield(portals);
     mark('portals');
 
-    // ── Connector searches from both endpoints ───────────────────────
+    // ── Connector candidates (round-invariant) ───────────────────────
     // snapped:false portals are never targeted (Phase 11 contract: "must
     // not connect to an unsnapped portal without validation"); candidate
     // sets are capped at the nearest MAX_CONNECTOR_TARGETS per endpoint
@@ -279,22 +300,17 @@ export function shadowCompare(
                   .slice(0, MAX_CONNECTOR_TARGETS);
     const originAnchor = { lat: req.fromLat, lon: req.fromLon };
     const destAnchor = { lat: req.toLat, lon: req.toLon };
-    const fromOrigin = connectToTargets(grid, originAnchor, nearestTargets(originAnchor));
-    const fromDest = connectToTargets(grid, destAnchor, nearestTargets(destAnchor));
-    mark('connectors');
+    const oTargets = nearestTargets(originAnchor);
+    const dTargets = nearestTargets(destAnchor);
+    const portalCount = portals.length;
 
     const accepted = (rs: ConnectorResult[]): Map<string, ConnectorResult> => {
         const m = new Map<string, ConnectorResult>();
         for (const r of rs) if (r.reached && r.withinBudget) m.set(r.targetId, r);
         return m;
     };
-    const entries = accepted(fromOrigin.results);
-    const exits = accepted(fromDest.results);
-    const portalCount = portals.length;
-    if (entries.size === 0) return { graph: null, reason: 'no-entry', portalCount, ...base };
-    if (exits.size === 0) return { graph: null, reason: 'no-exit', portalCount, ...base };
 
-    // ── Node/link assembly ────────────────────────────────────────────
+    // ── Node/link assembly (round-invariant) ─────────────────────────
     const nodes: GraphNode[] = [];
     const indexOf = new Map<string, number>();
     const addNode = (id: string, pos: SeawayLatLon, isGate: boolean): number => {
@@ -308,24 +324,42 @@ export function shadowCompare(
     for (const g of graph.gates) addNode(g.id, g.mid, true);
     for (const p of activePortals) addNode(p.id, p, false);
 
+    // Wire-time §3 compliance: edges and hops are IMMUTABLE geometry —
+    // the connector re-solve can never fix them — so any wing or
+    // keep-out crossing here is degenerate compilation (the fixture
+    // catch: a seq-zigzag half-gate edge doubling back across its own
+    // channel through the solo mark's keep-out) and the link is dropped
+    // at wiring, exactly like land-crossing edges. Span crossings are
+    // of course allowed — that is what channel geometry does.
+    const landVerts = flattenLandVertices(layers.LNDARE?.features ?? []);
+    const allFullGates = graph.gates.filter((g) => g.portMark && g.stbdMark);
+    const allKeepOuts = halfGateKeepOuts(graph.gates, landVerts);
+    const geomCompliant = (poly: SeawayLatLon[]): boolean =>
+        validateAgainstCrossLines(poly, allFullGates).ok && validateAgainstKeepOuts(poly, allKeepOuts).length === 0;
+
     const links: GraphLink[][] = nodes.map(() => []);
     const addLink = (from: number, to: number, weightM: number, polyline: SeawayLatLon[], edgeId?: string): void => {
         links[from].push({ to, weightM, polyline, edgeId });
         links[to].push({ to: from, weightM, polyline: [...polyline].reverse(), edgeId });
     };
+    let edgesWired = 0;
     for (const e of graph.edges as SeawayEdge[]) {
         const a = indexOf.get(e.fromGateId);
         const b = indexOf.get(e.toGateId);
         if (a === undefined || b === undefined) continue;
+        if (!geomCompliant(e.polyline)) continue; // degenerate — dropped, visible via edgesTotal
         addLink(a, b, e.lengthM, e.polyline, e.id);
+        edgesWired++;
     }
+    base.edgesTotal = edgesWired;
     for (const p of activePortals) {
         if (!p.snapped) continue; // never wired into the graph either
         const pIdx = indexOf.get(p.id)!;
         if (p.kind === 'portal' && p.gateId) {
             const g = gatesById.get(p.gateId);
-            if (g && hopClear(grid, p, g.mid)) {
-                addLink(pIdx, indexOf.get(g.id)!, gateDistM(p, g.mid), [{ lat: p.lat, lon: p.lon }, g.mid]);
+            const hop: SeawayLatLon[] = g ? [{ lat: p.lat, lon: p.lon }, g.mid] : [];
+            if (g && hopClear(grid, p, g.mid) && geomCompliant(hop)) {
+                addLink(pIdx, indexOf.get(g.id)!, gateDistM(p, g.mid), hop);
             }
         } else if (p.kind === 'junction') {
             // Link to the nearest gate of EACH channel the junction serves.
@@ -340,160 +374,214 @@ export function shadowCompare(
                         best = g;
                     }
                 }
-                if (best && hopClear(grid, p, best.mid)) {
-                    addLink(pIdx, indexOf.get(best.id)!, bestD, [{ lat: p.lat, lon: p.lon }, best.mid]);
+                const hop: SeawayLatLon[] = best ? [{ lat: p.lat, lon: p.lon }, best.mid] : [];
+                if (best && hopClear(grid, p, best.mid) && geomCompliant(hop)) {
+                    addLink(pIdx, indexOf.get(best.id)!, bestD, hop);
                 }
             }
         }
     }
 
-    // ── Dijkstra: virtual origin → virtual destination ────────────────
-    // Connector costs are full engine economics; edge weights are plain
-    // length (preferred tier) — the sum stays in cost-equivalent metres.
-    const N = nodes.length;
-    const dist = new Float64Array(N + 2).fill(Infinity); // [N]=origin, [N+1]=dest
-    const prev = new Int32Array(N + 2).fill(-1);
-    const prevLink: Array<GraphLink | null> = new Array(N + 2).fill(null);
-    const ORIGIN = N;
-    const DEST = N + 1;
-    dist[ORIGIN] = 0;
-
-    // Simple O(V²) scan — node counts here are tens-to-hundreds.
-    const settled = new Uint8Array(N + 2);
-    const entryByIdx = new Map<number, ConnectorResult>();
-    for (const [id, r] of entries) {
-        const i = indexOf.get(id);
-        if (i !== undefined) entryByIdx.set(i, r);
-    }
-    const exitByIdx = new Map<number, ConnectorResult>();
-    for (const [id, r] of exits) {
-        const i = indexOf.get(id);
-        if (i !== undefined) exitByIdx.set(i, r);
-    }
-    for (;;) {
-        let u = -1;
-        let uD = Infinity;
-        for (let i = 0; i < N + 2; i++) {
-            if (!settled[i] && dist[i] < uD) {
-                uD = dist[i];
-                u = i;
-            }
-        }
-        if (u === -1 || u === DEST) break;
-        settled[u] = 1;
-        if (u === ORIGIN) {
-            for (const [i, r] of entryByIdx) {
-                if (r.costM < dist[i]) {
-                    dist[i] = r.costM;
-                    prev[i] = ORIGIN;
-                    prevLink[i] = null;
-                }
-            }
-            continue;
-        }
-        // Node u: graph links + (if an accepted exit) the hop to DEST.
-        for (const l of links[u]) {
-            const nd = dist[u] + l.weightM;
-            if (nd < dist[l.to]) {
-                dist[l.to] = nd;
-                prev[l.to] = u;
-                prevLink[l.to] = l;
-            }
-        }
-        const exitR = exitByIdx.get(u);
-        if (exitR && dist[u] + exitR.costM < dist[DEST]) {
-            dist[DEST] = dist[u] + exitR.costM;
-            prev[DEST] = u;
-            prevLink[DEST] = null;
-        }
-    }
-    mark('graphSearch');
-    if (!Number.isFinite(dist[DEST])) {
-        return { graph: null, reason: 'no-graph-path', portalCount, ...base };
-    }
-
-    // ── Compose the polyline ──────────────────────────────────────────
-    const nodePath: number[] = [];
-    for (let cur = DEST; cur !== -1; cur = prev[cur]) nodePath.push(cur);
-    nodePath.reverse(); // ORIGIN, n1, ..., nk, DEST
-    const entryNode = nodes[nodePath[1]];
-    const exitNode = nodes[nodePath[nodePath.length - 2]];
-
+    // ── §3 per-leg re-solve loop ──────────────────────────────────────
+    // compose → validate (cross-lines + keep-outs) → block the crossed
+    // wings/keep-outs via connectToTargets' blockedIdx → re-search, up
+    // to RESOLVE_MAX_ROUNDS. Channel edges are validated geometry, so
+    // violations come from connector legs and hops — blocking +
+    // re-searching the connectors is the §3 remedy. A round that
+    // strands the search (no entry/exit/path with the offending
+    // geometry blocked) means no compliant graph route exists →
+    // reasoned 'no-compliant-path'. After max rounds the FINAL route is
+    // reported with its remaining violations — telemetry stays honest
+    // either way, and the user's route is untouched regardless.
     const cellToLatLon = (c: { x: number; y: number }): SeawayLatLon => ({
         lat: grid.minLat + (c.y + 0.5) * grid.dLat,
         lon: grid.minLon + (c.x + 0.5) * grid.dLon,
     });
-    const line: SeawayLatLon[] = [];
-    const push = (pts: SeawayLatLon[]): void => {
-        for (const p of pts) {
-            const last = line[line.length - 1];
-            if (!last || gateDistM(last, p) > 1) line.push(p);
-        }
-    };
-    push(entries.get(entryNode.id)!.path.map(cellToLatLon));
-    const edgesUsed: string[] = [];
-    let onGraphM = 0;
-    for (let i = 2; i < nodePath.length - 1; i++) {
-        const link = prevLink[nodePath[i]];
-        if (!link) continue;
-        push(link.polyline);
-        if (link.edgeId) {
-            edgesUsed.push(link.edgeId);
-            onGraphM += link.weightM;
-        }
-    }
-    push([...exits.get(exitNode.id)!.path.map(cellToLatLon)].reverse());
-    mark('assemble');
-
-    const lengthM = polylineLengthM(line);
     const directLine: SeawayLatLon[] = direct.polyline.map(([lon, lat]) => ({ lat, lon }));
     const directLengthM = polylineLengthM(directLine);
 
-    // MEASURED cross-line compliance (crossLine.ts — the Phase 13
-    // primitive, replacing Phase 12's by-construction metric): the
-    // composed polyline validated against every FULL gate of the
-    // traversed channels. Span crossings are measured facts; wing
-    // crossings are wrong-side VIOLATIONS — the §3 promotion gate's
-    // headline number, target 0. A gate both crossed and violated
-    // (S-shaped pass) counts as violated.
-    const pathChannelKeys = new Set(
-        nodePath
-            .slice(1, -1)
-            .map((i) => nodes[i])
-            .filter((n) => n.isGate)
-            .map((n) => gatesById.get(n.id)!.channelKey),
-    );
-    const channelGates = graph.gates.filter((g) => pathChannelKeys.has(g.channelKey));
-    const channelFullGates = channelGates.filter((g) => g.portMark && g.stbdMark);
-    const cl = validateAgainstCrossLines(line, channelFullGates);
-    // Half-gates of the traversed channels carry §3 keep-out segments
-    // (mark → shore); crossing one is a 'shore-side' violation counted
-    // exactly like a wing crossing.
-    const keepOuts = halfGateKeepOuts(channelGates, flattenLandVertices(layers.LNDARE?.features ?? []));
-    const koViolations = validateAgainstKeepOuts(line, keepOuts);
-    const allViolations = [...cl.violations, ...koViolations];
-    const gatesViolated = new Set(allViolations.map((v) => v.gateId));
-    const gatesCorrect = new Set(cl.crossings.map((c) => c.gateId).filter((id) => !gatesViolated.has(id)));
-    const interactions = gatesCorrect.size + gatesViolated.size;
+    let blocked: Set<number> | undefined;
+    let resolveRounds = 0;
+    let lastViolationCount = Infinity;
+    for (;;) {
+        const fromOrigin = connectToTargets(grid, originAnchor, oTargets, { blockedIdx: blocked });
+        const fromDest = connectToTargets(grid, destAnchor, dTargets, { blockedIdx: blocked });
+        mark('connectors');
+        const entries = accepted(fromOrigin.results);
+        const exits = accepted(fromDest.results);
+        if (entries.size === 0) {
+            return { graph: null, reason: resolveRounds > 0 ? 'no-compliant-path' : 'no-entry', portalCount, ...base };
+        }
+        if (exits.size === 0) {
+            return { graph: null, reason: resolveRounds > 0 ? 'no-compliant-path' : 'no-exit', portalCount, ...base };
+        }
 
-    return {
-        graph: {
-            polyline: line.map((p): [number, number] => [p.lon, p.lat]),
-            lengthM,
-            costM: dist[DEST],
-            edgesUsed,
-            gateCount: nodePath.slice(1, -1).filter((i) => nodes[i].isGate).length,
-            channelGatesTotal: channelFullGates.length,
-            gateCompliance: interactions > 0 ? gatesCorrect.size / interactions : null,
-            crossLineViolations: allViolations.length,
-            pctOnGraph: lengthM > 0 ? onGraphM / lengthM : 0,
-            detourRatio: directLengthM > 0 ? lengthM / directLengthM : Infinity,
-            entryNodeId: entryNode.id,
-            exitNodeId: exitNode.id,
-        },
-        portalCount,
-        ...base,
-    };
+        // ── Dijkstra: virtual origin → virtual destination ────────────
+        // Connector costs are full engine economics; edge weights are
+        // plain length (preferred tier) — the sum stays in
+        // cost-equivalent metres. O(V²) scan — node counts here are
+        // tens-to-hundreds.
+        const N = nodes.length;
+        const dist = new Float64Array(N + 2).fill(Infinity); // [N]=origin, [N+1]=dest
+        const prev = new Int32Array(N + 2).fill(-1);
+        const prevLink: Array<GraphLink | null> = new Array(N + 2).fill(null);
+        const ORIGIN = N;
+        const DEST = N + 1;
+        dist[ORIGIN] = 0;
+        const settled = new Uint8Array(N + 2);
+        const entryByIdx = new Map<number, ConnectorResult>();
+        for (const [id, r] of entries) {
+            const i = indexOf.get(id);
+            if (i !== undefined) entryByIdx.set(i, r);
+        }
+        const exitByIdx = new Map<number, ConnectorResult>();
+        for (const [id, r] of exits) {
+            const i = indexOf.get(id);
+            if (i !== undefined) exitByIdx.set(i, r);
+        }
+        for (;;) {
+            let u = -1;
+            let uD = Infinity;
+            for (let i = 0; i < N + 2; i++) {
+                if (!settled[i] && dist[i] < uD) {
+                    uD = dist[i];
+                    u = i;
+                }
+            }
+            if (u === -1 || u === DEST) break;
+            settled[u] = 1;
+            if (u === ORIGIN) {
+                for (const [i, r] of entryByIdx) {
+                    if (r.costM < dist[i]) {
+                        dist[i] = r.costM;
+                        prev[i] = ORIGIN;
+                        prevLink[i] = null;
+                    }
+                }
+                continue;
+            }
+            // Node u: graph links + (if an accepted exit) the hop to DEST.
+            for (const l of links[u]) {
+                const nd = dist[u] + l.weightM;
+                if (nd < dist[l.to]) {
+                    dist[l.to] = nd;
+                    prev[l.to] = u;
+                    prevLink[l.to] = l;
+                }
+            }
+            const exitR = exitByIdx.get(u);
+            if (exitR && dist[u] + exitR.costM < dist[DEST]) {
+                dist[DEST] = dist[u] + exitR.costM;
+                prev[DEST] = u;
+                prevLink[DEST] = null;
+            }
+        }
+        mark('graphSearch');
+        if (!Number.isFinite(dist[DEST])) {
+            return {
+                graph: null,
+                reason: resolveRounds > 0 ? 'no-compliant-path' : 'no-graph-path',
+                portalCount,
+                ...base,
+            };
+        }
+
+        // ── Compose the polyline ──────────────────────────────────────
+        const nodePath: number[] = [];
+        for (let cur = DEST; cur !== -1; cur = prev[cur]) nodePath.push(cur);
+        nodePath.reverse(); // ORIGIN, n1, ..., nk, DEST
+        const entryNode = nodes[nodePath[1]];
+        const exitNode = nodes[nodePath[nodePath.length - 2]];
+        const line: SeawayLatLon[] = [];
+        const push = (pts: SeawayLatLon[]): void => {
+            for (const p of pts) {
+                const last = line[line.length - 1];
+                if (!last || gateDistM(last, p) > 1) line.push(p);
+            }
+        };
+        push(entries.get(entryNode.id)!.path.map(cellToLatLon));
+        const edgesUsed: string[] = [];
+        let onGraphM = 0;
+        for (let i = 2; i < nodePath.length - 1; i++) {
+            const link = prevLink[nodePath[i]];
+            if (!link) continue;
+            push(link.polyline);
+            if (link.edgeId) {
+                edgesUsed.push(link.edgeId);
+                onGraphM += link.weightM;
+            }
+        }
+        push([...exits.get(exitNode.id)!.path.map(cellToLatLon)].reverse());
+        mark('assemble');
+
+        // ── MEASURED cross-line compliance (crossLine.ts) ─────────────
+        // Span crossings are measured facts; wing/keep-out crossings are
+        // wrong-side VIOLATIONS — the §3 headline, target 0. A gate both
+        // crossed and violated (S-shaped pass) counts as violated.
+        const pathChannelKeys = new Set(
+            nodePath
+                .slice(1, -1)
+                .map((i) => nodes[i])
+                .filter((n) => n.isGate)
+                .map((n) => gatesById.get(n.id)!.channelKey),
+        );
+        const channelGates = graph.gates.filter((g) => pathChannelKeys.has(g.channelKey));
+        const channelFullGates = channelGates.filter((g) => g.portMark && g.stbdMark);
+        const cl = validateAgainstCrossLines(line, channelFullGates);
+        const keepOuts = halfGateKeepOuts(channelGates, landVerts);
+        const koViolations = validateAgainstKeepOuts(line, keepOuts);
+        const allViolations = [...cl.violations, ...koViolations];
+
+        // Re-solve only while it is actually HELPING: a round that didn't
+        // reduce the violation count means the remaining crossings are on
+        // geometry blocking can't move — report them honestly instead of
+        // burning the cap.
+        if (
+            allViolations.length > 0 &&
+            resolveRounds < RESOLVE_MAX_ROUNDS &&
+            allViolations.length < lastViolationCount
+        ) {
+            lastViolationCount = allViolations.length;
+            // Block the crossed geometry and re-solve.
+            blocked = blocked ?? new Set<number>();
+            for (const v of allViolations) {
+                if (v.side === 'shore-side') {
+                    const ko = keepOuts.find((k) => k.gateId === v.gateId);
+                    if (ko) for (const idx of keepOutBlockedCells(grid, ko)) blocked.add(idx);
+                } else {
+                    const g = gatesById.get(v.gateId);
+                    if (g) for (const idx of wingBlockedCells(grid, g, v.side)) blocked.add(idx);
+                }
+            }
+            resolveRounds++;
+            continue;
+        }
+
+        const lengthM = polylineLengthM(line);
+        const gatesViolated = new Set(allViolations.map((v) => v.gateId));
+        const gatesCorrect = new Set(cl.crossings.map((c) => c.gateId).filter((id) => !gatesViolated.has(id)));
+        const interactions = gatesCorrect.size + gatesViolated.size;
+
+        return {
+            graph: {
+                polyline: line.map((p): [number, number] => [p.lon, p.lat]),
+                lengthM,
+                costM: dist[DEST],
+                edgesUsed,
+                gateCount: nodePath.slice(1, -1).filter((i) => nodes[i].isGate).length,
+                channelGatesTotal: channelFullGates.length,
+                gateCompliance: interactions > 0 ? gatesCorrect.size / interactions : null,
+                crossLineViolations: allViolations.length,
+                resolveRounds,
+                pctOnGraph: lengthM > 0 ? onGraphM / lengthM : 0,
+                detourRatio: directLengthM > 0 ? lengthM / directLengthM : Infinity,
+                entryNodeId: entryNode.id,
+                exitNodeId: exitNode.id,
+            },
+            portalCount,
+            ...base,
+        };
+    }
 }
 
 /** One-line telemetry summary for the orchestrator's shadow log. */
@@ -504,10 +592,12 @@ export function shadowSummary(report: SeawayShadowReport, directNM: number): str
     }
     const compliance = g.gateCompliance === null ? 'n/a' : `${Math.round(g.gateCompliance * 100)}%`;
     const wrongSide = g.crossLineViolations > 0 ? `, ${g.crossLineViolations} WRONG-SIDE` : '';
+    const resolved =
+        g.resolveRounds > 0 ? `, re-solved in ${g.resolveRounds} round${g.resolveRounds > 1 ? 's' : ''}` : '';
     return (
         `graph ${(g.lengthM / 1852).toFixed(2)} NM vs direct ${directNM.toFixed(2)} NM — ` +
         `detour ${g.detourRatio.toFixed(2)}, ${Math.round(g.pctOnGraph * 100)}% on-graph, ` +
-        `${g.gateCount} gates of ${g.channelGatesTotal} charted (compliance ${compliance}${wrongSide}), ` +
+        `${g.gateCount} gates of ${g.channelGatesTotal} charted (compliance ${compliance}${wrongSide}${resolved}), ` +
         `via ${g.entryNodeId} → ${g.exitNodeId}`
     );
 }

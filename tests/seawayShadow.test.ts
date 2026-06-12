@@ -251,3 +251,53 @@ describe('inner-portal yield (§3 Phase 13)', () => {
         expect(applyInnerPortalYield(portals)).toHaveLength(1);
     });
 });
+
+describe('shadow — §3 re-solve loop end-to-end (lon 164.50–164.80)', () => {
+    it('a keep-out crossing on the entry leg re-solves to a compliant route and reports the rounds', () => {
+        // On-axis 4-gate channel; an EXTRA unpaired port mark (half-gate
+        // S9) sits 100 m SOUTH of the axis between origin and the first
+        // gate, with an LNDARE strip 500 m north of it — its keep-out
+        // segment (mark → shore) therefore CROSSES the axis. Round 1's
+        // origin connector leg rides the axis through the keep-out
+        // (violation); the loop blocks it and re-solves the connector
+        // seaward (south of the mark), converging compliant.
+        const axisLat = -27.2;
+        const M_LAT = 1 / 110_540;
+        const mPerLon = 111_320 * Math.cos((axisLat * Math.PI) / 180);
+        const GATE_LONS = Array.from({ length: 4 }, (_, k) => 164.62 + (k * 500) / mPerLon);
+        const soloLon = 164.605; // between origin (164.58) and gate 1
+        const layers = {
+            DEPARE: fc(rect(164.5, -27.28, 164.75, -27.12, { DRVAL1: 12, DRVAL2: 20 })),
+            LNDARE: fc(rect(soloLon - 0.002, axisLat + 380 * M_LAT, soloLon + 0.002, axisLat + 480 * M_LAT)),
+            BOYLAT: fc(...GATE_LONS.flatMap((lon, k) => gateMarks(lon, axisLat, 0.0009, 'S', k)), {
+                type: 'Feature',
+                properties: { CATLAM: 1, OBJNAM: 'S9' },
+                geometry: { type: 'Point', coordinates: [soloLon, axisLat - 100 * M_LAT] },
+            } as Feature),
+        };
+        const req: RouteRequest = {
+            fromLat: axisLat,
+            fromLon: 164.58,
+            toLat: axisLat,
+            toLon: 164.71,
+            draftM: 2.0,
+            safetyM: 0.5,
+            resolutionM: 50,
+        };
+        const direct = routeInshore(layers, req);
+        expect(isResult(direct)).toBe(true);
+        if (!isResult(direct)) return;
+
+        const report = shadowCompare(layers, req, direct);
+        expect(report).not.toBeNull();
+        if (!report || !report.graph) {
+            throw new Error(`expected a graph route, got ${report?.reason}`);
+        }
+        const g = report.graph;
+        // The loop ran and converged: rounds spent, zero violations left.
+        expect(g.resolveRounds).toBeGreaterThanOrEqual(1);
+        expect(g.crossLineViolations).toBe(0);
+        expect(g.detourRatio).toBeLessThanOrEqual(1.35);
+        expect(shadowSummary(report, direct.distanceNM)).toContain('re-solved in');
+    });
+});
