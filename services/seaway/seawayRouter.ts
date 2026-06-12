@@ -34,12 +34,14 @@
  *  - portal/junction hop links are 25 m-sampled against the grid and
  *    dropped if blocked; portals flagged snapped:false are never
  *    targeted (the Phase 11 contract);
- *  - gateCompliance is partly compliance-by-construction (channel-edge
- *    polylines pass THROUGH gate mids), so it guards the connector/hop
- *    segments and composition fidelity, not side-correctness — that is
- *    Phase 13's cross-line validation. channelGatesTotal gives
- *    arbitration the skipped-gates context (a mid-channel entry crosses
- *    fewer gates than the channel has).
+ *  - gateCompliance is MEASURED (crossLine.ts): span crossings vs
+ *    wing crossings of the traversed channels' full gates, with
+ *    crossLineViolations as the §3 wrong-side headline (target 0);
+ *    channelGatesTotal gives arbitration the skipped-gates context (a
+ *    mid-channel entry crosses fewer gates than the channel has);
+ *  - inner terminal portals YIELD to a junction serving the same
+ *    channel (applyInnerPortalYield) — an inner portal can deep-snap
+ *    inside a basin the junction properly owns;
  *
  * v1 simplifications, all deliberate and visible:
  *  - channel edges are bidirectional (directed transit edges are Phase
@@ -68,7 +70,9 @@ import {
     targetFromPortal,
     type ConnectorResult,
     type ConnectorTarget,
+    type SeawayPortal,
 } from './connector';
+import { validateAgainstCrossLines } from './crossLine';
 import { splitMarkFeatures, type PointFeatureLike } from './markSplit';
 import { compileSeawayGraph } from './graphCompiler';
 import { gateDistM } from './gateExtractor';
@@ -89,12 +93,16 @@ export interface SeawayShadowRoute {
      *  crosses fewer gates than the channel has; arbitration needs to
      *  see that, not just a path-relative 100%). */
     channelGatesTotal: number;
-    /** Fraction of FULL gates on the NODE PATH whose port→stbd span the
-     *  polyline crosses between the marks. Partly true by construction
-     *  (edge polylines pass through gate mids) — it guards connector/hop
-     *  segments and composition fidelity; side-correctness is Phase 13's
-     *  cross-line validation. */
+    /** MEASURED side-correctness (crossLine.ts, Phase 13): of the full
+     *  gates the route interacted with (span crossed or wing crossed),
+     *  the fraction whose every interaction was a between-the-marks
+     *  crossing. Null when the route interacted with no full gate. */
     gateCompliance: number | null;
+    /** Wing crossings — wrong-side passes within ±1 gate-width of a
+     *  mark. THE §3 promotion headline; target 0. The Phase 13 router
+     *  re-solves these via connectToTargets' blockedIdx; the shadow
+     *  reports them honestly instead. */
+    crossLineViolations: number;
     /** Fraction of route length on channel-edge geometry. */
     pctOnGraph: number;
     /** lengthM / direct route's geometric length. */
@@ -114,10 +122,7 @@ export interface SeawayShadowReport {
     phaseTimings: Record<string, number>;
 }
 
-// ── Geometry helpers (graph metre conventions, matching gateExtractor) ──
-
-const M_PER_LAT = 110_540;
-const mPerLonAt = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
+// ── Geometry helpers ────────────────────────────────────────────────
 
 /** Per-endpoint cap on connector candidates (the goal-set heuristic
  *  costs O(K) per expansion — see header). */
@@ -147,28 +152,21 @@ function polylineLengthM(line: SeawayLatLon[]): number {
     return len;
 }
 
-/** Does any segment of `line` cross gate's port→stbd span (full gates
- *  only)? Planar metres anchored at the port mark. */
-function crossesGateSpan(line: SeawayLatLon[], gate: GateNode): boolean | null {
-    if (!gate.portMark || !gate.stbdMark) return null;
-    const a = gate.portMark;
-    const mPerLon = mPerLonAt(a.lat);
-    const sx = (gate.stbdMark.lon - a.lon) * mPerLon;
-    const sy = (gate.stbdMark.lat - a.lat) * M_PER_LAT;
-    for (let i = 1; i < line.length; i++) {
-        const px = (line[i - 1].lon - a.lon) * mPerLon;
-        const py = (line[i - 1].lat - a.lat) * M_PER_LAT;
-        const qx = (line[i].lon - a.lon) * mPerLon;
-        const qy = (line[i].lat - a.lat) * M_PER_LAT;
-        const rx = qx - px;
-        const ry = qy - py;
-        const denom = rx * sy - ry * sx;
-        if (Math.abs(denom) < 1e-9) continue;
-        const t = (px * ry - py * rx) / -denom; // along the gate span
-        const u = (px * sy - py * sx) / -denom; // along the route segment
-        if (t >= 0 && t <= 1 && u >= 0 && u <= 1) return true;
+/**
+ * §3 inner-portal yield: an end:'inner' terminal portal can legitimately
+ * deep-snap INSIDE a basin that a junction (or, when Phase 14 lands,
+ * marina-entrance) node properly owns — when such a node serves the same
+ * channel, the inner portal yields. Gate-mids stay candidates, so no
+ * route is stranded by yielding. Exported pure for its fixture.
+ */
+export function applyInnerPortalYield(portals: SeawayPortal[]): SeawayPortal[] {
+    const ownedChannels = new Set<string>();
+    for (const p of portals) {
+        if (p.kind === 'junction') for (const k of p.channelKeys) ownedChannels.add(k);
     }
-    return false;
+    return portals.filter(
+        (p) => !(p.kind === 'portal' && p.end === 'inner' && p.channelKeys.some((k) => ownedChannels.has(k))),
+    );
 }
 
 // ── Graph search scaffolding ────────────────────────────────────────
@@ -259,6 +257,9 @@ export function shadowCompare(
     }
 
     const portals = synthesizePortals(graph, { grid });
+    // §3 inner-portal yield (see applyInnerPortalYield). portalCount in
+    // the report stays the synthesized total so yields are visible.
+    const activePortals = applyInnerPortalYield(portals);
     mark('portals');
 
     // ── Connector searches from both endpoints ───────────────────────
@@ -267,7 +268,7 @@ export function shadowCompare(
     // sets are capped at the nearest MAX_CONNECTOR_TARGETS per endpoint
     // so a region-wide mark soup can't stall the telemetry pass.
     const allTargets: ConnectorTarget[] = [
-        ...portals.filter((p) => p.snapped).map(targetFromPortal),
+        ...activePortals.filter((p) => p.snapped).map(targetFromPortal),
         ...graph.gates.map(targetFromGate),
     ];
     const nearestTargets = (anchor: SeawayLatLon): ConnectorTarget[] =>
@@ -305,7 +306,7 @@ export function shadowCompare(
     };
     const gatesById = new Map<string, GateNode>(graph.gates.map((g) => [g.id, g]));
     for (const g of graph.gates) addNode(g.id, g.mid, true);
-    for (const p of portals) addNode(p.id, p, false);
+    for (const p of activePortals) addNode(p.id, p, false);
 
     const links: GraphLink[][] = nodes.map(() => []);
     const addLink = (from: number, to: number, weightM: number, polyline: SeawayLatLon[], edgeId?: string): void => {
@@ -318,7 +319,7 @@ export function shadowCompare(
         if (a === undefined || b === undefined) continue;
         addLink(a, b, e.lengthM, e.polyline, e.id);
     }
-    for (const p of portals) {
+    for (const p of activePortals) {
         if (!p.snapped) continue; // never wired into the graph either
         const pIdx = indexOf.get(p.id)!;
         if (p.kind === 'portal' && p.gateId) {
@@ -448,17 +449,13 @@ export function shadowCompare(
     const directLine: SeawayLatLon[] = direct.polyline.map(([lon, lat]) => ({ lat, lon }));
     const directLengthM = polylineLengthM(directLine);
 
-    // Gate compliance over the FULL gates on the node path.
-    const pathGates = nodePath
-        .slice(1, -1)
-        .map((i) => nodes[i])
-        .filter((n) => n.isGate)
-        .map((n) => gatesById.get(n.id)!)
-        .filter((g) => g.portMark && g.stbdMark);
-    let crossed = 0;
-    for (const g of pathGates) {
-        if (crossesGateSpan(line, g)) crossed++;
-    }
+    // MEASURED cross-line compliance (crossLine.ts — the Phase 13
+    // primitive, replacing Phase 12's by-construction metric): the
+    // composed polyline validated against every FULL gate of the
+    // traversed channels. Span crossings are measured facts; wing
+    // crossings are wrong-side VIOLATIONS — the §3 promotion gate's
+    // headline number, target 0. A gate both crossed and violated
+    // (S-shaped pass) counts as violated.
     const pathChannelKeys = new Set(
         nodePath
             .slice(1, -1)
@@ -466,9 +463,11 @@ export function shadowCompare(
             .filter((n) => n.isGate)
             .map((n) => gatesById.get(n.id)!.channelKey),
     );
-    const channelGatesTotal = graph.gates.filter(
-        (g) => pathChannelKeys.has(g.channelKey) && g.portMark && g.stbdMark,
-    ).length;
+    const channelFullGates = graph.gates.filter((g) => pathChannelKeys.has(g.channelKey) && g.portMark && g.stbdMark);
+    const cl = validateAgainstCrossLines(line, channelFullGates);
+    const gatesViolated = new Set(cl.violations.map((v) => v.gateId));
+    const gatesCorrect = new Set(cl.crossings.map((c) => c.gateId).filter((id) => !gatesViolated.has(id)));
+    const interactions = gatesCorrect.size + gatesViolated.size;
 
     return {
         graph: {
@@ -477,8 +476,9 @@ export function shadowCompare(
             costM: dist[DEST],
             edgesUsed,
             gateCount: nodePath.slice(1, -1).filter((i) => nodes[i].isGate).length,
-            channelGatesTotal,
-            gateCompliance: pathGates.length > 0 ? crossed / pathGates.length : null,
+            channelGatesTotal: channelFullGates.length,
+            gateCompliance: interactions > 0 ? gatesCorrect.size / interactions : null,
+            crossLineViolations: cl.violations.length,
             pctOnGraph: lengthM > 0 ? onGraphM / lengthM : 0,
             detourRatio: directLengthM > 0 ? lengthM / directLengthM : Infinity,
             entryNodeId: entryNode.id,
@@ -496,10 +496,11 @@ export function shadowSummary(report: SeawayShadowReport, directNM: number): str
         return `no graph route (${report.reason}) — ${report.gatesTotal} gates / ${report.edgesTotal} edges / ${report.portalCount} portals`;
     }
     const compliance = g.gateCompliance === null ? 'n/a' : `${Math.round(g.gateCompliance * 100)}%`;
+    const wrongSide = g.crossLineViolations > 0 ? `, ${g.crossLineViolations} WRONG-SIDE` : '';
     return (
         `graph ${(g.lengthM / 1852).toFixed(2)} NM vs direct ${directNM.toFixed(2)} NM — ` +
         `detour ${g.detourRatio.toFixed(2)}, ${Math.round(g.pctOnGraph * 100)}% on-graph, ` +
-        `${g.gateCount} gates of ${g.channelGatesTotal} charted (compliance ${compliance}), ` +
+        `${g.gateCount} gates of ${g.channelGatesTotal} charted (compliance ${compliance}${wrongSide}), ` +
         `via ${g.entryNodeId} → ${g.exitNodeId}`
     );
 }
