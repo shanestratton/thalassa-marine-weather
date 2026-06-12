@@ -2236,6 +2236,130 @@ function smoothPath(grid: NavGrid, path: { x: number; y: number }[]): { x: numbe
     return out;
 }
 
+// ── Fairing across midpoint-disc sequences ──────────────────────────
+
+/** Bounded cost give-back for fairing: a chord may replace a subpath
+ *  costing up to this factor LESS — the explicit, documented carve-out
+ *  from smoothPath's cost-no-worse rule, safe because the gate-serving
+ *  test below makes wrong-siding structurally impossible. Calibrated on
+ *  the stepping fixture (bead-hop ratios ≈ 1.12-1.15); the gate-shortcut
+ *  dog-leg's erase ratio is ≥ ~3×, far outside it. */
+const FAIRING_MAX_COST_FACTOR = 1.25;
+/** A faired chord must pass within this fraction of each served gate's
+ *  half-width — margin against 50 m cell quantisation. */
+const FAIRING_GATE_FRACTION = 0.9;
+
+interface FairingMidpoint {
+    lat: number;
+    lon: number;
+    halfWidthM: number;
+}
+
+/** The Pass-5 channel midpoints (orchestrator Step 4) with their real
+ *  gate half-widths — the fairing pass's gate-serving truth. */
+function collectFairingMidpoints(layers: InshoreLayers): FairingMidpoint[] {
+    const out: FairingMidpoint[] = [];
+    const scan = (features: unknown[] | undefined): void => {
+        for (const f of (features ?? []) as Array<{
+            geometry?: { type?: string; coordinates?: [number, number] } | null;
+            properties?: { _class?: string; _pairDistanceM?: number } | null;
+        }>) {
+            if (f.properties?._class !== 'channel_midpoint') continue;
+            const pairDistM = f.properties._pairDistanceM;
+            if (typeof pairDistM !== 'number' || pairDistM <= 0) continue;
+            if (f.geometry?.type !== 'Point' || !Array.isArray(f.geometry.coordinates)) continue;
+            const [lon, lat] = f.geometry.coordinates;
+            out.push({ lat, lon, halfWidthM: pairDistM / 2 });
+        }
+    };
+    scan(layers.BOYLAT?.features as unknown[]);
+    scan(layers.BCNLAT?.features as unknown[]);
+    return out;
+}
+
+/**
+ * Collapse waypoint subpaths to chords across midpoint-disc sequences
+ * (the marker-stepping fix — see the call site for doctrine). Greedy
+ * longest-chord like smoothPath; a chord is accepted only when
+ *   (a) every chord cell is navigable, non-caution, and not excluded
+ *       (strict no-evidence cells via `isExcluded`);
+ *   (b) every midpoint the SUBPATH served (within its own half-width)
+ *       is still within FAIRING_GATE_FRACTION × half-width of the chord;
+ *   (c) chordCost ≤ subpathCost × FAIRING_MAX_COST_FACTOR.
+ */
+function fairPath(
+    grid: NavGrid,
+    chain: { x: number; y: number }[],
+    midpoints: FairingMidpoint[],
+    isExcluded: (idx: number) => boolean,
+): { x: number; y: number }[] {
+    if (chain.length < 3) return chain;
+    const mPerLonG = mPerDegLon(grid.minLat + (grid.height * grid.dLat) / 2);
+    const toLL = (c: { x: number; y: number }): [number, number] => [
+        grid.minLon + (c.x + 0.5) * grid.dLon,
+        grid.minLat + (c.y + 0.5) * grid.dLat,
+    ];
+    const distToSegM = (m: FairingMidpoint, a: [number, number], b: [number, number]): number => {
+        const ax = (a[0] - m.lon) * mPerLonG;
+        const ay = (a[1] - m.lat) * M_PER_DEG_LAT;
+        const bx = (b[0] - m.lon) * mPerLonG;
+        const by = (b[1] - m.lat) * M_PER_DEG_LAT;
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        const t = len2 > 0 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0;
+        return Math.hypot(ax + dx * t, ay + dy * t);
+    };
+    const distToChainM = (m: FairingMidpoint, lo: number, hi: number): number => {
+        let best = Infinity;
+        for (let k = lo; k < hi; k++) {
+            const d = distToSegM(m, toLL(chain[k]), toLL(chain[k + 1]));
+            if (d < best) best = d;
+        }
+        return best;
+    };
+    const chordClear = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+        for (const c of bresenhamCells(a.x, a.y, b.x, b.y)) {
+            const idx = c.y * grid.width + c.x;
+            const d = grid.cells[idx];
+            if (Number.isNaN(d) || d < 0 || isExcluded(idx)) return false;
+        }
+        return true;
+    };
+    const prefix: number[] = [0];
+    for (let k = 1; k < chain.length; k++) {
+        prefix.push(prefix[k - 1] + chainCostM(grid, [chain[k - 1], chain[k]]));
+    }
+
+    const out: { x: number; y: number }[] = [chain[0]];
+    let i = 0;
+    while (i < chain.length - 1) {
+        let j = chain.length - 1;
+        for (; j > i + 1; j--) {
+            if (!chordClear(chain[i], chain[j])) continue;
+            const chord = Array.from(bresenhamCells(chain[i].x, chain[i].y, chain[j].x, chain[j].y));
+            const chordCost = chainCostM(grid, chord);
+            if (chordCost > (prefix[j] - prefix[i]) * FAIRING_MAX_COST_FACTOR + 1e-6) continue;
+            // Gate-serving: every midpoint the subpath served must stay
+            // served by the chord.
+            const a = toLL(chain[i]);
+            const b = toLL(chain[j]);
+            let serves = true;
+            for (const m of midpoints) {
+                if (distToChainM(m, i, j) > m.halfWidthM) continue; // subpath didn't serve it
+                if (distToSegM(m, a, b) > m.halfWidthM * FAIRING_GATE_FRACTION) {
+                    serves = false;
+                    break;
+                }
+            }
+            if (serves) break;
+        }
+        out.push(chain[j]);
+        i = j;
+    }
+    return out;
+}
+
 // ── Marina-centerline refinement (MarinerEE port) ───────────────────
 //
 // Re-routes a CLEAN-water A* corridor with the centerline pipeline
@@ -3118,6 +3242,28 @@ function routeInshoreOnce(
         grid.unvouched[idx] === 1 &&
         grid.cells[idx] === UNKNOWN_OPEN &&
         grid.preferred[idx] === 0;
+
+    // ── Fairing pass (field bug 2026-06-13: "stepping through the
+    // markers", Pinkenba→Newport — ROUTING_COLLAB replies A-23/26) ────
+    // Each Pass-5 channel_midpoint is a preferred 1.0× disc in 4× water
+    // with EXIT_PENALTY stickiness: A*'s cost-optimal path maximises
+    // in-disc distance, bending at every bead — straight legs disc-to-
+    // disc, a kink per gate. smoothPath correctly refuses to fair it
+    // (the straight chord loses the disc discounts — cost-no-worse).
+    // fairPath is the DOCUMENTED carve-out: collapse a subpath to its
+    // chord at a bounded cost give-back, but ONLY when the chord still
+    // SERVES every gate the subpath served — within each gate's own
+    // half-width (_pairDistanceM/2), the engine-side form of the
+    // cross-line "may I cut this corner" test. A marked dog-leg around
+    // a hazard can never be erased: its chord either crosses caution
+    // (excluded), misses the gates (excluded), or costs ≥ ~3× — far
+    // beyond the 1.25 give-back. Runs BEFORE the strict re-anchor so
+    // boundary waypoints are re-inserted on the FINAL geometry.
+    const fairingMids = collectFairingMidpoints(layers);
+    if (fairingMids.length > 0 && smoothedCells.length >= 3) {
+        smoothedCells = fairPath(grid, smoothedCells, fairingMids, isUnvouchedIdx);
+        tPhase = mark('fairing', tPhase);
+    }
 
     // Re-anchor state boundaries the smoother legally erased: smoothPath
     // may collapse a COST-EQUAL chord across a caution/no-evidence patch
