@@ -244,6 +244,74 @@ export function turnCount(polyline: Polyline, thresholdDeg = 25): number {
     return count;
 }
 
+// ── Stepping audit (collab replies 23/26 — marker-stepping field bug) ──
+
+export interface SteppingAudit {
+    /** Heading changes ≥ thresholdDeg (default 20°) — raw kink count. */
+    kinkCount: number;
+    /** Kinks within proximityM (default 150 m) of a gate midpoint — the
+     *  bead-on-a-string signature: Pass-5 discs pulling the path into a
+     *  dogleg AT each gate. Target after the fairing pass: ~0 on
+     *  straight-channel fixtures. */
+    kinksNearGate: number;
+    /** Consecutive kinks turning in OPPOSITE directions — stair-step
+     *  alternation. A faired channel transit has runs of same-sign
+     *  curvature; zig-zag alternates. */
+    alternationPairs: number;
+    /** Sharpest single turn (deg) — catches double-backs (≈180°). */
+    maxKinkDeg: number;
+}
+
+/**
+ * Quantify "stepping through the markers". Definitions match the
+ * 2026-06-13 Pinkenba→Newport field repro so engine fixes land against
+ * the same numbers the diagnosis used.
+ */
+export function auditStepping(
+    polyline: Polyline,
+    gates: Gate[] = [],
+    opts: { thresholdDeg?: number; proximityM?: number } = {},
+): SteppingAudit {
+    const thresholdDeg = opts.thresholdDeg ?? 20;
+    const proximityM = opts.proximityM ?? 150;
+    if (polyline.length < 3) return { kinkCount: 0, kinksNearGate: 0, alternationPairs: 0, maxKinkDeg: 0 };
+
+    const ref = toLatLon(polyline[0]);
+    const proj = projector(ref);
+    const pts = polyline.map((p) => proj(toLatLon(p)));
+    const mids = gates.map((g) => {
+        const P = proj(g.port);
+        const S = proj(g.stbd);
+        return { x: (P.x + S.x) / 2, y: (P.y + S.y) / 2 };
+    });
+
+    let kinkCount = 0;
+    let kinksNearGate = 0;
+    let alternationPairs = 0;
+    let maxKinkDeg = 0;
+    let prevSign = 0;
+    for (let i = 1; i < pts.length - 1; i++) {
+        const v1 = { x: pts[i].x - pts[i - 1].x, y: pts[i].y - pts[i - 1].y };
+        const v2 = { x: pts[i + 1].x - pts[i].x, y: pts[i + 1].y - pts[i].y };
+        const cross = v1.x * v2.y - v1.y * v2.x;
+        const dot = v1.x * v2.x + v1.y * v2.y;
+        const turnDeg = (Math.atan2(Math.abs(cross), dot) * 180) / Math.PI;
+        if (turnDeg > maxKinkDeg) maxKinkDeg = turnDeg;
+        if (turnDeg < thresholdDeg) continue;
+        kinkCount++;
+        const sign = cross > 0 ? 1 : cross < 0 ? -1 : 0;
+        if (prevSign !== 0 && sign !== 0 && sign !== prevSign) alternationPairs++;
+        prevSign = sign;
+        for (const m of mids) {
+            if (Math.hypot(pts[i].x - m.x, pts[i].y - m.y) <= proximityM) {
+                kinksNearGate++;
+                break;
+            }
+        }
+    }
+    return { kinkCount, kinksNearGate, alternationPairs, maxKinkDeg: Math.round(maxKinkDeg * 10) / 10 };
+}
+
 /** Lengths (m) of each consecutive run of caution segments. */
 export function cautionRunLengthsM(polyline: Polyline, cautionMask?: boolean[]): number[] {
     if (!cautionMask || cautionMask.length === 0) return [];
@@ -276,6 +344,7 @@ export interface RouteScore {
     channelDisciplinePct: number | null;
     xte: { p50M: number; p95M: number } | null;
     turnCount: number;
+    stepping: SteppingAudit;
     cautionRunLengthsM: number[];
     distanceRatio: number;
     lengthM: number;
@@ -298,6 +367,7 @@ export function scoreRoute(opts: {
             : null,
         xte: centreline ? xtePercentiles(polyline, centreline) : null,
         turnCount: turnCount(polyline),
+        stepping: auditStepping(polyline, gates),
         cautionRunLengthsM: cautionRunLengthsM(polyline, cautionMask),
         distanceRatio: distanceRatio(polyline, from, to),
         lengthM: polylineLengthM(polyline),
