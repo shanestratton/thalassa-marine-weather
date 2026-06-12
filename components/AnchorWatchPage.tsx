@@ -446,9 +446,23 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     const lastSlideRatioRef = useRef(0);
     const lastHapticRatioRef = useRef(0); // throttle progressive haptics
 
+    // Live offset alongside state: the release check must read the LAST
+    // move, not the last render — a fast flick could end on a stale value.
+    const slideXRef = useRef(0);
+
     const handleSlideStart = useCallback(
-        (_clientX: number) => {
+        (e: React.PointerEvent<HTMLDivElement>) => {
             if (isSettingAnchor) return;
+            // Capture the pointer so move/up/cancel keep routing here no
+            // matter where the finger wanders. Without capture, an iOS
+            // touch cancel (system gesture, notification banner) never
+            // delivered an end event and the thumb froze mid-track in the
+            // committed style (field bug 2026-06-13).
+            try {
+                e.currentTarget.setPointerCapture?.(e.pointerId);
+            } catch {
+                /* best-effort — jsdom and odd inputs lack capture */
+            }
             setIsDragging(true);
             setSlideCommitted(false);
             lastSlideRatioRef.current = 0;
@@ -458,13 +472,14 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
     );
 
     const handleSlideMove = useCallback(
-        (clientX: number) => {
+        (e: React.PointerEvent<HTMLDivElement>) => {
             if (!isDragging || !slideTrackRef.current) return;
             const rect = slideTrackRef.current.getBoundingClientRect();
             const thumbWidth = 56;
             const maxTravel = rect.width - thumbWidth;
-            const offset = clientX - rect.left - thumbWidth / 2;
+            const offset = e.clientX - rect.left - thumbWidth / 2;
             const clamped = Math.max(0, Math.min(offset, maxTravel));
+            slideXRef.current = clamped;
             setSlideX(clamped);
 
             const ratio = clamped / maxTravel;
@@ -495,7 +510,7 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
         const rect = slideTrackRef.current.getBoundingClientRect();
         const thumbWidth = 56;
         const maxTravel = rect.width - thumbWidth;
-        const ratio = slideX / maxTravel;
+        const ratio = slideXRef.current / maxTravel;
         if (ratio >= slideThreshold) {
             // Show sound check modal the first time, then go straight to anchor
             if (!soundCheckShownRef.current) {
@@ -504,9 +519,20 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                 handleSetAnchor();
             }
         }
+        slideXRef.current = 0;
         setSlideX(0);
         setSlideCommitted(false);
-    }, [isDragging, slideX, handleSetAnchor]);
+    }, [isDragging, handleSetAnchor]);
+
+    const handleSlideCancel = useCallback(() => {
+        // iOS cancels (not ends) the touch for system gestures and
+        // banners — never drop the anchor from a cancel, just spring back.
+        if (!isDragging) return;
+        setIsDragging(false);
+        slideXRef.current = 0;
+        setSlideX(0);
+        setSlideCommitted(false);
+    }, [isDragging]);
 
     // Confirm and proceed from sound check modal
     const handleSoundCheckConfirm = useCallback(() => {
@@ -517,7 +543,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
 
     // Reset slide position when not dragging
     useEffect(() => {
-        if (!isDragging) setSlideX(0);
+        if (!isDragging) {
+            slideXRef.current = 0;
+            setSlideX(0);
+        }
     }, [isDragging]);
 
     // ---- RENDER: ALARM OVERLAY ----
@@ -741,13 +770,10 @@ export const AnchorWatchPage: React.FC<AnchorWatchPageProps> = React.memo(({ onB
                                         border: '1px solid rgba(251,146,60,0.25)',
                                         touchAction: 'none',
                                     }}
-                                    onMouseDown={(e) => handleSlideStart(e.clientX)}
-                                    onMouseMove={(e) => handleSlideMove(e.clientX)}
-                                    onMouseUp={handleSlideEnd}
-                                    onMouseLeave={handleSlideEnd}
-                                    onTouchStart={(e) => handleSlideStart(e.touches[0].clientX)}
-                                    onTouchMove={(e) => handleSlideMove(e.touches[0].clientX)}
-                                    onTouchEnd={handleSlideEnd}
+                                    onPointerDown={handleSlideStart}
+                                    onPointerMove={handleSlideMove}
+                                    onPointerUp={handleSlideEnd}
+                                    onPointerCancel={handleSlideCancel}
                                 >
                                     {/* Shimmer animation */}
                                     <div className="absolute inset-0 overflow-hidden rounded-full pointer-events-none">
