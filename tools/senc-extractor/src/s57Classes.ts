@@ -65,6 +65,9 @@ export function classRecord(code: number): S57Class | undefined {
     return loadS57Classes().get(code);
 }
 
+// NOTE: pi-cache/src/routes/enc.ts duplicates this list as ENC_LAYERS for
+// the ogr2ogr (.000 upload) path — pi-cache deploys standalone to the Pi so
+// it can't import from here. When you change this Set, mirror it there.
 export const ROUTING_CLASSES = new Set([
     'LNDARE',
     'DEPARE',
@@ -72,8 +75,10 @@ export const ROUTING_CLASSES = new Set([
     'COALNE',
     'OBSTRN',
     'WRECKS',
+    // UWTROC is the standard S-57 class for underwater/awash rocks. (A dead
+    // 'ROCKS' entry used to sit here — not in the IHO/GDAL catalogue, never
+    // matched; removed 2026-06.)
     'UWTROC',
-    'ROCKS',
     'DRGARE',
     'FAIRWY',
     'BOYLAT',
@@ -89,4 +94,17 @@ export const ROUTING_CLASSES = new Set([
     // (PHASE_14_SPIKE) — emitted anyway for future cells.
     'NAVLNE',
     'RECTRC',
+    // Survey-confidence (CATZOC) zones — consumed at IMPORT time by
+    // buildCatzocZones() for each cell's catzocRange badge, NOT a visual
+    // layer. Parity with the ogr2ogr path, which already emitted it; the
+    // SENC path didn't, so SENC-extracted cells previously showed no CATZOC.
+    'M_QUAL',
+    // ── Deferred — extract cleanly but NO renderer consumes them yet, so
+    // kept OUT to protect on-device memory (getMergedVectorData loads every
+    // imported cell's full vector data into memory at once). Re-add here AND
+    // in pi-cache ENC_LAYERS in lock-step the moment EncVectorLayer draws
+    // them. Next visual batch: SOUNDG (sounding clouds), TOPMAR/DAYMAR
+    // (topmark glyphs), PONTON/SLCONS/BRIDGE/MORFAC/HRBFAC (harbour
+    // structures), SEAARE/LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
+    // (anchorages), RESARE/CBLARE/CBLSUB/PIPSOL/DMPGRD (caution areas). ──
 ]);

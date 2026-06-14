@@ -198,6 +198,12 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-buoy-starboard', svg: lateralBuoySvg(COLOURS.green, 'cone'), size: 48 },
         { id: 'sm-buoy-lateral', svg: lateralBuoySvg(COLOURS.red, 'can'), size: 48 }, // default
 
+        // Lateral buoys (Region B — colours swap, hull shapes stay:
+        // port keeps the can, starboard keeps the cone). Used by the
+        // ENC vector layer's `_icon` pre-bake for IALA-B cells.
+        { id: 'sm-buoy-port-b', svg: lateralBuoySvg(COLOURS.green, 'can'), size: 48 },
+        { id: 'sm-buoy-starboard-b', svg: lateralBuoySvg(COLOURS.red, 'cone'), size: 48 },
+
         // Cardinal buoys
         { id: 'sm-cardinal-north', svg: cardinalBuoySvg('north'), size: 48 },
         { id: 'sm-cardinal-south', svg: cardinalBuoySvg('south'), size: 48 },

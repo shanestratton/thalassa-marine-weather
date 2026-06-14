@@ -42,7 +42,7 @@ import { MapOfflineService } from '../../services/MapOfflineService';
 import { getConnectionState, onConnectionChange } from '../../services/ConnectionPriorityService';
 
 import { type MapHubProps, type WeatherLayer, SEA_STATE_LAYERS, ATMOSPHERE_LAYERS } from './mapConstants';
-import { useMapInit, useLocationDot, usePickerMode } from './useMapInit';
+import { useMapInit, useLocationDot, usePickerMode, setOpenSeaMapRasterVisibility } from './useMapInit';
 import { useWeatherLayers, useEmbeddedRain } from './useWeatherLayers';
 import { usePassagePlanner, type PassageNotice } from './usePassagePlanner';
 // useRouteNudge removed 2026-05-05 — long-press-to-drag the route line was
@@ -74,6 +74,8 @@ import { useEncVectorLayer } from './useEncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
+import { vesselDraftMetres } from '../../services/units';
+import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
@@ -181,8 +183,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     const mapRef = useRef<mapboxgl.Map | null>(null);
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
-    const { settings: _settings } = useSettings();
+    const { settings } = useSettings();
     const { setPage, previousView, currentView } = useUI();
+
+    // Safety depth driving the ENC day-palette bands + bold safety contour:
+    // the vessel's real draft (feet→metres via vesselDraftMetres) plus the
+    // tide margin. A grounding-risk line drawn against a fake draft is worse
+    // than none, so this is the LIVE value, recomputed when the profile edits.
+    const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
 
     const [isoProgress, setIsoProgress] = useState<{
         step: number;
@@ -381,10 +389,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     // has imported cells we still let them toggle the chart off (e.g. to compare
     // with raster charts underneath). Default true so first import is visible.
     const [encVisible, setEncVisible] = usePersistedState('thalassa_map_enc_visible', true);
-    // Chart-detail toggle. Default OFF = land + markers + hazards only (the
-    // "clean chart" user asked for 2026-05-17). When ON, depth-fills + coastlines
-    // come back. Independent of `encVisible` — the master switch wins.
-    const [encChartDetail, setEncChartDetail] = usePersistedState('thalassa_map_enc_chart_detail', false);
+    // Chart-detail toggle. Default ON — the draft-aware depth shading IS the
+    // product (flipped 2026-06-13; the 2026-05-17 "clean chart" preference
+    // predates day-palette banding). When OFF: land + markers + hazards only.
+    // Independent of `encVisible` — the master switch wins.
+    // Key bumped _v2: usePersistedState eagerly writes the default on first
+    // mount, so every pre-flip install had `false` persisted whether or not
+    // the user ever touched the toggle — flipping the default alone would
+    // no-op on existing devices. The bump resets everyone to ON once; new
+    // toggles persist under the v2 key as usual.
+    const [encChartDetail, setEncChartDetail] = usePersistedState('thalassa_map_enc_chart_detail_v2', true);
     // Live cell-count so the layer FAB shows the right "N cells imported" caption
     // and surfaces the toggle the moment the first cell lands.
     const [encCellCount, setEncCellCount] = useState(() => listEncCells().length);
@@ -1140,6 +1154,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Offline OSM raster fallback — renders when offline, invisible when online ──
     useOfflineBaseLayer(mapRef, mapReady, isOnline);
     const chartsActive = skChartIds.size > 0 || chartCatalog.hasEnabledCharts || localChartIds.size > 0;
+    // ENC vector chart actually rendering — master toggle ON and at least one
+    // cell imported. Drives the same "another chart source draws its own
+    // navaids" switch-offs as `chartsActive` (OSM raster icons + full-mode
+    // seamark symbols) so the ENC IALA icons don't render doubled. v1 is a
+    // global toggle: panning outside ENC coverage with cells loaded shows no
+    // OSM seamarks there — accepted; a bbox-aware gate can come with the
+    // coverage layer's cell bboxes later.
+    const encActive = encVisible && encCellCount > 0;
 
     // ── Single-select chart picker ──
     // Only one nautical chart layer visible at a time across all three kinds
@@ -1198,9 +1220,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
 
     // ── Interactive Sea Marks (OpenSeaMap / Overpass API) ──
-    // When o-charts are active: 'identify' mode (invisible hit targets, still click-to-identify)
-    // When no charts:           'full' mode (renders IALA icons + click-to-identify)
-    const seamarkMode = chartsActive ? ('identify' as const) : ('full' as const);
+    // When o-charts or the ENC vector chart render their own navaids:
+    //   'identify' mode (invisible hit targets, still click-to-identify)
+    // When no charts: 'full' mode (renders IALA icons + click-to-identify)
+    const seamarkMode = chartsActive || encActive ? ('identify' as const) : ('full' as const);
     const seamark = useSeamarkLayer(mapRef, mapReady, seamarkVisible, seamarkMode);
 
     // ── Tide Station Markers ──
@@ -1269,7 +1292,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // obstruction/wreck/rock symbols. Depth-graduated blues so
     // the user can read shoals at a glance. Mounts at zoom 7+
     // (lower zooms get the dashed coverage overlay above).
-    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail);
+    useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM);
 
     // ── ENC test route line ──
     // One-off rendering of `tryInshoreRoute` output triggered by the
@@ -1325,21 +1348,27 @@ export const MapHub: React.FC<MapHubProps> = ({
         return subscribeMapFit(apply);
     }, [mapReady]);
 
-    // ── Hide OpenSeaMap raster overlay when o-charts provide native icons ──
-    // The openseamap-overlay (PNG tiles) is baked into the map style and shows
-    // its own seamark icons. When o-charts are active they render their own
-    // native marks, so we hide the raster overlay to prevent doubled icons.
+    // ── Hide OpenSeaMap raster overlays when another source draws navaids ──
+    // Both raster overlays — 'openseamap-overlay' (baked into the map style,
+    // ThalassaMap.tsx) and 'openseamap-permanent' (added by useMapInit) —
+    // show their own seamark icons. When o-charts are active they render
+    // native marks, and when the ENC vector chart is rendering it draws its
+    // own IALA navaids, so hide the rasters to prevent doubled icons.
+    // 'openseamap-permanent' is co-owned by the 'sea' weather toggle
+    // (useWeatherLayers re-syncs it to that toggle on every weather-layer
+    // change), so: when not chart-hidden we defer to the toggle rather than
+    // forcing it visible, and we depend on weather.activeLayers so this
+    // effect re-asserts the hide AFTER useWeatherLayers' sync (which runs
+    // first — hook order) whenever weather layers change.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        try {
-            if (map.getLayer('openseamap-overlay')) {
-                map.setLayoutProperty('openseamap-overlay', 'visibility', chartsActive ? 'none' : 'visible');
-            }
-        } catch {
-            /* layer not yet available — harmless */
-        }
-    }, [mapRef, mapReady, chartsActive]);
+        const hide = chartsActive || encActive;
+        setOpenSeaMapRasterVisibility(map, {
+            overlay: !hide,
+            permanent: !hide && weather.activeLayers.has('sea'),
+        });
+    }, [mapRef, mapReady, chartsActive, encActive, weather.activeLayers]);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
     useEffect(() => {

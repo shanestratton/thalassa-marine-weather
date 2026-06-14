@@ -30,6 +30,7 @@ import {
     setEncChartDetail,
     setEncVectorVisibility,
     unmountEncVectorLayer,
+    updateEncDepthStyle,
 } from './EncVectorLayer';
 import { getMergedVectorData, hasAnyCells, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 
@@ -49,9 +50,31 @@ export function useEncVectorLayer(
      * land + markers. Defaults to `false` — clean view per user preference.
      */
     chartDetail: boolean = false,
+    /**
+     * Safety depth S in METRES = vesselDraftMetres(vessel) + tide margin.
+     * Drives the DEPARE day-palette bands and the bold safety contour —
+     * "the single most prominent line on the water" (EncVectorLayer). The
+     * caller (MapHub) computes it from the live vessel profile; left
+     * undefined the renderer falls back to its own keel-safe default, but
+     * a real safety contour against a fake draft is worse than none, so
+     * MapHub always passes the live value.
+     */
+    safetyDepthM?: number,
 ): void {
     const mountedRef = useRef(false);
     const [bumpCounter, setBumpCounter] = useState(0);
+
+    // Latest safety depth, read inside the async apply() so the FIRST mount
+    // always uses the live value — WITHOUT putting safetyDepthM in the mount
+    // effect's deps. In the deps it would re-fire the whole mount/refresh
+    // path (a full 6-source setData re-upload of the merged multi-cell
+    // dataset) on every draft edit; the dedicated effect below restyles the
+    // depth bands + safety contour in place via setPaintProperty/setFilter
+    // instead. The ref keeps the during-mount window correct: a draft that
+    // changes while the first apply() is still awaiting is picked up by
+    // ref.current when mount runs.
+    const safetyDepthRef = useRef(safetyDepthM);
+    safetyDepthRef.current = safetyDepthM;
 
     useEffect(() => {
         const unsub = subscribeToEnc(() => setBumpCounter((c) => c + 1));
@@ -79,9 +102,12 @@ export function useEncVectorLayer(
                 const data = await getMergedVectorData();
                 if (cancelled || !data) return;
                 if (mountedRef.current) {
+                    // refreshEncVectorData re-applies the depth style from
+                    // the per-map state it seeded at mount, so the safety
+                    // contour survives cell-list bumps without re-passing.
                     refreshEncVectorData(map, data);
                 } else {
-                    mountEncVectorLayer(map, data);
+                    mountEncVectorLayer(map, data, { safetyDepthM: safetyDepthRef.current });
                     // Click handlers reference the layer IDs that
                     // mount() just registered. Attach is idempotent
                     // so repeat-mounts on cell-list bumps don't pile
@@ -105,4 +131,17 @@ export function useEncVectorLayer(
             cancelled = true;
         };
     }, [mapRef, mapReady, bumpCounter, visible, chartDetail]);
+
+    // Live draft changes: re-band the depth fills + move the safety contour
+    // in place (setPaintProperty/setFilter), no re-mount or re-upload. Mount
+    // seeds the initial value via opts (from safetyDepthRef); this only fires
+    // for a *changed* draft on an already-mounted map (guarded on mountedRef
+    // so it no-ops before the layers exist — the in-flight mount picks up the
+    // latest value through the ref).
+    useEffect(() => {
+        if (!mapReady || safetyDepthM === undefined || !mountedRef.current) return;
+        const map = mapRef.current;
+        if (!map) return;
+        updateEncDepthStyle(map, safetyDepthM);
+    }, [mapRef, mapReady, safetyDepthM]);
 }
