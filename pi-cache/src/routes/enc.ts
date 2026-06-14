@@ -121,7 +121,14 @@ setInterval(() => {
 // ── Constants ─────────────────────────────────────────────────────
 
 /**
- * S-57 layers we extract for routing. See docs/ENC_INTEGRATION.md.
+ * S-57 layers we extract for routing + rendering. See docs/ENC_INTEGRATION.md.
+ *
+ * SOURCE OF TRUTH: ROUTING_CLASSES in
+ * tools/senc-extractor/src/s57Classes.ts. pi-cache deploys standalone
+ * to the Pi, so this list is duplicated here ON PURPOSE — no
+ * cross-package import. When ROUTING_CLASSES changes, mirror it here
+ * so ogr2ogr-uploaded .000 cells reach rendering parity with
+ * SENC-extracted cells.
  *
  * - DEPARE/LNDARE/OBSTRN/WRECKS/UWTROC are hazards (validator drives
  *   the route around them).
@@ -153,6 +160,15 @@ const ENC_LAYERS = [
     'RECTRC',
     'FAIRWY',
     'DRGARE',
+    // Chartplotter visual pass (2026-06): depth contours + special-purpose
+    // buoys/beacons — the RENDERED set, mirroring ROUTING_CLASSES. The wider
+    // phase-2 batch (soundings, harbour structures, topmarks/daymarks, named
+    // areas, anchorages, caution areas) is deferred until its renderers land
+    // and is kept OUT here in lock-step — see the ROUTING_CLASSES "Deferred"
+    // note for the full list to re-add together.
+    'DEPCNT',
+    'BOYSPP',
+    'BCNSPP',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');

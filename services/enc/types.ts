@@ -46,8 +46,9 @@ export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'C
  * BOYLAT/BOYCAR are floating buoys; BCNLAT/BCNCAR are the
  * equivalent rigid beacons (poles, towers). Same colour logic per
  * IALA region; different physical structure on the chart.
+ * BOYSPP/BCNSPP are special-purpose marks (yellow X topmark).
  */
-export type EncNavaidLayer = 'LIGHTS' | 'BOYLAT' | 'BOYCAR' | 'BCNLAT' | 'BCNCAR';
+export type EncNavaidLayer = 'LIGHTS' | 'BOYLAT' | 'BOYCAR' | 'BCNLAT' | 'BCNCAR' | 'BOYSPP' | 'BCNSPP';
 
 /**
  * IALA buoyage region. Lateral mark colour conventions are
@@ -133,6 +134,176 @@ export function lateralMarkColour(catlam: number | null | undefined, region: Ial
     if (isPortHand) return region === 'A' ? RED : GREEN;
     if (isStbdHand) return region === 'A' ? GREEN : RED;
     return YELLOW;
+}
+
+/**
+ * Resolve the IALA seamark icon ID (registered by
+ * components/map/seamarkIcons.ts) for a navaid feature. Lives here —
+ * not in seamarkIcons.ts — so the merge-time decoration in
+ * EncHazardService can pre-bake `_icon` without dragging mapbox-gl
+ * into the service layer.
+ *
+ * Laterals: CATLAM 1/3 = port-hand, 2/4 = starboard-hand, with the
+ * IALA-B colour inversion mirrored from `lateralMarkColour`. Buoys
+ * get the can/cone hull glyphs; beacons get the triangle-on-a-stick.
+ * Cardinals: CATCAM 1=N 2=E 3=S 4=W. Quadrant identity beats
+ * structure fidelity, so cardinal beacons reuse the banded buoy
+ * glyphs (the bands + double-cone topmark ARE the information).
+ * Specials: yellow X buoy / yellow beacon.
+ */
+export function encNavaidIconId(
+    kind: 'BOYLAT' | 'BCNLAT' | 'BOYCAR' | 'BCNCAR' | 'BOYSPP' | 'BCNSPP',
+    props: Record<string, unknown> | null | undefined,
+    region: IalaRegion,
+): string {
+    const p = props ?? {};
+    if (kind === 'BOYLAT' || kind === 'BCNLAT') {
+        const raw = p.CATLAM ?? p.catlam;
+        const c = Math.round(Number(raw));
+        const isPortHand = c === 1 || c === 3;
+        const isStbdHand = c === 2 || c === 4;
+        const isBeacon = kind === 'BCNLAT';
+        if (isPortHand) {
+            if (isBeacon) return region === 'A' ? 'sm-beacon-red' : 'sm-beacon-green';
+            return region === 'A' ? 'sm-buoy-port' : 'sm-buoy-port-b';
+        }
+        if (isStbdHand) {
+            if (isBeacon) return region === 'A' ? 'sm-beacon-green' : 'sm-beacon-red';
+            return region === 'A' ? 'sm-buoy-starboard' : 'sm-buoy-starboard-b';
+        }
+        return isBeacon ? 'sm-beacon-yellow' : 'sm-buoy-lateral';
+    }
+    if (kind === 'BOYCAR' || kind === 'BCNCAR') {
+        const raw = p.CATCAM ?? p.catcam;
+        const c = Math.round(Number(raw));
+        if (c === 1) return 'sm-cardinal-north';
+        if (c === 2) return 'sm-cardinal-east';
+        if (c === 3) return 'sm-cardinal-south';
+        if (c === 4) return 'sm-cardinal-west';
+        return 'sm-cardinal-north';
+    }
+    // Special-purpose marks.
+    return kind === 'BCNSPP' ? 'sm-beacon-yellow' : 'sm-special';
+}
+
+// ── Light character decoding (S-57 LITCHR / COLOUR) ───────────────
+
+/**
+ * S-57 LITCHR codes → standard chart abbreviations. Shared between
+ * the merge-time `_lightLabel` pre-bake (EncHazardService) and the
+ * feature popup, so the two never drift.
+ */
+export const LITCHR_LABELS: Record<string, string> = {
+    '1': 'F', // fixed
+    '2': 'Fl', // flashing
+    '3': 'LFl', // long-flashing
+    '4': 'Q', // quick
+    '5': 'VQ', // very quick
+    '6': 'UQ', // ultra quick
+    '7': 'Iso', // isophased
+    '8': 'Oc', // occulting
+    '9': 'IQ', // interrupted quick
+    '10': 'IVQ', // interrupted very quick
+    '11': 'IUQ', // interrupted ultra quick
+    '12': 'Mo', // morse
+    '13': 'FFl', // fixed/flash
+    '14': 'FlLFl', // flash/long-flash
+    '15': 'OcFl', // occulting/flash
+    '16': 'FLFl', // fixed/long-flash
+    '17': 'Al.Oc', // alternating occulting
+    '18': 'Al.LFl', // alternating long-flash
+    '19': 'Al.Fl', // alternating flash
+    '20': 'Al.Gr', // alternating group
+    '25': 'Q+LFl',
+    '26': 'VQ+LFl',
+    '27': 'UQ+LFl',
+    '28': 'Al',
+    '29': 'Al.FFl',
+};
+
+/** S-57 COLOUR codes → chart letter for the light-character string. */
+const LIGHT_COLOUR_LETTERS: Record<string, string> = {
+    '1': 'W',
+    '2': 'B',
+    '3': 'R',
+    '4': 'G',
+    '5': 'Bu',
+    '6': 'Y',
+    '7': 'Gr',
+    '9': 'Am',
+    '11': 'Or',
+    '12': 'Mg',
+};
+
+/**
+ * S-57 COLOUR codes → display hex for a light flare/star glyph over
+ * the day-palette chart. White lights render S-52-style as a
+ * halo-backed warm yellow-white (#f0e030) — true #ffffff vanishes
+ * over the pale deep-water band.
+ */
+const LIGHT_COLOUR_HEX: Record<string, string> = {
+    '1': '#f0e030', // white (rendered yellow-white per S-52 day symbology)
+    '3': '#ef4444', // red
+    '4': '#22c55e', // green
+    '5': '#3b82f6', // blue
+    '6': '#fde047', // yellow
+    '9': '#f59e0b', // amber
+    '11': '#fb923c', // orange
+};
+
+/**
+ * First-code parse of the comma-separated S-57 COLOUR string
+ * ('1', '1,4', '2,6,2'…) → display hex. Returns null when unknown
+ * so callers can coalesce to the yellow default. NOTE: first-code
+ * is an approximation for multi-colour sector lights — keep the raw
+ * COLOUR string in popups for verification (COLOUR_LIST in a later
+ * extraction pass is the real fix).
+ */
+export function lightColourHex(colour: unknown): string | null {
+    if (colour == null) return null;
+    const first = String(colour).split(',')[0]?.trim();
+    if (!first) return null;
+    return LIGHT_COLOUR_HEX[first] ?? null;
+}
+
+function fmtLightNumber(v: unknown): string | null {
+    const n = typeof v === 'number' ? v : Number(v);
+    if (!Number.isFinite(n)) return null;
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+}
+
+/**
+ * Stitch LITCHR / SIGGRP / COLOUR / SIGPER / HEIGHT / VALNMR into a
+ * standard chart light-character string, e.g. 'Fl(2)G 5s 12m 8M'.
+ * Missing parts are omitted gracefully (live coverage: LITCHR
+ * 398/400, SIGPER 324/400). Returns null when there's no character
+ * at all — the label layers filter on `_lightLabel` presence.
+ */
+export function buildLightCharacterLabel(props: Record<string, unknown> | null | undefined): string | null {
+    const p = props ?? {};
+    const litchrRaw = p.LITCHR ?? p.litchr;
+    if (litchrRaw == null) return null;
+    const chr = LITCHR_LABELS[String(litchrRaw).trim()];
+    if (!chr) return null;
+
+    const siggrpRaw = p.SIGGRP ?? p.siggrp;
+    const siggrp = typeof siggrpRaw === 'string' ? siggrpRaw.trim() : '';
+    // '(1)' is the implicit single-flash group — charts omit it.
+    const grp = siggrp && siggrp !== '(1)' ? siggrp : '';
+
+    const colourFirst = String(p.COLOUR ?? p.colour ?? '')
+        .split(',')[0]
+        ?.trim();
+    const colLetter = colourFirst ? (LIGHT_COLOUR_LETTERS[colourFirst] ?? '') : '';
+
+    const parts: string[] = [`${chr}${grp}${colLetter}`];
+    const sigper = fmtLightNumber(p.SIGPER ?? p.sigper);
+    if (sigper) parts.push(`${sigper}s`);
+    const height = fmtLightNumber(p.HEIGHT ?? p.height);
+    if (height) parts.push(`${height}m`);
+    const valnmr = fmtLightNumber(p.VALNMR ?? p.valnmr);
+    if (valnmr) parts.push(`${valnmr}M`);
+    return parts.join(' ');
 }
 
 /**
@@ -346,6 +517,12 @@ export interface EncConversionResult {
         BCNLAT?: GeoJSON.FeatureCollection;
         /** Cardinal beacons — rigid cardinal marks. Display only. */
         BCNCAR?: GeoJSON.FeatureCollection;
+        /** Special-purpose buoys (yellow X). Display only. */
+        BOYSPP?: GeoJSON.FeatureCollection;
+        /** Special-purpose beacons (yellow X). Display only. */
+        BCNSPP?: GeoJSON.FeatureCollection;
+        /** Depth contour lines (VALDCO metres). Display only. */
+        DEPCNT?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */
         M_QUAL?: GeoJSON.FeatureCollection;
         /** Marked fairway polygons — inshore router prefers these cells. */

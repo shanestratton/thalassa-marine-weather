@@ -6,21 +6,25 @@
  * outlines and become real chart features. Depth-graduated water
  * fills, white coastline strokes, hazard symbols.
  *
- * Symbology approach: simplified IHO INT1. Not chart-grade
- * (proper INT1 has hundreds of symbol classes); enough that a
- * cruising sailor can recognise their chart.
+ * Symbology approach: simplified IHO INT1 / S-52 day palette. Not
+ * chart-grade (proper INT1 has hundreds of symbol classes); enough
+ * that a cruising sailor can recognise their chart.
  *
- *   LNDARE  → tan fill (#d6c590), no stroke
- *   DEPARE  → graduated blue fills by DRVAL1:
- *               <2 m   pale (sandy)
- *               2–5    light blue
- *               5–10   medium blue
- *               10–20  blue
- *               >20    deep navy
- *   COALNE  → white line, 1 px
+ *   LNDARE  → tan fill (#d6c590)
+ *   DEPARE  → draft-aware day-palette bands keyed to the vessel's
+ *             safety depth S = draft + tide margin (see
+ *             buildDepareFillColor): drying green, unsafe strong
+ *             blue (<S), caution mid blue (<2S), safe pale blue,
+ *             deep near-white
+ *   DEPCNT  → thin gray contours + the bold dark safety contour
+ *             (smallest charted VALDCO ≥ S)
+ *   COALNE  → chart-brown line
  *   OBSTRN  → magenta circle (5 px) with cross
  *   WRECKS  → magenta circle (5 px) with cross + bold ring
  *   UWTROC  → magenta circle (4 px) with star centre
+ *   BOY/BCN → IALA symbol icons from seamarkIcons.ts (`_icon`
+ *             pre-baked at merge time)
+ *   LIGHTS  → coloured star glyph + 'Fl(2)G 5s 12m 8M' labels
  *
  * Performance: a typical user (1-10 cells) loads ~1-50 MB of
  * GeoJSON total. Mapbox-GL tessellates GeoJSON into vector tiles
@@ -38,7 +42,8 @@ import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
-import { CATZOC_LABELS, isLowConfidenceCatzoc, type EncCatzoc } from '../../services/enc/types';
+import { LITCHR_LABELS } from '../../services/enc/types';
+import { registerSeamarkIcons } from './seamarkIcons';
 
 const log = createLogger('EncVectorLayer');
 
@@ -46,15 +51,24 @@ const log = createLogger('EncVectorLayer');
 
 export const ENC_VEC_SRC = {
     LNDARE: 'enc-vec-lndare',
-    DEPARE: 'enc-vec-depare',
+    DEPARE: 'enc-vec-depare', // DEPARE + DRGARE merged
+    DEPCNT: 'enc-vec-depcnt',
     COALNE: 'enc-vec-coalne',
     POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged
-    NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOYLAT + BOYCAR merged
+    NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOY*/BCN* merged
 } as const;
 
+// NOTE: layer-id stability is load-bearing. Click handlers, the
+// master-toggle probe (BCNLAT visibility) and the hide lists all
+// reference these ids — the lateral/cardinal layers keep their
+// legacy '-circle' suffix even though they're symbol layers now.
+// Renaming is a separate mechanical commit, never a drive-by.
 export const ENC_VEC_LAYERS = {
     LNDARE: 'enc-vec-lndare-fill',
+    LNDARE_ISLET: 'enc-vec-lndare-islet',
     DEPARE: 'enc-vec-depare-fill',
+    DEPCNT_LINE: 'enc-vec-depcnt-line',
+    DEPCNT_SAFETY: 'enc-vec-depcnt-safety',
     COALNE: 'enc-vec-coalne-line',
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
@@ -63,23 +77,45 @@ export const ENC_VEC_LAYERS = {
     BOYCAR: 'enc-vec-boycar-circle',
     BCNLAT: 'enc-vec-bcnlat-circle',
     BCNCAR: 'enc-vec-bcncar-circle',
+    BOYSPP: 'enc-vec-boyspp-symbol',
+    BCNSPP: 'enc-vec-bcnspp-symbol',
     LIGHTS: 'enc-vec-lights-symbol',
+    NAVAIDS_LABEL: 'enc-vec-navaids-label',
+    POINTS_LABEL: 'enc-vec-points-label',
 } as const;
 
-// All layer IDs, ordered bottom-to-top for correct stacking.
+// All layer IDs, ordered bottom-to-top for correct stacking. The
+// mount is idempotent-additive: each layer is inserted before the
+// next HIGHER layer that already exists (see beforeIdFor), so new
+// layers slot into a live map in the right place rather than
+// appending on top.
 const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPARE, // bottom (water fills)
+    ENC_VEC_LAYERS.DEPCNT_LINE,
+    ENC_VEC_LAYERS.DEPCNT_SAFETY,
     ENC_VEC_LAYERS.LNDARE,
+    ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
     ENC_VEC_LAYERS.BOYLAT,
     ENC_VEC_LAYERS.BCNLAT,
     ENC_VEC_LAYERS.BOYCAR,
     ENC_VEC_LAYERS.BCNCAR,
+    ENC_VEC_LAYERS.BOYSPP,
+    ENC_VEC_LAYERS.BCNSPP,
     ENC_VEC_LAYERS.OBSTRN,
     ENC_VEC_LAYERS.WRECKS,
     ENC_VEC_LAYERS.UWTROC,
-    ENC_VEC_LAYERS.LIGHTS, // top (lights paint on everything)
+    ENC_VEC_LAYERS.LIGHTS,
+    ENC_VEC_LAYERS.NAVAIDS_LABEL, // labels topmost
+    ENC_VEC_LAYERS.POINTS_LABEL,
 ];
+
+// Layers that take click handlers. Excludes the text-only label
+// layers — a tap on a label should fall through to the symbol or
+// polygon underneath, not open a generic popup.
+const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
+    (id) => id !== ENC_VEC_LAYERS.NAVAIDS_LABEL && id !== ENC_VEC_LAYERS.POINTS_LABEL,
+);
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
 
@@ -156,8 +192,159 @@ function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
             ...f,
             properties: { ...(f.properties ?? {}), _kind: 'BCNCAR' },
         })),
+        ...data.BOYSPP.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BOYSPP' },
+        })),
+        ...data.BCNSPP.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BCNSPP' },
+        })),
     ];
     return { type: 'FeatureCollection', features };
+}
+
+// ── Draft-aware depth styling ──────────────────────────────────────
+
+/**
+ * Fallback safety depth when the caller doesn't supply one:
+ * vesselDraftMetres() default (2.5 m) + the MASTERPLAN §8 tide
+ * margin (0.5 m). The hook always passes the live value.
+ */
+const DEFAULT_SAFETY_DEPTH_M = 3.0;
+
+/**
+ * S-52-style day-palette band fills keyed to the vessel's safety
+ * depth S (draft + tide margin, METRES — callers must come through
+ * vesselDraftMetres(), never raw vessel.draft which is FEET).
+ *
+ * House pattern: compute the stops in TS, keep the expression dumb.
+ * `step` stops must ascend strictly — S > 0 guarantees 0 < S < 2S,
+ * and max(4S, 20) > 2S for any S.
+ */
+export function buildDepareFillColor(safetyDepthM: number): mapboxgl.ExpressionSpecification {
+    const S = Math.max(safetyDepthM, 0.1); // guard degenerate input
+    return [
+        'step',
+        // DRVAL1 = minimum depth in S-57 metres (positive = depth,
+        // negative = drying height). Missing values sort as "very
+        // deep" so empty polygons don't render as drying banks.
+        ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
+        '#8fc97e', // DRVAL1 < 0 — drying / intertidal (S-52 DEPIT green)
+        0,
+        '#3f8fd1', // 0..S — unsafe: strong saturated blue
+        S,
+        '#8fc3e8', // S..2S — caution: mid blue
+        2 * S,
+        '#c9e3f5', // 2S..deep — safe: pale blue
+        Math.max(4 * S, 20),
+        '#f4f9fd', // deep: near-white (S-52 DEPDW)
+    ] as unknown as mapboxgl.ExpressionSpecification;
+}
+
+/**
+ * The safety contour to embolden: the smallest charted VALDCO ≥ the
+ * vessel's safety depth S. Null when NO charted contour reaches S (a
+ * shallow-only cell, or S deeper than every contour here) — we then
+ * embolden NOTHING and let the draft-keyed DEPARE bands carry the depth
+ * message. Emboldening the deepest available contour in that case (the
+ * old `best ?? deepest`) was actively MISLEADING: it promoted a line
+ * SHALLOWER than S to "safety contour", implying the water seaward of it
+ * clears the keel when it doesn't — a grounding-risk line drawn at the
+ * wrong depth, exactly what the draft wiring exists to prevent. The
+ * shallower contours still draw as ordinary thin lines; only the bold
+ * "this is your safety line" emphasis is withheld.
+ */
+export function computeSafetyValdco(valdcos: readonly number[], safetyDepthM: number): number | null {
+    let best: number | null = null;
+    for (const v of valdcos) {
+        if (!Number.isFinite(v)) continue;
+        if (v >= safetyDepthM && (best == null || v < best)) best = v;
+    }
+    return best;
+}
+
+/** Distinct VALDCO values present in the merged DEPCNT collection. */
+function distinctValdcos(fc: FeatureCollection): number[] {
+    const set = new Set<number>();
+    for (const f of fc.features ?? []) {
+        const props = (f.properties ?? {}) as Record<string, unknown>;
+        const v = Number(props.VALDCO ?? props.valdco);
+        if (Number.isFinite(v)) set.add(v);
+    }
+    return [...set].sort((a, b) => a - b);
+}
+
+/**
+ * Per-map depth-style state so `updateEncDepthStyle` and
+ * `refreshEncVectorData` can recompute the safety contour without
+ * re-threading the merged data / safety depth through every caller.
+ */
+interface EncDepthStyleState {
+    safetyDepthM: number;
+    depcntValdcos: number[];
+}
+const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
+
+// SCAMIN-aware visibility clause — features pre-tagged with `_minZoom`
+// (derived from S-57 SCAMIN at extraction time) become visible only at
+// or above their chart-prescribed display zoom. Features without
+// `_minZoom` are always-visible (correct for hazards lacking SCAMIN).
+const SCAMIN_CLAUSE = ['any', ['!', ['has', '_minZoom']], ['>=', ['zoom'], ['get', '_minZoom']]];
+
+/**
+ * Compose the `_kind` routing filter with the SCAMIN clause.
+ *
+ * Mapbox's published `FilterSpecification` is a huge discriminated union
+ * that doesn't admit dynamic composition cleanly; cast at the seam.
+ */
+const scaminAware = (kindFilter: unknown): mapboxgl.FilterSpecification =>
+    ['all', kindFilter, SCAMIN_CLAUSE] as unknown as mapboxgl.FilterSpecification;
+
+/** Sentinel VALDCO that matches no real contour (no-contour cells). */
+const NO_SAFETY_VALDCO = -9999;
+
+function depcntLineFilter(safetyValdco: number | null): mapboxgl.FilterSpecification {
+    const sv = safetyValdco ?? NO_SAFETY_VALDCO;
+    // Ordinary contours: everything except the safety contour, SCAMIN-gated.
+    return [
+        'all',
+        ['!=', ['to-number', ['get', 'VALDCO']], sv],
+        SCAMIN_CLAUSE,
+    ] as unknown as mapboxgl.FilterSpecification;
+}
+
+function depcntSafetyFilter(safetyValdco: number | null): mapboxgl.FilterSpecification {
+    const sv = safetyValdco ?? NO_SAFETY_VALDCO;
+    // The safety contour always shows — NO scamin gate, per S-52.
+    return ['==', ['to-number', ['get', 'VALDCO']], sv] as unknown as mapboxgl.FilterSpecification;
+}
+
+/**
+ * THE single choke point for draft changes (risk note: a missed
+ * update path silently shows the WRONG safety contour — worse than
+ * none). Re-bands the DEPARE fill and moves the safety contour
+ * atomically. Called from mount (via opts), from the hook whenever
+ * vessel draft changes, and from refresh when new cells land.
+ *
+ * `safetyDepthM` = vesselDraftMetres(vessel) + tide margin. METRES.
+ */
+export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number): void {
+    const state = depthStyleState.get(map) ?? { safetyDepthM, depcntValdcos: [] };
+    state.safetyDepthM = safetyDepthM;
+    depthStyleState.set(map, state);
+
+    if (map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-color', buildDepareFillColor(safetyDepthM));
+    }
+
+    const safetyValdco = computeSafetyValdco(state.depcntValdcos, safetyDepthM);
+    if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
+        map.setFilter(ENC_VEC_LAYERS.DEPCNT_LINE, depcntLineFilter(safetyValdco));
+    }
+    if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
+        map.setFilter(ENC_VEC_LAYERS.DEPCNT_SAFETY, depcntSafetyFilter(safetyValdco));
+    }
 }
 
 // ── Mount ──────────────────────────────────────────────────────────
@@ -168,15 +355,23 @@ export interface EncVectorMountOptions {
      *  vector data would be too dense to read anyway. */
     minZoom?: number;
     /** Overall opacity multiplier. Default 0.85 (matches an
-     *  IHO-style chart on a dark basemap). */
+     *  IHO-style chart on a dark basemap). DEPARE ignores this and
+     *  paints at 0.95 so the dark shell doesn't bleed through the
+     *  pale day-palette deep band. */
     opacity?: number;
+    /**
+     * Safety depth S in METRES (vesselDraftMetres(vessel) + tide
+     * margin) driving the DEPARE bands + safety contour. Use
+     * `updateEncDepthStyle` for live changes after mount.
+     */
+    safetyDepthM?: number;
 }
 
 /**
- * Idempotent mount. Adds (or updates) all four sources + six
- * layers. Safe to call repeatedly — re-using existing sources
- * avoids the layer-rebuild cost on cell-list changes; we just
- * setData on the source.
+ * Idempotent mount. Adds (or updates) all sources + layers. Safe to
+ * call repeatedly — re-using existing sources avoids the
+ * layer-rebuild cost on cell-list changes; we just setData on the
+ * source.
  */
 export function mountEncVectorLayer(
     map: mapboxgl.Map,
@@ -185,6 +380,17 @@ export function mountEncVectorLayer(
 ): void {
     const minZoom = opts.minZoom ?? 7;
     const opacity = opts.opacity ?? 0.85;
+    const safetyDepthM = opts.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
+
+    // IALA symbol sprites for the buoy/beacon symbol layers.
+    // Idempotent (hasImage guard inside) and async — Mapbox repaints
+    // symbol layers as each image lands, so fire-and-forget is fine.
+    void registerSeamarkIcons(map);
+
+    // Seed the per-map depth-style state so updateEncDepthStyle /
+    // refresh can recompute the safety contour later.
+    depthStyleState.set(map, { safetyDepthM, depcntValdcos: distinctValdcos(data.DEPCNT) });
+    const safetyValdco = computeSafetyValdco(distinctValdcos(data.DEPCNT), safetyDepthM);
 
     const ensureSource = (id: string, fc: FeatureCollection) => {
         const existing = map.getSource(id);
@@ -201,13 +407,31 @@ export function mountEncVectorLayer(
 
     ensureSource(ENC_VEC_SRC.LNDARE, data.LNDARE);
     ensureSource(ENC_VEC_SRC.DEPARE, data.DEPARE);
+    ensureSource(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
     ensureSource(ENC_VEC_SRC.COALNE, data.COALNE);
     ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
 
-    const before = findInsertionAnchor(map);
+    const anchor = findInsertionAnchor(map);
 
-    // ── DEPARE (depth-graduated fills) ────────────────────────────
+    /**
+     * Strict z-order under idempotent-additive mounting: insert each
+     * layer before the next HIGHER layer that already exists on the
+     * map, falling back to the settlement-label anchor. Append order
+     * alone would stack any newly-introduced layer on top of
+     * everything from earlier app versions.
+     */
+    const beforeIdFor = (layerId: string): string | undefined => {
+        const idx = ALL_LAYER_IDS.indexOf(layerId as (typeof ALL_LAYER_IDS)[number]);
+        if (idx >= 0) {
+            for (let i = idx + 1; i < ALL_LAYER_IDS.length; i++) {
+                if (map.getLayer(ALL_LAYER_IDS[i])) return ALL_LAYER_IDS[i];
+            }
+        }
+        return anchor;
+    };
+
+    // ── DEPARE (draft-aware day-palette band fills) ───────────────
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
         map.addLayer(
             {
@@ -216,38 +440,69 @@ export function mountEncVectorLayer(
                 source: ENC_VEC_SRC.DEPARE,
                 minzoom: minZoom,
                 paint: {
-                    // DRVAL1 = minimum depth in S-57 metres (positive = depth).
-                    // Coerce to number for missing values; null sorts as "very
-                    // deep" so empty polygons don't get sand-coloured.
-                    'fill-color': [
-                        'step',
-                        ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
-                        '#f1d49b', // <2 m sandy
-                        2,
-                        '#bcdcef', // 2–5 light blue
-                        5,
-                        '#7cbbe0', // 5–10
-                        10,
-                        '#3a8dbf', // 10–20
-                        20,
-                        '#19577f', // 20–50
-                        50,
-                        '#0b2f4d', // >50 deep navy
-                    ],
-                    'fill-opacity': opacity,
+                    // Bands computed in TS from the vessel's safety
+                    // depth — see buildDepareFillColor. Re-styled
+                    // live by updateEncDepthStyle on draft changes.
+                    'fill-color': buildDepareFillColor(safetyDepthM),
+                    // 0.95, not the overall multiplier: dark-v11
+                    // bleeding through muddies the pale deep band.
+                    // The chart area reads as a classic day chart;
+                    // the dark shell stays outside ENC coverage.
+                    'fill-opacity': 0.95,
                     'fill-antialias': true,
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.DEPARE),
         );
     }
 
-    // ── LNDARE (tan land + dark outline) ──────────────────────────
-    // Each AREA feature now emits as a SINGLE Polygon with proper outer
-    // ring + holes (rings reconstructed from the chart's edge-vector
-    // table per OESUChart.cpp:buildLineGeometries, fixed 2026-05-19).
-    // The fill-outline strokes only the actual polygon boundary, no
-    // triangulation mesh.
+    // ── DEPCNT (depth contours + bold safety contour) ─────────────
+    // Two layers off one source: thin gray ordinary contours
+    // (SCAMIN-gated) and the bold dark safety contour — per S-52 the
+    // single most prominent line on the water, never zoom-gated.
+    // Filters move atomically with the fill bands via
+    // updateEncDepthStyle when the draft changes.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_LINE,
+                type: 'line',
+                source: ENC_VEC_SRC.DEPCNT,
+                minzoom: minZoom,
+                filter: depcntLineFilter(safetyValdco),
+                paint: {
+                    'line-color': '#7d8e9b',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 15, 1.0],
+                    'line-opacity': 0.7,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_LINE),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_SAFETY,
+                type: 'line',
+                source: ENC_VEC_SRC.DEPCNT,
+                minzoom: minZoom,
+                filter: depcntSafetyFilter(safetyValdco),
+                paint: {
+                    'line-color': '#16323f',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.6, 15, 2.8],
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_SAFETY),
+        );
+    }
+
+    // ── LNDARE (tan land) ─────────────────────────────────────────
+    // No fill-outline-color: Mapbox strokes EVERY internal edge of
+    // the MultiPolygon triangle-fallback meshes (geojsonEmitter
+    // fallback path), scribbling mesh lines across the land. Unset,
+    // fill-outline defaults to the fill colour so mesh edges vanish;
+    // the coastline stroke comes from COALNE — the S-57-correct
+    // source for it anyway.
     if (!map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
         map.addLayer(
             {
@@ -259,19 +514,43 @@ export function mountEncVectorLayer(
                     'fill-color': '#d6c590',
                     'fill-opacity': opacity,
                     'fill-antialias': true,
-                    'fill-outline-color': '#5c4a1a',
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.LNDARE),
         );
     }
 
-    // ── COALNE (chart-source coastline, black) ────────────────────
+    // ── LNDARE islets (Point-geometry land) ───────────────────────
+    // Charted islets too small for a polygon emit as Point LNDARE
+    // features that a fill layer silently drops (23 in the live
+    // coastal cell). Render as small tan dots with the coastline
+    // stroke colour.
+    if (!map.getLayer(ENC_VEC_LAYERS.LNDARE_ISLET)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.LNDARE_ISLET,
+                type: 'circle',
+                source: ENC_VEC_SRC.LNDARE,
+                minzoom: minZoom,
+                filter: ['==', ['geometry-type'], 'Point'] as unknown as mapboxgl.FilterSpecification,
+                paint: {
+                    'circle-color': '#d6c590',
+                    'circle-stroke-color': '#5c4a1a',
+                    'circle-stroke-width': 1,
+                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 14, 3.5],
+                    'circle-opacity': opacity,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.LNDARE_ISLET),
+        );
+    }
+
+    // ── COALNE (chart-source coastline) ───────────────────────────
     // The chart-author's intended coastline as a line feature. With the
     // LineIndex field-order fix (2026-05-19) these resolve correctly to
-    // continuous traced coastlines — no more criss-cross spans. Drawn
-    // from chart zoom upward in black for high contrast against tan
-    // LNDARE.
+    // continuous traced coastlines — no more criss-cross spans. Classic
+    // chart buff/dark-brown — pure black reads harsh against the pale
+    // day-palette deep-water band.
     if (!map.getLayer(ENC_VEC_LAYERS.COALNE)) {
         map.addLayer(
             {
@@ -284,34 +563,23 @@ export function mountEncVectorLayer(
                     'line-join': 'round',
                 },
                 paint: {
-                    'line-color': '#0a0a0a',
+                    'line-color': '#4a3f28',
                     'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.0, 13, 1.4, 15, 1.8],
                     'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, opacity],
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.COALNE),
         );
     }
 
     // ── Hazard points (filtered by `_kind` from one merged source) ─
     // OBSTRN, WRECKS, UWTROC are all magenta point hazards in IHO
     // styling. We use circle-stroke + circle-color to differentiate.
+    // Hazards lacking SCAMIN/_minZoom are NEVER zoom-hidden (the
+    // `scaminAware` no-_minZoom arm) — they're the things the router
+    // routes around.
     const POINT_BASE_COLOR = '#d837a9'; // magenta
 
-    // SCAMIN-aware visibility filter — features pre-tagged with `_minZoom`
-    // (derived from S-57 SCAMIN at extraction time) become visible only at
-    // or above their chart-prescribed display zoom. Features without
-    // `_minZoom` (or zero) are always-visible. Composes with the layer's
-    // existing `_kind` filter so we don't lose the multi-class routing.
-    //
-    // Mapbox's published `FilterSpecification` is a huge discriminated union
-    // that doesn't admit dynamic composition cleanly; cast at the seam.
-    const scaminAware = (kindFilter: unknown): mapboxgl.FilterSpecification =>
-        [
-            'all',
-            kindFilter,
-            ['any', ['!', ['has', '_minZoom']], ['>=', ['zoom'], ['get', '_minZoom']]],
-        ] as unknown as mapboxgl.FilterSpecification;
     if (!map.getLayer(ENC_VEC_LAYERS.OBSTRN)) {
         map.addLayer(
             {
@@ -329,7 +597,7 @@ export function mountEncVectorLayer(
                     'circle-stroke-opacity': opacity,
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.OBSTRN),
         );
     }
     if (!map.getLayer(ENC_VEC_LAYERS.WRECKS)) {
@@ -349,7 +617,7 @@ export function mountEncVectorLayer(
                     'circle-stroke-opacity': opacity,
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.WRECKS),
         );
     }
     if (!map.getLayer(ENC_VEC_LAYERS.UWTROC)) {
@@ -369,115 +637,65 @@ export function mountEncVectorLayer(
                     'circle-stroke-opacity': opacity,
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.UWTROC),
         );
     }
 
-    // ── BOYLAT / BCNLAT (lateral marks) ───────────────────────────
-    // Color is pre-computed at merge time (lateralMarkColour() in
-    // services/enc/types.ts) so we don't need region detection in
-    // a paint expression — just read `_displayColor`. Region-A vs
-    // region-B logic lives once in TypeScript, not duplicated as a
-    // chunky `case` here.
+    // ── Buoys / beacons (IALA symbol layers) ──────────────────────
+    // The icon id is pre-baked at merge time (`_icon`, see
+    // encNavaidIconId in services/enc/types.ts) from CATLAM/CATCAM +
+    // IALA region, so the layers stay dumb ['get'] expressions.
+    // Cardinal quadrant identity (N/S/E/W band patterns + double-cone
+    // topmarks) comes free with the icons. `_priority` (also
+    // pre-baked: cardinals 0 < laterals 1 < specials 2) drives
+    // symbol-sort-key so the engine culls minor marks first.
     //
-    // BOYLAT = floating buoy (thinner stroke).
-    // BCNLAT = rigid beacon — same colour family but bolder stroke
-    //          to suggest "structure, not float".
-    if (!map.getLayer(ENC_VEC_LAYERS.BOYLAT)) {
+    // Layer ids keep the legacy '-circle' suffix on purpose — click
+    // handlers, toggles and the master-visibility probe reference
+    // them (see ENC_VEC_LAYERS note).
+    const navaidSymbolLayer = (
+        layerId: string,
+        kind: 'BOYLAT' | 'BCNLAT' | 'BOYCAR' | 'BCNCAR' | 'BOYSPP' | 'BCNSPP',
+    ) => {
+        if (map.getLayer(layerId)) return;
         map.addLayer(
             {
-                id: ENC_VEC_LAYERS.BOYLAT,
-                type: 'circle',
+                id: layerId,
+                type: 'symbol',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'BOYLAT']),
+                filter: scaminAware(['==', ['get', '_kind'], kind]),
+                layout: {
+                    'icon-image': ['get', '_icon'],
+                    'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.45, 15, 0.9],
+                    // Navaids are position-critical: never collision-cull
+                    // them against each other or against labels.
+                    'icon-allow-overlap': true,
+                    'symbol-sort-key': ['coalesce', ['get', '_priority'], 99],
+                },
                 paint: {
-                    'circle-color': ['coalesce', ['get', '_displayColor'], '#facc15'],
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
-                    'circle-stroke-color': '#000000',
-                    'circle-stroke-width': 1,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
+                    'icon-opacity': opacity,
                 },
             },
-            before,
+            beforeIdFor(layerId),
         );
-    }
+    };
 
-    if (!map.getLayer(ENC_VEC_LAYERS.BCNLAT)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.BCNLAT,
-                type: 'circle',
-                source: ENC_VEC_SRC.NAVAIDS,
-                minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'BCNLAT']),
-                paint: {
-                    'circle-color': ['coalesce', ['get', '_displayColor'], '#facc15'],
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
-                    'circle-stroke-color': '#000000',
-                    // Thicker stroke distinguishes a rigid beacon
-                    // from a floating buoy at-a-glance.
-                    'circle-stroke-width': 2.2,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
-                },
-            },
-            before,
-        );
-    }
-
-    // ── BOYCAR / BCNCAR (cardinal marks) ──────────────────────────
-    // Yellow with black ring. Same buoy-vs-beacon stroke distinction
-    // as the lateral marks. Top-mark cones (proper IHO INT1) need
-    // SVG icons — out of scope for v1.
-    if (!map.getLayer(ENC_VEC_LAYERS.BOYCAR)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.BOYCAR,
-                type: 'circle',
-                source: ENC_VEC_SRC.NAVAIDS,
-                minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'BOYCAR']),
-                paint: {
-                    'circle-color': '#facc15',
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
-                    'circle-stroke-color': '#000000',
-                    'circle-stroke-width': 1.6,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
-                },
-            },
-            before,
-        );
-    }
-
-    if (!map.getLayer(ENC_VEC_LAYERS.BCNCAR)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.BCNCAR,
-                type: 'circle',
-                source: ENC_VEC_SRC.NAVAIDS,
-                minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'BCNCAR']),
-                paint: {
-                    'circle-color': '#facc15',
-                    'circle-radius': ['interpolate', ['linear'], ['zoom'], 7, 2.5, 11, 4.5, 15, 7],
-                    'circle-stroke-color': '#000000',
-                    'circle-stroke-width': 2.4,
-                    'circle-opacity': opacity,
-                    'circle-stroke-opacity': opacity,
-                },
-            },
-            before,
-        );
-    }
+    navaidSymbolLayer(ENC_VEC_LAYERS.BOYLAT, 'BOYLAT');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BCNLAT, 'BCNLAT');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BOYCAR, 'BOYCAR');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BCNCAR, 'BCNCAR');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BOYSPP, 'BOYSPP');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BCNSPP, 'BCNSPP');
 
     // ── LIGHTS (lighthouses + lit aids) ───────────────────────────
-    // Symbol layer with a star char so it stays sharp at any zoom.
-    // Color cues from the LIGHTS.COLOUR attribute:
-    //   1=white  3=red  4=green  6=yellow  -- the ones you commonly
-    //   see on a chart. Default to bright yellow for unknown.
+    // Symbol layer with a star char so it stays sharp at any zoom —
+    // the cheap path; an SDF flare icon is the phase-2 pretty path.
+    // Colour comes from `_lightColor` pre-baked at merge time (first
+    // code of the comma-split S-57 COLOUR — multi-colour lights no
+    // longer fall to yellow). Declutter: minor lights (VALNMR < 10
+    // or missing) only render from z11; major lights always show and
+    // win collision placement via the VALNMR sort key.
     if (!map.getLayer(ENC_VEC_LAYERS.LIGHTS)) {
         map.addLayer(
             {
@@ -485,37 +703,76 @@ export function mountEncVectorLayer(
                 type: 'symbol',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], 'LIGHTS']),
+                filter: [
+                    'all',
+                    ['==', ['get', '_kind'], 'LIGHTS'],
+                    SCAMIN_CLAUSE,
+                    ['any', ['==', ['get', '_lightTier'], 'major'], ['>=', ['zoom'], 11]],
+                ] as unknown as mapboxgl.FilterSpecification,
                 layout: {
                     'text-field': '★',
                     'text-size': ['interpolate', ['linear'], ['zoom'], 7, 11, 11, 16, 15, 22],
-                    'text-allow-overlap': true,
+                    // Collision-cull minor lights instead of stamping
+                    // them all from z7 — the sort key keeps the
+                    // longest-range lights when space is tight.
+                    'text-allow-overlap': false,
                     'text-anchor': 'center',
+                    'symbol-sort-key': ['-', 0, ['coalesce', ['to-number', ['get', 'VALNMR']], 0]],
                 },
                 paint: {
-                    // S-57 COLOUR is a comma-separated string of codes.
-                    // We use a regex-style match on the first character
-                    // (most lights are mono-coloured); fall back to
-                    // bright yellow for the typical "FlW" lighthouse.
-                    'text-color': [
-                        'match',
-                        ['coalesce', ['get', 'COLOUR'], ['get', 'colour'], '6'],
-                        '3',
-                        '#ef4444', // red
-                        '4',
-                        '#22c55e', // green
-                        '1',
-                        '#ffffff', // white
-                        /* default */ '#fde047', // yellow
-                    ],
+                    'text-color': ['coalesce', ['get', '_lightColor'], '#fde047'],
                     'text-halo-color': 'rgba(0, 0, 0, 0.85)',
                     'text-halo-width': 1.5,
                     'text-opacity': opacity,
                 },
             },
-            before,
+            beforeIdFor(ENC_VEC_LAYERS.LIGHTS),
         );
     }
+
+    // ── Labels (OBJNAM + light character, z13+) ───────────────────
+    // One text-only label layer per point source, following the
+    // tide-station idiom. Light halo — labels sit over the pale day
+    // chart, not the dark shell. text-allow-overlap stays false so
+    // Mapbox auto-decimates dense clusters.
+    const labelLayer = (layerId: string, sourceId: string) => {
+        if (map.getLayer(layerId)) return;
+        map.addLayer(
+            {
+                id: layerId,
+                type: 'symbol',
+                source: sourceId,
+                minzoom: 13,
+                filter: ['any', ['has', 'OBJNAM'], ['has', '_lightLabel']] as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'text-field': [
+                        'format',
+                        ['coalesce', ['get', 'OBJNAM'], ''],
+                        {},
+                        '\n',
+                        {},
+                        ['coalesce', ['get', '_lightLabel'], ''],
+                        { 'font-scale': 0.85 },
+                    ],
+                    'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 16, 11],
+                    'text-offset': [0, 1.4],
+                    'text-anchor': 'top',
+                    'text-max-width': 9,
+                    'text-allow-overlap': false,
+                },
+                paint: {
+                    'text-color': '#13242e',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.85)',
+                    'text-halo-width': 1.2,
+                },
+            },
+            beforeIdFor(layerId),
+        );
+    };
+
+    labelLayer(ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_SRC.NAVAIDS);
+    labelLayer(ENC_VEC_LAYERS.POINTS_LABEL, ENC_VEC_SRC.POINTS);
 
     log.info(
         `mounted vector layers: ${data.cellCount} cells, ` +
@@ -524,8 +781,10 @@ export function mountEncVectorLayer(
             `(${data.BOYLAT.features.length} buoys, ${data.BCNLAT.features.length} beacons), ` +
             `card marks=${data.BOYCAR.features.length + data.BCNCAR.features.length} ` +
             `(${data.BOYCAR.features.length} buoys, ${data.BCNCAR.features.length} beacons), ` +
-            `polygons: ${data.DEPARE.features.length} depare, ${data.LNDARE.features.length} lndare, ` +
-            `${data.COALNE.features.length} coalne, ` +
+            `spp marks=${data.BOYSPP.features.length + data.BCNSPP.features.length}, ` +
+            `polygons: ${data.DEPARE.features.length} depare(+drgare), ${data.LNDARE.features.length} lndare, ` +
+            `${data.COALNE.features.length} coalne, ${data.DEPCNT.features.length} depcnt ` +
+            `(safety VALDCO=${safetyValdco ?? 'n/a'} @ S=${safetyDepthM.toFixed(1)}m), ` +
             `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} hazard pts`,
     );
 }
@@ -542,9 +801,19 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     };
     setData(ENC_VEC_SRC.LNDARE, data.LNDARE);
     setData(ENC_VEC_SRC.DEPARE, data.DEPARE);
+    setData(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
     setData(ENC_VEC_SRC.COALNE, data.COALNE);
     setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
+
+    // New cells can carry different charted contour values — refresh
+    // the VALDCO inventory and re-derive the safety contour at the
+    // last-applied safety depth.
+    const state = depthStyleState.get(map);
+    const safetyDepthM = state?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
+    depthStyleState.set(map, { safetyDepthM, depcntValdcos: distinctValdcos(data.DEPCNT) });
+    updateEncDepthStyle(map, safetyDepthM);
+
     log.info(`refreshed vector data: ${data.cellCount} cells`);
 }
 
@@ -586,6 +855,13 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
 }
 
 /**
+ * Text-only label layers (OBJNAM + light character). Hidden in
+ * route-focus mode so test-route debugging stays clean — names and
+ * 'Fl(2)G 5s' strings fight the route polyline for attention.
+ */
+const ENC_LABEL_HIDE_LAYERS = [ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_LAYERS.POINTS_LABEL] as const;
+
+/**
  * The ENC layers we drop when a route is on the map. Polygon fills
  * (DEPARE, LNDARE) and lines (COALNE) clutter the route polyline; the
  * lateral/cardinal markers + lights + obstruction symbols help the user
@@ -593,16 +869,26 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
  * (WRECKS/UWTROC/OBSTRN as circles) also stay — they're the things the
  * router already routed around but the user wants to see.
  */
-const ROUTE_FOCUS_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE, ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.COALNE] as const;
+const ROUTE_FOCUS_HIDE_LAYERS = [
+    ENC_VEC_LAYERS.DEPARE,
+    ENC_VEC_LAYERS.LNDARE,
+    ENC_VEC_LAYERS.COALNE,
+    ...ENC_LABEL_HIDE_LAYERS,
+] as const;
 
 /**
- * "Clean chart" mode — hide the busy depth-band fills so the chart reads
- * as just land + coastline + navigational markers + hazards. COALNE
- * (chart-source coastline) stays VISIBLE in clean mode because it's the
- * authoritative land/water boundary. With the LineIndex field-order fix
- * (2026-05-19) COALNE renders cleanly without criss-cross spans.
+ * "Clean chart" mode — hide the busy depth-band fills + contour lines so
+ * the chart reads as just land + coastline + navigational markers +
+ * hazards. COALNE (chart-source coastline) stays VISIBLE in clean mode
+ * because it's the authoritative land/water boundary. With the LineIndex
+ * field-order fix (2026-05-19) COALNE renders cleanly without
+ * criss-cross spans.
  */
-const CHART_DETAIL_HIDE_LAYERS = [ENC_VEC_LAYERS.DEPARE] as const;
+const CHART_DETAIL_HIDE_LAYERS = [
+    ENC_VEC_LAYERS.DEPARE,
+    ENC_VEC_LAYERS.DEPCNT_LINE,
+    ENC_VEC_LAYERS.DEPCNT_SAFETY,
+] as const;
 
 /**
  * Route-focus mode: hide the busy bulk-fill and coastline layers so the route
@@ -795,16 +1081,22 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>):
         const name = props.OBJNAM ?? props.objnam;
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
-        // S-57 light "character" stitched together — closest the
-        // popup gets to a full nautical light description like
-        // "FL.W.5s.18m." Without symbol expansion we just show the
-        // raw fields the user can cross-reference on a chart.
+        // Character row: prefer the merge-time pre-baked full description
+        // ("Fl(2)G 5s 12m 8M" from buildLightCharacterLabel); else decode
+        // the raw LITCHR code through LITCHR_LABELS ('Fl' → 'Flashing');
+        // else show the raw code the user can cross-reference on a chart.
+        const lightLabel = props._lightLabel;
         const litchr = props.LITCHR ?? props.litchr;
         const sigper = props.SIGPER ?? props.sigper;
         const valnmr = props.VALNMR ?? props.valnmr;
         const height = props.HEIGHT ?? props.height;
         const colour = props.COLOUR ?? props.colour;
-        if (litchr) body += `<div class="enc-popup-row"><span>Character</span><b>${esc(String(litchr))}</b></div>`;
+        if (typeof lightLabel === 'string' && lightLabel) {
+            body += `<div class="enc-popup-row"><span>Character</span><b>${esc(lightLabel)}</b></div>`;
+        } else if (litchr) {
+            const decoded = LITCHR_LABELS[String(litchr)] ?? String(litchr);
+            body += `<div class="enc-popup-row"><span>Character</span><b>${esc(decoded)}</b></div>`;
+        }
         if (sigper) body += `<div class="enc-popup-row"><span>Period</span><b>${esc(sigper)} s</b></div>`;
         if (height) body += `<div class="enc-popup-row"><span>Height</span><b>${esc(fmtDepth(height))}</b></div>`;
         if (valnmr) body += `<div class="enc-popup-row"><span>Range</span><b>${esc(valnmr)} NM</b></div>`;
@@ -847,6 +1139,37 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>):
         const cat = String(props.CATCAM ?? props.catcam ?? '');
         if (cat && CATCAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Quadrant</span><b>${esc(CATCAM_LABELS[cat])}</b></div>`;
+        }
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.BOYSPP || layerId === ENC_VEC_LAYERS.BCNSPP) {
+        const isBeacon = layerId === ENC_VEC_LAYERS.BCNSPP;
+        title = isBeacon ? 'Special-purpose beacon' : 'Special-purpose buoy';
+        accent = '#facc15';
+        // S-57 CATSPM (category of special-purpose mark) — the values a
+        // skipper actually meets; anything else falls through to the name.
+        const CATSPM_LABELS: Record<string, string> = {
+            '1': 'Firing-danger area',
+            '6': 'Cable mark',
+            '7': 'Spoil-ground mark',
+            '8': 'Outfall mark',
+            '9': 'ODAS (data buoy)',
+            '14': 'Mooring',
+            '15': 'LANBY',
+            '16': 'Leading mark',
+            '18': 'Notice mark',
+            '20': 'Anchorage mark',
+            '22': 'Pipeline mark',
+            '25': 'Control mark',
+            '26': 'Diving mark',
+            '28': 'Foul-ground mark',
+            '39': 'Marine-farm mark',
+            '44': 'Wreck mark',
+        };
+        const cat = String(props.CATSPM ?? props.catspm ?? '');
+        if (cat && CATSPM_LABELS[cat]) {
+            body += `<div class="enc-popup-row"><span>Purpose</span><b>${esc(CATSPM_LABELS[cat])}</b></div>`;
         }
         const name = props.OBJNAM ?? props.objnam;
         if (typeof name === 'string' && name)
@@ -950,7 +1273,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         // queryRenderedFeatures across all our layers; topmost wins.
         // Order matters: we list points first (small, easy to miss
         // if covered by a polygon hit) then polygons last.
-        const features = map.queryRenderedFeatures(e.point, { layers: ALL_LAYER_IDS });
+        const features = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
         if (!features.length) return;
 
         // Prefer point features over big polygons when both are
@@ -965,6 +1288,8 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             ENC_VEC_LAYERS.BOYCAR,
             ENC_VEC_LAYERS.BCNLAT,
             ENC_VEC_LAYERS.BCNCAR,
+            ENC_VEC_LAYERS.BOYSPP,
+            ENC_VEC_LAYERS.BCNSPP,
         ]);
         const point = features.find((f) => POINT_LAYER_IDS.has(f.layer?.id ?? ''));
         const feat = point ?? features[0];
@@ -999,7 +1324,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         map.getCanvas().style.cursor = '';
     };
 
-    for (const id of ALL_LAYER_IDS) {
+    for (const id of CLICKABLE_LAYER_IDS) {
         map.on('click', id, onClick);
         map.on('mouseenter', id, onEnter);
         map.on('mouseleave', id, onLeave);
@@ -1016,7 +1341,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
 export function detachEncFeatureClickHandlers(map: mapboxgl.Map): void {
     const h = attachedHandlers.get(map);
     if (!h) return;
-    for (const id of ALL_LAYER_IDS) {
+    for (const id of CLICKABLE_LAYER_IDS) {
         map.off('click', id, h.click);
         map.off('mouseenter', id, h.enter);
         map.off('mouseleave', id, h.leave);

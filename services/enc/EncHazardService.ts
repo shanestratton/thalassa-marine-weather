@@ -35,7 +35,13 @@ import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
-import { ialaRegionForSourceHO, lateralMarkColour } from './types';
+import {
+    buildLightCharacterLabel,
+    encNavaidIconId,
+    ialaRegionForSourceHO,
+    lateralMarkColour,
+    lightColourHex,
+} from './types';
 
 const log = createLogger('EncHazardService');
 
@@ -419,12 +425,17 @@ export async function getIndexForCell(cellId: string): Promise<EncSpatialIndex |
  * click-handlers and per-cell styling.
  */
 export interface EncMergedVectorData {
+    /** Depth areas. Includes DRGARE (dredged areas) — both carry
+     *  DRVAL1 so dredged basins shade with the same draft-aware
+     *  bands as natural depth areas. */
     DEPARE: FeatureCollection;
     LNDARE: FeatureCollection;
     COALNE: FeatureCollection;
     OBSTRN: FeatureCollection;
     WRECKS: FeatureCollection;
     UWTROC: FeatureCollection;
+    /** Depth contour lines (VALDCO metres). Display only. */
+    DEPCNT: FeatureCollection;
     /** Lights / lighthouses (display only). */
     LIGHTS: FeatureCollection;
     /** Lateral buoys (display only). */
@@ -435,6 +446,10 @@ export interface EncMergedVectorData {
     BCNLAT: FeatureCollection;
     /** Cardinal beacons — rigid cardinal marks (display only). */
     BCNCAR: FeatureCollection;
+    /** Special-purpose buoys — yellow X (display only). */
+    BOYSPP: FeatureCollection;
+    /** Special-purpose beacons — yellow X (display only). */
+    BCNSPP: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -471,11 +486,14 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         OBSTRN: { type: 'FeatureCollection', features: [] },
         WRECKS: { type: 'FeatureCollection', features: [] },
         UWTROC: { type: 'FeatureCollection', features: [] },
+        DEPCNT: { type: 'FeatureCollection', features: [] },
         LIGHTS: { type: 'FeatureCollection', features: [] },
         BOYLAT: { type: 'FeatureCollection', features: [] },
         BOYCAR: { type: 'FeatureCollection', features: [] },
         BCNLAT: { type: 'FeatureCollection', features: [] },
         BCNCAR: { type: 'FeatureCollection', features: [] },
+        BOYSPP: { type: 'FeatureCollection', features: [] },
+        BCNSPP: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -519,31 +537,77 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
                     props._displayColor = lateralMarkColour(Number.isFinite(catlam) ? catlam : null, ialaRegion);
                 }
 
+                // Pre-bake the IALA symbol id + collision priority so
+                // the renderer's symbol layers stay dumb expressions.
+                // Cardinals mark danger → lowest sort key (wins
+                // collision placement), laterals next, specials last.
+                if (
+                    target === 'BOYLAT' ||
+                    target === 'BCNLAT' ||
+                    target === 'BOYCAR' ||
+                    target === 'BCNCAR' ||
+                    target === 'BOYSPP' ||
+                    target === 'BCNSPP'
+                ) {
+                    const featProps = (feat.properties ?? {}) as Record<string, unknown>;
+                    props._icon = encNavaidIconId(target, featProps, ialaRegion);
+                    props._priority = target === 'BOYCAR' || target === 'BCNCAR' ? 0 : target === 'BOYSPP' || target === 'BCNSPP' ? 2 : 1;
+                }
+
+                // Lights: pre-bake everything the renderer + label
+                // layers need so paint expressions stay coalesces.
+                //  - _lightTier: VALNMR >= 10 NM = 'major' (always
+                //    shown); missing VALNMR defaults minor (correct
+                //    bias — only 26/400 live lights carry VALNMR).
+                //  - _lightColor: first code of the comma-split
+                //    S-57 COLOUR string → display hex.
+                //  - _lightLabel: 'Fl(2)G 5s 12m 8M' character
+                //    string, omitted when LITCHR is absent.
+                if (target === 'LIGHTS') {
+                    const featProps = (feat.properties ?? {}) as Record<string, unknown>;
+                    const valnmr = Number(featProps.VALNMR ?? featProps.valnmr);
+                    props._lightTier = Number.isFinite(valnmr) && valnmr >= 10 ? 'major' : 'minor';
+                    const colHex = lightColourHex(featProps.COLOUR ?? featProps.colour);
+                    if (colHex) props._lightColor = colHex;
+                    const label = buildLightCharacterLabel(featProps);
+                    if (label) props._lightLabel = label;
+                }
+
                 dest.features.push({ ...feat, properties: props });
             }
         };
 
         tagAndPush('DEPARE', blob.layers.DEPARE);
+        // DRGARE (dredged areas) carries DRVAL1 just like DEPARE —
+        // merge into the same collection so dredged basins shade
+        // with the draft-aware depth bands instead of rendering as
+        // chart holes.
+        tagAndPush('DEPARE', blob.layers.DRGARE);
         tagAndPush('LNDARE', blob.layers.LNDARE);
         tagAndPush('COALNE', blob.layers.COALNE);
         tagAndPush('OBSTRN', blob.layers.OBSTRN);
         tagAndPush('WRECKS', blob.layers.WRECKS);
         tagAndPush('UWTROC', blob.layers.UWTROC);
+        tagAndPush('DEPCNT', blob.layers.DEPCNT);
         tagAndPush('LIGHTS', blob.layers.LIGHTS);
         tagAndPush('BOYLAT', blob.layers.BOYLAT);
         tagAndPush('BOYCAR', blob.layers.BOYCAR);
         tagAndPush('BCNLAT', blob.layers.BCNLAT);
         tagAndPush('BCNCAR', blob.layers.BCNCAR);
+        tagAndPush('BOYSPP', blob.layers.BOYSPP);
+        tagAndPush('BCNSPP', blob.layers.BCNSPP);
     }
 
     mergedCache = { version: currentVersion, data: merged };
     log.info(
         `merged vector data: ${merged.cellCount} cells, ` +
-            `DEPARE=${merged.DEPARE.features.length}, COALNE=${merged.COALNE.features.length}, ` +
+            `DEPARE(+DRGARE)=${merged.DEPARE.features.length}, DEPCNT=${merged.DEPCNT.features.length}, ` +
+            `COALNE=${merged.COALNE.features.length}, ` +
             `OBSTRN+WRECKS+UWTROC=${merged.OBSTRN.features.length + merged.WRECKS.features.length + merged.UWTROC.features.length}, ` +
             `LIGHTS=${merged.LIGHTS.features.length}, ` +
             `lat (BOY+BCN)=${merged.BOYLAT.features.length + merged.BCNLAT.features.length}, ` +
-            `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}`,
+            `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}, ` +
+            `spp (BOY+BCN)=${merged.BOYSPP.features.length + merged.BCNSPP.features.length}`,
     );
     return merged;
 }

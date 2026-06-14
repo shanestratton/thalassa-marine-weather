@@ -19,6 +19,35 @@ import { AvNavService, encryptOchartsUrl } from '../../services/AvNavService';
 import { MBTilesService } from '../../services/MBTilesService';
 import { piCache } from '../../services/PiCacheService';
 
+/**
+ * Show/hide the OpenSeaMap raster seamark overlays in one call. Two layers
+ * draw the same OSM seamark icons: 'openseamap-overlay' is baked into the
+ * base style (ThalassaMap.tsx) and 'openseamap-permanent' is added by
+ * useMapInit after style load. Used by MapHub to switch OSM icons off
+ * whenever another chart source renders its own navaids (o-charts raster or
+ * the ENC vector layer) so marks don't render doubled. Per-layer values
+ * because 'openseamap-permanent' is also synced to the 'sea' weather toggle
+ * by useWeatherLayers — callers must defer to that toggle when un-hiding.
+ */
+export function setOpenSeaMapRasterVisibility(
+    map: mapboxgl.Map,
+    visible: { overlay: boolean; permanent: boolean },
+): void {
+    const byId: Record<string, boolean> = {
+        'openseamap-overlay': visible.overlay,
+        'openseamap-permanent': visible.permanent,
+    };
+    for (const [id, show] of Object.entries(byId)) {
+        try {
+            if (map.getLayer(id)) {
+                map.setLayoutProperty(id, 'visibility', show ? 'visible' : 'none');
+            }
+        } catch {
+            /* layer not yet available — harmless */
+        }
+    }
+}
+
 interface UseMapInitOptions {
     containerRef: MutableRefObject<HTMLDivElement | null>;
     mapRef: MutableRefObject<mapboxgl.Map | null>;

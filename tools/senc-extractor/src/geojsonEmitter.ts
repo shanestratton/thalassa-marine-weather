@@ -16,6 +16,12 @@ function roundPt(p: [number, number]): [number, number] {
 /** GeoJSON feature shape (kept simple — matches what the inshore router expects via the `geojson` types). */
 interface GeoJsonFeature {
     type: 'Feature';
+    /**
+     * Top-level GeoJSON feature id (the SENC rcid) so Mapbox/MapLibre
+     * feature-state works without per-source promoteId plumbing. Unique
+     * within a cell; cross-cell collisions are possible after merge.
+     */
+    id?: number;
     geometry:
         | { type: 'Point'; coordinates: [number, number] }
         | { type: 'MultiPoint'; coordinates: [number, number][] }
@@ -48,6 +54,8 @@ export interface CellOutput {
     cellName?: string;
     nativeScale?: number;
     sencCreateDate?: string;
+    /** Vertical datum for soundings (SENC header) — required attribution once SOUNDG displays. */
+    soundingDatum?: string;
     stats?: { totalFeatures: number; emittedFeatures: number; classes: Record<string, number> };
 }
 
@@ -97,6 +105,7 @@ export function emitCell(header: HeaderInfo, features: SencFeature[], opts: Emit
         cellName: header.cellName,
         nativeScale: header.nativeScale,
         sencCreateDate: header.sencCreateDate,
+        soundingDatum: header.soundingDatum,
         stats: {
             totalFeatures: features.length,
             emittedFeatures,
@@ -136,6 +145,23 @@ function scaminToMinZoom(scamin: unknown): number {
     return 29.06 - Math.log2(n);
 }
 
+/**
+ * S-57 list-typed attributes ship as comma-separated code strings
+ * ('1,4', '2,6,2'). We keep the raw value (popups, verification) and ALSO
+ * emit a parsed numeric array under `<ATTR>_LIST` so renderers (light
+ * colours, COLPAT striping, sector arcs) never split strings inside Mapbox
+ * expressions.
+ */
+const LIST_ATTRIBUTES = ['COLOUR', 'COLPAT', 'NATSUR'] as const;
+
+function parseCodeList(v: unknown): number[] | null {
+    if (typeof v === 'number') return Number.isFinite(v) ? [v] : null;
+    if (typeof v !== 'string' || v.trim() === '') return null;
+    const codes = v.split(',').map((s) => Number(s.trim()));
+    if (codes.some((n) => !Number.isFinite(n))) return null;
+    return codes;
+}
+
 function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
     const properties: Record<string, unknown> = {
         classCode: f.classCode,
@@ -149,6 +175,12 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
     if (f.attributes.SCAMIN !== undefined) {
         properties._minZoom = Number(scaminToMinZoom(f.attributes.SCAMIN).toFixed(2));
     }
+    // Normalised list attributes (COLOUR → COLOUR_LIST etc.) — see
+    // LIST_ATTRIBUTES above.
+    for (const attr of LIST_ATTRIBUTES) {
+        const list = parseCodeList(f.attributes[attr]);
+        if (list) properties[`${attr}_LIST`] = list;
+    }
 
     if (!f.geometry) return null;
 
@@ -156,6 +188,7 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
         case 'Point':
             return {
                 type: 'Feature',
+                id: f.rcid,
                 geometry: { type: 'Point', coordinates: roundPt(f.geometry.coordinates) },
                 properties,
             };
@@ -165,6 +198,7 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
             const depths = f.geometry.coordinates.map((c) => Math.round(c[2] * 10) / 10);
             return {
                 type: 'Feature',
+                id: f.rcid,
                 geometry: { type: 'MultiPoint', coordinates },
                 properties: { ...properties, depths },
             };
@@ -183,6 +217,7 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
                 if (rings[0].length >= 4) {
                     return {
                         type: 'Feature',
+                        id: f.rcid,
                         geometry: { type: 'Polygon', coordinates: rings },
                         properties,
                     };
@@ -194,6 +229,7 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
             if (polys.length === 0) return null;
             return {
                 type: 'Feature',
+                id: f.rcid,
                 geometry: { type: 'MultiPolygon', coordinates: polys },
                 properties,
             };
@@ -204,6 +240,7 @@ function featureToGeoJson(f: SencFeature): GeoJsonFeature | null {
             if (coords.length < 2) return null;
             return {
                 type: 'Feature',
+                id: f.rcid,
                 geometry: { type: 'LineString', coordinates: coords },
                 properties,
             };
