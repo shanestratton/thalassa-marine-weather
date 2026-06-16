@@ -2423,6 +2423,76 @@ export async function fetchRegionalMarkers(
             }
         }
 
+        // ── Step 3.5: Collapse the over-pairing fan ─────────────
+        // The pairing loop above has no consumed-starboard exclusion, so
+        // several ports can each claim the SAME starboard. One physical gate
+        // then emits a cloud of near-coincident midpoints — the field's 283
+        // gates over a 23 NM corridor (~1 per 150 m, ~6× real channel
+        // marking). That dense cloud chokes the engine's fairing gate-serving
+        // guard (every served midpoint must stay within tolerance of the
+        // faired chord), so the route can't straighten and STEPS. Collapse
+        // each fan to its single WIDEST pair.
+        //
+        // SAFETY — only midpoints that SHARE a starboard mark are ever merged.
+        // Two genuinely-distinct gates use four distinct marks and so can
+        // never share one: this can NOT drop a real gate, BY CONSTRUCTION
+        // (a structural invariant, not a distance threshold). MIDPOINT_DEDUP_M
+        // is a secondary cap so a distant mis-pair to a shared starboard can't
+        // become the representative. The kept point is a real (port+stbd)/2
+        // mark-to-mark centre — never an average, so no centre moves and no
+        // route is wrong-sided; keeping the WIDEST keeps the loosest fairing
+        // tolerance + widest preferred disc (relax-only). The hard no-go side
+        // is the chordClear raster + outboard CAUTION wings (Step 4.5),
+        // untouched here — a dropped fan midpoint never guarded a hazard, it
+        // only added a redundant SOFT fairing constraint.
+        const MIDPOINT_DEDUP_M = 60;
+        const suppressed = new Set<number>();
+        const byStbd = new Map<{ lat: number; lon: number }, number[]>();
+        for (let i = 0; i < acceptedPairs.length; i++) {
+            const s = acceptedPairs[i].stbd;
+            const arr = byStbd.get(s);
+            if (arr) arr.push(i);
+            else byStbd.set(s, [i]);
+        }
+        for (const idxs of byStbd.values()) {
+            if (idxs.length < 2) continue; // unique starboard → no fan
+            // Widest gate first; stable index tiebreak for deterministic CI.
+            idxs.sort((a, b) => midpointCoords[b].pairDistM - midpointCoords[a].pairDistM || a - b);
+            for (let a = 0; a < idxs.length; a++) {
+                const keep = idxs[a];
+                if (suppressed.has(keep)) continue;
+                const mk = midpointCoords[keep];
+                for (let b = a + 1; b < idxs.length; b++) {
+                    const other = idxs[b];
+                    if (suppressed.has(other)) continue;
+                    const mo = midpointCoords[other];
+                    if (haversineMetres(mk.lat, mk.lon, mo.lat, mo.lon) < MIDPOINT_DEDUP_M) {
+                        suppressed.add(other);
+                    }
+                }
+            }
+        }
+        if (suppressed.size > 0) {
+            const keptMid = midpointCoords.filter((_, i) => !suppressed.has(i));
+            const keptPairs = acceptedPairs.filter((_, i) => !suppressed.has(i));
+            // Re-number chainOrder per chain (ascending) so Step 5's byChain
+            // walk stays dense + monotonic after the prune.
+            const perChain = new Map<number, number>();
+            for (const m of keptMid) {
+                const n = perChain.get(m.chainId) ?? 0;
+                m.chainOrder = n;
+                perChain.set(m.chainId, n + 1);
+            }
+            midpointCoords.length = 0;
+            midpointCoords.push(...keptMid);
+            acceptedPairs.length = 0;
+            acceptedPairs.push(...keptPairs);
+            if (ROUTE_DEBUG)
+                log.warn(
+                    `STAGE: midpoint dedup — suppressed ${suppressed.size} over-paired fan duplicates, ${keptMid.length} gates remain`,
+                );
+        }
+
         // ── Step 4: Build midpoint Point features ───────────────
         const midpoints: unknown[] = midpointCoords.map((m) => ({
             type: 'Feature',

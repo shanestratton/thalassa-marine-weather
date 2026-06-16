@@ -139,3 +139,73 @@ describe('pairing — minimum gate-width floor (PAIR_MIN_DIST_M)', () => {
         expect(r.hazards).toHaveLength(0);
     });
 });
+
+describe('pairing — over-pairing fan dedup (MIDPOINT_DEDUP_M)', () => {
+    const E = (m: number, lat = -27.4): number => m / (111_320 * Math.cos((lat * Math.PI) / 180));
+    const N = (m: number): number => m * M_PER_LAT;
+
+    it('collapses a 3-port→1-starboard fan to its widest pair, keeps a distinct gate', async () => {
+        // The live root cause: the pairing loop lets several ports claim the
+        // SAME starboard (no consumed-stbd exclusion), so ONE physical gate
+        // emits a cloud of near-coincident midpoints (the field's 283 / 23 NM).
+        // Here three ports west of a single starboard all pair to it, at
+        // monotonically increasing widths (120/130/140 m) so the widest is
+        // unambiguous. A fourth port + its own dedicated starboard form a
+        // SECOND, genuinely-distinct gate 400 m up-channel (different mark →
+        // never merged). Pre-fix: 4 midpoints (the 3-fan + the distinct gate).
+        // Post-fix: 2 (fan collapses to its widest, distinct gate survives).
+        const lon = 158.5;
+        const lat = -27.4;
+        const S = mark(lon + E(120), lat, 'starboard'); // shared starboard
+        const feats = [
+            S,
+            mark(lon, lat, 'port'), // 120 m west of S
+            mark(lon - E(10), lat + N(20), 'port'), // ~131.5 m from S
+            mark(lon - E(20), lat - N(20), 'port'), // ~141.4 m from S — widest
+            // distinct gate 400 m north, its OWN starboard
+            mark(lon, lat + N(400), 'port'),
+            mark(lon + E(120), lat + N(400), 'starboard'),
+        ];
+        stubMarkers(feats);
+        const r = await fetchRegionalMarkers('test://dedup-fan', []);
+
+        expect(r.midpoints).toHaveLength(2); // fan→1 + distinct gate→1
+        expect(r.acceptedPairs).toHaveLength(2); // lockstep: wings stay 1:1
+
+        // The surviving fan gate is the WIDEST (≈141 m), not an average and
+        // not a narrower copy.
+        const widths = r.midpoints.map(
+            (m) => (m as { properties: { _pairDistanceM: number } }).properties._pairDistanceM,
+        );
+        expect(Math.max(...widths)).toBe(141);
+
+        // Siding preserved: the surviving fan midpoint sits BETWEEN its kept
+        // port (lon-20m) and the shared starboard (lon+120m) — a real
+        // in-channel mark-to-mark centre, never shifted to the wrong side.
+        const fanMid = r.midpoints.map(coordsOf).find(([, mlat]) => Math.abs(mlat - lat) < N(50));
+        expect(fanMid).toBeDefined();
+        if (fanMid) {
+            expect(fanMid[0]).toBeGreaterThan(lon - E(20)); // east of the kept port
+            expect(fanMid[0]).toBeLessThan(lon + E(120)); // west of the shared stbd
+        }
+    });
+
+    it('does NOT merge two distinct gates that do not share a mark (200 m apart)', async () => {
+        // Two clean 100 m gates, each its own port+starboard pair, 200 m
+        // apart along-channel. They share NO mark, so the shared-starboard
+        // dedup can never touch them even though 200 m > the 60 m cap is the
+        // only thing a naive global-distance dedup would lean on.
+        const lon = 159.5;
+        const lat = -27.4;
+        const feats = [
+            mark(lon, lat, 'port'),
+            mark(lon + E(100), lat, 'starboard'),
+            mark(lon, lat + N(200), 'port'),
+            mark(lon + E(100), lat + N(200), 'starboard'),
+        ];
+        stubMarkers(feats);
+        const r = await fetchRegionalMarkers('test://dedup-distinct', []);
+        expect(r.midpoints).toHaveLength(2); // both distinct gates survive
+        expect(r.acceptedPairs).toHaveLength(2);
+    });
+});
