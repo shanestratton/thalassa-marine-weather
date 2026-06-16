@@ -125,10 +125,24 @@ export function useEncVectorLayer(
             }
         };
 
-        void apply();
+        // Defer the heavy ENC merge + mount one idle tick past first paint:
+        // getMergedVectorData reads/parses/clones multi-MB cell blobs and
+        // mountEncVectorLayer adds ~6 sources + ~18 layers, all main-thread.
+        // Running it synchronously on mapReady blocked the first frame, so a
+        // cold Charts open stalled before the basemap even showed. Idle-gating
+        // lets the basemap + ocean tiles paint first; the chart fades in a
+        // beat later, exactly as it already does. `timeout` bounds it so a
+        // visibility/detail toggle still applies promptly under load.
+        // setTimeout fallback for WKWebView (no requestIdleCallback).
+        const ric = window.requestIdleCallback;
+        const handle: number = ric
+            ? ric(() => void apply(), { timeout: 300 })
+            : (setTimeout(() => void apply(), 1) as unknown as number);
 
         return () => {
             cancelled = true;
+            if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
+            else clearTimeout(handle);
         };
     }, [mapRef, mapReady, bumpCounter, visible, chartDetail]);
 

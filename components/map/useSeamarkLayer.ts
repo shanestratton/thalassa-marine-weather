@@ -47,16 +47,22 @@ export function useSeamarkLayer(
     // The layer we attach click events to depends on mode
     const activeLayerId = mode === 'full' ? LAYER_SYMBOLS : LAYER_HITAREA;
 
-    // Register IALA icons once (needed even in identify mode for potential switch)
+    // Register IALA icons once, but only when the standalone seamark overlay
+    // is actually shown. The decode is 32 async SVG → addImage calls, and the
+    // overlay defaults OFF, so on a cold Charts open this was 32 wasted decodes
+    // before first paint. Identify mode renders no icons (invisible click
+    // targets only), and ENC mounts its own navaid icons independently
+    // (EncVectorLayer registerSeamarkIcons, hasImage-guarded) — so gating on
+    // `visible` drops nothing; flipping the overlay on re-runs this effect.
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !mapReady || iconsRegistered.current) return;
+        if (!map || !mapReady || !visible || iconsRegistered.current) return;
 
         registerSeamarkIcons(map).then(() => {
             iconsRegistered.current = true;
             log.info('IALA icons registered');
         });
-    }, [mapRef, mapReady]);
+    }, [mapRef, mapReady, visible]);
 
     // Add/remove source + layers based on visibility + mode
     useEffect(() => {
