@@ -1756,3 +1756,82 @@ wrong-side passes.
 
 Waiting on Shane's console log (the [InshoreRouter] EXIT + [fairing]
 lines for this route). Will report which mode and act. — B
+
+## ★ Claude B reply 30 (2026-06-16) — it was MODE B; root-caused to a pairing defect + a fairing defect, BOTH fixed (56071c3d + 12d19b6c)
+
+Shane's console answered reply 29 conclusively — **mode B, not the
+offshore fallback:**
+
+```
+[InshoreRouter] EXIT: success — 166 polyline pts, 22.7 NM
+[inshoreEngine] [fairing] 284 midpoints (min half-width 8 m) — waypoints 35 → 33
+```
+
+Inshore ran, fairPath ran, and it BARELY faired (35→33). The smoking
+gun is "min half-width **8 m**" on a 50 m grid. A 3-agent root-cause
+trace found two independent defects feeding it:
+
+**Defect 1 — pairing has no minimum gate width (the source).**
+`fetchRegionalMarkers` bounds a pair only from above (PAIR_MAX_DIST_M
+=600). With no lower bound, two opposite-colour marks 16 m apart — a
+mark and its own light, a pile cluster, a cross-feature mis-pair — pair
+as a phantom "gate". That 16 m becomes `_pairDistanceM`; the engine
+halves it to an **8 m** half-width. 284 of these (incl. the no-dedup
+over-pairing below) is the inflated count.
+
+**Defect 2 — fairing demanded sub-cell precision (the choke).**
+fairPath's gate-serving guard requires the faired chord pass within
+halfWidth × 0.9 of every served gate. For an 8 m gate that's **7.2 m** —
+finer than a 50 m grid can resolve — so the straightening chord is
+rejected by the phantom narrow gate and the bead-kink is pinned. The
+route steps.
+
+**Both fixed, one knob each, fixture-first:**
+
+- `12d19b6c` — **PAIR_MIN_DIST_M = 30** (orchestrator). A pair narrower
+  than a real channel is skipped → no phantom sub-grid gate is ever
+  emitted, and the count drops to genuine gates. Lost marks degrade to
+  solo hazards (existing unpaired path). New fixtures: 16 m mispair
+  rejected, 40 m real gate still pairs; your 550 m/100 m cases untouched.
+- `56071c3d` — **fairing tolerance floored at gridResM × 0.5** (engine,
+  my lane). Sub-grid gates carry no side a 50 m raster can express, so
+  the honest precision is half a cell (25 m). **INERT for resolvable
+  gates** (half-width ≥ ~27.8 m keeps the tight 0.9 guard) — arithmetic
+  proof + a resolvable-gate unit case + the 24-case seamanship suite all
+  confirm no wrong-siding. Exported fairPath for a deterministic unit
+  fixture (a 50 m A* grid can't express a 7 m tolerance change
+  end-to-end; matches the aStar/chainCostM test-export convention).
+
+Defence in depth: the pairing floor kills phantom OFF-channel gates at
+source (the fairing chord can't serve those); the fairing floor
+straightens any legitimate-but-sub-grid gate (30–55 m wide) that clears
+the pairing floor. Both needed.
+
+All green: pairing, fairing, fairing-subgrid, golden, scorecard-baseline,
+routeScorecard, **seamanship (24)**, and your seaway corpus — 77 tests.
+Goldens byte-identical (they call routeInshore directly, never the
+pairing). Built + cap copied + pushed; worktree synced.
+
+**Cross-lane note to A (orchestration):** the 3rd agent flagged a
+*no-dedup over-pairing* residual — in a dense ≥3-mark cluster several
+ports each grab a different stbd, so one physical gate is represented
+many times (part of the 284). I did NOT ship a dedup: the fairing floor
+now absorbs it (near-duplicate gate beads collapse within the floored
+tolerance), and the agent rated a midpoint-merge higher-risk (wrong
+representative could shift a gate centre). If Shane's re-test still
+shows a high midpoint count with residual steps, a near-coincident
+midpoint dedup before Step 4 is the follow-up — your lane or mine, but
+worth a fixture either way. Not required for this stepping fix.
+
+**Diagnostic kept on purpose:** I left the `[fairing]` warn line in for
+ONE more field test. Shane's next log should read min half-width **≥15 m**
+and a real collapse (waypoints 35 → ~single digits), not 35→33. Once he
+confirms, I'll strip it.
+
+Shane: rebuild (already built + cap copied) and re-run Newport→Pinkenba —
+legs should fair between the marks now, kinking only at genuine channel
+bends. Paste the `[fairing]` line and I'll confirm the min half-width
+jumped off 8 m.
+
+Ledger: reply-29 item 1 (offshore-fallback UX) is moot for THIS route
+(it succeeded inshore) but still A's call as a general guard. — B
