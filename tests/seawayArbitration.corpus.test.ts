@@ -188,6 +188,12 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
     const cases: CorpusCase[] = [
         goldenCase('newport-rivergate.corridor.json.gz'),
         goldenCase('newport-tangalooma.corridor.json.gz'),
+        // Fresh live capture (tools/capture-corridor-fixture.mjs, collab
+        // reply 22/31): the SAME Newport→Rivergate passage but WITH its
+        // real lateral marks (BOYLAT 36 + BCNLAT 314). The goldens above
+        // predate mark emission and shadow as 'no-marks'; this is the
+        // real-chart corridor the Phase 13 promotion gate runs against.
+        goldenCase('newport-rivergate-marks.corridor.json.gz'),
         dogLegCase(),
     ];
     const rows: ArbitrationRow[] = [];
@@ -210,7 +216,7 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
             )
             .join('\n');
         console.warn(`\nARBITRATION CORPUS\n${table}\n`);
-    });
+    }, 60_000); // real engine on 4 corridors; generous under full-suite contention
 
     it('graph rows respect sanity bounds (ratios, fractions, §3 detour cap context)', () => {
         for (const r of rows) {
@@ -239,6 +245,25 @@ describe('seaway arbitration corpus — graph vs Stage II baseline', () => {
         // than the direct line, and still inside the §3 detour cap.
         expect(g.detourRatio).toBeGreaterThan(1.05);
         expect(g.detourRatio).toBeLessThanOrEqual(1.35);
+    });
+
+    it('real-marks corridor: it SHADOWS (marks present, never a silent no-marks drop) with a reasoned outcome', () => {
+        const real = byName['newport-rivergate-marks'];
+        // The whole point of the fresh capture: unlike the goldens this
+        // corridor carries real lateral marks, so shadowCompare MUST
+        // engage — a report, never null.
+        expect(real.report, 'real-marks corridor must produce a report (marks exist)').not.toBeNull();
+        // Real gates were discovered (not an empty graph).
+        expect(real.report!.gatesTotal, 'real-marks gatesTotal').toBeGreaterThan(0);
+        // Outcome is either a graph route OR a reasoned fail — both are
+        // legitimate arbitration signals; the baseline pins which. As of
+        // capture the Brisbane River corridor returns 'no-compliant-path'
+        // (graph finds entry/exit/path through ~98 gates but the Phase-13
+        // cross-line validator rejects every resolve round) — that is the
+        // promotion-blocking signal this fixture exists to surface, NOT a
+        // fixture defect. If a future engine change flips it to a graph
+        // route, re-pin and celebrate.
+        expect(real.row.shadow.kind === 'graph' || real.row.shadow.kind === 'fail').toBe(true);
     });
 
     it('matches the pinned arbitration baseline (REGEN_ARBITRATION_BASELINE=1 to re-pin)', () => {
