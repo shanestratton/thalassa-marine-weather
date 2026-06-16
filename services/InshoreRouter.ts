@@ -2171,6 +2171,19 @@ export async function fetchRegionalMarkers(
         // shipping-channel candidates. Most of those rejections
         // are actually in water per OSM.
         const PAIR_MAX_DIST_M = 600;
+        // Minimum navigable gate width: two opposite-colour marks closer
+        // than this are NOT a channel gate — they're a mark and its own
+        // light, a pile/dolphin cluster, or a mis-pair across an adjacent
+        // feature. Without this floor such pairs emit a phantom sub-grid
+        // "gate" (the field's 16 m → half-width 8 m), which then chokes the
+        // engine's fairing guard and pins the route into stepping (reply 30).
+        // Conservative at 30 m: a real entrance gate is tens-to-hundreds of
+        // metres wide, so the narrowest genuine channel survives; the lost
+        // marks degrade to solo hazards via the unpaired path below — the
+        // correct IALA-A semantics for a lone mark. The engine's fairing
+        // floor (gridResM × 0.5) is the defence-in-depth backstop for any
+        // legitimate-but-sub-grid gate that clears this.
+        const PAIR_MIN_DIST_M = 30;
         // Max ALONG-CHANNEL station difference for a port+starboard to form a
         // gate. A real gate's two marks sit nearly abeam (station diff ~0);
         // this rejects diagonal pairings with the next gate up the channel,
@@ -2309,7 +2322,7 @@ export async function fetchRegionalMarkers(
                     const projDiff = Math.abs(projection(s) - pProj); // metres along the channel axis
                     if (staggerGateActive && projDiff > PAIR_PROJ_MAX_M) continue;
                     const d = haversineMetres(p.lat, p.lon, s.lat, s.lon);
-                    if (d >= bestDist || d > PAIR_MAX_DIST_M) continue;
+                    if (d < PAIR_MIN_DIST_M || d >= bestDist || d > PAIR_MAX_DIST_M) continue;
                     pairDiag.considered++;
                     if (d > 300) pairDiag.wideConsidered++;
                     // LNDARE-between-pair check: reject pair if the

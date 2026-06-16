@@ -107,3 +107,35 @@ describe('pairing — along-channel stagger gate (PAIR_PROJ_MAX_M)', () => {
         expect(r.diag?.considered).toBeGreaterThan(0);
     });
 });
+
+describe('pairing — minimum gate-width floor (PAIR_MIN_DIST_M)', () => {
+    it('rejects a sub-channel mispair (two marks 16 m apart are not a gate)', async () => {
+        // The live marker-stepping root cause (reply 30): a port + starboard
+        // only 16 m apart — a mark and its own light, two piles, or a mark
+        // paired across an adjacent feature — pair as a phantom 16 m "gate"
+        // (half-width 8 m), which then chokes the engine's fairing guard and
+        // pins the bead-kink so the route steps. A real channel gate is tens
+        // to hundreds of metres wide; 16 m is physically impossible.
+        const mPerLon = 111_320 * Math.cos((-27.4 * Math.PI) / 180);
+        const feats = [mark(153.5, -27.4, 'port'), mark(153.5 + 16 / mPerLon, -27.4, 'starboard')];
+        stubMarkers(feats);
+        const r = await fetchRegionalMarkers('test://subgrid-mispair', []);
+        expect(r.midpoints).toHaveLength(0); // no phantom gate
+        expect(r.acceptedPairs).toHaveLength(0);
+        // The two marks degrade to solo hazards via the existing unpaired
+        // path — already the intended IALA-A semantics for a lone mark.
+        expect(r.hazards.length).toBeGreaterThan(0);
+    });
+
+    it('a real narrow gate just above the floor (40 m) still pairs', async () => {
+        // The floor is conservative: a genuine 40 m entrance gate (> 30 m)
+        // survives. Confirms we kill mispairs without walling off tight-but-
+        // real channels.
+        const mPerLon = 111_320 * Math.cos((-27.4 * Math.PI) / 180);
+        const feats = [mark(154.5, -27.4, 'port'), mark(154.5 + 40 / mPerLon, -27.4, 'starboard')];
+        stubMarkers(feats);
+        const r = await fetchRegionalMarkers('test://narrow-gate', []);
+        expect(r.midpoints).toHaveLength(1); // 40 m > 30 m floor → kept
+        expect(r.hazards).toHaveLength(0);
+    });
+});
