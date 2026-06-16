@@ -3589,10 +3589,38 @@ function applyFairleadAtGrid(
     }
 
     const refined = refineWithFairlead(poly, marks, isLand, { fromIdx });
-    if (!refined.replacedRange) return passthrough;
+    if (!refined.replacedRange) {
+        // TEMP field diagnostic (reply 37) — confirms whether the fairlead
+        // path engages on-device and carries the dropSpikes build.
+        engineLog.warn(`[fairlead] no-splice — ${marks.length} lateral marks parsed, no valid channel transit`);
+        return passthrough;
+    }
 
     const [entrySeg, exitSeg] = refined.replacedRange;
     const newPolyline: [number, number][] = refined.polyline.map((p) => [p.lon, p.lat]);
+    // TEMP field diagnostic (reply 37): the worst deflection in the spliced
+    // route. >120° ⇒ a double-back survived ⇒ this build predates the
+    // dropSpikes fix; ≤120° ⇒ the fix is live and the splice is clean.
+    let maxTurnDeg = 0;
+    for (let i = 1; i < newPolyline.length - 1; i++) {
+        const a = newPolyline[i - 1];
+        const b = newPolyline[i];
+        const c = newPolyline[i + 1];
+        const mLon = mPerDegLon(b[1]);
+        const ax = (b[0] - a[0]) * mLon;
+        const ay = (b[1] - a[1]) * M_PER_DEG_LAT;
+        const cx = (c[0] - b[0]) * mLon;
+        const cy = (c[1] - b[1]) * M_PER_DEG_LAT;
+        const la = Math.hypot(ax, ay);
+        const lc = Math.hypot(cx, cy);
+        if (la === 0 || lc === 0) continue;
+        const cos = Math.max(-1, Math.min(1, (ax * cx + ay * cy) / (la * lc)));
+        const deg = (Math.acos(cos) * 180) / Math.PI;
+        if (deg > maxTurnDeg) maxTurnDeg = deg;
+    }
+    engineLog.warn(
+        `[fairlead] spliced "${refined.channelKey}" — ${marks.length} marks, pts ${polyline.length}→${newPolyline.length}, worst turn ${Math.round(maxTurnDeg)}°`,
+    );
     const total = newPolyline.length - 1;
     const prefixSegs = Math.min(entrySeg, cautionMask.length);
     const suffixSegs = Math.max(0, cautionMask.length - (exitSeg + 1));
