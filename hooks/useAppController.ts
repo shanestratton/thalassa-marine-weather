@@ -44,17 +44,6 @@ const mapConditionToKey = (cond: string): WeatherConditionKey => {
     return 'default';
 };
 
-/** Haversine distance in km between two lat/lon points */
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-    const R = 6371;
-    const dLat = ((lat2 - lat1) * Math.PI) / 180;
-    const dLon = ((lon2 - lon1) * Math.PI) / 180;
-    const a =
-        Math.sin(dLat / 2) ** 2 +
-        Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 export const useAppController = () => {
     const { weatherData, loading, fetchWeather, selectLocation } = useWeather();
     const { settings, updateSettings } = useSettings();
@@ -233,15 +222,22 @@ export const useAppController = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [settings.defaultLocation, authedUser, authChecked]);
 
-    // 1b. GPS Auto-Locate — update weather ONLY if the current weather is the
-    // user's home port AND they've moved away from it. If the cached weather
-    // is a location they picked explicitly (favorite, search, map pin), we
-    // respect it — the user plans trips to distant ports and the app
-    // stomping on that selection is exactly what they don't want.
+    // 1b. CHARTPLOTTER DEFAULT — every open re-centres on the live position
+    // and enters GPS-follow mode (2026-06-16, Shane: "when I open the app it
+    // should ALWAYS default to my current location"). On a successful boot
+    // fix we switch to 'Current Location'/'gps' regardless of the last-saved
+    // place, so weather + location track the boat as it moves. Saved ports
+    // live in settings.savedLocations (a separate picker) and are untouched —
+    // they become picks, not the open default.
     //
-    // Example: home port = New York, phone in California → cache shows a
-    // recent favorite (say, Denver) → DON'T override to California. The
-    // location box stays on Denver and the map centers on Denver.
+    // Runs once per launch (gpsBootRan) so it only sets the OPEN default; a
+    // port the user picks later in the session is respected until the next
+    // open. GPS denied/timeout → return early, keeping whatever 1a already
+    // painted (the last location) — never strands on a blank fix.
+    //
+    // (Superseded the old "only auto-update when sitting on the home port"
+    // rule — that was what let a stray named place from a weekend trip stick
+    // on open instead of re-centring to where you actually are.)
     useEffect(() => {
         if (gpsBootRan.current) return;
         const onboarded = localStorage.getItem('thalassa_v3_onboarded');
@@ -249,50 +245,22 @@ export const useAppController = () => {
 
         gpsBootRan.current = true;
 
-        // Fire GPS check in background — non-blocking
-        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 }).then(async (pos) => {
-            if (!pos) return; // GPS denied or timed out — keep saved location
+        // Fire GPS check in background — non-blocking.
+        GpsService.getCurrentPosition({ staleLimitMs: 60_000, timeoutSec: 8 }).then((pos) => {
+            if (!pos) return; // GPS denied or timed out — keep the saved location 1a painted
 
-            // GPS-follow mode owns boot positioning now (the follower in
-            // WeatherContext renames + refetches without leaving GPS mode).
-            // This boot override is only for users locked to a NAMED home
-            // port who've travelled — read the LIVE store, not the mount-
-            // time closure (settings may still be loading at mount).
+            // Already following GPS → the WeatherContext follower owns it
+            // (renames + refetches underway without leaving 'gps' mode). Read
+            // the LIVE store, not the mount-time closure.
             if (useSettingsStore.getState().settings.defaultLocation === 'Current Location') return;
 
-            const { latitude, longitude } = pos;
-
-            const saved = weatherData?.coordinates;
-            if (saved) {
-                const dist = haversineKm(saved.lat, saved.lon, latitude, longitude);
-                if (dist < 10) return; // Haven't moved significantly — keep current weather
-
-                // Only override if what's currently loaded is the home port.
-                // Anything else is an explicit selection the user made and
-                // expects to come back to.
-                const home = settings.defaultLocationCoords;
-                const isHomePort =
-                    home && Math.abs(saved.lat - home.lat) < 0.05 && Math.abs(saved.lon - home.lon) < 0.05;
-                if (!isHomePort) {
-                    log.info(
-                        `GPS boot: skipping auto-update — cached weather (${weatherData?.locationName}) is not the home port`,
-                    );
-                    return;
-                }
-            }
-
-            // User has moved and we're looking at home port — reverse geocode for a readable name
-            let locationName = `WP ${Math.abs(latitude).toFixed(4)}°${latitude >= 0 ? 'N' : 'S'}, ${Math.abs(longitude).toFixed(4)}°${longitude >= 0 ? 'E' : 'W'}`;
-            try {
-                const geoName = await reverseGeocode(latitude, longitude);
-                if (geoName) locationName = geoName;
-            } catch {
-                // geocode failed — use coordinate string
-            }
-
-            log.info(`GPS boot: moved to ${locationName} (${latitude.toFixed(2)}, ${longitude.toFixed(2)})`);
-            setQuery(locationName);
-            selectLocation(locationName, { lat: latitude, lon: longitude }).catch(() => {});
+            // Enter sticky GPS-follow mode at the live position. selectLocation
+            // flips locationMode 'gps' + persists the intent; the follower
+            // prettifies the 'Current Location' label on its first tick and
+            // keeps it live as the boat moves. Seeding the coords makes the
+            // switch a silent background refresh, not a blur overlay.
+            log.info(`GPS boot: entering follow mode at ${pos.latitude.toFixed(2)}, ${pos.longitude.toFixed(2)}`);
+            selectLocation('Current Location', { lat: pos.latitude, lon: pos.longitude }).catch(() => {});
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
