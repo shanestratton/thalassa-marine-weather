@@ -15,6 +15,14 @@
       }
     },
     {
+      "name": "newport-rivergate-marks",
+      "directNM": 18.77,
+      "shadow": {
+        "kind": "fail",
+        "reason": "no-compliant-path"
+      }
+    },
+    {
       "name": "dog-leg-channel",
       "directNM": 2.57,
       "shadow": {
