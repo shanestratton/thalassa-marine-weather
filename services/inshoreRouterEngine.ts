@@ -2249,7 +2249,7 @@ const FAIRING_MAX_COST_FACTOR = 1.25;
  *  half-width — margin against 50 m cell quantisation. */
 const FAIRING_GATE_FRACTION = 0.9;
 
-interface FairingMidpoint {
+export interface FairingMidpoint {
     lat: number;
     lon: number;
     halfWidthM: number;
@@ -2287,7 +2287,7 @@ function collectFairingMidpoints(layers: InshoreLayers): FairingMidpoint[] {
  *       is still within FAIRING_GATE_FRACTION × half-width of the chord;
  *   (c) chordCost ≤ subpathCost × FAIRING_MAX_COST_FACTOR.
  */
-function fairPath(
+export function fairPath(
     grid: NavGrid,
     chain: { x: number; y: number }[],
     midpoints: FairingMidpoint[],
@@ -2295,6 +2295,10 @@ function fairPath(
 ): { x: number; y: number }[] {
     if (chain.length < 3) return chain;
     const mPerLonG = mPerDegLon(grid.minLat + (grid.height * grid.dLat) / 2);
+    // Cell side in metres — the grid's resolvable precision. Used to floor
+    // the gate-serving tolerance below (sub-grid gates carry no side the
+    // raster can express). Mirrors line ~2437 (tryMarinaCenterline).
+    const gridResM = grid.dLat * M_PER_DEG_LAT;
     const toLL = (c: { x: number; y: number }): [number, number] => [
         grid.minLon + (c.x + 0.5) * grid.dLon,
         grid.minLat + (c.y + 0.5) * grid.dLat,
@@ -2347,7 +2351,14 @@ function fairPath(
             let serves = true;
             for (const m of midpoints) {
                 if (distToChainM(m, i, j) > m.halfWidthM) continue; // subpath didn't serve it
-                if (distToSegM(m, a, b) > m.halfWidthM * FAIRING_GATE_FRACTION) {
+                // Sub-grid gates (half-width < cell) can't be sided more
+                // tightly than the raster resolves, so floor the serving
+                // tolerance at half a cell. INERT for resolvable gates
+                // (half-width ≥ ~gridResM/1.8 keeps the tight 0.9 guard),
+                // so wrong-siding stays impossible — see fairing-subgrid
+                // fixture + reply 30 proof.
+                const tolM = Math.max(m.halfWidthM * FAIRING_GATE_FRACTION, gridResM * 0.5);
+                if (distToSegM(m, a, b) > tolM) {
                     serves = false;
                     break;
                 }
