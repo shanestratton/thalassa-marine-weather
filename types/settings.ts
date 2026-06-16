@@ -115,6 +115,13 @@ export interface UserSettings {
      *  favouriting) are simply absent from this map. Optional for
      *  backwards compatibility with older settings payloads. */
     savedLocationCoords?: Record<string, { lat: number; lon: number }>;
+    /** The user's designated HOME PORT — a name that must be one of
+     *  `savedLocations`. Pinned to the top of the location-star flyout
+     *  with an anchor icon. Distinct from `defaultLocation` (which the
+     *  app keeps as 'Current Location' so every open follows GPS — see
+     *  useAppController effect 1b); home port is a one-tap PICK, never
+     *  the open default. Absent until the user sets one. */
+    homePort?: string;
     vessel?: VesselProfile;
     vesselUnits?: VesselDimensionUnits;
     timeDisplay: 'location' | 'device';

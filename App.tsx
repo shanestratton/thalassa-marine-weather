@@ -9,7 +9,8 @@ import { useLocationStore } from './stores/LocationStore';
 import { useAppController } from './hooks/useAppController';
 import { useAppBootstrap } from './hooks/useAppBootstrap';
 import { Dashboard } from './components/Dashboard';
-import { SearchIcon, MapIcon, StarIcon, RouteIcon, ClipboardIcon } from './components/Icons';
+import { SearchIcon, MapIcon, RouteIcon, ClipboardIcon } from './components/Icons';
+import { LocationStarMenu } from './components/LocationStarMenu';
 import { SkeletonDashboard } from './components/SkeletonLoader';
 import { NotificationManager } from './components/NotificationManager';
 import { ProcessOverlay } from './components/ProcessOverlay';
@@ -132,8 +133,6 @@ const App: React.FC = () => {
         handleTabDashboard,
         handleTabMap,
     } = useAppController();
-
-    const isFavorite = weatherData ? settings.savedLocations.includes(weatherData.locationName) : false;
 
     // Compute display mode BEFORE any early returns — needed by useEffect below
     const isLight = effectiveMode === 'light';
@@ -619,17 +618,7 @@ const App: React.FC = () => {
                                             </div>
                                         )}
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                            <button
-                                                type="button"
-                                                onClick={toggleFavorite}
-                                                aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-                                                className="p-1.5 rounded-full hover:bg-white/10 text-gray-300 hover:text-yellow-400 transition-colors"
-                                            >
-                                                <StarIcon
-                                                    className={`w-4 h-4 ${isFavorite ? 'text-yellow-400' : ''}`}
-                                                    filled={isFavorite}
-                                                />
-                                            </button>
+                                            <LocationStarMenu />
                                             <div className="w-px h-4 bg-white/20 mx-1"></div>
                                             <button
                                                 type="button"
