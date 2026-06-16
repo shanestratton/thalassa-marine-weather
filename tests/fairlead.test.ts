@@ -151,6 +151,37 @@ describe('refineWithFairlead — splice with the three safety gates', () => {
         expect(r.channelKey).toBe('BC');
     });
 
+    it('single-side mouth drift never reaches the route — no double-back spike (the field stepping)', () => {
+        // BC starts starboard-only (seq 1 & 3 stbd; first port at seq 4), so
+        // corridorCenterline's mouth extrapolation throws one sample out-and-
+        // back across the channel entrance — a ~175° reversal the moving-
+        // average smoother PINS rather than removes (it pins endpoints). This
+        // is the live field "stepping": a double-back zigzag at the fairlead
+        // splice. dropSpikes must strip it, so the spliced route carries no
+        // near-reversal vertex.
+        const r = refineWithFairlead(routeAlongBC, BC, () => false);
+        expect(r.replacedRange).not.toBeNull();
+        const M_PER_LAT = 110_540;
+        let maxTurnDeg = 0;
+        for (let i = 1; i < r.polyline.length - 1; i++) {
+            const a = r.polyline[i - 1];
+            const b = r.polyline[i];
+            const c = r.polyline[i + 1];
+            const mLon = 111_320 * Math.cos((b.lat * Math.PI) / 180);
+            const ax = (b.lon - a.lon) * mLon;
+            const ay = (b.lat - a.lat) * M_PER_LAT;
+            const cx = (c.lon - b.lon) * mLon;
+            const cy = (c.lat - b.lat) * M_PER_LAT;
+            const la = Math.hypot(ax, ay);
+            const lc = Math.hypot(cx, cy);
+            if (la === 0 || lc === 0) continue;
+            const cos = Math.max(-1, Math.min(1, (ax * cx + ay * cy) / (la * lc)));
+            const deg = (Math.acos(cos) * 180) / Math.PI;
+            if (deg > maxTurnDeg) maxTurnDeg = deg;
+        }
+        expect(maxTurnDeg).toBeLessThan(120);
+    });
+
     it('GATE 1 land-validation: centreline would cross land → unchanged (the regression)', () => {
         // This is the failure that drew straight lines across the canal: the
         // spliced centreline crosses land. With a grid-based isLand it must
