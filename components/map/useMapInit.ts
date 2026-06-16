@@ -530,6 +530,15 @@ export function useMapInit(opts: UseMapInitOptions) {
                         source: 'openseamap-permanent',
                         minzoom: 6,
                         maxzoom: 18,
+                        // Start hidden: Mapbox fetches no tiles for a
+                        // visibility:none raster, and the MapHub visibility
+                        // effect (the single authority — chartsActive/encActive/
+                        // 'sea' toggle) sets the correct value on the first
+                        // post-mount cycle for every config. On the default
+                        // ENC-on config this layer ends hidden anyway, so this
+                        // just skips a full seamark tile-pyramid download on
+                        // every cold Charts open. No steady-state change.
+                        layout: { visibility: 'none' },
                         paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0, 'raster-resampling': 'nearest' },
                     },
                     firstSymbolId,
