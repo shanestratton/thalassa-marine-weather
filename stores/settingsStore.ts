@@ -348,7 +348,9 @@ async function pullFromCloud(userId: string): Promise<void> {
         useSettingsStore.setState({ settings: merged, isPro: merged.isPro });
 
         // Persist back to Capacitor Preferences so next cold boot is
-        // already correct without waiting for the cloud round-trip.
+        // already correct without waiting for the cloud round-trip — and
+        // mirror it so the synchronous warm-boot seed reflects the restore.
+        writeSettingsMirror(merged);
         await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(merged) });
         _addDebugLog('CLOUD PULL OK: settings merged from profiles + vessel_identity');
         manageScreenEffects(merged);
@@ -441,6 +443,69 @@ async function manageScreenEffects(s: UserSettings) {
     }
 }
 
+// ── Synchronous settings mirror (instant warm-boot paint) ──────────
+//
+// Capacitor Preferences (the durable source of truth) is ASYNC, so on a
+// warm boot the whole app sat behind a splash while it loaded — even
+// though the cached weather was already paintable. We mirror settings to
+// localStorage (synchronous) on every write and seed the store from it
+// at module-eval, so `loading` starts false and the Glass screen paints
+// on the first frame. Preferences still wins reconciliation (localStorage
+// can be evicted by iOS under storage pressure — if the mirror is missing
+// we fall back to the async load, i.e. today's behaviour). Mirrors the
+// weather cache's loadLargeDataSync pattern (services/nativeStorage.ts).
+export const SETTINGS_MIRROR_KEY = 'thalassa_settings_mirror';
+
+/** Write-safety gate, distinct from the paint `loading` flag: updates are
+ *  refused until the authoritative async load has run, exactly as the old
+ *  `if (get().loading) return` did before the sync seed made loading=false
+ *  early. Preserves the cold-boot race fix. */
+let _fullyHydrated = false;
+
+export function writeSettingsMirror(s: UserSettings): void {
+    try {
+        localStorage.setItem(SETTINGS_MIRROR_KEY, JSON.stringify(s));
+    } catch {
+        /* localStorage full/unavailable — Preferences remains the truth */
+    }
+}
+
+/** Merge a parsed settings blob onto DEFAULT_SETTINGS. Shared by the sync
+ *  mirror seed and the async Preferences load so both produce identical
+ *  state — no drift between the instant-paint and the authoritative load. */
+export function mergeSettings(parsed: Record<string, unknown>): UserSettings {
+    const p = parsed as Partial<UserSettings> & Record<string, unknown>;
+    const validHeroWidgets =
+        Array.isArray(p.heroWidgets) && p.heroWidgets.length > 0 ? p.heroWidgets : DEFAULT_SETTINGS.heroWidgets;
+    const tier = p.subscriptionTier || (p.isPro !== false ? 'owner' : 'free');
+    return {
+        ...DEFAULT_SETTINGS,
+        ...p,
+        notifications: { ...DEFAULT_SETTINGS.notifications, ...(p.notifications || {}) },
+        units: {
+            ...DEFAULT_SETTINGS.units,
+            ...(p.units || {}),
+            waveHeight: p.units?.waveHeight || p.units?.length || 'm',
+        },
+        vessel: { ...DEFAULT_SETTINGS.vessel, ...(p.vessel || {}) },
+        heroWidgets: validHeroWidgets,
+        rowOrder: migrateRowOrder(Array.isArray(p.rowOrder) ? p.rowOrder : [...(DEFAULT_SETTINGS.rowOrder || [])]),
+        subscriptionTier: tier,
+        isPro: tierIsPro(tier),
+    } as UserSettings;
+}
+
+/** Synchronous warm-boot seed from the localStorage mirror, or null. */
+export function readSettingsMirrorSync(): UserSettings | null {
+    try {
+        const raw = localStorage.getItem(SETTINGS_MIRROR_KEY);
+        if (!raw) return null;
+        return mergeSettings(JSON.parse(raw));
+    } catch {
+        return null;
+    }
+}
+
 function migrateRowOrder(saved: string[]): string[] {
     const order = [...saved];
     const chartsIdx = order.indexOf('charts');
@@ -460,10 +525,16 @@ function migrateRowOrder(saved: string[]): string[] {
     return [...new Set(order)];
 }
 
+// Seed synchronously from the mirror so a warm boot paints immediately
+// (loading=false, real settings). First-ever launch (no mirror) keeps the
+// old loading=true → splash → async-load path. Writes stay gated on
+// _fullyHydrated until the authoritative load runs.
+const _seed = readSettingsMirrorSync();
+
 export const useSettingsStore = create<SettingsState>()((set, get) => ({
-    settings: DEFAULT_SETTINGS,
-    isPro: tierIsPro(DEFAULT_SETTINGS.subscriptionTier),
-    loading: true,
+    settings: _seed ?? DEFAULT_SETTINGS,
+    isPro: tierIsPro((_seed ?? DEFAULT_SETTINGS).subscriptionTier),
+    loading: _seed === null,
     quotaLimit: DAILY_STORMGLASS_LIMIT,
 
     _setUserId: (id) => {
@@ -481,12 +552,18 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
     },
 
     updateSettings: async (patch) => {
-        if (get().loading) return;
+        // Gate on hydration, not the paint `loading` flag — the sync seed
+        // makes loading=false early, but writes must still wait for the
+        // authoritative load so they can't be clobbered by it (the
+        // cold-boot race this guard has always protected).
+        if (!_fullyHydrated) return;
 
         const updated = { ...get().settings, ...patch };
         // Keep isPro in sync with subscriptionTier
         updated.isPro = tierIsPro(updated.subscriptionTier);
         set({ settings: updated, isPro: tierIsPro(updated.subscriptionTier) });
+        // Mirror first (synchronous) so the very next boot paints this change.
+        writeSettingsMirror(updated);
 
         try {
             await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(updated) });
@@ -509,6 +586,9 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
 
     resetSettings: async () => {
         set({ settings: DEFAULT_SETTINGS });
+        // Update the sync mirror BEFORE the reload, or the warm-boot seed
+        // would paint the pre-reset settings for a frame.
+        writeSettingsMirror(DEFAULT_SETTINGS);
         await Preferences.set({ key: 'thalassa_settings', value: JSON.stringify(DEFAULT_SETTINGS) });
         window.location.reload();
     },
@@ -523,33 +603,13 @@ async function loadSettings() {
             // before any cloud pull — gates the welcome-back modal so
             // it only fires on true fresh-device restores.
             _localHadPriorData = true;
-            const parsed = JSON.parse(value);
-            const validHeroWidgets =
-                Array.isArray(parsed.heroWidgets) && parsed.heroWidgets.length > 0
-                    ? parsed.heroWidgets
-                    : DEFAULT_SETTINGS.heroWidgets;
-
-            const merged: UserSettings = {
-                ...DEFAULT_SETTINGS,
-                ...parsed,
-                notifications: { ...DEFAULT_SETTINGS.notifications, ...(parsed.notifications || {}) },
-                units: {
-                    ...DEFAULT_SETTINGS.units,
-                    ...(parsed.units || {}),
-                    waveHeight: parsed.units?.waveHeight || parsed.units?.length || 'm',
-                },
-                vessel: { ...DEFAULT_SETTINGS.vessel, ...(parsed.vessel || {}) },
-                heroWidgets: validHeroWidgets,
-                rowOrder: migrateRowOrder(
-                    Array.isArray(parsed.rowOrder) ? parsed.rowOrder : [...(DEFAULT_SETTINGS.rowOrder || [])],
-                ),
-                // Tier migration: legacy isPro users → owner tier
-                subscriptionTier: parsed.subscriptionTier || (parsed.isPro !== false ? 'owner' : 'free'),
-                isPro: tierIsPro(parsed.subscriptionTier || (parsed.isPro !== false ? 'owner' : 'free')),
-            };
+            const merged = mergeSettings(JSON.parse(value));
 
             useSettingsStore.setState({ settings: merged, isPro: tierIsPro(merged.subscriptionTier), loading: false });
-            _addDebugLog(`LOADED: [${validHeroWidgets.join(', ')}] from Disk.`);
+            // Refresh the sync mirror with the authoritative (migrated)
+            // settings so the next warm boot seeds from the same shape.
+            writeSettingsMirror(merged);
+            _addDebugLog(`LOADED: [${(merged.heroWidgets ?? []).join(', ')}] from Disk.`);
             manageScreenEffects(merged);
 
             // Boot Pi Cache from saved settings (no UI dependency)
@@ -565,6 +625,11 @@ async function loadSettings() {
     } catch {
         useSettingsStore.setState({ loading: false });
         _addDebugLog('ERROR: Native Load Failed');
+    } finally {
+        // Authoritative load is done (success, no-data, or error) — writes
+        // are now safe to accept. Set in `finally` so a Preferences failure
+        // can't leave updateSettings permanently dead.
+        _fullyHydrated = true;
     }
 }
 
