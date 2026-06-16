@@ -358,6 +358,46 @@ function anyAlong(pts: LatLon[], stepM: number, pred: (p: LatLon) => boolean): b
     return false;
 }
 
+/** Max deflection (deg) allowed at a spliced-centreline vertex. A turn
+ *  sharper than this is a near-reversal — physically impossible between two
+ *  ~50 m centreline samples of a dredged channel, so it can only be the
+ *  single-side end-DRIFT of corridorCenterline (one sample thrown out-and-
+ *  back across the channel mouth; the field "stepping" double-back). Same
+ *  turn-discipline family as the leading-line approach guard (a6c2419d).
+ *  cos(120°) = −0.5. */
+const MAX_FAIRLEAD_REVERSAL_DEG = 120;
+
+/** Remove near-reversal spike vertices (deflection > maxTurnDeg) from a
+ *  polyline, KEEPING the endpoints (they connect to the surrounding route).
+ *  Iterative with step-back so a run of drift samples collapses cleanly. The
+ *  moving-average smoother can't fix these — it PINS the drifted endpoint. */
+function dropSpikes(pts: LatLon[], maxTurnDeg: number): LatLon[] {
+    if (pts.length < 3) return pts.slice();
+    const cosLimit = Math.cos((maxTurnDeg * Math.PI) / 180);
+    const out = pts.slice();
+    let i = 1;
+    while (i < out.length - 1) {
+        const a = out[i - 1];
+        const b = out[i];
+        const c = out[i + 1];
+        const mLon = 111_320 * Math.cos((b.lat * Math.PI) / 180);
+        const ax = (b.lon - a.lon) * mLon;
+        const ay = (b.lat - a.lat) * 110_540;
+        const cx = (c.lon - b.lon) * mLon;
+        const cy = (c.lat - b.lat) * 110_540;
+        const la = Math.hypot(ax, ay);
+        const lc = Math.hypot(cx, cy);
+        const cos = la > 0 && lc > 0 ? (ax * cx + ay * cy) / (la * lc) : 1;
+        if (cos < cosLimit) {
+            out.splice(i, 1); // b is a near-reversal spike → drop it
+            if (i > 1) i--; // re-check the neighbourhood the removal opened
+        } else {
+            i++;
+        }
+    }
+    return out;
+}
+
 /**
  * Splice the Fairlead centreline into a route where it genuinely transits a
  * buoyed channel. A channel counts as transited only if:
@@ -418,15 +458,12 @@ export function refineWithFairlead(
     // Validate the WHOLE spliced run (entry bridge + centreline + exit bridge)
     // against land. The grid-based isLand catches estate land that LNDARE
     // misses — the hole that drew straight lines across the canal.
-    const spliced = [best.entry.point, ...centre, best.exit.point];
+    // Trim single-side-end drift spikes BEFORE the land check + splice, so a
+    // ~175° double-back at the channel mouth (the field stepping) never
+    // reaches the route. Endpoints (the entry/exit bridge anchors) are kept.
+    const spliced = dropSpikes([best.entry.point, ...centre, best.exit.point], MAX_FAIRLEAD_REVERSAL_DEG);
     if (isLand && anyAlong(spliced, 25, isLand)) return unchanged;
 
-    const refined = [
-        ...polyline.slice(0, best.entry.segIdx + 1),
-        best.entry.point,
-        ...centre,
-        best.exit.point,
-        ...polyline.slice(best.exit.segIdx + 1),
-    ];
+    const refined = [...polyline.slice(0, best.entry.segIdx + 1), ...spliced, ...polyline.slice(best.exit.segIdx + 1)];
     return { polyline: refined, replacedRange: [best.entry.segIdx, best.exit.segIdx], channelKey: best.ch[0].key };
 }
