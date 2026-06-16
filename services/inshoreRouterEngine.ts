@@ -3260,9 +3260,24 @@ function routeInshoreOnce(
     // beyond the 1.25 give-back. Runs BEFORE the strict re-anchor so
     // boundary waypoints are re-inserted on the FINAL geometry.
     const fairingMids = collectFairingMidpoints(layers);
+    // Field diagnostic (warn-level so it shows in the device console):
+    // distinguishes "fairing never ran" (no midpoints / engine bailed to
+    // offshore) from "fairing ran but barely faired" (gate-serving guard
+    // too tight for the real channel) — the two ways the route can still
+    // step. The min half-width tells whether the gates are narrow enough
+    // to choke the chord. Remove once the live stepping is closed.
     if (fairingMids.length > 0 && smoothedCells.length >= 3) {
+        const beforeN = smoothedCells.length;
+        const minHalfW = Math.min(...fairingMids.map((m) => m.halfWidthM));
         smoothedCells = fairPath(grid, smoothedCells, fairingMids, isUnvouchedIdx);
+        engineLog.warn(
+            `[fairing] ${fairingMids.length} midpoints (min half-width ${Math.round(minHalfW)} m) — waypoints ${beforeN} → ${smoothedCells.length}`,
+        );
         tPhase = mark('fairing', tPhase);
+    } else {
+        engineLog.warn(
+            `[fairing] SKIPPED — ${fairingMids.length} midpoints, ${smoothedCells.length} smoothed cells (no fairing applied)`,
+        );
     }
 
     // Re-anchor state boundaries the smoother legally erased: smoothPath
