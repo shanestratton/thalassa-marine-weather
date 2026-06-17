@@ -72,10 +72,16 @@ export function segmentRoute(
     draftM: number,
     safetyM: number,
     tideSafetyM: number,
+    opts: { refuseUnchartedRunM?: number | null } = {},
 ): TierSpan[] | Refusal {
     if (polyline.length < 2) {
         return { refused: true, reason: 'disconnected-grid' };
     }
+    // null ⇒ NEVER refuse on a long unknown run — emit it as a caution span and
+    // let the caller's own uncharted handling decide (the live engine already
+    // runs a strict-uncharted sweep on the final geometry). Default keeps the
+    // standalone refusal.
+    const refuseUnchartedRunM = opts.refuseUnchartedRunM === undefined ? UNCHARTED_MAX_RUN_M : opts.refuseUnchartedRunM;
     const TIER2 = tier2NavigableDepthM(draftM, tideSafetyM);
     const draftFloor = draftM + safetyM;
 
@@ -133,10 +139,22 @@ export function segmentRoute(
     }
 
     // ── 4. Refuse a long uncharted run BEFORE any router sees the span ──
-    for (const run of runs) {
-        if (run.cls === 'unknown' && spanLenM(run.lo, run.hi) > UNCHARTED_MAX_RUN_M) {
-            return { refused: true, reason: 'uncharted-run', atNM: cum[run.lo] / 1852 };
+    if (refuseUnchartedRunM !== null) {
+        for (const run of runs) {
+            if (run.cls === 'unknown' && spanLenM(run.lo, run.hi) > refuseUnchartedRunM) {
+                return { refused: true, reason: 'uncharted-run', atNM: cum[run.lo] / 1852 };
+            }
         }
+    }
+
+    // Coalesce a single-vertex FIRST run into its neighbour. Boundary-sharing
+    // (§5) makes span r start at runs[r-1].hi, so only the FIRST span can be
+    // degenerate (fromIdx===toIdx) — when run 0 is one vertex (e.g. a berth-side
+    // mark before the route drops into unvouched canal water). Merge it forward
+    // so no tier router is handed a zero-length span.
+    if (runs.length > 1 && runs[0].lo === runs[0].hi) {
+        runs[1] = { ...runs[1], lo: runs[0].lo };
+        runs.shift();
     }
 
     // ── 5. Resolve boundary nodes + emit ordered spans ──
