@@ -29,14 +29,26 @@ interface LiveMiniMapProps {
      * Used to expand the mini map to full screen and back.
      */
     onTap?: () => void;
+    /**
+     * Free-zoom mode (fullscreen). The mini card keeps re-centring on the
+     * boat every poll (isLive auto-follow), which is right when it's tiny.
+     * Fullscreen, that yanks the user's pinch-zoom back — so once the user
+     * touches the map here we RELEASE auto-follow and leave their view put.
+     * The initial fit still frames the track on open. Also enables scroll/
+     * double-click zoom for desktop.
+     */
+    freeZoom?: boolean;
 }
 
 export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
-    ({ entries, height = 160, isLive = false, className = '', onTap }) => {
+    ({ entries, height = 160, isLive = false, className = '', onTap, freeZoom = false }) => {
         const containerRef = useRef<HTMLDivElement>(null);
         const mapRef = useRef<L.Map | null>(null);
         const layerGroupRef = useRef<L.LayerGroup | null>(null);
         const hasFitRef = useRef(false);
+        // Set once the user manually zooms/pans a free-zoom map — stops
+        // the live auto-follow from snapping their view back.
+        const userMovedRef = useRef(false);
         // Ref keeps the handler fresh without re-creating the map.
         const onTapRef = useRef<(() => void) | undefined>(onTap);
         onTapRef.current = onTap;
@@ -45,11 +57,16 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
         useEffect(() => {
             if (!containerRef.current || mapRef.current) return;
 
+            let detachRelease: (() => void) | undefined;
+
             const map = L.map(containerRef.current, {
                 zoomControl: false,
                 attributionControl: false,
                 dragging: true,
-                scrollWheelZoom: false,
+                scrollWheelZoom: freeZoom,
+                // doubleClickZoom stays off even in free-zoom — a double
+                // tap would also fire the onTap collapse. Pinch (touchZoom)
+                // and scroll-wheel cover zooming.
                 doubleClickZoom: false,
                 boxZoom: false,
                 keyboard: false,
@@ -57,6 +74,25 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 fadeAnimation: false,
                 zoomAnimation: false,
             });
+
+            // Free-zoom: the FIRST real user gesture releases auto-follow.
+            // Raw DOM input events fire only for the user — programmatic
+            // fitBounds/setView never trigger touchstart/wheel/mousedown,
+            // so this can't false-positive on our own re-centring.
+            if (freeZoom) {
+                const release = () => {
+                    userMovedRef.current = true;
+                };
+                const el = map.getContainer();
+                el.addEventListener('touchstart', release, { passive: true });
+                el.addEventListener('wheel', release, { passive: true });
+                el.addEventListener('mousedown', release);
+                detachRelease = () => {
+                    el.removeEventListener('touchstart', release);
+                    el.removeEventListener('wheel', release);
+                    el.removeEventListener('mousedown', release);
+                };
+            }
 
             // CARTO Voyager base (2026-06-13) — clean light nautical map,
             // matches TrackMapViewer; replaced the grungy near-black base.
@@ -90,12 +126,17 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             ro.observe(containerRef.current);
 
             return () => {
+                detachRelease?.();
                 ro.disconnect();
                 map.remove();
                 mapRef.current = null;
                 layerGroupRef.current = null;
                 hasFitRef.current = false;
+                userMovedRef.current = false;
             };
+            // freeZoom is fixed per mount (fullscreen remounts fresh), so
+            // it's read at creation and intentionally not a re-create dep.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
         }, []);
 
         // Update layers when entries change
@@ -184,18 +225,22 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 }).addTo(lg);
             }
 
-            // Fit bounds
+            // Fit bounds. Auto-follow keeps the live boat framed every
+            // tick — but in free-zoom mode, once the user has moved the
+            // map we stop re-fitting so their zoom/pan sticks. The first
+            // fit (hasFitRef) always runs to frame the track on open.
+            const autoFollow = isLive && !(freeZoom && userMovedRef.current);
             if (coords.length >= 2) {
-                const bounds = L.latLngBounds(coords);
-                if (isLive || !hasFitRef.current) {
+                if (autoFollow || !hasFitRef.current) {
+                    const bounds = L.latLngBounds(coords);
                     map.fitBounds(bounds, { padding: [16, 16], maxZoom: 15, animate: false });
                     hasFitRef.current = true;
                 }
-            } else if (coords.length === 1) {
+            } else if (coords.length === 1 && (autoFollow || !hasFitRef.current)) {
                 map.setView(coords[0], 14, { animate: false });
                 hasFitRef.current = true;
             }
-        }, [entries, isLive]);
+        }, [entries, isLive, freeZoom]);
 
         useEffect(() => {
             const timer = setTimeout(updateLayers, 100);
