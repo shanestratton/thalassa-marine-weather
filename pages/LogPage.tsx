@@ -35,6 +35,7 @@ import { ShipLogEntry } from '../types';
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
+import { ShipLogService } from '../services/ShipLogService';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -136,10 +137,11 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // already styles source==='planned_route' as a dashed purple plan
     // line and partitions per voyageId). Null when there's no plan.
     const matchedPlannedId = React.useMemo(() => {
+        const summaries = state.summaries ?? [];
         if (!state.selectedVoyageId) return null;
-        const sailed = state.summaries.find((s) => s.voyageId === state.selectedVoyageId);
+        const sailed = summaries.find((s) => s.voyageId === state.selectedVoyageId);
         if (!sailed || sailed.isPlannedRoute) return null;
-        return matchPlannedRouteByCoords(sailed, state.summaries);
+        return matchPlannedRouteByCoords(sailed, summaries);
     }, [state.selectedVoyageId, state.summaries]);
 
     const trackMapEntries = React.useMemo(() => {
@@ -157,7 +159,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     }, [state.showTrackMap, matchedPlannedId, loadVoyageEntries]);
 
     // Career personal records — derived purely from voyage summaries.
-    const records = React.useMemo(() => computePersonalRecords(state.summaries), [state.summaries]);
+    const records = React.useMemo(() => computePersonalRecords(state.summaries ?? []), [state.summaries]);
 
     // "Recording" vs "Acquiring GPS fix…" — keyed on whether the active
     // voyage has a real recorded position yet. gpsStatus alone can't be
@@ -175,6 +177,19 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             ),
         [state.entries, state.currentVoyageId],
     );
+
+    // Engine on/off — user-declared while tracking, stamped onto track
+    // points for the sail/motor split. Mirrors ShipLogService's sticky
+    // state (undefined until first declared this voyage).
+    const [engineRunning, setEngineRunningState] = useState<boolean | undefined>(undefined);
+    useEffect(() => {
+        setEngineRunningState(state.isTracking ? ShipLogService.getEngineRunning() : undefined);
+    }, [state.isTracking, state.currentVoyageId]);
+    const toggleEngine = useCallback(async (running: boolean) => {
+        await ShipLogService.setEngineRunning(running);
+        setEngineRunningState(running);
+        triggerHaptic('light');
+    }, []);
 
     // Live mini-map expansion — tap the little map to blow it up to a
     // fullscreen live view (stats stay overlaid), tap again to shrink.
@@ -815,6 +830,40 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                     <div className="text-[11px] text-slate-500 uppercase">Avg kts</div>
                                                 </div>
                                             </div>
+
+                                            {/* Engine on/off — declares propulsion so the
+                                                voyage's sail/motor split is real data. */}
+                                            <div className="flex items-center gap-2 mt-3 shrink-0">
+                                                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                                    Engine
+                                                </span>
+                                                <div className="flex rounded-full bg-slate-900/60 border border-white/10 p-0.5">
+                                                    <button
+                                                        onClick={() => toggleEngine(true)}
+                                                        className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                                                            engineRunning === true
+                                                                ? 'bg-amber-500 text-white'
+                                                                : 'text-white/55'
+                                                        }`}
+                                                    >
+                                                        Motor
+                                                    </button>
+                                                    <button
+                                                        onClick={() => toggleEngine(false)}
+                                                        className={`px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                                                            engineRunning === false
+                                                                ? 'bg-emerald-500 text-white'
+                                                                : 'text-white/55'
+                                                        }`}
+                                                    >
+                                                        Sailing
+                                                    </button>
+                                                </div>
+                                                {engineRunning === undefined && (
+                                                    <span className="text-[10px] text-white/35">— tap to log</span>
+                                                )}
+                                            </div>
+
                                             {/* Live Mini Map — grows to fill all remaining space.
                                                 Tap to expand fullscreen. Until the first accepted
                                                 fix lands there's nothing to draw, so say what's
