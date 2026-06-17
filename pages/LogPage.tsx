@@ -217,6 +217,28 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const [shareAutoRegion, setShareAutoRegion] = useState('');
     const shareFormResetRef = useRef(0);
 
+    // Share a self-contained summary-card PNG of the scoped voyage.
+    const handleShareImage = useCallback(async () => {
+        const scoped = state.selectedVoyageId
+            ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId)
+            : state.entries;
+        if (scoped.filter((e) => e.latitude && e.longitude).length < 2) {
+            toast.error('Not enough track to make a card yet');
+            return;
+        }
+        dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
+        try {
+            const { shareVoyageCard } = await import('../services/shiplog/voyageShareCard');
+            await shareVoyageCard(scoped, { title: shareAutoTitle || undefined });
+        } catch (err) {
+            if (err instanceof Error && err.name !== 'AbortError') {
+                log.warn('share image failed:', err);
+                toast.error('Could not create the image');
+            }
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [state.selectedVoyageId, state.entries, shareAutoTitle, toast]);
+
     // ── Listen for planned route save from Passage Planner ──
     useEffect(() => {
         const handlePlannedRoute = async (e: Event) => {
@@ -1293,6 +1315,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                         dispatch({ type: 'SHOW_COMMUNITY_BROWSER', show: true });
                         dispatch({ type: 'SET_ACTION_SHEET', sheet: null });
                     }}
+                    onShareImage={handleShareImage}
                     hasNonDeviceEntries={hasNonDeviceEntries}
                     selectedVoyageId={selectedVoyageId}
                 />
