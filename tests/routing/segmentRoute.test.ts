@@ -61,6 +61,12 @@ describe('segmentRoute', () => {
             expect(r[1].exit.kind).toBe('channel-mouth');
             expect(r[0].entry.kind).toBe('origin');
             expect(r[2].exit.kind).toBe('dest');
+            // adjacent spans SHARE the seam vertex (so the Gluer can join them) —
+            // span r's entry IS span r-1's exit, same vertex.
+            expect(r[0].exit.at).toBe(r[1].entry.at);
+            expect(r[1].exit.at).toBe(r[2].entry.at);
+            expect(r[0].toIdx).toBe(r[1].fromIdx);
+            expect(r[1].toIdx).toBe(r[2].fromIdx);
         }
     });
 

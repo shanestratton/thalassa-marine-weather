@@ -68,6 +68,14 @@ import {
     distM as llDistM,
     anyAlong as llAnyAlong,
 } from './leadingLine';
+// Three-tier contract path (docs/THREE_TIER_ROUTING.md). segmentRoute + the
+// tier routers operate on the contract's [lon,lat] tuple LatLon, which the
+// engine's [number,number][] polyline satisfies structurally — so no LatLon
+// import is needed here (and no collision with fairlead's {lat,lon} LatLon).
+import { segmentRoute, type TierSpan } from './routing/segmentRoute';
+import { routeTier3, type Tier3Context } from './tier3/tier3Router';
+import { stitchLegs } from './glue/gluer';
+import { isRefusal, freezeLeg, type Leg, type LegResult } from './routing/legContract';
 
 const engineLog = createLogger('inshoreEngine');
 
@@ -226,6 +234,12 @@ export interface RouteDebug {
     /** Channel key when Fairlead spliced a buoyed-channel segment (the route
      *  follows the lateral marks there), else absent. */
     fairlead?: string;
+    /** Present when the three-tier contract path (segmentRoute → per-span tier
+     *  routers → glue) produced the final route instead of the monolith
+     *  fairlead/leading splice. Value = the joined leg provenance (e.g.
+     *  'tier3:fairlead(BC)+lead | tier2:passthrough'). Absent ⇒ the path
+     *  refused and the route fell back to the proven splice chain. */
+    threeTier?: string;
     /** Count of charted leading lines (navigation_line transits) the route was
      *  snapped onto — "line up the marks" vessel procedure. Absent if none. */
     leadingLine?: number;
@@ -3448,23 +3462,51 @@ function routeInshoreOnce(
         }
     }
 
-    // ── Fairlead: where the route transits a buoyed channel in OPEN water
-    // (past the marina/canal MarinerEE owns), follow the lateral marks.
-    // Validated against the navigable GRID — the real water mask, which
-    // catches the estate land the raw LNDARE polygons miss (the hole that
-    // drew straight lines across the canal). No marks / no along-channel
-    // transit / would leave the water → route returned unchanged.
-    const fl = applyFairleadAtGrid(polyline, cautionMask, grid, layers);
-    // Leading-line snap: where the route transits a charted navigation_line,
-    // ride the transit itself (line up the marks) rather than the Pass-5b
-    // corridor band. Runs after Fairlead so the two refinements compose.
-    const ll = applyLeadingLineSnap(fl.polyline, fl.cautionMask, grid, layers);
-    // Leading-line APPROACH: when the destination is served by charted leading
-    // line(s), re-route the final approach to come in VIA the transit — make
-    // the seaward mark, steer the leads in — instead of A*'s straight-in.
-    const la = applyLeadingLineApproach(ll.polyline, ll.cautionMask, grid, layers);
-    const finalPolyline = la.polyline;
-    const finalCaution = la.cautionMask;
+    // ── Three-tier contract path (PHASE 4, docs/THREE_TIER_ROUTING.md) ──
+    // segmentRoute → per-span tier routers → glue, REPLACING the sequential
+    // fairlead/leading splices below. A contract leg cannot silently mutate
+    // across a tier seam (the implicit-splice bug class), and a tier-3 span
+    // re-homes onto the lateral-mark follower WITHOUT the 0.59-near-frac skip
+    // that left the Newport end stepped. On ANY refusal it returns null and we
+    // run the EXACT proven monolith chain below — so the live route can never
+    // get worse than today. Caution is recomputed here (not in the tier
+    // routers) with the strict-uncharted rule, so red rendering is unchanged.
+    let finalPolyline: [number, number][];
+    let finalCaution: boolean[];
+    // Monolith-path debug flags (set only on the fallback branch).
+    let flFairlead: string | undefined;
+    let llLeadingLines: number | undefined;
+    let laLeadingApproach: number | undefined;
+    const threeTier = applyThreeTier(polyline, grid, layers, req.draftM, safetyM);
+    if (threeTier) {
+        finalPolyline = threeTier.polyline;
+        const vtxCaution = finalPolyline.map(([lon, lat]) => {
+            const { x, y } = latLonToGrid(grid, lat, lon);
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+            const idx = y * grid.width + x;
+            return grid.cells[idx] < 0 || isUnvouchedIdx(idx);
+        });
+        finalCaution = [];
+        for (let i = 0; i < finalPolyline.length - 1; i++) finalCaution.push(vtxCaution[i] || vtxCaution[i + 1]);
+        debug.threeTier = threeTier.provenance;
+        engineLog.warn(
+            `[3tier] ${threeTier.spanCount} spans, ${polyline.length}→${finalPolyline.length} pts — ${threeTier.provenance}`,
+        );
+    } else {
+        // Fallback — the proven monolith splice chain, byte-identical to before.
+        // Fairlead: where the route transits a buoyed channel in OPEN water
+        // (past the marina/canal MarinerEE owns), follow the lateral marks.
+        const fl = applyFairleadAtGrid(polyline, cautionMask, grid, layers);
+        // Leading-line snap: ride a charted navigation_line transit it follows.
+        const ll = applyLeadingLineSnap(fl.polyline, fl.cautionMask, grid, layers);
+        // Leading-line APPROACH: come into a charted-lead destination via the lead.
+        const la = applyLeadingLineApproach(ll.polyline, ll.cautionMask, grid, layers);
+        finalPolyline = la.polyline;
+        finalCaution = la.cautionMask;
+        flFairlead = fl.fairlead;
+        llLeadingLines = ll.leadingLines;
+        laLeadingApproach = la.leadingApproach;
+    }
 
     // Compute total length in NM along the final polyline.
     let distM = 0;
@@ -3523,13 +3565,97 @@ function routeInshoreOnce(
         bbox,
         debug: {
             ...debug,
-            ...(fl.fairlead ? { fairlead: fl.fairlead } : {}),
-            ...(ll.leadingLines ? { leadingLine: ll.leadingLines } : {}),
-            ...(la.leadingApproach ? { leadingApproach: la.leadingApproach } : {}),
+            ...(flFairlead ? { fairlead: flFairlead } : {}),
+            ...(llLeadingLines ? { leadingLine: llLeadingLines } : {}),
+            ...(laLeadingApproach ? { leadingApproach: laLeadingApproach } : {}),
             ...(strictUncharted ? { unchartedMaxRunM: Math.round(unchartedMaxRunM) } : {}),
         } as RouteDebug,
         phaseTimings: timings,
     };
+}
+
+/** Shane-confirmed rising-tide bar margin (docs/THREE_TIER_ROUTING.md §1.5).
+ *  Feeds the tier-2 marks-free depth gate (→ 5 m all-tide for a 2.4 m draft). */
+const TIER_TIDE_SAFETY_M = 0.5;
+
+/**
+ * Build a passthrough Leg for a tier-1/2 span: KEEP the A* sub-polyline (the
+ * engine already routed deep water well — the standalone routeTier2 is for the
+ * future boundary-node-driven path, not for refining an existing A* route).
+ * Endpoints pinned to the span's shared-seam BoundaryNodes; caution + depth
+ * recomputed per-vertex from the grid.
+ */
+function passthroughLeg(span: TierSpan, polyline: readonly [number, number][], grid: NavGrid): Leg {
+    const sub = polyline.slice(span.fromIdx, span.toIdx + 1).map(([lon, lat]) => [lon, lat] as [number, number]);
+    sub[0] = span.entry.at as [number, number];
+    sub[sub.length - 1] = span.exit.at as [number, number];
+    let controlling = Infinity;
+    const cautionMask = sub.map(([lon, lat]) => {
+        const { x, y } = latLonToGrid(grid, lat, lon);
+        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+        const d = grid.cells[y * grid.width + x];
+        if (!Number.isNaN(d) && d >= 0) controlling = Math.min(controlling, d);
+        return Number.isNaN(d) || d < 0;
+    });
+    return freezeLeg({
+        tierId: span.tier,
+        entry: span.entry,
+        exit: span.exit,
+        polyline: sub,
+        cautionMask,
+        depthSource: span.tier === 1 ? 'gebco' : 'charted',
+        controllingDepthM: Number.isFinite(controlling) ? controlling : null,
+        provenance: `tier${span.tier}:passthrough`,
+    });
+}
+
+/**
+ * Three-tier contract path (docs/THREE_TIER_ROUTING.md) — segment the REAL A*
+ * route into ordered tier spans, route each by tier, glue with the concat-only
+ * Gluer. Tier-3 spans re-home onto the lateral-mark follower WITHOUT the
+ * silent-passthrough skip that left Newport stepped; tier-1/2 spans keep the
+ * proven A* geometry. Returns the final geometry, or null on ANY refusal
+ * (segmentation / a tier / a seam double-back) so the caller falls back to the
+ * monolith splice — the live route can never get WORSE than today.
+ *
+ * Caution is NOT returned here: the caller recomputes it in-scope with the
+ * strict-uncharted rule (isUnvouchedIdx), so red rendering matches the monolith.
+ */
+function applyThreeTier(
+    polyline: [number, number][],
+    grid: NavGrid,
+    layers: InshoreLayers,
+    draftM: number,
+    safetyM: number,
+): { polyline: [number, number][]; provenance: string; spanCount: number } | null {
+    if (polyline.length < 2) return null;
+
+    const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
+    const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
+    const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
+
+    const spans = segmentRoute(polyline, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M);
+    if (isRefusal(spans)) {
+        engineLog.warn(`[3tier] segmentRoute refused (${spans.reason}) — falling back to monolith splice`);
+        return null;
+    }
+    // A degenerate span would starve a tier router — bail to the proven path.
+    if (spans.some((s) => s.toIdx - s.fromIdx < 1)) return null;
+
+    const ctx3: Tier3Context = { grid, marks, leadingLines };
+    const results: LegResult[] = spans.map((span) =>
+        span.tier === 3 ? routeTier3(span, polyline, ctx3) : passthroughLeg(span, polyline, grid),
+    );
+
+    const glued = stitchLegs(results);
+    if (glued.refusal || glued.polyline.length < 2) {
+        const why = glued.refusal ? `${glued.refusal.reason}@${glued.refusal.atIndex}` : 'empty';
+        engineLog.warn(`[3tier] glue refused (${why}) — falling back to monolith splice`);
+        return null;
+    }
+
+    const outPoly = glued.polyline.map((p) => [p[0], p[1]] as [number, number]);
+    return { polyline: outPoly, provenance: glued.legs.map((l) => l.provenance).join(' | '), spanCount: spans.length };
 }
 
 /**
