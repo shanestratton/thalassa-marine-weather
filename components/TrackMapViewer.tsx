@@ -24,11 +24,44 @@ import { piCache } from '../services/PiCacheService';
 import { EditIcon, MapPinIcon, SailBoatIcon, CompassIcon, DeviceIcon, WindIcon } from './Icons';
 import { isTrackworthyEntry, isPlausibleTrackPoint, calculateDistanceNM } from '../services/shiplog/helpers';
 import { deriveTurnMarkers } from '../services/shiplog/turnMarkers';
+import {
+    windBucket,
+    buildSparkline,
+    nearestTrackEntry,
+    WIND_BUCKETS,
+    WIND_NODATA_COLOR,
+} from '../services/shiplog/trackViz';
+
+// Base-map tile templates: light Voyager by day, dark by night watch.
+const DAY_BASE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+const NIGHT_BASE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
     onClose: () => void;
     entries: ShipLogEntry[];
+}
+
+// Conditions popup for tap-for-conditions. Shows what was logged at the
+// nearest track point — time, the FORECAST wind/sea at capture, plus the
+// GPS-measured SOG/COG. Kept honest: wind/wave are forecast-at-capture,
+// not instrument readings, and may be absent offshore.
+function conditionsPopupHtml(e: ShipLogEntry): string {
+    const t = new Date(e.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+    const d = new Date(e.timestamp).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+    const rows: string[] = [];
+    const wind =
+        typeof e.windSpeed === 'number'
+            ? `${Math.round(e.windSpeed)} kt${e.windDirection ? ' ' + e.windDirection : ''}`
+            : '—';
+    rows.push(`<div>💨 ${wind}</div>`);
+    if (typeof e.waveHeight === 'number') rows.push(`<div>🌊 ${e.waveHeight.toFixed(1)} m</div>`);
+    if (typeof e.speedKts === 'number') rows.push(`<div>⛵ ${e.speedKts.toFixed(1)} kt SOG</div>`);
+    if (typeof e.courseDeg === 'number') rows.push(`<div>🧭 ${Math.round(e.courseDeg)}°</div>`);
+    return (
+        `<div style="font-size:12px;font-weight:700;margin-bottom:2px">${d} · ${t}</div>` +
+        `<div style="font-size:11px;line-height:1.5;display:grid;grid-template-columns:1fr 1fr;gap:0 10px">${rows.join('')}</div>`
+    );
 }
 
 // ── Vessel Icon (Leaflet DivIcon) ──
@@ -45,6 +78,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     const mapInstanceRef = useRef<L.Map | null>(null);
     const layerGroupRef = useRef<L.LayerGroup | null>(null);
     const hasFitBoundsRef = useRef(false);
+    const baseTileRef = useRef<L.TileLayer | null>(null);
+    const seamarkTileRef = useRef<L.TileLayer | null>(null);
+
+    // Track colour mode — 'wind' paints the line by the (forecast) wind
+    // at each point; 'plain' is the old water/land scheme. Day/night
+    // swaps the base map (light Voyager vs dark) for night watches.
+    const [colorMode, setColorMode] = useState<'wind' | 'plain'>('wind');
+    const [nightMode, setNightMode] = useState(false);
 
     // Playback state
     const [isPlaying, setIsPlaying] = useState(false);
@@ -86,6 +127,20 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         sortedEntriesRef.current = sorted;
         return sorted;
     }, [entries]);
+
+    // Speed sparkline geometry (memoized — the 20 Hz playback cursor must
+    // NOT recompute the whole path). Drawn in a fixed 240×34 viewBox.
+    const SPARK_W = 240;
+    const SPARK_H = 34;
+    const sparkline = useMemo(() => buildSparkline(sortedEntries, SPARK_W, SPARK_H), [sortedEntries]);
+
+    // Max forecast wind across the voyage (for the header chip). null if
+    // no point carried wind data (offshore cache-miss).
+    const maxWindKt = useMemo(() => {
+        let m = -1;
+        for (const e of sortedEntries) if (typeof e.windSpeed === 'number' && e.windSpeed > m) m = e.windSpeed;
+        return m >= 0 ? Math.round(m) : null;
+    }, [sortedEntries]);
 
     // Pre-build interpolated animation frames for smooth playback
     // Each frame is { lat, lon, entryIndex } — entryIndex maps back to sortedEntries
@@ -142,21 +197,23 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             fadeAnimation: true,
         }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
 
-        // Base map — CARTO Voyager (2026-06-13). Swapped off the near-black
-        // dark_all base, which read grungy with a thin bright track on it.
-        // Voyager is a clean, modern, light basemap with soft nautical-blue
-        // water + clear labels, shares OSM's reference frame (so OpenSeaMap
-        // seamarks still align), and stays crisp to z19.
-        L.tileLayer(
-            piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
-            { maxZoom: 19 },
-        ).addTo(map);
-
-        // OpenSeaMap seamark overlay
-        L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
-            maxZoom: 18,
-            opacity: 0.9,
+        // Base map — CARTO Voyager by day (clean light nautical), dark by
+        // night watch. Kept on a ref so the day/night toggle can swap it
+        // live without recreating the map or refitting bounds.
+        const base = L.tileLayer(piCache.leafletTileTemplate(nightMode ? NIGHT_BASE : DAY_BASE), {
+            maxZoom: 19,
         }).addTo(map);
+        baseTileRef.current = base;
+
+        // OpenSeaMap seamark overlay — always on top of the base.
+        const seamark = L.tileLayer(
+            piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'),
+            {
+                maxZoom: 18,
+                opacity: 0.9,
+            },
+        ).addTo(map);
+        seamarkTileRef.current = seamark;
 
         // Layer group for track data
         const layerGroup = L.layerGroup().addTo(map);
@@ -165,6 +222,19 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // Trail layer for playback
         const trailLayer = L.layerGroup().addTo(map);
         trailLayerRef.current = trailLayer;
+
+        // Tap-for-conditions: a tap anywhere snaps to the nearest track
+        // point and shows the conditions logged there. Reads the sorted-
+        // entries REF (always fresh) so it's wired once at creation, not
+        // in updateTrackLayers (which full-rebuilds and would stale-close).
+        map.on('click', (e: L.LeafletMouseEvent) => {
+            const near = nearestTrackEntry(sortedEntriesRef.current, e.latlng.lat, e.latlng.lng);
+            if (!near) return;
+            L.popup({ closeButton: false, className: 'track-cond-popup', offset: [0, -2] })
+                .setLatLng([near.latitude!, near.longitude!])
+                .setContent(conditionsPopupHtml(near))
+                .openOn(map);
+        });
 
         mapInstanceRef.current = map;
         setTimeout(() => map.invalidateSize(), 200);
@@ -177,10 +247,30 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 layerGroupRef.current = null;
                 trailLayerRef.current = null;
                 vesselMarkerRef.current = null;
+                baseTileRef.current = null;
+                seamarkTileRef.current = null;
                 hasFitBoundsRef.current = false;
             }
         };
+        // nightMode read at creation only; live swaps handled by the
+        // day/night effect below (recreating the map would lose pan/zoom).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
+
+    // ── Day/night base swap ── live, without recreating the map or
+    // touching fitBounds (which would throw away the user's pan/zoom).
+    // Remove the old base, add the new one, then RE-ASSERT the seamark
+    // overlay so it stays on top of the fresh base.
+    useEffect(() => {
+        const map = mapInstanceRef.current;
+        if (!map || !isOpen) return;
+        if (baseTileRef.current) map.removeLayer(baseTileRef.current);
+        const base = L.tileLayer(piCache.leafletTileTemplate(nightMode ? NIGHT_BASE : DAY_BASE), {
+            maxZoom: 19,
+        }).addTo(map);
+        baseTileRef.current = base;
+        if (seamarkTileRef.current) seamarkTileRef.current.bringToFront();
+    }, [nightMode, isOpen]);
 
     // Reset playback when modal opens/closes
     useEffect(() => {
@@ -213,10 +303,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
         const trackCoords = lineEntries.map((e) => [e.latitude!, e.longitude!] as [number, number]);
 
-        const addSegment = (coords: [number, number][], isWater: boolean, isPlannedRoute: boolean) => {
+        const addSegment = (coords: [number, number][], color: string, isPlannedRoute: boolean) => {
             if (coords.length < 2) return;
-            // Bolder, deeper colours that read on the light Voyager base.
-            const color = isPlannedRoute ? '#7c3aed' : isWater ? '#0284c7' : '#059669';
 
             // White casing under the line — gives a crisp "chart route"
             // outline that pops on any background instead of a thin line
@@ -239,6 +327,19 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             }).addTo(layerGroup);
         };
 
+        // Per-entry segment key + colour. 'wind' paints by the (forecast)
+        // wind bucket at each point; 'plain' falls back to water/land.
+        // Splitting on the KEY keeps it to a handful of segments, not one
+        // polyline per point.
+        const segOf = (entry: ShipLogEntry): { key: string; color: string } => {
+            if (colorMode === 'wind') {
+                const b = windBucket(entry.windSpeed);
+                return { key: b.key, color: b.color };
+            }
+            const water = entry.isOnWater ?? true;
+            return { key: water ? 'water' : 'land', color: water ? '#0284c7' : '#059669' };
+        };
+
         // Partition by voyage — drawing one line through several
         // voyages (the kebab "Track Map" path passes everything
         // resident, planned routes included) connected them with
@@ -257,23 +358,34 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             if (groupEntries.length < 2) continue;
             const isPlannedRoute = groupEntries.some((e) => e.source === 'planned_route');
 
+            // Planned routes carry no telemetry — always the dashed purple
+            // plan line, never wind-coloured.
+            if (isPlannedRoute) {
+                addSegment(
+                    groupEntries.map((e) => [e.latitude!, e.longitude!] as [number, number]),
+                    '#7c3aed',
+                    true,
+                );
+                continue;
+            }
+
             let currentSegment: [number, number][] = [];
-            let currentIsWater = groupEntries[0].isOnWater ?? true;
+            let currentSeg = segOf(groupEntries[0]);
 
             groupEntries.forEach((entry) => {
-                const isWater = entry.isOnWater ?? true;
+                const seg = segOf(entry);
                 const coord: [number, number] = [entry.latitude!, entry.longitude!];
 
-                if (isWater !== currentIsWater && currentSegment.length > 0) {
+                if (seg.key !== currentSeg.key && currentSegment.length > 0) {
                     currentSegment.push(coord);
-                    addSegment(currentSegment, currentIsWater, isPlannedRoute);
+                    addSegment(currentSegment, currentSeg.color, false);
                     currentSegment = [coord];
-                    currentIsWater = isWater;
+                    currentSeg = seg;
                 } else {
                     currentSegment.push(coord);
                 }
             });
-            addSegment(currentSegment, currentIsWater, isPlannedRoute);
+            addSegment(currentSegment, currentSeg.color, false);
 
             // Turn markers — DERIVED from the track geometry at render
             // time, never stored (the stored-pin system put waypoints
@@ -359,7 +471,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             });
             vesselMarkerRef.current = marker;
         }
-    }, [entries]);
+    }, [entries, colorMode]);
 
     // Trigger layer update. The debounce only needs to outlast React's
     // commit — the old 300 ms was a visible beat of blank map on every
@@ -627,8 +739,62 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                             <div className="text-[11px] text-white/60 flex gap-3 mt-0.5 font-medium">
                                 <span>{totalDistance} NM</span>
                                 <span>{sortedEntries.length} pts</span>
+                                {maxWindKt !== null && <span>max {maxWindKt} kt</span>}
                             </div>
                         )}
+                    </div>
+                </div>
+            )}
+
+            {/* Top-right controls — colour mode + day/night */}
+            {!showHUD && !isTrackLoading && (
+                <div
+                    className="absolute right-3 z-[1002] flex flex-col gap-2 items-end"
+                    style={{ top: 'max(16px, env(safe-area-inset-top))' }}
+                >
+                    <div className="flex rounded-full bg-slate-900/90 border border-white/15 p-0.5 shadow-xl">
+                        {(['wind', 'plain'] as const).map((m) => (
+                            <button
+                                key={m}
+                                onClick={() => setColorMode(m)}
+                                className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors ${
+                                    colorMode === m ? 'bg-sky-500 text-white' : 'text-white/60'
+                                }`}
+                            >
+                                {m === 'wind' ? 'Wind' : 'Track'}
+                            </button>
+                        ))}
+                    </div>
+                    <button
+                        onClick={() => setNightMode((v) => !v)}
+                        aria-label="Toggle day/night map"
+                        className="w-9 h-9 rounded-full bg-slate-900/90 border border-white/15 shadow-xl flex items-center justify-center text-base"
+                    >
+                        {nightMode ? '☀️' : '🌙'}
+                    </button>
+                </div>
+            )}
+
+            {/* Wind legend — only in wind mode, honest "forecast" framing */}
+            {!showHUD && !isTrackLoading && colorMode === 'wind' && (
+                <div
+                    className="absolute left-3 z-[1001] rounded-xl bg-slate-900/85 border border-white/10 px-2.5 py-2 shadow-xl pointer-events-none"
+                    style={{ bottom: '12px' }}
+                >
+                    <div className="text-[9px] font-bold uppercase tracking-wider text-white/50 mb-1">
+                        Forecast wind (kt)
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        {WIND_BUCKETS.map((b) => (
+                            <div key={b.key} className="flex flex-col items-center gap-0.5">
+                                <span className="w-4 h-2 rounded-sm" style={{ background: b.color }} />
+                                <span className="text-[8px] text-white/55 leading-none">{b.label}</span>
+                            </div>
+                        ))}
+                        <div className="flex flex-col items-center gap-0.5 ml-1">
+                            <span className="w-4 h-2 rounded-sm" style={{ background: WIND_NODATA_COLOR }} />
+                            <span className="text-[8px] text-white/55 leading-none">n/a</span>
+                        </div>
                     </div>
                 </div>
             )}
@@ -954,6 +1120,48 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                     </div>
                 </div>
             </div>
+
+            {/* ═══ SPEED SPARKLINE — sits just above the scrubber, cursor
+                tracks the playback position ═══ */}
+            {!isTrackLoading && sparkline.path && (
+                <div
+                    className="absolute left-2 right-2 z-[1001] px-2.5 pt-1.5 pb-1 rounded-xl border border-white/10 shadow-lg"
+                    style={{
+                        bottom: 'calc(4rem + env(safe-area-inset-bottom) + 8px + 46px)',
+                        background: 'rgba(15, 23, 42, 0.85)',
+                    }}
+                >
+                    <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/40">Speed</span>
+                        <span className="text-[9px] font-mono text-white/40">{sparkline.maxKts.toFixed(0)} kt max</span>
+                    </div>
+                    <svg
+                        viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+                        preserveAspectRatio="none"
+                        className="w-full"
+                        style={{ height: 34 }}
+                    >
+                        <path d={`${sparkline.path}L${SPARK_W} ${SPARK_H}L0 ${SPARK_H}Z`} fill="rgba(34,197,94,0.18)" />
+                        <path
+                            d={sparkline.path}
+                            fill="none"
+                            stroke="#22c55e"
+                            strokeWidth={1.2}
+                            vectorEffect="non-scaling-stroke"
+                        />
+                        <line
+                            x1={sparkline.xs[playbackIndex] ?? 0}
+                            x2={sparkline.xs[playbackIndex] ?? 0}
+                            y1={0}
+                            y2={SPARK_H}
+                            stroke="#ffffff"
+                            strokeWidth={1}
+                            vectorEffect="non-scaling-stroke"
+                            opacity={0.8}
+                        />
+                    </svg>
+                </div>
+            )}
 
             {/* ═══ PLAYBACK SCRUBBER — matches app-wide scrubber pattern ═══ */}
             <div
