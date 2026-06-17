@@ -3588,7 +3588,7 @@ function applyFairleadAtGrid(
         }
     }
 
-    const refined = refineWithFairlead(poly, marks, isLand, { fromIdx });
+    const refined = refineWithFairlead(poly, marks, isLand, { fromIdx, cautionMask });
     if (!refined.replacedRange) {
         // TEMP field diagnostic (reply 37) — confirms whether the fairlead
         // path engages on-device and carries the dropSpikes build.
@@ -3596,7 +3596,6 @@ function applyFairleadAtGrid(
         return passthrough;
     }
 
-    const [entrySeg, exitSeg] = refined.replacedRange;
     const newPolyline: [number, number][] = refined.polyline.map((p) => [p.lon, p.lat]);
     // TEMP field diagnostic (reply 37): the worst deflection in the spliced
     // route. >120° ⇒ a double-back survived ⇒ this build predates the
@@ -3621,14 +3620,13 @@ function applyFairleadAtGrid(
     engineLog.warn(
         `[fairlead] spliced "${refined.channelKey}" — ${marks.length} marks, pts ${polyline.length}→${newPolyline.length}, worst turn ${Math.round(maxTurnDeg)}°`,
     );
-    const total = newPolyline.length - 1;
-    const prefixSegs = Math.min(entrySeg, cautionMask.length);
-    const suffixSegs = Math.max(0, cautionMask.length - (exitSeg + 1));
-    const cleanSegs = Math.max(0, total - prefixSegs - suffixSegs);
-    const newCaution: boolean[] = [];
-    for (let i = 0; i < prefixSegs; i++) newCaution.push(cautionMask[i] ?? false);
-    for (let i = 0; i < cleanSegs; i++) newCaution.push(false);
-    for (let i = exitSeg + 1; i < cautionMask.length; i++) newCaution.push(cautionMask[i] ?? false);
+    // refineWithFairlead re-aligns the caution mask across every splice (kept
+    // segments keep their flag, spliced bridges/centrelines are clean). Use it
+    // when its length matches; fall back to the input mask defensively.
+    const newCaution: boolean[] =
+        refined.cautionMask && refined.cautionMask.length === newPolyline.length - 1
+            ? refined.cautionMask
+            : cautionMask;
 
     if (ENGINE_DEBUG)
         engineLog.warn(`fairlead: spliced "${refined.channelKey}" channel from open-water vertex ${fromIdx}`);

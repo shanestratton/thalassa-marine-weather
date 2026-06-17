@@ -220,3 +220,53 @@ describe('refineWithFairlead — splice with the three safety gates', () => {
         expect(r.polyline).toBe(away);
     });
 });
+
+describe('refineWithFairlead — multi-channel (the Newport-end fix)', () => {
+    // Two DISTINCT channels the one route transits: a short "AA" (Newport-
+    // like exit) and a longer "BB" (Brisbane-like), separated by > the 1500 m
+    // groupChannels proximity so they never merge. The route runs N→S through
+    // both. Pre-fix the fairlead splices only the LONGEST (BB) and leaves AA
+    // to the raw disc-router (the field stepping at the Newport end); post-fix
+    // it must smooth BOTH.
+    const AA: LateralMark[] = [
+        mark(1, 'stbd', -27.25, 153.199, 'AA'),
+        mark(2, 'port', -27.25, 153.201, 'AA'),
+        mark(3, 'stbd', -27.248, 153.199, 'AA'),
+        mark(4, 'port', -27.248, 153.201, 'AA'),
+        mark(5, 'stbd', -27.246, 153.199, 'AA'),
+        mark(6, 'port', -27.246, 153.201, 'AA'),
+    ];
+    const BB: LateralMark[] = [
+        mark(1, 'stbd', -27.23, 153.199, 'BB'),
+        mark(2, 'port', -27.23, 153.201, 'BB'),
+        mark(3, 'stbd', -27.228, 153.199, 'BB'),
+        mark(4, 'port', -27.228, 153.201, 'BB'),
+        mark(5, 'stbd', -27.226, 153.199, 'BB'),
+        mark(6, 'port', -27.226, 153.201, 'BB'),
+        mark(7, 'stbd', -27.224, 153.199, 'BB'),
+        mark(8, 'port', -27.224, 153.201, 'BB'),
+        mark(9, 'stbd', -27.222, 153.199, 'BB'),
+        mark(10, 'port', -27.222, 153.201, 'BB'),
+    ];
+    const through: LatLon[] = [
+        { lat: -27.253, lon: 153.2 },
+        { lat: -27.248, lon: 153.2 },
+        { lat: -27.238, lon: 153.2 },
+        { lat: -27.226, lon: 153.2 },
+        { lat: -27.219, lon: 153.2 },
+    ];
+
+    it('splices EVERY transited channel, not just the longest', () => {
+        const r = refineWithFairlead(through, [...AA, ...BB], () => false);
+        expect(r.replacedRange).not.toBeNull();
+        // BOTH channels must be in the smoothed route (pre-fix only "BB").
+        expect(r.channelKey).toContain('AA');
+        expect(r.channelKey).toContain('BB');
+    });
+
+    it('a single channel still reports just its key (no regression)', () => {
+        const r = refineWithFairlead(through, BB, () => false);
+        expect(r.replacedRange).not.toBeNull();
+        expect(r.channelKey).toBe('BB');
+    });
+});

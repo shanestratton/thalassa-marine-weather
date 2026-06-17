@@ -307,15 +307,25 @@ export interface RefineOptions extends FairleadOptions {
     /** Min fraction of a channel's marks that must lie near the route for it
      *  to count as a genuine transit (not two stray ends). Default 0.6. */
     minAlongFraction?: number;
+    /** Per-segment caution of the input polyline (length = points − 1). When
+     *  provided, the result carries a correctly re-aligned caution mask:
+     *  original kept segments keep their flag, every spliced bridge/centreline
+     *  segment is clean. The caller (engine) passes this so multi-channel
+     *  splices don't desync the red-rendering mask. */
+    cautionMask?: boolean[];
 }
 
 export interface RefineResult {
-    /** Route polyline with a transited buoyed channel replaced by the Fairlead
-     *  centreline; unchanged if nothing is transited / validates. */
+    /** Route polyline with each transited buoyed channel replaced by its
+     *  Fairlead centreline; unchanged if nothing is transited / validates. */
     polyline: LatLon[];
-    /** [entrySegIdx, exitSegIdx] polyline SEGMENT indices replaced, or null. */
+    /** Outer hull [firstEntrySegIdx, lastExitSegIdx] of the replaced ranges,
+     *  or null when nothing was spliced. */
     replacedRange: [number, number] | null;
+    /** '+'-joined keys of every channel spliced (route order), or null. */
     channelKey: string | null;
+    /** Re-aligned per-segment caution, present iff opts.cautionMask was given. */
+    cautionMask?: boolean[];
 }
 
 /** Project p onto segment a→b (local planar metres). */
@@ -415,7 +425,12 @@ export function refineWithFairlead(
     isLand?: (p: LatLon) => boolean,
     opts: RefineOptions = {},
 ): RefineResult {
-    const unchanged: RefineResult = { polyline, replacedRange: null, channelKey: null };
+    const unchanged: RefineResult = {
+        polyline,
+        replacedRange: null,
+        channelKey: null,
+        cautionMask: opts.cautionMask,
+    };
     if (polyline.length < 2 || marks.length < 3) return unchanged;
 
     const traverseM = opts.traverseM ?? 500;
@@ -423,9 +438,17 @@ export function refineWithFairlead(
     const minFrac = opts.minAlongFraction ?? 0.6;
     const channels = groupChannels(marks);
 
-    type Hit = ReturnType<typeof projectToPolyline>;
-    let best: { ch: LateralMark[]; entry: Hit; exit: Hit } | null = null;
-    let bestSpan = -1;
+    // Collect EVERY channel the route genuinely transits, each with a land-
+    // valid, de-spiked spliced centreline. (Was: pick the single longest-span
+    // channel — which left every OTHER transited channel, e.g. a marina exit,
+    // as raw stepped A*: the Newport-end stepping.)
+    interface Cand {
+        ei: number; // entry polyline segment index
+        xi: number; // exit polyline segment index
+        spliced: LatLon[]; // [entry.point, …centreline, exit.point], de-spiked
+        key: string;
+    }
+    const cands: Cand[] = [];
     for (const ch of channels) {
         // The route must run ALONG the channel: enough of its marks near the line.
         let near = 0;
@@ -435,35 +458,72 @@ export function refineWithFairlead(
         const seqSorted = ch.slice().sort((a, b) => a.seq - b.seq);
         const p0 = projectToPolyline(seqSorted[0], polyline);
         const p1 = projectToPolyline(seqSorted[seqSorted.length - 1], polyline);
-        if (p0.dist < traverseM && p1.dist < traverseM && Math.abs(p0.along - p1.along) > 1e-6) {
-            const [entry, exit] = p0.along <= p1.along ? [p0, p1] : [p1, p0];
-            if (entry.segIdx < fromIdx) continue; // before the marina exit → skip
-            const span = exit.along - entry.along;
-            if (span > bestSpan) {
-                bestSpan = span;
-                best = { ch, entry, exit };
+        if (!(p0.dist < traverseM && p1.dist < traverseM && Math.abs(p0.along - p1.along) > 1e-6)) continue;
+        const [entry, exit] = p0.along <= p1.along ? [p0, p1] : [p1, p0];
+        if (entry.segIdx < fromIdx) continue; // before the marina exit → skip
+
+        // This channel's OWN centreline (not routeFairlead, which re-picks the
+        // nearest — we want each channel, directed toward its entry).
+        let centre = corridorCenterline(ch);
+        if (centre.length < 2) continue;
+        centre = smoothPath(centre, opts.smoothWindow ?? 11);
+        centre = directRoute(centre, entry.point);
+
+        // De-spike the single-side mouth drift (the ~175° double-back) BEFORE
+        // the land check, endpoints kept; then validate the WHOLE spliced run
+        // (entry bridge + centreline + exit bridge) against land — the grid
+        // isLand catches estate land LNDARE misses. ANY land point ⇒ drop THIS
+        // channel (defer to the grid route there — never fabricate water).
+        const spliced = dropSpikes([entry.point, ...centre, exit.point], MAX_FAIRLEAD_REVERSAL_DEG);
+        if (isLand && anyAlong(spliced, 25, isLand)) continue;
+        cands.push({ ei: entry.segIdx, xi: exit.segIdx, spliced, key: ch[0].key });
+    }
+    if (cands.length === 0) return unchanged;
+
+    // Greedy longest-first, keep only non-overlapping segment ranges (a stretch
+    // of route belongs to at most one channel).
+    cands.sort((a, b) => b.xi - b.ei - (a.xi - a.ei));
+    const chosen: Cand[] = [];
+    for (const c of cands) if (chosen.every((o) => c.xi < o.ei || c.ei > o.xi)) chosen.push(c);
+    chosen.sort((a, b) => a.ei - b.ei); // route order, to splice in sequence
+
+    // Build the refined polyline + re-aligned caution mask in lockstep. Kept
+    // original segments retain their caution; every spliced bridge/centreline
+    // segment is clean (deep) — the single-channel semantics, generalised to
+    // any number of non-overlapping splices.
+    const cm = opts.cautionMask;
+    const out: LatLon[] = [];
+    const outCaution: boolean[] = [];
+    const pushOrig = (from: number, to: number, afterSplice: boolean): void => {
+        for (let k = from; k <= to; k++) {
+            if (out.length > 0) {
+                // First point after a splice ⇒ exit-bridge segment (clean);
+                // otherwise the original segment (k−1 → k).
+                outCaution.push(k === from && afterSplice ? false : cm ? (cm[k - 1] ?? false) : false);
             }
+            out.push(polyline[k]);
         }
+    };
+    const pushSplice = (pts: LatLon[]): void => {
+        for (const p of pts) {
+            if (out.length > 0) outCaution.push(false); // entry bridge + centreline = clean
+            out.push(p);
+        }
+    };
+    let cur = 0;
+    let afterSplice = false;
+    for (const c of chosen) {
+        pushOrig(cur, c.ei, afterSplice);
+        pushSplice(c.spliced);
+        cur = c.xi + 1;
+        afterSplice = true;
     }
-    if (!best) return unchanged;
+    pushOrig(cur, polyline.length - 1, afterSplice);
 
-    const handoff = best.entry.point;
-    const fl = routeFairlead(marks, handoff, opts);
-    if (!fl) return unchanged;
-    let centre = fl.centerline;
-    if (distM(centre[0], handoff) > distM(centre[centre.length - 1], handoff)) {
-        centre = centre.slice().reverse();
-    }
-
-    // Validate the WHOLE spliced run (entry bridge + centreline + exit bridge)
-    // against land. The grid-based isLand catches estate land that LNDARE
-    // misses — the hole that drew straight lines across the canal.
-    // Trim single-side-end drift spikes BEFORE the land check + splice, so a
-    // ~175° double-back at the channel mouth (the field stepping) never
-    // reaches the route. Endpoints (the entry/exit bridge anchors) are kept.
-    const spliced = dropSpikes([best.entry.point, ...centre, best.exit.point], MAX_FAIRLEAD_REVERSAL_DEG);
-    if (isLand && anyAlong(spliced, 25, isLand)) return unchanged;
-
-    const refined = [...polyline.slice(0, best.entry.segIdx + 1), ...spliced, ...polyline.slice(best.exit.segIdx + 1)];
-    return { polyline: refined, replacedRange: [best.entry.segIdx, best.exit.segIdx], channelKey: best.ch[0].key };
+    return {
+        polyline: out,
+        replacedRange: [chosen[0].ei, chosen[chosen.length - 1].xi],
+        channelKey: chosen.map((c) => c.key).join('+'),
+        cautionMask: cm ? outCaution : undefined,
+    };
 }
