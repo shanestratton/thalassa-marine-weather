@@ -237,6 +237,64 @@ export function careerTotalsFromSummaries(summaries: VoyageSummary[]): CareerTot
     };
 }
 
+// ── Personal records ────────────────────────────────────────────────
+// Career-wide bests, derived purely from voyage SUMMARIES (no full
+// entry load). Top-speed-ever and biggest-day's-run need per-point /
+// per-day data the summary doesn't carry — deferred to a future RPC
+// field. These three are honest from summary data alone.
+
+export interface PersonalRecords {
+    longestPassageNM: number;
+    longestPassageVoyageId: string | null;
+    fastestAvgKts: number;
+    fastestVoyageId: string | null;
+    longestDurationMs: number;
+    longestDurationVoyageId: string | null;
+    /** Voyages counted (own maritime, sailed) — 0 ⇒ render the empty state. */
+    voyageCount: number;
+}
+
+/**
+ * Pure rollup of career records over voyage summaries. Counts only the
+ * sailor's own maritime voyages (not imported, not planned, water
+ * majority) — the same filter careerTotalsFromSummaries uses — so a car
+ * drive or a saved route never sets a "record".
+ */
+export function computePersonalRecords(summaries: VoyageSummary[]): PersonalRecords {
+    const rec: PersonalRecords = {
+        longestPassageNM: 0,
+        longestPassageVoyageId: null,
+        fastestAvgKts: 0,
+        fastestVoyageId: null,
+        longestDurationMs: 0,
+        longestDurationVoyageId: null,
+        voyageCount: 0,
+    };
+    for (const s of summaries) {
+        if (s.isImported || s.isPlannedRoute) continue;
+        const isMaritime = s.landFraction == null || s.landFraction < 0.6;
+        if (!isMaritime) continue;
+        rec.voyageCount += 1;
+
+        if ((s.totalDistanceNM || 0) > rec.longestPassageNM) {
+            rec.longestPassageNM = s.totalDistanceNM || 0;
+            rec.longestPassageVoyageId = s.voyageId;
+        }
+        if ((s.avgSpeedKts || 0) > rec.fastestAvgKts) {
+            rec.fastestAvgKts = s.avgSpeedKts || 0;
+            rec.fastestVoyageId = s.voyageId;
+        }
+        const start = new Date(s.startedAt).getTime();
+        const end = new Date(s.endedAt).getTime();
+        const dur = isFinite(start) && isFinite(end) && end > start ? end - start : 0;
+        if (dur > rec.longestDurationMs) {
+            rec.longestDurationMs = dur;
+            rec.longestDurationVoyageId = s.voyageId;
+        }
+    }
+    return rec;
+}
+
 // ── Empty-track auto-prune ──────────────────────────────────────────
 // A voyage that recorded but never went anywhere — distance rounds to
 // "0.0 NM". Almost always an accidental start/stop or a cold-start that

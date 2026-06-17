@@ -34,6 +34,7 @@ import { ShipLogEntry } from '../types';
 
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
+import { computePersonalRecords } from '../services/shiplog/VoyageSummary';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -135,6 +136,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             state.selectedVoyageId ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId) : state.entries,
         [state.entries, state.selectedVoyageId],
     );
+
+    // Career personal records — derived purely from voyage summaries.
+    const records = React.useMemo(() => computePersonalRecords(state.summaries), [state.summaries]);
 
     // "Recording" vs "Acquiring GPS fix…" — keyed on whether the active
     // voyage has a real recorded position yet. gpsStatus alone can't be
@@ -659,6 +663,55 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </div>
                         );
                     })()}
+
+                    {/* ── Personal records strip — career bests from summaries.
+                        Shown in the list view (not while the live card fills
+                        the screen), only once there's qualifying history. */}
+                    {!isTracking && records.voyageCount >= 2 && (
+                        <div className="px-4 mb-2">
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    {
+                                        label: 'Longest',
+                                        value: `${records.longestPassageNM.toFixed(0)}`,
+                                        unit: 'NM',
+                                        icon: '🛣️',
+                                    },
+                                    {
+                                        label: 'Fastest avg',
+                                        value: `${records.fastestAvgKts.toFixed(1)}`,
+                                        unit: 'kt',
+                                        icon: '⚡',
+                                    },
+                                    {
+                                        label: 'Longest trip',
+                                        value: (() => {
+                                            const h = records.longestDurationMs / 3600000;
+                                            return h >= 24 ? `${Math.floor(h / 24)}d` : `${Math.round(h)}h`;
+                                        })(),
+                                        unit: '',
+                                        icon: '⏱️',
+                                    },
+                                ].map((r) => (
+                                    <div
+                                        key={r.label}
+                                        className="rounded-xl bg-slate-900/40 border border-amber-500/15 px-2 py-2 text-center"
+                                    >
+                                        <div className="text-[9px] uppercase tracking-wider text-amber-400/70 font-bold flex items-center justify-center gap-1">
+                                            <span>{r.icon}</span>
+                                            {r.label}
+                                        </div>
+                                        <div className="text-lg font-extrabold text-white tabular-nums mt-0.5">
+                                            {r.value}
+                                            {r.unit && (
+                                                <span className="text-[10px] text-white/40 ml-0.5">{r.unit}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {isTracking ? (
                         <>

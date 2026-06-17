@@ -76,6 +76,63 @@ export function groupEntriesByDate(entries: ShipLogEntry[]): GroupedEntries[] {
         .sort((a, b) => b.date.localeCompare(a.date)); // Newest date first
 }
 
+// ── Day's runs (noon-to-noon) ───────────────────────────────────────
+// Classic passage logbook: a multi-day voyage is measured in daily
+// runs, each from local noon to the next local noon.
+
+export interface DayRun {
+    /** Sequential run number, 1-indexed. */
+    dayNumber: number;
+    /** Epoch-ms of the window's local-noon start (for stable sort/keys). */
+    windowStartMs: number;
+    /** NM made good in the window. */
+    distanceNM: number;
+    /** Timestamps of the first/last entry actually in the window. */
+    firstTs: string;
+    lastTs: string;
+    entryCount: number;
+}
+
+/** Local-noon start of the noon-to-noon window a timestamp falls in. */
+function noonWindowStartMs(timestamp: string): number {
+    const d = new Date(timestamp);
+    const noon = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12, 0, 0, 0);
+    if (d.getTime() < noon.getTime()) noon.setDate(noon.getDate() - 1); // before noon → previous window
+    return noon.getTime();
+}
+
+/**
+ * Break a voyage into noon-to-noon day's runs. Distance is the SUM of
+ * per-leg distanceNM within each window (NOT a cumulativeDistanceNM diff
+ * — turn pins copy cumulative and contribute 0 distance, so a naive diff
+ * double-counts). Each leg is attributed to its end-entry's window; at
+ * 5 s cadence the boundary leg is metres, negligible. Windows are
+ * returned chronologically and numbered Day 1..N.
+ */
+export function groupEntriesByNoonWindow(entries: ShipLogEntry[]): DayRun[] {
+    const byWindow = new Map<number, ShipLogEntry[]>();
+    for (const e of entries) {
+        const w = noonWindowStartMs(e.timestamp);
+        const arr = byWindow.get(w);
+        if (arr) arr.push(e);
+        else byWindow.set(w, [e]);
+    }
+
+    const windows = [...byWindow.keys()].sort((a, b) => a - b);
+    return windows.map((windowStartMs, i) => {
+        const list = byWindow.get(windowStartMs)!;
+        const sorted = [...list].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        return {
+            dayNumber: i + 1,
+            windowStartMs,
+            distanceNM: sorted.reduce((sum, e) => sum + (e.distanceNM || 0), 0),
+            firstTs: sorted[0].timestamp,
+            lastTs: sorted[sorted.length - 1].timestamp,
+            entryCount: sorted.length,
+        };
+    });
+}
+
 /**
  * Calculate voyage statistics
  */
