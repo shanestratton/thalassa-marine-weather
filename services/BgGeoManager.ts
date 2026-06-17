@@ -153,28 +153,42 @@ class BgGeoManagerClass {
      *      stored, Mapbox handles the polyline, battery is BETTER than
      *      the old 2 Hz precision mode. Predictability > compression.
      *
-     * Modes (both now use the same 5 s cadence — kept the two-mode
-     * signature for backwards compat with callers that still pass
-     * 'precision'):
-     *   - 'default'   — distanceFilter 1 m, 5 s interval
-     *   - 'precision' — distanceFilter 1 m, 5 s interval (same)
+     * Modes:
+     *   - 'default'   — distanceFilter 1 m (steady state)
+     *   - 'precision' — distanceFilter 1 m (same; kept for back-compat
+     *                   with callers that still pass 'precision')
+     *   - 'fastlock'  — distanceFilter 0 — emit on EVERY chip update.
      *
      * The 1 m distanceFilter is what stops stationary GPS jitter from
      * generating fixes at anchor. During real movement at any speed
      * above ~0.2 m/s, every 5 s tick produces a fix.
      *
+     * FAST-LOCK (2026-06-17): on iOS, CLLocationManager delivers fixes
+     * by DISTANCE, not time — `locationUpdateInterval` /
+     * `fastestLocationUpdateInterval` are Android-only and inert here.
+     * The only iOS fix-rate lever is `distanceFilter`. At the dock,
+     * stationary, distanceFilter:1 emits almost nothing (no 1 m of
+     * movement to cross), which STARVES the ship-log first-fix
+     * consistency gate — it needs a 2nd corroborating fix before it
+     * opens the track, so "Acquiring GPS fix…" lingers. distanceFilter:0
+     * emits on every chip update regardless of movement, delivering that
+     * 2nd fix in seconds. (This does NOT make the GPS lock or converge
+     * faster — TTFF is satellite-bound — it just unblocks the gate.)
+     * ShipLogService arms this for ~30 s at the start of a genuinely new
+     * voyage, then reverts to 'default'.
+     *
      * Calling `setConfig` on a running BgGeo session applies live,
      * no restart needed.
      */
-    async setSamplingMode(mode: 'default' | 'precision'): Promise<void> {
+    async setSamplingMode(mode: 'default' | 'precision' | 'fastlock'): Promise<void> {
         try {
             await this.ensureReady();
             await BackgroundGeolocation.setConfig({
-                distanceFilter: 1,
+                distanceFilter: mode === 'fastlock' ? 0 : 1,
                 locationUpdateInterval: 5000,
                 fastestLocationUpdateInterval: 5000,
             });
-            log.info(`GPS sampling → ${mode.toUpperCase()} (5 s interval, raw retention)`);
+            log.info(`GPS sampling → ${mode.toUpperCase()} (distanceFilter ${mode === 'fastlock' ? 0 : 1})`);
         } catch (e) {
             log.warn('setSamplingMode failed (engine may not be running):', e);
         }

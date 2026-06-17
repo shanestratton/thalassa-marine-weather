@@ -89,6 +89,7 @@ const log = createLogger('ShipLog');
 const TRACKING_INTERVAL_MS = 60 * 1000; // 60 seconds (fallback / offshore default)
 const RAPID_INTERVAL_MS = 10 * 1000; // 10 seconds for marina/shore navigation (manual override)
 const VOYAGE_STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 hours — start new voyage instead of resuming
+const FAST_LOCK_MS = 30 * 1000; // cold-start fast-lock (distanceFilter:0) duration for a new voyage
 
 // --- MAIN SERVICE CLASS ---
 
@@ -102,6 +103,13 @@ class ShipLogServiceClass {
     private syncIntervalId?: NodeJS.Timeout;
     private rapidModeTimeoutId?: NodeJS.Timeout; // 15-minute auto-disable for rapid mode
     private precisionModeTimeoutId?: NodeJS.Timeout; // 60-minute auto-disable for precision mode (battery guard)
+    // Cold-start fast-lock (distanceFilter:0) auto-revert. Armed only for
+    // a GENUINELY new voyage; reverted after FAST_LOCK_MS. Stored on the
+    // instance + cleared in stop/pause + an idempotent same-voyage check
+    // in the callback so a late/stale fire (stop within 30 s, iOS
+    // background-throttled timer, reload race) is always a clean no-op.
+    private fastLockTimeoutId?: NodeJS.Timeout;
+    private fastLockArmedForVoyageId?: string;
     // (envCheckIntervalId moved into EnvironmentPoller — see this.envPoller below)
     // GPS subscriptions, fix-acceptance gate, speed-tier debounce, and
     // heartbeat all live in GpsSubscriptionManager.
@@ -390,6 +398,12 @@ class ShipLogServiceClass {
         } else {
             voyageId = `voyage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         }
+        // GENUINELY new voyage = the mint branch above. Resume (JS-context
+        // reload, continueVoyageId) and autoStart-resume must NOT re-arm
+        // fast-lock 30+ min into a passage — that would re-spike sampling
+        // mid-voyage (the disturbance the 60-min precision auto-shutoff
+        // removal was meant to kill).
+        const isNewVoyage = !continueVoyageId && !(resume && this.trackingState.currentVoyageId);
 
         this.trackingState = {
             isTracking: true,
@@ -420,12 +434,20 @@ class ShipLogServiceClass {
 
         this.notifyTrackingChanged();
 
-        // Flip the GPS plugin into precision sampling mode immediately.
-        // Done after saveTrackingState so that on a crash + restore the
-        // state reflects what the engine is actually doing.
-        BgGeoManager.setSamplingMode('precision').catch((e) => {
-            log.warn('failed to enter precision sampling on track start:', e);
-        });
+        // COLD-START FAST-LOCK (new voyages only). distanceFilter:0 emits
+        // a fix on every chip update even while stationary at the dock,
+        // so the first-fix consistency gate gets its corroborating 2nd
+        // fix in seconds instead of waiting for 1 m of movement — the
+        // "Acquiring GPS fix…" banner clears sooner. Reverts to the
+        // steady 1 m filter after FAST_LOCK_MS. On resume / mid-voyage
+        // reload we stay at the steady mode (no re-spike).
+        if (this.isNative && isNewVoyage) {
+            this.armFastLock(voyageId);
+        } else {
+            BgGeoManager.setSamplingMode('default').catch((e) => {
+                log.warn('failed to set GPS sampling on track start:', e);
+            });
+        }
 
         // --- BATTLE-HARDENED GPS STREAMING ---
         // Wire up continuous position caching + the speed-tier debounce +
@@ -542,8 +564,44 @@ class ShipLogServiceClass {
     /**
      * Pause tracking (user initiated)
      */
+    /**
+     * Arm cold-start fast-lock for a new voyage: flip the GPS engine to
+     * distanceFilter:0 (emit on every chip update, even stationary) so
+     * the first-fix consistency gate opens the track promptly, then
+     * auto-revert to the steady 1 m filter after FAST_LOCK_MS.
+     *
+     * The revert callback is idempotent: it only acts if we're still
+     * tracking THIS voyage, so a stale fire (stop within 30 s, an
+     * iOS-throttled background timer, or a stop+new-start race) is a
+     * clean no-op. The timer is also cleared in stop/pause.
+     */
+    private armFastLock(voyageId: string): void {
+        this.clearFastLock();
+        this.fastLockArmedForVoyageId = voyageId;
+        BgGeoManager.setSamplingMode('fastlock').catch((e) => {
+            log.warn('failed to enter fast-lock sampling on track start:', e);
+        });
+        this.fastLockTimeoutId = setTimeout(() => {
+            this.fastLockTimeoutId = undefined;
+            if (this.trackingState.isTracking && this.trackingState.currentVoyageId === this.fastLockArmedForVoyageId) {
+                BgGeoManager.setSamplingMode('default').catch((e) => {
+                    log.warn('fast-lock revert failed:', e);
+                });
+            }
+        }, FAST_LOCK_MS);
+    }
+
+    /** Cancel a pending fast-lock revert timer (no engine change). */
+    private clearFastLock(): void {
+        if (this.fastLockTimeoutId) {
+            clearTimeout(this.fastLockTimeoutId);
+            this.fastLockTimeoutId = undefined;
+        }
+    }
+
     async pauseTracking(): Promise<void> {
         this.scheduler.stop();
+        this.clearFastLock();
 
         // Stop course change detection + environment polling while paused
         this.courseDetector.stop();
@@ -598,14 +656,15 @@ class ShipLogServiceClass {
         this.courseDetector.reset();
         this.envPoller.stop();
 
-        // Clear precision-mode timer + revert GPS sampling rate so the
-        // next voyage starts in default mode. Otherwise the 60-min
-        // auto-shutoff would fire on a stopped voyage and toggle
-        // sampling on a non-existent session.
+        // Clear precision-mode + fast-lock timers, then revert GPS
+        // sampling rate so the next voyage starts in default mode.
+        // Otherwise a pending revert/auto-shutoff would fire on a stopped
+        // voyage and toggle sampling on a non-existent session.
         if (this.precisionModeTimeoutId) {
             clearTimeout(this.precisionModeTimeoutId);
             this.precisionModeTimeoutId = undefined;
         }
+        this.clearFastLock();
         await BgGeoManager.setSamplingMode('default');
 
         // Reset precision GPS tracker for next voyage
