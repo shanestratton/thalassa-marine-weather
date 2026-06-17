@@ -25,7 +25,7 @@
  */
 
 import type { NavGrid } from '../inshoreRouterEngine';
-import { refineWithFairlead, groupChannels, type LateralMark } from '../fairlead';
+import { refineWithFairlead, groupChannels, corridorCenterline, type LateralMark } from '../fairlead';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { angularDiff, freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
@@ -148,10 +148,15 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
                 .map((ch) => {
                     const f = poly.some((p) => distM(p.lat, p.lon, ch[0].lat, ch[0].lon) < 500);
                     const l = poly.some((p) => distM(p.lat, p.lon, ch[ch.length - 1].lat, ch[ch.length - 1].lon) < 500);
-                    return `${ch[0].key}:${ch.length}${f ? 'F' : '-'}${l ? 'L' : '-'}`;
+                    if (!f && !l) return null; // only channels touching this span
+                    const p = ch.filter((m) => m.side === 'port').length;
+                    const s = ch.filter((m) => m.side === 'stbd').length;
+                    const cl = corridorCenterline(ch).length; // 0 ⇒ one side empty ⇒ fairlead bails
+                    return `${ch[0].key}:${ch.length}(p${p}s${s}cl${cl})${f ? 'F' : '-'}${l ? 'L' : '-'}`;
                 })
+                .filter(Boolean)
                 .join(',');
-            prov.push(`astar(nm=${near};ch=[${chs}])`);
+            prov.push(`astar(nm=${near};${chs})`);
         }
     }
 
