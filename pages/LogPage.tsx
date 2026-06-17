@@ -1116,6 +1116,38 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 </div>
             )}
 
+            {/* ── Acquiring-GPS modal toast ──
+                A just-started voyage records nothing until the first clean
+                fix lands, so a full-width banner makes the wait visible
+                instead of the easy-to-miss inline chips. Shows whenever
+                we're tracking but have no real recorded position yet, and
+                auto-dismisses the instant a fix arrives (hasRecordedFix
+                flips). z above the fullscreen maps; pointer-events-none so
+                it never blocks the Stop button underneath. */}
+            {isTracking && !hasRecordedFix && (
+                <div
+                    className="fixed inset-x-0 z-[10000] flex justify-center px-4 pointer-events-none animate-in fade-in slide-in-from-top-4 duration-300"
+                    style={{ top: 'calc(env(safe-area-inset-top) + 12px)' }}
+                    role="status"
+                    aria-live="polite"
+                >
+                    <div className="w-full max-w-sm flex items-center gap-3 rounded-2xl bg-slate-900/95 border border-amber-400/30 shadow-2xl shadow-black/40 px-4 py-3 backdrop-blur-md">
+                        <span className="relative flex h-3 w-3 shrink-0">
+                            <span className="absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 animate-ping" />
+                            <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-400" />
+                        </span>
+                        <div className="min-w-0">
+                            <div className="text-[13px] font-bold text-amber-300 uppercase tracking-widest">
+                                Acquiring GPS fix…
+                            </div>
+                            <div className="text-[11px] text-white/50 leading-snug">
+                                Recording starts at the first clean fix
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Toast Notifications */}
             <toast.ToastContainer />
 
