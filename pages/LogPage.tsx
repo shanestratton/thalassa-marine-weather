@@ -760,6 +760,7 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                                         entries={activeEntries}
                                                         height="100%"
                                                         isLive={true}
+                                                        freeZoom={true}
                                                         onTap={() => setLiveMapExpanded(false)}
                                                         className="!rounded-none !border-0"
                                                     />
