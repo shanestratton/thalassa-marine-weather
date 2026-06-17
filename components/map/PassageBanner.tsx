@@ -448,20 +448,22 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                 )}
 
                 {/* ── Pilotage / depth disclaimer ──
-                    The bathymetric router uses GEBCO at coarse
-                    resolution + a global wind/wave forecast. It WILL
-                    miss small reefs, narrow channels, marker buoys,
-                    and any pass that needs slack-water timing. The
-                    skipper still owns pilotage. Showed once the
-                    route is fully computed (not during cooking) so
-                    it doesn't compete with the progress indicator
-                    for attention. */}
+                    A suggestion, not a survey — the skipper owns
+                    pilotage. Copy is source-agnostic on purpose: the
+                    offshore router uses coarse GEBCO + a global forecast,
+                    the inshore router uses the ENC charts, and the OLD
+                    copy hard-claimed "GEBCO bathymetry + global wind"
+                    even on an ENC inshore route (collab reply 37) — which
+                    reads as a reason to distrust a perfectly good charted
+                    route. Showed once the route is fully computed (not
+                    during cooking) so it doesn't fight the progress
+                    indicator for attention. */}
                 {passage.routeAnalysis && passage.departure && passage.arrival && !isoProgress && (
                     <div className="border-t border-amber-500/10 bg-amber-500/[0.03] px-3.5 py-2 flex items-start gap-2">
                         <span className="text-amber-400/70 text-[13px] leading-tight shrink-0">⚠️</span>
                         <p className="text-[11px] leading-snug text-amber-200/70">
-                            Suggested route only — built from GEBCO bathymetry + global wind forecast. Confirm pilotage,
-                            channel markers, tide timing &amp; local hazards on your charts before sailing.
+                            Suggested route only — always verify pilotage, channel markers, tide timing &amp; local
+                            hazards against your own charts before sailing.
                         </p>
                     </div>
                 )}
