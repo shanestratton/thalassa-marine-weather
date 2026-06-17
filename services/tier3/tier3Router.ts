@@ -25,7 +25,7 @@
  */
 
 import type { NavGrid } from '../inshoreRouterEngine';
-import { refineWithFairlead, type LateralMark } from '../fairlead';
+import { refineWithFairlead, groupChannels, type LateralMark } from '../fairlead';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { angularDiff, freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
@@ -138,11 +138,20 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             vouched = true;
             prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
         } else {
-            // declined — record how many marks are actually within 500 m of the
-            // span so the on-device readout shows WHY (no channel near vs a
-            // near channel fairlead still won't take).
+            // declined despite a tier-3 classification — log WHY. For each
+            // channel groupChannels finds, report key:size and whether its
+            // FIRST and LAST mark sit near this span (f/l). A channel longer
+            // than the span reads `…F-` (entry near, exit beyond) → fairlead's
+            // both-endpoints-near gate is what's blocking, not minFrac.
             const near = ctx.marks.filter((m) => poly.some((p) => distM(p.lat, p.lon, m.lat, m.lon) < 500)).length;
-            prov.push(`astar(nm=${near})`);
+            const chs = groupChannels([...ctx.marks])
+                .map((ch) => {
+                    const f = poly.some((p) => distM(p.lat, p.lon, ch[0].lat, ch[0].lon) < 500);
+                    const l = poly.some((p) => distM(p.lat, p.lon, ch[ch.length - 1].lat, ch[ch.length - 1].lon) < 500);
+                    return `${ch[0].key}:${ch.length}${f ? 'F' : '-'}${l ? 'L' : '-'}`;
+                })
+                .join(',');
+            prov.push(`astar(nm=${near};ch=[${chs}])`);
         }
     }
 
