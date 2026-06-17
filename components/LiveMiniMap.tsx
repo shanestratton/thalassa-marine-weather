@@ -58,21 +58,17 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 zoomAnimation: false,
             });
 
-            // CARTO dark base — route through Pi Cache when available
-            L.tileLayer(piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'), {
-                maxZoom: 19,
-            }).addTo(map);
-
-            // EMODnet bathymetry overlay REMOVED 2026-06-12 — its
-            // "baselayer" tiles are a light, fully-painted basemap, so
-            // blended at 35% below z12 (exactly where a whole track
-            // fits) they washed the dark map near-white and drowned the
-            // track line.
+            // CARTO Voyager base (2026-06-13) — clean light nautical map,
+            // matches TrackMapViewer; replaced the grungy near-black base.
+            L.tileLayer(
+                piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
+                { maxZoom: 19 },
+            ).addTo(map);
 
             // OpenSeaMap overlay
             L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
                 maxZoom: 18,
-                opacity: 0.7,
+                opacity: 0.8,
             }).addTo(map);
 
             const layerGroup = L.layerGroup().addTo(map);
@@ -121,16 +117,16 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             const coords = sorted.map((e) => [e.latitude!, e.longitude!] as [number, number]);
             const isPlanned = sorted.some((e) => e.source === 'planned_route');
 
-            // Track color
-            const mainColor = isPlanned ? '#a78bfa' : '#38bdf8';
+            // Bolder colour that reads on the light Voyager base.
+            const mainColor = isPlanned ? '#7c3aed' : '#0284c7';
 
             // Track lines
             if (coords.length >= 2) {
-                // Glow
+                // White casing — crisp "chart route" outline on any base.
                 L.polyline(coords, {
-                    color: mainColor,
-                    weight: 6,
-                    opacity: 0.15,
+                    color: '#ffffff',
+                    weight: 5,
+                    opacity: 0.7,
                     lineCap: 'round',
                     lineJoin: 'round',
                 }).addTo(lg);
@@ -139,7 +135,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 L.polyline(coords, {
                     color: mainColor,
                     weight: 2.5,
-                    opacity: 0.9,
+                    opacity: 1,
                     lineCap: 'round',
                     lineJoin: 'round',
                     dashArray: isPlanned ? '8 6' : undefined,
@@ -210,7 +206,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             <div
                 ref={containerRef}
                 className={`w-full rounded-xl overflow-hidden border border-white/5 ${onTap ? 'cursor-pointer' : ''} ${className}`}
-                style={{ height }}
+                style={{ height, background: '#dce6ea' }}
             />
         );
     },

@@ -142,20 +142,20 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             fadeAnimation: true,
         }).setView([-27.5, 153.1], 6); // Default view — fitBounds overrides when track loads
 
-        // Dark nautical tile layer (base) — route through Pi Cache when available
-        L.tileLayer(piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'), {
-            maxZoom: 19,
-        }).addTo(map);
-
-        // EMODnet bathymetry overlay REMOVED 2026-06-12 — its "baselayer"
-        // tiles are a light, fully-painted basemap; blended at 35% below
-        // z12 (exactly the zoom a whole track fits at) it washed the dark
-        // map near-white and made the track line unreadable.
+        // Base map — CARTO Voyager (2026-06-13). Swapped off the near-black
+        // dark_all base, which read grungy with a thin bright track on it.
+        // Voyager is a clean, modern, light basemap with soft nautical-blue
+        // water + clear labels, shares OSM's reference frame (so OpenSeaMap
+        // seamarks still align), and stays crisp to z19.
+        L.tileLayer(
+            piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
+            { maxZoom: 19 },
+        ).addTo(map);
 
         // OpenSeaMap seamark overlay
         L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
             maxZoom: 18,
-            opacity: 0.85,
+            opacity: 0.9,
         }).addTo(map);
 
         // Layer group for track data
@@ -215,19 +215,23 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
         const addSegment = (coords: [number, number][], isWater: boolean, isPlannedRoute: boolean) => {
             if (coords.length < 2) return;
-            const color = isPlannedRoute ? '#a78bfa' : isWater ? '#38bdf8' : '#34d399';
+            // Bolder, deeper colours that read on the light Voyager base.
+            const color = isPlannedRoute ? '#7c3aed' : isWater ? '#0284c7' : '#059669';
 
+            // White casing under the line — gives a crisp "chart route"
+            // outline that pops on any background instead of a thin line
+            // lost in the map.
             L.polyline(coords, {
-                color,
-                weight: 8,
-                opacity: 0.2,
+                color: '#ffffff',
+                weight: 6.5,
+                opacity: 0.7,
                 lineCap: 'round',
                 lineJoin: 'round',
             }).addTo(layerGroup);
 
             L.polyline(coords, {
                 color,
-                weight: 3,
+                weight: 3.5,
                 opacity: 1,
                 lineCap: 'round',
                 lineJoin: 'round',
@@ -321,14 +325,16 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // waypoint feature is redesigned.
 
         // GPS dots — line entries only, so off-route manual/pin
-        // positions don't reappear as stray dots.
+        // positions don't reappear as stray dots. Deeper fills + a faint
+        // white stroke so they read on the light Voyager base.
         lineEntries.forEach((entry) => {
             if (entry.entryType === 'waypoint') return;
             L.circleMarker([entry.latitude!, entry.longitude!], {
                 radius: 2,
-                fillColor: entry.isOnWater ? '#38bdf8' : '#34d399',
-                fillOpacity: 0.6,
-                stroke: false,
+                fillColor: entry.isOnWater ? '#0284c7' : '#059669',
+                fillOpacity: 0.85,
+                color: '#ffffff',
+                weight: 0.5,
             }).addTo(layerGroup);
         });
 
@@ -648,7 +654,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
             {/* Map Container */}
             <div className="relative flex-1 min-h-0">
-                <div ref={mapRef} className="absolute inset-0" />
+                <div ref={mapRef} className="absolute inset-0" style={{ background: '#dce6ea' }} />
 
                 {/* Loading overlay — entries still hydrating, nothing on the map yet */}
                 {isTrackLoading && (
