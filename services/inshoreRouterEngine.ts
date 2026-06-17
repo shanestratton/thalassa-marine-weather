@@ -3285,24 +3285,9 @@ function routeInshoreOnce(
     // beyond the 1.25 give-back. Runs BEFORE the strict re-anchor so
     // boundary waypoints are re-inserted on the FINAL geometry.
     const fairingMids = collectFairingMidpoints(layers);
-    // Field diagnostic (warn-level so it shows in the device console):
-    // distinguishes "fairing never ran" (no midpoints / engine bailed to
-    // offshore) from "fairing ran but barely faired" (gate-serving guard
-    // too tight for the real channel) — the two ways the route can still
-    // step. The min half-width tells whether the gates are narrow enough
-    // to choke the chord. Remove once the live stepping is closed.
     if (fairingMids.length > 0 && smoothedCells.length >= 3) {
-        const beforeN = smoothedCells.length;
-        const minHalfW = Math.min(...fairingMids.map((m) => m.halfWidthM));
         smoothedCells = fairPath(grid, smoothedCells, fairingMids, isUnvouchedIdx);
-        engineLog.warn(
-            `[fairing] ${fairingMids.length} midpoints (min half-width ${Math.round(minHalfW)} m) — waypoints ${beforeN} → ${smoothedCells.length}`,
-        );
         tPhase = mark('fairing', tPhase);
-    } else {
-        engineLog.warn(
-            `[fairing] SKIPPED — ${fairingMids.length} midpoints, ${smoothedCells.length} smoothed cells (no fairing applied)`,
-        );
     }
 
     // Re-anchor state boundaries the smoother legally erased: smoothPath
@@ -3489,9 +3474,10 @@ function routeInshoreOnce(
         finalCaution = [];
         for (let i = 0; i < finalPolyline.length - 1; i++) finalCaution.push(vtxCaution[i] || vtxCaution[i + 1]);
         debug.threeTier = threeTier.provenance;
-        engineLog.warn(
-            `[3tier] ${threeTier.spanCount} spans, ${polyline.length}→${finalPolyline.length} pts — ${threeTier.provenance}`,
-        );
+        if (ENGINE_DEBUG)
+            engineLog.warn(
+                `[3tier] ${threeTier.spanCount} spans, ${polyline.length}→${finalPolyline.length} pts — ${threeTier.provenance}`,
+            );
     } else {
         // Fallback — the proven monolith splice chain, byte-identical to before.
         // Fairlead: where the route transits a buoyed channel in OPEN water
@@ -3636,7 +3622,8 @@ function applyThreeTier(
 
     const spans = segmentRoute(polyline, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M);
     if (isRefusal(spans)) {
-        engineLog.warn(`[3tier] segmentRoute refused (${spans.reason}) — falling back to monolith splice`);
+        if (ENGINE_DEBUG)
+            engineLog.warn(`[3tier] segmentRoute refused (${spans.reason}) — falling back to monolith splice`);
         return null;
     }
     // A degenerate span would starve a tier router — bail to the proven path.
@@ -3650,7 +3637,7 @@ function applyThreeTier(
     const glued = stitchLegs(results);
     if (glued.refusal || glued.polyline.length < 2) {
         const why = glued.refusal ? `${glued.refusal.reason}@${glued.refusal.atIndex}` : 'empty';
-        engineLog.warn(`[3tier] glue refused (${why}) — falling back to monolith splice`);
+        if (ENGINE_DEBUG) engineLog.warn(`[3tier] glue refused (${why}) — falling back to monolith splice`);
         return null;
     }
 
@@ -3715,37 +3702,9 @@ function applyFairleadAtGrid(
     }
 
     const refined = refineWithFairlead(poly, marks, isLand, { fromIdx, cautionMask });
-    if (!refined.replacedRange) {
-        // TEMP field diagnostic (reply 37) — confirms whether the fairlead
-        // path engages on-device and carries the dropSpikes build.
-        engineLog.warn(`[fairlead] no-splice — ${marks.length} lateral marks parsed, no valid channel transit`);
-        return passthrough;
-    }
+    if (!refined.replacedRange) return passthrough;
 
     const newPolyline: [number, number][] = refined.polyline.map((p) => [p.lon, p.lat]);
-    // TEMP field diagnostic (reply 37): the worst deflection in the spliced
-    // route. >120° ⇒ a double-back survived ⇒ this build predates the
-    // dropSpikes fix; ≤120° ⇒ the fix is live and the splice is clean.
-    let maxTurnDeg = 0;
-    for (let i = 1; i < newPolyline.length - 1; i++) {
-        const a = newPolyline[i - 1];
-        const b = newPolyline[i];
-        const c = newPolyline[i + 1];
-        const mLon = mPerDegLon(b[1]);
-        const ax = (b[0] - a[0]) * mLon;
-        const ay = (b[1] - a[1]) * M_PER_DEG_LAT;
-        const cx = (c[0] - b[0]) * mLon;
-        const cy = (c[1] - b[1]) * M_PER_DEG_LAT;
-        const la = Math.hypot(ax, ay);
-        const lc = Math.hypot(cx, cy);
-        if (la === 0 || lc === 0) continue;
-        const cos = Math.max(-1, Math.min(1, (ax * cx + ay * cy) / (la * lc)));
-        const deg = (Math.acos(cos) * 180) / Math.PI;
-        if (deg > maxTurnDeg) maxTurnDeg = deg;
-    }
-    engineLog.warn(
-        `[fairlead] spliced "${refined.channelKey}" — ${marks.length} marks, pts ${polyline.length}→${newPolyline.length}, worst turn ${Math.round(maxTurnDeg)}°`,
-    );
     // refineWithFairlead re-aligns the caution mask across every splice (kept
     // segments keep their flag, spliced bridges/centrelines are clean). Use it
     // when its length matches; fall back to the input mask defensively.
