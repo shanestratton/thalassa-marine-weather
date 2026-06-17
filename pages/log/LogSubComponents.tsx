@@ -11,7 +11,7 @@ import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
-import { groupEntriesByDate } from '../../utils/voyageData';
+import { groupEntriesByDate, groupEntriesByNoonWindow } from '../../utils/voyageData';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('LogPage');
@@ -636,17 +636,54 @@ export const VoyageCard: React.FC<{
                                 <span className="text-[12px]">Loading track…</span>
                             </div>
                         ) : (
-                            <div
-                                className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-purple-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}
-                            >
-                                <DateGroupedTimeline
-                                    groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
-                                    onDeleteEntry={onDeleteEntry}
-                                    onEditEntry={onEditEntry}
-                                    voyageFirstEntryId={entries[entries.length - 1]?.id}
-                                    voyageLastEntryId={entries[0]?.id}
-                                />
-                            </div>
+                            <>
+                                {/* Day's runs (noon-to-noon) — only for multi-day
+                                    passages, the classic bluewater logbook view. */}
+                                {!isPlannedRoute &&
+                                    (() => {
+                                        const runs = groupEntriesByNoonWindow(voyageFilteredEntries);
+                                        if (runs.length < 2) return null;
+                                        return (
+                                            <div className="px-4 pt-3">
+                                                <div className="text-[10px] font-bold uppercase tracking-wider text-sky-400/70 mb-1.5">
+                                                    Day's Runs
+                                                </div>
+                                                <div className="space-y-1">
+                                                    {runs.map((r) => (
+                                                        <div
+                                                            key={r.windowStartMs}
+                                                            className="flex items-center justify-between text-[12px] py-1 px-2 rounded-lg bg-slate-900/40 border border-white/5"
+                                                        >
+                                                            <span className="text-white/70 font-medium">
+                                                                Day {r.dayNumber}
+                                                                <span className="text-white/35 ml-2">
+                                                                    {new Date(r.windowStartMs).toLocaleDateString(
+                                                                        'en-GB',
+                                                                        { day: '2-digit', month: 'short' },
+                                                                    )}
+                                                                </span>
+                                                            </span>
+                                                            <span className="font-bold text-emerald-400 tabular-nums">
+                                                                {r.distanceNM.toFixed(1)} NM
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+                                <div
+                                    className={`ml-2 border-l-2 ${isPlannedRoute ? 'border-purple-500/20' : 'border-sky-500/20'} pl-3 mt-1 mb-1`}
+                                >
+                                    <DateGroupedTimeline
+                                        groupedEntries={groupEntriesByDate(voyageFilteredEntries)}
+                                        onDeleteEntry={onDeleteEntry}
+                                        onEditEntry={onEditEntry}
+                                        voyageFirstEntryId={entries[entries.length - 1]?.id}
+                                        voyageLastEntryId={entries[0]?.id}
+                                    />
+                                </div>
+                            </>
                         )}
                     </>
                 )}
