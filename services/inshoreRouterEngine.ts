@@ -3620,14 +3620,23 @@ function applyThreeTier(
     const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
 
-    const spans = segmentRoute(polyline, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M);
+    // refuseUnchartedRunM: null — the engine's strict-uncharted sweep below owns
+    // the refuse-on-no-evidence decision; segmentRoute must NOT unilaterally
+    // refuse (a relaxed berth-start crosses unvouched water) or the whole path
+    // silently falls back to the monolith. Unknown runs ride as caution spans.
+    const spans = segmentRoute(polyline, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
+        refuseUnchartedRunM: null,
+    });
     if (isRefusal(spans)) {
-        if (ENGINE_DEBUG)
-            engineLog.warn(`[3tier] segmentRoute refused (${spans.reason}) — falling back to monolith splice`);
+        // TEMP on-device diag (re-gate once Newport channel-follow confirmed).
+        engineLog.warn(`[3tier] FALLBACK — segmentRoute refused (${spans.reason})`);
         return null;
     }
     // A degenerate span would starve a tier router — bail to the proven path.
-    if (spans.some((s) => s.toIdx - s.fromIdx < 1)) return null;
+    if (spans.some((s) => s.toIdx - s.fromIdx < 1)) {
+        engineLog.warn(`[3tier] FALLBACK — degenerate span`);
+        return null;
+    }
 
     const ctx3: Tier3Context = { grid, marks, leadingLines };
     const results: LegResult[] = spans.map((span) =>
@@ -3636,10 +3645,15 @@ function applyThreeTier(
 
     const glued = stitchLegs(results);
     if (glued.refusal || glued.polyline.length < 2) {
-        const why = glued.refusal ? `${glued.refusal.reason}@${glued.refusal.atIndex}` : 'empty';
-        if (ENGINE_DEBUG) engineLog.warn(`[3tier] glue refused (${why}) — falling back to monolith splice`);
+        const why = glued.refusal ? `${glued.refusal.reason}@${glued.refusal.atIndex}` : `empty`;
+        engineLog.warn(`[3tier] FALLBACK — glue refused (${why})`);
         return null;
     }
+    // TEMP on-device diag — shows the spans + which tier-3 spans engaged fairlead
+    // (':fairlead' vs ':astar'). Re-gate behind ENGINE_DEBUG once tuned.
+    engineLog.warn(
+        `[3tier] ENGAGED spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
+    );
 
     const outPoly = glued.polyline.map((p) => [p[0], p[1]] as [number, number]);
     return { polyline: outPoly, provenance: glued.legs.map((l) => l.provenance).join(' | '), spanCount: spans.length };
