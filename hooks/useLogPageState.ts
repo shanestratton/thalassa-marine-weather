@@ -38,6 +38,7 @@ import { groupEntriesByDate, filterEntriesByType, searchEntries, mergeRecentEntr
 import {
     mergeSummariesWithLive,
     careerTotalsFromSummaries,
+    selectEmptyVoyagesToPrune,
     type VoyageSummary,
 } from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
@@ -370,8 +371,49 @@ export function useLogPageState() {
 
         // Load archived voyages and career entries in parallel (non-blocking)
         reloadCareerData();
+
+        // Auto-prune empty (0.0 NM) tracks — runs on the NETWORK load only
+        // (not the cache instant-paint) so it acts on confirmed data. The
+        // selection guards (active voyage, recent activity, planned/
+        // imported, manual entries) live in selectEmptyVoyagesToPrune.
+        void pruneEmptyTracks(summaries, voyageId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    // Delete genuinely empty device tracks in the background. Idempotent:
+    // once a voyage is pruned it's gone from summaries, so subsequent
+    // loads find nothing. A guard ref prevents overlapping sweeps.
+    const pruningRef = useRef(false);
+    const pruneEmptyTracks = useCallback(
+        async (summaries: VoyageSummary[], activeVoyageId: string | null | undefined) => {
+            if (pruningRef.current) return;
+            const toPrune = selectEmptyVoyagesToPrune(summaries, { activeVoyageId, nowMs: Date.now() });
+            if (toPrune.length === 0) return;
+            pruningRef.current = true;
+            try {
+                let deleted = 0;
+                for (const voyageId of toPrune) {
+                    const ok = await ShipLogService.deleteVoyage(voyageId);
+                    if (ok) {
+                        deleted += 1;
+                        dispatch({ type: 'REMOVE_VOYAGE', voyageId });
+                        loadedVoyagesRef.current.delete(voyageId);
+                        void clearCachedVoyageTrack(voyageId);
+                    }
+                }
+                if (deleted > 0) {
+                    reloadCareerData();
+                    toast.info(`Removed ${deleted} empty track${deleted === 1 ? '' : 's'} (0.0 NM)`);
+                }
+            } catch (e) {
+                log.warn('pruneEmptyTracks failed', e);
+            } finally {
+                pruningRef.current = false;
+            }
+        },
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [toast],
+    );
 
     // Public loadData — in-flight guard so overlapping triggers can't stack
     // into a storm. But a load REQUESTED while one is running (e.g. the

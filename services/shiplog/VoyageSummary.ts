@@ -237,6 +237,50 @@ export function careerTotalsFromSummaries(summaries: VoyageSummary[]): CareerTot
     };
 }
 
+// ── Empty-track auto-prune ──────────────────────────────────────────
+// A voyage that recorded but never went anywhere — distance rounds to
+// "0.0 NM". Almost always an accidental start/stop or a cold-start that
+// never got a real fix; clutter the user asked to have swept away.
+/** Distance below which a track reads "0.0 NM" (rounds at 1 dp). */
+export const EMPTY_TRACK_NM = 0.05;
+/** A voyage touched this recently might still be recording (this or another device). */
+export const RECENT_ACTIVE_MS = 15 * 60 * 1000;
+
+/**
+ * Pick voyages safe to auto-delete: genuinely zero-distance device
+ * tracks that nobody is still recording and that carry no deliberate
+ * content. PURE + testable — the guards are the whole safety story:
+ *
+ *   - totalDistanceNM is max(cumulative), which is MONOTONIC, so an
+ *     out-and-back passage (returns to the same dock) or a legacy
+ *     resume-corrupted voyage still reads well above zero. Only a
+ *     never-moved track reads < EMPTY_TRACK_NM. (This is why we key on
+ *     distance, not first↔last displacement.)
+ *   - never the active voyage on THIS device (activeVoyageId), nor one
+ *     whose latest entry is within RECENT_ACTIVE_MS (might be live on
+ *     ANOTHER device sharing the backend).
+ *   - never planned routes or imported tracks (not sailed telemetry).
+ *   - never a voyage with a manual entry — the user logged something
+ *     deliberately, so it's not junk even if the boat didn't move.
+ */
+export function selectEmptyVoyagesToPrune(
+    summaries: VoyageSummary[],
+    opts: { activeVoyageId?: string | null; nowMs: number },
+): string[] {
+    const { activeVoyageId, nowMs } = opts;
+    const out: string[] = [];
+    for (const s of summaries) {
+        if (s.totalDistanceNM >= EMPTY_TRACK_NM) continue;
+        if (s.voyageId === activeVoyageId) continue;
+        if (s.isPlannedRoute || s.isImported) continue;
+        if (s.hasManual) continue;
+        const endedMs = Date.parse(s.endedAt);
+        if (Number.isFinite(endedMs) && nowMs - endedMs < RECENT_ACTIVE_MS) continue;
+        out.push(s.voyageId);
+    }
+    return out;
+}
+
 /**
  * Lightweight projection columns — everything summarizeEntries needs and
  * nothing it doesn't (no notes, weather blobs, formatted strings, …).
