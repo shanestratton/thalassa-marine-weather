@@ -475,6 +475,18 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             });
         }
 
+        // Engine state: an explicit per-call override wins; otherwise auto
+        // entries inherit the voyage's user-set engine state (sticky in
+        // trackingState) so the sail/motor split has real data. undefined
+        // until the user first declares it — never guessed.
+        const effectiveEngineStatus: EngineStatus | undefined =
+            engineStatus ??
+            (entryType === 'auto' && ctx.trackingState.engineRunning !== undefined
+                ? ctx.trackingState.engineRunning
+                    ? 'running'
+                    : 'stopped'
+                : undefined);
+
         const entry: Partial<ShipLogEntry> = {
             voyageId: entryVoyageId,
             timestamp,
@@ -488,7 +500,7 @@ export async function captureLog(ctx: CaptureContext, opts: CaptureLogOptions = 
             ...weatherSnapshot,
             entryType: effectiveEntryType,
             eventCategory,
-            engineStatus,
+            engineStatus: effectiveEngineStatus,
             notes,
             waypointName: effectiveWaypointName,
             isOnWater: ctx.getLastWaterStatus(),

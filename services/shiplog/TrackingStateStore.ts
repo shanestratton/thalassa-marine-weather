@@ -46,6 +46,13 @@ export interface TrackingState {
     lastCheckTime?: number;
     /** True if the last position-check was deduped (vessel hasn't moved) */
     lastCheckDeduped?: boolean;
+    /**
+     * User-set engine state, stamped onto subsequent auto track points so
+     * the sail/motor split is real. undefined = not yet declared this
+     * voyage (split shows that span as "unknown"). The GPS pipeline never
+     * sets this — only the live "engine on/off" control does.
+     */
+    engineRunning?: boolean;
 }
 
 export interface StoredPosition {

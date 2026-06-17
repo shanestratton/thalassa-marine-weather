@@ -835,6 +835,23 @@ class ShipLogServiceClass {
     }
 
     /**
+     * Declare the engine on/off while tracking. Sticky — stamped onto
+     * subsequent auto track points (CapturePipeline) so the voyage's
+     * sail/motor split is real data, not a guess. No-op when not tracking.
+     */
+    async setEngineRunning(running: boolean): Promise<void> {
+        if (!this.trackingState.isTracking) return;
+        if (this.trackingState.engineRunning === running) return;
+        this.trackingState.engineRunning = running;
+        await this.saveTrackingState();
+        this.notifyTrackingChanged();
+    }
+
+    getEngineRunning(): boolean | undefined {
+        return this.trackingState.engineRunning;
+    }
+
+    /**
      * Toggle rapid GPS mode (5-second intervals for marina/shore navigation)
      * Activated by 3-second long-press on tracking indicator
      */

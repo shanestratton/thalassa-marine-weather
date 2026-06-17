@@ -11,7 +11,7 @@ import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
-import { groupEntriesByDate, groupEntriesByNoonWindow } from '../../utils/voyageData';
+import { groupEntriesByDate, groupEntriesByNoonWindow, computePropulsionSplit } from '../../utils/voyageData';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('LogPage');
@@ -637,6 +637,40 @@ export const VoyageCard: React.FC<{
                             </div>
                         ) : (
                             <>
+                                {/* Sail vs motor — only shows once the engine state
+                                    was logged for some of the voyage (real data). */}
+                                {!isPlannedRoute &&
+                                    (() => {
+                                        const split = computePropulsionSplit(voyageFilteredEntries);
+                                        const declared = split.motorMs + split.sailMs;
+                                        if (declared === 0) return null;
+                                        const fmt = (ms: number) => {
+                                            const h = Math.floor(ms / 3600000);
+                                            const m = Math.floor((ms % 3600000) / 60000);
+                                            return h > 0 ? `${h}h ${m}m` : `${m}m`;
+                                        };
+                                        const motorPct = Math.round((split.motorMs / declared) * 100);
+                                        return (
+                                            <div className="px-4 pt-3">
+                                                <div className="text-[10px] font-bold uppercase tracking-wider text-sky-400/70 mb-1.5">
+                                                    Sail vs Motor
+                                                </div>
+                                                <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-900/60 mb-1.5">
+                                                    <div className="bg-amber-500" style={{ width: `${motorPct}%` }} />
+                                                    <div className="bg-emerald-500 flex-1" />
+                                                </div>
+                                                <div className="flex justify-between text-[11px]">
+                                                    <span className="text-amber-400 font-bold">
+                                                        ⚙ Motor {fmt(split.motorMs)}
+                                                    </span>
+                                                    <span className="text-emerald-400 font-bold">
+                                                        ⛵ Sail {fmt(split.sailMs)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
                                 {/* Day's runs (noon-to-noon) — only for multi-day
                                     passages, the classic bluewater logbook view. */}
                                 {!isPlannedRoute &&

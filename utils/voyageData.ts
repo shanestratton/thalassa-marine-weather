@@ -133,6 +133,34 @@ export function groupEntriesByNoonWindow(entries: ShipLogEntry[]): DayRun[] {
     });
 }
 
+// ── Sail vs motor split ─────────────────────────────────────────────
+// Real data, not a guess: auto track points carry the user-declared
+// engineStatus (sticky, stamped in CapturePipeline). Each interval
+// between consecutive points is attributed to the engine state at its
+// START. Spans before the user first declares the engine are 'unknown'.
+
+export interface PropulsionSplit {
+    motorMs: number;
+    sailMs: number;
+    unknownMs: number;
+}
+
+export function computePropulsionSplit(entries: ShipLogEntry[]): PropulsionSplit {
+    const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    let motorMs = 0;
+    let sailMs = 0;
+    let unknownMs = 0;
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const dt = new Date(sorted[i + 1].timestamp).getTime() - new Date(sorted[i].timestamp).getTime();
+        if (!(dt > 0)) continue;
+        const s = sorted[i].engineStatus;
+        if (s === 'running' || s === 'maneuvering') motorMs += dt;
+        else if (s === 'stopped') sailMs += dt;
+        else unknownMs += dt;
+    }
+    return { motorMs, sailMs, unknownMs };
+}
+
 /**
  * Calculate voyage statistics
  */
