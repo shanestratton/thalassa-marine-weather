@@ -82,8 +82,15 @@ export interface Refusal {
 
 export type LegResult = Leg | Refusal;
 
-export const isRefusal = (r: { refused?: boolean } | null | undefined): r is Refusal =>
-    !!r && (r as Refusal).refused === true;
+/**
+ * Discriminated-union guard. Parameter is `unknown` deliberately: a narrower
+ * `{ refused?: boolean }` is a WEAK type (all-optional), so TS's weak-type rule
+ * rejects any argument that shares no key with it — i.e. every Leg, every
+ * `{ joined: Leg }`, every `TierSpan[]`. `unknown` accepts the whole union and
+ * the `r is Refusal` predicate still narrows correctly at each call site.
+ */
+export const isRefusal = (r: unknown): r is Refusal =>
+    typeof r === 'object' && r !== null && (r as Refusal).refused === true;
 
 /** Deep-freeze a leg — boundary nodes, polyline, cautionMask — so no downstream
  *  code can mutate an interior (invariant 2 enforced at runtime, not just review). */
