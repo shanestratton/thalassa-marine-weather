@@ -41,9 +41,13 @@ interface LL {
  *  SEAM_MAX_TURN_DEG and fairlead's reversal limit. Above it = a double-back. */
 export const TIER3_DESPIKE_DEG = 120;
 /** Fairlead engagement floor for a span segmentRoute ALREADY vouched as tier-3.
- *  Below Newport's measured 0.59 near-fraction, so the channel that the
- *  monolith silently skipped now engages. */
-export const TIER3_FAIRLEAD_MIN_FRAC = 0.4;
+ *  Low on purpose: segmentRoute has already decided this span abuts a marked
+ *  channel, so fairlead should FOLLOW it even when the span covers only part
+ *  of the channel's marks (a short berth-side approach span — field finding
+ *  2026-06-17, Newport spans came out tier3:astar at 0.4). The along-transit
+ *  + both-endpoints-near + isLand guards inside refineWithFairlead still
+ *  prevent engaging a channel the route merely passes. */
+export const TIER3_FAIRLEAD_MIN_FRAC = 0.2;
 
 export interface Tier3Context {
     readonly grid: NavGrid;
@@ -53,6 +57,9 @@ export interface Tier3Context {
 
 const M_PER_LAT = 110_540;
 const mPerLonAt = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
+
+const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =>
+    Math.hypot((bLon - aLon) * mPerLonAt(aLat), (bLat - aLat) * M_PER_LAT);
 
 const cellIdx = (grid: NavGrid, lon: number, lat: number): number => {
     const x = Math.floor((lon - grid.minLon) / grid.dLon);
@@ -130,6 +137,12 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             poly = fl.polyline;
             vouched = true;
             prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
+        } else {
+            // declined — record how many marks are actually within 500 m of the
+            // span so the on-device readout shows WHY (no channel near vs a
+            // near channel fairlead still won't take).
+            const near = ctx.marks.filter((m) => poly.some((p) => distM(p.lat, p.lon, m.lat, m.lon) < 500)).length;
+            prov.push(`astar(nm=${near})`);
         }
     }
 
