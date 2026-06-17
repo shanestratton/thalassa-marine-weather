@@ -145,6 +145,38 @@ describe('GpsSubscriptionManager', () => {
             expect(trackBuffer.length).toBe(2);
             expect(trackBuffer.peek()!.latitude).toBeCloseTo(0.0001);
         });
+
+        it('rejects wide-accuracy cold fixes until the chip settles, then opens on a tight pair', () => {
+            startMgr();
+            vi.advanceTimersByTime(5_001);
+            const t0 = Date.now();
+            // Cold/wandering fixes: 60 m accuracy is over the 35 m opener
+            // bar — dropped, nothing held.
+            capturedLocationHandler!(makeFix({ accuracy: 60, timestamp: t0 }));
+            capturedLocationHandler!(makeFix({ accuracy: 60, timestamp: t0 + 5_000 }));
+            expect(trackBuffer.length).toBe(0);
+            // Chip settles to a tight fix — two corroborate → track opens.
+            capturedLocationHandler!(
+                makeFix({ accuracy: 20, latitude: -27.5, timestamp: t0 + 10_000, receivedAt: t0 + 10_000 }),
+            );
+            capturedLocationHandler!(
+                makeFix({ accuracy: 18, latitude: -27.5001, timestamp: t0 + 15_000, receivedAt: t0 + 15_000 }),
+            );
+            expect(trackBuffer.length).toBe(2);
+        });
+
+        it('abandons the accuracy ramp after the fallback window (poor sky view still records)', () => {
+            startMgr();
+            vi.advanceTimersByTime(61_000); // past COLD_START_FALLBACK_MS
+            const t = Date.now();
+            // 60 m fixes were too wide to open the track in the first
+            // minute; past the fallback the normal 100 m ceiling applies.
+            capturedLocationHandler!(makeFix({ accuracy: 60, latitude: -27.5, timestamp: t }));
+            capturedLocationHandler!(
+                makeFix({ accuracy: 60, latitude: -27.5001, timestamp: t + 5_000, receivedAt: t + 5_000 }),
+            );
+            expect(trackBuffer.length).toBe(2);
+        });
     });
 
     describe('fix-acceptance gate', () => {

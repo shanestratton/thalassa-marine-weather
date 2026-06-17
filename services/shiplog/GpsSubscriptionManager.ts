@@ -52,6 +52,25 @@ const MAX_PLAUSIBLE_SPEED_KTS = 100;
 const GPS_WARMUP_MS = 5_000;
 const SPEED_TIER_DEBOUNCE = 3;
 const WEB_HEARTBEAT_MS = 60_000;
+
+// ── Cold-start accuracy ramp ────────────────────────────────────────
+// A freshly-woken GPS reports a large accuracy radius and the reported
+// position WANDERS while the chip pulls in satellites — the messy first
+// 10–20 s of a new track. The steady-state ceiling (100 m) is far too
+// loose to catch that drift. So the accuracy bar starts TIGHT and
+// relaxes as the chip settles:
+//   - the fix that OPENS the track must be ≤ COLD_START_ACCURACY_M,
+//   - for the first COLD_START_WINDOW_MS it must be ≤ EARLY_ACCURACY_M,
+//   - thereafter the normal MAX_ACCURACY_M applies.
+// The "Acquiring GPS fix…" banner covers the few extra seconds this
+// adds. SAFETY: past COLD_START_FALLBACK_MS the ramp is abandoned and
+// the normal ceiling applies, so a genuinely poor sky view (marina,
+// hard bimini) still opens the track rather than waiting forever.
+const MAX_ACCURACY_M = 100;
+const COLD_START_ACCURACY_M = 35;
+const EARLY_ACCURACY_M = 50;
+const COLD_START_WINDOW_MS = 30_000;
+const COLD_START_FALLBACK_MS = 60_000;
 // While the external/NMEA source has buffered a fix this recently, phone
 // GPS fixes are published for the UI but NOT buffered — two receivers
 // offset 10–50 m alternating into one polyline draw a sawtooth no
@@ -389,9 +408,19 @@ export class GpsSubscriptionManager {
             return false;
         }
 
-        // Layer 1 — accuracy. Don't log; fringe-coverage rejections are
-        // routine and would flood the log.
-        if ((pos.accuracy ?? 999) > 100) return false;
+        // Layer 1 — accuracy, with a cold-start ramp (see the constants
+        // above). Tight while the chip settles so the wandering early
+        // fixes are dropped; relaxes to the steady ceiling once warmed,
+        // and abandons the ramp entirely past the fallback window so a
+        // poor sky view still opens the track. Don't log; fringe-coverage
+        // rejections are routine and would flood the log.
+        const sinceStart = Date.now() - this.warmupStartTime;
+        let accuracyLimit = MAX_ACCURACY_M;
+        if (sinceStart < COLD_START_FALLBACK_MS) {
+            if (!this.hasBufferedThisSession) accuracyLimit = COLD_START_ACCURACY_M;
+            else if (sinceStart < COLD_START_WINDOW_MS) accuracyLimit = EARLY_ACCURACY_M;
+        }
+        if ((pos.accuracy ?? 999) > accuracyLimit) return false;
 
         // Layer 2 — GPS-reported speed.
         const gpsSpeedKts = (pos.speed ?? 0) * MS_TO_KTS;
