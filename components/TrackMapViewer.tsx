@@ -80,6 +80,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     const hasFitBoundsRef = useRef(false);
     const baseTileRef = useRef<L.TileLayer | null>(null);
     const seamarkTileRef = useRef<L.TileLayer | null>(null);
+    // True while any Leaflet popup is open — lets a map tap TOGGLE the
+    // conditions bubble (tap to show, tap again to dismiss).
+    const popupOpenRef = useRef(false);
 
     // Track colour mode — 'wind' paints the line by the (forecast) wind
     // at each point; 'plain' is the old water/land scheme. Day/night
@@ -202,6 +205,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // live without recreating the map or refitting bounds.
         const base = L.tileLayer(piCache.leafletTileTemplate(nightMode ? NIGHT_BASE : DAY_BASE), {
             maxZoom: 19,
+            // Deepen Voyager's very pale water (the "Mary Poppins" wash) —
+            // a saturation/brightness filter on the day base only.
+            className: nightMode ? '' : 'tmv-deepwater',
         }).addTo(map);
         baseTileRef.current = base;
 
@@ -223,17 +229,38 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const trailLayer = L.layerGroup().addTo(map);
         trailLayerRef.current = trailLayer;
 
-        // Tap-for-conditions: a tap anywhere snaps to the nearest track
-        // point and shows the conditions logged there. Reads the sorted-
-        // entries REF (always fresh) so it's wired once at creation, not
-        // in updateTrackLayers (which full-rebuilds and would stale-close).
+        // Tap-for-conditions: a tap snaps to the nearest track point and
+        // shows the conditions logged there. Reads the sorted-entries REF
+        // (always fresh) so it's wired once at creation, not in
+        // updateTrackLayers (which full-rebuilds and would stale-close).
+        //
+        // Dismiss: a popup stays put (closeOnClick:false) and a tap is a
+        // TOGGLE — if one is open, the tap closes it (and opens nothing).
+        // The × button and a tap on the bubble itself also close it.
+        map.on('popupopen', () => {
+            popupOpenRef.current = true;
+        });
+        map.on('popupclose', () => {
+            popupOpenRef.current = false;
+        });
         map.on('click', (e: L.LeafletMouseEvent) => {
+            if (popupOpenRef.current) {
+                map.closePopup();
+                return;
+            }
             const near = nearestTrackEntry(sortedEntriesRef.current, e.latlng.lat, e.latlng.lng);
             if (!near) return;
-            L.popup({ closeButton: false, className: 'track-cond-popup', offset: [0, -2] })
+            const popup = L.popup({
+                closeButton: true,
+                closeOnClick: false,
+                className: 'track-cond-popup',
+                offset: [0, -2],
+            })
                 .setLatLng([near.latitude!, near.longitude!])
                 .setContent(conditionsPopupHtml(near))
                 .openOn(map);
+            // Tapping anywhere on the bubble dismisses it too.
+            popup.getElement()?.addEventListener('click', () => map.closePopup());
         });
 
         mapInstanceRef.current = map;
@@ -267,6 +294,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         if (baseTileRef.current) map.removeLayer(baseTileRef.current);
         const base = L.tileLayer(piCache.leafletTileTemplate(nightMode ? NIGHT_BASE : DAY_BASE), {
             maxZoom: 19,
+            className: nightMode ? '' : 'tmv-deepwater',
         }).addTo(map);
         baseTileRef.current = base;
         if (seamarkTileRef.current) seamarkTileRef.current.bringToFront();
@@ -405,7 +433,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                         .bindPopup(
                             `<div style="font-size:12px;font-weight:700">${m.fromCardinal} → ${m.toCardinal}</div>` +
                                 `<div style="font-size:11px;opacity:.7">${new Date(m.timestamp).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}</div>`,
-                            { closeButton: false },
+                            { closeButton: true, closeOnClick: false },
                         )
                         .addTo(layerGroup);
                 }
@@ -725,6 +753,11 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
     return (
         <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu">
+            {/* Deepen Voyager's pale day water without going dark — a
+                per-tile colour filter (no seams; colour filters are
+                per-pixel). Night base is left untouched. */}
+            <style>{`.tmv-deepwater { filter: saturate(1.5) brightness(0.92) contrast(1.03); }`}</style>
+
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (
                 <div
@@ -1009,8 +1042,8 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                         {/* ═══ WAYPOINT BANNER — persists when crossing a waypoint ═══ */}
                         {activeWaypoint && (
                             <div
-                                className="mt-2 bg-amber-500/15 rounded-xl border border-amber-500/30 p-3 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300"
-                                style={{ boxShadow: '0 4px 20px rgba(245,158,11,0.2)' }}
+                                className="mt-2 bg-slate-900/92 rounded-xl border border-amber-500/40 p-3 pointer-events-auto animate-in fade-in slide-in-from-top-2 duration-300"
+                                style={{ boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}
                             >
                                 <div className="flex items-start gap-2">
                                     <span className="text-amber-300 mt-0.5">
