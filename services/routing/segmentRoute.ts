@@ -25,8 +25,13 @@ import type { BoundaryNode, LatLon, Refusal, TierId } from './legContract';
 const M_PER_LAT = 110_540;
 const mPerLonAt = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
 
-/** Within this of a lateral mark ⇒ inside a marked channel ⇒ tier 3. */
-export const TIER3_MARK_PROXIMITY_M = 200;
+/** Within this of a lateral mark ⇒ inside a marked channel ⇒ tier 3. Wide
+ *  enough that a mid-channel route between longitudinally-spaced marks stays
+ *  ONE contiguous tier-3 span (200 m fragmented the Newport approach into
+ *  short t3/t2 flickers, starving fairlead's along-transit gate — field
+ *  finding 2026-06-17). The tier-2 deep crossing sits >300 m off any channel
+ *  mark, so this does not steal the open-bay leg. */
+export const TIER3_MARK_PROXIMITY_M = 300;
 /** A routable-tier span shorter than this is absorbed into its neighbour
  *  (kills single-cell flapping at band edges — the same noise that beads A*).
  *  An UNKNOWN span is NEVER absorbed — a red patch always survives. */
