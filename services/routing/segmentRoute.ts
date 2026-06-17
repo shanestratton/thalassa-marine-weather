@@ -140,27 +140,36 @@ export function segmentRoute(
     }
 
     // ── 5. Resolve boundary nodes + emit ordered spans ──
+    // Adjacent spans SHARE the seam vertex: span r's entry sits on the PREVIOUS
+    // run's last vertex (runs[r-1].hi), which is exactly span r-1's exit. So
+    // span(r-1).exit.at === span(r).entry.at (same polyline vertex) and the
+    // Gluer's positional clause (≤1 m) holds. Without this, RLE runs are
+    // disjoint (gap of one segment between spans) and every seam refuses
+    // 'boundary-gap'. The shared vertex carries the prior tier's classification
+    // but that's just the seam — its tier router pins it to the boundary node.
     const out: TierSpan[] = [];
     for (let r = 0; r < runs.length; r++) {
         const run = runs[r];
         const tier: TierId = run.cls === 'unknown' ? 2 : run.cls; // unknown rides tier-2 (red)
         const isFirst = r === 0;
         const isLast = r === runs.length - 1;
+        const fromIdx = isFirst ? run.lo : runs[r - 1].hi; // share the previous span's exit vertex
+        const toIdx = run.hi;
         const entry = boundaryNode(
             polyline,
             grid,
-            run.lo,
+            fromIdx,
             isFirst ? 'origin' : kindFor(runs[r - 1].cls, run.cls),
             true,
         );
-        const exit = boundaryNode(polyline, grid, run.hi, isLast ? 'dest' : kindFor(run.cls, runs[r + 1].cls), false);
+        const exit = boundaryNode(polyline, grid, toIdx, isLast ? 'dest' : kindFor(run.cls, runs[r + 1].cls), false);
         out.push({
             tier,
             entry,
             exit,
-            fromIdx: run.lo,
-            toIdx: run.hi,
-            caution: cautionV.slice(run.lo, run.hi + 1).some(Boolean),
+            fromIdx,
+            toIdx,
+            caution: cautionV.slice(fromIdx, toIdx + 1).some(Boolean),
         });
     }
     return out;
