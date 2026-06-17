@@ -237,6 +237,48 @@ export function careerTotalsFromSummaries(summaries: VoyageSummary[]): CareerTot
     };
 }
 
+// ── Planned-vs-actual matching ──────────────────────────────────────
+
+/** Equirectangular NM between two lat/lon — fine at passage scale. */
+function approxNM(aLat: number, aLon: number, bLat: number, bLon: number): number {
+    const dLat = bLat - aLat;
+    const dLon = (bLon - aLon) * Math.cos((((aLat + bLat) / 2) * Math.PI) / 180);
+    return Math.sqrt(dLat * dLat + dLon * dLon) * 60; // 1° ≈ 60 NM
+}
+
+/**
+ * Find the planned route that best matches a sailed voyage, by START and
+ * END coordinates (robust where the old voyage_name→label string-join is
+ * fragile — no FK, suffix-trimming and arrow-spacing drift break it).
+ * A planned route matches when BOTH its first point is within toleranceNM
+ * of the sailed first point AND its last within toleranceNM of the sailed
+ * last. Returns the closest match's voyageId, or null. Pure + testable.
+ */
+export function matchPlannedRouteByCoords(
+    sailed: VoyageSummary,
+    candidates: VoyageSummary[],
+    toleranceNM = 3,
+): string | null {
+    if (sailed.firstLat == null || sailed.firstLon == null || sailed.lastLat == null || sailed.lastLon == null) {
+        return null;
+    }
+    let best: string | null = null;
+    let bestScore = Infinity;
+    for (const c of candidates) {
+        if (!c.isPlannedRoute || c.voyageId === sailed.voyageId) continue;
+        if (c.firstLat == null || c.firstLon == null || c.lastLat == null || c.lastLon == null) continue;
+        const dStart = approxNM(sailed.firstLat, sailed.firstLon, c.firstLat, c.firstLon);
+        const dEnd = approxNM(sailed.lastLat, sailed.lastLon, c.lastLat, c.lastLon);
+        if (dStart > toleranceNM || dEnd > toleranceNM) continue;
+        const score = dStart + dEnd;
+        if (score < bestScore) {
+            bestScore = score;
+            best = c.voyageId;
+        }
+    }
+    return best;
+}
+
 // ── Personal records ────────────────────────────────────────────────
 // Career-wide bests, derived purely from voyage SUMMARIES (no full
 // entry load). Top-speed-ever and biggest-day's-run need per-point /

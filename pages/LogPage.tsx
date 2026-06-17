@@ -34,7 +34,7 @@ import { ShipLogEntry } from '../types';
 
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
-import { computePersonalRecords } from '../services/shiplog/VoyageSummary';
+import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -131,11 +131,30 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     // .filter() minted a new array every render, defeating the viewer's
     // React.memo and forcing a full Leaflet layer rebuild on every
     // 1–5 s live-tracking poll tick.
-    const trackMapEntries = React.useMemo(
-        () =>
-            state.selectedVoyageId ? state.entries.filter((e) => e.voyageId === state.selectedVoyageId) : state.entries,
-        [state.entries, state.selectedVoyageId],
-    );
+    // Planned-vs-actual overlay: when a single sailed voyage is open, find
+    // its planned route by start/end coords and overlay it (the viewer
+    // already styles source==='planned_route' as a dashed purple plan
+    // line and partitions per voyageId). Null when there's no plan.
+    const matchedPlannedId = React.useMemo(() => {
+        if (!state.selectedVoyageId) return null;
+        const sailed = state.summaries.find((s) => s.voyageId === state.selectedVoyageId);
+        if (!sailed || sailed.isPlannedRoute) return null;
+        return matchPlannedRouteByCoords(sailed, state.summaries);
+    }, [state.selectedVoyageId, state.summaries]);
+
+    const trackMapEntries = React.useMemo(() => {
+        if (!state.selectedVoyageId) return state.entries;
+        return state.entries.filter(
+            (e) =>
+                e.voyageId === state.selectedVoyageId || (matchedPlannedId != null && e.voyageId === matchedPlannedId),
+        );
+    }, [state.entries, state.selectedVoyageId, matchedPlannedId]);
+
+    // Load the matched planned route's points when the track map opens so
+    // they're resident for the overlay.
+    useEffect(() => {
+        if (state.showTrackMap && matchedPlannedId) void loadVoyageEntries(matchedPlannedId);
+    }, [state.showTrackMap, matchedPlannedId, loadVoyageEntries]);
 
     // Career personal records — derived purely from voyage summaries.
     const records = React.useMemo(() => computePersonalRecords(state.summaries), [state.summaries]);
