@@ -3465,14 +3465,31 @@ function routeInshoreOnce(
     const threeTier = applyThreeTier(polyline, grid, layers, req.draftM, safetyM);
     if (threeTier) {
         finalPolyline = threeTier.polyline;
-        const vtxCaution = finalPolyline.map(([lon, lat]) => {
-            const { x, y } = latLonToGrid(grid, lat, lon);
-            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
-            const idx = y * grid.width + x;
-            return grid.cells[idx] < 0 || isUnvouchedIdx(idx);
-        });
+        // SAFETY: caution is recomputed ALONG each segment, not just at its two
+        // vertices. A tier leg can cross a bar / unvouched sliver BETWEEN two
+        // clean-water vertices; per-vertex sampling drops that red flag — a
+        // SILENT bar crossing (A's sweep bucket-1 regression). Sample every
+        // stepM with the SAME rule as cautionRaw (charted-shallow <0 OR
+        // strict-unvouched), reproducing the monolith's re-anchored semantics.
+        const cautionStepM = Math.max(25, resolutionM / 2);
+        const segCrossesCaution = (lonA: number, latA: number, lonB: number, latB: number): boolean => {
+            const segM = haversineM(latA, lonA, latB, lonB);
+            const steps = Math.max(1, Math.ceil(segM / cautionStepM));
+            for (let s = 0; s <= steps; s++) {
+                const t = s / steps;
+                const { x, y } = latLonToGrid(grid, latA + (latB - latA) * t, lonA + (lonB - lonA) * t);
+                if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+                const idx = y * grid.width + x;
+                if (grid.cells[idx] < 0 || isUnvouchedIdx(idx)) return true;
+            }
+            return false;
+        };
         finalCaution = [];
-        for (let i = 0; i < finalPolyline.length - 1; i++) finalCaution.push(vtxCaution[i] || vtxCaution[i + 1]);
+        for (let i = 0; i < finalPolyline.length - 1; i++) {
+            const a = finalPolyline[i];
+            const b = finalPolyline[i + 1];
+            finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
+        }
         debug.threeTier = threeTier.provenance;
         if (ENGINE_DEBUG)
             engineLog.warn(
@@ -3628,13 +3645,12 @@ function applyThreeTier(
         refuseUnchartedRunM: null,
     });
     if (isRefusal(spans)) {
-        // TEMP on-device diag (re-gate once Newport channel-follow confirmed).
-        engineLog.warn(`[3tier] FALLBACK — segmentRoute refused (${spans.reason})`);
+        if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — segmentRoute refused (${spans.reason})`);
         return null;
     }
     // A degenerate span would starve a tier router — bail to the proven path.
     if (spans.some((s) => s.toIdx - s.fromIdx < 1)) {
-        engineLog.warn(`[3tier] FALLBACK — degenerate span`);
+        if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — degenerate span`);
         return null;
     }
 
@@ -3646,14 +3662,13 @@ function applyThreeTier(
     const glued = stitchLegs(results);
     if (glued.refusal || glued.polyline.length < 2) {
         const why = glued.refusal ? `${glued.refusal.reason}@${glued.refusal.atIndex}` : `empty`;
-        engineLog.warn(`[3tier] FALLBACK — glue refused (${why})`);
+        if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — glue refused (${why})`);
         return null;
     }
-    // TEMP on-device diag — shows the spans + which tier-3 spans engaged fairlead
-    // (':fairlead' vs ':astar'). Re-gate behind ENGINE_DEBUG once tuned.
-    engineLog.warn(
-        `[3tier] ENGAGED spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
-    );
+    if (ENGINE_DEBUG)
+        engineLog.warn(
+            `[3tier] ENGAGED spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
+        );
 
     const outPoly = glued.polyline.map((p) => [p[0], p[1]] as [number, number]);
     return { polyline: outPoly, provenance: glued.legs.map((l) => l.provenance).join(' | '), spanCount: spans.length };
