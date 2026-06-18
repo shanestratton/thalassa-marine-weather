@@ -567,6 +567,21 @@ export interface NavGrid {
      * `cells[idx] === UNKNOWN_OPEN`. Optional for cached-grid back-compat.
      */
     unvouched?: Uint8Array;
+    /**
+     * Per-cell "INJECTED canal/marina channel water" flag: 1 = the cell was
+     * claimed by the nearshore Mapbox vector-water fill we INJECTED for routing
+     * (a DEPARE feature tagged `_source === 'mapbox-water'` over the endpoint
+     * corridor crops). This is STRICTLY NARROWER than osmWaterCells: it excludes
+     * generic chart OSM rivers/harbours/lakes, the thin Pass-1b OSM canal carve
+     * (which already routes fine and is baked into the route-fixture baselines),
+     * and — by construction — the open bay (the injection only ever covers the
+     * ~4 km crops around origin + destination). The tier
+     * router uses it to (a) classify these vertices tier-3 (a canal, not "deep
+     * open water") and (b) force the fine centreline pass over them even though
+     * the wide injected fill defeats the coarse narrowness probe. Optional for
+     * cached-grid + test back-compat (omitted ⇒ treated as all-zero).
+     */
+    injectedCanal?: Uint8Array;
 }
 
 /**
@@ -839,6 +854,12 @@ function buildNavGrid(
     //     Island) → the two chart layers DISAGREE, so flag CAUTION (red)
     //     rather than draw confident clean water over charted land.
     const osmWaterCells = new Uint8Array(width * height);
+    // Per-cell "injected nearshore canal water" flag (see NavGrid.injectedCanal).
+    // Strictly the WIDE Mapbox-water DEPARE fill we injected for routing
+    // (_source==='mapbox-water') — NOT generic OSM rivers/harbours, NOT the thin
+    // Pass-1b canal carve, and never the open bay. Kept separate from
+    // osmWaterCells (which is broader and drives the LNDARE-conflict logic).
+    const injectedCanalCells = new Uint8Array(width * height);
     // Per-cell "hard blocked" flag: 1 = blocked by LNDARE (land) or a
     // point obstruction (OBSTRN / WRECKS / UWTROC). A cell merely
     // blocked by a shallow DEPARE band has hardBlocked = 0. Pass 4
@@ -968,6 +989,11 @@ function buildNavGrid(
         const osmVouched = !isS57Depare && isAuthoritativeDepare(props);
         const authoritative = isS57Depare || osmVouched;
         const shallow = drval1Num < draftM + safetyM;
+        // INJECTED nearshore canal water we added for routing (Mapbox vector
+        // water over the endpoint crops). Tagged regardless of the shallow/deep
+        // branch so a deep-draft vessel (where 5 m reads shallow) still marks
+        // the canal — it's a canal either way, just caution-flagged if shallow.
+        const isMapboxWater = props?.['_source'] === 'mapbox-water';
 
         // Scanline-rasterize the polygon and apply cell updates inside
         // the per-cell callback. ~25× faster than the old "per cell,
@@ -975,6 +1001,9 @@ function buildNavGrid(
         // bathymetry contours covering 50×50+ cell ranges).
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
+
+            // Tag injected Mapbox canal water (both branches) → tier-3 + fine pass.
+            if (isMapboxWater) injectedCanalCells[idx] = 1;
 
             // Record the DEPARE-only verdict (independent of any later LNDARE
             // hard-block), tracking the shallowest real depth or CAUTION — so
@@ -1070,6 +1099,11 @@ function buildNavGrid(
                     }
                     protectedCells[idx] = 1;
                     osmWaterCells[idx] = 1; // OSM canal carve — keep clean under LNDARE
+                    // NB: deliberately NOT flagged injectedCanal. The OSM carve is a
+                    // thin 1-cell centreline that already routes fine and is baked
+                    // into the threeTierNewport + seaway corpus baselines; only the
+                    // WIDE Mapbox-water fill (which reads tier-2 + notnarrow) needs
+                    // the tier-3 + forced-fine treatment.
                 }
             }
         }
@@ -1660,6 +1694,10 @@ function buildNavGrid(
         grid.unvouched = unvouched;
         markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
     }
+    // Ride the injected-canal mask on the grid (derived purely from this build's
+    // inputs, like unvouched — no cache-key change). Tier-3 classification + the
+    // forced fine pass read it.
+    grid.injectedCanal = injectedCanalCells;
 
     // Per-pass breakdown — surfaces which polygon scanner is the hot
     // path. Format: pass=Nms(F features) so the eye can pair time

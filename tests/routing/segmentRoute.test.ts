@@ -20,22 +20,47 @@ const HEIGHT = 70;
 
 /** Build an N-S corridor grid (all 10 m deep) with a per-y-band classifier
  *  hook for preferred (channel) + unvouched (no-evidence). */
-function makeGrid(opts: { preferredY?: (y: number) => boolean; unvouchedY?: (y: number) => boolean } = {}): NavGrid {
+function makeGrid(
+    opts: {
+        preferredY?: (y: number) => boolean;
+        unvouchedY?: (y: number) => boolean;
+        injectedY?: (y: number) => boolean;
+    } = {},
+): NavGrid {
     const n = WIDTH * HEIGHT;
     const cells = new Float32Array(n).fill(10);
     const preferred = new Uint8Array(n);
     const unvouched = new Uint8Array(n);
+    const injectedCanal = new Uint8Array(n);
+    let anyInjected = false;
     for (let y = 0; y < HEIGHT; y++) {
         for (let x = 0; x < WIDTH; x++) {
             const i = y * WIDTH + x;
             if (opts.preferredY?.(y)) preferred[i] = 1;
+            if (opts.injectedY?.(y)) {
+                injectedCanal[i] = 1;
+                anyInjected = true;
+            }
             if (opts.unvouchedY?.(y)) {
                 unvouched[i] = 1;
                 cells[i] = 0; // UNKNOWN_OPEN — unvouched is only meaningful paired with this
             }
         }
     }
-    return { width: WIDTH, height: HEIGHT, minLon: MIN_LON, minLat: MIN_LAT, dLon, dLat, cells, preferred, unvouched };
+    return {
+        width: WIDTH,
+        height: HEIGHT,
+        minLon: MIN_LON,
+        minLat: MIN_LAT,
+        dLon,
+        dLat,
+        cells,
+        preferred,
+        unvouched,
+        // Only attach the mask when a test asks for it, so the default grid is
+        // byte-identical to before (field undefined ⇒ injected term always false).
+        ...(anyInjected ? { injectedCanal } : {}),
+    };
 }
 
 /** A N-S polyline down the corridor centre, one vertex per cell row. */
@@ -75,6 +100,18 @@ describe('segmentRoute', () => {
         const r = segmentRoute(corridorLine(), grid, [], 2.4, 0.2, 0.5);
         expect(isRefusal(r)).toBe(false);
         if (!isRefusal(r)) expect(tiers(r)).toEqual([2]);
+    });
+
+    it('an injected-canal vertex classifies tier-3 even when deep + marks-free', () => {
+        // South third flagged as INJECTED canal water (Mapbox-water fill), all 10 m
+        // deep, NO preferred, NO marks. Without the injectedCanal flag this is the
+        // [2] tier-2 passthrough above — the exact wall-hug bug. With it, the south
+        // becomes tier-3 (reaches the canal router) while the deep north stays
+        // tier-2 (the open bay is NOT flagged → constraint: bay stays tier-2).
+        const grid = makeGrid({ injectedY: (y) => y <= 22 });
+        const r = segmentRoute(corridorLine(), grid, [], 2.4, 0.2, 0.5);
+        expect(isRefusal(r)).toBe(false);
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([3, 2]);
     });
 
     it('marks (not just preferred) make a span tier-3', () => {

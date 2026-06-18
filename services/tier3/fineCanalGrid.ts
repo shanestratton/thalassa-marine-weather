@@ -31,6 +31,7 @@ import {
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
+    stringPull,
     type Cell,
     type MarinaRouteParams,
     type MarinaRouteResult,
@@ -204,6 +205,7 @@ export function buildFineCanalLeg(
     span: TierSpan,
     paramsOverride?: Partial<MarinaRouteParams>,
     corridor?: readonly LatLon[],
+    preferCentreline = false,
 ): FineCanalLeg | null {
     const start = toCell(fineGrid, span.entry.at[0], span.entry.at[1]);
     const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
@@ -244,22 +246,27 @@ export function buildFineCanalLeg(
     if (!result) return null;
 
     // Simplify the RAW Dijkstra path (result.cells) ourselves, against REAL water
-    // ONLY. Two reasons NOT to use routeMarina's own string-pulled waypoints:
-    //   1. its string-pull tests LOS against the BRIDGED graph, so it would cut a
-    //      bend's inside corner through a bridged chord (re-introducing the clip);
-    //   2. string-pull pulls the path TAUT to the longest clear chord, which in a
-    //      channel running alongside land collapses the mid-channel centreline onto
-    //      the inside bank — the wall-hug. centrelineSimplify is Douglas–Peucker:
-    //      it keeps the centreline the cost field computed, only de-staircasing it.
-    // Excluding bridge cells from the clear() test means a chord can only ever be
-    // collapsed across genuine navigable water; the route follows the Dijkstra path
-    // one cell at a time through any bridged gap, never shortcutting across it.
+    // ONLY — never routeMarina's own waypoints, whose string-pull tests LOS against
+    // the BRIDGED graph and would cut a bend's inside corner through a bridged chord
+    // (re-introducing the clip). Excluding bridge cells from the clear() test means
+    // a chord can only ever collapse across genuine navigable water; the route
+    // follows the Dijkstra path one cell at a time through any bridged gap.
+    //
+    // WHICH simplifier: on a WIDE channel (preferCentreline — the injected Mapbox
+    // canal) string-pull pulls the path TAUT to the longest clear chord, collapsing
+    // the mid-channel centreline onto the inside bank (the wall-hug); there we use
+    // centrelineSimplify (Douglas–Peucker), which keeps the centreline the cost
+    // field computed and only de-staircases it. On a NARROW canal (the default)
+    // there's no room to wall-hug, so we keep the proven taut string-pull — which
+    // the threeTierNewport + seaway-corpus baselines were measured against.
     const realWater = new Uint8Array(fineGrid.cells.length);
     for (let i = 0; i < realWater.length; i++) {
         const c = fineGrid.cells[i];
         realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
     }
-    const waypoints = centrelineSimplify(result.cells, realWater, shape);
+    const waypoints = preferCentreline
+        ? centrelineSimplify(result.cells, realWater, shape)
+        : stringPull(result.cells, realWater, shape);
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse
@@ -347,6 +354,43 @@ export function isCanalNarrow(
     return median <= maxCells;
 }
 
+/**
+ * Is this span majority-covered by INJECTED canal water (the wide Mapbox-water
+ * fill flagged on coarseGrid.injectedCanal)? The injected fill is what
+ * lets the route enter the canal at all, but it also (a) reads tier-2-deep and
+ * (b) inflates isCanalNarrow's width to 'notnarrow'. So when we KNOW a span runs
+ * through injected channel water we force the fine centreline pass on it even if
+ * the coarse narrowness probe says wide. Strictly keyed on injectedCanal, which
+ * is only ever set over the nearshore endpoint crops — never the open bay.
+ * Returns false when the grid omits the mask (cached/test grids) — exact
+ * back-compat with the prior narrowness-only gate.
+ */
+export function spanIsInjectedCanal(coarseGrid: NavGrid, fullPolyline: readonly LatLon[], span: TierSpan): boolean {
+    if (!coarseGrid.injectedCanal) return false;
+    let inj = 0;
+    let tot = 0;
+    for (let i = span.fromIdx; i <= span.toIdx && i < fullPolyline.length; i++) {
+        const [lon, lat] = fullPolyline[i];
+        const x = Math.floor((lon - coarseGrid.minLon) / coarseGrid.dLon);
+        const y = Math.floor((lat - coarseGrid.minLat) / coarseGrid.dLat);
+        if (x < 0 || y < 0 || x >= coarseGrid.width || y >= coarseGrid.height) continue;
+        tot++;
+        if (coarseGrid.injectedCanal[y * coarseGrid.width + x] === 1) inj++;
+    }
+    return tot > 0 && inj * 2 > tot;
+}
+
+/** Along-span length in metres (the span's polyline slice). */
+function spanMetres(fullPolyline: readonly LatLon[], span: TierSpan): number {
+    let m = 0;
+    for (let i = span.fromIdx; i < span.toIdx && i + 1 < fullPolyline.length; i++) {
+        const a = fullPolyline[i];
+        const b = fullPolyline[i + 1];
+        m += Math.hypot((b[0] - a[0]) * 111_320 * Math.cos((a[1] * Math.PI) / 180), (b[1] - a[1]) * M_PER_DEG_LAT);
+    }
+    return m;
+}
+
 /** Fine-grid cell resolution for the canal pass, in metres. Shane-tunable
  *  (10–15 m); 12 m keeps a tight crop bounded (~28k cells at 2 km²) and
  *  resolves a ~1-cell-at-50 m canal into ~8 cells wide. */
@@ -358,6 +402,13 @@ export const FINE_CANAL_RES_M = 12;
  *  data-coverage gap, e.g. Newport's 427 m entry channel) and bridging would draw
  *  a confident fine route straight through the marina lots. Don't. */
 export const MAX_BRIDGE_CROSSING_M = 60;
+
+/** Length cap (m) for FORCING the fine pass on a wide-but-injected canal span.
+ *  The injected fill defeats the narrowness probe, so we force the fine pass over
+ *  injected channel water — but only up to this length, so a long injected river
+ *  span can never build a giant fine grid on-device (a longer one falls back to
+ *  the coarse A* slice). ~2.5 km comfortably spans Newport's canal estate. */
+export const MAX_INJECTED_FINE_SPAN_M = 2500;
 
 /** Apron added around the span crop, in degrees (~550 m). Generous enough that
  *  the canal stays connected to the coarse route's proven-reachable entry/exit
@@ -534,12 +585,24 @@ export function tryFineCanalLeg(
     buildFineGrid: BuildFineGrid,
     paramsOverride?: Partial<MarinaRouteParams>,
 ): FineCanalAttempt {
-    if (!isCanalNarrow(coarseGrid, fullPolyline, span)) return { leg: null, diag: 'notnarrow' };
+    // Gate the fine pass on narrowness — EXCEPT a span we KNOW is injected canal
+    // water (the wide Mapbox-water fill), whose width defeats the narrowness
+    // probe. There we force the fine centreline pass, bounded by a
+    // length cap so a long injected span can't build a giant fine grid. A wide,
+    // non-injected span (open bay / wide channel) still keeps the coarse A* slice.
+    const injectedSpan = spanIsInjectedCanal(coarseGrid, fullPolyline, span);
+    if (!isCanalNarrow(coarseGrid, fullPolyline, span)) {
+        if (!(injectedSpan && spanMetres(fullPolyline, span) <= MAX_INJECTED_FINE_SPAN_M)) {
+            return { leg: null, diag: injectedSpan ? 'wide+long' : 'notnarrow' };
+        }
+    }
     const bbox = spanCropBbox(fullPolyline, span, FINE_CANAL_APRON_DEG);
     const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
     if (!fineGrid) return { leg: null, diag: 'nogrid' };
     const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
-    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor);
+    // Wide injected canal ⇒ centreline-preserving simplify (kill the wall-hug);
+    // narrow canal ⇒ keep the taut string-pull the fixtures are measured against.
+    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor, injectedSpan);
     if (!leg) {
         // The real water was split AND routeMarina returned null even with the
         // corridor bridge. Does the bridge actually reconnect entry→exit on the

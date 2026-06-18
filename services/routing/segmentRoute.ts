@@ -95,7 +95,13 @@ export function segmentRoute(
         const idx = cellIdx(grid, lon, lat);
         const nearMark = marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M);
         const preferred = idx >= 0 && grid.preferred?.[idx] === 1;
-        if (nearMark || preferred) return 3; // marked/dredged channel — tier 3
+        // Injected nearshore canal water (the wide Mapbox-water fill) is a
+        // channel, NOT open deep water — it must reach the tier-3 canal router
+        // even though its synthetic depth (≥ draft+safety) would otherwise read
+        // tier-2 here. Keyed on the injected source only, so the open bay (no
+        // injectedCanal flag) stays tier-2.
+        const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1;
+        if (nearMark || preferred || injected) return 3; // marked/dredged/canal channel — tier 3
         if (idx < 0) return 1; // off the ENC grid → offshore (GEBCO-only)
         const d = grid.cells[idx];
         // RED-TEAM: no-evidence is grid.unvouched (paired with UNKNOWN_OPEN=0),
