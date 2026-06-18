@@ -146,7 +146,13 @@ describe('leading-approach splice junctions (lon 167.00–167.70)', () => {
         const r = routeInshore(layers, req);
         expect(isResult(r)).toBe(true);
         if (!isResult(r)) return;
-        expect(r.debug?.leadingApproach ?? 0).toBeGreaterThanOrEqual(1); // the guard didn't kill capture
-        expect(maxTurnDeg(r.polyline)).toBeLessThan(150);
+        // RE-PIN 2026-06-18 (3-tier Phase 4, 2d63775a): the off-axis arrival
+        // no longer routes through the old applyLeadingLineApproach splice —
+        // the 3-tier path handles it as a clean tier-2 passthrough
+        // (debug.threeTier='tier2:passthrough', verified live). The INTENT
+        // survives and is what we actually care about: NO sharp reversal on
+        // the off-axis approach. maxTurn measured 50° here, far under the cap.
+        expect(r.debug?.threeTier).toBeTruthy(); // 3-tier path engaged, old splice retired
+        expect(maxTurnDeg(r.polyline)).toBeLessThan(150); // bounded approach, no jink
     });
 });
