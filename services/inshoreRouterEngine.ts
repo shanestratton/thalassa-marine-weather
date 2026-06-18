@@ -3510,7 +3510,7 @@ function routeInshoreOnce(
     let flFairlead: string | undefined;
     let llLeadingLines: number | undefined;
     let laLeadingApproach: number | undefined;
-    const threeTier = applyThreeTier(polyline, grid, layers, req.draftM, safetyM);
+    const threeTier = applyThreeTier(polyline, grid, layers, req.draftM, safetyM, obstructionBufferM);
     if (threeTier) {
         finalPolyline = threeTier.polyline;
         // SAFETY: caution is recomputed ALONG each segment, not just at its two
@@ -3678,6 +3678,7 @@ function applyThreeTier(
     layers: InshoreLayers,
     draftM: number,
     safetyM: number,
+    obstructionBufferM: number,
 ): { polyline: [number, number][]; provenance: string; spanCount: number } | null {
     if (polyline.length < 2) return null;
 
@@ -3728,7 +3729,31 @@ function applyThreeTier(
         return null;
     }
 
-    const ctx3: Tier3Context = { grid, marks, leadingLines };
+    // Inject a fine-grid builder so a narrow canal span no buoyed-channel
+    // refiner resolves is re-routed on a SEPARATE ~12 m grid (the corner-clip
+    // cure) instead of emitting the coarse A* slice that clips the bend. The
+    // closure captures buildNavGridCached (same builder, tiny crop, same
+    // draft/safety/buffer as the coarse grid) so tier3 never imports the engine.
+    // Any build failure returns null → the span keeps its coarse A* slice, so
+    // the fine pass can only IMPROVE a canal leg, never disconnect a route.
+    const buildFineGrid = (
+        fineBbox: readonly [number, number, number, number],
+        fineResolutionM: number,
+    ): NavGrid | null => {
+        try {
+            return buildNavGridCached(
+                layers,
+                [fineBbox[0], fineBbox[1], fineBbox[2], fineBbox[3]],
+                fineResolutionM,
+                draftM,
+                safetyM,
+                obstructionBufferM,
+            ).grid;
+        } catch {
+            return null;
+        }
+    };
+    const ctx3: Tier3Context = { grid, marks, leadingLines, buildFineGrid };
     const results: LegResult[] = spans.map((span) =>
         span.tier === 3 ? routeTier3(span, route, ctx3) : passthroughLeg(span, route, grid),
     );
