@@ -48,6 +48,10 @@ export const TIER3_DESPIKE_DEG = 120;
  *  + both-endpoints-near + isLand guards inside refineWithFairlead still
  *  prevent engaging a channel the route merely passes. */
 export const TIER3_FAIRLEAD_MIN_FRAC = 0.2;
+/** A point within this of a lateral mark is navigable water by the marks'
+ *  own authority — used to stop the grid-NaN land veto refusing a buoyed
+ *  channel narrower than a 50 m cell (~channel half-width). */
+export const MARK_VOUCH_M = 150;
 
 export interface Tier3Context {
     readonly grid: NavGrid;
@@ -120,6 +124,17 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         const d = ctx.grid.cells[i];
         return Number.isNaN(d) || d < 0;
     };
+    // Marks VOUCH for water. A buoyed channel narrower than a 50 m grid cell
+    // reads as NaN (the cell "looks like land"), which made fairlead's isLand
+    // veto refuse to follow a real channel (Newport NUM:27 — field finding
+    // 2026-06-17: all gates passed except this veto). A centreline point that
+    // sits within channel-half-width of a lateral mark IS navigable, whatever
+    // the coarse grid says — so trust it. Bridges/centreline FAR from any buoy
+    // still hit the real veto (the estate-land catch LNDARE misses).
+    const fairleadIsLand = (p: LL): boolean => {
+        if (ctx.marks.some((m) => distM(p.lat, p.lon, m.lat, m.lon) < MARK_VOUCH_M)) return false;
+        return isLand(p);
+    };
 
     // The A* slice for this span, in {lat,lon} object form for the refiners.
     let poly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
@@ -128,7 +143,7 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
 
     // 1. Fairlead — ENGAGE (lowered floor; segmentRoute already vouched tier-3).
     if (ctx.marks.length >= 3) {
-        const fl = refineWithFairlead(poly, [...ctx.marks], isLand, {
+        const fl = refineWithFairlead(poly, [...ctx.marks], fairleadIsLand, {
             fromIdx: 0,
             minAlongFraction: TIER3_FAIRLEAD_MIN_FRAC,
             traverseM: 500,
