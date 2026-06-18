@@ -25,7 +25,7 @@
  */
 
 import type { NavGrid } from '../inshoreRouterEngine';
-import { refineWithFairlead, groupChannels, corridorCenterline, type LateralMark } from '../fairlead';
+import { refineWithFairlead, groupChannels, corridorCenterline, smoothPath, type LateralMark } from '../fairlead';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { angularDiff, freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
@@ -48,10 +48,6 @@ export const TIER3_DESPIKE_DEG = 120;
  *  + both-endpoints-near + isLand guards inside refineWithFairlead still
  *  prevent engaging a channel the route merely passes. */
 export const TIER3_FAIRLEAD_MIN_FRAC = 0.2;
-/** A point within this of a lateral mark is navigable water by the marks'
- *  own authority — used to stop the grid-NaN land veto refusing a buoyed
- *  channel narrower than a 50 m cell (~channel half-width). */
-export const MARK_VOUCH_M = 150;
 
 export interface Tier3Context {
     readonly grid: NavGrid;
@@ -124,18 +120,6 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         const d = ctx.grid.cells[i];
         return Number.isNaN(d) || d < 0;
     };
-    // Marks VOUCH for water. A buoyed channel narrower than a 50 m grid cell
-    // reads as NaN (the cell "looks like land"), which made fairlead's isLand
-    // veto refuse to follow a real channel (Newport NUM:27 — field finding
-    // 2026-06-17: all gates passed except this veto). A centreline point that
-    // sits within channel-half-width of a lateral mark IS navigable, whatever
-    // the coarse grid says — so trust it. Bridges/centreline FAR from any buoy
-    // still hit the real veto (the estate-land catch LNDARE misses).
-    const fairleadIsLand = (p: LL): boolean => {
-        if (ctx.marks.some((m) => distM(p.lat, p.lon, m.lat, m.lon) < MARK_VOUCH_M)) return false;
-        return isLand(p);
-    };
-
     // The A* slice for this span, in {lat,lon} object form for the refiners.
     let poly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
     let vouched = false;
@@ -143,7 +127,7 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
 
     // 1. Fairlead — ENGAGE (lowered floor; segmentRoute already vouched tier-3).
     if (ctx.marks.length >= 3) {
-        const fl = refineWithFairlead(poly, [...ctx.marks], fairleadIsLand, {
+        const fl = refineWithFairlead(poly, [...ctx.marks], isLand, {
             fromIdx: 0,
             minAlongFraction: TIER3_FAIRLEAD_MIN_FRAC,
             traverseM: 500,
@@ -185,6 +169,25 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             poly = ll.polyline;
             vouched = true;
             prov.push(`lead×${ll.snapped}`);
+        }
+    }
+
+    // 2.5 De-bead fallback. When no mark-follow engaged (the local buoys don't
+    // reconstruct into a clean port/stbd channel — a groupChannels/
+    // corridorCenterline limitation, see ROUTING_COLLAB), the span is the raw
+    // A* which BEADS through the preferred gate-discs (the stepping Shane sees).
+    // A moving average collapses the beading; validated against REAL land
+    // (landBlocked) so a corner-cut onto a bank is rejected — never against
+    // grid-NaN, which a narrow channel trips. Endpoints are pinned by smoothPath.
+    if (!vouched && poly.length >= 4) {
+        const smoothed = smoothPath(poly, 7);
+        const cutsLand = smoothed.some((p) => {
+            const i = cellIdx(ctx.grid, p.lon, p.lat);
+            return i >= 0 && ctx.grid.landBlocked?.[i] === 1;
+        });
+        if (!cutsLand) {
+            poly = smoothed;
+            prov.push('smooth');
         }
     }
 
