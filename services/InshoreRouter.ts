@@ -906,10 +906,37 @@ async function tryInshoreRouteInner(
     try {
         const mapboxToken = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined) ?? '';
         if (mapboxToken) {
-            const PAD = 0.012; // ~1.3 km around each endpoint
+            // Nearshore corridor crop: a marina/canal exit follows the route OUT,
+            // not a tight disc — so extend each endpoint's crop ~4 km TOWARD the
+            // other endpoint (covering the winding channel), padded ~1.2 km
+            // perpendicular. This reaches the canal without the tile count a big
+            // square crop would cost, and the deep open bay in the middle is still
+            // never fetched.
+            const REACH_M = 4000;
+            const PERP_DEG = 0.011; // ~1.2 km perpendicular margin
+            const corridorCrop = (
+                a: { lat: number; lon: number },
+                b: { lat: number; lon: number },
+            ): [number, number, number, number] => {
+                const cosLat = Math.cos((a.lat * Math.PI) / 180) || 1;
+                const dLat = b.lat - a.lat;
+                const dLon = (b.lon - a.lon) * cosLat;
+                const len = Math.hypot(dLat, dLon) || 1;
+                const reachDeg = REACH_M / 111_320;
+                const far = {
+                    lat: a.lat + (dLat / len) * reachDeg,
+                    lon: a.lon + ((dLon / len) * reachDeg) / cosLat,
+                };
+                return [
+                    Math.min(a.lon, far.lon) - PERP_DEG,
+                    Math.min(a.lat, far.lat) - PERP_DEG,
+                    Math.max(a.lon, far.lon) + PERP_DEG,
+                    Math.max(a.lat, far.lat) + PERP_DEG,
+                ];
+            };
             const endpointCrops: [number, number, number, number][] = [
-                [origin.lon - PAD, origin.lat - PAD, origin.lon + PAD, origin.lat + PAD],
-                [destination.lon - PAD, destination.lat - PAD, destination.lon + PAD, destination.lat + PAD],
+                corridorCrop(origin, destination),
+                corridorCrop(destination, origin),
             ];
             const waterFCs = await Promise.all(endpointCrops.map((b) => fetchMapboxWater(b, mapboxToken)));
             const mapboxWater = waterFCs.flatMap((fc) => fc.features);
