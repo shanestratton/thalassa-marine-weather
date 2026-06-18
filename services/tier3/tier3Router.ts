@@ -29,6 +29,7 @@ import { refineWithFairlead, type LateralMark } from '../fairlead';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { angularDiff, freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
+import { tryFineCanalLeg, type BuildFineGrid } from './fineCanalGrid';
 
 /** {lat,lon} object form the refiners speak. Structurally matches fairlead's +
  *  leadingLine's own LatLon, so the same object satisfies both. */
@@ -53,6 +54,13 @@ export interface Tier3Context {
     readonly grid: NavGrid;
     readonly marks: readonly LateralMark[];
     readonly leadingLines: readonly LeadingLine[];
+    /** Optional: build a fine-resolution NavGrid over a bbox (injected by the
+     *  engine, captures buildNavGridCached). When present, a narrow canal span
+     *  that no buoyed-channel refiner resolves is re-routed on a fine grid via
+     *  the marina centreline solver — the corner-clip cure. Absent ⇒ the span
+     *  keeps today's coarse A* slice (behaviour identical), so existing callers
+     *  and tests are unaffected. */
+    readonly buildFineGrid?: BuildFineGrid;
 }
 
 const M_PER_LAT = 110_540;
@@ -222,7 +230,27 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     // The A* slice for this span, in {lat,lon} object form for the refiners.
     let poly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
     let vouched = false;
+    let usedFineGrid = false;
     const prov: string[] = [];
+
+    // Fine-res canal fallback — where NO buoyed-channel solution applies, a
+    // narrow canal/marina span routed on the coarse 50 m grid clips its bends
+    // (the ~1-cell-wide canal forces a corner-cutting diagonal). Re-route it on
+    // a SEPARATE fine grid with the parity-proven marina centreline solver,
+    // whose string-pulled waypoints ride the eroded keel-safe graph (corner-
+    // clip-free by construction). Returns false — keeping the coarse A* slice —
+    // when no fine grid is injected, the span isn't a canal, or the canal is
+    // disconnected at the keel margin (so it can only ever IMPROVE the leg).
+    const tryFine = (): boolean => {
+        if (!ctx.buildFineGrid) return false;
+        const fine = tryFineCanalLeg(span, fullPolyline, ctx.grid, ctx.buildFineGrid);
+        if (!fine) return false;
+        poly = fine.polyline.map(([lon, lat]) => ({ lat, lon }));
+        vouched = true;
+        usedFineGrid = true;
+        prov.push('finegrid');
+        return true;
+    };
 
     // 1. Fairlead — ENGAGE (lowered floor; segmentRoute already vouched tier-3).
     if (ctx.marks.length >= 3) {
@@ -243,20 +271,26 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             // fairlead declined (lumped 'NUM' channels / numbering convention).
             // Fall back to nearest-gate following — robust to both, and
             // mark-vouched so a narrow buoyed channel the coarse grid calls land
-            // is still followed.
+            // is still followed. If THAT declines too, try the fine canal pass.
             const followed = followChannelGates(poly, ctx.marks, ctx.grid);
             if (followed) {
                 poly = followed;
                 vouched = true;
                 prov.push('gates');
-            } else {
+            } else if (!tryFine()) {
                 prov.push('astar');
             }
         }
+    } else {
+        // No buoyed channel here (marks < 3) — try the fine canal pass directly;
+        // on decline the span keeps its raw A* slice (provenance 'astar').
+        tryFine();
     }
 
     // 2. Leading-line snap — straighten onto any charted transit the span hugs.
-    if (ctx.leadingLines.length > 0) {
+    //    Skipped for a fine-grid canal leg: its mid-channel geometry is already
+    //    the authoritative route; a lead snap would pull it off the centreline.
+    if (!usedFineGrid && ctx.leadingLines.length > 0) {
         const ll = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.leadingLines], {
             isBlocked: isLand,
             isCaution,
@@ -269,7 +303,12 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     }
 
     // 3. De-spike backstop — no >120° reversal survives a tier-3 leg body.
-    poly = deSpike(poly, TIER3_DESPIKE_DEG);
+    //    Skipped for the fine-grid leg: the marina solver's string-pulled
+    //    centreline is monotonic + clearance-validated, and deSpike could drop a
+    //    genuine sharp canal bend (a real >120° dog-leg the canal demands).
+    if (!usedFineGrid) {
+        poly = deSpike(poly, TIER3_DESPIKE_DEG);
+    }
     if (poly.length < 2) return { refused: true, reason: 'disconnected-grid' };
 
     // 4. Back to contract tuples; pin endpoints to the exact boundary nodes so

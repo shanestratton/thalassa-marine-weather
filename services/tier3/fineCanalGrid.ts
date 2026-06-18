@@ -243,3 +243,64 @@ export function isCanalNarrow(
     const median = widths[Math.floor(widths.length / 2)];
     return median <= maxCells;
 }
+
+/** Fine-grid cell resolution for the canal pass, in metres. Shane-tunable
+ *  (10–15 m); 12 m keeps a tight crop bounded (~28k cells at 2 km²) and
+ *  resolves a ~1-cell-at-50 m canal into ~8 cells wide. */
+export const FINE_CANAL_RES_M = 12;
+
+/** Apron added around the span crop, in degrees (~550 m). Generous enough that
+ *  the canal stays connected to the coarse route's proven-reachable entry/exit
+ *  cells (masterplan §9b 300 m + margin), tight enough to keep the build cheap. */
+export const FINE_CANAL_APRON_DEG = 0.005;
+
+/** Build-a-fine-grid callback the engine injects (captures buildNavGridCached +
+ *  the chart layers). Returns a NavGrid over `bbox` at `resolutionM`, or null if
+ *  the build is unavailable/failed. Kept as a callback so this module never
+ *  imports the engine (no cycle): tier3 references only the NavGrid type. */
+export type BuildFineGrid = (bbox: readonly [number, number, number, number], resolutionM: number) => NavGrid | null;
+
+/** Tight bbox [minLon,minLat,maxLon,maxLat] around a span's polyline slice plus
+ *  the seam endpoints, padded by `apronDeg`. */
+export function spanCropBbox(
+    fullPolyline: readonly LatLon[],
+    span: TierSpan,
+    apronDeg: number,
+): [number, number, number, number] {
+    let minLon = Infinity;
+    let minLat = Infinity;
+    let maxLon = -Infinity;
+    let maxLat = -Infinity;
+    const extend = ([lon, lat]: LatLon): void => {
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+    };
+    for (let i = span.fromIdx; i <= span.toIdx && i < fullPolyline.length; i++) extend(fullPolyline[i]);
+    extend(span.entry.at);
+    extend(span.exit.at);
+    return [minLon - apronDeg, minLat - apronDeg, maxLon + apronDeg, maxLat + apronDeg];
+}
+
+/**
+ * Orchestrate the fine canal pass for one span: probe narrowness on the COARSE
+ * grid, and only if it's a true canal, build a fine grid over the span crop and
+ * route it with buildFineCanalLeg. Returns the corner-safe fine leg, or null
+ * (not a canal / no fine grid / disconnected at the keel margin) — in which case
+ * the caller keeps today's coarse A* slice. This is the ONE function tier3Router
+ * calls; it owns the resolution + apron policy.
+ */
+export function tryFineCanalLeg(
+    span: TierSpan,
+    fullPolyline: readonly LatLon[],
+    coarseGrid: NavGrid,
+    buildFineGrid: BuildFineGrid,
+    paramsOverride?: Partial<MarinaRouteParams>,
+): FineCanalLeg | null {
+    if (!isCanalNarrow(coarseGrid, fullPolyline, span)) return null;
+    const bbox = spanCropBbox(fullPolyline, span, FINE_CANAL_APRON_DEG);
+    const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
+    if (!fineGrid) return null;
+    return buildFineCanalLeg(fineGrid, span, paramsOverride);
+}

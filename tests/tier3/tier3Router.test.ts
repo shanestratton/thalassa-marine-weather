@@ -7,6 +7,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { routeTier3, followChannelGates, type Tier3Context } from '../../services/tier3/tier3Router';
+import type { BuildFineGrid } from '../../services/tier3/fineCanalGrid';
 import type { NavGrid } from '../../services/inshoreRouterEngine';
 import type { LateralMark } from '../../services/fairlead';
 import { isRefusal, type BoundaryNode, type LatLon } from '../../services/routing/legContract';
@@ -200,5 +201,106 @@ describe('routeTier3', () => {
             grid,
         );
         expect(centre).toBeNull();
+    });
+});
+
+describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
+    // A coarse grid with a single navigable column (a 1-cell canal); everything
+    // else is land. The narrowness probe should flag this; a wide grid must not.
+    function narrowCoarseGrid(): NavGrid {
+        const minLat = LAT_S - 0.002;
+        const minLon = LON0 - 0.003;
+        const dLat = 50 / M_PER_LAT;
+        const dLon = 50 / mPerLon;
+        const width = Math.ceil((LON0 + 0.003 - minLon) / dLon) + 1;
+        const height = Math.ceil((LAT_N + 0.002 - minLat) / dLat) + 1;
+        const cells = new Float32Array(width * height).fill(NaN);
+        const cx = Math.floor((LON0 - minLon) / dLon);
+        for (let y = 0; y < height; y++) cells[y * width + cx] = 10; // 1-cell channel
+        return { width, height, minLon, minLat, dLon, dLat, cells, preferred: new Uint8Array(width * height) };
+    }
+
+    /** A no-marks span straight down the canal column. */
+    function canalSpan(): { span: TierSpan; poly: LatLon[] } {
+        const poly: LatLon[] = [];
+        for (let k = 0; k <= 8; k++) poly.push([LON0, LAT_S + (k / 8) * (LAT_N - LAT_S)]);
+        return { span: spanOver(poly), poly };
+    }
+
+    /** Build-a-fine-grid stub: an all-deep rectangle over the bbox at resM — so
+     *  routeMarina trivially connects entry→exit (the corner-clip cure path). */
+    const deepFineGrid: BuildFineGrid = (bbox, resM) => {
+        const [minLon, minLat, maxLon, maxLat] = bbox;
+        const dLat = resM / M_PER_LAT;
+        const dLon = resM / mPerLon;
+        const width = Math.ceil((maxLon - minLon) / dLon) + 1;
+        const height = Math.ceil((maxLat - minLat) / dLat) + 1;
+        return {
+            width,
+            height,
+            minLon,
+            minLat,
+            dLon,
+            dLat,
+            cells: new Float32Array(width * height).fill(10),
+            preferred: new Uint8Array(width * height),
+        };
+    };
+
+    it('flips provenance astar→finegrid when a narrow canal + buildFineGrid are present', () => {
+        const { span, poly } = canalSpan();
+        const ctx: Tier3Context = {
+            grid: narrowCoarseGrid(),
+            marks: [],
+            leadingLines: [],
+            buildFineGrid: deepFineGrid,
+        };
+        const leg = routeTier3(span, poly, ctx);
+        expect(isRefusal(leg)).toBe(false);
+        if (isRefusal(leg)) return;
+        expect(leg.provenance).toBe('tier3:finegrid');
+        expect(leg.depthSource).toBe('marks-vouched'); // fine pass vouches the water
+        // endpoints still pinned to the span's BoundaryNodes
+        expect(leg.polyline[0]).toBe(leg.entry.at);
+        expect(leg.polyline[leg.polyline.length - 1]).toBe(leg.exit.at);
+    });
+
+    it('stays astar when buildFineGrid is absent (backward-compatible, behaviour identical)', () => {
+        const { span, poly } = canalSpan();
+        const ctx: Tier3Context = { grid: narrowCoarseGrid(), marks: [], leadingLines: [] };
+        const leg = routeTier3(span, poly, ctx);
+        expect(isRefusal(leg)).toBe(false);
+        if (isRefusal(leg)) return;
+        expect(leg.provenance).toBe('tier3:astar');
+    });
+
+    it('stays astar on a WIDE channel even with buildFineGrid (narrowness gate)', () => {
+        // makeGrid() is all-deep and wide ⇒ isCanalNarrow false ⇒ fine pass skipped.
+        const { span, poly } = canalSpan();
+        const ctx: Tier3Context = { grid: makeGrid(), marks: [], leadingLines: [], buildFineGrid: deepFineGrid };
+        const leg = routeTier3(span, poly, ctx);
+        expect(isRefusal(leg)).toBe(false);
+        if (isRefusal(leg)) return;
+        expect(leg.provenance).toBe('tier3:astar');
+    });
+
+    it('degrades to astar when the fine grid is disconnected (no fabricated route)', () => {
+        const { span, poly } = canalSpan();
+        // a fine grid that is ALL land ⇒ routeMarina returns null ⇒ keep A*.
+        const landFineGrid: BuildFineGrid = (bbox, resM) => {
+            const g = deepFineGrid(bbox, resM)!;
+            g.cells.fill(NaN);
+            return g;
+        };
+        const ctx: Tier3Context = {
+            grid: narrowCoarseGrid(),
+            marks: [],
+            leadingLines: [],
+            buildFineGrid: landFineGrid,
+        };
+        const leg = routeTier3(span, poly, ctx);
+        expect(isRefusal(leg)).toBe(false);
+        if (isRefusal(leg)) return;
+        expect(leg.provenance).toBe('tier3:astar');
     });
 });
