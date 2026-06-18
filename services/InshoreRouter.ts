@@ -1216,6 +1216,13 @@ async function tryInshoreRouteInner(
     log.info(
         `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
     );
+    // TEMP diag (2026-06-19): which segmentation actually RENDERED? The [3tier]
+    // ENGAGED lines log every attempt (strict / relaxed / shadow); this is the
+    // ONE that won — its provenance tells us whether the canal span rendered as
+    // finegrid or fell back to a coarse tier-2 passthrough.
+    log.warn(
+        `RENDERED ROUTE prov="${(result as { debug?: { threeTier?: string } }).debug?.threeTier ?? 'n/a'}" (${result.distanceNM.toFixed(1)} NM, ${result.polyline.length} pts)`,
+    );
     // Full polyline vertex dump (lat,lon) — see exactly where the route
     // runs without eyeballing the rendered map.
     if (ROUTE_DEBUG)
