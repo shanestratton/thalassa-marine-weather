@@ -26,6 +26,7 @@ import { DeleteVoyageModal } from '../components/DeleteVoyageModal';
 import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
+import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useLogPageState } from '../hooks/useLogPageState';
@@ -123,6 +124,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         archivedVoyages,
         handleArchiveVoyage,
         handleUnarchiveVoyage,
+        // Empty-track tidy announcement
+        emptyPruneNotice,
+        clearEmptyPruneNotice,
     } = useLogPageState();
 
     const toast = useToast();
@@ -1367,6 +1371,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     </div>
                 </div>
             )}
+
+            {/* Empty-track tidy announcement — big friendly modal with a
+                5 s countdown ring, replaces the plain toast. */}
+            <EmptyTrackRemovedModal count={emptyPruneNotice} onClose={clearEmptyPruneNotice} />
 
             {/* Toast Notifications */}
             <toast.ToastContainer />
