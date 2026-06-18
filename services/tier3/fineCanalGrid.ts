@@ -27,10 +27,10 @@
 
 import type { NavGrid } from '../inshoreRouterEngine';
 import {
+    centrelineSimplify,
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
-    stringPull,
     type Cell,
     type MarinaRouteParams,
     type MarinaRouteResult,
@@ -244,18 +244,22 @@ export function buildFineCanalLeg(
     if (!result) return null;
 
     // Simplify the RAW Dijkstra path (result.cells) ourselves, against REAL water
-    // ONLY — not routeMarina's own waypoints, whose string-pull tests LOS against
-    // the BRIDGED graph and would happily cut a bend's inside corner through the
-    // bridged chord (re-introducing the clip). Excluding bridge cells from the
-    // simplifier's clear() test means a corner can only ever be cut across genuine
-    // navigable water; the route follows the Dijkstra path one cell at a time
-    // through any bridged gap, never shortcutting across it.
+    // ONLY. Two reasons NOT to use routeMarina's own string-pulled waypoints:
+    //   1. its string-pull tests LOS against the BRIDGED graph, so it would cut a
+    //      bend's inside corner through a bridged chord (re-introducing the clip);
+    //   2. string-pull pulls the path TAUT to the longest clear chord, which in a
+    //      channel running alongside land collapses the mid-channel centreline onto
+    //      the inside bank — the wall-hug. centrelineSimplify is Douglas–Peucker:
+    //      it keeps the centreline the cost field computed, only de-staircasing it.
+    // Excluding bridge cells from the clear() test means a chord can only ever be
+    // collapsed across genuine navigable water; the route follows the Dijkstra path
+    // one cell at a time through any bridged gap, never shortcutting across it.
     const realWater = new Uint8Array(fineGrid.cells.length);
     for (let i = 0; i < realWater.length; i++) {
         const c = fineGrid.cells[i];
         realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
     }
-    const waypoints = stringPull(result.cells, realWater, shape);
+    const waypoints = centrelineSimplify(result.cells, realWater, shape);
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse

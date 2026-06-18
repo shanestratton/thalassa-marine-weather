@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+    centrelineSimplify,
     euclideanDistanceTransform,
     largestComponent,
     stringPull,
@@ -76,6 +77,86 @@ describe('stringPull', () => {
         expect(pulled.length).toBe(2);
         expect(pulled[0]).toEqual({ x: 1, y: 1 });
         expect(pulled[pulled.length - 1]).toEqual({ x: 5, y: 5 });
+    });
+});
+
+describe('centrelineSimplify', () => {
+    it('de-staircases a straight diagonal to its endpoints (no spurious bends)', () => {
+        const w = 10,
+            h = 10;
+        const passable = new Uint8Array(w * h).fill(1);
+        const stair: Cell[] = [
+            { x: 1, y: 1 },
+            { x: 2, y: 1 },
+            { x: 2, y: 2 },
+            { x: 3, y: 2 },
+            { x: 3, y: 3 },
+            { x: 4, y: 3 },
+            { x: 4, y: 4 },
+            { x: 5, y: 4 },
+            { x: 5, y: 5 },
+        ];
+        const out = centrelineSimplify(stair, passable, { width: w, height: h });
+        // Stair noise ≤ 1 cell < tolerance → collapses to the straight diagonal.
+        expect(out.length).toBe(2);
+        expect(out[0]).toEqual({ x: 1, y: 1 });
+        expect(out[out.length - 1]).toEqual({ x: 5, y: 5 });
+    });
+
+    it('PRESERVES a mid-channel arc that string-pull flattens onto the bank (the wall-hug)', () => {
+        const w = 12,
+            h = 8;
+        const passable = new Uint8Array(w * h).fill(1);
+        // A centreline that bows UP, away from the low edge — exactly what the
+        // marina cost field produces in a channel running alongside land (the bank
+        // is the bottom edge; the route belongs in the MIDDLE, up at y≈1).
+        const arc: Cell[] = [
+            { x: 0, y: 6 },
+            { x: 2, y: 4 },
+            { x: 4, y: 2 },
+            { x: 6, y: 1 },
+            { x: 8, y: 2 },
+            { x: 10, y: 4 },
+            { x: 11, y: 6 },
+        ];
+        const pulled = stringPull(arc, passable, { width: w, height: h });
+        const kept = centrelineSimplify(arc, passable, { width: w, height: h });
+        // Taut-pull throws the whole arc away: one straight chord along the low edge.
+        expect(pulled.length).toBe(2);
+        // Douglas–Peucker keeps the apex, so the route still rides mid-channel.
+        expect(kept.length).toBeGreaterThan(2);
+        const apexY = Math.min(...kept.map((c) => c.y));
+        expect(apexY).toBeLessThanOrEqual(2);
+    });
+
+    it('never collapses a chord across land (water guard holds)', () => {
+        const w = 11,
+            h = 7;
+        const passable = new Uint8Array(w * h).fill(1);
+        // Carve a land headland the straight chord would cut through: block the
+        // middle columns at the low rows so a taut shortcut is impossible.
+        for (let y = 3; y < h; y++) for (let x = 4; x <= 6; x++) passable[y * w + x] = 0;
+        // A path that detours UP and over the headland.
+        const detour: Cell[] = [
+            { x: 0, y: 5 },
+            { x: 2, y: 4 },
+            { x: 4, y: 1 },
+            { x: 6, y: 1 },
+            { x: 8, y: 4 },
+            { x: 10, y: 5 },
+        ];
+        const kept = centrelineSimplify(detour, passable, { width: w, height: h });
+        // Every retained segment must stay entirely in water.
+        for (let i = 0; i < kept.length - 1; i++) {
+            const a = kept[i];
+            const b = kept[i + 1];
+            const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+            for (let t = 0; t <= n; t++) {
+                const x = Math.round(a.x + ((b.x - a.x) * t) / n);
+                const y = Math.round(a.y + ((b.y - a.y) * t) / n);
+                expect(passable[y * w + x]).toBe(1);
+            }
+        }
     });
 });
 
