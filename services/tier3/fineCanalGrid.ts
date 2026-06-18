@@ -30,6 +30,7 @@ import {
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
+    stringPull,
     type Cell,
     type MarinaRouteParams,
     type MarinaRouteResult,
@@ -134,6 +135,43 @@ export interface FineCanalLeg {
     keelCellsUsed: number;
 }
 
+/** Nominal depth (m) stamped into a bridged corridor cell. Deliberately tiny so
+ *  the marina cost field always prefers REAL charted water (deeper + wider) over
+ *  the bridge — the bridge is used ONLY where real water is absent. */
+const BRIDGE_DEPTH_M = 0.5;
+
+/**
+ * Bridge the coarse A* corridor into the fine depth array. The coarse route is a
+ * proven-navigable path (the coarse grid + canal carve vouched it); the fine
+ * grid can disagree where finer LNDARE rasterisation resolves a thin wall/sliver
+ * the 50 m carve bridged — splitting the canal into two components so routeMarina
+ * returns null (disc:2comp). Stamping the corridor as low-preference navigable
+ * water restores connectivity WITHOUT re-introducing the clip: where real canal
+ * water exists the solver rides it (far higher cost-field value), so the bridge
+ * only carries the route across genuine fine-grid gaps. Mutates `depth` in place,
+ * only ever turning land (NaN) into BRIDGE_DEPTH_M — never overwriting real depth.
+ */
+function bridgeCorridor(grid: NavGrid, depth: Float32Array, corridor: readonly LatLon[]): void {
+    if (corridor.length < 2) return;
+    const stepM = Math.max(3, gridResM(grid) / 3);
+    for (let i = 0; i < corridor.length - 1; i++) {
+        const a = corridor[i];
+        const b = corridor[i + 1];
+        const segM = Math.hypot(
+            (b[0] - a[0]) * 111_320 * Math.cos((a[1] * Math.PI) / 180),
+            (b[1] - a[1]) * M_PER_DEG_LAT,
+        );
+        const steps = Math.max(1, Math.ceil(segM / stepM));
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const cell = toCell(grid, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+            if (!cell) continue;
+            const idx = cell.y * grid.width + cell.x;
+            if (Number.isNaN(depth[idx])) depth[idx] = BRIDGE_DEPTH_M;
+        }
+    }
+}
+
 /**
  * Route one Tier-3 canal span on a pre-built fine grid. Returns the corner-safe
  * fine leg, or null when the fine grid can't vouch a connected keel-safe canal
@@ -144,13 +182,16 @@ export interface FineCanalLeg {
  *                  cell↔latlon mapping used here.
  * @param span      the Tier-3 span; entry.at / exit.at are the seam boundary
  *                  points the leg must start and end on exactly.
- * @param paramsOverride  optional marina-param overrides (keelCells, etc.) for
- *                  tuning; keelCells defaults to the fine grid's resolution.
+ * @param paramsOverride  optional marina-param overrides (keelCells, etc.).
+ * @param corridor  the coarse A* span slice [lon,lat]; bridged into the fine grid
+ *                  as a low-preference navigable backbone to guarantee
+ *                  connectivity (see bridgeCorridor). Omit to disable bridging.
  */
 export function buildFineCanalLeg(
     fineGrid: NavGrid,
     span: TierSpan,
     paramsOverride?: Partial<MarinaRouteParams>,
+    corridor?: readonly LatLon[],
 ): FineCanalLeg | null {
     const start = toCell(fineGrid, span.entry.at[0], span.entry.at[1]);
     const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
@@ -172,6 +213,11 @@ export function buildFineCanalLeg(
     // which includes land (clearance 0), so it would route across the bank. At
     // 12 m keelCells is already 1, so this loop is a single safe pass there.
     const depth = marinaDepthArray(fineGrid);
+    // Bridge the proven-navigable coarse corridor so a fine-grid barrier (a thin
+    // wall the 50 m carve averaged away) can't split the canal into two
+    // components. Low-preference, so the route still rides real water everywhere
+    // it exists; the bridge only spans genuine fine-grid gaps.
+    if (corridor) bridgeCorridor(fineGrid, depth, corridor);
     const shape = { width: fineGrid.width, height: fineGrid.height };
     let result: MarinaRouteResult | null = null;
     let keelUsed = baseParams.keelCells;
@@ -185,8 +231,20 @@ export function buildFineCanalLeg(
     }
     if (!result) return null;
 
-    // string-pulled waypoints ride the eroded keel-safe graph → corner-clip-free.
-    const polyline: LatLon[] = result.waypoints.map((c) => cellCentreLatLon(fineGrid, c));
+    // Simplify the RAW Dijkstra path (result.cells) ourselves, against REAL water
+    // ONLY — not routeMarina's own waypoints, whose string-pull tests LOS against
+    // the BRIDGED graph and would happily cut a bend's inside corner through the
+    // bridged chord (re-introducing the clip). Excluding bridge cells from the
+    // simplifier's clear() test means a corner can only ever be cut across genuine
+    // navigable water; the route follows the Dijkstra path one cell at a time
+    // through any bridged gap, never shortcutting across it.
+    const realWater = new Uint8Array(fineGrid.cells.length);
+    for (let i = 0; i < realWater.length; i++) {
+        const c = fineGrid.cells[i];
+        realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
+    }
+    const waypoints = stringPull(result.cells, realWater, shape);
+    const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse
     // boundary tuples byte-for-byte).
@@ -401,7 +459,8 @@ export function tryFineCanalLeg(
     const bbox = spanCropBbox(fullPolyline, span, FINE_CANAL_APRON_DEG);
     const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
     if (!fineGrid) return { leg: null, diag: 'nogrid' };
-    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride);
+    const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
+    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor);
     if (!leg) return { leg: null, diag: `disc:${diagnoseDisconnect(fineGrid, span)}` };
     return { leg, diag: `k${leg.keelCellsUsed}` };
 }

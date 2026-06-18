@@ -186,6 +186,60 @@ describe('buildFineCanalLeg — corner-clip cure on a synthetic fine grid', () =
             expect(chordHitsLand(grid, leg!.polyline[i], leg!.polyline[i + 1])).toBe(false);
         }
     });
+
+    it('bridges the coarse corridor to reconnect a fine-grid barrier (the disc:2comp cure)', () => {
+        // Two water basins split by a 2-cell land wall — exactly the field case:
+        // entry and exit land in different fine components (disc:2comp). The coarse
+        // A* corridor crossed the wall (proving it navigable), so bridging it must
+        // reconnect them.
+        const cells = new Float32Array(W * H).fill(NaN);
+        for (let y = 26; y <= 34; y++) {
+            for (let x = 5; x <= 22; x++) cells[y * W + x] = 10; // left basin
+            for (let x = 38; x <= 55; x++) cells[y * W + x] = 10; // right basin
+        }
+        // x 23..37 is a land wall.
+        const grid: NavGrid = {
+            width: W,
+            height: H,
+            minLon: MIN_LON,
+            minLat: MIN_LAT,
+            dLon: D_LON,
+            dLat: D_LAT,
+            cells,
+            preferred: new Uint8Array(W * H),
+        };
+        const span: TierSpan = {
+            tier: 3,
+            entry: node(centre(10, 30), 'channel-mouth'),
+            exit: node(centre(50, 30), 'dest'),
+            fromIdx: 0,
+            toIdx: 2,
+            caution: false,
+        };
+        const corridor: LatLon[] = [centre(10, 30), centre(30, 30), centre(50, 30)]; // crosses the wall
+
+        expect(buildFineCanalLeg(grid, span)).toBeNull(); // no corridor → 2 components → null
+        const bridged = buildFineCanalLeg(grid, span, undefined, corridor);
+        expect(bridged).not.toBeNull(); // corridor bridge → connected
+        expect(bridged!.polyline[0]).toEqual(span.entry.at);
+        expect(bridged!.polyline[bridged!.polyline.length - 1]).toEqual(span.exit.at);
+    });
+
+    it('bridging the CLIPPING corridor does NOT re-introduce the clip (real water wins)', () => {
+        // The corridor handed in is the straight clipping chord across the inside
+        // bend. Bridging it makes that chord navigable — but the real 9-cell canal
+        // is deeper + wider (far higher cost-field value), so the solver rides the
+        // canal and the output crosses ZERO land. This is the safety guarantee:
+        // the bridge only carries the route across genuine gaps, never the clip.
+        const grid = makeLCanalGrid();
+        const span = lCanalSpan();
+        const clippingCorridor: LatLon[] = [span.entry.at, span.exit.at];
+        expect(chordHitsLand(grid, span.entry.at, span.exit.at)).toBe(true); // the chord clips
+        const leg = buildFineCanalLeg(grid, span, undefined, clippingCorridor)!;
+        for (let i = 0; i < leg.polyline.length - 1; i++) {
+            expect(chordHitsLand(grid, leg.polyline[i], leg.polyline[i + 1])).toBe(false);
+        }
+    });
 });
 
 // ── Narrowness probe (runs on the COARSE grid) ─────────────────────────
