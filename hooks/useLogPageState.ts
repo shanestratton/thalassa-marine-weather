@@ -385,6 +385,10 @@ export function useLogPageState() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
+    // How many empty (0.0 NM) tracks were just tidied away — drives the
+    // EmptyTrackRemovedModal announcement. null = nothing to show.
+    const [emptyPruneNotice, setEmptyPruneNotice] = useState<number | null>(null);
+
     // Delete genuinely empty device tracks in the background. Idempotent:
     // once a voyage is pruned it's gone from summaries, so subsequent
     // loads find nothing. A guard ref prevents overlapping sweeps.
@@ -408,7 +412,7 @@ export function useLogPageState() {
                 }
                 if (deleted > 0) {
                     reloadCareerData();
-                    toast.info(`Removed ${deleted} empty track${deleted === 1 ? '' : 's'} (0.0 NM)`);
+                    setEmptyPruneNotice(deleted);
                 }
             } catch (e) {
                 log.warn('pruneEmptyTracks failed', e);
@@ -743,7 +747,7 @@ export function useLogPageState() {
                         dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
                         loadedVoyagesRef.current.delete(stoppedVoyageId);
                         void clearCachedVoyageTrack(stoppedVoyageId);
-                        toast.info('Removed empty track (0.0 NM)');
+                        setEmptyPruneNotice(1);
                     }
                 } catch (e) {
                     log.warn('empty-voyage prune on stop failed', e);
@@ -1382,5 +1386,9 @@ export function useLogPageState() {
         archivedVoyages,
         handleArchiveVoyage,
         handleUnarchiveVoyage,
+
+        // Empty-track tidy announcement
+        emptyPruneNotice,
+        clearEmptyPruneNotice: () => setEmptyPruneNotice(null),
     };
 }
