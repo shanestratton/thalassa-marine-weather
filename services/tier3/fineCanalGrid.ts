@@ -355,29 +355,34 @@ export function isCanalNarrow(
 }
 
 /**
- * Is this span majority-covered by INJECTED canal water (the wide Mapbox-water
- * fill flagged on coarseGrid.injectedCanal)? The injected fill is what
- * lets the route enter the canal at all, but it also (a) reads tier-2-deep and
- * (b) inflates isCanalNarrow's width to 'notnarrow'. So when we KNOW a span runs
- * through injected channel water we force the fine centreline pass on it even if
- * the coarse narrowness probe says wide. Strictly keyed on injectedCanal, which
- * is only ever set over the nearshore endpoint crops — never the open bay.
- * Returns false when the grid omits the mask (cached/test grids) — exact
- * back-compat with the prior narrowness-only gate.
+ * Does this span run through ANY injected canal water (the wide Mapbox-water fill
+ * flagged on coarseGrid.injectedCanal)? The injected fill is what lets the route
+ * enter the canal at all, but it also (a) reads tier-2-deep and (b) inflates
+ * isCanalNarrow's width to 'notnarrow'. So when a span touches injected channel
+ * water we force the fine centreline pass on it even if the coarse narrowness
+ * probe says wide.
+ *
+ * The trigger is "touches injected water", NOT "majority injected": segmentRoute
+ * already promotes a span to tier-3 the moment its run is seeded by injected
+ * cells, and hysteresis can then absorb adjacent deep-bay vertices INTO that
+ * tier-3 run — so the rendered berth-exit span is tier-3 yet only PARTLY injected
+ * (Newport: it flipped tier-2→tier-3 but stayed astar(notnarrow) under a majority
+ * rule). Routing the centreline wherever we injected water is the whole point;
+ * the over-trigger risk is bounded — only tier-3 spans reach here (never the open
+ * bay, which has no injectedCanal cells), and tryFineCanalLeg length-caps the
+ * forced fine grid. Returns false when the grid omits the mask (cached/test
+ * grids) — exact back-compat with the prior narrowness-only gate.
  */
 export function spanIsInjectedCanal(coarseGrid: NavGrid, fullPolyline: readonly LatLon[], span: TierSpan): boolean {
     if (!coarseGrid.injectedCanal) return false;
-    let inj = 0;
-    let tot = 0;
     for (let i = span.fromIdx; i <= span.toIdx && i < fullPolyline.length; i++) {
         const [lon, lat] = fullPolyline[i];
         const x = Math.floor((lon - coarseGrid.minLon) / coarseGrid.dLon);
         const y = Math.floor((lat - coarseGrid.minLat) / coarseGrid.dLat);
         if (x < 0 || y < 0 || x >= coarseGrid.width || y >= coarseGrid.height) continue;
-        tot++;
-        if (coarseGrid.injectedCanal[y * coarseGrid.width + x] === 1) inj++;
+        if (coarseGrid.injectedCanal[y * coarseGrid.width + x] === 1) return true;
     }
-    return tot > 0 && inj * 2 > tot;
+    return false;
 }
 
 /** Along-span length in metres (the span's polyline slice). */
