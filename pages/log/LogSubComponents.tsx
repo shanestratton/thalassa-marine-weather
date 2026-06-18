@@ -227,6 +227,8 @@ export const VoyageCard: React.FC<{
      * overlays regardless of z-index — the "two tracks on screen" bug.
      */
     suppressMiniMap?: boolean;
+    /** Career record this voyage holds, if any — shows a gold trophy badge. */
+    recordBadge?: 'longest' | 'fastest' | 'longestTrip' | null;
     filteredEntries: ShipLogEntry[];
     onDeleteEntry: (id: string) => void;
     onEditEntry: (entry: ShipLogEntry) => void;
@@ -243,6 +245,7 @@ export const VoyageCard: React.FC<{
         onShowMap,
         onNeedEntries,
         suppressMiniMap,
+        recordBadge,
         filteredEntries,
         onDeleteEntry,
         onEditEntry,
@@ -503,6 +506,16 @@ export const VoyageCard: React.FC<{
                             the sky tint because it's the headline number
                             for a voyage log. */}
                         <div className="flex items-center gap-1.5 flex-wrap">
+                            {recordBadge && (
+                                <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/25 to-yellow-500/20 border border-amber-400/40 text-[11px] font-black text-amber-300 inline-flex items-center gap-1 shadow-sm shadow-amber-500/10">
+                                    <span aria-hidden>🏆</span>
+                                    {recordBadge === 'longest'
+                                        ? 'Longest'
+                                        : recordBadge === 'fastest'
+                                          ? 'Fastest'
+                                          : 'Longest trip'}
+                                </span>
+                            )}
                             <span className="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[11px] font-bold text-sky-300 tabular-nums">
                                 {(dist ?? 0).toFixed(1)} nm
                             </span>
