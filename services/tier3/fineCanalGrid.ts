@@ -331,6 +331,13 @@ export function isCanalNarrow(
  *  resolves a ~1-cell-at-50 m canal into ~8 cells wide. */
 export const FINE_CANAL_RES_M = 12;
 
+/** Max metres the corridor bridge may carry a leg across charted land before the
+ *  fine pass DECLINES (keeps the coarse A* slice). A thin LNDARE bleed / wall is
+ *  tens of metres; beyond this the canal is genuinely un-charted as water (a
+ *  data-coverage gap, e.g. Newport's 427 m entry channel) and bridging would draw
+ *  a confident fine route straight through the marina lots. Don't. */
+export const MAX_BRIDGE_CROSSING_M = 60;
+
 /** Apron added around the span crop, in degrees (~550 m). Generous enough that
  *  the canal stays connected to the coarse route's proven-reachable entry/exit
  *  cells (masterplan §9b 300 m + margin), tight enough to keep the build cheap. */
@@ -373,9 +380,11 @@ export interface FineCanalAttempt {
      *    'notnarrow'    — the coarse corridor is wider than a canal (probe gate)
      *    'nogrid'       — the engine couldn't build a fine grid for the crop
      *    'disc:<sub>'   — declined; sub = nowater | nostart | noend | 2comp/<n>
+     *    'barrier/<m>m' — declined; REAL water split by >MAX_BRIDGE_CROSSING_M of
+     *                   charted land (a data-coverage gap, not a thin artifact)
      *    'k<n>,real'    — success on connected REAL water (clean fine route)
-     *    'k<n>,split/br<m>m' — success but REAL water was split; the bridge
-     *                   carried the leg <m> m across charted land (residual clip) */
+     *    'k<n>,split/br<m>m' — success; REAL water split by a SHORT (≤cap) gap the
+     *                   bridge carried the leg <m> m across (a thin wall/sliver) */
     diag: string;
 }
 
@@ -511,12 +520,17 @@ export function tryFineCanalLeg(
     const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
     const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor);
     if (!leg) return { leg: null, diag: `disc:${diagnoseDisconnect(fineGrid, span)}` };
-    // Success diagnostics: was the REAL canal water already connected (clean
-    // fine route), or did the bridge have to carry the leg across a fine-grid
-    // barrier — and for how many metres? A non-zero crossing on a 'split' leg is
-    // the residual clip, and confirms whether it's a chart-data coverage gap.
+    // Was the REAL (unbridged) canal water already connected? If so it's a clean
+    // fine route. If not, the bridge carried the leg across a fine-grid barrier —
+    // measure how far. A thin artifact (a wall/sliver) is fine to bridge; a long
+    // crossing means the canal is genuinely un-charted as water here (a data gap),
+    // and bridging would draw a confident fine route across the marina lots — so
+    // DECLINE and keep the coarse A* slice rather than fake clean water.
     const flood = keelGraphFlood(fineGrid, span);
-    const connected = flood ? flood.reached : true;
-    const tag = connected ? 'real' : `split/br${Math.round(bridgedCrossingM(fineGrid, leg.polyline))}m`;
-    return { leg, diag: `k${leg.keelCellsUsed},${tag}` };
+    if (flood && !flood.reached) {
+        const brM = bridgedCrossingM(fineGrid, leg.polyline);
+        if (brM > MAX_BRIDGE_CROSSING_M) return { leg: null, diag: `barrier/${Math.round(brM)}m` };
+        return { leg, diag: `k${leg.keelCellsUsed},split/br${Math.round(brM)}m` };
+    }
+    return { leg, diag: `k${leg.keelCellsUsed},real` };
 }
