@@ -258,7 +258,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+$/); // finegrid:k<keel that connected>
+        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,real$/); // all-deep ⇒ connected real water
         expect(leg.depthSource).toBe('marks-vouched'); // fine pass vouches the water
         // endpoints still pinned to the span's BoundaryNodes
         expect(leg.polyline[0]).toBe(leg.entry.at);
@@ -308,6 +308,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+$/); // corridor bridged the wall
+        // split real water + a measured bridged crossing (the diagnostic we need)
+        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,split\/br\d+m$/);
     });
 });

@@ -372,29 +372,36 @@ export interface FineCanalAttempt {
      *  WHY a span did or didn't take the fine pass:
      *    'notnarrow'    — the coarse corridor is wider than a canal (probe gate)
      *    'nogrid'       — the engine couldn't build a fine grid for the crop
-     *    'disconnected' — no keel level (down to 0) connected start↔end
-     *    'k<n>'         — success; n = keel-erosion cells that connected it */
+     *    'disc:<sub>'   — declined; sub = nowater | nostart | noend | 2comp/<n>
+     *    'k<n>,real'    — success on connected REAL water (clean fine route)
+     *    'k<n>,split/br<m>m' — success but REAL water was split; the bridge
+     *                   carried the leg <m> m across charted land (residual clip) */
     diag: string;
 }
 
-/**
- * Sub-diagnose a 'disconnected' fine pass: reconstruct routeMarina's keel graph
- * and report WHY entry→exit didn't connect, so on-device logs pinpoint the cause
- * (runs only on the failure path):
- *   'nowater'     — the fine grid has no navigable water at all (canal absent)
- *   'nostart'/'noend' — an endpoint can't snap to keel-safe water
- *   '2comp/<n>'   — entry & exit are in DIFFERENT water bodies; n = entry's
- *                   component size in cells (small ⇒ an islanded berth basin)
- *   'nopath'      — same component yet no centreline (unexpected; solver edge)
- */
-function diagnoseDisconnect(fineGrid: NavGrid, span: TierSpan): string {
+interface KeelFlood {
+    /** Navigable (non-NaN) cells in the REAL (unbridged) fine grid. */
+    waterCount: number;
+    gStart: Cell | null;
+    gEnd: Cell | null;
+    /** gStart's keel-graph component reaches gEnd (REAL water, no bridge). */
+    reached: boolean;
+    /** Size (cells) of gStart's component. */
+    startCompCells: number;
+}
+
+/** Reconstruct routeMarina's keel graph on the REAL (unbridged) water and flood
+ *  from the snapped entry to test whether it reaches the snapped exit. This is
+ *  the ground truth for "is this canal genuinely split here?" — independent of
+ *  any corridor bridge, which is added only to the cost grid, not to fineGrid. */
+function keelGraphFlood(fineGrid: NavGrid, span: TierSpan): KeelFlood | null {
     const start = toCell(fineGrid, span.entry.at[0], span.entry.at[1]);
     const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
-    if (!start || !end) return 'oob';
+    if (!start || !end) return null;
     const w = fineGrid.width;
     const h = fineGrid.height;
     const shape = { width: w, height: h };
-    const depth = marinaDepthArray(fineGrid);
+    const depth = marinaDepthArray(fineGrid); // REAL water (fineGrid.cells, unbridged)
     const water = new Uint8Array(w * h);
     let waterCount = 0;
     for (let i = 0; i < water.length; i++)
@@ -402,16 +409,14 @@ function diagnoseDisconnect(fineGrid: NavGrid, span: TierSpan): string {
             water[i] = 1;
             waterCount++;
         }
-    if (waterCount === 0) return 'nowater';
+    if (waterCount === 0) return { waterCount: 0, gStart: null, gEnd: null, reached: false, startCompCells: 0 };
     const keel = keelCellsFor(gridResM(fineGrid));
     const clearance = euclideanDistanceTransform(water, shape);
     const graph = new Uint8Array(w * h);
     for (let i = 0; i < graph.length; i++) graph[i] = clearance[i] >= keel ? 1 : 0;
     const gStart = snapToMask(graph, shape, start);
     const gEnd = snapToMask(graph, shape, end);
-    if (!gStart) return 'nostart';
-    if (!gEnd) return 'noend';
-    // 4-connected flood from gStart; does it reach gEnd's cell?
+    if (!gStart || !gEnd) return { waterCount, gStart, gEnd, reached: false, startCompCells: 0 };
     const seen = new Uint8Array(w * h);
     const startIdx = gStart.y * w + gStart.x;
     const queue: number[] = [startIdx];
@@ -437,7 +442,51 @@ function diagnoseDisconnect(fineGrid: NavGrid, span: TierSpan): string {
             queue.push(idx + w);
         }
     }
-    return seen[gEnd.y * w + gEnd.x] ? 'nopath' : `2comp/${queue.length}`;
+    return { waterCount, gStart, gEnd, reached: seen[gEnd.y * w + gEnd.x] === 1, startCompCells: queue.length };
+}
+
+/**
+ * Sub-diagnose a 'disconnected' fine pass, so on-device logs pinpoint the cause
+ * (runs only on the failure path):
+ *   'nowater'     — the fine grid has no navigable water at all (canal absent)
+ *   'nostart'/'noend' — an endpoint can't snap to keel-safe water
+ *   '2comp/<n>'   — entry & exit are in DIFFERENT water bodies; n = entry's
+ *                   component size in cells (small ⇒ an islanded berth basin)
+ *   'nopath'      — same component yet no centreline (unexpected; solver edge)
+ */
+function diagnoseDisconnect(fineGrid: NavGrid, span: TierSpan): string {
+    const f = keelGraphFlood(fineGrid, span);
+    if (!f) return 'oob';
+    if (f.waterCount === 0) return 'nowater';
+    if (!f.gStart) return 'nostart';
+    if (!f.gEnd) return 'noend';
+    return f.reached ? 'nopath' : `2comp/${f.startCompCells}`;
+}
+
+/** Metres of the output route that run over cells the REAL grid calls NaN —
+ *  i.e. the visible "crossing" length the bridge had to carry through a fine-grid
+ *  barrier. ~0 ⇒ the route rides real water the whole way; non-zero ⇒ that many
+ *  metres of the leg cross charted-land (the residual clip Shane sees). */
+function bridgedCrossingM(fineGrid: NavGrid, polyline: readonly LatLon[]): number {
+    const stepM = Math.max(3, gridResM(fineGrid) / 3);
+    let total = 0;
+    for (let i = 0; i < polyline.length - 1; i++) {
+        const a = polyline[i];
+        const b = polyline[i + 1];
+        const segM = Math.hypot(
+            (b[0] - a[0]) * 111_320 * Math.cos((a[1] * Math.PI) / 180),
+            (b[1] - a[1]) * M_PER_DEG_LAT,
+        );
+        const steps = Math.max(1, Math.ceil(segM / stepM));
+        let overNaN = 0;
+        for (let s = 0; s < steps; s++) {
+            const t = (s + 0.5) / steps;
+            const cell = toCell(fineGrid, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+            if (cell && Number.isNaN(fineGrid.cells[cell.y * fineGrid.width + cell.x])) overNaN++;
+        }
+        total += (overNaN / steps) * segM;
+    }
+    return total;
 }
 
 /**
@@ -462,5 +511,12 @@ export function tryFineCanalLeg(
     const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
     const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor);
     if (!leg) return { leg: null, diag: `disc:${diagnoseDisconnect(fineGrid, span)}` };
-    return { leg, diag: `k${leg.keelCellsUsed}` };
+    // Success diagnostics: was the REAL canal water already connected (clean
+    // fine route), or did the bridge have to carry the leg across a fine-grid
+    // barrier — and for how many metres? A non-zero crossing on a 'split' leg is
+    // the residual clip, and confirms whether it's a chart-data coverage gap.
+    const flood = keelGraphFlood(fineGrid, span);
+    const connected = flood ? flood.reached : true;
+    const tag = connected ? 'real' : `split/br${Math.round(bridgedCrossingM(fineGrid, leg.polyline))}m`;
+    return { leg, diag: `k${leg.keelCellsUsed},${tag}` };
 }
