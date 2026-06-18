@@ -357,17 +357,26 @@ describe('spanIsInjectedCanal — detect injected canal water along a span', () 
         preferred: new Uint8Array(w * h),
     });
 
-    it('true when the span runs through majority injected water', () => {
+    it('true when the span runs through injected water', () => {
         const grid = baseGrid();
         grid.injectedCanal = new Uint8Array(w * h);
         for (let y = 0; y < h; y++) grid.injectedCanal[y * w + 10] = 1; // whole column injected
         expect(spanIsInjectedCanal(grid, poly, span)).toBe(true);
     });
 
-    it('false when under half the span is injected', () => {
+    it('true even when only PART of the span is injected (the Newport berth-exit case)', () => {
+        // segmentRoute promotes a partly-injected span to tier-3 via hysteresis;
+        // touching injected water at all ⇒ centre-line it (not a majority rule).
         const grid = baseGrid();
         grid.injectedCanal = new Uint8Array(w * h);
         for (let y = 2; y <= 5; y++) grid.injectedCanal[y * w + 10] = 1; // only 4 of 16 vertices
+        expect(spanIsInjectedCanal(grid, poly, span)).toBe(true);
+    });
+
+    it('false when the span touches NO injected cell (injected water is off-corridor)', () => {
+        const grid = baseGrid();
+        grid.injectedCanal = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) grid.injectedCanal[y * w + 5] = 1; // column 5; the span is column 10
         expect(spanIsInjectedCanal(grid, poly, span)).toBe(false);
     });
 
