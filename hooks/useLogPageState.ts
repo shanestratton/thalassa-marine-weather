@@ -373,10 +373,15 @@ export function useLogPageState() {
         reloadCareerData();
 
         // Auto-prune empty (0.0 NM) tracks — runs on the NETWORK load only
-        // (not the cache instant-paint) so it acts on confirmed data. The
-        // selection guards (active voyage, recent activity, planned/
-        // imported, manual entries) live in selectEmptyVoyagesToPrune.
-        void pruneEmptyTracks(summaries, voyageId);
+        // (not the cache instant-paint) so it acts on confirmed data. Feed
+        // it the MERGED summary list (cloud summaries overlaid with live/
+        // offline entries) — the SAME source the cards render from — so an
+        // offline-only empty voyage (still in the queue, not yet synced)
+        // is reachable. The cloud-only `summaries` would never include it,
+        // which is why the empties never deleted. Guards (active voyage,
+        // recent activity, planned/imported, manual) live in
+        // selectEmptyVoyagesToPrune.
+        void pruneEmptyTracks(mergeSummariesWithLive(summaries, merged), voyageId);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 

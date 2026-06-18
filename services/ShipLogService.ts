@@ -57,6 +57,7 @@ import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
     getOfflineEntries as _getOfflineEntries,
+    deleteVoyageFromOfflineQueue as _deleteVoyageFromOfflineQueue,
 } from './shiplog/OfflineQueue';
 import { setCachedVoyageTrack } from './shiplog/VoyageTrackCache';
 import {
@@ -73,6 +74,7 @@ import {
     getVoyageSummaries as _getVoyageSummaries,
     getCachedVoyageSummaries as _getCachedVoyageSummaries,
     getVoyageEntries as _getVoyageEntries,
+    EMPTY_TRACK_NM,
     type VoyageSummary,
 } from './shiplog/VoyageSummary';
 
@@ -676,21 +678,39 @@ class ShipLogServiceClass {
             log.warn(``, err);
         });
 
-        // LOCAL TRACK CACHE: snapshot the voyage from the offline queue
-        // BEFORE the background upload drains it. Viewing this voyage on
-        // the recording device is then instant forever — no Supabase
-        // round-trip, works fully offline. (Snapshot is awaited so the
-        // fire-and-forget sync below can't clear the queue first; the
-        // cache write itself runs in the background.)
+        // EMPTY-VOYAGE DISCARD + LOCAL TRACK CACHE. The voyage's points are
+        // still ONLY in the offline queue here (local-first capture never
+        // synced them). So this is the one safe place to bin an empty
+        // track — delete it from the queue NOW, before the upload below
+        // can ship it to the cloud. Doing it later (UI prune) races that
+        // upload: the queue snapshot is taken here, uploads in the
+        // background, and re-inserts the voyage after any delete. Killing
+        // it pre-upload means there's nothing to resurrect.
+        //
+        // "Empty" = never went anywhere (max cumulative < EMPTY_TRACK_NM,
+        // i.e. the card's "0.0 NM") AND no deliberate manual entry.
+        let voyageWasEmpty = false;
         if (previousVoyageId) {
             try {
                 const queued = await _getOfflineEntries();
                 const voyageTrack = queued.filter((e) => e.voyageId === previousVoyageId);
-                void setCachedVoyageTrack(previousVoyageId, voyageTrack).catch(() => {
-                    /* best effort */
-                });
+                const maxCumNM = voyageTrack.length
+                    ? Math.max(0, ...voyageTrack.map((e) => e.cumulativeDistanceNM || 0))
+                    : 0;
+                const hasManual = voyageTrack.some((e) => e.entryType === 'manual');
+                voyageWasEmpty = maxCumNM < EMPTY_TRACK_NM && !hasManual;
+
+                if (voyageWasEmpty) {
+                    await _deleteVoyageFromOfflineQueue(previousVoyageId);
+                    log.warn(`[ShipLog] empty voyage discarded at stop (${maxCumNM.toFixed(3)} NM) — not uploaded`);
+                } else {
+                    // Cache the real track so viewing it is instant/offline.
+                    void setCachedVoyageTrack(previousVoyageId, voyageTrack).catch(() => {
+                        /* best effort */
+                    });
+                }
             } catch (e) {
-                log.warn('voyage track cache snapshot failed (viewer will fetch from cloud):', e);
+                log.warn('empty-voyage check / track cache snapshot failed:', e);
             }
         }
 
