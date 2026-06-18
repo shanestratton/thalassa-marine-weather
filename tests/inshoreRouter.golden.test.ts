@@ -153,9 +153,14 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         expect(r.distanceNM).toBeLessThan(18.43 * 1.02);
     });
 
-    it('caution cells at or below the lock-in baseline (10)', () => {
+    it('caution cells at or below the lock-in baseline (11)', () => {
         expectConnected(r);
-        expect(cautionCount(r)).toBeLessThanOrEqual(10);
+        // RE-PIN 10→11 (3-tier Phase 4 + along-segment caution, 42bf48c8):
+        // route distance is byte-identical (18.43 NM pinned green), only the
+        // caution count rose by ONE cell — the along-segment sampler catching
+        // a mid-segment caution the old per-vertex sampler missed on the SAME
+        // route. Honest by construction (stable geometry, +1 honest flag).
+        expect(cautionCount(r)).toBeLessThanOrEqual(11);
     });
 
     // KNOWN ENGINE LIMITATION (Claude B's lane — re-diagnosed 2026-06-11 with
