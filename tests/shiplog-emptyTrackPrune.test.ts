@@ -78,3 +78,44 @@ describe('selectEmptyVoyagesToPrune', () => {
         expect(selectEmptyVoyagesToPrune([summary({ endedAt: 'not-a-date' })], opts)).toEqual(['v1']);
     });
 });
+
+import { mergeSummariesWithLive } from '../services/shiplog/VoyageSummary';
+import type { ShipLogEntry } from '../types';
+
+describe('offline-only empty voyage reachability (the real bug)', () => {
+    // The card surfaces an offline-only voyage via mergeSummariesWithLive;
+    // the prune must be fed that SAME merged list, not the cloud-only
+    // summaries, or it can never see (and never delete) the empty track.
+    function pt(voyageId: string, tsISO: string, cum = 0): ShipLogEntry {
+        return {
+            id: `${voyageId}_${tsISO}`,
+            voyageId,
+            timestamp: tsISO,
+            latitude: -27.5,
+            longitude: 153.0,
+            entryType: 'auto',
+            cumulativeDistanceNM: cum,
+        } as ShipLogEntry;
+    }
+
+    const cloudSummaries: VoyageSummary[] = []; // nothing synced yet
+    const offlineEntries = [
+        pt('offline_empty', new Date(NOW - 60 * 60 * 1000).toISOString(), 0),
+        pt('offline_empty', new Date(NOW - 59 * 60 * 1000).toISOString(), 0),
+    ];
+
+    it('cloud-only summaries miss it (reproduces the bug)', () => {
+        expect(selectEmptyVoyagesToPrune(cloudSummaries, { activeVoyageId: null, nowMs: NOW })).toEqual([]);
+    });
+
+    it('the merged list surfaces it and the prune selects it', () => {
+        const merged = mergeSummariesWithLive(cloudSummaries, offlineEntries);
+        expect(merged.some((s) => s.voyageId === 'offline_empty')).toBe(true);
+        expect(selectEmptyVoyagesToPrune(merged, { activeVoyageId: null, nowMs: NOW })).toEqual(['offline_empty']);
+    });
+
+    it('still respects the active-voyage guard on the merged list', () => {
+        const merged = mergeSummariesWithLive(cloudSummaries, offlineEntries);
+        expect(selectEmptyVoyagesToPrune(merged, { activeVoyageId: 'offline_empty', nowMs: NOW })).toEqual([]);
+    });
+});
