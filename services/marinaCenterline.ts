@@ -365,6 +365,82 @@ export function stringPull(path: Cell[], passable: Uint8Array, { width, height }
     return out;
 }
 
+/**
+ * Centreline-PRESERVING simplification — Douglas–Peucker on the raw Dijkstra
+ * cell path, with a water-safety guard.
+ *
+ * Why not {@link stringPull} here: string-pull greedily jumps to the FARTHEST
+ * cell with clear line-of-sight, i.e. it pulls the path taut to the longest
+ * chord that fits inside the water. In a channel that runs alongside land the
+ * longest clear chord is the one that hugs the inside bank — so taut-pull throws
+ * away the mid-channel centreline the cost field just computed and replaces it
+ * with a dead-straight wall-hugging line (Newport's berth-exit wall-hug).
+ *
+ * Douglas–Peucker instead keeps the point of MAXIMUM deviation at every bend, so
+ * the simplified line stays on the centreline; it only drops a point when the
+ * chord across it is within `toleranceCells` AND stays inside `passable`. The
+ * tolerance removes the 4-connected staircase (stair noise ≤ ~1 cell) without
+ * shortcutting the channel's curve. The water guard means a chord is never
+ * collapsed across land or a bridged gap (those read as non-passable), so the
+ * route still follows the raw path one cell at a time through any gap.
+ */
+export function centrelineSimplify(
+    path: Cell[],
+    passable: Uint8Array,
+    { width, height }: GridShape,
+    toleranceCells = 1.5,
+): Cell[] {
+    if (path.length < 3) return path.slice();
+
+    const clear = (a: Cell, b: Cell): boolean => {
+        const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        if (n === 0) return true;
+        for (let t = 0; t <= n; t++) {
+            const x = Math.round(a.x + ((b.x - a.x) * t) / n);
+            const y = Math.round(a.y + ((b.y - a.y) * t) / n);
+            if (x < 0 || y < 0 || x >= width || y >= height || !passable[y * width + x]) return false;
+        }
+        return true;
+    };
+
+    const keep = new Uint8Array(path.length);
+    keep[0] = 1;
+    keep[path.length - 1] = 1;
+    // Iterative DP — avoids deep recursion on a long per-cell path.
+    const stack: Array<[number, number]> = [[0, path.length - 1]];
+    while (stack.length) {
+        const seg = stack.pop();
+        if (!seg) break;
+        const [lo, hi] = seg;
+        if (hi <= lo + 1) continue;
+        const a = path[lo];
+        const b = path[hi];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        let maxDev = -1;
+        let maxIdx = -1;
+        for (let k = lo + 1; k < hi; k++) {
+            // Perpendicular distance of path[k] from the chord a→b (cell units).
+            const dev = Math.abs((path[k].x - a.x) * dy - (path[k].y - a.y) * dx) / len;
+            if (dev > maxDev) {
+                maxDev = dev;
+                maxIdx = k;
+            }
+        }
+        // Collapse the run to one straight chord ONLY if it is both flat enough
+        // and the chord stays in water; otherwise keep the worst offender (which
+        // preserves the bend / forces the line back into water) and recurse.
+        if (maxDev <= toleranceCells && clear(a, b)) continue;
+        keep[maxIdx] = 1;
+        stack.push([lo, maxIdx]);
+        stack.push([maxIdx, hi]);
+    }
+    const out: Cell[] = [];
+    for (let i = 0; i < path.length; i++) if (keep[i]) out.push(path[i]);
+    return out;
+}
+
 export interface MarinaRouteParams {
     /** Keel-clearance margin in cells. graph = (clearance ≥ keelCells). */
     keelCells: number;
