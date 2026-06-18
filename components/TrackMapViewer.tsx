@@ -602,7 +602,15 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const entry = sortedEntriesRef.current[playbackIndex];
         if (!entry) return;
 
-        if (entry.entryType === 'waypoint') {
+        // Only surface the callout for MEANINGFUL waypoints. The system
+        // waypoints — Voyage Start / Voyage End / the rolling Latest
+        // Position — just duplicate what the HUD box above already shows
+        // (time, position, speed), so their callout is noise; skip them.
+        const SYSTEM_WAYPOINT_NAMES = ['Voyage Start', 'Voyage End', 'Latest Position'];
+        const isMeaningfulWaypoint =
+            entry.entryType === 'waypoint' && !SYSTEM_WAYPOINT_NAMES.includes(entry.waypointName ?? '');
+
+        if (isMeaningfulWaypoint) {
             // Clear any existing timer
             if (waypointTimerRef.current) clearTimeout(waypointTimerRef.current);
             setActiveWaypoint({
@@ -622,6 +630,10 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             });
             // Auto-dismiss after 6 seconds (more time for extra info)
             waypointTimerRef.current = setTimeout(() => setActiveWaypoint(null), 6000);
+        } else {
+            // Non-waypoint or a system waypoint — clear any open callout.
+            if (waypointTimerRef.current) clearTimeout(waypointTimerRef.current);
+            setActiveWaypoint(null);
         }
     }, [playbackIndex, showHUD]);
 
