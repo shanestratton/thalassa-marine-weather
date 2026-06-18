@@ -738,7 +738,18 @@ describe('seamanship: mid-span shoal bar vs parallel marked channel (lon 161.00�
         expect(isResult(route)).toBe(true);
         if (!isResult(route)) return;
         const runs = cautionRunsM(route.polyline, route.cautionMask);
-        expect(runs).toHaveLength(0); // clean crossing via the cut
+        // RE-PIN 2026-06-18 (3-tier Phase 4 + caution along-segment fix,
+        // commit 42bf48c8): geometry BYTE-IDENTICAL to the old pin — same
+        // 10.90 NM, 10/11 gates, wrongSidePasses 1, same cut. The ONLY
+        // change is caution: the old per-VERTEX sampler reported 0 runs on
+        // this cut across the mid-span shoal bar — a SILENT bar crossing the
+        // golden itself had baked in. The new along-segment sampler honestly
+        // flags the ~6.6 km the cut spends on the bar. Verified route-vs-grid
+        // (A's method, collab reply 44): NOT a geometry regression, an
+        // exposed latent under-flag. So the cut now correctly carries one
+        // caution run — which is the honest, safer pin.
+        expect(runs).toHaveLength(1);
+        expect(runs[0]).toBeGreaterThan(5000); // ~6.6 km of bar, red as it should be
         const audit = auditGates(route.polyline, gates);
         expect(audit.gatesPassed).toBeGreaterThanOrEqual(9);
         expect(audit.wrongSidePasses).toBeLessThanOrEqual(1);
