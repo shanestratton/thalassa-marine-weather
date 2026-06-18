@@ -46,6 +46,7 @@ import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
+import { fetchMapboxWater } from './mapboxWater';
 import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
 
@@ -125,6 +126,13 @@ const MAX_INSHORE_NM = 50;
 
 /** Margin around an endpoint when checking ENC coverage (degrees ≈ 5km). */
 const COVERAGE_MARGIN_DEG = 0.05;
+
+/** Synthetic depth (m) stamped on injected Mapbox `water` polygons. Mapbox knows
+ *  WHERE the water is, not how deep — so we use a moderate marina/river-realistic
+ *  value: deep enough to be navigable (not CAUTION) for a typical yacht, shallow
+ *  enough to be honest in the canal/marina crops where it's injected. Real charted
+ *  DEPARE always wins on overlap (the engine keeps the shallower verified depth). */
+const MAPBOX_WATER_DEPTH_M = 5.0;
 
 function straightLineNM(a: InshoreOrigin, b: InshoreOrigin): number {
     const R_NM = 3440.065;
@@ -880,6 +888,55 @@ async function tryInshoreRouteInner(
     } catch (err) {
         log.warn(
             `OSM overlay fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+
+    // ── Mapbox vector water — the canal/marina channels the ENC omits ──
+    // The breakthrough (2026-06-18): the ENC charts marina lots as land and
+    // never charts the navigable channels between them, so the router clipped
+    // the lots (Newport's 427 m "barrier"). But Mapbox's `water` layer — which
+    // we already render on every frame — has the full channel network (verified
+    // 59% water over the Newport marina, the canal intact, a point the ENC calls
+    // land sitting inside Mapbox water). Inject those polygons as authoritative
+    // DEPARE water (natural=water ⇒ un-blocks the LNDARE bleed + protected +
+    // navigable), so the fine canal tier routes the REAL channels — the data
+    // Navionics sells, that we already load. Scoped to ~1.3 km crops around
+    // origin+dest (marinas live at the route endpoints) to bound the z16 tile
+    // count; the deep open bay in the route middle is never touched.
+    try {
+        const mapboxToken = (import.meta.env.VITE_MAPBOX_ACCESS_TOKEN as string | undefined) ?? '';
+        if (mapboxToken) {
+            const PAD = 0.012; // ~1.3 km around each endpoint
+            const endpointCrops: [number, number, number, number][] = [
+                [origin.lon - PAD, origin.lat - PAD, origin.lon + PAD, origin.lat + PAD],
+                [destination.lon - PAD, destination.lat - PAD, destination.lon + PAD, destination.lat + PAD],
+            ];
+            const waterFCs = await Promise.all(endpointCrops.map((b) => fetchMapboxWater(b, mapboxToken)));
+            const mapboxWater = waterFCs.flatMap((fc) => fc.features);
+            if (mapboxWater.length > 0) {
+                const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const f of mapboxWater) {
+                    (depare.features as unknown[]).push({
+                        ...f,
+                        properties: {
+                            ...(f.properties ?? {}),
+                            // → isAuthoritativeDepare: un-blocks LNDARE-bleed, sets
+                            //   protected + osmVouched. Moderate synthetic depth
+                            //   (marina/river realistic; the open bay isn't in crop).
+                            natural: 'water',
+                            _source: 'mapbox-water',
+                            DRVAL1: MAPBOX_WATER_DEPTH_M,
+                            DRVAL2: MAPBOX_WATER_DEPTH_M,
+                        },
+                    });
+                }
+                merged.DEPARE = depare;
+                log.warn(`MAPBOX WATER: injected ${mapboxWater.length} water polygons → DEPARE (origin+dest crops)`);
+            }
+        }
+    } catch (err) {
+        log.warn(
+            `Mapbox water fetch failed (continuing chart-only): ${err instanceof Error ? err.message : String(err)}`,
         );
     }
 
