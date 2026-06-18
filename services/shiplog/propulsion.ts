@@ -88,3 +88,49 @@ export function estimatePropulsion(
 
     return 'unknown';
 }
+
+export interface PropulsionConflict {
+    /** True when the declared engine state and the estimate sustainedly disagree. */
+    conflict: boolean;
+    /** What the estimate says you should switch TO, or null. */
+    suggested: 'motor' | 'sail' | null;
+    /** Fraction of confident samples that disagreed with the declaration. */
+    oppositeFraction: number;
+    /** Confident (non-unknown) estimates considered. */
+    confidentSamples: number;
+}
+
+const NONE: PropulsionConflict = { conflict: false, suggested: null, oppositeFraction: 0, confidentSamples: 0 };
+
+/**
+ * Decide whether to nudge the skipper that their declared engine state
+ * looks wrong. Built-in hysteresis: needs at least `minSamples` CONFIDENT
+ * estimates (unknowns ignored) over the recent window, and at least
+ * `oppositeThreshold` of them must disagree with the declaration — so a
+ * single odd fix never fires it. No declaration (undefined) ⇒ never nudge.
+ * Pure; the caller owns the cooldown/snooze.
+ */
+export function evaluatePropulsionConflict(
+    recentEntries: Array<Pick<ShipLogEntry, 'speedKts' | 'courseDeg' | 'windSpeed' | 'windDirection'>>,
+    declaredEngineRunning: boolean | undefined,
+    opts: { minSamples?: number; oppositeThreshold?: number } = {},
+): PropulsionConflict {
+    if (declaredEngineRunning === undefined) return NONE;
+    const minSamples = opts.minSamples ?? 6;
+    const oppositeThreshold = opts.oppositeThreshold ?? 0.7;
+    const declared: Propulsion = declaredEngineRunning ? 'motor' : 'sail';
+    const opposite: Propulsion = declared === 'motor' ? 'sail' : 'motor';
+
+    let same = 0;
+    let opp = 0;
+    for (const e of recentEntries) {
+        const est = estimatePropulsion(e);
+        if (est === declared) same += 1;
+        else if (est === opposite) opp += 1;
+    }
+    const confidentSamples = same + opp;
+    if (confidentSamples < minSamples) return NONE;
+    const oppositeFraction = opp / confidentSamples;
+    const conflict = oppositeFraction >= oppositeThreshold;
+    return { conflict, suggested: conflict ? opposite : null, oppositeFraction, confidentSamples };
+}

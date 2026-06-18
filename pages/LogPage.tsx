@@ -35,6 +35,7 @@ import { ShipLogEntry } from '../types';
 import { reverseGeocode } from '../services/weatherService';
 import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
+import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
@@ -188,8 +189,31 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
     const toggleEngine = useCallback(async (running: boolean) => {
         await ShipLogService.setEngineRunning(running);
         setEngineRunningState(running);
+        setNudgeDismiss(null); // resolving the toggle clears any nudge
         triggerHaptic('light');
     }, []);
+
+    // ── Propulsion mismatch nudge ──
+    // When the declared engine state and the live heuristic estimate
+    // SUSTAINEDLY disagree, gently suggest flipping the toggle. Only fires
+    // on a real, debounced conflict (see evaluatePropulsionConflict's
+    // hysteresis), and a Dismiss snoozes it for 10 min for that state.
+    const recentActiveEntries = React.useMemo(() => {
+        if (!state.currentVoyageId) return [];
+        const cutoff = Date.now() - 5 * 60 * 1000;
+        return state.entries.filter((e) => e.voyageId === state.currentVoyageId && Date.parse(e.timestamp) >= cutoff);
+    }, [state.entries, state.currentVoyageId]);
+
+    const propConflict = React.useMemo(
+        () => evaluatePropulsionConflict(recentActiveEntries, engineRunning),
+        [recentActiveEntries, engineRunning],
+    );
+
+    const [nudgeDismiss, setNudgeDismiss] = useState<{ until: number; forDeclared: boolean | undefined } | null>(null);
+    const showPropNudge =
+        state.isTracking &&
+        propConflict.conflict &&
+        !(nudgeDismiss && nudgeDismiss.forDeclared === engineRunning && Date.now() < nudgeDismiss.until);
 
     // Live mini-map expansion — tap the little map to blow it up to a
     // fullscreen live view (stats stay overlaid), tap again to shrink.
@@ -1286,6 +1310,58 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                             </div>
                             <div className="text-[11px] text-white/50 leading-snug">
                                 Recording starts at the first clean fix
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ── Propulsion mismatch nudge ──
+                Bottom banner (above the Stop controls) that appears only
+                when the declared engine state and the live estimate
+                sustainedly disagree. One tap fixes it; Dismiss snoozes.
+                Honest wording ("Looks like…") — it's a forecast-grade
+                estimate, not a certainty. pointer-events-auto so the
+                buttons work; sits above the bottom nav. */}
+            {showPropNudge && propConflict.suggested && (
+                <div
+                    className="fixed inset-x-0 z-[10000] flex justify-center px-4 animate-in fade-in slide-in-from-bottom-4 duration-300"
+                    style={{ bottom: 'calc(4rem + env(safe-area-inset-bottom) + 76px)' }}
+                    role="alert"
+                >
+                    <div className="w-full max-w-sm rounded-2xl bg-slate-900/96 border border-sky-400/40 shadow-2xl shadow-black/50 px-4 py-3 backdrop-blur-md">
+                        <div className="flex items-start gap-2.5">
+                            <span className="text-lg leading-none mt-0.5">
+                                {propConflict.suggested === 'sail' ? '⛵' : '⚙'}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[13px] font-bold text-white">
+                                    {propConflict.suggested === 'sail'
+                                        ? 'Looks like you’re sailing'
+                                        : 'Looks like you’re under power'}
+                                </div>
+                                <div className="text-[11px] text-white/55 leading-snug mt-0.5">
+                                    Logged as {engineRunning ? 'motoring' : 'sailing'} — switch it?
+                                </div>
+                                <div className="flex gap-2 mt-2.5">
+                                    <button
+                                        onClick={() => toggleEngine(propConflict.suggested === 'motor')}
+                                        className="flex-1 h-9 rounded-xl bg-sky-500 text-white text-[12px] font-extrabold uppercase tracking-wider active:scale-[0.97] transition-transform"
+                                    >
+                                        Switch to {propConflict.suggested === 'sail' ? 'Sailing' : 'Motoring'}
+                                    </button>
+                                    <button
+                                        onClick={() =>
+                                            setNudgeDismiss({
+                                                until: Date.now() + 10 * 60 * 1000,
+                                                forDeclared: engineRunning,
+                                            })
+                                        }
+                                        className="px-3 h-9 rounded-xl bg-white/10 text-white/60 text-[12px] font-bold active:scale-[0.97] transition-transform"
+                                    >
+                                        Dismiss
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>

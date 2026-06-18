@@ -4,7 +4,7 @@
  * wrong guess — and never claim certainty it doesn't have.
  */
 import { describe, it, expect } from 'vitest';
-import { estimatePropulsion, cardinalToDegrees } from '../services/shiplog/propulsion';
+import { estimatePropulsion, cardinalToDegrees, evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { computePropulsionSplit } from '../utils/voyageData';
 import type { ShipLogEntry } from '../types';
 
@@ -106,5 +106,55 @@ describe('computePropulsionSplit with estimate fill', () => {
         expect(split.unknownMs).toBe(3600000);
         expect(split.motorMs).toBe(0);
         expect(split.sailMs).toBe(0);
+    });
+});
+
+describe('evaluatePropulsionConflict', () => {
+    // Conditions that the heuristic reads as SAIL (broad reach, good breeze).
+    const sailish = { speedKts: 6, windSpeed: 14, windDirection: 'N', courseDeg: 120 };
+    // Conditions that read as MOTOR (calm but moving).
+    const motorish = { speedKts: 5, windSpeed: 1, windDirection: 'N', courseDeg: 180 };
+
+    it('no nudge when nothing is declared', () => {
+        const r = evaluatePropulsionConflict(Array(10).fill(sailish), undefined);
+        expect(r.conflict).toBe(false);
+        expect(r.suggested).toBeNull();
+    });
+
+    it('nudges to switch to sailing when declared MOTOR but it reads as sail', () => {
+        const r = evaluatePropulsionConflict(Array(10).fill(sailish), true);
+        expect(r.conflict).toBe(true);
+        expect(r.suggested).toBe('sail');
+    });
+
+    it('nudges to switch to motoring when declared SAIL but it reads as motor', () => {
+        const r = evaluatePropulsionConflict(Array(10).fill(motorish), false);
+        expect(r.conflict).toBe(true);
+        expect(r.suggested).toBe('motor');
+    });
+
+    it('no nudge when the declaration AGREES with the estimate', () => {
+        expect(evaluatePropulsionConflict(Array(10).fill(sailish), false).conflict).toBe(false);
+        expect(evaluatePropulsionConflict(Array(10).fill(motorish), true).conflict).toBe(false);
+    });
+
+    it('hysteresis: too few confident samples → no nudge', () => {
+        // Only 3 confident estimates (< default minSamples 6).
+        expect(evaluatePropulsionConflict(Array(3).fill(sailish), true).conflict).toBe(false);
+    });
+
+    it('hysteresis: a minority of conflicting fixes does not fire', () => {
+        // 7 agree (sail, declared sail) + 3 disagree → 30% opposite < 70%.
+        const mixed = [...Array(3).fill(motorish), ...Array(7).fill(sailish)];
+        expect(evaluatePropulsionConflict(mixed, false).conflict).toBe(false);
+    });
+
+    it('ignores unknown estimates when counting confidence', () => {
+        const unknown = { speedKts: 6, windSpeed: undefined, windDirection: undefined, courseDeg: 90 };
+        // 8 unknown + 6 sail; declared motor → 6 confident, all opposite → nudge.
+        const r = evaluatePropulsionConflict([...Array(8).fill(unknown), ...Array(6).fill(sailish)], true);
+        expect(r.confidentSamples).toBe(6);
+        expect(r.conflict).toBe(true);
+        expect(r.suggested).toBe('sail');
     });
 });
