@@ -1151,6 +1151,17 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                                     listVoyages.map((summary) => (
                                         <VoyageCard
                                             suppressMiniMap={showTrackMap || liveMapExpanded}
+                                            recordBadge={
+                                                records.voyageCount >= 2
+                                                    ? records.longestPassageVoyageId === summary.voyageId
+                                                        ? 'longest'
+                                                        : records.fastestVoyageId === summary.voyageId
+                                                          ? 'fastest'
+                                                          : records.longestDurationVoyageId === summary.voyageId
+                                                            ? 'longestTrip'
+                                                            : null
+                                                    : null
+                                            }
                                             key={summary.voyageId}
                                             summary={summary}
                                             entries={entries.filter((e) => e.voyageId === summary.voyageId)}
