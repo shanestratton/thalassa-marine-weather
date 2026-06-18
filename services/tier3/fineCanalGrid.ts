@@ -26,7 +26,7 @@
  */
 
 import type { NavGrid } from '../inshoreRouterEngine';
-import { routeMarina, type Cell, type MarinaRouteParams } from '../marinaCenterline';
+import { routeMarina, type Cell, type MarinaRouteParams, type MarinaRouteResult } from '../marinaCenterline';
 import type { LatLon } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
 
@@ -121,6 +121,10 @@ export interface FineCanalLeg {
     cautionMask: boolean[];
     /** Min charted depth (m) along the leg, or null if none vouched. */
     controllingDepthM: number | null;
+    /** The keel-erosion margin (cells) that actually produced a connected route.
+     *  Lower than requested ⇒ the canal was narrow and the keel was relaxed to
+     *  keep it connected. Surfaced in provenance for on-device tuning. */
+    keelCellsUsed: number;
 }
 
 /**
@@ -145,7 +149,7 @@ export function buildFineCanalLeg(
     const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
     if (!start || !end) return null;
 
-    const params: MarinaRouteParams = {
+    const baseParams: MarinaRouteParams = {
         keelCells: keelCellsFor(gridResM(fineGrid)),
         depthWeight: 15.0,
         canalHalfWidthCells: 12,
@@ -153,14 +157,26 @@ export function buildFineCanalLeg(
         ...paramsOverride,
     };
 
-    const result = routeMarina(
-        marinaDepthArray(fineGrid),
-        { width: fineGrid.width, height: fineGrid.height },
-        start,
-        end,
-        params,
-    );
-    if (!result || result.waypoints.length < 2) return null;
+    // Adaptive keel, floored at 1. At a fine resolution finer than 12 m the keel
+    // can be 2–3 cells, where a genuinely narrow canal erodes to disconnection
+    // (routeMarina null) and the leg falls back to the clipping coarse A* slice.
+    // Try the requested keel first (safest margin), then relax the erosion one
+    // cell at a time — but NEVER below 1: keel 0 keeps cells with clearance ≥ 0,
+    // which includes land (clearance 0), so it would route across the bank. At
+    // 12 m keelCells is already 1, so this loop is a single safe pass there.
+    const depth = marinaDepthArray(fineGrid);
+    const shape = { width: fineGrid.width, height: fineGrid.height };
+    let result: MarinaRouteResult | null = null;
+    let keelUsed = baseParams.keelCells;
+    for (let k = baseParams.keelCells; k >= 1; k--) {
+        const r = routeMarina(depth, shape, start, end, { ...baseParams, keelCells: k });
+        if (r && r.waypoints.length >= 2) {
+            result = r;
+            keelUsed = k;
+            break;
+        }
+    }
+    if (!result) return null;
 
     // string-pulled waypoints ride the eroded keel-safe graph → corner-clip-free.
     const polyline: LatLon[] = result.waypoints.map((c) => cellCentreLatLon(fineGrid, c));
@@ -185,6 +201,7 @@ export function buildFineCanalLeg(
         polyline,
         cautionMask,
         controllingDepthM: Number.isFinite(controlling) ? controlling : null,
+        keelCellsUsed: keelUsed,
     };
 }
 
@@ -283,13 +300,25 @@ export function spanCropBbox(
     return [minLon - apronDeg, minLat - apronDeg, maxLon + apronDeg, maxLat + apronDeg];
 }
 
+export interface FineCanalAttempt {
+    /** The fine leg, or null if the fine pass declined. */
+    leg: FineCanalLeg | null;
+    /** A short reason, surfaced into the leg provenance so on-device logs show
+     *  WHY a span did or didn't take the fine pass:
+     *    'notnarrow'    — the coarse corridor is wider than a canal (probe gate)
+     *    'nogrid'       — the engine couldn't build a fine grid for the crop
+     *    'disconnected' — no keel level (down to 0) connected start↔end
+     *    'k<n>'         — success; n = keel-erosion cells that connected it */
+    diag: string;
+}
+
 /**
  * Orchestrate the fine canal pass for one span: probe narrowness on the COARSE
  * grid, and only if it's a true canal, build a fine grid over the span crop and
- * route it with buildFineCanalLeg. Returns the corner-safe fine leg, or null
- * (not a canal / no fine grid / disconnected at the keel margin) — in which case
- * the caller keeps today's coarse A* slice. This is the ONE function tier3Router
- * calls; it owns the resolution + apron policy.
+ * route it with buildFineCanalLeg. Returns the corner-safe fine leg (or null)
+ * plus a diagnostic reason — in the null case the caller keeps today's coarse A*
+ * slice. This is the ONE function tier3Router calls; it owns the resolution +
+ * apron policy.
  */
 export function tryFineCanalLeg(
     span: TierSpan,
@@ -297,10 +326,12 @@ export function tryFineCanalLeg(
     coarseGrid: NavGrid,
     buildFineGrid: BuildFineGrid,
     paramsOverride?: Partial<MarinaRouteParams>,
-): FineCanalLeg | null {
-    if (!isCanalNarrow(coarseGrid, fullPolyline, span)) return null;
+): FineCanalAttempt {
+    if (!isCanalNarrow(coarseGrid, fullPolyline, span)) return { leg: null, diag: 'notnarrow' };
     const bbox = spanCropBbox(fullPolyline, span, FINE_CANAL_APRON_DEG);
     const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
-    if (!fineGrid) return null;
-    return buildFineCanalLeg(fineGrid, span, paramsOverride);
+    if (!fineGrid) return { leg: null, diag: 'nogrid' };
+    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride);
+    if (!leg) return { leg: null, diag: 'disconnected' };
+    return { leg, diag: `k${leg.keelCellsUsed}` };
 }

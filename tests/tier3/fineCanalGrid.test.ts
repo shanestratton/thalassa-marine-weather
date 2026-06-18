@@ -147,6 +147,45 @@ describe('buildFineCanalLeg — corner-clip cure on a synthetic fine grid', () =
         // A clean L-route must have at least one interior bend vertex.
         expect(leg.polyline.length).toBeGreaterThanOrEqual(3);
     });
+
+    it('default keel (12 m → 1) connects the wide L-canal and reports keelCellsUsed=1', () => {
+        const leg = buildFineCanalLeg(makeLCanalGrid(), lCanalSpan())!;
+        expect(leg.keelCellsUsed).toBe(1);
+    });
+
+    it('adapts the keel DOWN (never below 1) to keep a narrow canal connected', () => {
+        // A 3-cell-wide straight canal: clearance is 1 at the banks, 2 mid-channel.
+        // Force keelCells=3 (erodes it to nothing → disconnected); the adaptive
+        // keel must relax to 2 (the mid row survives) and connect — never to 0
+        // (keel 0 keeps clearance≥0 cells, i.e. land, and would cross the bank).
+        const cells = new Float32Array(W * H).fill(NaN);
+        for (let y = 28; y <= 30; y++) for (let x = 5; x <= 50; x++) cells[y * W + x] = 10;
+        const grid: NavGrid = {
+            width: W,
+            height: H,
+            minLon: MIN_LON,
+            minLat: MIN_LAT,
+            dLon: D_LON,
+            dLat: D_LAT,
+            cells,
+            preferred: new Uint8Array(W * H),
+        };
+        const span: TierSpan = {
+            tier: 3,
+            entry: node(centre(8, 29), 'channel-mouth'),
+            exit: node(centre(48, 29), 'dest'),
+            fromIdx: 0,
+            toIdx: 1,
+            caution: false,
+        };
+        const leg = buildFineCanalLeg(grid, span, { keelCells: 3 });
+        expect(leg).not.toBeNull();
+        expect(leg!.keelCellsUsed).toBe(2); // relaxed 3→2, NOT 0
+        expect(leg!.keelCellsUsed).toBeGreaterThanOrEqual(1);
+        for (let i = 0; i < leg!.polyline.length - 1; i++) {
+            expect(chordHitsLand(grid, leg!.polyline[i], leg!.polyline[i + 1])).toBe(false);
+        }
+    });
 });
 
 // ── Narrowness probe (runs on the COARSE grid) ─────────────────────────
