@@ -278,13 +278,18 @@ export function buildFineCanalLeg(
  * cells — i.e. a true canal, not a wide bay channel (where the fine pass is
  * unnecessary cost and the coarse A* already renders clean).
  *
- * Default maxCells = 2.5 ⇒ a ≤2-cell corridor (≤~100 m at 50 m) is "canal".
+ * Default maxCells = 8 ⇒ a land-bounded channel up to ~8 cells (~400 m at 50 m)
+ * is a "canal" worth centreing. This is deliberately generous: a coarse A* route
+ * HUGS the inside wall of a canal-estate channel (shortest path), so even a wider
+ * channel reads bounded (one side is the wall) and benefits from the fine
+ * centreline. Genuinely open bay water (navigable past the probe both ways → width
+ * caps at ~13) stays above the threshold and keeps the coarse/marked route.
  */
 export function isCanalNarrow(
     coarseGrid: NavGrid,
     fullPolyline: readonly LatLon[],
     span: TierSpan,
-    maxCells = 2.5,
+    maxCells = 8,
 ): boolean {
     const navigable = (x: number, y: number): boolean =>
         x >= 0 &&
