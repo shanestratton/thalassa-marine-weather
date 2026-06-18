@@ -241,14 +241,18 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     // clip-free by construction). Returns false — keeping the coarse A* slice —
     // when no fine grid is injected, the span isn't a canal, or the canal is
     // disconnected at the keel margin (so it can only ever IMPROVE the leg).
+    let fineDiag = '';
     const tryFine = (): boolean => {
         if (!ctx.buildFineGrid) return false;
-        const fine = tryFineCanalLeg(span, fullPolyline, ctx.grid, ctx.buildFineGrid);
-        if (!fine) return false;
-        poly = fine.polyline.map(([lon, lat]) => ({ lat, lon }));
+        const att = tryFineCanalLeg(span, fullPolyline, ctx.grid, ctx.buildFineGrid);
+        if (!att.leg) {
+            fineDiag = att.diag; // 'notnarrow' | 'nogrid' | 'disconnected'
+            return false;
+        }
+        poly = att.leg.polyline.map(([lon, lat]) => ({ lat, lon }));
         vouched = true;
         usedFineGrid = true;
-        prov.push('finegrid');
+        prov.push(`finegrid:${att.diag}`); // diag = `k<n>`, the keel that connected
         return true;
     };
 
@@ -278,13 +282,14 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
                 vouched = true;
                 prov.push('gates');
             } else if (!tryFine()) {
-                prov.push('astar');
+                prov.push(fineDiag ? `astar(fine=${fineDiag})` : 'astar');
             }
         }
     } else {
-        // No buoyed channel here (marks < 3) — try the fine canal pass directly;
-        // on decline the span keeps its raw A* slice (provenance 'astar').
-        tryFine();
+        // No buoyed channel here (marks < 3) — try the fine canal pass directly.
+        // On decline the span keeps its raw A* slice; the fine reason (if the
+        // pass was attempted) is appended to the provenance for on-device diag.
+        if (!tryFine() && fineDiag) prov.push(`astar(fine=${fineDiag})`);
     }
 
     // 2. Leading-line snap — straighten onto any charted transit the span hugs.

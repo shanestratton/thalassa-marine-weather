@@ -258,7 +258,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:finegrid');
+        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+$/); // finegrid:k<keel that connected>
         expect(leg.depthSource).toBe('marks-vouched'); // fine pass vouches the water
         // endpoints still pinned to the span's BoundaryNodes
         expect(leg.polyline[0]).toBe(leg.entry.at);
@@ -281,7 +281,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar');
+        expect(leg.provenance).toBe('tier3:astar(fine=notnarrow)'); // probe declined the wide channel
     });
 
     it('degrades to astar when the fine grid is disconnected (no fabricated route)', () => {
@@ -301,6 +301,6 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar');
+        expect(leg.provenance).toBe('tier3:astar(fine=disconnected)'); // routeMarina null → kept A*
     });
 });
