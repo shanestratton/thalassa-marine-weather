@@ -408,14 +408,14 @@ interface KeelFlood {
  *  from the snapped entry to test whether it reaches the snapped exit. This is
  *  the ground truth for "is this canal genuinely split here?" — independent of
  *  any corridor bridge, which is added only to the cost grid, not to fineGrid. */
-function keelGraphFlood(fineGrid: NavGrid, span: TierSpan): KeelFlood | null {
+function keelGraphFlood(fineGrid: NavGrid, span: TierSpan, depthIn?: Float32Array): KeelFlood | null {
     const start = toCell(fineGrid, span.entry.at[0], span.entry.at[1]);
     const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
     if (!start || !end) return null;
     const w = fineGrid.width;
     const h = fineGrid.height;
     const shape = { width: w, height: h };
-    const depth = marinaDepthArray(fineGrid); // REAL water (fineGrid.cells, unbridged)
+    const depth = depthIn ?? marinaDepthArray(fineGrid); // default = REAL water (unbridged)
     const water = new Uint8Array(w * h);
     let waterCount = 0;
     for (let i = 0; i < water.length; i++)
@@ -524,7 +524,18 @@ export function tryFineCanalLeg(
     if (!fineGrid) return { leg: null, diag: 'nogrid' };
     const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
     const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor);
-    if (!leg) return { leg: null, diag: `disc:${diagnoseDisconnect(fineGrid, span)}` };
+    if (!leg) {
+        // The real water was split AND routeMarina returned null even with the
+        // corridor bridge. Does the bridge actually reconnect entry→exit on the
+        // keel graph? brOK = bridge connects (so the null is a solver issue, not
+        // connectivity); brNO = the bridge doesn't span the gap (corridor stays
+        // in one component / the gap is off-corridor).
+        const bridgedDepth = marinaDepthArray(fineGrid);
+        bridgeCorridor(fineGrid, bridgedDepth, corridor);
+        const bf = keelGraphFlood(fineGrid, span, bridgedDepth);
+        const brTag = bf ? (bf.reached ? 'brOK' : 'brNO') : 'br?';
+        return { leg: null, diag: `disc:${diagnoseDisconnect(fineGrid, span)}/${brTag}` };
+    }
     // Was the REAL (unbridged) canal water already connected? If so it's a clean
     // fine route. If not, the bridge carried the leg across a fine-grid barrier —
     // measure how far. A thin artifact (a wall/sliver) is fine to bridge; a long
