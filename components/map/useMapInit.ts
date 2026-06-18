@@ -760,80 +760,14 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
-            // ── Seamark Navigation Markers ──
-            const seamarkBaseUrl =
-                (typeof import.meta !== 'undefined' && import.meta.env?.VITE_SUPABASE_URL) ||
-                'https://pcisdplnodrphauixcau.supabase.co';
-            const markersUrl = `${seamarkBaseUrl}/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson`;
-            fetch(markersUrl)
-                .then((r) => r.json())
-                .then((geojson: Record<string, unknown>) => {
-                    if (!map.getSource('nav-markers')) {
-                        map.addSource('nav-markers', { type: 'geojson', data: geojson as unknown as GeoJSON.GeoJSON });
-
-                        const markerColors = [
-                            'match',
-                            ['get', '_class'],
-                            'port',
-                            '#ff1744',
-                            'starboard',
-                            '#00e676',
-                            'cardinal_n',
-                            '#ffd600',
-                            'cardinal_s',
-                            '#ffd600',
-                            'cardinal_e',
-                            '#ffd600',
-                            'cardinal_w',
-                            '#ffd600',
-                            'cardinal',
-                            '#ffd600',
-                            'danger',
-                            '#ff6d00',
-                            'safe_water',
-                            '#ff1744',
-                            'light',
-                            '#ffffff',
-                            'special',
-                            '#ffab00',
-                            'mooring',
-                            '#40c4ff',
-                            'anchorage',
-                            '#40c4ff',
-                            '#888888',
-                        ] as mapboxgl.Expression;
-
-                        map.addLayer({
-                            id: 'nav-markers-glow',
-                            type: 'circle',
-                            source: 'nav-markers',
-                            minzoom: 10,
-                            paint: {
-                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 4, 14, 10, 18, 20],
-                                'circle-blur': 0.8,
-                                'circle-opacity': 0.7,
-                                'circle-color': markerColors,
-                            },
-                        });
-
-                        map.addLayer({
-                            id: 'nav-markers-dot',
-                            type: 'circle',
-                            source: 'nav-markers',
-                            minzoom: 10,
-                            paint: {
-                                'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 2, 14, 5, 18, 10],
-                                'circle-color': markerColors,
-                                'circle-stroke-width': 1,
-                                'circle-stroke-color': '#000000',
-                                'circle-stroke-opacity': 0.5,
-                            },
-                        });
-                    }
-                })
-                .catch((e) => {
-                    log.warn(`[useMapInit]`, e);
-                });
+            // ── Seamark Navigation Markers (regional nav_markers.geojson) —
+            // DISPLAY REMOVED 2026-06-18. The regional SE-QLD marker file sits
+            // 5–15 m off the official chart frame, so its circle markers showed
+            // as a second, misaligned set beside the authoritative ENC triangles
+            // (BOYLAT/BCNLAT via EncVectorLayer). The ENC navaids are the truth
+            // on the map. The router still fetches this file on its own path
+            // (fetchRegionalMarkers in InshoreRouter) for regions lacking ENC
+            // marker coverage — this only removes the duplicate map overlay.
 
             // ── Isochrone source ──
             map.addSource('isochrones', {
