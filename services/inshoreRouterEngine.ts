@@ -2532,7 +2532,8 @@ function perpendicularDistanceDeg(p: [number, number], a: [number, number], b: [
     return Math.hypot(p[0] - projX, p[1] - projY);
 }
 
-function douglasPeucker(
+/** @internal exported for the douglas-peucker termination regression test. */
+export function douglasPeucker(
     points: [number, number][],
     toleranceDeg: number,
     /** Optional land guard: returns true if the straight chord a→b crosses
@@ -2551,11 +2552,22 @@ function douglasPeucker(
             idx = i;
         }
     }
-    const cutsLand = chordCrossesLand?.(points[0], points[points.length - 1]) ?? false;
-    if (maxD > toleranceDeg || cutsLand) {
+    // Recurse ONLY on a geometric split. maxD > tol guarantees idx ≥ 1, so both
+    // sub-slices strictly shrink and the recursion always terminates. (The land
+    // guard must NEVER gate this branch: on a near-straight chord that merely
+    // nicks a land cell, maxD is ~0 and idx stays 0, so points.slice(idx) ===
+    // points.slice(0) — the same array — and the right branch recurses on itself
+    // forever → stack overflow → the engine throws → the passage falls through to
+    // the "route too short" bail. That was the 2026-06-18 canal regression.)
+    if (maxD > toleranceDeg) {
         const left = douglasPeucker(points.slice(0, idx + 1), toleranceDeg, chordCrossesLand);
         const right = douglasPeucker(points.slice(idx), toleranceDeg, chordCrossesLand);
         return left.slice(0, -1).concat(right);
+    }
+    // Geometry says collapse to the chord — but never collapse a chord that
+    // cuts across a canal bank. Keep every vertex (no recursion, terminates).
+    if (chordCrossesLand?.(points[0], points[points.length - 1])) {
+        return points.slice();
     }
     return [points[0], points[points.length - 1]];
 }
