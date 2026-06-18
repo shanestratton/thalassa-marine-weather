@@ -134,3 +134,23 @@ describe('computePersonalRecords', () => {
         expect(computePersonalRecords([sv({ isImported: true })]).longestPassageVoyageId).toBeNull();
     });
 });
+
+import { isLandVoyage, isMaritimeVoyage } from '../services/shiplog/VoyageSummary';
+
+describe('land vs sea classification', () => {
+    it('isLandVoyage: majority-land fixes → land; water-majority / no data → not land', () => {
+        expect(isLandVoyage(sv({ landFraction: 0.9 }))).toBe(true);
+        expect(isLandVoyage(sv({ landFraction: 0.6 }))).toBe(true);
+        expect(isLandVoyage(sv({ landFraction: 0.59 }))).toBe(false);
+        expect(isLandVoyage(sv({ landFraction: 0 }))).toBe(false);
+        expect(isLandVoyage(sv({ landFraction: null }))).toBe(false); // no data → fail open to sea
+    });
+
+    it('isMaritimeVoyage: counts own sailed water voyages, excludes land/planned/imported', () => {
+        expect(isMaritimeVoyage(sv({ landFraction: 0.1 }))).toBe(true);
+        expect(isMaritimeVoyage(sv({ landFraction: null }))).toBe(true); // fail open
+        expect(isMaritimeVoyage(sv({ landFraction: 0.8 }))).toBe(false); // land walk
+        expect(isMaritimeVoyage(sv({ isPlannedRoute: true }))).toBe(false);
+        expect(isMaritimeVoyage(sv({ isImported: true }))).toBe(false);
+    });
+});
