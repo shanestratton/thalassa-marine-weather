@@ -756,7 +756,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
             {/* Deepen Voyager's pale day water without going dark — a
                 per-tile colour filter (no seams; colour filters are
                 per-pixel). Night base is left untouched. */}
-            <style>{`.tmv-deepwater { filter: saturate(1.5) brightness(0.92) contrast(1.03); }`}</style>
+            <style>{`.tmv-deepwater { filter: saturate(2.6) brightness(0.86) contrast(1.08); }`}</style>
 
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (

@@ -706,6 +706,8 @@ export function useLogPageState() {
 
     const confirmStopVoyage = useCallback(async () => {
         dispatch({ type: 'SHOW_STOP_DIALOG', show: false });
+        // Capture the voyage id BEFORE stopTracking clears it.
+        const stoppedVoyageId = ShipLogService.getCurrentVoyageId();
         // Instant UI response — dispatch first, guard prevents polls from overwriting
         stoppingRef.current = true;
         dispatch({ type: 'SET_TRACKING', isTracking: false, isPaused: false });
@@ -717,8 +719,34 @@ export function useLogPageState() {
             // the user unsure whether tracking is still running.
             toast.error('Could not stop tracking cleanly — check the voyage status.');
         }
-        // Clear the guard, then reload to pick up final state
+        // Clear the guard
         stoppingRef.current = false;
+
+        // Immediately bin an empty (0.0 NM) just-stopped voyage. The
+        // summary-level auto-prune holds recently-active voyages for 15 min
+        // (they might be live on ANOTHER device) — but this is OUR voyage
+        // and we just stopped it, so there's no cross-device ambiguity:
+        // delete it now rather than making the user wait out that window.
+        if (stoppedVoyageId) {
+            const ve = entriesRef.current.filter((e) => e.voyageId === stoppedVoyageId);
+            const dist = ve.length ? Math.max(0, ...ve.map((e) => e.cumulativeDistanceNM || 0)) : 0;
+            const hasManual = ve.some((e) => e.entryType === 'manual');
+            if (dist < 0.05 && !hasManual) {
+                try {
+                    const ok = await ShipLogService.deleteVoyage(stoppedVoyageId);
+                    if (ok) {
+                        dispatch({ type: 'REMOVE_VOYAGE', voyageId: stoppedVoyageId });
+                        loadedVoyagesRef.current.delete(stoppedVoyageId);
+                        void clearCachedVoyageTrack(stoppedVoyageId);
+                        toast.info('Removed empty track (0.0 NM)');
+                    }
+                } catch (e) {
+                    log.warn('empty-voyage prune on stop failed', e);
+                }
+            }
+        }
+
+        // Reload to pick up final state
         await loadData();
     }, [loadData, toast]);
 
