@@ -96,9 +96,11 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
 
             // CARTO Voyager base (2026-06-13) — clean light nautical map,
             // matches TrackMapViewer; replaced the grungy near-black base.
+            // tmv-deepwater darkens the pale water (global rule in index.css,
+            // filters the tile images — see there for the iOS reason).
             L.tileLayer(
                 piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
-                { maxZoom: 19 },
+                { maxZoom: 19, className: 'tmv-deepwater' },
             ).addTo(map);
 
             // OpenSeaMap overlay

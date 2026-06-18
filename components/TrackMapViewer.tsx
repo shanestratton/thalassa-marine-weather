@@ -753,10 +753,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
 
     return (
         <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col overflow-hidden animate-in fade-in duration-200 transform-gpu">
-            {/* Deepen Voyager's pale day water without going dark — a
-                per-tile colour filter (no seams; colour filters are
-                per-pixel). Night base is left untouched. */}
-            <style>{`.tmv-deepwater { filter: saturate(2.6) brightness(0.86) contrast(1.08); }`}</style>
+            {/* Deep-water filter lives in index.css (.tmv-deepwater img) —
+                it must target the tile IMAGES, not the layer container, or
+                iOS WebKit ignores it on the 3D-composited tiles. */}
 
             {/* Title overlay — top left (hidden during playback HUD) */}
             {!showHUD && (

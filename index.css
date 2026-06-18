@@ -2864,3 +2864,16 @@ body,
         scroll-behavior: auto !important;
     }
 }
+
+/* Deepen CARTO Voyager's pale day-base water to a richer nautical blue.
+   The .tmv-deepwater class is set on the base tile layer (TrackMapViewer +
+   LiveMiniMap). Leaflet puts that class on the .leaflet-layer CONTAINER —
+   but on iOS WebKit a `filter` on a container whose tiles are 3D-composited
+   (translate3d) does NOT apply to them (the filter-vs-transform bug). So we
+   filter the tile IMAGES directly; per-pixel colour ops, so no seams.
+   Saturation does most of the work (bites the blue water, leaves the
+   near-neutral land alone); brightness/contrast darken a touch. Tune here,
+   both maps follow. */
+.tmv-deepwater img {
+    filter: saturate(2.2) brightness(0.84) contrast(1.08);
+}
