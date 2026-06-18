@@ -39,6 +39,7 @@ import {
     mergeSummariesWithLive,
     careerTotalsFromSummaries,
     selectEmptyVoyagesToPrune,
+    isMaritimeVoyage,
     type VoyageSummary,
 } from '../services/shiplog/VoyageSummary';
 import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStats';
@@ -1236,7 +1237,11 @@ export function useLogPageState() {
     // accurate across the user's ENTIRE history without loading any points.
     // Suggested/planned routes excluded (aspirational, not sailed miles).
     const voyageStats = useMemo(() => {
-        const sailed = listVoyages.filter((v) => !v.isPlannedRoute);
+        // Maritime only — exclude planned, imported AND land voyages (car
+        // drives / walks). A land track isn't sea miles or time at sea and
+        // shouldn't pad the voyage count. (Was excluding only planned, so
+        // land walks were padding all three tiles.)
+        const sailed = listVoyages.filter(isMaritimeVoyage);
         let totalNm = 0;
         let totalMs = 0;
         for (const v of sailed) {

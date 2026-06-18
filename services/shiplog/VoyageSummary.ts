@@ -196,6 +196,23 @@ function fromRpcRow(row: Record<string, unknown>): VoyageSummary {
     };
 }
 
+// ── Land vs sea classification ──────────────────────────────────────
+// A voyage is "on land" (a car drive, a walk) when the majority of its
+// water-tagged fixes are on land. Land voyages are shown in green and
+// excluded from the career tiles (distance / time at sea / voyages);
+// sea voyages are blue and count. landFraction == null means no water
+// data was captured — fail OPEN to sea (don't drop real passages).
+export const LAND_VOYAGE_FRACTION = 0.6;
+
+export function isLandVoyage(s: Pick<VoyageSummary, 'landFraction'>): boolean {
+    return s.landFraction != null && s.landFraction >= LAND_VOYAGE_FRACTION;
+}
+
+/** Counts toward career stats: the sailor's own, sailed, water-majority voyage. */
+export function isMaritimeVoyage(s: Pick<VoyageSummary, 'isImported' | 'isPlannedRoute' | 'landFraction'>): boolean {
+    return !s.isImported && !s.isPlannedRoute && !isLandVoyage(s);
+}
+
 /** Career roll-up output — the shape the Log's career panel renders. */
 export interface CareerTotals {
     totalDistance: number;
@@ -219,9 +236,7 @@ export function careerTotalsFromSummaries(summaries: VoyageSummary[]): CareerTot
     let totalVoyages = 0;
 
     for (const s of summaries) {
-        if (s.isImported || s.isPlannedRoute) continue;
-        const isMaritime = s.landFraction == null || s.landFraction < 0.6;
-        if (!isMaritime) continue;
+        if (!isMaritimeVoyage(s)) continue;
 
         totalVoyages += 1;
         totalDistance += s.totalDistanceNM || 0;

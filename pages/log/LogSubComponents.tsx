@@ -7,7 +7,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CompassIcon, WindIcon } from '../../components/Icons';
 import { ShipLogEntry, VoyagePlan } from '../../types';
-import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
+import { isLandVoyage, type VoyageSummary } from '../../services/shiplog/VoyageSummary';
 import { useFollowRoute } from '../../context/FollowRouteContext';
 import { DateGroupedTimeline } from '../../components/DateGroupedTimeline';
 import { LiveMiniMap } from '../../components/LiveMiniMap';
@@ -267,6 +267,9 @@ export const VoyageCard: React.FC<{
         };
 
         // ── Header stats — all from the aggregated summary (no points) ──
+        // Land voyages (car drives / walks) read green and are excluded
+        // from the career tiles — flag them so the card matches.
+        const isLand = isLandVoyage(summary);
         const dist = summary.totalDistanceNM;
         const durationMs = Math.max(0, new Date(summary.endedAt).getTime() - new Date(summary.startedAt).getTime());
         const durationHrs = Math.floor(durationMs / 3600000);
@@ -516,9 +519,21 @@ export const VoyageCard: React.FC<{
                                           : 'Longest trip'}
                                 </span>
                             )}
-                            <span className="px-2 py-0.5 rounded-full bg-sky-500/10 border border-sky-500/20 text-[11px] font-bold text-sky-300 tabular-nums">
+                            <span
+                                className={`px-2 py-0.5 rounded-full border text-[11px] font-bold tabular-nums ${
+                                    isLand
+                                        ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300'
+                                        : 'bg-sky-500/10 border-sky-500/20 text-sky-300'
+                                }`}
+                            >
                                 {(dist ?? 0).toFixed(1)} nm
                             </span>
+                            {isLand && (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-300 inline-flex items-center gap-1 uppercase tracking-wider">
+                                    <span aria-hidden>🌿</span>
+                                    On land · not counted
+                                </span>
+                            )}
                             <span className="px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06] text-[11px] font-semibold text-slate-300 tabular-nums">
                                 {durationLabel}
                             </span>
