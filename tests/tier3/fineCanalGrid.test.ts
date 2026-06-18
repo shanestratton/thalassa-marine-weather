@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import type { NavGrid } from '../../services/inshoreRouterEngine';
 import type { BoundaryNode, LatLon } from '../../services/routing/legContract';
 import type { TierSpan } from '../../services/routing/segmentRoute';
-import { buildFineCanalLeg, isCanalNarrow } from '../../services/tier3/fineCanalGrid';
+import { buildFineCanalLeg, isCanalNarrow, spanIsInjectedCanal } from '../../services/tier3/fineCanalGrid';
 
 // ── Synthetic fine grid ────────────────────────────────────────────────
 const W = 60;
@@ -326,5 +326,52 @@ describe('isCanalNarrow — gate the fine pass to true canals', () => {
     it('does NOT flag a wide (10-cell) bay channel', () => {
         const { grid, poly, span } = corridorGrid(10);
         expect(isCanalNarrow(grid, poly, span)).toBe(false);
+    });
+});
+
+describe('spanIsInjectedCanal — detect injected canal water along a span', () => {
+    const w = 20;
+    const h = 20;
+    const dLat = 50 / 110_540;
+    const dLon = 50 / (111_320 * Math.cos((MIN_LAT * Math.PI) / 180));
+    const at = (x: number, y: number): LatLon => [MIN_LON + (x + 0.5) * dLon, MIN_LAT + (y + 0.5) * dLat];
+    // A poly straight down column x=10, rows 2..17 (16 vertices).
+    const poly: LatLon[] = [];
+    for (let y = 2; y <= 17; y++) poly.push(at(10, y));
+    const span: TierSpan = {
+        tier: 3,
+        entry: node(poly[0], 'channel-mouth'),
+        exit: node(poly[poly.length - 1], 'dest'),
+        fromIdx: 0,
+        toIdx: poly.length - 1,
+        caution: false,
+    };
+    const baseGrid = (): NavGrid => ({
+        width: w,
+        height: h,
+        minLon: MIN_LON,
+        minLat: MIN_LAT,
+        dLon,
+        dLat,
+        cells: new Float32Array(w * h).fill(10),
+        preferred: new Uint8Array(w * h),
+    });
+
+    it('true when the span runs through majority injected water', () => {
+        const grid = baseGrid();
+        grid.injectedCanal = new Uint8Array(w * h);
+        for (let y = 0; y < h; y++) grid.injectedCanal[y * w + 10] = 1; // whole column injected
+        expect(spanIsInjectedCanal(grid, poly, span)).toBe(true);
+    });
+
+    it('false when under half the span is injected', () => {
+        const grid = baseGrid();
+        grid.injectedCanal = new Uint8Array(w * h);
+        for (let y = 2; y <= 5; y++) grid.injectedCanal[y * w + 10] = 1; // only 4 of 16 vertices
+        expect(spanIsInjectedCanal(grid, poly, span)).toBe(false);
+    });
+
+    it('false when the grid omits the injectedCanal mask (back-compat default)', () => {
+        expect(spanIsInjectedCanal(baseGrid(), poly, span)).toBe(false);
     });
 });
