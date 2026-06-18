@@ -6,7 +6,7 @@
  * the span's BoundaryNodes by construction.
  */
 import { describe, it, expect } from 'vitest';
-import { routeTier3, type Tier3Context } from '../../services/tier3/tier3Router';
+import { routeTier3, followChannelGates, type Tier3Context } from '../../services/tier3/tier3Router';
 import type { NavGrid } from '../../services/inshoreRouterEngine';
 import type { LateralMark } from '../../services/fairlead';
 import { isRefusal, type BoundaryNode, type LatLon } from '../../services/routing/legContract';
@@ -162,5 +162,43 @@ describe('routeTier3', () => {
         expect(leg.controllingDepthM).toBe(10);
         expect(leg.polyline[0]).toBe(leg.entry.at);
         expect(leg.polyline[leg.polyline.length - 1]).toBe(leg.exit.at);
+    });
+
+    it('followChannelGates threads a Newport-convention channel (port even / stbd odd) and de-steps it', () => {
+        // 4 gates down the channel; numbered sequentially DOWN the fairway with
+        // alternating sides (stbd odd, port even) — the convention that defeats
+        // fairlead's seq-paired centreline. The nearest-gate follower doesn't
+        // care about the numbers.
+        const marks: LateralMark[] = [];
+        for (let g = 0; g < 4; g++) {
+            const lat = LAT_S + (g / 3) * (LAT_N - LAT_S);
+            marks.push({ lat, lon: LON0 - dLonM(30), side: 'stbd', key: 'NUM', seq: 2 * g + 1, name: `${2 * g + 1}` });
+            marks.push({ lat, lon: LON0 + dLonM(30), side: 'port', key: 'NUM', seq: 2 * g + 2, name: `${2 * g + 2}` });
+        }
+        const zig = steppedZigzag(); // a stepped A* run down the channel centre
+        const centre = followChannelGates(
+            zig.map(([lon, lat]) => ({ lat, lon })),
+            marks,
+            grid,
+        );
+        expect(centre).not.toBeNull();
+        if (!centre) return;
+        // every gate midpoint sits on the channel centreline (lon ≈ LON0)
+        for (const p of centre) expect(Math.abs(p.lon - LON0)).toBeLessThan(dLonM(45));
+        // and the followed line is far smoother than the stepped input
+        const tuples = centre.map((p) => [p.lon, p.lat] as [number, number]);
+        expect(auditStepping(tuples).maxKinkDeg).toBeLessThan(auditStepping(mut(zig)).maxKinkDeg);
+        expect(auditStepping(tuples).kinkCount).toBeLessThanOrEqual(auditStepping(mut(zig)).kinkCount);
+    });
+
+    it('followChannelGates declines (null) when there is no buoyed channel near the route', () => {
+        const poly: LatLon[] = [];
+        for (let k = 0; k <= 8; k++) poly.push([LON0, LAT_S + (k / 8) * (LAT_N - LAT_S)]);
+        const centre = followChannelGates(
+            poly.map(([lon, lat]) => ({ lat, lon })),
+            [],
+            grid,
+        );
+        expect(centre).toBeNull();
     });
 });

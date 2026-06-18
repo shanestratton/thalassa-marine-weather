@@ -91,6 +91,108 @@ function deSpike(pts: LL[], maxTurnDeg: number): LL[] {
     return out;
 }
 
+const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =>
+    Math.hypot((bLon - aLon) * mPerLonAt(aLat), (bLat - aLat) * M_PER_LAT);
+
+/** A port and its across-channel starboard mark are within this. */
+const MAX_GATE_M = 500;
+/** A mark/gate within this of the span counts as ON the route's channel. */
+const FOLLOW_TRAVERSE_M = 500;
+/** A point within this of a buoy is navigable by the marks' authority. */
+const MARK_VOUCH_M = 150;
+
+/** Perpendicular + along-route distance of point p to polyline `poly` (metres). */
+function projectToPoly(p: LL, poly: LL[]): { along: number; perp: number } {
+    let bestPerp = Infinity;
+    let bestAlong = 0;
+    let cum = 0;
+    for (let i = 0; i < poly.length - 1; i++) {
+        const a = poly[i];
+        const b = poly[i + 1];
+        const mLon = mPerLonAt(a.lat);
+        const bx = (b.lon - a.lon) * mLon;
+        const by = (b.lat - a.lat) * M_PER_LAT;
+        const px = (p.lon - a.lon) * mLon;
+        const py = (p.lat - a.lat) * M_PER_LAT;
+        const segLen2 = bx * bx + by * by || 1;
+        const t = Math.max(0, Math.min(1, (px * bx + py * by) / segLen2));
+        const perp = Math.hypot(px - bx * t, py - by * t);
+        const segLen = Math.hypot(bx, by);
+        if (perp < bestPerp) {
+            bestPerp = perp;
+            bestAlong = cum + t * segLen;
+        }
+        cum += segLen;
+    }
+    return { along: bestAlong, perp: bestPerp };
+}
+
+/**
+ * Follow the buoyed channel along a span by pairing each port mark with its
+ * NEAREST starboard mark (a gate), taking gate midpoints, and ordering them
+ * along the route. This sidesteps BOTH the 'NUM'-key channel lumping AND the
+ * port-even/stbd-odd numbering convention that defeat fairlead's seq-based
+ * corridorCenterline here — a gate is just the nearest red/green pair, whatever
+ * their numbers. Returns the channel centreline (span-endpoints + ordered gate
+ * midpoints), or null if there's no followable gate run or it would cross real
+ * land far from any buoy. Marks VOUCH for water: a centreline point within
+ * MARK_VOUCH_M of a buoy is navigable whatever the coarse grid says, so a
+ * narrow buoyed channel the 50 m grid calls land is still followed; a bridge
+ * that strays far from the buoys onto landBlocked is rejected.
+ */
+export function followChannelGates(sub: LL[], marks: readonly LateralMark[], grid: NavGrid): LL[] | null {
+    if (sub.length < 2) return null;
+    const near = marks.filter((m) => projectToPoly({ lat: m.lat, lon: m.lon }, sub).perp < FOLLOW_TRAVERSE_M);
+    const port = near.filter((m) => m.side === 'port');
+    const stbd = near.filter((m) => m.side === 'stbd');
+    if (port.length < 2 || stbd.length < 2) return null;
+
+    const gates: { along: number; mid: LL }[] = [];
+    for (const p of port) {
+        let best: LateralMark | null = null;
+        let bd = MAX_GATE_M;
+        for (const s of stbd) {
+            const d = distM(p.lat, p.lon, s.lat, s.lon);
+            if (d < bd) {
+                bd = d;
+                best = s;
+            }
+        }
+        if (!best) continue;
+        const mid: LL = { lat: (p.lat + best.lat) / 2, lon: (p.lon + best.lon) / 2 };
+        gates.push({ along: projectToPoly(mid, sub).along, mid });
+    }
+    if (gates.length < 2) return null;
+    gates.sort((a, b) => a.along - b.along);
+
+    const mids: LL[] = [];
+    for (const g of gates) {
+        const last = mids[mids.length - 1];
+        if (!last || distM(last.lat, last.lon, g.mid.lat, g.mid.lon) > 10) mids.push(g.mid);
+    }
+    if (mids.length < 2) return null;
+
+    const centre = [sub[0], ...mids, sub[sub.length - 1]];
+    // Reject a bridge that strays onto REAL land away from the buoys.
+    const buoyVouched = (p: LL): boolean => marks.some((m) => distM(p.lat, p.lon, m.lat, m.lon) < MARK_VOUCH_M);
+    const onLand = (p: LL): boolean => {
+        const i = cellIdx(grid, p.lon, p.lat);
+        return i >= 0 && grid.landBlocked?.[i] === 1;
+    };
+    for (let i = 0; i < centre.length - 1; i++) {
+        const a = centre[i];
+        const b = centre[i + 1];
+        const segM = distM(a.lat, a.lon, b.lat, b.lon);
+        const steps = Math.max(1, Math.ceil(segM / 25));
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const q: LL = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+            if (onLand(q) && !buoyVouched(q)) return null;
+        }
+    }
+    return centre;
+}
+
 /**
  * Build the Tier-3 leg for one span, or refuse.
  *
@@ -138,7 +240,18 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             vouched = true;
             prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
         } else {
-            prov.push('astar');
+            // fairlead declined (lumped 'NUM' channels / numbering convention).
+            // Fall back to nearest-gate following — robust to both, and
+            // mark-vouched so a narrow buoyed channel the coarse grid calls land
+            // is still followed.
+            const followed = followChannelGates(poly, ctx.marks, ctx.grid);
+            if (followed) {
+                poly = followed;
+                vouched = true;
+                prov.push('gates');
+            } else {
+                prov.push('astar');
+            }
         }
     }
 
