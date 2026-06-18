@@ -3510,7 +3510,16 @@ function routeInshoreOnce(
     let flFairlead: string | undefined;
     let llLeadingLines: number | undefined;
     let laLeadingApproach: number | undefined;
-    const threeTier = applyThreeTier(polyline, grid, layers, req.draftM, safetyM, obstructionBufferM);
+    const threeTier = applyThreeTier(
+        polyline,
+        grid,
+        layers,
+        req.draftM,
+        safetyM,
+        obstructionBufferM,
+        relaxedLndare,
+        relaxZones,
+    );
     if (threeTier) {
         finalPolyline = threeTier.polyline;
         // SAFETY: caution is recomputed ALONG each segment, not just at its two
@@ -3679,6 +3688,8 @@ function applyThreeTier(
     draftM: number,
     safetyM: number,
     obstructionBufferM: number,
+    relaxedLndare: boolean,
+    relaxZones: RelaxZone[],
 ): { polyline: [number, number][]; provenance: string; spanCount: number } | null {
     if (polyline.length < 2) return null;
 
@@ -3748,6 +3759,13 @@ function applyThreeTier(
                 draftM,
                 safetyM,
                 obstructionBufferM,
+                // Match the COARSE route's relax state. Newport's berth is
+                // islanded, so the rendered route is the localized-relaxed retry;
+                // building the fine grid strict made it see the relaxed-LNDARE
+                // stretch as land (the persistent barrier/1189m). Same relax ⇒ the
+                // fine grid agrees with the route it's refining.
+                relaxedLndare,
+                relaxZones,
             ).grid;
         } catch {
             return null;
