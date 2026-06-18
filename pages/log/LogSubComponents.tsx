@@ -642,18 +642,29 @@ export const VoyageCard: React.FC<{
                                 {!isPlannedRoute &&
                                     (() => {
                                         const split = computePropulsionSplit(voyageFilteredEntries);
-                                        const declared = split.motorMs + split.sailMs;
-                                        if (declared === 0) return null;
+                                        const known = split.motorMs + split.sailMs;
+                                        if (known === 0) return null;
                                         const fmt = (ms: number) => {
                                             const h = Math.floor(ms / 3600000);
                                             const m = Math.floor((ms % 3600000) / 60000);
                                             return h > 0 ? `${h}h ${m}m` : `${m}m`;
                                         };
-                                        const motorPct = Math.round((split.motorMs / declared) * 100);
+                                        const motorPct = Math.round((split.motorMs / known) * 100);
+                                        // Honest: flag when any of the split is the heuristic
+                                        // estimate rather than the skipper's engine toggle.
+                                        const estPct = Math.round((split.estimatedMs / known) * 100);
+                                        const estimated = estPct >= 5;
                                         return (
                                             <div className="px-4 pt-3">
-                                                <div className="text-[10px] font-bold uppercase tracking-wider text-sky-400/70 mb-1.5">
-                                                    Sail vs Motor
+                                                <div className="flex items-center justify-between mb-1.5">
+                                                    <span className="text-[10px] font-bold uppercase tracking-wider text-sky-400/70">
+                                                        Sail vs Motor
+                                                    </span>
+                                                    {estimated && (
+                                                        <span className="text-[9px] font-bold uppercase tracking-wider text-white/35">
+                                                            {estPct >= 95 ? 'estimated' : 'partly estimated'}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div className="flex h-2.5 rounded-full overflow-hidden bg-slate-900/60 mb-1.5">
                                                     <div className="bg-amber-500" style={{ width: `${motorPct}%` }} />

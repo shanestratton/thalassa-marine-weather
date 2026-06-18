@@ -4,6 +4,7 @@
  */
 
 import { ShipLogEntry } from '../types';
+import { estimatePropulsion } from '../services/shiplog/propulsion';
 
 export interface GroupedEntries {
     date: string; // YYYY-MM-DD (local)
@@ -143,22 +144,47 @@ export interface PropulsionSplit {
     motorMs: number;
     sailMs: number;
     unknownMs: number;
+    /** Portion of motor+sail time that came from the heuristic estimate
+     *  (the skipper didn't declare it with the engine toggle). */
+    estimatedMs: number;
 }
 
+/**
+ * Attribute each inter-point span to motor / sail / unknown. The DECLARED
+ * engine state (from the on/off toggle) is authoritative; spans the
+ * skipper never declared are filled with the heuristic estimate
+ * (estimatePropulsion) and counted in estimatedMs so the UI can label
+ * them honestly.
+ */
 export function computePropulsionSplit(entries: ShipLogEntry[]): PropulsionSplit {
     const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
     let motorMs = 0;
     let sailMs = 0;
     let unknownMs = 0;
+    let estimatedMs = 0;
     for (let i = 0; i < sorted.length - 1; i++) {
         const dt = new Date(sorted[i + 1].timestamp).getTime() - new Date(sorted[i].timestamp).getTime();
         if (!(dt > 0)) continue;
         const s = sorted[i].engineStatus;
-        if (s === 'running' || s === 'maneuvering') motorMs += dt;
-        else if (s === 'stopped') sailMs += dt;
-        else unknownMs += dt;
+        if (s === 'running' || s === 'maneuvering') {
+            motorMs += dt;
+        } else if (s === 'stopped') {
+            sailMs += dt;
+        } else {
+            // Undeclared — estimate from the span's START point.
+            const est = estimatePropulsion(sorted[i]);
+            if (est === 'motor') {
+                motorMs += dt;
+                estimatedMs += dt;
+            } else if (est === 'sail') {
+                sailMs += dt;
+                estimatedMs += dt;
+            } else {
+                unknownMs += dt;
+            }
+        }
     }
-    return { motorMs, sailMs, unknownMs };
+    return { motorMs, sailMs, unknownMs, estimatedMs };
 }
 
 /**
