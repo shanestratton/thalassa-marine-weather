@@ -154,6 +154,12 @@ const BRIDGE_DEPTH_M = 0.5;
 function bridgeCorridor(grid: NavGrid, depth: Float32Array, corridor: readonly LatLon[]): void {
     if (corridor.length < 2) return;
     const stepM = Math.max(3, gridResM(grid) / 3);
+    const stamp = (cx: number, cy: number): void => {
+        if (cx < 0 || cy < 0 || cx >= grid.width || cy >= grid.height) return;
+        const idx = cy * grid.width + cx;
+        if (Number.isNaN(depth[idx])) depth[idx] = BRIDGE_DEPTH_M;
+    };
+    let prev: { x: number; y: number } | null = null;
     for (let i = 0; i < corridor.length - 1; i++) {
         const a = corridor[i];
         const b = corridor[i + 1];
@@ -166,8 +172,14 @@ function bridgeCorridor(grid: NavGrid, depth: Float32Array, corridor: readonly L
             const t = s / steps;
             const cell = toCell(grid, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
             if (!cell) continue;
-            const idx = cell.y * grid.width + cell.x;
-            if (Number.isNaN(depth[idx])) depth[idx] = BRIDGE_DEPTH_M;
+            // The marina solver + keel flood are 4-CONNECTED (N/S/E/W). A diagonal
+            // step leaves a diagonally-adjacent cell that reads as a GAP under
+            // 4-connectivity, so the bridge fails to reconnect the canal (the
+            // disc:2comp/brNO bug, Newport berth exit). On a diagonal step stamp an
+            // orthogonal connector so prev → connector → cell is a 4-connected path.
+            if (prev && cell.x !== prev.x && cell.y !== prev.y) stamp(prev.x, cell.y);
+            stamp(cell.x, cell.y);
+            prev = cell;
         }
     }
 }

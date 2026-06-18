@@ -240,6 +240,42 @@ describe('buildFineCanalLeg — corner-clip cure on a synthetic fine grid', () =
             expect(chordHitsLand(grid, leg.polyline[i], leg.polyline[i + 1])).toBe(false);
         }
     });
+
+    it('bridges a DIAGONAL corridor across a 2-component gap (4-connectivity fix)', () => {
+        // The Newport berth-exit bug (disc:2comp/9346/brNO): two water basins with
+        // NO real connection, joined only by a DIAGONAL coarse corridor. routeMarina
+        // is 4-connected, so a naive diagonal bridge leaves diagonally-adjacent cells
+        // that read as a GAP → it never reconnects. The orthogonal-connector stamp
+        // makes the diagonal bridge 4-connected so it does.
+        const cells = new Float32Array(W * H).fill(NaN);
+        for (let y = 8; y <= 16; y++) for (let x = 8; x <= 16; x++) cells[y * W + x] = 10; // basin 1 (NW)
+        for (let y = 28; y <= 36; y++) for (let x = 28; x <= 36; x++) cells[y * W + x] = 10; // basin 2 (SE)
+        const grid: NavGrid = {
+            width: W,
+            height: H,
+            minLon: MIN_LON,
+            minLat: MIN_LAT,
+            dLon: D_LON,
+            dLat: D_LAT,
+            cells,
+            preferred: new Uint8Array(W * H),
+        };
+        const span: TierSpan = {
+            tier: 3,
+            entry: node(centre(12, 12), 'channel-mouth'),
+            exit: node(centre(32, 32), 'dest'),
+            fromIdx: 0,
+            toIdx: 1,
+            caution: false,
+        };
+        const diagonalCorridor: LatLon[] = [centre(12, 12), centre(32, 32)]; // crosses the gap diagonally
+
+        expect(buildFineCanalLeg(grid, span)).toBeNull(); // no corridor → 2 components → null
+        const bridged = buildFineCanalLeg(grid, span, undefined, diagonalCorridor);
+        expect(bridged).not.toBeNull(); // 4-connected diagonal bridge → reconnects
+        expect(bridged!.polyline[0]).toEqual(span.entry.at);
+        expect(bridged!.polyline[bridged!.polyline.length - 1]).toEqual(span.exit.at);
+    });
 });
 
 // ── Narrowness probe (runs on the COARSE grid) ─────────────────────────
