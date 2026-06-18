@@ -311,4 +311,27 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         // split real water + a measured bridged crossing (the diagnostic we need)
         expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,split\/br\d+m$/);
     });
+
+    it('DECLINES a thick barrier (>cap m of charted land) → astar, not a fake fine route', () => {
+        // The Newport case: the canal is genuinely un-charted as water across a long
+        // stretch. Bridging would draw a confident fine line through the lots, so the
+        // fine pass must refuse and keep the coarse A* slice (provenance = barrier).
+        const { span, poly } = canalSpan();
+        const thickWalledFineGrid: BuildFineGrid = (bbox, resM) => {
+            const g = deepFineGrid(bbox, resM)!;
+            const wallY = Math.floor(g.height / 2);
+            for (let dy = 0; dy < 10; dy++) for (let x = 0; x < g.width; x++) g.cells[(wallY + dy) * g.width + x] = NaN;
+            return g; // ~120 m thick at 12 m/cell ≫ MAX_BRIDGE_CROSSING_M
+        };
+        const ctx: Tier3Context = {
+            grid: narrowCoarseGrid(),
+            marks: [],
+            leadingLines: [],
+            buildFineGrid: thickWalledFineGrid,
+        };
+        const leg = routeTier3(span, poly, ctx);
+        expect(isRefusal(leg)).toBe(false);
+        if (isRefusal(leg)) return;
+        expect(leg.provenance).toMatch(/^tier3:astar\(fine=barrier\/\d+m\)$/);
+    });
 });
