@@ -3665,10 +3665,11 @@ function applyThreeTier(
         if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — glue refused (${why})`);
         return null;
     }
-    if (ENGINE_DEBUG)
-        engineLog.warn(
-            `[3tier] ENGAGED spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
-        );
+    // TEMP on-device diag — confirms the gate-follow engages (':gates') on
+    // Shane's live Newport grid. Re-gate behind ENGINE_DEBUG once confirmed.
+    engineLog.warn(
+        `[3tier] ENGAGED spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
+    );
 
     const outPoly = glued.polyline.map((p) => [p[0], p[1]] as [number, number]);
     return { polyline: outPoly, provenance: glued.legs.map((l) => l.provenance).join(' | '), spanCount: spans.length };
