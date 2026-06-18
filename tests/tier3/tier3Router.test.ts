@@ -301,6 +301,6 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar(fine=disconnected)'); // routeMarina null → kept A*
+        expect(leg.provenance).toBe('tier3:astar(fine=disc:nowater)'); // all-land fine grid → no water
     });
 });

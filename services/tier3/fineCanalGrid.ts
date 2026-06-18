@@ -26,7 +26,14 @@
  */
 
 import type { NavGrid } from '../inshoreRouterEngine';
-import { routeMarina, type Cell, type MarinaRouteParams, type MarinaRouteResult } from '../marinaCenterline';
+import {
+    euclideanDistanceTransform,
+    routeMarina,
+    snapToMask,
+    type Cell,
+    type MarinaRouteParams,
+    type MarinaRouteResult,
+} from '../marinaCenterline';
 import type { LatLon } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
 
@@ -313,6 +320,69 @@ export interface FineCanalAttempt {
 }
 
 /**
+ * Sub-diagnose a 'disconnected' fine pass: reconstruct routeMarina's keel graph
+ * and report WHY entry→exit didn't connect, so on-device logs pinpoint the cause
+ * (runs only on the failure path):
+ *   'nowater'     — the fine grid has no navigable water at all (canal absent)
+ *   'nostart'/'noend' — an endpoint can't snap to keel-safe water
+ *   '2comp/<n>'   — entry & exit are in DIFFERENT water bodies; n = entry's
+ *                   component size in cells (small ⇒ an islanded berth basin)
+ *   'nopath'      — same component yet no centreline (unexpected; solver edge)
+ */
+function diagnoseDisconnect(fineGrid: NavGrid, span: TierSpan): string {
+    const start = toCell(fineGrid, span.entry.at[0], span.entry.at[1]);
+    const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
+    if (!start || !end) return 'oob';
+    const w = fineGrid.width;
+    const h = fineGrid.height;
+    const shape = { width: w, height: h };
+    const depth = marinaDepthArray(fineGrid);
+    const water = new Uint8Array(w * h);
+    let waterCount = 0;
+    for (let i = 0; i < water.length; i++)
+        if (!Number.isNaN(depth[i])) {
+            water[i] = 1;
+            waterCount++;
+        }
+    if (waterCount === 0) return 'nowater';
+    const keel = keelCellsFor(gridResM(fineGrid));
+    const clearance = euclideanDistanceTransform(water, shape);
+    const graph = new Uint8Array(w * h);
+    for (let i = 0; i < graph.length; i++) graph[i] = clearance[i] >= keel ? 1 : 0;
+    const gStart = snapToMask(graph, shape, start);
+    const gEnd = snapToMask(graph, shape, end);
+    if (!gStart) return 'nostart';
+    if (!gEnd) return 'noend';
+    // 4-connected flood from gStart; does it reach gEnd's cell?
+    const seen = new Uint8Array(w * h);
+    const startIdx = gStart.y * w + gStart.x;
+    const queue: number[] = [startIdx];
+    seen[startIdx] = 1;
+    for (let qi = 0; qi < queue.length; qi++) {
+        const idx = queue[qi];
+        const x = idx % w;
+        const y = (idx / w) | 0;
+        if (x > 0 && graph[idx - 1] && !seen[idx - 1]) {
+            seen[idx - 1] = 1;
+            queue.push(idx - 1);
+        }
+        if (x < w - 1 && graph[idx + 1] && !seen[idx + 1]) {
+            seen[idx + 1] = 1;
+            queue.push(idx + 1);
+        }
+        if (y > 0 && graph[idx - w] && !seen[idx - w]) {
+            seen[idx - w] = 1;
+            queue.push(idx - w);
+        }
+        if (y < h - 1 && graph[idx + w] && !seen[idx + w]) {
+            seen[idx + w] = 1;
+            queue.push(idx + w);
+        }
+    }
+    return seen[gEnd.y * w + gEnd.x] ? 'nopath' : `2comp/${queue.length}`;
+}
+
+/**
  * Orchestrate the fine canal pass for one span: probe narrowness on the COARSE
  * grid, and only if it's a true canal, build a fine grid over the span crop and
  * route it with buildFineCanalLeg. Returns the corner-safe fine leg (or null)
@@ -332,6 +402,6 @@ export function tryFineCanalLeg(
     const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
     if (!fineGrid) return { leg: null, diag: 'nogrid' };
     const leg = buildFineCanalLeg(fineGrid, span, paramsOverride);
-    if (!leg) return { leg: null, diag: 'disconnected' };
+    if (!leg) return { leg: null, diag: `disc:${diagnoseDisconnect(fineGrid, span)}` };
     return { leg, diag: `k${leg.keelCellsUsed}` };
 }
