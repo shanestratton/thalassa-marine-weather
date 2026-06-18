@@ -164,6 +164,16 @@ export interface InshoreLayers {
      * but OSM has it as navigation_line).
      */
     NAVLINE?: FeatureCollection;
+    /**
+     * S-57 RECTRC (Recommended Track) LineStrings — the hydrographer's OFFICIAL
+     * recommended route through a channel/approach, drawn on the chart (with
+     * CATTRK + ORIENT bearing). Where present this is the AUTHORITATIVE channel
+     * line: the tier-3 router snaps the route onto it FIRST, ahead of the
+     * derived buoy/leading-line follow. The "definitive set of routes out of
+     * the marina" — it ships inside the ENC, we just plumb it through. Added
+     * 2026-06-18 (Newport carries 43 RECTRC segments we were ignoring).
+     */
+    RECTRC?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -3637,11 +3647,37 @@ function applyThreeTier(
     const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
 
+    // ── RECTRC: snap onto the OFFICIAL recommended track FIRST ──
+    // Where the chart carries a hydrographer-drawn recommended track, that IS
+    // the route — snap onto it before deriving anything from buoys (authoritative
+    // > derived). landBlocked-only veto: a RECTRC is a charted safe route, so a
+    // narrow-channel cell the coarse grid calls NaN must not block it.
+    let route = polyline;
+    let rectrcSnapped = 0;
+    const rectrcLines = parseLeadingLines((layers.RECTRC?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
+    if (rectrcLines.length > 0) {
+        const landOnly = (p: { lat: number; lon: number }): boolean => {
+            const { x, y } = latLonToGrid(grid, p.lat, p.lon);
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+            return grid.landBlocked ? grid.landBlocked[y * grid.width + x] === 1 : false;
+        };
+        const snapped = snapToLeadingLines(
+            route.map(([lon, lat]) => ({ lat, lon })),
+            route.map(() => false),
+            rectrcLines,
+            { corridorM: 300, minRunM: 80, maxAngleDeg: 45, isBlocked: landOnly },
+        );
+        if (snapped.snapped > 0) {
+            route = snapped.polyline.map((p) => [p.lon, p.lat] as [number, number]);
+            rectrcSnapped = snapped.snapped;
+        }
+    }
+
     // refuseUnchartedRunM: null — the engine's strict-uncharted sweep below owns
     // the refuse-on-no-evidence decision; segmentRoute must NOT unilaterally
     // refuse (a relaxed berth-start crosses unvouched water) or the whole path
     // silently falls back to the monolith. Unknown runs ride as caution spans.
-    const spans = segmentRoute(polyline, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
+    const spans = segmentRoute(route, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
         refuseUnchartedRunM: null,
     });
     if (isRefusal(spans)) {
@@ -3656,7 +3692,7 @@ function applyThreeTier(
 
     const ctx3: Tier3Context = { grid, marks, leadingLines };
     const results: LegResult[] = spans.map((span) =>
-        span.tier === 3 ? routeTier3(span, polyline, ctx3) : passthroughLeg(span, polyline, grid),
+        span.tier === 3 ? routeTier3(span, route, ctx3) : passthroughLeg(span, route, grid),
     );
 
     const glued = stitchLegs(results);
@@ -3665,14 +3701,19 @@ function applyThreeTier(
         if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — glue refused (${why})`);
         return null;
     }
-    // TEMP on-device diag — confirms the gate-follow engages (':gates') on
-    // Shane's live Newport grid. Re-gate behind ENGINE_DEBUG once confirmed.
+    const rectrcTag = rectrcSnapped > 0 ? `rectrc×${rectrcSnapped} → ` : '';
+    // TEMP on-device diag — confirms RECTRC snap + gate-follow engage on Shane's
+    // live Newport grid. Re-gate behind ENGINE_DEBUG once confirmed.
     engineLog.warn(
-        `[3tier] ENGAGED spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
+        `[3tier] ENGAGED ${rectrcTag}spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
     );
 
     const outPoly = glued.polyline.map((p) => [p[0], p[1]] as [number, number]);
-    return { polyline: outPoly, provenance: glued.legs.map((l) => l.provenance).join(' | '), spanCount: spans.length };
+    return {
+        polyline: outPoly,
+        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}`,
+        spanCount: spans.length,
+    };
 }
 
 /**

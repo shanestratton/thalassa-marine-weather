@@ -374,6 +374,9 @@ async function tryInshoreRouteInner(
         DRGARE: { type: 'FeatureCollection', features: [] },
         BOYLAT: { type: 'FeatureCollection', features: [] },
         BCNLAT: { type: 'FeatureCollection', features: [] },
+        // RECTRC — the hydrographer's OFFICIAL recommended track. The engine
+        // snaps the route onto it first (authoritative > derived buoy follow).
+        RECTRC: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
     for (const cell of candidateCells) {
@@ -395,6 +398,7 @@ async function tryInshoreRouteInner(
             'DRGARE',
             'BOYLAT',
             'BCNLAT',
+            'RECTRC',
         ] as const) {
             const fc = blob.layers?.[layer];
             const target = merged[layer];
