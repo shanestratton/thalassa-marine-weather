@@ -25,7 +25,7 @@
  */
 
 import type { NavGrid } from '../inshoreRouterEngine';
-import { refineWithFairlead, groupChannels, corridorCenterline, smoothPath, type LateralMark } from '../fairlead';
+import { refineWithFairlead, type LateralMark } from '../fairlead';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { angularDiff, freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
@@ -57,9 +57,6 @@ export interface Tier3Context {
 
 const M_PER_LAT = 110_540;
 const mPerLonAt = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
-
-const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =>
-    Math.hypot((bLon - aLon) * mPerLonAt(aLat), (bLat - aLat) * M_PER_LAT);
 
 const cellIdx = (grid: NavGrid, lon: number, lat: number): number => {
     const x = Math.floor((lon - grid.minLon) / grid.dLon);
@@ -132,30 +129,16 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             minAlongFraction: TIER3_FAIRLEAD_MIN_FRAC,
             traverseM: 500,
         });
+        // fl.replacedRange null ⇒ the local buoys don't reconstruct into a
+        // clean port/stbd channel (the 'NUM'-key lumping + corridorCenterline
+        // limitation diagnosed 2026-06-17 — see ROUTING_COLLAB / A's fairlead
+        // fix). The span stays de-spiked A*; we do NOT fabricate a centreline.
         if (fl.replacedRange) {
             poly = fl.polyline;
             vouched = true;
             prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
         } else {
-            // declined despite a tier-3 classification — log WHY. For each
-            // channel groupChannels finds, report key:size and whether its
-            // FIRST and LAST mark sit near this span (f/l). A channel longer
-            // than the span reads `…F-` (entry near, exit beyond) → fairlead's
-            // both-endpoints-near gate is what's blocking, not minFrac.
-            const near = ctx.marks.filter((m) => poly.some((p) => distM(p.lat, p.lon, m.lat, m.lon) < 500)).length;
-            const chs = groupChannels([...ctx.marks])
-                .map((ch) => {
-                    const f = poly.some((p) => distM(p.lat, p.lon, ch[0].lat, ch[0].lon) < 500);
-                    const l = poly.some((p) => distM(p.lat, p.lon, ch[ch.length - 1].lat, ch[ch.length - 1].lon) < 500);
-                    if (!f && !l) return null; // only channels touching this span
-                    const p = ch.filter((m) => m.side === 'port').length;
-                    const s = ch.filter((m) => m.side === 'stbd').length;
-                    const cl = corridorCenterline(ch).length; // 0 ⇒ one side empty ⇒ fairlead bails
-                    return `${ch[0].key}:${ch.length}(p${p}s${s}cl${cl})${f ? 'F' : '-'}${l ? 'L' : '-'}`;
-                })
-                .filter(Boolean)
-                .join(',');
-            prov.push(`astar(nm=${near};${chs})`);
+            prov.push('astar');
         }
     }
 
@@ -169,25 +152,6 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             poly = ll.polyline;
             vouched = true;
             prov.push(`lead×${ll.snapped}`);
-        }
-    }
-
-    // 2.5 De-bead fallback. When no mark-follow engaged (the local buoys don't
-    // reconstruct into a clean port/stbd channel — a groupChannels/
-    // corridorCenterline limitation, see ROUTING_COLLAB), the span is the raw
-    // A* which BEADS through the preferred gate-discs (the stepping Shane sees).
-    // A moving average collapses the beading; validated against REAL land
-    // (landBlocked) so a corner-cut onto a bank is rejected — never against
-    // grid-NaN, which a narrow channel trips. Endpoints are pinned by smoothPath.
-    if (!vouched && poly.length >= 4) {
-        const smoothed = smoothPath(poly, 7);
-        const cutsLand = smoothed.some((p) => {
-            const i = cellIdx(ctx.grid, p.lon, p.lat);
-            return i >= 0 && ctx.grid.landBlocked?.[i] === 1;
-        });
-        if (!cutsLand) {
-            poly = smoothed;
-            prov.push('smooth');
         }
     }
 

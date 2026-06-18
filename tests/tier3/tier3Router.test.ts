@@ -138,19 +138,7 @@ describe('routeTier3', () => {
 
         expect(auditStepping(mut(poly)).maxKinkDeg).toBeGreaterThan(120); // input has the spike
         expect(auditStepping(mut(leg.polyline)).maxKinkDeg).toBeLessThan(120); // leg never does
-        expect(leg.provenance).toBe('tier3:smooth'); // no mark-follow → de-bead + de-spike
-    });
-
-    it('de-beads a stepped no-marks span (the gate-stepping fallback)', () => {
-        const zig = steppedZigzag(); // ±40 m beads, but NO marks → fairlead can't engage
-        const ctx: Tier3Context = { grid, marks: [], leadingLines: [] };
-        const leg = routeTier3(spanOver(zig), zig, ctx);
-        expect(isRefusal(leg)).toBe(false);
-        if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:smooth');
-        // the moving average collapses the bead-on-a-string the A* leaves
-        expect(auditStepping(mut(leg.polyline)).kinkCount).toBeLessThan(auditStepping(mut(zig)).kinkCount);
-        expect(auditStepping(mut(leg.polyline)).maxKinkDeg).toBeLessThan(auditStepping(mut(zig)).maxKinkDeg);
+        expect(leg.provenance).toBe('tier3:astar'); // no refiner engaged, just de-spiked
     });
 
     it('refuses a degenerate (single-vertex) span', () => {
@@ -170,7 +158,7 @@ describe('routeTier3', () => {
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
         expect(leg.depthSource).toBe('charted');
-        expect(leg.provenance).toBe('tier3:smooth'); // straight stays straight; de-bead is a no-op shape-wise
+        expect(leg.provenance).toBe('tier3:astar');
         expect(leg.controllingDepthM).toBe(10);
         expect(leg.polyline[0]).toBe(leg.entry.at);
         expect(leg.polyline[leg.polyline.length - 1]).toBe(leg.exit.at);
