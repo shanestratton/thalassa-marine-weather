@@ -2532,7 +2532,15 @@ function perpendicularDistanceDeg(p: [number, number], a: [number, number], b: [
     return Math.hypot(p[0] - projX, p[1] - projY);
 }
 
-function douglasPeucker(points: [number, number][], toleranceDeg: number): [number, number][] {
+function douglasPeucker(
+    points: [number, number][],
+    toleranceDeg: number,
+    /** Optional land guard: returns true if the straight chord a→b crosses
+     *  land. When it does, the span is NOT collapsed — the bend vertices are
+     *  kept — so the simplifier can never cut a chord across a canal bank (the
+     *  Newport canal-bend corner-clip, 2026-06-18). */
+    chordCrossesLand?: (a: [number, number], b: [number, number]) => boolean,
+): [number, number][] {
     if (points.length < 3) return points.slice();
     let maxD = 0;
     let idx = 0;
@@ -2543,9 +2551,10 @@ function douglasPeucker(points: [number, number][], toleranceDeg: number): [numb
             idx = i;
         }
     }
-    if (maxD > toleranceDeg) {
-        const left = douglasPeucker(points.slice(0, idx + 1), toleranceDeg);
-        const right = douglasPeucker(points.slice(idx), toleranceDeg);
+    const cutsLand = chordCrossesLand?.(points[0], points[points.length - 1]) ?? false;
+    if (maxD > toleranceDeg || cutsLand) {
+        const left = douglasPeucker(points.slice(0, idx + 1), toleranceDeg, chordCrossesLand);
+        const right = douglasPeucker(points.slice(idx), toleranceDeg, chordCrossesLand);
         return left.slice(0, -1).concat(right);
     }
     return [points[0], points[points.length - 1]];
@@ -3423,6 +3432,23 @@ function routeInshoreOnce(
     // bends look noticeably closer to the actual channel after this).
     const tolDeg = Math.min(grid.dLat, grid.dLon) * 0.25;
 
+    // Land guard for the simplifier: true if the straight chord a→b crosses a
+    // landBlocked cell. Stops Douglas-Peucker collapsing a canal bend into a
+    // chord that slices across the bank (the Newport canal corner-clip).
+    const dpStepM = Math.max(15, resolutionM / 3);
+    const chordCrossesLand = (a: [number, number], b: [number, number]): boolean => {
+        if (!grid.landBlocked) return false;
+        const segM = haversineM(a[1], a[0], b[1], b[0]);
+        const steps = Math.max(1, Math.ceil(segM / dpStepM));
+        for (let s = 1; s < steps; s++) {
+            const t = s / steps;
+            const { x, y } = latLonToGrid(grid, a[1] + (b[1] - a[1]) * t, a[0] + (b[0] - a[0]) * t);
+            if (x >= 0 && y >= 0 && x < grid.width && y < grid.height && grid.landBlocked[y * grid.width + x] === 1)
+                return true;
+        }
+        return false;
+    };
+
     // Build the final polyline + per-segment cautionMask together.
     // smoothPath already split the path at caution boundaries; we keep
     // DP from re-merging across them by splitting polylineRaw into
@@ -3446,7 +3472,7 @@ function routeInshoreOnce(
             const atEnd = i === segCaution.length;
             if (atEnd || segCaution[i] !== segCaution[runStart]) {
                 // run = segments [runStart, i) → points [runStart, i]
-                const simplified = douglasPeucker(polylineRaw.slice(runStart, i + 1), tolDeg);
+                const simplified = douglasPeucker(polylineRaw.slice(runStart, i + 1), tolDeg, chordCrossesLand);
                 const runCaution = segCaution[runStart];
                 // skip the boundary point shared with the previous run
                 const from = polyline.length === 0 ? 0 : 1;
