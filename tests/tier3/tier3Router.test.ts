@@ -284,23 +284,30 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         expect(leg.provenance).toBe('tier3:astar(fine=notnarrow)'); // probe declined the wide channel
     });
 
-    it('degrades to astar when the fine grid is disconnected (no fabricated route)', () => {
+    it('bridges a walled 2-basin fine grid via the coarse corridor → finegrid', () => {
+        // The realistic field case: the fine grid resolves a thin wall that splits
+        // the canal into two water components (disc:2comp on-device). routeTier3
+        // passes the coarse corridor, which bridges the wall, so the fine pass
+        // connects instead of falling back to the clipping A* slice.
         const { span, poly } = canalSpan();
-        // a fine grid that is ALL land ⇒ routeMarina returns null ⇒ keep A*.
-        const landFineGrid: BuildFineGrid = (bbox, resM) => {
+        const walledFineGrid: BuildFineGrid = (bbox, resM) => {
             const g = deepFineGrid(bbox, resM)!;
-            g.cells.fill(NaN);
+            const wallY = Math.floor(g.height / 2);
+            for (let x = 0; x < g.width; x++) {
+                g.cells[wallY * g.width + x] = NaN;
+                g.cells[(wallY + 1) * g.width + x] = NaN;
+            }
             return g;
         };
         const ctx: Tier3Context = {
             grid: narrowCoarseGrid(),
             marks: [],
             leadingLines: [],
-            buildFineGrid: landFineGrid,
+            buildFineGrid: walledFineGrid,
         };
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar(fine=disc:nowater)'); // all-land fine grid → no water
+        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+$/); // corridor bridged the wall
     });
 });
