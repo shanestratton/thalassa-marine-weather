@@ -26,11 +26,14 @@ import { tilesForBbox, type TileId } from './mapboxWater';
 /** Retina (@2x) tile edge in pixels. */
 const TILE_PX = 512;
 
-/** Zoom for the satellite raster. z15 ≈ 2 m/px at this latitude — a 50 m canal is
- *  ~25 px wide (ample for the 12 m fine grid) while keeping the per-crop tile
- *  count small (a z15 tile ≈ 1.4 km; a ~4 km crop ≈ 9 tiles). Higher zoom adds
- *  detail AND suburban texture noise AND 4× the tiles for no routing gain. */
-export const SAT_WATER_ZOOM = 15;
+/** Zoom for the satellite raster. z14 (≈4 m/px @2x at this latitude) is the sweet
+ *  spot: a 50 m canal is ~12 px (ample for the 12 m fine grid), the canal SURFACE
+ *  averages smooth so the texture gate keeps it WHOLE, and a ~6 km crop is only
+ *  ~9 tiles. z15 looked tempting for detail but its finer pixels surface
+ *  boat/jetty/ripple texture that shatters the canal into specks the size filter
+ *  deletes — verified on real Newport: z15 → 5% sparse/broken water, z14 → 12%
+ *  connected. Detail beyond the routing grid is worse than useless here. */
+export const SAT_WATER_ZOOM = 14;
 
 /** Synthetic depth (m) stamped on satellite water — matches MAPBOX_WATER_DEPTH_M
  *  so the downstream injectedCanal/fine-pass behaviour is identical. */
@@ -44,6 +47,11 @@ export interface ClassifyParams {
     textureHalf: number;
     /** Max local std (gray 0..1) for a pixel to count as smooth (water-like). */
     textureMax: number;
+    /** Binary-closing iterations (dilate ×N then erode ×N) BEFORE the
+     *  connected-component filter — bridges the gaps a jetty/boat/ripple punches
+     *  in a canal so the whole network stays ONE component and survives the size
+     *  filter. The cure for the fragmented z15 mess. */
+    closeIterations: number;
     /** Drop connected water components smaller than this fraction of the image
      *  (removes pools / dark roofs / shadows; keeps the canal network, which is
      *  one large body connected to the inlet/bay). */
@@ -51,12 +59,15 @@ export interface ClassifyParams {
 }
 
 export const DEFAULT_CLASSIFY: ClassifyParams = {
-    // Half-window 3 (≈7 px ≈ 15 m at z15) catches house/roof-scale texture while
-    // eroding only ~6 m of a canal's edge — a bigger window (the POC's 5) would
-    // thin a sub-40 m canal to nothing. The route rides the centre, so edge
-    // erosion is harmless as long as the channel stays connected.
-    textureHalf: 3,
+    // Tuned on real Newport imagery. Half-window 2 (≈5 px) catches house-scale
+    // texture while barely eroding a canal edge. closeIterations 2 bridges
+    // jetty/boat gaps so the canal tree stays one connected body. See SAT_WATER_ZOOM
+    // — z14 (not z15) is essential: z15's finer detail surfaces boat/ripple texture
+    // that fragments the canal into specks the size filter then deletes (5% sparse
+    // water); z14 averages that smooth and the canal comes out whole (~12%).
+    textureHalf: 2,
     textureMax: 0.06,
+    closeIterations: 2,
     minComponentFrac: 0.002,
 };
 
@@ -176,8 +187,11 @@ export function classifyWaterMask(
         }
     }
 
-    // Close 1 px gaps so a canal split by a jetty pixel stays one body.
-    let m = erode(dilate(water, w, h), w, h);
+    // Close gaps (dilate ×N then erode ×N) so a canal split by a jetty/boat/ripple
+    // stays ONE connected body — else the size filter below deletes the pieces.
+    let m: Uint8Array = water;
+    for (let k = 0; k < params.closeIterations; k++) m = dilate(m, w, h);
+    for (let k = 0; k < params.closeIterations; k++) m = erode(m, w, h);
 
     // Keep only large connected components (4-connected BFS).
     const labels = new Int32Array(n).fill(-1);
