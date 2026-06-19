@@ -33,6 +33,7 @@ import {
     snapToMask,
     stringPull,
     type Cell,
+    type GridShape,
     type MarinaRouteParams,
     type MarinaRouteResult,
 } from '../marinaCenterline';
@@ -185,6 +186,39 @@ function bridgeCorridor(grid: NavGrid, depth: Float32Array, corridor: readonly L
     }
 }
 
+/** How much clearance-to-shore (cells) a taut stringPull line may give up versus
+ *  the centred path before we treat it as wall-hugging and keep centrelineSimplify.
+ *  ~3 cells (≈36 m on the 12 m fine grid): a narrow/straight canal's taut line
+ *  sits on the centreline (≈0 drop); a wide canal's taut line cuts bend insides
+ *  toward the bank, shedding a half-width of clearance — well past this. */
+const WALLHUG_CLEARANCE_DROP_CELLS = 3;
+
+/** Mean clearance-to-shore (cells) sampled along a cell polyline, walking each
+ *  chord so a taut chord that cuts toward the bank is actually measured (not just
+ *  its endpoints, which sit on the centred path). `clearance` is the EDT of the
+ *  navigable mask. */
+function meanClearanceAlong(line: readonly Cell[], clearance: Float32Array, shape: GridShape): number {
+    if (line.length < 2) {
+        const c = line[0];
+        return line.length === 1 ? clearance[c.y * shape.width + c.x] : 0;
+    }
+    let sum = 0;
+    let n = 0;
+    for (let i = 0; i < line.length - 1; i++) {
+        const a = line[i];
+        const b = line[i + 1];
+        const steps = Math.max(1, Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)));
+        for (let s = 0; s <= steps; s++) {
+            const x = Math.round(a.x + ((b.x - a.x) * s) / steps);
+            const y = Math.round(a.y + ((b.y - a.y) * s) / steps);
+            if (x < 0 || y < 0 || x >= shape.width || y >= shape.height) continue;
+            sum += clearance[y * shape.width + x];
+            n++;
+        }
+    }
+    return n ? sum / n : 0;
+}
+
 /**
  * Route one Tier-3 canal span on a pre-built fine grid. Returns the corner-safe
  * fine leg, or null when the fine grid can't vouch a connected keel-safe canal
@@ -264,9 +298,25 @@ export function buildFineCanalLeg(
         const c = fineGrid.cells[i];
         realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
     }
-    const waypoints = preferCentreline
-        ? centrelineSimplify(result.cells, realWater, shape)
-        : stringPull(result.cells, realWater, shape);
+    // De-staircase the fine canal centreline. routeMarina's 4-connected Dijkstra
+    // wanders mid-channel; how we collapse that wander matters:
+    //   • stringPull (taut LOS) cleanly removes the staircase AND, in a NARROW
+    //     canal, IS the centreline (no room to deviate) — a straight, sober line.
+    //   • centrelineSimplify (DP) keeps the centreline but FAITHFULLY reproduces
+    //     the wander — the "drunk steering" stagger the user sees on the injected
+    //     canal (the preferCentreline branch always used it).
+    // So prefer stringPull, and fall back to centrelineSimplify ONLY when the taut
+    // line departs the centred path by more than WALLHUG_DEVIATION_CELLS — i.e. a
+    // WIDE canal where stringPull would collapse the mid-channel line onto the
+    // inside bank (the wall-hug b90bc0aa introduced centrelineSimplify to prevent).
+    // A narrow/straight canal of ANY width keeps the clean taut line.
+    const sp = stringPull(result.cells, realWater, shape);
+    let waypoints = sp;
+    if (preferCentreline) {
+        const clearance = euclideanDistanceTransform(realWater, shape);
+        const drop = meanClearanceAlong(result.cells, clearance, shape) - meanClearanceAlong(sp, clearance, shape);
+        if (drop > WALLHUG_CLEARANCE_DROP_CELLS) waypoints = centrelineSimplify(result.cells, realWater, shape);
+    }
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse
