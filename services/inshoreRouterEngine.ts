@@ -1771,10 +1771,22 @@ function buildNavGrid(
     // unmarked canal/marina has an all-zero mask and centres fully.
     const markGoverned = new Uint8Array(width * height);
     const CENTRE_SUPPRESS_MIN_RADIUS_M = 200;
+    // Only a NARROW marked channel suppresses centring: there the geometric mid-line
+    // differs from the staggered gate-midpoint line, so centring would fight gate
+    // discipline (the seamanship fixtures). On a WIDE channel the two coincide, so
+    // we let centring run — else a curved wide main channel (the Newport main
+    // channel) has centring suppressed AND fairlead declining, leaving the route to
+    // cut the bend onto the bank.
+    // 400 m ties to the fine-pass narrowness boundary (isCanalNarrow ≈ 8 cells at
+    // 50 m): a ≤400 m channel is "narrow" and the fine centreline pass centres it
+    // regardless, so suppression there is harmless; a >400 m channel is the wide
+    // coarse-routed main channel that needs centring. Comfortably above the
+    // seamanship fixtures' widest pair (~362 m), so those stay suppressed.
+    const MARK_SUPPRESS_MAX_PAIR_M = 400;
     const governMark = (f: Feature): void => {
         if (!f.geometry || f.geometry.type !== 'Point') return;
         const pairDistM = (f.properties as { _pairDistanceM?: number } | null)?._pairDistanceM;
-        if (typeof pairDistM !== 'number' || pairDistM <= 0) return;
+        if (typeof pairDistM !== 'number' || pairDistM <= 0 || pairDistM > MARK_SUPPRESS_MAX_PAIR_M) return;
         const [lon, lat] = (f.geometry as Point).coordinates;
         const radius = Math.max(CENTRE_SUPPRESS_MIN_RADIUS_M, pairDistM);
         const dLatBuf = radius / M_PER_DEG_LAT;
