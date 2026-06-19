@@ -47,6 +47,7 @@ import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
 import { fetchMapboxWater } from './mapboxWater';
+import { fetchSatelliteWater } from './satelliteWater';
 import { pairWingFeatures } from './pairWings';
 import { createLogger } from '../utils/createLogger';
 
@@ -938,7 +939,26 @@ async function tryInshoreRouteInner(
                 corridorCrop(origin, destination),
                 corridorCrop(destination, origin),
             ];
-            const waterFCs = await Promise.all(endpointCrops.map((b) => fetchMapboxWater(b, mapboxToken)));
+            // Prefer SATELLITE-classified water (the TRUE canal shape) over the
+            // coarse OSM vector `water` layer — the vector outline is what threw
+            // routeMarina's centreline off. Satellite is tier-3 only (these
+            // endpoint crops); the open bay is never fetched. Fall back to the
+            // vector water per-crop on any satellite failure, so the canal is never
+            // LESS routable than today.
+            const waterFCs = await Promise.all(
+                endpointCrops.map(async (b) => {
+                    try {
+                        const sat = await fetchSatelliteWater(b, mapboxToken);
+                        if (sat.features.length > 0) {
+                            log.warn(`SAT WATER: ${sat.features.length} water polygons from satellite (crop)`);
+                            return sat;
+                        }
+                    } catch (e) {
+                        log.warn(`SAT WATER failed, falling back to vector: ${e instanceof Error ? e.message : e}`);
+                    }
+                    return fetchMapboxWater(b, mapboxToken);
+                }),
+            );
             const mapboxWater = waterFCs.flatMap((fc) => fc.features);
             if (mapboxWater.length > 0) {
                 const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
