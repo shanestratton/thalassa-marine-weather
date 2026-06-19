@@ -594,6 +594,22 @@ export interface NavGrid {
      * lazily and cellCostAt treats it as 1 (the prior wall-hugging behaviour).
      */
     centreFactor?: Float32Array;
+    /**
+     * Per-cell "a paired channel mark governs this cell" flag (1 = inside a
+     * mark-governed disc). Set alongside centreFactor at grid build. Used to keep
+     * the centred-water de-stagger (deStaggerCentred) OUT of marked channels —
+     * those are already smoothed against their gate discipline and must stay
+     * byte-identical. Optional for cached/test back-compat (absent ⇒ all-zero).
+     */
+    markGoverned?: Uint8Array;
+    /**
+     * Per-cell "two-sided-confined channel" flag (1 = water bounded on opposing
+     * sides within a probe reach — a canal/river reach, not open water or a
+     * one-sided coast). Set alongside centreFactor at grid build. The de-stagger
+     * acts ONLY on confined water, so it cleans a canal's wobble but leaves an
+     * open approach (e.g. a bar run) untouched. Optional (absent ⇒ all-zero).
+     */
+    confined?: Uint8Array;
 }
 
 /**
@@ -1777,6 +1793,7 @@ function buildNavGrid(
     };
     for (const f of layers.BOYLAT?.features ?? []) governMark(f);
     for (const f of layers.BCNLAT?.features ?? []) governMark(f);
+    grid.markGoverned = markGoverned;
 
     // Medial-axis centring multiplier — computed LAST so the navigable mask
     // reflects every carve/relaxation/block above. Read by aStar + cellCostAt to
@@ -2232,6 +2249,16 @@ export function computeCentreFactor(grid: NavGrid, markGoverned?: Uint8Array): F
         (boundedWithin(x, y, -1, -1) && boundedWithin(x, y, 1, 1)) || // NW & SE
         (boundedWithin(x, y, 1, -1) && boundedWithin(x, y, -1, 1)); // NE & SW
 
+    // Confinement mask, stored on the grid: 1 = navigable water bounded on
+    // opposing sides (a real channel). Drives both the centring gate below AND
+    // the de-stagger (which acts only on confined water, so an open bar approach
+    // is left alone). Only computed for navigable cells; land/caution stay 0.
+    const confined = new Uint8Array(total);
+    for (let i = 0; i < total; i++) {
+        if (navMask[i] === 1 && isConfined(i % w, (i / w) | 0)) confined[i] = 1;
+    }
+    grid.confined = confined;
+
     const out = new Float32Array(total);
     for (let i = 0; i < total; i++) {
         // Where a marked channel defines the line — a FAIRWY/DRGARE (preferred) OR
@@ -2248,7 +2275,7 @@ export function computeCentreFactor(grid: NavGrid, markGoverned?: Uint8Array): F
             continue;
         }
         // Off a one-sided coast / in open water ⇒ no centring (factor 1.0).
-        if (navMask[i] === 0 || !isConfined(i % w, (i / w) | 0)) {
+        if (confined[i] === 0) {
             out[i] = 1;
             continue;
         }
@@ -2528,6 +2555,112 @@ function smoothPath(grid: NavGrid, path: { x: number; y: number }[]): { x: numbe
         out.push(path[j]);
         i = j;
     }
+    return out;
+}
+
+/** Tolerance (cells) for the centred-water de-stagger: stair/wobble noise up to
+ *  this perpendicular deviation is collapsed; a real channel bend (larger
+ *  deviation) is preserved. ~2 cells (100 m at 50 m) de-jaggies the grid path
+ *  without shortcutting a canal's curve. */
+const DESTAGGER_TOLERANCE_CELLS = 2;
+
+/**
+ * De-stagger the route THROUGH CENTRED WATER ONLY — the cure for the "drunk
+ * steering" wobble the centring term leaves behind.
+ *
+ * The centring term is priced into cellCostAt, so smoothPath's cost-no-worse
+ * string-pull cannot straighten the mid-channel grid staircase (a straight chord
+ * crosses marginally-off-centre cells whose centreFactor makes it cost-worse, so
+ * the gate keeps the stagger). This is deliberate — it's the same gate that stops
+ * the smoother re-hugging the bank — but it leaves a jagged line down the centre.
+ *
+ * Douglas–Peucker fixes that GEOMETRICALLY (cost-blind): keep the max-deviation
+ * point at every real bend, drop the staircase noise within tolerance. A chord
+ * may collapse ONLY when every sampled cell is UNMARKED, CONFIDENT water — i.e.
+ * the water this fix governs:
+ *   • marked cells (preferred FAIRWY/DRGARE OR a mark-governed disc) are NEVER
+ *     simplified — they are already smoothed against their gate discipline and
+ *     must stay byte-identical (the seamanship/golden corpus);
+ *   • caution (< 0) and land (NaN) fail the guard, so a chord is never cut across
+ *     a shoal or a bank, and a cost-optimal shoal detour is preserved.
+ * (We key on the water class, NOT centreFactor > 1: a WIDE channel's flat-centre
+ * cells read factor 1 yet are exactly where the route rides and staggers.)
+ * The bounded tolerance means the collapsed chord stays on the centreline — it can
+ * only remove deviation, never add it toward a wall.
+ */
+function deStaggerCentred(
+    grid: NavGrid,
+    path: { x: number; y: number }[],
+    toleranceCells = DESTAGGER_TOLERANCE_CELLS,
+): { x: number; y: number }[] {
+    if (path.length < 3) return path;
+    const w = grid.width;
+    const h = grid.height;
+    const collapsible = (a: { x: number; y: number }, b: { x: number; y: number }): boolean => {
+        const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        if (n === 0) return true;
+        for (let t = 0; t <= n; t++) {
+            const x = Math.round(a.x + ((b.x - a.x) * t) / n);
+            const y = Math.round(a.y + ((b.y - a.y) * t) / n);
+            if (x < 0 || y < 0 || x >= w || y >= h) return false;
+            const idx = y * w + x;
+            // Unmarked, confident, CONFINED water only.
+            if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0) return false; // land / caution
+            if (grid.preferred[idx] === 1) return false; // FAIRWY / DRGARE
+            if (grid.markGoverned?.[idx] === 1) return false; // mark-governed disc
+            // A real channel (incl. a wide channel's flat-centre), NOT an open
+            // approach — so a bar run / coastal leg is never straightened. Cached
+            // grids lacking the mask fall back to the centreFactor gradient.
+            if (grid.confined) {
+                if (grid.confined[idx] !== 1) return false;
+            } else if (grid.centreFactor && grid.centreFactor[idx] <= 1) {
+                return false;
+            }
+            // Don't reshape the route hard against a caution shoal: if any cell on
+            // the chord ABUTS caution, leave smoothPath's careful geometry — else a
+            // straightened approach re-enters a bar at a different point and picks
+            // up an extra shallow cell (the Tangalooma lock-in). Land neighbours are
+            // fine (a narrow canal abuts its banks everywhere).
+            if (
+                (x > 0 && grid.cells[idx - 1] < 0) ||
+                (x < w - 1 && grid.cells[idx + 1] < 0) ||
+                (y > 0 && grid.cells[idx - w] < 0) ||
+                (y < h - 1 && grid.cells[idx + w] < 0)
+            )
+                return false;
+        }
+        return true;
+    };
+    const keep = new Uint8Array(path.length);
+    keep[0] = 1;
+    keep[path.length - 1] = 1;
+    const stack: Array<[number, number]> = [[0, path.length - 1]];
+    while (stack.length) {
+        const seg = stack.pop();
+        if (!seg) break;
+        const [lo, hi] = seg;
+        if (hi <= lo + 1) continue;
+        const a = path[lo];
+        const b = path[hi];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const len = Math.hypot(dx, dy) || 1;
+        let maxDev = -1;
+        let maxIdx = -1;
+        for (let k = lo + 1; k < hi; k++) {
+            const dev = Math.abs((path[k].x - a.x) * dy - (path[k].y - a.y) * dx) / len;
+            if (dev > maxDev) {
+                maxDev = dev;
+                maxIdx = k;
+            }
+        }
+        if (maxDev <= toleranceCells && collapsible(a, b)) continue;
+        keep[maxIdx] = 1;
+        stack.push([lo, maxIdx]);
+        stack.push([maxIdx, hi]);
+    }
+    const out: { x: number; y: number }[] = [];
+    for (let i = 0; i < path.length; i++) if (keep[i]) out.push(path[i]);
     return out;
 }
 
@@ -3556,6 +3689,11 @@ function routeInshoreOnce(
         // String-pull the A* output to remove stair-step artifacts.
         smoothedCells = smoothPath(grid, cells);
     }
+    // De-stagger the centred mid-channel line (cost-blind DP, centred water only)
+    // — the smoother's centring-aware cost gate can't straighten it, so a jagged
+    // "drunk steering" wobble survives. Marked/open/caution water is factor 1 and
+    // untouched, so the corpus stays byte-identical.
+    smoothedCells = deStaggerCentred(grid, smoothedCells);
     tPhase = mark('smoothPath', tPhase);
 
     // Strict unchartedPolicy: a no-evidence cell reads as caution too —
