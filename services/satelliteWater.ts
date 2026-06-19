@@ -150,9 +150,14 @@ export function classifyWaterMask(
         const b = rgba[i * 4 + 2];
         const bright = (r + g + b) / 3;
         gray[i] = bright / 255;
+        // NEAR-BLACK is unfetched/no-data, NOT water — real daytime water is ≥ ~15
+        // bright. Without this, an undelivered tile (rgba zeros) reads as a giant
+        // dark-water blob ⇒ the router shortcuts through fake water ⇒ "route too
+        // small". (fetchSatelliteWater also masks uncovered pixels; belt + braces.)
+        const tooBlack = bright < 8;
         const bluishDark = (b >= r - 6 && bright < 135) || bright < 45;
         const greenVeg = g > r + 25 && g > b + 15;
-        colour[i] = bluishDark && !greenVeg ? 1 : 0;
+        colour[i] = bluishDark && !greenVeg && !tooBlack ? 1 : 0;
     }
 
     // Local std via integral images of gray and gray² — O(1) per pixel.
@@ -352,6 +357,11 @@ export async function fetchSatelliteWater(
     const W = cols * TILE_PX;
     const H = rows * TILE_PX;
     const rgba = new Uint8ClampedArray(W * H * 4);
+    // 1 only where a tile was actually decoded into place. Unfetched regions stay
+    // black (rgba zeros), which classifies as dark water — so we must NEVER call
+    // an uncovered pixel water (a single dropped tile would fabricate a km-scale
+    // false channel ⇒ the route shortcuts through it ⇒ "route too small").
+    const covered = new Uint8Array(W * H);
     let got = 0;
     await Promise.all(
         tiles.map(async (t) => {
@@ -370,6 +380,7 @@ export async function fetchSatelliteWater(
                     const srcRow = py * TILE_PX * 4;
                     const dstRow = ((oy + py) * W + ox) * 4;
                     rgba.set(dec.rgba.subarray(srcRow, srcRow + TILE_PX * 4), dstRow);
+                    covered.fill(1, (oy + py) * W + ox, (oy + py) * W + ox + TILE_PX);
                 }
                 got++;
             } catch {
@@ -377,8 +388,12 @@ export async function fetchSatelliteWater(
             }
         }),
     );
-    if (got === 0) return empty;
+    // Require the crop to be (near-)fully covered: a partial mosaic leaves the
+    // canal disconnected at the holes AND risks the false-water blob above, so
+    // fall back to the vector water instead (caller's behaviour today).
+    if (got < tiles.length) return empty;
     const mask = classifyWaterMask(rgba, W, H, classify);
+    for (let i = 0; i < mask.length; i++) if (!covered[i]) mask[i] = 0;
     const groundResM = (156_543.03 / 2 ** zoom) * Math.cos((((bbox[1] + bbox[3]) / 2) * Math.PI) / 180);
     const cellPx = Math.max(2, Math.round(12 / (groundResM / 2))); // @2x ⇒ half the standard res
     const pxToLonLat: PxToLonLat = (px, py) => globalPxToLonLat(minX * TILE_PX + px, minY * TILE_PX + py, zoom);

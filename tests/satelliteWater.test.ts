@@ -66,6 +66,16 @@ describe('satelliteWater.classifyWaterMask', () => {
             }
         expect(suburbWet / tot).toBeLessThan(0.05);
     });
+
+    it('does NOT classify an all-black (unfetched) region as water', () => {
+        // rgba all zeros = black = no-data from a dropped tile. Must be 0 water,
+        // else a missing tile fabricates a km-scale false channel ("route too small").
+        const black = new Uint8ClampedArray(60 * 60 * 4);
+        const m = classifyWaterMask(black, 60, 60, DEFAULT_CLASSIFY);
+        let wet = 0;
+        for (let i = 0; i < m.length; i++) wet += m[i];
+        expect(wet).toBe(0);
+    });
 });
 
 describe('satelliteWater.maskToWaterPolygons', () => {
