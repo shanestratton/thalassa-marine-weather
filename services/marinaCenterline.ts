@@ -442,44 +442,58 @@ export function centrelineSimplify(
 }
 
 /**
- * Smooth a centreline (the raw 4-connected routeMarina cell path) with a windowed
- * moving average, so the route FOLLOWS the medial axis without the grid staircase
- * or the cost-field wander. This is the third option between the two simplifiers:
- *   • stringPull pulls the path TAUT — straight, but it cuts the inside of every
- *     bend and hugs the bank (off-centre);
- *   • centrelineSimplify is FAITHFUL — it keeps the centreline but reproduces the
- *     staircase/wander as a jagged line;
- *   • smoothCentreline AVERAGES the cell-scale jaggedness away while preserving the
- *     canal-scale curve (the window is far shorter than a real bend), so the line
- *     stays ON the medial axis AND reads smooth.
+ * Clearance-constrained string-pull — the cure for BOTH the wobble AND the
+ * corner-hug, in one mechanism.
  *
- * The average is sub-cell, so this returns FLOAT cell coordinates (map them with
- * the grid's cell-centre transform, which is linear in x/y). A smoothed point is
- * kept only when it lands in `passable` water — otherwise the original cell is
- * kept — so the line never leaves navigable water on a tight bend. Endpoints are
- * pinned.
+ * Plain {@link stringPull} pulls the path TAUT to the longest clear chord: dead
+ * straight on a straight reach (good — no wobble) but it cuts the inside of every
+ * bend and hugs the bank (bad). {@link centrelineSimplify}/smoothing keep the
+ * centre but reproduce the medial-axis staircase/wander as a drunk wobble.
+ *
+ * This keeps the taut string-pull but adds ONE rule: a chord may only replace a
+ * run of the centreline if it never gets CLOSER to a bank than the centreline did
+ * at the same point (within `clearanceTolCells`). On a straight reach the taut
+ * chord is at least as central as the wandering medial axis, so it is accepted →
+ * a clean straight line, the staircase/wander ignored (no wobble). At a BEND the
+ * taut chord cuts toward the inside bank, dropping clearance well below the
+ * rounded medial axis → rejected → the bend's centreline vertices are kept → the
+ * route rounds the corner mid-channel instead of clipping it.
+ *
+ * `clearance` is the EDT of the navigable mask (cells to nearest shore).
  */
-export function smoothCentreline(path: Cell[], passable: Uint8Array, { width, height }: GridShape, window = 3): Cell[] {
+export function stringPullCentred(
+    path: Cell[],
+    passable: Uint8Array,
+    clearance: Float32Array,
+    { width, height }: GridShape,
+    clearanceTolCells = 1,
+): Cell[] {
     if (path.length < 3) return path.slice();
-    const out: Cell[] = [path[0]];
-    for (let i = 1; i < path.length - 1; i++) {
-        const lo = Math.max(0, i - window);
-        const hi = Math.min(path.length - 1, i + window);
-        let sx = 0;
-        let sy = 0;
-        for (let k = lo; k <= hi; k++) {
-            sx += path[k].x;
-            sy += path[k].y;
+    // Chord path[i]→path[j] OK iff every sampled cell is passable AND its clearance
+    // is ≥ the medial axis's clearance at the matching along-position − tol.
+    const chordOK = (i: number, j: number): boolean => {
+        const a = path[i];
+        const b = path[j];
+        const n = Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        if (n === 0) return true;
+        for (let t = 0; t <= n; t++) {
+            const f = t / n;
+            const x = Math.round(a.x + (b.x - a.x) * f);
+            const y = Math.round(a.y + (b.y - a.y) * f);
+            if (x < 0 || y < 0 || x >= width || y >= height || !passable[y * width + x]) return false;
+            const axis = path[Math.round(i + f * (j - i))];
+            if (clearance[y * width + x] < clearance[axis.y * width + axis.x] - clearanceTolCells) return false;
         }
-        const cnt = hi - lo + 1;
-        const ax = sx / cnt;
-        const ay = sy / cnt;
-        const cx = Math.round(ax);
-        const cy = Math.round(ay);
-        const inWater = cx >= 0 && cy >= 0 && cx < width && cy < height && passable[cy * width + cx] === 1;
-        out.push(inWater ? { x: ax, y: ay } : path[i]);
+        return true;
+    };
+    const out: Cell[] = [path[0]];
+    let i = 0;
+    while (i < path.length - 1) {
+        let j = path.length - 1;
+        while (j > i + 1 && !chordOK(i, j)) j--;
+        out.push(path[j]);
+        i = j;
     }
-    out.push(path[path.length - 1]);
     return out;
 }
 
