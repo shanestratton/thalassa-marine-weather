@@ -31,6 +31,7 @@ import {
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
+    smoothCentreline,
     stringPull,
     type Cell,
     type GridShape,
@@ -186,37 +187,48 @@ function bridgeCorridor(grid: NavGrid, depth: Float32Array, corridor: readonly L
     }
 }
 
-/** How much clearance-to-shore (cells) a taut stringPull line may give up versus
- *  the centred path before we treat it as wall-hugging and keep centrelineSimplify.
- *  ~3 cells (≈36 m on the 12 m fine grid): a narrow/straight canal's taut line
- *  sits on the centreline (≈0 drop); a wide canal's taut line cuts bend insides
- *  toward the bank, shedding a half-width of clearance — well past this. */
-const WALLHUG_CLEARANCE_DROP_CELLS = 3;
+/** Douglas–Peucker tolerance (fine cells) for decimating the smoothed injected-
+ *  canal centreline into a renderable polyline. 0.3 cell (≈3.6 m on the 12 m fine
+ *  grid) keeps the curve glued to the medial axis (so the route still FOLLOWS the
+ *  canal's bends, not a chord across them) while dropping the dense per-cell run. */
+const FINE_CENTRELINE_DECIMATE_CELLS = 0.3;
 
-/** Mean clearance-to-shore (cells) sampled along a cell polyline, walking each
- *  chord so a taut chord that cuts toward the bank is actually measured (not just
- *  its endpoints, which sit on the centred path). `clearance` is the EDT of the
- *  navigable mask. */
-function meanClearanceAlong(line: readonly Cell[], clearance: Float32Array, shape: GridShape): number {
-    if (line.length < 2) {
-        const c = line[0];
-        return line.length === 1 ? clearance[c.y * shape.width + c.x] : 0;
-    }
-    let sum = 0;
-    let n = 0;
-    for (let i = 0; i < line.length - 1; i++) {
-        const a = line[i];
-        const b = line[i + 1];
-        const steps = Math.max(1, Math.max(Math.abs(b.x - a.x), Math.abs(b.y - a.y)));
-        for (let s = 0; s <= steps; s++) {
-            const x = Math.round(a.x + ((b.x - a.x) * s) / steps);
-            const y = Math.round(a.y + ((b.y - a.y) * s) / steps);
-            if (x < 0 || y < 0 || x >= shape.width || y >= shape.height) continue;
-            sum += clearance[y * shape.width + x];
-            n++;
+/** Moving-average half-window (fine cells) for smoothing the injected-canal
+ *  centreline. 6 cells (≈72 m) is wide enough to flatten the cell-scale 4-connected
+ *  staircase to a clean line on a STRAIGHT reach (so the bend-gate then keeps the
+ *  taut stringPull there) yet far narrower than a real canal bend, which it still
+ *  tracks. */
+const FINE_CENTRELINE_SMOOTH_WINDOW = 6;
+
+/** How far (fine cells) the smoothed centreline may depart the taut stringPull line
+ *  before we treat the canal as BENDING and follow the smoothed medial axis instead
+ *  of the taut line. ~1.5 cells (≈18 m on the 12 m fine grid): on a straight canal
+ *  the smooth centreline sits on the taut line (≈0); a bend the taut line cut shows
+ *  up as the centreline bowing away by its sagitta — past this. */
+const BEND_DEVIATION_CELLS = 1.5;
+
+/** Max perpendicular distance (cells) from any point of `path` to the polyline
+ *  `ref`. Used to measure how far the smoothed centreline bows away from the taut
+ *  stringPull line — i.e. how deeply the taut line cut a bend. */
+function maxPerpDeviationCells(path: readonly Cell[], ref: readonly Cell[]): number {
+    if (ref.length < 2) return 0;
+    let maxDev = 0;
+    for (const p of path) {
+        let best = Infinity;
+        for (let i = 0; i < ref.length - 1; i++) {
+            const a = ref[i];
+            const b = ref[i + 1];
+            const dx = b.x - a.x;
+            const dy = b.y - a.y;
+            const segLen2 = dx * dx + dy * dy || 1;
+            let t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / segLen2;
+            t = t < 0 ? 0 : t > 1 ? 1 : t;
+            const d = Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+            if (d < best) best = d;
         }
+        if (best > maxDev) maxDev = best;
     }
-    return n ? sum / n : 0;
+    return maxDev;
 }
 
 /**
@@ -279,43 +291,43 @@ export function buildFineCanalLeg(
     }
     if (!result) return null;
 
-    // Simplify the RAW Dijkstra path (result.cells) ourselves, against REAL water
-    // ONLY — never routeMarina's own waypoints, whose string-pull tests LOS against
-    // the BRIDGED graph and would cut a bend's inside corner through a bridged chord
+    // Simplify the RAW Dijkstra path (result.cells) against REAL water ONLY — never
+    // routeMarina's own waypoints, whose string-pull tests LOS against the BRIDGED
+    // graph and would cut a bend's inside corner through a bridged chord
     // (re-introducing the clip). Excluding bridge cells from the clear() test means
     // a chord can only ever collapse across genuine navigable water; the route
     // follows the Dijkstra path one cell at a time through any bridged gap.
-    //
-    // WHICH simplifier: on a WIDE channel (preferCentreline — the injected Mapbox
-    // canal) string-pull pulls the path TAUT to the longest clear chord, collapsing
-    // the mid-channel centreline onto the inside bank (the wall-hug); there we use
-    // centrelineSimplify (Douglas–Peucker), which keeps the centreline the cost
-    // field computed and only de-staircases it. On a NARROW canal (the default)
-    // there's no room to wall-hug, so we keep the proven taut string-pull — which
-    // the threeTierNewport + seaway-corpus baselines were measured against.
     const realWater = new Uint8Array(fineGrid.cells.length);
     for (let i = 0; i < realWater.length; i++) {
         const c = fineGrid.cells[i];
         realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
     }
-    // De-staircase the fine canal centreline. routeMarina's 4-connected Dijkstra
-    // wanders mid-channel; how we collapse that wander matters:
-    //   • stringPull (taut LOS) cleanly removes the staircase AND, in a NARROW
-    //     canal, IS the centreline (no room to deviate) — a straight, sober line.
-    //   • centrelineSimplify (DP) keeps the centreline but FAITHFULLY reproduces
-    //     the wander — the "drunk steering" stagger the user sees on the injected
-    //     canal (the preferCentreline branch always used it).
-    // So prefer stringPull, and fall back to centrelineSimplify ONLY when the taut
-    // line departs the centred path by more than WALLHUG_DEVIATION_CELLS — i.e. a
-    // WIDE canal where stringPull would collapse the mid-channel line onto the
-    // inside bank (the wall-hug b90bc0aa introduced centrelineSimplify to prevent).
-    // A narrow/straight canal of ANY width keeps the clean taut line.
+    // Render the fine canal centreline. routeMarina's 4-connected Dijkstra rides
+    // mid-channel but staircases/wanders at the cell scale. WHICH way we collapse
+    // that decides whether the route FOLLOWS the canal's centre:
+    //   • injected Mapbox canal (preferCentreline) — the user's canal-estate case.
+    //     stringPull (taut) is a clean STRAIGHT line where the canal is straight (it
+    //     IS the centreline there) but it cuts the inside of every BEND, hugging the
+    //     bank. centrelineSimplify keeps the centre but reproduces the staircase as a
+    //     drunk wobble. So: take the taut line, and only where it sheds clearance
+    //     toward a bank — i.e. the canal BENDS — swap in the smoothed medial axis
+    //     (smoothCentreline averages the cell-scale staircase/wander away while
+    //     staying ON the centreline; a light DP decimates it but keeps it glued to
+    //     the bends). A straight canal keeps the taut line (no ripple); a bending
+    //     canal follows its centre.
+    //   • NARROW non-injected canal (default) — keep the proven taut string-pull the
+    //     threeTierNewport + seaway-corpus baselines were measured against.
     const sp = stringPull(result.cells, realWater, shape);
     let waypoints = sp;
     if (preferCentreline) {
-        const clearance = euclideanDistanceTransform(realWater, shape);
-        const drop = meanClearanceAlong(result.cells, clearance, shape) - meanClearanceAlong(sp, clearance, shape);
-        if (drop > WALLHUG_CLEARANCE_DROP_CELLS) waypoints = centrelineSimplify(result.cells, realWater, shape);
+        const smoothed = centrelineSimplify(
+            smoothCentreline(result.cells, realWater, shape, FINE_CENTRELINE_SMOOTH_WINDOW),
+            realWater,
+            shape,
+            FINE_CENTRELINE_DECIMATE_CELLS,
+        );
+        // The taut line cut a bend iff the smoothed centreline bows away from it.
+        if (maxPerpDeviationCells(smoothed, sp) > BEND_DEVIATION_CELLS) waypoints = smoothed;
     }
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds

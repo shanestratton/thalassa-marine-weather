@@ -441,6 +441,48 @@ export function centrelineSimplify(
     return out;
 }
 
+/**
+ * Smooth a centreline (the raw 4-connected routeMarina cell path) with a windowed
+ * moving average, so the route FOLLOWS the medial axis without the grid staircase
+ * or the cost-field wander. This is the third option between the two simplifiers:
+ *   • stringPull pulls the path TAUT — straight, but it cuts the inside of every
+ *     bend and hugs the bank (off-centre);
+ *   • centrelineSimplify is FAITHFUL — it keeps the centreline but reproduces the
+ *     staircase/wander as a jagged line;
+ *   • smoothCentreline AVERAGES the cell-scale jaggedness away while preserving the
+ *     canal-scale curve (the window is far shorter than a real bend), so the line
+ *     stays ON the medial axis AND reads smooth.
+ *
+ * The average is sub-cell, so this returns FLOAT cell coordinates (map them with
+ * the grid's cell-centre transform, which is linear in x/y). A smoothed point is
+ * kept only when it lands in `passable` water — otherwise the original cell is
+ * kept — so the line never leaves navigable water on a tight bend. Endpoints are
+ * pinned.
+ */
+export function smoothCentreline(path: Cell[], passable: Uint8Array, { width, height }: GridShape, window = 3): Cell[] {
+    if (path.length < 3) return path.slice();
+    const out: Cell[] = [path[0]];
+    for (let i = 1; i < path.length - 1; i++) {
+        const lo = Math.max(0, i - window);
+        const hi = Math.min(path.length - 1, i + window);
+        let sx = 0;
+        let sy = 0;
+        for (let k = lo; k <= hi; k++) {
+            sx += path[k].x;
+            sy += path[k].y;
+        }
+        const cnt = hi - lo + 1;
+        const ax = sx / cnt;
+        const ay = sy / cnt;
+        const cx = Math.round(ax);
+        const cy = Math.round(ay);
+        const inWater = cx >= 0 && cy >= 0 && cx < width && cy < height && passable[cy * width + cx] === 1;
+        out.push(inWater ? { x: ax, y: ay } : path[i]);
+    }
+    out.push(path[path.length - 1]);
+    return out;
+}
+
 export interface MarinaRouteParams {
     /** Keel-clearance margin in cells. graph = (clearance ≥ keelCells). */
     keelCells: number;
