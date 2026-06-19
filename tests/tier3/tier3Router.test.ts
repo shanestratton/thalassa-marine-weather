@@ -299,13 +299,14 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
     });
 
     it('stays astar(fine=wide+long) when an injected span exceeds the length cap', () => {
-        // A >2.5 km injected span: the fill defeats narrowness AND it is too long
-        // to force the fine pass (constraint 3 — never build a giant fine grid).
+        // An injected span past MAX_INJECTED_FINE_SPAN_M (3.5 km): the fill defeats
+        // narrowness AND it is too long to force the fine pass (never build a giant
+        // fine grid).
         const minLat = LAT_S - 0.002;
         const minLon = LON0 - 0.003;
         const dLat = 50 / M_PER_LAT;
         const dLon = 50 / mPerLon;
-        const latN = LAT_S + 0.03; // ~3.3 km north of LAT_S (> 2.5 km cap)
+        const latN = LAT_S + 0.045; // ~5.0 km north of LAT_S (> 3.5 km cap)
         const width = Math.ceil((LON0 + 0.003 - minLon) / dLon) + 1;
         const height = Math.ceil((latN + 0.002 - minLat) / dLat) + 1;
         const grid: NavGrid = {
