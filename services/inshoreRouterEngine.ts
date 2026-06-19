@@ -59,7 +59,7 @@ import type {
 } from 'geojson';
 
 import { createLogger } from '../utils/createLogger';
-import { routeMarina, type Cell } from './marinaCenterline';
+import { euclideanDistanceTransform, routeMarina, type Cell } from './marinaCenterline';
 import { parseLateralMarks, refineWithFairlead, type LatLon } from './fairlead';
 import {
     parseLeadingLines,
@@ -582,6 +582,18 @@ export interface NavGrid {
      * cached-grid + test back-compat (omitted ⇒ treated as all-zero).
      */
     injectedCanal?: Uint8Array;
+    /**
+     * Per-cell coarse-A* centring multiplier (≥ 1): the step cost into a cell is
+     * scaled by this so the search bows to mid-channel in confined water. Derived
+     * from the navigable mask via {@link computeCentreFactor} (clearance-to-shore,
+     * clamped to one channel half-width — see {@link CENTRE_BIAS}). Computed once
+     * at grid build and read by BOTH aStar and cellCostAt (the smoother/gate
+     * pricing) so the search and every refinement step price edges identically —
+     * no post-A* pass can re-straighten a centred leg onto the bank. Optional for
+     * cached-grid + test back-compat: when absent, aStar computes-and-attaches it
+     * lazily and cellCostAt treats it as 1 (the prior wall-hugging behaviour).
+     */
+    centreFactor?: Float32Array;
 }
 
 /**
@@ -1733,6 +1745,46 @@ function buildNavGrid(
     // forced fine pass read it.
     grid.injectedCanal = injectedCanalCells;
 
+    // Mark-governed mask — cells where a PAIRED channel midpoint defines the line.
+    // Centring is suppressed here so the marks (fairlead / gate-following) keep
+    // sole authority over the centreline; a geometric pull would fight gate
+    // discipline. Sized to the channel's OWN width (the pair distance, floored so
+    // it bridges the gap between mark stations) so it blankets the marked channel
+    // without reaching distant unmarked water. Only PAIRED midpoints govern — a
+    // solo OSM beacon is a no-op (matching Pass 5's reef-edge caution), so an
+    // unmarked canal/marina has an all-zero mask and centres fully.
+    const markGoverned = new Uint8Array(width * height);
+    const CENTRE_SUPPRESS_MIN_RADIUS_M = 200;
+    const governMark = (f: Feature): void => {
+        if (!f.geometry || f.geometry.type !== 'Point') return;
+        const pairDistM = (f.properties as { _pairDistanceM?: number } | null)?._pairDistanceM;
+        if (typeof pairDistM !== 'number' || pairDistM <= 0) return;
+        const [lon, lat] = (f.geometry as Point).coordinates;
+        const radius = Math.max(CENTRE_SUPPRESS_MIN_RADIUS_M, pairDistM);
+        const dLatBuf = radius / M_PER_DEG_LAT;
+        const dLonBuf = radius / mPerLon;
+        const x0 = Math.max(0, Math.floor((lon - dLonBuf - minLon) / dLon));
+        const x1 = Math.min(width - 1, Math.ceil((lon + dLonBuf - minLon) / dLon));
+        const y0 = Math.max(0, Math.floor((lat - dLatBuf - minLat) / dLat));
+        const y1 = Math.min(height - 1, Math.ceil((lat + dLatBuf - minLat) / dLat));
+        for (let y = y0; y <= y1; y++) {
+            const cellLat = minLat + (y + 0.5) * dLat;
+            for (let x = x0; x <= x1; x++) {
+                const cellLon = minLon + (x + 0.5) * dLon;
+                if (haversineM(cellLat, cellLon, lat, lon) <= radius) markGoverned[y * width + x] = 1;
+            }
+        }
+    };
+    for (const f of layers.BOYLAT?.features ?? []) governMark(f);
+    for (const f of layers.BCNLAT?.features ?? []) governMark(f);
+
+    // Medial-axis centring multiplier — computed LAST so the navigable mask
+    // reflects every carve/relaxation/block above. Read by aStar + cellCostAt to
+    // bow the route to mid-channel in UNMARKED water (the wall-hug cure). Derived
+    // purely from this build's cells + marks, like the masks above — no cache-key
+    // change.
+    grid.centreFactor = computeCentreFactor(grid, markGoverned);
+
     // Per-pass breakdown — surfaces which polygon scanner is the hot
     // path. Format: pass=Nms(F features) so the eye can pair time
     // against feature count at a glance.
@@ -1942,6 +1994,57 @@ export class MinHeap {
 export const EXIT_PENALTY_M = 250;
 
 /**
+ * Medial-axis centring bias for the coarse A* cost. Every step's metres-cost
+ * is scaled by (1 + CENTRE_BIAS·(1 − clearNorm)), where clearNorm is the
+ * destination cell's clearance to the nearest blocked (NaN/land) cell,
+ * normalised by {@link CENTRE_NORM_CELLS} and capped at 1. A bank-hugging
+ * cell (clearNorm 0) therefore costs (1 + CENTRE_BIAS)× a mid-channel cell, so
+ * A* bows to the centreline of confined water instead of taking the wall-hugging
+ * shortest path. Open water past the half-width cap has clearNorm 1 ⇒ factor 1
+ * ⇒ the offshore/coastal geodesic is unchanged.
+ *
+ * This is the SAME mechanism as marinaCenterline.solveCenterline (which uses
+ * bias 5 on a unit step), but gentler — here it multiplies the depth-band
+ * multipliers (4–6× in real water) rather than a unit base, and it must only
+ * break the wall-hug tie, never override depth/caution avoidance OR a marked
+ * gate's discipline. The factor is always ≥ 1, so the haversine heuristic stays
+ * admissible (a step is never cheaper than its straight-line length — the
+ * invariant cellCostMultiplier already guards).
+ *
+ * VALUE 0.5: swept against the full routing corpus + a synthetic unmarked
+ * bending channel. The safe window is [0.3, 0.6] — the corpus holds at
+ * clean-master parity throughout; at 0.7 a centring penalty starts to beat a
+ * marked gate's threading dip (the wrong-side-temptation seamanship flip), and
+ * below 0.3 the centring is too weak to break the wall-hug. 0.5 sits mid-window:
+ * it pulls a 700 m channel's bend apex from ~+337 m (riding the bank) to ~+41 m
+ * (near centre) while leaving a comfortable margin below the 0.7 break.
+ */
+export const CENTRE_BIAS = 0.5;
+
+/**
+ * Confinement-probe reach, in COARSE cells — how far the two-sided-confinement
+ * gate looks for an opposing shore before calling a cell "open water". At the
+ * 50 m engine resolution 12 cells ≈ 600 m, so channels up to ~1.2 km wide are
+ * still recognised as channels (and centred); wider bays read as open and keep
+ * the geodesic.
+ */
+export const CENTRE_HALF_WIDTH_CELLS = 12;
+
+/**
+ * Normalisation half-width, in COARSE cells, for the centring GRADIENT. A cell
+ * this far (or farther) from the nearest shore counts as fully mid-channel
+ * (norm 1 ⇒ factor 1.0); the bias ramps linearly from the bank to here. This is
+ * DELIBERATELY smaller than the probe reach: tying the gradient to the probe
+ * reach (12) would make a wide channel's gradient nearly flat (a 7-cell-half
+ * channel's centre would still read norm 0.58, barely discounted), so the route
+ * only half-leaves the bank on a sharp bend. At 6 (≈300 m) the gradient is
+ * steep enough to pull the route to true mid-channel on typical canals/river
+ * reaches, while a channel wider than ~12 cells simply has a flat factor-1 core
+ * (already off both banks — correct). Swept with CENTRE_BIAS; see that constant.
+ */
+export const CENTRE_NORM_CELLS = 6;
+
+/**
  * Cost multiplier per cell based on its known depth.
  *
  * Why this exists: without it, A* finds the geometrically shortest
@@ -2076,6 +2179,86 @@ export function cellCostMultiplier(depth: number, preferred: boolean): number {
 }
 
 /**
+ * Per-cell medial-axis centring multiplier for the coarse A* cost — the cure for
+ * the channel wall-hug. An exact Euclidean distance transform of the navigable
+ * mask gives every water cell its clearance (in cells) to the nearest blocked
+ * cell; that is clamped to {@link CENTRE_NORM_CELLS},
+ * normalised to [0,1], and mapped to (1 + {@link CENTRE_BIAS}·(1 − norm)). A
+ * bank-hugging cell (norm 0) gets the full (1 + CENTRE_BIAS) penalty; a
+ * mid-channel cell (norm 1) gets 1.0; open water past the half-width is flat at
+ * 1.0 so the offshore/coastal geodesic is untouched.
+ *
+ * Computed ONCE per grid (O(width·height)) and stored on grid.centreFactor, then
+ * read by aStar AND cellCostAt so the search and the smoother/acceptance gates
+ * price edges identically — the EXIT_PENALTY_M doctrine, extended to centring.
+ */
+export function computeCentreFactor(grid: NavGrid, markGoverned?: Uint8Array): Float32Array {
+    const w = grid.width;
+    const h = grid.height;
+    const total = w * h;
+    // Foreground (1) = CONFIDENT navigable water (depth ≥ 0). Background (0) =
+    // land (NaN) AND charted-shallow caution (< 0). Centring then rides the
+    // middle of the SAFE channel and is pushed OFF shallow banks — never pulled
+    // toward a geometrically-central shoal (the Tangalooma caution regression a
+    // bare navigable-mask EDT caused).
+    const navMask = new Uint8Array(total);
+    for (let i = 0; i < total; i++) {
+        const d = grid.cells[i];
+        navMask[i] = !Number.isNaN(d) && d >= 0 ? 1 : 0;
+    }
+    const clearance = euclideanDistanceTransform(navMask, { width: w, height: h });
+
+    // Two-sided-confinement gate. Centring must engage ONLY in a genuine channel —
+    // water bounded on OPPOSING sides (canal, marina basin, river reach) — never
+    // along a one-sided coast, where bowing toward the medial axis means bowing
+    // AWAY from the shore into open water (at a headland gate that is the WRONG
+    // SIDE of the mark — the wrong-side-temptation regression). A cell is
+    // "confined" when, probing outward up to one half-width, at least one opposing
+    // direction-pair (N/S, E/W, or a diagonal) BOTH hit a boundary cell. Running
+    // off the grid edge counts as open (the crop edge is not a real wall).
+    const cap = CENTRE_HALF_WIDTH_CELLS;
+    const boundedWithin = (x: number, y: number, dx: number, dy: number): boolean => {
+        for (let s = 1; s <= cap; s++) {
+            const nx = x + dx * s;
+            const ny = y + dy * s;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) return false; // off-grid = open
+            if (navMask[ny * w + nx] === 0) return true; // hit a land/caution boundary
+        }
+        return false; // open water within a half-width this way
+    };
+    const isConfined = (x: number, y: number): boolean =>
+        (boundedWithin(x, y, 0, -1) && boundedWithin(x, y, 0, 1)) || // N & S
+        (boundedWithin(x, y, -1, 0) && boundedWithin(x, y, 1, 0)) || // W & E
+        (boundedWithin(x, y, -1, -1) && boundedWithin(x, y, 1, 1)) || // NW & SE
+        (boundedWithin(x, y, 1, -1) && boundedWithin(x, y, -1, 1)); // NE & SW
+
+    const out = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+        // Where a marked channel defines the line — a FAIRWY/DRGARE (preferred) OR
+        // within a paired channel's mark-governed disc (markGoverned) — the lateral
+        // marks + leading lines ALREADY own the centreline via fairlead/gate
+        // following. Geometric centring would fight that discipline, pulling the
+        // route off the midpoint chain, even to the WRONG SIDE of a mark (the
+        // seamanship regressions). Suppress it there (factor 1.0) so the marked
+        // route is byte-identical to today. Centring is the authority ONLY where no
+        // marked channel exists — canals, marina basins, unmarked nearshore water
+        // (exactly the wall-hug the user reports).
+        if (grid.preferred[i] === 1 || (markGoverned && markGoverned[i] === 1)) {
+            out[i] = 1;
+            continue;
+        }
+        // Off a one-sided coast / in open water ⇒ no centring (factor 1.0).
+        if (navMask[i] === 0 || !isConfined(i % w, (i / w) | 0)) {
+            out[i] = 1;
+            continue;
+        }
+        const norm = Math.min(clearance[i], CENTRE_NORM_CELLS) / CENTRE_NORM_CELLS;
+        out[i] = 1 + CENTRE_BIAS * (1 - norm);
+    }
+    return out;
+}
+
+/**
  * 8-neighbor A* on the navigability grid. Distance cost is meter-step
  * × cellCostMultiplier(depth). Heuristic = straight-line meter distance
  * to goal (admissible because all multipliers are ≥ 1.0).
@@ -2138,6 +2321,15 @@ export function aStar(
         Math.sqrt((dx * grid.dLon * mPerLonGrid) ** 2 + (dy * grid.dLat * M_PER_DEG_LAT) ** 2),
     );
 
+    // Medial-axis centring field — the cure for the wall-hug. Each step below is
+    // multiplied by centreFactor[dest] so the search bows to mid-channel in
+    // confined water and is untouched in open water (factor 1). Computed once and
+    // SHARED with cellCostAt (the smoother/gate pricing) via grid.centreFactor, so
+    // no refinement step can re-straighten a centred leg onto the bank. Lazily
+    // attached here for grids the builder didn't populate (disk/test fixtures).
+    if (!grid.centreFactor) grid.centreFactor = computeCentreFactor(grid);
+    const centreFactor = grid.centreFactor;
+
     while (open.size > 0) {
         const { idx } = open.pop()!;
         if (stats) stats.popped++;
@@ -2170,7 +2362,10 @@ export function aStar(
             // stays admissible; cellCostMultiplier untouched, flat-preferred
             // doctrine preserved). See EXIT_PENALTY_M.
             const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
-            const tentativeG = curG + stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) + exitPenalty;
+            const tentativeG =
+                curG +
+                stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) * centreFactor[nIdx] +
+                exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
                 gScore[nIdx] = tentativeG;
@@ -2218,7 +2413,10 @@ function* bresenhamCells(x0: number, y0: number, x1: number, y1: number): Genera
  */
 function cellCostAt(grid: NavGrid, x: number, y: number): number {
     const idx = y * grid.width + x;
-    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1);
+    // × centreFactor so the smoother + acceptance gates price edges EXACTLY as
+    // aStar did (centred). Absent on cached/test grids ⇒ 1 (prior behaviour).
+    const centre = grid.centreFactor ? grid.centreFactor[idx] : 1;
+    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1) * centre;
 }
 
 function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
@@ -2260,10 +2458,11 @@ function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: nu
 /**
  * Total traversal cost (metres-equivalent) of a chain of 8-neighbour grid
  * cells, priced EXACTLY like A*'s neighbour expansion: step length ×
- * destination-cell multiplier, plus EXIT_PENALTY_M on every
- * preferred→non-preferred transition. Used by smoothPath's cost-no-worse
- * rule and the marina-centerline acceptance gate, so no post-A* refinement
- * can silently undo a cost-optimal detour.
+ * destination-cell multiplier × centreFactor (via cellCostAt), plus
+ * EXIT_PENALTY_M on every preferred→non-preferred transition. Used by
+ * smoothPath's cost-no-worse rule and the marina-centerline acceptance gate, so
+ * no post-A* refinement can silently undo a cost-optimal detour OR re-straighten
+ * a centred leg back onto the bank.
  */
 export function chainCostM(grid: NavGrid, chain: { x: number; y: number }[]): number {
     const mPerLonG = M_PER_DEG_LAT * Math.cos(((grid.minLat + (grid.height * grid.dLat) / 2) * Math.PI) / 180);
