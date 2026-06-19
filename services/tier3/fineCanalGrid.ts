@@ -410,10 +410,12 @@ export const MAX_BRIDGE_CROSSING_M = 60;
 
 /** Length cap (m) for FORCING the fine pass on a wide-but-injected canal span.
  *  The injected fill defeats the narrowness probe, so we force the fine pass over
- *  injected channel water — but only up to this length, so a long injected river
- *  span can never build a giant fine grid on-device (a longer one falls back to
- *  the coarse A* slice). ~2.5 km comfortably spans Newport's canal estate. */
-export const MAX_INJECTED_FINE_SPAN_M = 2500;
+ *  injected channel water — but only up to this length, so a long injected span
+ *  can never build a giant fine grid on-device (a longer one falls back to the
+ *  coarse A* slice). The injectedCanal mask is already ENC-gap-bounded (the bay
+ *  part of the crop is subtracted in buildNavGrid), so the canal span is short;
+ *  this is generous headroom for a winding estate, not a tight constraint. */
+export const MAX_INJECTED_FINE_SPAN_M = 3500;
 
 /** Apron added around the span crop, in degrees (~550 m). Generous enough that
  *  the canal stays connected to the coarse route's proven-reachable entry/exit
