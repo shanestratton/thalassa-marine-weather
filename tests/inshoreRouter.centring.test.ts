@@ -111,4 +111,16 @@ describe('coarse-A* centring — unmarked bending channel beyond a caution bar',
         // 150 m bound separates them with wide margin both ways.
         expect(maxOff).toBeLessThanOrEqual(150);
     });
+
+    it('steers a CLEAN line, not a drunken stagger (few vertices through the channel)', () => {
+        if (!('polyline' in route)) throw new Error('expected a route');
+        const poly = route.polyline as [number, number][];
+        // Count route vertices strictly inside the post-bar channel (between the
+        // bar at ~153.006 and the east mouth). A clean line through a 2-bend S
+        // needs only a handful; a grid stagger needs many.
+        const interior = poly.filter(([lon]) => lon > 153.01 && lon < E_LON - 0.001).length;
+        // De-staggered: ~4 vertices (the 2 S-bends). The pre-fix grid stagger is
+        // ~12; the 8 bound separates them.
+        expect(interior).toBeLessThanOrEqual(8);
+    });
 });
