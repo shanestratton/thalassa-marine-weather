@@ -856,18 +856,14 @@ function buildNavGrid(
     const osmWaterCells = new Uint8Array(width * height);
     // Per-cell "injected nearshore canal water" flag (see NavGrid.injectedCanal).
     // The Mapbox-water DEPARE fill (_source==='mapbox-water') we injected for
-    // routing, RESTRICTED to where it fills an ENC gap (charted land / no-data) —
-    // i.e. the real canal between the marina lots, NOT where the fill merely
-    // overlaps ENC-charted bay water. Kept separate from osmWaterCells (broader,
-    // drives the LNDARE-conflict logic). The ENC overlap is subtracted after
-    // Pass 1 (see encDepareCells) so the canal's tier-3 span stays bounded to the
-    // actual channel instead of stretching across the open-bay part of the crop.
+    // routing, RESTRICTED (after the LNDARE passes) to cells with charted LAND
+    // within MARINA_NEAR_CELLS — i.e. the canal CHANNEL bounded by the marina lots,
+    // NOT the open-bay part of the ~4 km crop (land far away). The canal is often
+    // charted as a COARSE ENC DEPARE (reads deep ⇒ tier-2), so the discriminator
+    // is narrowness/land-proximity, NOT ENC-gap. Bounding it keeps the canal's
+    // tier-3 span short (fits the fine length cap, small fine grid). Kept separate
+    // from osmWaterCells (broader, drives the LNDARE-conflict logic).
     const injectedCanalCells = new Uint8Array(width * height);
-    // Per-cell "has S-57 (ENC) DEPARE" flag — any charted depth area, shallow or
-    // deep. Used ONLY to subtract ENC-charted water from injectedCanal: where the
-    // ENC already vouches water, the Mapbox fill is just bay, not an uncharted
-    // canal. Order-independent of the fill (a post-Pass-1 subtraction).
-    const encDepareCells = new Uint8Array(width * height);
     // Per-cell "hard blocked" flag: 1 = blocked by LNDARE (land) or a
     // point obstruction (OBSTRN / WRECKS / UWTROC). A cell merely
     // blocked by a shallow DEPARE band has hardBlocked = 0. Pass 4
@@ -1011,10 +1007,8 @@ function buildNavGrid(
             const idx = y * width + x;
 
             // Tag injected Mapbox canal water (both branches) → tier-3 + fine pass.
-            // Note where ENC already charts a depth area here — subtracted below so
-            // only the gap-filling (true canal) part of the fill stays tier-3.
+            // Narrowed to the actual channel after the LNDARE passes (see below).
             if (isMapboxWater) injectedCanalCells[idx] = 1;
-            if (isS57Depare) encDepareCells[idx] = 1;
 
             // Record the DEPARE-only verdict (independent of any later LNDARE
             // hard-block), tracking the shallowest real depth or CAUTION — so
@@ -1065,17 +1059,6 @@ function buildNavGrid(
     }
 
     markPass('pass1-DEPARE', tPassDepare, depare.length);
-
-    // Subtract ENC-charted water from the injected-canal mask: where the ENC
-    // already has a DEPARE, the Mapbox fill is just bay (tier-2 passthrough is
-    // correct there), NOT an uncharted canal. This keeps injectedCanal — and so
-    // the forced-fine tier-3 span — bounded to the channel the ENC omits, instead
-    // of the whole ~4 km nearshore crop (which would make the span exceed the fine
-    // length cap and balloon the fine grid). Order-independent of fill-vs-ENC
-    // rasterisation order.
-    for (let i = 0; i < injectedCanalCells.length; i++) {
-        if (encDepareCells[i]) injectedCanalCells[i] = 0;
-    }
 
     // ── Pass 1b: OSM canal LineStrings — carve navigable corridors ───
     // The inverse of the Pass 2b coastline strip. Each waterway=canal/
@@ -1715,6 +1698,35 @@ function buildNavGrid(
         }
         grid.unvouched = unvouched;
         markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
+    }
+    // Narrow the injected-canal mask to the actual CHANNEL: keep only cells with
+    // charted LAND (landBlocked, set by the LNDARE passes above) within
+    // MARINA_NEAR_CELLS. A canal channel is bounded by the marina lots a cell or
+    // two away; open bay in the ~4 km nearshore crop has land far off and is
+    // dropped — so the canal's tier-3 span stays the channel, fits the fine length
+    // cap, and the fine grid stays small. (No-op when no cell is near land, e.g.
+    // a fully open crop, and on test/fixture grids with no injected cells.)
+    const MARINA_NEAR_CELLS = 6; // ~300 m at 50 m: keeps the canal + immediate approach
+    if (landBlocked.some((v) => v === 1)) {
+        for (let idx = 0; idx < injectedCanalCells.length; idx++) {
+            if (!injectedCanalCells[idx]) continue;
+            const cx = idx % width;
+            const cy = (idx / width) | 0;
+            let nearLand = false;
+            for (let dy = -MARINA_NEAR_CELLS; dy <= MARINA_NEAR_CELLS && !nearLand; dy++) {
+                const ny = cy + dy;
+                if (ny < 0 || ny >= height) continue;
+                for (let dx = -MARINA_NEAR_CELLS; dx <= MARINA_NEAR_CELLS; dx++) {
+                    const nx = cx + dx;
+                    if (nx < 0 || nx >= width) continue;
+                    if (landBlocked[ny * width + nx] === 1) {
+                        nearLand = true;
+                        break;
+                    }
+                }
+            }
+            if (!nearLand) injectedCanalCells[idx] = 0;
+        }
     }
     // Ride the injected-canal mask on the grid (derived purely from this build's
     // inputs, like unvouched — no cache-key change). Tier-3 classification + the
