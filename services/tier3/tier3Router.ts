@@ -112,8 +112,6 @@ const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =
 const MAX_GATE_M = 500;
 /** A mark/gate within this of the span counts as ON the route's channel. */
 const FOLLOW_TRAVERSE_M = 500;
-/** A point within this of a buoy is navigable by the marks' authority. */
-const MARK_VOUCH_M = 150;
 
 /** Perpendicular + along-route distance of point p to polyline `poly` (metres). */
 function projectToPoly(p: LL, poly: LL[]): { along: number; perp: number } {
@@ -149,10 +147,12 @@ function projectToPoly(p: LL, poly: LL[]): { along: number; perp: number } {
  * corridorCenterline here — a gate is just the nearest red/green pair, whatever
  * their numbers. Returns the channel centreline (span-endpoints + ordered gate
  * midpoints), or null if there's no followable gate run or it would cross real
- * land far from any buoy. Marks VOUCH for water: a centreline point within
- * MARK_VOUCH_M of a buoy is navigable whatever the coarse grid says, so a
- * narrow buoyed channel the 50 m grid calls land is still followed; a bridge
- * that strays far from the buoys onto landBlocked is rejected.
+ * land far from the buoyed channel. Marks VOUCH for water: the gate-to-gate body
+ * is the channel (trusted by construction) and the entry/exit stubs are vouched
+ * within a channel half-width (CHANNEL_LAND_VOUCH_M) of any mark / gate midpoint /
+ * span endpoint — so a buoyed channel the 50 m grid calls land (Brisbane's
+ * intertidal mudflats charted as LANDARE) is still followed; only a centreline
+ * that strays beyond that onto landBlocked is rejected.
  */
 export function followChannelGates(
     sub: LL[],
@@ -196,15 +196,23 @@ export function followChannelGates(
     if (mids.length < 2) return decline(`mids${mids.length}`);
 
     const centre = [sub[0], ...mids, sub[sub.length - 1]];
-    // Reject a bridge that strays onto REAL land away from the buoys — but ONLY
-    // on the entry/exit STUBS (span-end → first/last gate). The gate-to-gate
-    // BODY (a segment between two consecutive lateral-mark gate midpoints) IS the
-    // buoyed channel: navigable by the marks' own authority even where the chart
-    // paints intertidal LANDARE. Brisbane's channels (e.g. the Newport exit) run
-    // over mudflats encoded as LANDARE; vetoing the body on that "land" is what
-    // dropped the whole channel and left the span hugging on coarse A*. The marks
-    // ARE the authority between their gates, so the body is vouched by construction.
-    const buoyVouched = (p: LL): boolean => marks.some((m) => distM(p.lat, p.lon, m.lat, m.lon) < MARK_VOUCH_M);
+    // Reject a centreline that strays onto REAL land away from the buoyed channel.
+    // The gate-to-gate BODY is the channel itself (navigable by the marks' own
+    // authority even over intertidal LANDARE — Brisbane's channels run through
+    // mudflats charted as land) and is trusted by construction. The entry/exit
+    // STUBS (span-end → first/last gate) are the channel APPROACH across the same
+    // intertidal flats, so they are vouched against a CHANNEL-SCALE set of anchors
+    // — every lateral mark, every gate midpoint, AND the two span endpoints (both
+    // on the navigable A* route) — within a channel half-width. A stub point that
+    // is on land AND beyond that from the whole buoyed channel is a genuine stray
+    // (a real bridge / a degenerate pairing) and still declines, reported as
+    // `entry-land`/`exit-land` in the provenance. (Pre-fix the stub used a 150 m
+    // single-buoy disc, which a wide channel's mid-approach over a mudflat exceeded
+    // → the whole channel was dropped and the span hugged on coarse A*.)
+    const CHANNEL_LAND_VOUCH_M = 350;
+    const anchors: LL[] = [...marks.map((m) => ({ lat: m.lat, lon: m.lon })), ...mids, sub[0], sub[sub.length - 1]];
+    const channelVouched = (p: LL): boolean =>
+        anchors.some((a) => distM(p.lat, p.lon, a.lat, a.lon) < CHANNEL_LAND_VOUCH_M);
     const onLand = (p: LL): boolean => {
         const i = cellIdx(grid, p.lon, p.lat);
         return i >= 0 && grid.landBlocked?.[i] === 1;
@@ -221,7 +229,7 @@ export function followChannelGates(
         for (let s = 0; s <= steps; s++) {
             const t = s / steps;
             const q: LL = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-            if (onLand(q) && !buoyVouched(q)) return decline(i === 0 ? 'entry-land' : 'exit-land');
+            if (onLand(q) && !channelVouched(q)) return decline(i === 0 ? 'entry-land' : 'exit-land');
         }
     }
     return centre;
