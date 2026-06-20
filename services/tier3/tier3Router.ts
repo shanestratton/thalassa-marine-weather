@@ -194,7 +194,26 @@ export function followChannelGates(
     }
     if (mids.length < 2) return decline(`mids${mids.length}`);
 
-    const centre = [sub[0], ...mids, sub[sub.length - 1]];
+    // SPLICE the gate midpoints into the A* sub at their along-positions, KEEPING the
+    // sub's water-following geometry on the approach (sub[0]→first gate) and exit
+    // (last gate→sub[end]). A straight stub from a span endpoint to the first/last
+    // gate can cut across a land maze — the Newport marina exit weaves through
+    // intertidal LANDARE, so the straight line crosses it even though both ends are
+    // navigable — whereas the A* sub never crosses land. So: keep the sub vertices
+    // OUTSIDE the gate run, drop in the gate centreline BETWEEN them.
+    const firstAlong = projectToPoly(mids[0], sub).along;
+    const lastAlong = projectToPoly(mids[mids.length - 1], sub).along;
+    let cum = 0;
+    const subAlong = [0];
+    for (let i = 1; i < sub.length; i++) {
+        cum += distM(sub[i - 1].lat, sub[i - 1].lon, sub[i].lat, sub[i].lon);
+        subAlong.push(cum);
+    }
+    const before = sub.filter((_, i) => subAlong[i] < firstAlong);
+    const after = sub.filter((_, i) => subAlong[i] > lastAlong);
+    const centre = [...before, ...mids, ...after];
+    if (centre[0] !== sub[0]) centre.unshift(sub[0]);
+    if (centre[centre.length - 1] !== sub[sub.length - 1]) centre.push(sub[sub.length - 1]);
     // SAFETY veto — a gate-follower centreline may NEVER cross real land. The
     // nearest-gate pairing can cross-pair when the marks lump two parallel channels
     // (the Newport 'NUM' lump): a port from one paired with a starboard from the
