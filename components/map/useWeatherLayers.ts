@@ -736,8 +736,11 @@ export function useWeatherLayers(
                 });
         }, 800);
         return () => clearTimeout(windTimer);
+        // Re-runs on model/field switch too: setModel()/setField() clear the
+        // grid, and re-running activate() re-fetches via the right source and
+        // re-anchors the scrubber to "now".
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [activeKey, mapReady]);
+    }, [activeKey, mapReady, windState.model, windState.field]);
 
     // ── Periodically recompute "now" index (every 1 min) ──
     useEffect(() => {
@@ -1784,6 +1787,11 @@ export function useWeatherLayers(
         setWindMaxSpeed,
         windForecastHoursRef,
         windNowIdxRef,
+        // Model + field switcher (chart wind overlay)
+        windModel: windState.model,
+        windField: windState.field,
+        setWindModel: WindStore.setModel,
+        setWindField: WindStore.setField,
         // Currents (CMEMS hourly forecast, gated by VITE_CMEMS_CURRENTS_ENABLED)
         currentsHour,
         setCurrentsHour: useCallback(

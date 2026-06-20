@@ -24,6 +24,11 @@ export interface WindGrid {
     v: Float32Array[];
     /** Scalar speed (m/s) per hour: [hour][row][col] */
     speed: Float32Array[];
+    /** Optional scalar wind-GUST magnitude (m/s) per hour: [hour][row][col].
+     *  Populated by the Open-Meteo gridded fetcher (wind_gusts_10m); absent on
+     *  GFS-GRIB-edge grids and CMEMS binary grids. The chart's "gust" field mode
+     *  needs this — applyGustField() degrades to a no-op when it's missing. */
+    gust?: Float32Array[];
     /** Grid coordinates */
     width: number; // columns
     height: number; // rows
