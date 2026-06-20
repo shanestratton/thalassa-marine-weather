@@ -13,8 +13,12 @@
 
 import { useState, useEffect } from 'react';
 import type { WindGrid } from '../services/weather/windField';
+import type { WeatherModelId } from '../services/weather/MultiModelWeatherService';
 
 // ── Types ──────────────────────────────────────────────────────
+
+/** Which scalar the wind layer renders: sustained wind speed or gust. */
+export type WindFieldKind = 'wind' | 'gust';
 
 export interface WindState {
     /** true = online streaming from API, false = local GRIB file */
@@ -31,6 +35,11 @@ export interface WindState {
     hour: number;
     /** Total forecast hours in current grid */
     totalHours: number;
+    /** Which weather MODEL the animated chart field uses. GFS keeps the fine
+     *  GRIB-edge path; any other model is fetched gridded from Open-Meteo. */
+    model: WeatherModelId;
+    /** Which scalar FIELD the layer renders — sustained wind or gust. */
+    field: WindFieldKind;
 }
 
 type WindListener = (state: WindState) => void;
@@ -45,6 +54,8 @@ const DEFAULT_STATE: WindState = {
     localGribPath: null,
     hour: 0,
     totalHours: 0,
+    model: 'gfs',
+    field: 'wind',
 };
 
 // ── Store Singleton ────────────────────────────────────────────
@@ -101,6 +112,22 @@ export const WindStore = {
     /** Set the local GRIB file path (when a download completes) */
     setLocalGribPath(path: string | null) {
         state = { ...state, localGribPath: path };
+        notify();
+    },
+
+    /** Switch the animated chart MODEL. Clears the grid so the controller
+     *  re-fetches; no-op if unchanged. */
+    setModel(model: WeatherModelId) {
+        if (state.model === model) return;
+        state = { ...state, model, grid: null, loading: true, error: null };
+        notify();
+    },
+
+    /** Switch the rendered FIELD (wind ↔ gust). Clears the grid so the
+     *  controller re-fetches the right source; no-op if unchanged. */
+    setField(field: WindFieldKind) {
+        if (state.field === field) return;
+        state = { ...state, field, grid: null, loading: true, error: null };
         notify();
     },
 

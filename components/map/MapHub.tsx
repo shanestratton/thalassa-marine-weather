@@ -61,6 +61,7 @@ import { useLocalCharts } from './useLocalCharts';
 import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
+import { useAnchorageLayer } from './useAnchorageLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
 import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
@@ -94,6 +95,7 @@ import { RadialHelmMenu } from './RadialHelmMenu';
 import { StormPicker } from './StormPicker';
 import { MapActionFabs } from './MapActionFabs';
 import { ThalassaHelixControl, LegendDock, type HelixLayer } from './ThalassaHelixControl';
+import { WindModelFieldSelector } from './WindModelFieldSelector';
 import { useDeviceMode } from '../../hooks/useDeviceMode';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
 
@@ -444,6 +446,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         true,
     );
     const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
+    const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
     const [tideStationsVisible, setTideStationsVisible] = usePersistedState(
         'thalassa_map_tide_stations_visible',
         false,
@@ -1228,6 +1231,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Tide Station Markers ──
     const tideStations = useTideStationLayer(mapRef, mapReady, tideStationsVisible);
+    useAnchorageLayer(mapRef, mapReady, anchorageVisible);
 
     // ── Lightning Strikes (Xweather GLD360) ──
     useLightningLayer(mapRef, mapReady, lightningVisible);
@@ -1696,6 +1700,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     return !v;
                                 });
                             },
+                            anchorageVisible,
+                            onToggleAnchorage: () => setAnchorageVisible((v) => !v),
                             // Marine Protected Areas — only surface in the
                             // radial menu when the feature flag is on, so
                             // the button doesn't taunt users on builds
@@ -2764,24 +2770,36 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // temperature / clouds: no scrubber, just legend (totalFrames stays 1)
 
                         return (
-                            <ThalassaHelixControl
-                                activeLayer={activeLayerKey}
-                                frameIndex={frameIndex}
-                                totalFrames={totalFrames}
-                                frameLabel={frameLabel}
-                                sublabel={sublabel}
-                                isPlaying={isPlaying}
-                                isLoading={isLoading}
-                                framesReady={framesReady}
-                                embedded={embedded}
-                                onScrub={onScrub}
-                                onScrubStart={onScrubStart}
-                                onPlayToggle={onPlayToggle}
-                                applyFrame={applyFrame}
-                                nowIndex={nowIndex}
-                                dualColor={dualColor}
-                                forecastAccent={forecastAccent}
-                            />
+                            <>
+                                {activeLayerKey === 'wind' && (
+                                    <WindModelFieldSelector
+                                        model={weather.windModel}
+                                        field={weather.windField}
+                                        onModelChange={weather.setWindModel}
+                                        onFieldChange={weather.setWindField}
+                                        loading={weather.windState.loading}
+                                        embedded={embedded}
+                                    />
+                                )}
+                                <ThalassaHelixControl
+                                    activeLayer={activeLayerKey}
+                                    frameIndex={frameIndex}
+                                    totalFrames={totalFrames}
+                                    frameLabel={frameLabel}
+                                    sublabel={sublabel}
+                                    isPlaying={isPlaying}
+                                    isLoading={isLoading}
+                                    framesReady={framesReady}
+                                    embedded={embedded}
+                                    onScrub={onScrub}
+                                    onScrubStart={onScrubStart}
+                                    onPlayToggle={onPlayToggle}
+                                    applyFrame={applyFrame}
+                                    nowIndex={nowIndex}
+                                    dualColor={dualColor}
+                                    forecastAccent={forecastAccent}
+                                />
+                            </>
                         );
                     })()}
             </div>

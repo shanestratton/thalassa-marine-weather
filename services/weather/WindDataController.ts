@@ -81,15 +81,16 @@ export const WindDataController = {
      * Registers map listeners for online mode, loads file for offline mode.
      */
     async activate(map: mapboxgl.Map) {
-        const { isGlobalMode } = WindStore.getState();
+        const { isGlobalMode, model, field } = WindStore.getState();
+        // Non-GFS models and the gust field come from Open-Meteo's point-batch
+        // API, which can't do full-earth — they're always VIEWPORT-bounded and
+        // so must re-fetch on pan even in global mode. Only GFS sustained wind
+        // gets the fetch-once full-earth GRIB in global mode.
+        const viewportBound = !isGlobalMode || model !== 'gfs' || field === 'gust';
 
-        if (isGlobalMode) {
-            // Global mode: fetch full-earth GRIB once, no re-fetching on pan
-            clearMoveListener(map);
-            await this.fetchOnline(map);
-        } else {
-            // Passage mode: fetch for visible viewport, re-fetch on pan
-            await this.fetchOnline(map);
+        clearMoveListener(map);
+        await this.fetchOnline(map);
+        if (viewportBound) {
             this.registerMoveListener(map);
         }
     },
@@ -108,16 +109,22 @@ export const WindDataController = {
      * In passage mode, fetches for the visible viewport.
      */
     async fetchOnline(map: mapboxgl.Map) {
-        const { isGlobalMode } = WindStore.getState();
+        const { isGlobalMode, model, field } = WindStore.getState();
         const bounds = map.getBounds();
         if (!bounds) return;
 
         const currentZoom = map.getZoom();
 
+        // GFS sustained wind uses the fine full-earth GRIB-edge path (and the
+        // efficient global fetch). Any other model, or the gust field, comes
+        // from Open-Meteo's gridded point-batch API — viewport-bounded, carries
+        // gust, and is the source the model/field switcher routes through.
+        const useOpenMeteoGridded = model !== 'gfs' || field === 'gust';
+
         // Determine bounds for the request
         let north: number, south: number, west: number, east: number;
 
-        if (isGlobalMode) {
+        if (isGlobalMode && !useOpenMeteoGridded) {
             north = 90;
             south = -90;
             west = -180;
@@ -133,13 +140,15 @@ export const WindDataController = {
                 fetchedAt: Date.now(),
             };
 
-            // Skip if bounds haven't changed significantly AND the cache is fresh.
-            // Without the age check, a grid fetched hours ago stays forever —
-            // user sees stale wind directions that no longer match conditions.
+            // Skip if bounds haven't changed significantly AND the cache is
+            // fresh AND we still have a grid. The grid check matters because
+            // setModel()/setField() clear the grid without moving the map —
+            // without it, a model/field switch would be skipped as "no change".
             if (
                 lastFetchedBounds &&
                 !boundsChangedSignificantly(lastFetchedBounds, currentBounds) &&
-                !isCacheStale(lastFetchedBounds)
+                !isCacheStale(lastFetchedBounds) &&
+                WindStore.getState().grid
             ) {
                 return;
             }
@@ -160,6 +169,39 @@ export const WindDataController = {
         WindStore.setLoading(true);
 
         try {
+            // ── Open-Meteo gridded path (non-GFS model, or gust field) ──
+            // The model/field switcher routes here. One call returns sustained
+            // wind AND gust for the chosen model; we apply the gust transform
+            // client-side when the gust field is active.
+            if (useOpenMeteoGridded) {
+                const { fetchModelWindGrid } = await import('./OpenMeteoWindFetcher');
+                // Adaptive resolution: fine when zoomed in, but coarsen for wide
+                // viewports so a zoomed-out (or global) view doesn't explode into
+                // thousands of Open-Meteo point batches. Cap ~24 cells per side.
+                const maxSpan = Math.max(Math.abs(east - west), Math.abs(north - south));
+                const res = Math.max(currentZoom > 6 ? 0.5 : 1.0, maxSpan / 24);
+                const CHART_HOURS = 48;
+                let grid = await withDeadline(
+                    fetchModelWindGrid(model, { north, south, west, east }, CHART_HOURS, res),
+                    30_000,
+                    'om-model-grid',
+                );
+                if (grid && field === 'gust') {
+                    const { applyGustField } = await import('./windFieldTransforms');
+                    grid = applyGustField(grid);
+                }
+                if (grid) {
+                    lastFetchedBounds = { north, south, west, east, zoom: currentZoom, fetchedAt: Date.now() };
+                    WindStore.setGrid(grid);
+                    log.info(
+                        `[WindController] Open-Meteo ${model} grid loaded: ${grid.width}×${grid.height}, ${grid.totalHours}h, field=${field}`,
+                    );
+                } else {
+                    WindStore.setError(`No ${model.toUpperCase()} wind data for this area`);
+                }
+                return;
+            }
+
             // Primary: Supabase GFS GRIB2 edge function (reliable).
             // Route through the boat Pi when it's on the local network — the
             // Pi caches the binary GRIB keyed by rounded bounds so subsequent
@@ -264,8 +306,12 @@ export const WindDataController = {
         moveEndHandler = () => {
             if (moveEndTimer) clearTimeout(moveEndTimer);
             moveEndTimer = setTimeout(() => {
-                const { isGlobalMode } = WindStore.getState();
-                if (isGlobalMode) return; // Don't re-fetch in global mode
+                const { isGlobalMode, model, field } = WindStore.getState();
+                // GFS-wind in global mode is full-earth — no pan refetch. Any
+                // Open-Meteo gridded selection is viewport-bounded, so it must
+                // refetch on pan even in global mode.
+                const useOpenMeteoGridded = model !== 'gfs' || field === 'gust';
+                if (isGlobalMode && !useOpenMeteoGridded) return;
                 this.fetchOnline(map);
             }, 800);
         };

@@ -30,6 +30,7 @@ export async function fetchModelWindGrid(
     modelId: WeatherModelId,
     bounds: { north: number; south: number; west: number; east: number },
     forecastHours: number = FORECAST_HOURS,
+    resolutionDeg: number = 2.0,
 ): Promise<WindGrid | null> {
     const omKey = getOpenMeteoKey();
     if (!omKey) {
@@ -45,8 +46,8 @@ export async function fetchModelWindGrid(
 
     const t0 = performance.now();
 
-    // Build grid points at ~2° resolution (ocean routing doesn't need finer)
-    const RES = 2.0;
+    // Grid resolution: ~2° for ocean routing (default), finer for the chart overlay.
+    const RES = resolutionDeg;
     const uniqueLats: number[] = [];
     const uniqueLons: number[] = [];
     for (let lat = bounds.south; lat <= bounds.north + 0.01; lat += RES) {
@@ -139,11 +140,13 @@ export async function fetchModelWindGrid(
         const uGrids: Float32Array[] = [];
         const vGrids: Float32Array[] = [];
         const speedGrids: Float32Array[] = [];
+        const gustGrids: Float32Array[] = [];
 
         for (let h = 0; h < totalHours; h++) {
             const uArr = new Float32Array(rows * cols);
             const vArr = new Float32Array(rows * cols);
             const sArr = new Float32Array(rows * cols);
+            const gArr = new Float32Array(rows * cols);
 
             for (let r = 0; r < rows; r++) {
                 for (let c = 0; c < cols; c++) {
@@ -152,6 +155,7 @@ export async function fetchModelWindGrid(
 
                     const speedKmh = hourly?.wind_speed_10m?.[h] ?? 0;
                     const dirDeg = hourly?.wind_direction_10m?.[h] ?? 0;
+                    const gustKmh = hourly?.wind_gusts_10m?.[h] ?? 0;
 
                     // km/h → m/s
                     const speedMs = speedKmh / 3.6;
@@ -165,12 +169,14 @@ export async function fetchModelWindGrid(
                     uArr[idx] = u;
                     vArr[idx] = v;
                     sArr[idx] = speedMs;
+                    gArr[idx] = gustKmh / 3.6;
                 }
             }
 
             uGrids.push(uArr);
             vGrids.push(vArr);
             speedGrids.push(sArr);
+            gustGrids.push(gArr);
         }
 
         const dt = Math.round(performance.now() - t0);
@@ -180,6 +186,7 @@ export async function fetchModelWindGrid(
             u: uGrids,
             v: vGrids,
             speed: speedGrids,
+            gust: gustGrids,
             width: cols,
             height: rows,
             lats: uniqueLats,
