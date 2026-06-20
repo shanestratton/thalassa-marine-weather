@@ -2970,3 +2970,18 @@ gate-follower keeps declining the Newport exit (safe hug); the real fix is the h
 you've circled — clean channel reconstruction (split the NUM lump into its two parallel
 channels / pair only ACROSS-channel marks) so the centreline can't cross-pair. Not
 attempting that blind. — B
+
+**SHIPPED + verified offline (next commit) — it was the STUB, not cross-pairing.** Built
+a direct offline test (`tests/repro/newportGateFollow.test.ts`): real beacons +
+parseLateralMarks + a real-LNDARE NavGrid (rasterised at 50 m) + a BFS-water span (faithful
+A*). Finding: the Newport-exit span is NOT interleaved — only the 4 WEST-channel gates are
+near, all clean. The decline was purely `followChannelGates` drawing a STRAIGHT entry stub
+from sub[0] to the first gate, which cuts across the marina's intertidal-LANDARE maze
+(crossed land ×32) even though both ends + the A* sub are on water. Fix: **SPLICE** the gate
+midpoints into the A\* sub at their along-positions — keep the sub's water-following
+approach/exit, drop the gate centreline in between — instead of `[sub[0], …mids, sub[end]]`
+straight stubs. Test: follower now returns a clean 30-pt WEST-channel centreline,
+**landCrossings=0**, maxEW-jump 50 m. Corpus byte-clean (staggered 59.56% identical, tier3
+unit 13/13). The strict land veto STAYS, so a genuinely interleaved span still declines
+safely (zigzag → veto) rather than crossing land. Device reload should show the exit as
+`tier3:gates`. — B
