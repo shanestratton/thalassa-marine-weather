@@ -146,13 +146,12 @@ function projectToPoly(p: LL, poly: LL[]): { along: number; perp: number } {
  * port-even/stbd-odd numbering convention that defeat fairlead's seq-based
  * corridorCenterline here — a gate is just the nearest red/green pair, whatever
  * their numbers. Returns the channel centreline (span-endpoints + ordered gate
- * midpoints), or null if there's no followable gate run or it would cross real
- * land far from the buoyed channel. Marks VOUCH for water: the gate-to-gate body
- * is the channel (trusted by construction) and the entry/exit stubs are vouched
- * within a channel half-width (CHANNEL_LAND_VOUCH_M) of any mark / gate midpoint /
- * span endpoint — so a buoyed channel the 50 m grid calls land (Brisbane's
- * intertidal mudflats charted as LANDARE) is still followed; only a centreline
- * that strays beyond that onto landBlocked is rejected.
+ * midpoints), or null if there's no followable gate run or the centreline would
+ * cross real land. Marks VOUCH for water within MARK_VOUCH_M, so a NARROW buoyed
+ * channel the 50 m grid calls land is still followed; but any centreline point on
+ * landBlocked beyond that — a cross-paired midpoint or a bend-cutting segment — is
+ * rejected (a marine route may never cross land). The decline reason names which
+ * segment crossed for on-device diagnosis.
  */
 export function followChannelGates(
     sub: LL[],
@@ -196,32 +195,24 @@ export function followChannelGates(
     if (mids.length < 2) return decline(`mids${mids.length}`);
 
     const centre = [sub[0], ...mids, sub[sub.length - 1]];
-    // Reject a centreline that strays onto REAL land away from the buoyed channel.
-    // The gate-to-gate BODY is the channel itself (navigable by the marks' own
-    // authority even over intertidal LANDARE — Brisbane's channels run through
-    // mudflats charted as land) and is trusted by construction. The entry/exit
-    // STUBS (span-end → first/last gate) are the channel APPROACH across the same
-    // intertidal flats, so they are vouched against a CHANNEL-SCALE set of anchors
-    // — every lateral mark, every gate midpoint, AND the two span endpoints (both
-    // on the navigable A* route) — within a channel half-width. A stub point that
-    // is on land AND beyond that from the whole buoyed channel is a genuine stray
-    // (a real bridge / a degenerate pairing) and still declines, reported as
-    // `entry-land`/`exit-land` in the provenance. (Pre-fix the stub used a 150 m
-    // single-buoy disc, which a wide channel's mid-approach over a mudflat exceeded
-    // → the whole channel was dropped and the span hugged on coarse A*.)
-    const CHANNEL_LAND_VOUCH_M = 350;
-    const anchors: LL[] = [...marks.map((m) => ({ lat: m.lat, lon: m.lon })), ...mids, sub[0], sub[sub.length - 1]];
-    const channelVouched = (p: LL): boolean =>
-        anchors.some((a) => distM(p.lat, p.lon, a.lat, a.lon) < CHANNEL_LAND_VOUCH_M);
+    // SAFETY veto — a gate-follower centreline may NEVER cross real land. The
+    // nearest-gate pairing can cross-pair when the marks lump two parallel channels
+    // (the Newport 'NUM' lump): a port from one paired with a starboard from the
+    // other puts the midpoint on the land BETWEEN them, and a straight gate-to-gate
+    // segment can cut a bend onto land. EVERY segment (body + stubs) is checked, on
+    // the device too. The 150 m buoy-vouch still lets a genuinely NARROW buoyed
+    // channel the 50 m grid calls land be followed (a centreline point within 150 m
+    // of a real mark is in the channel). The decline reason names which segment
+    // crossed — entry-land / body-land / exit-land — for on-device diagnosis.
+    // (A relaxed body/stub vouch was tried 2026-06-20 and REVERTED: on the device it
+    // let a cross-paired centreline cross land AND preempted a clean finegrid span.)
+    const MARK_VOUCH_M = 150;
+    const buoyVouched = (p: LL): boolean => marks.some((m) => distM(p.lat, p.lon, m.lat, m.lon) < MARK_VOUCH_M);
     const onLand = (p: LL): boolean => {
         const i = cellIdx(grid, p.lon, p.lat);
         return i >= 0 && grid.landBlocked?.[i] === 1;
     };
     for (let i = 0; i < centre.length - 1; i++) {
-        // Stub = the first segment (sub[0]→first gate) and the last (last
-        // gate→sub[end]); everything between is the buoyed channel body.
-        const isStub = i === 0 || i === centre.length - 2;
-        if (!isStub) continue;
         const a = centre[i];
         const b = centre[i + 1];
         const segM = distM(a.lat, a.lon, b.lat, b.lon);
@@ -229,7 +220,8 @@ export function followChannelGates(
         for (let s = 0; s <= steps; s++) {
             const t = s / steps;
             const q: LL = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-            if (onLand(q) && !channelVouched(q)) return decline(i === 0 ? 'entry-land' : 'exit-land');
+            if (onLand(q) && !buoyVouched(q))
+                return decline(i === 0 ? 'entry-land' : i === centre.length - 2 ? 'exit-land' : 'body-land');
         }
     }
     return centre;
