@@ -54,6 +54,12 @@ export interface Tier3Context {
     readonly grid: NavGrid;
     readonly marks: readonly LateralMark[];
     readonly leadingLines: readonly LeadingLine[];
+    /** Optional: the OFFICIAL recommended tracks (RECTRC) for this region. Where
+     *  the span already rides one of these (the hydrographer's centreline,
+     *  snapped FIRST in applyThreeTier), the leading-line (NAVLNE) snap is
+     *  vetoed for that run so RECTRC wins over the deliberately-off-centre
+     *  transit. Absent/empty ⇒ no protection (canals/marinas with no track). */
+    readonly recommendedTracks?: readonly LeadingLine[];
     /** Optional: build a fine-resolution NavGrid over a bbox (injected by the
      *  engine, captures buildNavGridCached). When present, a narrow canal span
      *  that no buoyed-channel refiner resolves is re-routed on a fine grid via
@@ -299,6 +305,9 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         const ll = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.leadingLines], {
             isBlocked: isLand,
             isCaution,
+            // RECTRC wins over NAVLNE: a run already on the recommended track is
+            // protected from being dragged onto an off-centre leading line.
+            protect: ctx.recommendedTracks ? [...ctx.recommendedTracks] : undefined,
         });
         if (ll.snapped > 0) {
             poly = ll.polyline;

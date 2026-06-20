@@ -123,6 +123,49 @@ describe('snapToLeadingLines', () => {
         // The spliced on-line segment goes clean; only the entry/exit bridges keep red.
         expect(r.cautionMask.filter(Boolean).length).toBeLessThan(caution.filter(Boolean).length);
     });
+
+    // RECTRC wins over NAVLNE: a run already riding the recommended track must
+    // NOT be dragged off onto a (deliberately off-centre) leading line.
+    describe('protect — RECTRC authoritative over the leading line', () => {
+        // A recommended track running ~88 m NORTH of LINE, parallel to it. The
+        // zigzag's interior vertices sit within protectM of this track.
+        const TRACK: LeadingLine = {
+            pts: [
+                { lat: -27.1992, lon: 153.3 },
+                { lat: -27.1992, lon: 153.32 },
+            ],
+        };
+        // A route riding the recommended track (all interior vertices ON it).
+        const onTrack: LatLon[] = [
+            { lat: -27.2, lon: 153.295 }, // origin off the W end
+            { lat: -27.1992, lon: 153.305 },
+            { lat: -27.1992, lon: 153.31 },
+            { lat: -27.1992, lon: 153.315 },
+            { lat: -27.2, lon: 153.325 }, // dest off the E end
+        ];
+        const onTrackCaution = [false, false, false, false];
+
+        it('does NOT snap a run that already rides the protected track', () => {
+            const r = snapToLeadingLines(onTrack, onTrackCaution, [LINE], {
+                protect: [TRACK],
+                protectM: 70,
+            });
+            expect(r.snapped).toBe(0);
+            expect(r.polyline).toEqual(onTrack);
+        });
+
+        it('STILL snaps the same run when no protect track is supplied (today behaviour)', () => {
+            const r = snapToLeadingLines(onTrack, onTrackCaution, [LINE]);
+            expect(r.snapped).toBe(1);
+        });
+
+        it('still snaps a run that is OFF the protected track', () => {
+            // The hugging zigzag sits ~88 m off LINE and ~176 m off TRACK — well
+            // beyond protectM, so the protect guard does not fire.
+            const r = snapToLeadingLines(zigzag, caution, [LINE], { protect: [TRACK], protectM: 70 });
+            expect(r.snapped).toBe(1);
+        });
+    });
 });
 
 describe('buildLeadingApproach — route-via-transit (transit LINES, never beacons)', () => {

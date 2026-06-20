@@ -145,6 +145,16 @@ export interface SnapOptions {
      *  caution HONESTLY — it stays red if the transit genuinely crosses caution
      *  water, clean where Pass 5b rescued the leading-line corridor. */
     isCaution?: (p: LatLon) => boolean;
+    /** AUTHORITATIVE tracks (RECTRC — the hydrographer's recommended centreline)
+     *  the route must NOT be dragged off. A candidate run whose midpoint already
+     *  rides within `protectM` of one of these lines is on the official track:
+     *  the leading-line (NAVLNE) snap is SKIPPED for it so RECTRC wins over the
+     *  deliberately-off-centre transit. Empty/undefined ⇒ no protection (today's
+     *  behaviour, e.g. canals with no recommended track). */
+    protect?: LeadingLine[];
+    /** How close a run's sampled body must be to a `protect` line to count as
+     *  "on the recommended track" and veto the lead snap (metres). */
+    protectM?: number;
 }
 
 export interface SnapResult {
@@ -177,6 +187,22 @@ export function snapToLeadingLines(
     const minRunM = opts.minRunM ?? 150;
     const maxAngleDeg = opts.maxAngleDeg ?? 35;
     const { isBlocked, isCaution } = opts;
+    const protect = opts.protect ?? [];
+    const protectM = opts.protectM ?? 70;
+
+    /** True if EVERY sampled point of poly[from..to] already rides within
+     *  protectM of a protect (RECTRC) line — i.e. the run is on the official
+     *  recommended track and must not be dragged off onto a leading line. A run
+     *  that only partly overlaps the track is NOT protected (the off-track part
+     *  may legitimately want the lead). */
+    const onProtectedTrack = (from: number, to: number): boolean => {
+        if (protect.length === 0) return false;
+        for (let k = from; k <= to; k++) {
+            const onAny = protect.some((pl) => projectToLine(poly[k], pl.pts).dist < protectM);
+            if (!onAny) return false;
+        }
+        return true;
+    };
 
     let poly = polyline.slice();
     let caution = cautionMask.slice();
@@ -220,6 +246,10 @@ export function snapToLeadingLines(
         const runBearing = bearingDeg(poly[runStart], poly[runEnd]);
         const lineBearing = bearingDeg(line.pts[0], line.pts[line.pts.length - 1]);
         if (lineAngleDiffDeg(runBearing, lineBearing) > maxAngleDeg) continue;
+
+        // RECTRC wins: if this run already rides the recommended track, never
+        // pull it off onto the (deliberately off-centre) leading line.
+        if (onProtectedTrack(runStart, runEnd)) continue;
 
         // Project the run endpoints onto the line → the on-line transit segment.
         const projA = projectToLine(poly[runStart], line.pts).point;

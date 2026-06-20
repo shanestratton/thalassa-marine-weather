@@ -4192,7 +4192,7 @@ function applyThreeTier(
             return null;
         }
     };
-    const ctx3: Tier3Context = { grid, marks, leadingLines, buildFineGrid };
+    const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
     const results: LegResult[] = spans.map((span) =>
         span.tier === 3 ? routeTier3(span, route, ctx3) : passthroughLeg(span, route, grid),
     );
@@ -4333,8 +4333,18 @@ function applyLeadingLineSnap(
         return Number.isNaN(d) || d < 0; // hazard-buffer (NaN) or shallow → red
     };
 
+    // RECTRC wins over NAVLNE here too: a run already on the hydrographer's
+    // recommended track is protected from being dragged onto a leading line.
+    const recommendedTracks = parseLeadingLines(
+        (layers.RECTRC?.features ?? []) as Parameters<typeof parseLeadingLines>[0],
+    );
+
     const poly: LatLon[] = polyline.map(([lon, lat]) => ({ lat, lon }));
-    const r = snapToLeadingLines(poly, cautionMask, lines, { isBlocked, isCaution });
+    const r = snapToLeadingLines(poly, cautionMask, lines, {
+        isBlocked,
+        isCaution,
+        protect: recommendedTracks.length > 0 ? recommendedTracks : undefined,
+    });
     if (r.snapped === 0) return passthrough;
 
     const newPolyline: [number, number][] = r.polyline.map((p) => [p.lon, p.lat]);
