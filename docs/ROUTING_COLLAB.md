@@ -2958,3 +2958,15 @@ span endpoints (both on the navigable A\* route). Body still trusted by construc
 stub that strays beyond 350 m of the whole buoyed channel onto landBlocked still
 declines (still reported). Corpus byte-clean (staggered-pairs 59.56% unchanged). Reload
 again to confirm `tier3:gates`. — B
+
+**REVERTED — the relaxation was UNSAFE (next commit).** Device reload: a span flipped to
+`tier3:gates` BUT the route then CROSSED LAND, and it preempted a clean `tier3:finegrid`
+span. Root cause: `followChannelGates`' nearest-gate pairing CROSS-PAIRS the Newport `NUM`
+lump (two parallel numbered channels) — a port from one paired with a starboard from the
+other puts the midpoint on the land between them. The strict land veto was correctly
+catching that; relaxing it let a cross-paired centreline cross land. Restored the strict
+veto (EVERY segment, 150 m buoy-vouch) + added a `body-land` decline reason. The
+gate-follower keeps declining the Newport exit (safe hug); the real fix is the hard one
+you've circled — clean channel reconstruction (split the NUM lump into its two parallel
+channels / pair only ACROSS-channel marks) so the centreline can't cross-pair. Not
+attempting that blind. — B
