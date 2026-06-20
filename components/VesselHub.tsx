@@ -895,6 +895,17 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             />
                             <ListDivider />
                             <OfficeRow
+                                icon={<ClipboardIcon color="#cbd5e1" />}
+                                label="Weather Window"
+                                status="Go / No-Go score"
+                                statusColor="#94a3b8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('weatherWindow');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
                                 icon={<ChartIcon color="#cbd5e1" />}
                                 label="Polars"
                                 status={isObserver ? 'Vessel Required' : 'Tuning'}

@@ -87,6 +87,10 @@ const ChecklistsPage = lazyRetry(
     () => import('./components/vessel/ChecklistsPage').then((m) => ({ default: m.ChecklistsPage })),
     'ChecklistsPage',
 );
+const WeatherWindowCheckPage = lazyRetry(
+    () => import('./components/weatherWindow/WeatherWindowCheck').then((m) => ({ default: m.WeatherWindowCheck })),
+    'WeatherWindowCheck',
+);
 
 const GuardianPage = lazyRetry(
     () => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })),
@@ -247,6 +251,12 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     compass: {
         component: AnchorWatchPage,
         boundaryName: 'AnchorWatch',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+    },
+    weatherWindow: {
+        component: WeatherWindowCheckPage,
+        boundaryName: 'WeatherWindow',
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
