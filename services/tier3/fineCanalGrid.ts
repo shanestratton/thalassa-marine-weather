@@ -30,10 +30,8 @@ import {
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
-    stringPull,
     stringPullCentred,
     type Cell,
-    type GridShape,
     type MarinaRouteParams,
     type MarinaRouteResult,
 } from '../marinaCenterline';
@@ -206,7 +204,6 @@ export function buildFineCanalLeg(
     span: TierSpan,
     paramsOverride?: Partial<MarinaRouteParams>,
     corridor?: readonly LatLon[],
-    preferCentreline = false,
 ): FineCanalLeg | null {
     const start = toCell(fineGrid, span.entry.at[0], span.entry.at[1]);
     const end = toCell(fineGrid, span.exit.at[0], span.exit.at[1]);
@@ -214,7 +211,16 @@ export function buildFineCanalLeg(
 
     const baseParams: MarinaRouteParams = {
         keelCells: keelCellsFor(gridResM(fineGrid)),
-        depthWeight: 15.0,
+        // depthWeight=0, NOT 15: the fine pass only runs on confined canal spans, where
+        // we want DEAD CENTRE, not deepest. A non-zero depth weight adds depthWeight·depth
+        // to every cell's cost, which (after solveCenterline's 0.85·costMax clamp) swamps
+        // the 0–canalHalfWidth centreline gradient and flattens it → the Dijkstra path
+        // reverts to shortest-path and HUGS the wall (proven: routeMarina rode clearance
+        // only once depthWeight hit 0 — tests/repro/newportMedialAxis). The keel erosion
+        // already guarantees depth safety; inside the keel-safe graph the route should ride
+        // the medial axis. (Open-water detour isn't a risk — the fine pass declines
+        // non-canal/wide spans.)
+        depthWeight: 0,
         canalHalfWidthCells: 12,
         bias: 5.0,
         ...paramsOverride,
@@ -266,9 +272,12 @@ export function buildFineCanalLeg(
     //     inside of a corner; the route rounds it mid-channel instead.
     //   • NARROW non-injected canal (default) — keep the proven taut string-pull the
     //     threeTierNewport + seaway-corpus baselines were measured against.
-    const waypoints = preferCentreline
-        ? stringPullCentred(result.cells, realWater, euclideanDistanceTransform(realWater, shape), shape)
-        : stringPull(result.cells, realWater, shape);
+    // ALWAYS centre-preserve the simplify now that the Dijkstra cells ride the medial
+    // axis (depthWeight=0): stringPullCentred forbids a chord from getting closer to a
+    // bank than the centreline, so straight runs stay clean but bends round mid-channel
+    // instead of cutting the inside. Plain stringPull would taut the centred cells back
+    // toward the wall on every bend — re-introducing the hug we just removed.
+    const waypoints = stringPullCentred(result.cells, realWater, euclideanDistanceTransform(realWater, shape), shape);
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse
@@ -609,9 +618,9 @@ export function tryFineCanalLeg(
     const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
     if (!fineGrid) return { leg: null, diag: 'nogrid' };
     const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
-    // Wide injected canal ⇒ centreline-preserving simplify (kill the wall-hug);
-    // narrow canal ⇒ keep the taut string-pull the fixtures are measured against.
-    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor, injectedSpan);
+    // Every canal leg now rides the medial axis (depthWeight=0) + centreline-preserving
+    // simplify — dead centre, injected or not.
+    const leg = buildFineCanalLeg(fineGrid, span, paramsOverride, corridor);
     if (!leg) {
         // The real water was split AND routeMarina returned null even with the
         // corridor bridge. Does the bridge actually reconnect entry→exit on the
