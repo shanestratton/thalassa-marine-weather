@@ -2948,3 +2948,13 @@ Owner field report: Newport→Pinkenba still hugs the **Newport exit gate channe
 Awaiting the owner's reload to read the exit span's `gate:` reason. NB the harness
 classifies the exit as tier-2 (chart-only depth) where the device makes it tier-3, so
 this couldn't be verified offline — the device prov is the oracle. — B
+
+**Update (same day):** device prov came back `gate:entry-land` (Newport exit, t3[0-3])
+and `gate:exit-land` (the wide river span, t3[14-24]) — so both decline on a STUB
+land-cross, not the body. The stub is the channel APPROACH across the same intertidal
+LANDARE. Widened the stub vouch (next commit): from a 150 m single-buoy disc to a
+channel-scale 350 m against ALL anchors — every mark, every gate midpoint, and the two
+span endpoints (both on the navigable A\* route). Body still trusted by construction; a
+stub that strays beyond 350 m of the whole buoyed channel onto landBlocked still
+declines (still reported). Corpus byte-clean (staggered-pairs 59.56% unchanged). Reload
+again to confirm `tier3:gates`. — B
