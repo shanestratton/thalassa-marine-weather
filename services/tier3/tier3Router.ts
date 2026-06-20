@@ -154,12 +154,21 @@ function projectToPoly(p: LL, poly: LL[]): { along: number; perp: number } {
  * narrow buoyed channel the 50 m grid calls land is still followed; a bridge
  * that strays far from the buoys onto landBlocked is rejected.
  */
-export function followChannelGates(sub: LL[], marks: readonly LateralMark[], grid: NavGrid): LL[] | null {
-    if (sub.length < 2) return null;
+export function followChannelGates(
+    sub: LL[],
+    marks: readonly LateralMark[],
+    grid: NavGrid,
+    onDecline?: (reason: string) => void,
+): LL[] | null {
+    const decline = (r: string): null => {
+        onDecline?.(r);
+        return null;
+    };
+    if (sub.length < 2) return decline('sub<2');
     const near = marks.filter((m) => projectToPoly({ lat: m.lat, lon: m.lon }, sub).perp < FOLLOW_TRAVERSE_M);
     const port = near.filter((m) => m.side === 'port');
     const stbd = near.filter((m) => m.side === 'stbd');
-    if (port.length < 2 || stbd.length < 2) return null;
+    if (port.length < 2 || stbd.length < 2) return decline(`near${port.length}p${stbd.length}s`);
 
     const gates: { along: number; mid: LL }[] = [];
     for (const p of port) {
@@ -176,7 +185,7 @@ export function followChannelGates(sub: LL[], marks: readonly LateralMark[], gri
         const mid: LL = { lat: (p.lat + best.lat) / 2, lon: (p.lon + best.lon) / 2 };
         gates.push({ along: projectToPoly(mid, sub).along, mid });
     }
-    if (gates.length < 2) return null;
+    if (gates.length < 2) return decline(`gates${gates.length}`);
     gates.sort((a, b) => a.along - b.along);
 
     const mids: LL[] = [];
@@ -184,16 +193,27 @@ export function followChannelGates(sub: LL[], marks: readonly LateralMark[], gri
         const last = mids[mids.length - 1];
         if (!last || distM(last.lat, last.lon, g.mid.lat, g.mid.lon) > 10) mids.push(g.mid);
     }
-    if (mids.length < 2) return null;
+    if (mids.length < 2) return decline(`mids${mids.length}`);
 
     const centre = [sub[0], ...mids, sub[sub.length - 1]];
-    // Reject a bridge that strays onto REAL land away from the buoys.
+    // Reject a bridge that strays onto REAL land away from the buoys — but ONLY
+    // on the entry/exit STUBS (span-end → first/last gate). The gate-to-gate
+    // BODY (a segment between two consecutive lateral-mark gate midpoints) IS the
+    // buoyed channel: navigable by the marks' own authority even where the chart
+    // paints intertidal LANDARE. Brisbane's channels (e.g. the Newport exit) run
+    // over mudflats encoded as LANDARE; vetoing the body on that "land" is what
+    // dropped the whole channel and left the span hugging on coarse A*. The marks
+    // ARE the authority between their gates, so the body is vouched by construction.
     const buoyVouched = (p: LL): boolean => marks.some((m) => distM(p.lat, p.lon, m.lat, m.lon) < MARK_VOUCH_M);
     const onLand = (p: LL): boolean => {
         const i = cellIdx(grid, p.lon, p.lat);
         return i >= 0 && grid.landBlocked?.[i] === 1;
     };
     for (let i = 0; i < centre.length - 1; i++) {
+        // Stub = the first segment (sub[0]→first gate) and the last (last
+        // gate→sub[end]); everything between is the buoyed channel body.
+        const isStub = i === 0 || i === centre.length - 2;
+        if (!isStub) continue;
         const a = centre[i];
         const b = centre[i + 1];
         const segM = distM(a.lat, a.lon, b.lat, b.lon);
@@ -201,7 +221,7 @@ export function followChannelGates(sub: LL[], marks: readonly LateralMark[], gri
         for (let s = 0; s <= steps; s++) {
             const t = s / steps;
             const q: LL = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-            if (onLand(q) && !buoyVouched(q)) return null;
+            if (onLand(q) && !buoyVouched(q)) return decline(i === 0 ? 'entry-land' : 'exit-land');
         }
     }
     return centre;
@@ -282,13 +302,19 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             // Fall back to nearest-gate following — robust to both, and
             // mark-vouched so a narrow buoyed channel the coarse grid calls land
             // is still followed. If THAT declines too, try the fine canal pass.
-            const followed = followChannelGates(poly, ctx.marks, ctx.grid);
+            let gateDecline = '';
+            const followed = followChannelGates(poly, ctx.marks, ctx.grid, (r) => {
+                gateDecline = r;
+            });
             if (followed) {
                 poly = followed;
                 vouched = true;
                 prov.push('gates');
             } else if (!tryFine()) {
-                prov.push(fineDiag ? `astar(fine=${fineDiag})` : 'astar');
+                // Self-diagnosing provenance: WHY no channel follow. `fl-decl` =
+                // fairlead's corridorCenterline wandered; `gate:<reason>` = which
+                // followChannelGates check bailed (near<2/gates<2/entry-land/…).
+                prov.push(`astar(fine=${fineDiag || '?'},fl-decl,gate:${gateDecline})`);
             }
         }
     } else {
