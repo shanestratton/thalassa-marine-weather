@@ -428,6 +428,15 @@ export const MAX_BRIDGE_CROSSING_M = 60;
  *  this is generous headroom for a winding estate, not a tight constraint. */
 export const MAX_INJECTED_FINE_SPAN_M = 3500;
 
+/** A wide injected span longer than MAX_INJECTED_FINE_SPAN_M (the long river run to
+ *  Pinkenba) drops to this coarser grid so the cell count stays bounded. The medial
+ *  axis still centres a wide channel cleanly at 24 m, and the canalHalfWidthCells
+ *  clamp (12 cells ≈ 288 m here) means it centres up to a half-width then goes
+ *  DIRECT — so a wide-open spot reverts to a straight line, never a detour. */
+export const WIDE_CANAL_RES_M = 24;
+/** Beyond this even the coarse 24 m grid is too large — decline (keep coarse A*). */
+export const MAX_INJECTED_FINE_SPAN_WIDE_M = 9000;
+
 /** Apron added around the span crop, in degrees (~550 m). Generous enough that
  *  the canal stays connected to the coarse route's proven-reachable entry/exit
  *  cells (masterplan §9b 300 m + margin), tight enough to keep the build cheap. */
@@ -609,13 +618,19 @@ export function tryFineCanalLeg(
     // length cap so a long injected span can't build a giant fine grid. A wide,
     // non-injected span (open bay / wide channel) still keeps the coarse A* slice.
     const injectedSpan = spanIsInjectedCanal(coarseGrid, fullPolyline, span);
+    let resM = FINE_CANAL_RES_M; // 12 m for narrow / short spans
     if (!isCanalNarrow(coarseGrid, fullPolyline, span)) {
-        if (!(injectedSpan && spanMetres(fullPolyline, span) <= MAX_INJECTED_FINE_SPAN_M)) {
-            return { leg: null, diag: injectedSpan ? 'wide+long' : 'notnarrow' };
-        }
+        // Wide span: only INJECTED channel water (a bounded corridor) qualifies — a
+        // wide NON-injected span (open bay) keeps the coarse A* slice. A long injected
+        // span (the river run) drops to the coarse grid so the build stays bounded; the
+        // canalHalfWidthCells clamp keeps it from detouring into any wide-open stretch.
+        if (!injectedSpan) return { leg: null, diag: 'notnarrow' };
+        const spanM = spanMetres(fullPolyline, span);
+        if (spanM > MAX_INJECTED_FINE_SPAN_WIDE_M) return { leg: null, diag: 'wide+long' };
+        if (spanM > MAX_INJECTED_FINE_SPAN_M) resM = WIDE_CANAL_RES_M; // 24 m for the long river run
     }
     const bbox = spanCropBbox(fullPolyline, span, FINE_CANAL_APRON_DEG);
-    const fineGrid = buildFineGrid(bbox, FINE_CANAL_RES_M);
+    const fineGrid = buildFineGrid(bbox, resM);
     if (!fineGrid) return { leg: null, diag: 'nogrid' };
     const corridor = fullPolyline.slice(span.fromIdx, span.toIdx + 1);
     // Every canal leg now rides the medial axis (depthWeight=0) + centreline-preserving

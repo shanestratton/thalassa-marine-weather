@@ -298,15 +298,13 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,real$/); // forced fine pass, all-deep ⇒ connects
     });
 
-    it('stays astar(fine=wide+long) when an injected span exceeds the length cap', () => {
-        // An injected span past MAX_INJECTED_FINE_SPAN_M (3.5 km): the fill defeats
-        // narrowness AND it is too long to force the fine pass (never build a giant
-        // fine grid).
+    /** Build a straight-N injected wide-channel span of ~latSpanDeg degrees. */
+    function wideInjectedSpan(latSpanDeg: number): { grid: NavGrid; poly: LatLon[] } {
         const minLat = LAT_S - 0.002;
         const minLon = LON0 - 0.003;
         const dLat = 50 / M_PER_LAT;
         const dLon = 50 / mPerLon;
-        const latN = LAT_S + 0.045; // ~5.0 km north of LAT_S (> 3.5 km cap)
+        const latN = LAT_S + latSpanDeg;
         const width = Math.ceil((LON0 + 0.003 - minLon) / dLon) + 1;
         const height = Math.ceil((latN + 0.002 - minLat) / dLat) + 1;
         const grid: NavGrid = {
@@ -322,11 +320,30 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         };
         const poly: LatLon[] = [];
         for (let k = 0; k <= 30; k++) poly.push([LON0, LAT_S + (k / 30) * (latN - LAT_S)]);
+        return { grid, poly };
+    }
+
+    it('engages the fine pass at the coarse 24 m grid for a wide+long injected span (3.5–9 km)', () => {
+        // An injected span past MAX_INJECTED_FINE_SPAN_M (3.5 km) but within the wide
+        // cap (9 km) — the long river run. It now drops to the 24 m grid and rides the
+        // medial axis instead of hugging on coarse A*.
+        const { grid, poly } = wideInjectedSpan(0.045); // ~5.0 km north
         const ctx: Tier3Context = { grid, marks: [], leadingLines: [], buildFineGrid: deepFineGrid };
         const leg = routeTier3(spanOver(poly), poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar(fine=wide+long)'); // injected but too long → coarse
+        expect(leg.provenance).toMatch(/^tier3:finegrid:/); // injected + 3.5–9 km → coarse-grid medial axis
+    });
+
+    it('stays astar(fine=wide+long) when an injected span exceeds even the coarse-grid cap (>9 km)', () => {
+        // Beyond MAX_INJECTED_FINE_SPAN_WIDE_M (9 km) even the 24 m grid is too large —
+        // decline and keep the coarse A* slice.
+        const { grid, poly } = wideInjectedSpan(0.085); // ~9.4 km north (> 9 km cap)
+        const ctx: Tier3Context = { grid, marks: [], leadingLines: [], buildFineGrid: deepFineGrid };
+        const leg = routeTier3(spanOver(poly), poly, ctx);
+        expect(isRefusal(leg)).toBe(false);
+        if (isRefusal(leg)) return;
+        expect(leg.provenance).toBe('tier3:astar(fine=wide+long)');
     });
 
     it('bridges a walled 2-basin fine grid via the coarse corridor → finegrid', () => {
