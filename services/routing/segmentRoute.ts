@@ -90,7 +90,7 @@ export function segmentRoute(
     const TIER2 = tier2NavigableDepthM(draftM, tideSafetyM);
     const draftFloor = draftM + safetyM;
 
-    // ── 1. Classify each vertex (priority tier-3 > tier-4 > tier-1 > tier-2 > unknown) ──
+    // ── 1. Classify each vertex (priority tier-4 marks > tier-3 dredged/canal > tier-1 > tier-2 > unknown) ──
     const cls: Cls[] = polyline.map(([lon, lat]) => {
         const idx = cellIdx(grid, lon, lat);
         const nearMark = marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M);
@@ -101,12 +101,14 @@ export function segmentRoute(
         // tier-2 here. Keyed on the injected source only, so the open bay (no
         // injectedCanal flag) stays tier-2.
         const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1;
-        // A dredged/canal corridor WINS even where lateral marks also sit (it's the
-        // charted careful-water context); only marks STANDING ALONE — a buoyed
-        // channel with no DRGARE/FAIRWY polygon and no injected canal — become the
-        // tier-4 marked channel (the canal-mouth → deep-water lateral-mark leg).
-        if (preferred || injected) return 3; // dredged/canal channel — tier 3
-        if (nearMark) return 4; // lateral marks alone — tier-4 marked channel
+        // LATERAL MARKS WIN: a buoyed channel is a tier-4 marked channel (YELLOW,
+        // steered by its gates) EVEN where it's also charted dredged (DRGARE/FAIRWY)
+        // or injected-canal water — the buoys are the navigation, the rest is context.
+        // Only dredged/injected water with NO marks stays tier-3 (the marina basin
+        // has no gates → stays the RED canal; the buoyed exit channel → YELLOW). Open
+        // water (no marks, no preferred/injected) is untouched → tier-2 GREEN.
+        if (nearMark) return 4; // buoyed channel — tier-4 marked channel (wins over dredged/canal)
+        if (preferred || injected) return 3; // dredged / injected canal WITHOUT marks — tier-3
         if (idx < 0) return 1; // off the ENC grid → offshore (GEBCO-only)
         const d = grid.cells[idx];
         // RED-TEAM: no-evidence is grid.unvouched (paired with UNKNOWN_OPEN=0),
