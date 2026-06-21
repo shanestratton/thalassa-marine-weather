@@ -7,7 +7,12 @@
  * the watch "blind" once no usable fix has arrived within the budget.
  */
 import { describe, it, expect } from 'vitest';
-import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS } from '../services/anchorGpsWatchdog';
+import {
+    isAnchorGpsStale,
+    GPS_LOST_THRESHOLD_MS,
+    ALARM_CONFIRM_COUNT,
+    nextDragState,
+} from '../services/anchorGpsWatchdog';
 
 const T0 = Date.UTC(2026, 5, 21, 12, 0, 0); // fixed epoch — no wall-clock dependence
 
@@ -52,5 +57,53 @@ describe('isAnchorGpsStale', () => {
         }
         // Now the fixes stop. 91s later the watch is blind.
         expect(isAnchorGpsStale(lastFix + 91_000, lastFix, GPS_LOST_THRESHOLD_MS)).toBe(true);
+    });
+});
+
+describe('nextDragState (drag-confirmation hysteresis)', () => {
+    const R = 35; // swing radius (m)
+
+    it('never fires while the boat stays inside the circle (jitter)', () => {
+        let count = 0;
+        for (let i = 0; i < 20; i++) {
+            const r = nextDragState(count, 30 + (i % 2), R); // 30-31 m, always inside
+            count = r.outsideCount;
+            expect(r.fire).toBe(false);
+        }
+        expect(count).toBe(0);
+    });
+
+    it('never fires on a single jitter spike outside, then back in', () => {
+        let r = nextDragState(0, 50, R); // one reading outside
+        expect(r.fire).toBe(false);
+        expect(r.outsideCount).toBe(1);
+        r = nextDragState(r.outsideCount, 20, R); // back inside → decays
+        expect(r.fire).toBe(false);
+        expect(r.outsideCount).toBe(0);
+    });
+
+    it('fires only after ALARM_CONFIRM_COUNT consecutive breaches (slow drag out)', () => {
+        let count = 0;
+        const fires: boolean[] = [];
+        for (let i = 0; i < ALARM_CONFIRM_COUNT; i++) {
+            const r = nextDragState(count, 80, R); // dragging, consistently outside
+            count = r.outsideCount;
+            fires.push(r.fire);
+        }
+        // No fire until the Nth consecutive breach
+        expect(fires.slice(0, ALARM_CONFIRM_COUNT - 1).every((f) => f === false)).toBe(true);
+        expect(fires[ALARM_CONFIRM_COUNT - 1]).toBe(true);
+    });
+
+    it('a brief dip back inside delays (decays), it does not instantly re-fire', () => {
+        // 2 out (count 2), 1 in (count 1), 1 out (count 2) → still below threshold
+        let r = nextDragState(0, 80, R);
+        r = nextDragState(r.outsideCount, 80, R);
+        expect(r.outsideCount).toBe(2);
+        r = nextDragState(r.outsideCount, 10, R); // dip inside
+        expect(r.outsideCount).toBe(1);
+        r = nextDragState(r.outsideCount, 80, R); // out again → 2, not yet firing
+        expect(r.fire).toBe(false);
+        expect(r.outsideCount).toBe(2);
     });
 });

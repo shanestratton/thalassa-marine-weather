@@ -34,3 +34,27 @@ export function isAnchorGpsStale(
     if (lastUsableFixAtMs == null) return false;
     return nowMs - lastUsableFixAtMs > thresholdMs;
 }
+
+/** Consecutive out-of-circle readings required before the drag alarm fires. */
+export const ALARM_CONFIRM_COUNT = 3;
+
+/**
+ * Drag-confirmation hysteresis (pure). The counter increments on each
+ * consecutive out-of-circle reading and DECAYS by one on each inside reading,
+ * so a single GPS jitter spike can never trip the alarm — only
+ * `confirmCount` genuine breaches do. Returns the next counter and whether the
+ * alarm should fire this tick.
+ */
+export function nextDragState(
+    outsideCount: number,
+    distanceFromAnchor: number,
+    swingRadius: number,
+    confirmCount: number = ALARM_CONFIRM_COUNT,
+): { outsideCount: number; fire: boolean } {
+    const isOutside = distanceFromAnchor > swingRadius;
+    if (isOutside) {
+        const next = outsideCount + 1;
+        return { outsideCount: next, fire: next >= confirmCount };
+    }
+    return { outsideCount: Math.max(0, outsideCount - 1), fire: false };
+}

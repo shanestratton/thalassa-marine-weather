@@ -1,0 +1,8 @@
+# Generated test baselines — written by REGEN_* scripts as 2-space JSON, never
+# hand-edited. Keeping them out of prettier so honest re-pins (e.g.
+# REGEN_ARBITRATION_BASELINE=1) stay pre-commit-hook clean. Parsed via
+# JSON.parse in tests, so whitespace is irrelevant to correctness.
+tests/fixtures/*-baseline.json
+
+# Build output
+dist/

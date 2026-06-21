@@ -29,7 +29,7 @@ import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/logger';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
-import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS } from './anchorGpsWatchdog';
+import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS, nextDragState } from './anchorGpsWatchdog';
 
 // ── Local-notification IDs ─────────────────────────────────────────
 // The alarm path drops THREE flavours of notification to maximise
@@ -125,7 +125,7 @@ const _TRANSISTOR_LICENSE_KEY = import.meta.env.VITE_TRANSISTOR_LICENSE_KEY || '
 const GPS_INTERVAL_MS = 3000; // High-frequency GPS when watching
 const HISTORY_MAX_POINTS = 500; // Max position trail points
 const _JITTER_WINDOW = 5; // Default moving average window (adaptive via GpsPrecision)
-const ALARM_CONFIRM_COUNT = 3; // # consecutive readings outside circle before alarm
+// ALARM_CONFIRM_COUNT now lives in ./anchorGpsWatchdog (pure + unit-tested)
 const MIN_GPS_ACCURACY = 50; // Ignore readings worse than 50m accuracy
 const GPS_WATCHDOG_INTERVAL_MS = 15_000; // How often the blind-watch watchdog polls
 const GEOFENCE_ID = 'anchor-swing-radius';
@@ -814,17 +814,13 @@ class AnchorWatchServiceClass {
     private checkForDrag(): void {
         if (this.state !== 'watching') return;
 
-        const isOutside = this.distanceFromAnchor > this.swingRadius;
-
-        if (isOutside) {
-            this.outsideCircleCount++;
-            if (this.outsideCircleCount >= ALARM_CONFIRM_COUNT) {
-                this.triggerAlarm('drag');
-            }
-        } else {
-            // Reset counter if back inside
-            this.outsideCircleCount = Math.max(0, this.outsideCircleCount - 1);
-        }
+        const { outsideCount, fire } = nextDragState(
+            this.outsideCircleCount,
+            this.distanceFromAnchor,
+            this.swingRadius,
+        );
+        this.outsideCircleCount = outsideCount;
+        if (fire) this.triggerAlarm('drag');
     }
 
     private async triggerAlarm(cause: 'drag' | 'gps-lost' = 'drag'): Promise<void> {
