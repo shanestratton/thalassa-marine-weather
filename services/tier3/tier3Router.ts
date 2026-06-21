@@ -86,8 +86,9 @@ const bearingDeg = (a: LL, b: LL): number => {
 
 /** Remove interior vertices whose deflection exceeds maxTurnDeg (a near-reversal).
  *  Endpoints are pinned. Mirrors fairlead.dropSpikes without importing it (that
- *  symbol isn't exported, and PHASE 2 touches no shared file). */
-function deSpike(pts: LL[], maxTurnDeg: number): LL[] {
+ *  symbol isn't exported). Exported so tier-4 (the marked-channel leg) shares the
+ *  identical de-spike backstop instead of duplicating it. */
+export function deSpike(pts: LL[], maxTurnDeg: number): LL[] {
     if (pts.length < 3) return pts;
     const out = pts.slice();
     let changed = true;

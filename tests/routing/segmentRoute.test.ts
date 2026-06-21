@@ -114,7 +114,7 @@ describe('segmentRoute', () => {
         if (!isRefusal(r)) expect(tiers(r)).toEqual([3, 2]);
     });
 
-    it('marks (not just preferred) make a span tier-3', () => {
+    it('marks ALONE (no preferred) make a span tier-4 (the marked-channel leg)', () => {
         const grid = makeGrid(); // no preferred anywhere
         // a pair of lateral marks beside the SOUTH third of the line
         const lon = MIN_LON + 1.5 * dLon;
@@ -126,7 +126,26 @@ describe('segmentRoute', () => {
         }
         const r = segmentRoute(corridorLine(), grid, marks, 2.4, 0.2, 0.5);
         expect(isRefusal(r)).toBe(false);
-        if (!isRefusal(r)) expect(tiers(r)).toEqual([3, 2]); // south near marks, north deep
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([4, 2]); // south near marks → tier-4, north deep → tier-2
+    });
+
+    it('marks INSIDE a dredged corridor stay tier-3 (preferred wins over marks)', () => {
+        // The SAME south marks, but the south is ALSO a preferred (DRGARE/FAIRWY)
+        // corridor — the charted dredged context wins, so it stays tier-3 (red
+        // careful water), NOT the tier-4 marked-channel leg. Preferred covers the
+        // full nearMark band (marks reach ~y23 via the 300 m proximity) so there's
+        // no tier-4 sliver where a mark bleeds past the preferred edge.
+        const grid = makeGrid({ preferredY: (y) => y <= 25 });
+        const lon = MIN_LON + 1.5 * dLon;
+        const marks: LateralMark[] = [];
+        for (let y = 2; y <= 20; y += 4) {
+            const lat = MIN_LAT + (y + 0.5) * dLat;
+            marks.push({ lat, lon: lon - 0.0005, side: 'port', key: 'X', seq: y, name: `X${y}` });
+            marks.push({ lat, lon: lon + 0.0005, side: 'stbd', key: 'X', seq: y, name: `X${y}` });
+        }
+        const r = segmentRoute(corridorLine(), grid, marks, 2.4, 0.2, 0.5);
+        expect(isRefusal(r)).toBe(false);
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([3, 2]); // preferred+marks → tier-3, north deep → tier-2
     });
 
     it('a short tier flap is absorbed (hysteresis): 1 deep cell amid a channel stays [3]', () => {
