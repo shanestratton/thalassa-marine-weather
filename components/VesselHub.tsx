@@ -668,6 +668,34 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </div>
                             </button>
                         </div>
+
+                        {/* Weather Window Check — prominent passage go/no-go tool */}
+                        <button
+                            aria-label="Open Weather Window Check"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('weatherWindow');
+                            }}
+                            style={{
+                                ...GLASS.card,
+                                background:
+                                    'linear-gradient(135deg, rgba(16,185,129,0.16) 0%, rgba(20,25,35,0.6) 100%)',
+                                borderColor: 'rgba(16,185,129,0.32)',
+                            }}
+                            className="mt-3 w-full p-4 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.16)' }}>
+                                    <ChartIcon color="#34d399" />
+                                </div>
+                                <div>
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">Weather Window</h4>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-400 mt-0.5">
+                                        Go / No-Go Score
+                                    </p>
+                                </div>
+                            </div>
+                        </button>
                     </CollapsibleContent>
                 </div>
 
@@ -891,17 +919,6 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('checklists');
-                                }}
-                            />
-                            <ListDivider />
-                            <OfficeRow
-                                icon={<ClipboardIcon color="#cbd5e1" />}
-                                label="Weather Window"
-                                status="Go / No-Go score"
-                                statusColor="#94a3b8"
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    onNavigate('weatherWindow');
                                 }}
                             />
                             <ListDivider />
