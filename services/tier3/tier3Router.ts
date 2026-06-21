@@ -113,6 +113,14 @@ const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =
 const MAX_GATE_M = 500;
 /** A mark/gate within this of the span counts as ON the route's channel. */
 const FOLLOW_TRAVERSE_M = 500;
+/** A real gate the route transits has its midpoint ON the route. When the chart
+ *  lumps two parallel channels (~1.1 km apart at Newport), a CROSS-PAIRED gate
+ *  (a port from one channel + a starboard from the other) puts its midpoint out
+ *  on the mudflat ~half the separation away — far off the route — and the
+ *  centreline through it crosses land (gate:body-land). So reject any gate whose
+ *  midpoint sits more than this off the span. Generous enough for a wide channel's
+ *  half-width + the A* route's offset, tight enough to drop the far cross-pair. */
+const GATE_MID_PERP_M = 250;
 
 /** Perpendicular + along-route distance of point p to polyline `poly` (metres). */
 function projectToPoly(p: LL, poly: LL[]): { along: number; perp: number } {
@@ -183,7 +191,12 @@ export function followChannelGates(
         }
         if (!best) continue;
         const mid: LL = { lat: (p.lat + best.lat) / 2, lon: (p.lon + best.lon) / 2 };
-        gates.push({ along: projectToPoly(mid, sub).along, mid });
+        const proj = projectToPoly(mid, sub);
+        // Reject a CROSS-PAIRED gate whose midpoint lands far off the route (out on
+        // the mudflat between two lumped parallel channels) — only gates the boat
+        // actually transits, midpoint ON the route, count.
+        if (proj.perp > GATE_MID_PERP_M) continue;
+        gates.push({ along: proj.along, mid });
     }
     if (gates.length < 2) return decline(`gates${gates.length}`);
     gates.sort((a, b) => a.along - b.along);
