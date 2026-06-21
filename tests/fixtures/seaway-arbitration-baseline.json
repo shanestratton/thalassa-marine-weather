@@ -2,7 +2,7 @@
   "rows": [
     {
       "name": "newport-rivergate",
-      "directNM": 22.26,
+      "directNM": 22.3,
       "shadow": {
         "kind": "no-marks"
       }
@@ -16,7 +16,7 @@
     },
     {
       "name": "newport-rivergate-marks",
-      "directNM": 18.39,
+      "directNM": 17.75,
       "shadow": {
         "kind": "fail",
         "reason": "no-compliant-path"

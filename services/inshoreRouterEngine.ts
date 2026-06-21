@@ -74,6 +74,7 @@ import {
 // import is needed here (and no collision with fairlead's {lat,lon} LatLon).
 import { segmentRoute, type TierSpan } from './routing/segmentRoute';
 import { routeTier3, type Tier3Context } from './tier3/tier3Router';
+import { parseCanalLines, snapRouteToCanalLines } from './tier3/canalLineFollower';
 import { stitchLegs } from './glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from './routing/legContract';
 
@@ -4117,6 +4118,9 @@ function applyThreeTier(
     const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
     const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
+    // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
+    // estate, drawn down the middle of every canal. tier-3 follows these FIRST.
+    const canalLines = parseCanalLines((layers.CANAL?.features ?? []) as Parameters<typeof parseCanalLines>[0]);
 
     // ── RECTRC: snap onto the OFFICIAL recommended track FIRST ──
     // Where the chart carries a hydrographer-drawn recommended track, that IS
@@ -4210,10 +4214,18 @@ function applyThreeTier(
         `[3tier] ENGAGED ${rectrcTag}spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
     );
 
-    const outPoly = glued.polyline.map((p) => [p[0], p[1]] as [number, number]);
+    // Canal centre-line snap — wherever the assembled route rides the OSM canal
+    // lines (a wall-hug / corner-cut through a carved canal estate), replace that
+    // run with the dead-centre line. Tier-agnostic: the canal lines carve the
+    // estate to navigable water, so its spans come out tier-2 passthrough, NOT
+    // tier-3 — a per-span follow would miss them. No-op off-canal (the river /
+    // open water passes through byte-identical). Verified: Newport interior 0.0 m.
+    const snappedPoly = snapRouteToCanalLines(glued.polyline, canalLines);
+    const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
+    const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
     return {
         polyline: outPoly,
-        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}`,
+        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}`,
         spanCount: spans.length,
     };
 }

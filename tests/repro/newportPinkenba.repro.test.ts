@@ -65,6 +65,7 @@ import {
     type RouteRequest,
     type RouteResult,
 } from '../../services/inshoreRouterEngine';
+import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
 
 // This harness routes on the REAL ENC pulled live from the boat's chart server
 // (calypso.local). It is a DIAGNOSTIC, not a CI gate — when the Pi is unreachable
@@ -255,6 +256,13 @@ function loadOsmNavLines(): Feature[] {
     return (d.navLines?.features ?? []) as Feature[];
 }
 
+/** The real OSM canal centre-lines (LineString FeatureCollection), pushed 1:1 into
+ *  CANAL exactly as InshoreRouter.ts:677 does on-device — the lines tier-3 follows. */
+function loadOsmCanalLines(): Feature[] {
+    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { canalLines?: FeatureCollection };
+    return (d.canalLines?.features ?? []) as Feature[];
+}
+
 /**
  * Assemble InshoreLayers per InshoreRouter.ts:376-417 — the fixed allow-list,
  * verbatim concat across cells. `mapNavlne` controls variant B (map the cell's
@@ -275,7 +283,7 @@ const ALLOW = [
 
 type NavSource = 'none' | 'chart' | 'osm';
 
-function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[]): InshoreLayers {
+function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[], osmCanal: Feature[]): InshoreLayers {
     const merged: InshoreLayers = {
         LNDARE: { type: 'FeatureCollection', features: [] },
         DEPARE: { type: 'FeatureCollection', features: [] },
@@ -288,6 +296,7 @@ function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[
         BCNLAT: { type: 'FeatureCollection', features: [] },
         RECTRC: { type: 'FeatureCollection', features: [] },
         NAVLINE: { type: 'FeatureCollection', features: [] },
+        CANAL: { type: 'FeatureCollection', features: [] },
     };
     for (const cell of cells) {
         for (const layer of ALLOW) {
@@ -310,6 +319,9 @@ function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[
     // puller from the device log.
     if (navSource === 'osm') {
         (merged.NAVLINE!.features as unknown[]).push(...osmNav);
+        // The device ALSO pushes OSM canalLines into CANAL (InshoreRouter.ts:677) —
+        // the canal centre-lines the tier-3 follower rides. Faithful on-device path.
+        (merged.CANAL!.features as unknown[]).push(...osmCanal);
     }
     return merged;
 }
@@ -428,6 +440,7 @@ let cells: RawCell[];
 let rectrcChain: Position[];
 let drgarePolys: Feature[];
 let osmNav: Feature[];
+let osmCanal: Feature[];
 
 beforeAll(() => {
     ensureCells();
@@ -437,6 +450,7 @@ beforeAll(() => {
     rectrcChain = buildRectrcRiverChain(allRectrc as Feature[]);
     drgarePolys = cells.flatMap((c) => (c.layers['DRGARE']?.features ?? []) as Feature[]);
     osmNav = loadOsmNavLines();
+    osmCanal = loadOsmCanalLines();
 });
 
 // ── The reproduction ────────────────────────────────────────────────
@@ -495,7 +509,7 @@ function measureHug(route: RouteResult): HugReport {
 }
 
 function runVariant(navSource: NavSource): { route: RouteResult; prov: string; hug: HugReport } {
-    const layers = assembleLayers(cells, navSource, osmNav);
+    const layers = assembleLayers(cells, navSource, osmNav, osmCanal);
     const res = routeInshore(layers, REQ_BASE as RouteRequest);
     if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
     const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
@@ -610,5 +624,54 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // the AFTER state. To capture BEFORE, run with the engine RECTRC-protect
         // stashed (see the run script in the response). Always-pass reporter.
         expect(true).toBe(true);
+    });
+
+    it('CANAL SNAP — Newport canal rides dead centre, river left untouched', () => {
+        // Variant C = the faithful on-device path (CANAL populated). The Newport
+        // canal comes out tier-2 passthrough here (the lines carve navigable water),
+        // i.e. the raw A* wall-hug. snapRouteToCanalLines should pull it dead centre,
+        // while the RECTRC-followed river at the Pinkenba end stays byte-identical.
+        const { route, prov } = runVariant('osm');
+        const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
+        expect(lines.length).toBeGreaterThan(10);
+
+        // Mean perpendicular offset (m) from the canal lines over the NEWPORT CANAL
+        // INTERIOR (lat −27.213..−27.203 — excludes the marina berth + the bay exit,
+        // which legitimately sit off the lines), densified so we sample the path.
+        // Distance is to the nearest line SEGMENT (not vertex): the canal lines have
+        // long straight runs, so a vertex metric falsely reports a mid-segment point
+        // as far off even when it rides the line exactly.
+        const interiorOffset = (poly: Position[]): { mean: number; n: number } => {
+            let sum = 0;
+            let n = 0;
+            for (const [lon, lat] of densify(poly, 20)) {
+                if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
+                let best = Infinity;
+                for (const ln of lines) {
+                    const d = pointToChainM(lat, lon, ln as unknown as Position[]);
+                    if (d < best) best = d;
+                }
+                sum += best;
+                n++;
+            }
+            return { mean: n ? sum / n : NaN, n };
+        };
+
+        // The engine now applies the snap internally, so route.polyline is the
+        // FINAL on-device geometry. Verify it rides the canal centre + the snap
+        // engaged (+canalsnap), and that re-snapping leaves the river byte-identical.
+        const off = interiorOffset(route.polyline);
+        const resnapped = snapRouteToCanalLines(route.polyline, lines);
+        const river = (poly: readonly (readonly number[])[]): string =>
+            JSON.stringify(poly.filter(([, la]) => la < -27.38));
+        // eslint-disable-next-line no-console
+        console.log(
+            `\n=== CANAL SNAP (engine output) ===\nNewport canal interior: mean=${off.mean.toFixed(1)}m (n=${off.n})\n` +
+                `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}`,
+        );
+        expect(off.n).toBeGreaterThan(0);
+        expect(off.mean, 'engine routes the canal dead centre').toBeLessThan(10);
+        expect(prov, 'canal-line snap engaged').toContain('canalsnap');
+        expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
     });
 });
