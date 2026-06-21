@@ -37,7 +37,7 @@ export const TIER3_MARK_PROXIMITY_M = 300;
  *  An UNKNOWN span is NEVER absorbed — a red patch always survives. */
 export const MIN_SPAN_M = 300;
 
-type Cls = 1 | 2 | 3 | 'unknown';
+type Cls = 1 | 2 | 3 | 4 | 'unknown';
 
 export interface TierSpan {
     readonly tier: TierId;
@@ -90,7 +90,7 @@ export function segmentRoute(
     const TIER2 = tier2NavigableDepthM(draftM, tideSafetyM);
     const draftFloor = draftM + safetyM;
 
-    // ── 1. Classify each vertex (priority tier-3 > tier-1 > tier-2 > unknown) ──
+    // ── 1. Classify each vertex (priority tier-3 > tier-4 > tier-1 > tier-2 > unknown) ──
     const cls: Cls[] = polyline.map(([lon, lat]) => {
         const idx = cellIdx(grid, lon, lat);
         const nearMark = marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M);
@@ -101,7 +101,12 @@ export function segmentRoute(
         // tier-2 here. Keyed on the injected source only, so the open bay (no
         // injectedCanal flag) stays tier-2.
         const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1;
-        if (nearMark || preferred || injected) return 3; // marked/dredged/canal channel — tier 3
+        // A dredged/canal corridor WINS even where lateral marks also sit (it's the
+        // charted careful-water context); only marks STANDING ALONE — a buoyed
+        // channel with no DRGARE/FAIRWY polygon and no injected canal — become the
+        // tier-4 marked channel (the canal-mouth → deep-water lateral-mark leg).
+        if (preferred || injected) return 3; // dredged/canal channel — tier 3
+        if (nearMark) return 4; // lateral marks alone — tier-4 marked channel
         if (idx < 0) return 1; // off the ENC grid → offshore (GEBCO-only)
         const d = grid.cells[idx];
         // RED-TEAM: no-evidence is grid.unvouched (paired with UNKNOWN_OPEN=0),
@@ -135,7 +140,10 @@ export function segmentRoute(
         changed = false;
         for (let r = 0; r < runs.length; r++) {
             const run = runs[r];
-            if (run.cls === 'unknown') continue;
+            // Never dissolve an UNKNOWN (red patch) OR a tier-4 mark-portal — the
+            // marked-channel leg is a structural boundary the navigator depends on,
+            // so a short tier-4 run must survive as its own span like a red patch.
+            if (run.cls === 'unknown' || run.cls === 4) continue;
             if (spanLenM(run.lo, run.hi) >= MIN_SPAN_M) continue;
             // Absorb into the longer adjacent ROUTABLE neighbour (prefer prev).
             const prev = runs[r - 1];
@@ -224,8 +232,10 @@ function pickNeighbour(
     next: Run | undefined,
     len: (lo: number, hi: number) => number,
 ): Cls | null {
-    const pOk = prev && prev.cls !== 'unknown';
-    const nOk = next && next.cls !== 'unknown';
+    // Exclude tier-4 too: a short tier-2/3 run must never be absorbed INTO a
+    // tier-4 marked-channel run (the mark-portal boundary must stay intact).
+    const pOk = prev && prev.cls !== 'unknown' && prev.cls !== 4;
+    const nOk = next && next.cls !== 'unknown' && next.cls !== 4;
     if (pOk && nOk) return len(prev.lo, prev.hi) >= len(next.lo, next.hi) ? prev.cls : next.cls;
     if (pOk) return prev.cls;
     if (nOk) return next.cls;
@@ -234,8 +244,9 @@ function pickNeighbour(
 
 function kindFor(from: Cls, to: Cls): BoundaryNode['kind'] {
     if (from === 1 || to === 1) return 'shelf-edge';
-    if (from === 3 && to !== 3) return 'last-lead'; // leaving a channel
-    if (to === 3) return 'channel-mouth'; // entering a channel
+    if ((from === 4 && to === 3) || (from === 3 && to === 4)) return 'mark-portal'; // lateral marks ↔ dredged
+    if ((from === 4 || from === 3) && to === 2) return 'last-lead'; // channel/marks → deep water
+    if (to === 3 || to === 4) return 'channel-mouth'; // entering a channel / marked corridor
     return 'channel-mouth';
 }
 

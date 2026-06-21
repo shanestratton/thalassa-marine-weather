@@ -74,6 +74,7 @@ import {
 // import is needed here (and no collision with fairlead's {lat,lon} LatLon).
 import { segmentRoute, type TierSpan } from './routing/segmentRoute';
 import { routeTier3, type Tier3Context } from './tier3/tier3Router';
+import { routeTier4, type Tier4Context } from './tier4/tier4Router';
 import { parseCanalLines, snapRouteToCanalLines } from './tier3/canalLineFollower';
 import { stitchLegs } from './glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from './routing/legContract';
@@ -4222,8 +4223,13 @@ function applyThreeTier(
         }
     };
     const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
+    const ctx4: Tier4Context = { grid, recommendedTracks: rectrcLines, marks };
     const results: LegResult[] = spans.map((span) =>
-        span.tier === 3 ? routeTier3(span, route, ctx3) : passthroughLeg(span, route, grid),
+        span.tier === 4
+            ? routeTier4(span, route, ctx4)
+            : span.tier === 3
+              ? routeTier3(span, route, ctx3)
+              : passthroughLeg(span, route, grid),
     );
 
     const glued = stitchLegs(results);

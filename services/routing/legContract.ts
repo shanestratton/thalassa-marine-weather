@@ -36,7 +36,7 @@ export interface BoundaryNode {
     /** Outbound heading THROUGH this node, deg true. The Gluer tests continuity
      *  against this directly, never re-deriving it from polylines. */
     readonly headingDeg: number;
-    readonly kind: 'origin' | 'dest' | 'last-lead' | 'channel-mouth' | 'shelf-edge';
+    readonly kind: 'origin' | 'dest' | 'last-lead' | 'channel-mouth' | 'mark-portal' | 'shelf-edge';
     /** Charted controlling depth AT the node, or null if GEBCO-only/unvouched. */
     readonly depthM: number | null;
     /** false ⇒ the boundary could NOT be deep-snapped (connector honesty flag).
@@ -46,7 +46,7 @@ export interface BoundaryNode {
     readonly crossLine?: CrossLine;
 }
 
-export type TierId = 1 | 2 | 3;
+export type TierId = 1 | 2 | 3 | 4;
 
 export interface Leg {
     readonly tierId: TierId;
