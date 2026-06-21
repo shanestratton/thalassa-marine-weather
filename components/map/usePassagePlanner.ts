@@ -456,21 +456,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const inshorePoly = inshoreRes.polyline;
                     const segCount = inshorePoly.length - 1;
                     const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
-                    // Three-state per-segment colour: RED ('danger') if the segment
-                    // crosses caution water OR rides a canal centre-line; else YELLOW
-                    // ('channel') if it rides the tier-4 marked channel; else GREEN. Red
-                    // WINS over yellow — a skipper must never see yellow where the
-                    // bathymetry says verify-depth.
+                    // Per-segment colour, Shane's INNER→OUTER scheme: RED ('danger') =
+                    // caution OR canal centre-line; else YELLOW ('channel') = tier-4 marked
+                    // channel; else DARK BLUE ('offshore') = the off-ENC offshore leg; else
+                    // TEAL ('green' → route-line default) = inshore A*. RED wins (a skipper
+                    // must never see another colour where the bathymetry says verify-depth).
                     const cautionMask = inshoreRes.cautionMask;
                     const canalMask = inshoreRes.canalMask;
                     const tier4Mask = inshoreRes.tier4Mask;
-                    const anyMask = hasMask(cautionMask) || hasMask(canalMask) || hasMask(tier4Mask);
-                    const stateMask: ('danger' | 'channel' | 'green')[] | null =
+                    const offshoreMask = inshoreRes.offshoreMask;
+                    const anyMask =
+                        hasMask(cautionMask) || hasMask(canalMask) || hasMask(tier4Mask) || hasMask(offshoreMask);
+                    const stateMask: ('danger' | 'channel' | 'offshore' | 'green')[] | null =
                         inshorePoly.length < 2 || !anyMask
                             ? null
                             : Array.from({ length: segCount }, (_, i) => {
                                   if ((cautionMask?.[i] ?? false) || (canalMask?.[i] ?? false)) return 'danger';
-                                  return tier4Mask?.[i] ? 'channel' : 'green';
+                                  if (tier4Mask?.[i]) return 'channel';
+                                  return offshoreMask?.[i] ? 'offshore' : 'green';
                               });
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
                     if (!stateMask) {

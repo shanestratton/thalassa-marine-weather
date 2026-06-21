@@ -124,6 +124,12 @@ export interface InshoreRouteResult {
      * from the RED canal/caution and GREEN open water. Kept separate from caution/canal.
      */
     tier4Mask?: boolean[];
+    /**
+     * Per-segment offshore flag, length `polyline.length - 1`. true = the OFFSHORE leg
+     * (engine TierId 1, off the ENC grid). The map renderer draws these DARK BLUE.
+     * Empty/absent on a fully-inshore route.
+     */
+    offshoreMask?: boolean[];
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -1305,6 +1311,7 @@ async function tryInshoreRouteInner(
         cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
         canalMask: (result as { canalMask?: boolean[] }).canalMask,
         tier4Mask: (result as { tier4Mask?: boolean[] }).tier4Mask,
+        offshoreMask: (result as { offshoreMask?: boolean[] }).offshoreMask,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,

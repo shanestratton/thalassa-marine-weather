@@ -307,6 +307,12 @@ export interface RouteResult {
      * route touches no marked channel.
      */
     tier4Mask?: boolean[];
+    /**
+     * Per-segment offshore flag, length `polyline.length - 1`. true = the segment is
+     * the OFFSHORE leg (engine TierId 1 — off the ENC grid, GEBCO-only). The renderer
+     * draws these DARK BLUE. Empty/absent on a fully-inshore route.
+     */
+    offshoreMask?: boolean[];
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
@@ -3956,6 +3962,8 @@ function routeInshoreOnce(
     // Per-segment tier-4 marked-channel mask — rendered YELLOW. Empty on the
     // monolith fallback (tier-4 only exists on the three-tier path).
     let finalTier4Mask: boolean[] = [];
+    // Per-segment offshore (tier-1) mask — rendered DARK BLUE. Empty inshore/monolith.
+    let finalOffshoreMask: boolean[] = [];
     // Monolith-path debug flags (set only on the fallback branch).
     let flFairlead: string | undefined;
     let llLeadingLines: number | undefined;
@@ -4002,15 +4010,18 @@ function routeInshoreOnce(
         // NOT in cautionMask) — a buoyed channel with a recommended track is pilotage
         // water, distinct from the red canal/caution and green open water.
         const tier4Vtx = threeTier.tier4Mask;
+        const offshoreVtx = threeTier.offshoreMask;
         finalCaution = [];
         finalCanalMask = [];
         finalTier4Mask = [];
+        finalOffshoreMask = [];
         for (let i = 0; i < finalPolyline.length - 1; i++) {
             const a = finalPolyline[i];
             const b = finalPolyline[i + 1];
             finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
             finalCanalMask.push(canalVtx[i] || canalVtx[i + 1]);
             finalTier4Mask.push(tier4Vtx[i] || tier4Vtx[i + 1]);
+            finalOffshoreMask.push(offshoreVtx[i] || offshoreVtx[i + 1]);
         }
         debug.threeTier = threeTier.provenance;
         if (ENGINE_DEBUG)
@@ -4087,6 +4098,7 @@ function routeInshoreOnce(
         cautionMask: finalCaution,
         canalMask: finalCanalMask,
         tier4Mask: finalTier4Mask,
+        offshoreMask: finalOffshoreMask,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
@@ -4163,6 +4175,7 @@ function applyThreeTier(
     spanCount: number;
     canalMask: boolean[];
     tier4Mask: boolean[];
+    offshoreMask: boolean[];
 } | null {
     if (polyline.length < 2) return null;
 
@@ -4285,18 +4298,26 @@ function applyThreeTier(
     // carry it across the canal snap by coordinate: tier-4 water is disjoint from the
     // canal centre-lines, so its vertices pass through the snap verbatim. (Where a
     // vertex were both, canal RED wins at render, so dropping the flag there is right.)
+    // Same construction also yields the OFFSHORE (engine TierId 1 — off the ENC grid,
+    // GEBCO-only) flag, rendered DARK BLUE. Empty on a fully-inshore route.
     const tier4Pre: boolean[] = new Array(glued.polyline.length).fill(false);
+    const offshorePre: boolean[] = new Array(glued.polyline.length).fill(false);
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
         if (leg.tierId === 4) for (let v = 0; v < len; v++) tier4Pre[gi + v] = true;
+        if (leg.tierId === 1) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
     }
     const tier4Keys = new Set<string>();
+    const offshoreKeys = new Set<string>();
     for (let i = 0; i < glued.polyline.length; i++) {
-        if (tier4Pre[i]) tier4Keys.add(`${glued.polyline[i][0]}|${glued.polyline[i][1]}`);
+        const key = `${glued.polyline[i][0]}|${glued.polyline[i][1]}`;
+        if (tier4Pre[i]) tier4Keys.add(key);
+        if (offshorePre[i]) offshoreKeys.add(key);
     }
     const tier4Vtx = outPoly.map(([lon, lat]) => tier4Keys.has(`${lon}|${lat}`));
+    const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {
         polyline: outPoly,
@@ -4307,6 +4328,8 @@ function applyThreeTier(
         canalMask: canalVtx,
         // Per-vertex tier-4 flag (parallel to polyline) for the YELLOW marked-channel.
         tier4Mask: tier4Vtx,
+        // Per-vertex offshore (tier-1) flag for the DARK BLUE offshore leg.
+        offshoreMask: offshoreVtx,
     };
 }
 
