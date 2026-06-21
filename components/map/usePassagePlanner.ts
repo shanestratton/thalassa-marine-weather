@@ -456,11 +456,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const inshorePoly = inshoreRes.polyline;
                     const segCount = inshorePoly.length - 1;
                     const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
-                    // Per-segment colour, Shane's INNER→OUTER scheme: RED ('danger') =
-                    // caution OR canal centre-line; else YELLOW ('channel') = tier-4 marked
-                    // channel; else DARK BLUE ('offshore') = the off-ENC offshore leg; else
-                    // TEAL ('green' → route-line default) = inshore A*. RED wins (a skipper
-                    // must never see another colour where the bathymetry says verify-depth).
+                    // Per-segment colour, Shane's INNER→OUTER scheme. Precedence:
+                    //   1. canal centre-line → RED ('danger')  — the marina basin (innermost).
+                    //   2. tier-4 marked channel → YELLOW ('channel') — and this BEATS caution:
+                    //      a buoyed channel is pilotage water, the marks ARE the depth authority,
+                    //      so it must read yellow even where the 50 m grid calls it shallow/
+                    //      uncharted (d-1). (Was caution>channel, which reddened the marked
+                    //      channel wherever it crossed an uncharted cell — the "red not yellow"
+                    //      bug.) The cautionMask is still computed for the safety scorecard.
+                    //   3. caution (shallow/uncharted OPEN water, NOT a marked channel) → RED.
+                    //   4. offshore → DARK BLUE; else inshore A* → TEAL ('green' default).
                     const cautionMask = inshoreRes.cautionMask;
                     const canalMask = inshoreRes.canalMask;
                     const tier4Mask = inshoreRes.tier4Mask;
@@ -471,8 +476,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         inshorePoly.length < 2 || !anyMask
                             ? null
                             : Array.from({ length: segCount }, (_, i) => {
-                                  if ((cautionMask?.[i] ?? false) || (canalMask?.[i] ?? false)) return 'danger';
-                                  if (tier4Mask?.[i]) return 'channel';
+                                  if (canalMask?.[i] ?? false) return 'danger'; // canal/marina RED
+                                  if (tier4Mask?.[i]) return 'channel'; // marked channel YELLOW (beats caution)
+                                  if (cautionMask?.[i] ?? false) return 'danger'; // shallow OPEN water RED
                                   return offshoreMask?.[i] ? 'offshore' : 'green';
                               });
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
