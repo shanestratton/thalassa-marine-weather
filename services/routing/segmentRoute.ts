@@ -29,9 +29,16 @@ const mPerLonAt = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 
  *  enough that a mid-channel route between longitudinally-spaced marks stays
  *  ONE contiguous tier-3 span (200 m fragmented the Newport approach into
  *  short t3/t2 flickers, starving fairlead's along-transit gate — field
- *  finding 2026-06-17). The tier-2 deep crossing sits >300 m off any channel
- *  mark, so this does not steal the open-bay leg. */
-export const TIER3_MARK_PROXIMITY_M = 300;
+ *  finding 2026-06-17). Newport's buoyed EXIT gates are 700-800 m apart
+ *  along-channel, so a route vertex midway between two gates sits ~400 m from
+ *  the nearest individual mark; 300 m flickered the exit RED/YELLOW between
+ *  gates (field finding 2026-06-21, reproduced on real ENC). 450 m bridges the
+ *  widest measured mid-gate gap into ONE contiguous tier-4 span. The open bay
+ *  is NO LONGER protected by this distance (a bay vertex can be <450 m from a
+ *  scattered buoy) but by the tier-4 channelWater conjunction below
+ *  (nearMark && (preferred||injected)) — open water is never preferred/injected,
+ *  so it stays tier-2 regardless of nearby buoys. */
+export const TIER3_MARK_PROXIMITY_M = 450;
 /** A routable-tier span shorter than this is absorbed into its neighbour
  *  (kills single-cell flapping at band edges — the same noise that beads A*).
  *  An UNKNOWN span is NEVER absorbed — a red patch always survives. */

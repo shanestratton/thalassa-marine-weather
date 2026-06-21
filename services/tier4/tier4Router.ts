@@ -95,11 +95,18 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     //    exit gate channel: buoys, no recommended track). Its INTERNAL land veto
     //    (MARK_VOUCH_M=150 m) rejects a cross-paired midpoint that lands on a
     //    mudflat → null. We REFUSE rather than fabricate a centreline.
+    // gateDecline carries WHY followChannelGates bailed (sub<2 / nearNpMs / gatesN / midsN /
+    // entry-land / body-land / exit-land), folded into provenance below — without it the
+    // device cannot say why a tier-4 leg renders the stepped A* slice instead of straight.
+    let gateDecline = ctx.marks.length < 3 ? `marks${ctx.marks.length}` : '';
     if (prov.length === 0 && ctx.marks.length >= 3) {
-        const followed = followChannelGates(poly, [...ctx.marks], ctx.grid);
+        const followed = followChannelGates(poly, [...ctx.marks], ctx.grid, (r) => {
+            gateDecline = r;
+        });
         if (followed) {
             poly = followed;
             prov.push('gates');
+            gateDecline = '';
         }
         // else: keep the A* slice (de-spiked below) rather than REFUSE. A marked
         // channel the gate-follower can't cleanly resolve (e.g. two parallel
@@ -137,6 +144,6 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         cautionMask,
         depthSource: prov.includes('gates') ? 'marks-vouched' : 'charted',
         controllingDepthM: Number.isFinite(controlling) ? controlling : null,
-        provenance: `tier4:${prov.length ? prov.join('+') : 'astar'}`,
+        provenance: `tier4:${prov.length ? prov.join('+') : `astar${gateDecline ? `(gate:${gateDecline})` : ''}`}`,
     });
 }

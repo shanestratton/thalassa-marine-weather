@@ -4181,6 +4181,20 @@ function applyThreeTier(
 
     const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
     const marks = parseLateralMarks(markFeatures as Parameters<typeof parseLateralMarks>[0]);
+    // The marina mouth (Newport) has NO tessellated SENC laterals — its only channel
+    // "marks" are OSM pair-inferred channel midpoints pushed into BOYLAT, which carry no
+    // CATLAM/OBJNAM so parseLateralMarks drops them. They DO set grid.preferred, leaving the
+    // exit channel channelWater=true with ZERO parsed marks → permanently tier-3 RED. Feed
+    // them (channel-centre points; side irrelevant for a distance test) into a proximity-only
+    // list that segmentRoute's nearMark sees, WITHOUT polluting `marks` — the tier-3/4
+    // gate-followers need real SIDED marks, so they keep `marks` clean.
+    const midpointMarks = (layers.BOYLAT?.features ?? [])
+        .filter((f) => f.properties?._class === 'channel_midpoint' && f.geometry?.type === 'Point')
+        .map((f) => {
+            const [lon, lat] = (f.geometry as { coordinates: number[] }).coordinates;
+            return { lat, lon, side: 'port' as const, key: '_mp', seq: 0, name: 'midpoint' };
+        });
+    const segMarks = midpointMarks.length ? [...marks, ...midpointMarks] : marks;
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
     // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
     // estate, drawn down the middle of every canal. tier-3 follows these FIRST.
@@ -4216,14 +4230,15 @@ function applyThreeTier(
     // the refuse-on-no-evidence decision; segmentRoute must NOT unilaterally
     // refuse (a relaxed berth-start crosses unvouched water) or the whole path
     // silently falls back to the monolith. Unknown runs ride as caution spans.
-    const spans = segmentRoute(route, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
+    const spans = segmentRoute(route, grid, segMarks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
         refuseUnchartedRunM: null,
     });
-    // TEMP DIAGNOSTIC (Newport channel-vs-bay): per route-vertex WHY it classifies as
-    // it does. `I`=injected-canal water · `P`=preferred(DRGARE/FAIRWY) · `mNNN`=nearest
-    // lateral mark in metres (<400 only) · `dNN`=depth. `marks=` is the parsed-mark
-    // count. Tier-4 YELLOW now needs (I or P) AND a mark <300 m; so a vertex showing a
-    // mark but no I/P is open bay (tier-2), and one showing I/P but no mark is canal (red).
+    // TEMP DIAGNOSTIC (Newport channel-vs-bay): per route-vertex WHY it classifies as it
+    // does. `I`=injected-canal water · `P`=preferred(DRGARE/FAIRWY) · `mNNN`=nearest parsed
+    // SENC lateral (m) · `mpNNN`=nearest OSM channel-midpoint (m) · `dNN`=depth (both marks
+    // shown <450 only). Header `marks=R+Mmp` = R real laterals + M midpoints. Tier-4 YELLOW
+    // needs (I or P) AND (m or mp) <450 m; I/P with no m/mp is canal RED; m/mp with no I/P is
+    // open bay (tier-2). Stepping shows as m/mp values straddling 450 on same-I/P vertices.
     try {
         const eqM = (aLat: number, aLon: number, bLat: number, bLon: number) =>
             Math.hypot((aLat - bLat) * 110540, (aLon - bLon) * 111320 * Math.cos((aLat * Math.PI) / 180));
@@ -4237,12 +4252,15 @@ function applyThreeTier(
                 const P = on && grid.preferred?.[idx] === 1 ? 'P' : '';
                 const d = on ? grid.cells[idx] : NaN;
                 let nm = Infinity;
+                let nmp = Infinity;
                 for (const m of marks) nm = Math.min(nm, eqM(lat, lon, m.lat, m.lon));
-                const mk = nm < 400 ? `m${Math.round(nm)}` : '';
-                return `${i}:${I}${P}${mk}${Number.isNaN(d) ? 'dNaN' : `d${Math.round(d)}`}`;
+                for (const m of midpointMarks) nmp = Math.min(nmp, eqM(lat, lon, m.lat, m.lon));
+                const mk = nm < 450 ? `m${Math.round(nm)}` : '';
+                const mp = nmp < 450 ? `mp${Math.round(nmp)}` : '';
+                return `${i}:${I}${P}${mk}${mp}${Number.isNaN(d) ? 'dNaN' : `d${Math.round(d)}`}`;
             })
             .join(' ');
-        engineLog.warn(`[3tier] WHY marks=${marks.length} ${why}`);
+        engineLog.warn(`[3tier] WHY marks=${marks.length}+${midpointMarks.length}mp ${why}`);
     } catch {
         /* diagnostic only — never break routing */
     }
