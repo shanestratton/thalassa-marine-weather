@@ -100,13 +100,9 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         if (followed) {
             poly = followed;
             prov.push('gates');
+        } else {
+            return { refused: true, reason: 'disconnected-grid' };
         }
-        // else: keep the A* slice (de-spiked below) rather than REFUSE. A marked
-        // channel the gate-follower can't cleanly resolve (e.g. two parallel
-        // channels lumped under one numbering) stays tier-4 (yellow) on its A*
-        // geometry instead of dropping the WHOLE route to the monolith. The A*
-        // slice is on navigable water, so the never-cross-land guarantee holds —
-        // this passes HONEST A* geometry, it does not fabricate a centreline.
     }
 
     // 3. De-spike backstop — no >120° reversal survives the leg body.
