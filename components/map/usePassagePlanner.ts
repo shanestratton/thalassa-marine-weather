@@ -456,22 +456,25 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const inshorePoly = inshoreRes.polyline;
                     const segCount = inshorePoly.length - 1;
                     const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
-                    // A segment draws red ('danger') if it crosses caution water OR
-                    // rides a charted canal centre-line. Canal is a SEPARATE flag on
-                    // the result (known water, not a safety-verify), but renders the
-                    // same red — a canal is careful, slow, narrow water.
+                    // Three-state per-segment colour: RED ('danger') if the segment
+                    // crosses caution water OR rides a canal centre-line; else YELLOW
+                    // ('channel') if it rides the tier-4 marked channel; else GREEN. Red
+                    // WINS over yellow — a skipper must never see yellow where the
+                    // bathymetry says verify-depth.
                     const cautionMask = inshoreRes.cautionMask;
                     const canalMask = inshoreRes.canalMask;
-                    const redMask: boolean[] | null =
-                        inshorePoly.length < 2 || !(hasMask(cautionMask) || hasMask(canalMask))
+                    const tier4Mask = inshoreRes.tier4Mask;
+                    const anyMask = hasMask(cautionMask) || hasMask(canalMask) || hasMask(tier4Mask);
+                    const stateMask: ('danger' | 'channel' | 'green')[] | null =
+                        inshorePoly.length < 2 || !anyMask
                             ? null
-                            : Array.from(
-                                  { length: segCount },
-                                  (_, i) => (cautionMask?.[i] ?? false) || (canalMask?.[i] ?? false),
-                              );
+                            : Array.from({ length: segCount }, (_, i) => {
+                                  if ((cautionMask?.[i] ?? false) || (canalMask?.[i] ?? false)) return 'danger';
+                                  return tier4Mask?.[i] ? 'channel' : 'green';
+                              });
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-                    if (!redMask) {
-                        // No (or mismatched) caution/canal data — single green line.
+                    if (!stateMask) {
+                        // No (or mismatched) safety data — single green line.
                         inshoreFeatures.push({
                             type: 'Feature',
                             properties: { safety: 'green', source: 'inshore-router' },
@@ -479,13 +482,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         });
                     } else {
                         let runStart = 0;
-                        for (let i = 0; i <= redMask.length; i++) {
-                            const atEnd = i === redMask.length;
-                            if (atEnd || redMask[i] !== redMask[runStart]) {
+                        for (let i = 0; i <= stateMask.length; i++) {
+                            const atEnd = i === stateMask.length;
+                            if (atEnd || stateMask[i] !== stateMask[runStart]) {
                                 inshoreFeatures.push({
                                     type: 'Feature',
                                     properties: {
-                                        safety: redMask[runStart] ? 'danger' : 'green',
+                                        safety: stateMask[runStart],
                                         source: 'inshore-router',
                                     },
                                     // run = segments [runStart, i) → points [runStart, i]
