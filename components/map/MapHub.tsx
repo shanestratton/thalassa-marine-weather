@@ -447,6 +447,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
     const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
     const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
+    // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
+    const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
+        'thalassa_map_chart_controls_hidden',
+        false,
+    );
     const [tideStationsVisible, setTideStationsVisible] = usePersistedState(
         'thalassa_map_tide_stations_visible',
         false,
@@ -1550,7 +1555,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     decimal so wheel/pinch increments are visible. */}
                 {zoomLevel !== null && (
                     <div
-                        className="absolute top-[56px] left-4 z-[700] h-11 px-2.5 min-w-[3rem] rounded-full bg-slate-900/85 border border-white/[0.10] flex items-center justify-center backdrop-blur-md shadow-lg pointer-events-none select-none"
+                        className="absolute top-[104px] left-4 z-[700] h-11 px-2.5 min-w-[3rem] rounded-full bg-slate-900/85 border border-white/[0.10] flex items-center justify-center backdrop-blur-md shadow-lg pointer-events-none select-none"
                         aria-label={`Map zoom level ${zoomLevel.toFixed(1)}`}
                         title="Map zoom level"
                     >
@@ -2455,6 +2460,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!isPinView &&
                     !embedded &&
                     weather.activeLayers.size > 0 &&
+                    !chartControlsHidden &&
                     (() => {
                         // Identify active weather layers (only scrubble types)
                         const WEATHER_KEYS: HelixLayer[] = [
@@ -2803,6 +2809,35 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </>
                         );
                     })()}
+
+                {/* Declutter toggle — hide/show the bottom weather cluster (model + scrubber + legend).
+                    Collapsed: a centred "Weather controls" pill where the scrubber sat. Expanded: a small
+                    minimise button top-right of the cluster, clear of the GPS FABs below it. */}
+                {!isPinView &&
+                    !embedded &&
+                    weather.activeLayers.size > 0 &&
+                    (chartControlsHidden ? (
+                        <button
+                            type="button"
+                            onClick={() => setChartControlsHidden(false)}
+                            className="absolute left-1/2 -translate-x-1/2 z-[510] flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-[12px] font-bold text-slate-200"
+                            style={{ bottom: 'calc(80px + env(safe-area-inset-bottom))' }}
+                            aria-label="Show weather controls"
+                        >
+                            <span className="text-sky-300 leading-none">▴</span> Weather controls
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={() => setChartControlsHidden(true)}
+                            className="absolute right-[16px] z-[510] flex h-9 w-9 items-center justify-center rounded-full bg-slate-900/85 border border-white/10 backdrop-blur-md shadow-lg text-slate-300"
+                            style={{ bottom: 'calc(140px + env(safe-area-inset-bottom))' }}
+                            aria-label="Hide weather controls"
+                            title="Hide controls"
+                        >
+                            <span className="text-[14px] leading-none">▾</span>
+                        </button>
+                    ))}
             </div>
 
             {/* ═══ TABLET DATA PANEL / CONSENSUS MATRIX (Helm mode, 30% width) ═══ */}
