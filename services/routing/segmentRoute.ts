@@ -98,9 +98,14 @@ export function segmentRoute(
     const draftFloor = draftM + safetyM;
 
     // ── 1. Classify each vertex (priority tier-4 marks > tier-3 dredged/canal > tier-1 > tier-2 > unknown) ──
-    const cls: Cls[] = polyline.map(([lon, lat]) => {
+    // Per-vertex "a channel mark/midpoint within reach", hoisted out because the
+    // channel-fill pass (1b) reuses it to coalesce a buoyed channel into one corridor.
+    const nearMarkV: boolean[] = polyline.map(([lon, lat]) =>
+        marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M),
+    );
+    const cls: Cls[] = polyline.map(([lon, lat], i) => {
         const idx = cellIdx(grid, lon, lat);
-        const nearMark = marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M);
+        const nearMark = nearMarkV[i];
         const preferred = idx >= 0 && grid.preferred?.[idx] === 1;
         // Injected nearshore canal water (the wide Mapbox-water fill) is a
         // channel, NOT open deep water — it must reach the tier-3 canal router
@@ -125,6 +130,29 @@ export function segmentRoute(
         if (!Number.isNaN(d) && d >= draftFloor) return 2; // navigable deep water
         return 'unknown'; // shallow/blocked yet on the route → flag, never clean
     });
+
+    // ── 1b. CHANNEL FILL — a marked channel is ONE corridor, not a string of gates ──
+    // A real buoyed channel has gates 700-800 m apart, and its charted/injected
+    // (channelWater) flag is patchy BETWEEN them — so step 1 flickers t4 (at a gate, on
+    // channelWater) / t2 (mid-gate, flag dropped) / t3 (channelWater but the nearest mark
+    // fell just past reach). That is the stepped RED/YELLOW Shane sees. Coalesce: within a
+    // maximal run of nearMark vertices, if ANY vertex reached tier-4, the WHOLE run is that
+    // one channel → promote every non-'unknown' vertex to tier-4. The open bay never gets
+    // promoted (its vertices are NOT nearMark, OR the run holds no tier-4 because it never
+    // had channelWater), so it stays tier-2. 'unknown' (caution) is preserved — a verify-
+    // depth patch stays RED even mid-channel.
+    for (let i = 0; i < cls.length; ) {
+        if (!nearMarkV[i]) {
+            i++;
+            continue;
+        }
+        let j = i;
+        while (j + 1 < cls.length && nearMarkV[j + 1]) j++;
+        let runHasChannel = false;
+        for (let k = i; k <= j; k++) if (cls[k] === 4) runHasChannel = true;
+        if (runHasChannel) for (let k = i; k <= j; k++) if (cls[k] !== 'unknown') cls[k] = 4;
+        i = j + 1;
+    }
 
     // Caution per vertex: tier-2 below the marks-free floor, or unknown.
     const cautionV: boolean[] = polyline.map(([lon, lat], i) => {

@@ -150,6 +150,26 @@ describe('segmentRoute', () => {
         if (!isRefusal(r)) expect(tiers(r)).toEqual([4, 2]); // buoyed injected channel → tier-4, deep north → tier-2
     });
 
+    it('CHANNEL FILL: patchy preferred between gates coalesces to ONE tier-4 span (the Newport stepping)', () => {
+        // Gates (marks + preferred) at y=2,6,10,14,18 — 200 m apart — with the preferred
+        // flag present ONLY at the gate rows (a real channel's charted/injected flag is
+        // patchy BETWEEN buoys). The 450 m nearMark reach bridges the gaps, but step-1
+        // alone flickers t4 (gate) / t2 (between) — the stepped RED/YELLOW. The channel-fill
+        // pass promotes the whole nearMark run to ONE tier-4 channel.
+        const gates = [2, 6, 10, 14, 18];
+        const grid = makeGrid({ preferredY: (y) => gates.includes(y) });
+        const lon = MIN_LON + 1.5 * dLon;
+        const marks: LateralMark[] = [];
+        for (const y of gates) {
+            const lat = MIN_LAT + (y + 0.5) * dLat;
+            marks.push({ lat, lon: lon - 0.0005, side: 'port', key: 'X', seq: y, name: `X${y}` });
+            marks.push({ lat, lon: lon + 0.0005, side: 'stbd', key: 'X', seq: y, name: `X${y}` });
+        }
+        const r = segmentRoute(corridorLine(), grid, marks, 2.4, 0.2, 0.5);
+        expect(isRefusal(r)).toBe(false);
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([4, 2]); // ONE contiguous tier-4 channel, deep north
+    });
+
     it('marks inside a dredged corridor are STILL tier-4 (lateral marks win over dredged)', () => {
         // The SAME south marks, but the south is ALSO a preferred (DRGARE/FAIRWY)
         // corridor. A buoyed channel is steered by its gates → tier-4 YELLOW even
