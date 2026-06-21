@@ -114,9 +114,10 @@ describe('segmentRoute', () => {
         if (!isRefusal(r)) expect(tiers(r)).toEqual([3, 2]);
     });
 
-    it('marks ALONE (no preferred) make a span tier-4 (the marked-channel leg)', () => {
-        const grid = makeGrid(); // no preferred anywhere
-        // a pair of lateral marks beside the SOUTH third of the line
+    it('marks ALONE in open water are NOT a channel — they stay tier-2 (need charted/canal water too)', () => {
+        const grid = makeGrid(); // no preferred, no injected — plain open water
+        // a pair of lateral marks beside the SOUTH third of the line, but NO DRGARE/
+        // FAIRWY and NO injected-canal fill there — just open bay near scattered buoys.
         const lon = MIN_LON + 1.5 * dLon;
         const marks: LateralMark[] = [];
         for (let y = 2; y <= 20; y += 4) {
@@ -126,7 +127,27 @@ describe('segmentRoute', () => {
         }
         const r = segmentRoute(corridorLine(), grid, marks, 2.4, 0.2, 0.5);
         expect(isRefusal(r)).toBe(false);
-        if (!isRefusal(r)) expect(tiers(r)).toEqual([4, 2]); // south near marks → tier-4, north deep → tier-2
+        // A route merely passing within 300 m of buoys in open water is the open bay,
+        // NOT the marked channel exiting a marina → stays tier-2 (the "yellow in the
+        // open bay" fix). Tier-4 YELLOW requires marks AND charted/injected channel water.
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([2]);
+    });
+
+    it('marks + INJECTED canal water = the buoyed exit channel → tier-4 (the Newport case)', () => {
+        // South third is injected-canal water (Mapbox-water fill from the marina) AND
+        // buoyed — that is the channel exiting the marina → tier-4 YELLOW. North is open
+        // deep water → tier-2. This locks the real Newport exit-channel classification.
+        const grid = makeGrid({ injectedY: (y) => y <= 22 });
+        const lon = MIN_LON + 1.5 * dLon;
+        const marks: LateralMark[] = [];
+        for (let y = 2; y <= 20; y += 4) {
+            const lat = MIN_LAT + (y + 0.5) * dLat;
+            marks.push({ lat, lon: lon - 0.0005, side: 'port', key: 'X', seq: y, name: `X${y}` });
+            marks.push({ lat, lon: lon + 0.0005, side: 'stbd', key: 'X', seq: y, name: `X${y}` });
+        }
+        const r = segmentRoute(corridorLine(), grid, marks, 2.4, 0.2, 0.5);
+        expect(isRefusal(r)).toBe(false);
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([4, 2]); // buoyed injected channel → tier-4, deep north → tier-2
     });
 
     it('marks inside a dredged corridor are STILL tier-4 (lateral marks win over dredged)', () => {

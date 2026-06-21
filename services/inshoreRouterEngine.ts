@@ -4219,6 +4219,33 @@ function applyThreeTier(
     const spans = segmentRoute(route, grid, marks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
         refuseUnchartedRunM: null,
     });
+    // TEMP DIAGNOSTIC (Newport channel-vs-bay): per route-vertex WHY it classifies as
+    // it does. `I`=injected-canal water · `P`=preferred(DRGARE/FAIRWY) · `mNNN`=nearest
+    // lateral mark in metres (<400 only) · `dNN`=depth. `marks=` is the parsed-mark
+    // count. Tier-4 YELLOW now needs (I or P) AND a mark <300 m; so a vertex showing a
+    // mark but no I/P is open bay (tier-2), and one showing I/P but no mark is canal (red).
+    try {
+        const eqM = (aLat: number, aLon: number, bLat: number, bLon: number) =>
+            Math.hypot((aLat - bLat) * 110540, (aLon - bLon) * 111320 * Math.cos((aLat * Math.PI) / 180));
+        const why = route
+            .map(([lon, lat], i) => {
+                const x = Math.floor((lon - grid.minLon) / grid.dLon);
+                const y = Math.floor((lat - grid.minLat) / grid.dLat);
+                const on = x >= 0 && x < grid.width && y >= 0 && y < grid.height;
+                const idx = y * grid.width + x;
+                const I = on && grid.injectedCanal?.[idx] === 1 ? 'I' : '';
+                const P = on && grid.preferred?.[idx] === 1 ? 'P' : '';
+                const d = on ? grid.cells[idx] : NaN;
+                let nm = Infinity;
+                for (const m of marks) nm = Math.min(nm, eqM(lat, lon, m.lat, m.lon));
+                const mk = nm < 400 ? `m${Math.round(nm)}` : '';
+                return `${i}:${I}${P}${mk}${Number.isNaN(d) ? 'dNaN' : `d${Math.round(d)}`}`;
+            })
+            .join(' ');
+        engineLog.warn(`[3tier] WHY marks=${marks.length} ${why}`);
+    } catch {
+        /* diagnostic only — never break routing */
+    }
     if (isRefusal(spans)) {
         if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — segmentRoute refused (${spans.reason})`);
         return null;

@@ -101,14 +101,15 @@ export function segmentRoute(
         // tier-2 here. Keyed on the injected source only, so the open bay (no
         // injectedCanal flag) stays tier-2.
         const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1;
-        // LATERAL MARKS WIN: a buoyed channel is a tier-4 marked channel (YELLOW,
-        // steered by its gates) EVEN where it's also charted dredged (DRGARE/FAIRWY)
-        // or injected-canal water — the buoys are the navigation, the rest is context.
-        // Only dredged/injected water with NO marks stays tier-3 (the marina basin
-        // has no gates → stays the RED canal; the buoyed exit channel → YELLOW). Open
-        // water (no marks, no preferred/injected) is untouched → tier-2 GREEN.
-        if (nearMark) return 4; // buoyed channel — tier-4 marked channel (wins over dredged/canal)
-        if (preferred || injected) return 3; // dredged / injected canal WITHOUT marks — tier-3
+        // TIER-4 YELLOW = the buoyed channel EXITING the canal/marina: it needs BOTH
+        // lateral marks AND charted/injected channel water (DRGARE/FAIRWY or the
+        // Mapbox-water canal fill). Marks beside PLAIN OPEN water — the bay — are NOT a
+        // channel: a route merely passing within 300 m of scattered buoys stays tier-2
+        // GREEN (this was the "yellow in the open bay" bug). Charted/injected water
+        // WITHOUT marks is the marina basin → tier-3 RED canal.
+        const channelWater = preferred || injected;
+        if (nearMark && channelWater) return 4; // buoyed + charted/canal channel → YELLOW
+        if (channelWater) return 3; // charted / injected canal WITHOUT marks → RED canal
         if (idx < 0) return 1; // off the ENC grid → offshore (GEBCO-only)
         const d = grid.cells[idx];
         // RED-TEAM: no-evidence is grid.unvouched (paired with UNKNOWN_OPEN=0),
