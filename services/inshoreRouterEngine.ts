@@ -287,6 +287,16 @@ export interface RouteResult {
      * depth locally. Absent on cloud results that predate this field.
      */
     cautionMask?: boolean[];
+    /**
+     * Per-segment canal flag, length `polyline.length - 1`. `canalMask[i] === true`
+     * means the segment rides a charted OSM canal centre-line (the dead-centre canal
+     * route from snapRouteToCanalLines). The renderer draws these the SAME red as
+     * caution — a canal is careful, slow, narrow water — but it is kept SEPARATE
+     * from cautionMask because the canal is KNOWN charted water, not water-to-verify,
+     * so it must not inflate the safety/scorecard caution metric. Empty/absent when
+     * the route touches no canal.
+     */
+    canalMask?: boolean[];
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
@@ -3928,6 +3938,11 @@ function routeInshoreOnce(
     // routers) with the strict-uncharted rule, so red rendering is unchanged.
     let finalPolyline: [number, number][];
     let finalCaution: boolean[];
+    // Per-segment canal mask — the charted canal centre-line stretch. Rendered the
+    // SAME red as caution, but kept OUT of cautionMask so it never pollutes the
+    // safety/quality metric (the canal is known water, not water-to-verify). Empty
+    // on the monolith fallback (the canal snap only runs on the three-tier path).
+    let finalCanalMask: boolean[] = [];
     // Monolith-path debug flags (set only on the fallback branch).
     let flFairlead: string | undefined;
     let llLeadingLines: number | undefined;
@@ -3963,11 +3978,20 @@ function routeInshoreOnce(
             }
             return false;
         };
+        // The canal stretch renders the SAME red as caution, but via a SEPARATE
+        // per-segment mask — the grid calls carved canal cells navigable, so
+        // segCrossesCaution leaves them green, and we must NOT fold the canal into
+        // cautionMask (it's the known charted centre-line, not water-to-verify; the
+        // scorecard/golden caution metric must stay pure). A segment is canal if
+        // EITHER endpoint rides the centre-line (reddens the entry/exit seam too).
+        const canalVtx = threeTier.canalMask;
         finalCaution = [];
+        finalCanalMask = [];
         for (let i = 0; i < finalPolyline.length - 1; i++) {
             const a = finalPolyline[i];
             const b = finalPolyline[i + 1];
             finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
+            finalCanalMask.push(canalVtx[i] || canalVtx[i + 1]);
         }
         debug.threeTier = threeTier.provenance;
         if (ENGINE_DEBUG)
@@ -4042,6 +4066,7 @@ function routeInshoreOnce(
     return {
         polyline: finalPolyline,
         cautionMask: finalCaution,
+        canalMask: finalCanalMask,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
@@ -4112,7 +4137,7 @@ function applyThreeTier(
     obstructionBufferM: number,
     relaxedLndare: boolean,
     relaxZones: RelaxZone[],
-): { polyline: [number, number][]; provenance: string; spanCount: number } | null {
+): { polyline: [number, number][]; provenance: string; spanCount: number; canalMask: boolean[] } | null {
     if (polyline.length < 2) return null;
 
     const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
@@ -4220,13 +4245,16 @@ function applyThreeTier(
     // estate to navigable water, so its spans come out tier-2 passthrough, NOT
     // tier-3 — a per-span follow would miss them. No-op off-canal (the river /
     // open water passes through byte-identical). Verified: Newport interior 0.0 m.
-    const snappedPoly = snapRouteToCanalLines(glued.polyline, canalLines);
+    const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines);
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
     return {
         polyline: outPoly,
         provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}`,
         spanCount: spans.length,
+        // Per-vertex canal flag (parallel to polyline) so the caller renders the
+        // canal stretch caution-red — the grid calls carved canal cells navigable.
+        canalMask: canalVtx,
     };
 }
 
