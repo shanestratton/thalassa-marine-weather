@@ -454,10 +454,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // safety:'danger' so the route-line layer draws it red.
                     // The skipper verifies depth on those red stretches.
                     const inshorePoly = inshoreRes.polyline;
+                    const segCount = inshorePoly.length - 1;
+                    const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
+                    // A segment draws red ('danger') if it crosses caution water OR
+                    // rides a charted canal centre-line. Canal is a SEPARATE flag on
+                    // the result (known water, not a safety-verify), but renders the
+                    // same red — a canal is careful, slow, narrow water.
                     const cautionMask = inshoreRes.cautionMask;
+                    const canalMask = inshoreRes.canalMask;
+                    const redMask: boolean[] | null =
+                        inshorePoly.length < 2 || !(hasMask(cautionMask) || hasMask(canalMask))
+                            ? null
+                            : Array.from(
+                                  { length: segCount },
+                                  (_, i) => (cautionMask?.[i] ?? false) || (canalMask?.[i] ?? false),
+                              );
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
-                    if (!cautionMask || cautionMask.length !== inshorePoly.length - 1 || inshorePoly.length < 2) {
-                        // No (or mismatched) caution data — single green line.
+                    if (!redMask) {
+                        // No (or mismatched) caution/canal data — single green line.
                         inshoreFeatures.push({
                             type: 'Feature',
                             properties: { safety: 'green', source: 'inshore-router' },
@@ -465,13 +479,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         });
                     } else {
                         let runStart = 0;
-                        for (let i = 0; i <= cautionMask.length; i++) {
-                            const atEnd = i === cautionMask.length;
-                            if (atEnd || cautionMask[i] !== cautionMask[runStart]) {
+                        for (let i = 0; i <= redMask.length; i++) {
+                            const atEnd = i === redMask.length;
+                            if (atEnd || redMask[i] !== redMask[runStart]) {
                                 inshoreFeatures.push({
                                     type: 'Feature',
                                     properties: {
-                                        safety: cautionMask[runStart] ? 'danger' : 'green',
+                                        safety: redMask[runStart] ? 'danger' : 'green',
                                         source: 'inshore-router',
                                     },
                                     // run = segments [runStart, i) → points [runStart, i]

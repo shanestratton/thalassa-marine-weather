@@ -661,17 +661,42 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // FINAL on-device geometry. Verify it rides the canal centre + the snap
         // engaged (+canalsnap), and that re-snapping leaves the river byte-identical.
         const off = interiorOffset(route.polyline);
-        const resnapped = snapRouteToCanalLines(route.polyline, lines);
+        const { polyline: resnapped } = snapRouteToCanalLines(route.polyline, lines);
         const river = (poly: readonly (readonly number[])[]): string =>
             JSON.stringify(poly.filter(([, la]) => la < -27.38));
+
+        // The canal stretch must render RED via the dedicated canalMask (the grid
+        // calls carved canal cells navigable, so they'd otherwise be green). Every
+        // route segment in the Newport canal interior must carry the canal flag —
+        // and it must be SEPARATE from cautionMask so it never pollutes the safety
+        // metric the golden/scorecard baselines lock.
+        const cm = route.canalMask ?? [];
+        const caution = route.cautionMask ?? [];
+        const inCanal = (lon: number, lat: number): boolean =>
+            lat <= -27.203 && lat >= -27.213 && lon >= 153.082 && lon <= 153.095;
+        let canalSegs = 0;
+        let flaggedCanalSegs = 0;
+        let canalSegsInCaution = 0;
+        for (let i = 0; i < route.polyline.length - 1; i++) {
+            const [lon, lat] = route.polyline[i];
+            const [lon2, lat2] = route.polyline[i + 1];
+            if (inCanal(lon, lat) || inCanal(lon2, lat2)) {
+                canalSegs++;
+                if (cm[i]) flaggedCanalSegs++;
+                if (caution[i]) canalSegsInCaution++;
+            }
+        }
         // eslint-disable-next-line no-console
         console.log(
             `\n=== CANAL SNAP (engine output) ===\nNewport canal interior: mean=${off.mean.toFixed(1)}m (n=${off.n})\n` +
-                `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}`,
+                `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}\n` +
+                `canal segments flagged red (canalMask): ${flaggedCanalSegs}/${canalSegs}; of those in cautionMask: ${canalSegsInCaution}`,
         );
         expect(off.n).toBeGreaterThan(0);
         expect(off.mean, 'engine routes the canal dead centre').toBeLessThan(10);
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
+        expect(canalSegs, 'canal interior has segments').toBeGreaterThan(0);
+        expect(flaggedCanalSegs, 'every canal-interior segment carries the canal red flag').toBe(canalSegs);
     });
 });

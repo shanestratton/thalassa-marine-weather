@@ -183,15 +183,23 @@ export function followCanalLines(entry: LL, exit: LL, canalLines: readonly (read
  * preserved. A run that doesn't route on the graph keeps its original points.
  *
  * @param polyline the assembled route as [lon,lat] tuples.
- * @returns the route as [lon,lat] tuples (same format).
+ * @returns `polyline` (the snapped route, [lon,lat] tuples) plus a per-VERTEX
+ *   `onCanal` mask (same length) flagging which output vertices ride the canal
+ *   centre-line — so the caller can render the canal stretch caution-red (the
+ *   grid calls carved canal cells navigable, so the engine's grid-based caution
+ *   recompute would otherwise leave them green). Origin/dest stay false (pinned
+ *   bridge points — keeps the seam to open water clean; the OR-of-endpoints in
+ *   the renderer still reddens the entry/exit segment via the canal neighbour).
  */
 export function snapRouteToCanalLines(
     polyline: readonly LatLon[],
     canalLines: readonly (readonly LatLon[])[],
-): LatLon[] {
-    if (polyline.length < 2 || canalLines.length === 0) return polyline.map((p) => [p[0], p[1]] as LatLon);
+): { polyline: LatLon[]; onCanal: boolean[] } {
+    const asTuples = (): LatLon[] => polyline.map((p) => [p[0], p[1]] as LatLon);
+    if (polyline.length < 2 || canalLines.length === 0)
+        return { polyline: asTuples(), onCanal: polyline.map(() => false) };
     const g = buildCanalGraph(canalLines);
-    if (g.nodes.size < 2) return polyline.map((p) => [p[0], p[1]] as LatLon);
+    if (g.nodes.size < 2) return { polyline: asTuples(), onCanal: polyline.map(() => false) };
 
     const pts: LL[] = polyline.map(([lon, lat]) => ({ lat, lon }));
     const n = pts.length;
@@ -201,10 +209,15 @@ export function snapRouteToCanalLines(
     });
 
     const out: LL[] = [];
+    const outCanal: boolean[] = [];
+    const emit = (p: LL, isCanal: boolean): void => {
+        out.push(p);
+        outCanal.push(isCanal);
+    };
     let i = 0;
     while (i < n) {
         if (!onCanal[i]) {
-            out.push(pts[i]);
+            emit(pts[i], false);
             i++;
             continue;
         }
@@ -220,17 +233,20 @@ export function snapRouteToCanalLines(
         const t = g.nearest(pts[j]);
         const centre = s && t ? routeGraph(g, s.k, t.k) : null;
         if (centre) {
-            // Keep the route origin/dest exactly; otherwise the off-canal neighbour
-            // already in `out` (or the one that follows) bridges onto the centre ends.
-            if (i === 0) out.push(pts[0]);
-            out.push(...centre);
-            if (j === n - 1) out.push(pts[n - 1]);
+            // Keep the route origin/dest exactly (pinned bridge points, flagged
+            // NOT-canal for a clean open-water seam); the centre vertices between
+            // ARE the canal and carry the flag so they render caution-red.
+            if (i === 0) emit(pts[0], false);
+            for (const c of centre) emit(c, true);
+            if (j === n - 1) emit(pts[n - 1], false);
         } else {
-            for (let k = i; k <= j; k++) out.push(pts[k]);
+            // Couldn't route on the graph — keep the original points with their own
+            // on-canal flag (the run still rides the canal where flagged).
+            for (let k = i; k <= j; k++) emit(pts[k], onCanal[k]);
         }
         i = j + 1;
     }
-    return out.map((p) => [p.lon, p.lat] as LatLon);
+    return { polyline: out.map((p) => [p.lon, p.lat] as LatLon), onCanal: outCanal };
 }
 
 /** Parse CANAL-layer LineString features into [lon,lat] vertex arrays. */

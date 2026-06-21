@@ -109,6 +109,14 @@ export interface InshoreRouteResult {
      * segments normal".
      */
     cautionMask?: boolean[];
+    /**
+     * Per-segment canal flag, length `polyline.length - 1`. true = the segment
+     * rides a charted canal centre-line. The map renderer draws these the SAME
+     * red as caution (a canal is careful, slow, narrow water), but it is kept
+     * SEPARATE from cautionMask because the canal is known charted water, not
+     * water-to-verify — so it never inflates the safety/scorecard caution metric.
+     */
+    canalMask?: boolean[];
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -1288,6 +1296,7 @@ async function tryInshoreRouteInner(
     return {
         polyline: result.polyline,
         cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
+        canalMask: (result as { canalMask?: boolean[] }).canalMask,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,
