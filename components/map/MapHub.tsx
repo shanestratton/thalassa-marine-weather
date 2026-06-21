@@ -1702,6 +1702,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                             },
                             anchorageVisible,
                             onToggleAnchorage: () => setAnchorageVisible((v) => !v),
+                            onOpenWeatherWindow: () => setPage('weatherWindow'),
                             // Marine Protected Areas — only surface in the
                             // radial menu when the feature flag is on, so
                             // the button doesn't taunt users on builds

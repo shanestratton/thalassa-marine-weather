@@ -62,6 +62,10 @@ export interface RadialHelmMenuProps {
         onToggleSeamark?: () => void;
         tideStationsVisible?: boolean;
         onToggleTideStations?: () => void;
+        anchorageVisible?: boolean;
+        onToggleAnchorage?: () => void;
+        /** Launches the standalone Weather Window Check tool (navigation, not a toggle). */
+        onOpenWeatherWindow?: () => void;
         /** Marine Protected Areas (CAPAD vector overlay). */
         mpaVisible?: boolean;
         onToggleMpa?: () => void;
@@ -225,6 +229,22 @@ function buildCategories(
             label: 'Tides',
             icon: <TideIcon />,
             action: tacticalState.onToggleTideStations,
+        });
+    }
+    if (tacticalState?.onToggleAnchorage) {
+        tactical.push({
+            id: 'anchorages',
+            label: 'Anchor',
+            icon: <AnchorageIcon />,
+            action: tacticalState.onToggleAnchorage,
+        });
+    }
+    if (tacticalState?.onOpenWeatherWindow) {
+        tactical.push({
+            id: 'weatherwindow',
+            label: 'Window',
+            icon: <WeatherWindowIcon />,
+            action: tacticalState.onOpenWeatherWindow,
         });
     }
     if (tacticalState?.onToggleMpa) {
@@ -606,6 +626,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
             if (item.id === 'inspect') return tacticalState?.weatherInspectMode ?? false;
             if (item.id === 'seamark') return tacticalState?.seamarkVisible ?? false;
             if (item.id === 'tides') return tacticalState?.tideStationsVisible ?? false;
+            if (item.id === 'anchorages') return tacticalState?.anchorageVisible ?? false;
             if (item.id === 'mpa') return tacticalState?.mpaVisible ?? false;
             // Charts — items are id'd as chart-<sourceId>; match against chartsState.
             if (item.id.startsWith('chart-')) {
@@ -627,6 +648,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
         if (tacticalState?.weatherInspectMode) count++;
         if (tacticalState?.seamarkVisible) count++;
         if (tacticalState?.tideStationsVisible) count++;
+        if (tacticalState?.anchorageVisible) count++;
         // Active chart sources count too — so the FAB badge reflects them.
         if (chartsState?.sources) {
             for (const s of chartsState.sources) if (s.enabled) count++;
@@ -800,6 +822,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                                             if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
                                             if (tacticalState?.tideStationsVisible)
                                                 tacticalState.onToggleTideStations?.();
+                                            if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
                                             // Also clear any chart sources.
                                             chartsState?.sources?.forEach((s) => {
                                                 if (s.enabled) s.onToggle();
@@ -925,6 +948,7 @@ export const RadialHelmMenu: React.FC<RadialHelmMenuProps> = ({
                             if (tacticalState?.weatherInspectMode) tacticalState.onToggleWeatherInspect?.();
                             if (tacticalState?.seamarkVisible) tacticalState.onToggleSeamark?.();
                             if (tacticalState?.tideStationsVisible) tacticalState.onToggleTideStations?.();
+                            if (tacticalState?.anchorageVisible) tacticalState.onToggleAnchorage?.();
                             chartsState?.sources?.forEach((s) => {
                                 if (s.enabled) s.onToggle();
                             });
@@ -1196,6 +1220,27 @@ const MpaIcon = () => (
             strokeLinejoin="round"
             d="M8.5 12c1.5-2 4-2.6 6-1.6 0.8 0.4 1.4 1 1.6 1.6-0.2 0.6-0.8 1.2-1.6 1.6-2 1-4.5 0.4-6-1.6zM16.1 12l1.7-1v2l-1.7-1z"
         />
+    </svg>
+);
+
+// Classic admiralty anchor — ring, shaft, stock and curved flukes.
+const AnchorageIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <circle cx="12" cy="5" r="2" />
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 7v13M8 11h8M5 13a7 7 0 0014 0M5 13l-1.6 1M5 13l1.4 1.4M19 13l1.6 1M19 13l-1.4 1.4"
+        />
+    </svg>
+);
+
+// Gauge with a needle — the weather-window go/no-go score.
+const WeatherWindowIcon = () => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" d="M4 15a8 8 0 0116 0" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 15l4.5-3.5" />
+        <circle cx="12" cy="15" r="1.1" fill="currentColor" stroke="none" />
     </svg>
 );
 
