@@ -298,6 +298,15 @@ export interface RouteResult {
      * the route touches no canal.
      */
     canalMask?: boolean[];
+    /**
+     * Per-segment tier-4 flag, length `polyline.length - 1`. `tier4Mask[i] === true`
+     * means the segment rides the MARKED-CHANNEL leg (lateral marks / recommended
+     * track from a canal-mouth out to deep water). The renderer draws these YELLOW —
+     * pilotage water — distinct from the RED canal/caution and GREEN open water. Red
+     * (caution/canal) takes precedence where a segment is both. Empty/absent when the
+     * route touches no marked channel.
+     */
+    tier4Mask?: boolean[];
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
@@ -3944,6 +3953,9 @@ function routeInshoreOnce(
     // safety/quality metric (the canal is known water, not water-to-verify). Empty
     // on the monolith fallback (the canal snap only runs on the three-tier path).
     let finalCanalMask: boolean[] = [];
+    // Per-segment tier-4 marked-channel mask — rendered YELLOW. Empty on the
+    // monolith fallback (tier-4 only exists on the three-tier path).
+    let finalTier4Mask: boolean[] = [];
     // Monolith-path debug flags (set only on the fallback branch).
     let flFairlead: string | undefined;
     let llLeadingLines: number | undefined;
@@ -3986,13 +3998,19 @@ function routeInshoreOnce(
         // scorecard/golden caution metric must stay pure). A segment is canal if
         // EITHER endpoint rides the centre-line (reddens the entry/exit seam too).
         const canalVtx = threeTier.canalMask;
+        // Per-segment tier-4 mask (the marked-channel leg). Rendered YELLOW (NOT red,
+        // NOT in cautionMask) — a buoyed channel with a recommended track is pilotage
+        // water, distinct from the red canal/caution and green open water.
+        const tier4Vtx = threeTier.tier4Mask;
         finalCaution = [];
         finalCanalMask = [];
+        finalTier4Mask = [];
         for (let i = 0; i < finalPolyline.length - 1; i++) {
             const a = finalPolyline[i];
             const b = finalPolyline[i + 1];
             finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
             finalCanalMask.push(canalVtx[i] || canalVtx[i + 1]);
+            finalTier4Mask.push(tier4Vtx[i] || tier4Vtx[i + 1]);
         }
         debug.threeTier = threeTier.provenance;
         if (ENGINE_DEBUG)
@@ -4068,6 +4086,7 @@ function routeInshoreOnce(
         polyline: finalPolyline,
         cautionMask: finalCaution,
         canalMask: finalCanalMask,
+        tier4Mask: finalTier4Mask,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,
@@ -4138,7 +4157,13 @@ function applyThreeTier(
     obstructionBufferM: number,
     relaxedLndare: boolean,
     relaxZones: RelaxZone[],
-): { polyline: [number, number][]; provenance: string; spanCount: number; canalMask: boolean[] } | null {
+): {
+    polyline: [number, number][];
+    provenance: string;
+    spanCount: number;
+    canalMask: boolean[];
+    tier4Mask: boolean[];
+} | null {
     if (polyline.length < 2) return null;
 
     const markFeatures = [...(layers.BOYLAT?.features ?? []), ...(layers.BCNLAT?.features ?? [])];
@@ -4254,6 +4279,25 @@ function applyThreeTier(
     const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines);
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
+
+    // Per-vertex tier-4 (marked-channel) flag for YELLOW rendering. Build it from the
+    // glued legs (tierId===4), accounting for stitchLegs sharing each seam vertex, then
+    // carry it across the canal snap by coordinate: tier-4 water is disjoint from the
+    // canal centre-lines, so its vertices pass through the snap verbatim. (Where a
+    // vertex were both, canal RED wins at render, so dropping the flag there is right.)
+    const tier4Pre: boolean[] = new Array(glued.polyline.length).fill(false);
+    let gi = 0;
+    for (const leg of glued.legs) {
+        const len = leg.polyline.length;
+        if (leg.tierId === 4) for (let v = 0; v < len; v++) tier4Pre[gi + v] = true;
+        gi += len - 1;
+    }
+    const tier4Keys = new Set<string>();
+    for (let i = 0; i < glued.polyline.length; i++) {
+        if (tier4Pre[i]) tier4Keys.add(`${glued.polyline[i][0]}|${glued.polyline[i][1]}`);
+    }
+    const tier4Vtx = outPoly.map(([lon, lat]) => tier4Keys.has(`${lon}|${lat}`));
+
     return {
         polyline: outPoly,
         provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}`,
@@ -4261,6 +4305,8 @@ function applyThreeTier(
         // Per-vertex canal flag (parallel to polyline) so the caller renders the
         // canal stretch caution-red — the grid calls carved canal cells navigable.
         canalMask: canalVtx,
+        // Per-vertex tier-4 flag (parallel to polyline) for the YELLOW marked-channel.
+        tier4Mask: tier4Vtx,
     };
 }
 

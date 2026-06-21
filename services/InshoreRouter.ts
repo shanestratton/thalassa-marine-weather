@@ -117,6 +117,13 @@ export interface InshoreRouteResult {
      * water-to-verify — so it never inflates the safety/scorecard caution metric.
      */
     canalMask?: boolean[];
+    /**
+     * Per-segment tier-4 flag, length `polyline.length - 1`. true = the segment rides
+     * the MARKED-CHANNEL leg (lateral marks / recommended track from a canal-mouth out
+     * to deep water). The map renderer draws these YELLOW — pilotage water — distinct
+     * from the RED canal/caution and GREEN open water. Kept separate from caution/canal.
+     */
+    tier4Mask?: boolean[];
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -1297,6 +1304,7 @@ async function tryInshoreRouteInner(
         polyline: result.polyline,
         cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
         canalMask: (result as { canalMask?: boolean[] }).canalMask,
+        tier4Mask: (result as { tier4Mask?: boolean[] }).tier4Mask,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,

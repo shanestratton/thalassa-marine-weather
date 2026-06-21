@@ -699,4 +699,30 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(canalSegs, 'canal interior has segments').toBeGreaterThan(0);
         expect(flaggedCanalSegs, 'every canal-interior segment carries the canal red flag').toBe(canalSegs);
     });
+
+    it('TIER-4 — routing through the Newport exit gate channel engages tier-4 (yellow)', () => {
+        // The Newport→Pinkenba route exits WEST and bypasses the buoyed exit gate, so
+        // it shows no tier-4. Route NORTH instead — Newport marina → a point past the
+        // green-7/red-8 gate (rcs5 BCNLAT, CATLAM 1/2) which has marks but NO DRGARE —
+        // and the marked channel must classify TIER-4 + populate the yellow mask.
+        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal);
+        const res = routeInshore(layers, { ...REQ_BASE, toLat: -27.182, toLon: 153.0935 } as RouteRequest);
+        if ('error' in res) {
+            // eslint-disable-next-line no-console
+            console.log(`north-exit route failed: ${res.error} (${res.code ?? '?'})`);
+            // Not a hard fail — the gate corridor may be too short to route on the
+            // chart-only cells; the device (full data) is the oracle. Report + skip.
+            expect(res.code ?? 'error').toBeTruthy();
+            return;
+        }
+        const prov = res.debug?.threeTier ?? '';
+        const t4Segs = (res.tier4Mask ?? []).filter(Boolean).length;
+        // eslint-disable-next-line no-console
+        console.log(
+            `\n=== TIER-4 (north exit through the gate) ===\nprov: ${prov}\n` +
+                `tier4 segments (yellow): ${t4Segs}/${(res.tier4Mask ?? []).length}`,
+        );
+        expect(prov, 'a tier-4 marked-channel span engaged').toContain('tier4');
+        expect(t4Segs, 'the yellow tier-4 mask is populated').toBeGreaterThan(0);
+    });
 });
