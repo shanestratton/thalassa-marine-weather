@@ -198,6 +198,7 @@ describe('AnchorWatchSnapshot', () => {
             },
             positionHistory: [],
             alarmTriggeredAt: null,
+            alarmCause: null,
             watchStartedAt: Date.now(),
             gpsAccuracy: 5,
             gpsQuality: 'precision',
@@ -235,6 +236,7 @@ describe('AnchorWatchSnapshot', () => {
             },
             positionHistory: [],
             alarmTriggeredAt: Date.now(),
+            alarmCause: 'drag',
             watchStartedAt: Date.now() - 3600_000,
             gpsAccuracy: 5,
             gpsQuality: 'standard',
@@ -245,5 +247,6 @@ describe('AnchorWatchSnapshot', () => {
         expect(snapshot.state).toBe('alarm');
         expect(snapshot.distanceFromAnchor).toBeGreaterThan(snapshot.swingRadius);
         expect(snapshot.alarmTriggeredAt).not.toBeNull();
+        expect(snapshot.alarmCause).toBe('drag');
     });
 });

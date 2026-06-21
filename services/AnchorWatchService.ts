@@ -29,6 +29,7 @@ import { AlarmAudioService } from './AlarmAudioService';
 import { createLogger } from '../utils/logger';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
+import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS } from './anchorGpsWatchdog';
 
 // ── Local-notification IDs ─────────────────────────────────────────
 // The alarm path drops THREE flavours of notification to maximise
@@ -106,6 +107,8 @@ export interface AnchorWatchSnapshot {
     config: AnchorWatchConfig;
     positionHistory: VesselPosition[];
     alarmTriggeredAt: number | null;
+    /** Why the alarm fired — 'drag' (left the swing circle) or 'gps-lost' (watch went blind). */
+    alarmCause: 'drag' | 'gps-lost' | null;
     watchStartedAt: number | null;
     gpsAccuracy: number;
     gpsQuality: 'precision' | 'standard' | 'degraded';
@@ -124,6 +127,7 @@ const HISTORY_MAX_POINTS = 500; // Max position trail points
 const _JITTER_WINDOW = 5; // Default moving average window (adaptive via GpsPrecision)
 const ALARM_CONFIRM_COUNT = 3; // # consecutive readings outside circle before alarm
 const MIN_GPS_ACCURACY = 50; // Ignore readings worse than 50m accuracy
+const GPS_WATCHDOG_INTERVAL_MS = 15_000; // How often the blind-watch watchdog polls
 const GEOFENCE_ID = 'anchor-swing-radius';
 const ANCHOR_WATCH_KEY = 'thalassa_anchor_watch_state';
 
@@ -209,6 +213,7 @@ class AnchorWatchServiceClass {
     private bearingToAnchor = 0;
     private positionHistory: VesselPosition[] = [];
     private alarmTriggeredAt: number | null = null;
+    private alarmCause: 'drag' | 'gps-lost' | null = null;
     private watchStartedAt: number | null = null;
 
     // Guardian bridge state
@@ -228,6 +233,10 @@ class AnchorWatchServiceClass {
 
     // Alarm audio
     private alarmInterval: ReturnType<typeof setInterval> | null = null;
+
+    // Blind-watch watchdog: fires if no usable GPS fix arrives while watching
+    private gpsWatchdog: ReturnType<typeof setInterval> | null = null;
+    private lastUsableFixAt: number | null = null;
 
     // ---- PUBLIC API ----
 
@@ -252,6 +261,7 @@ class AnchorWatchServiceClass {
             config: { ...this.config },
             positionHistory: [...this.positionHistory],
             alarmTriggeredAt: this.alarmTriggeredAt,
+            alarmCause: this.alarmCause,
             watchStartedAt: this.watchStartedAt,
             gpsAccuracy: this.gpsAccuracy,
             gpsQuality: GpsPrecision.getQuality(),
@@ -342,6 +352,7 @@ class AnchorWatchServiceClass {
             }
 
             await this.startGpsMonitoring();
+            this.startGpsWatchdog();
 
             // Auto-arm Guardian at anchor position (Tier 2 auto-arm)
             this.autoArmGuardian();
@@ -388,6 +399,7 @@ class AnchorWatchServiceClass {
 
         await BgGeoManager.ensureReady();
         await this.startGpsMonitoring();
+        this.startGpsWatchdog();
 
         // Auto-arm Guardian at anchor position (Tier 2 auto-arm)
         this.autoArmGuardian();
@@ -414,6 +426,7 @@ class AnchorWatchServiceClass {
     /** Stop watching and return to idle */
     async stopWatch(): Promise<void> {
         await this.stopGpsMonitoring();
+        this.stopGpsWatchdog();
         this.stopAlarm();
 
         // Allow screen to sleep again
@@ -427,6 +440,8 @@ class AnchorWatchServiceClass {
         this.anchorPosition = null;
         this.positionHistory = [];
         this.alarmTriggeredAt = null;
+        this.alarmCause = null;
+        this.lastUsableFixAt = null;
         this.watchStartedAt = null;
         this.maxDistanceRecorded = 0;
         this.distanceFromAnchor = 0;
@@ -446,7 +461,11 @@ class AnchorWatchServiceClass {
     acknowledgeAlarm(): void {
         this.stopAlarm();
         this.outsideCircleCount = 0;
+        this.alarmCause = null;
         this.state = 'watching';
+        // Re-arm the blind-watch watchdog with a fresh grace window — if GPS is
+        // still gone it will re-alarm after the staleness budget.
+        this.startGpsWatchdog();
         this.notify();
     }
 
@@ -532,6 +551,7 @@ class AnchorWatchServiceClass {
             }
             await BgGeoManager.ensureReady();
             await this.startGpsMonitoring();
+            this.startGpsWatchdog();
 
             this.notify();
             return true;
@@ -678,6 +698,13 @@ class AnchorWatchServiceClass {
 
         this.gpsAccuracy = position.accuracy;
 
+        // Watchdog clock: mark that a USABLE fix arrived. Use the fix's own
+        // timestamp (clamped to now so a future/clock-skewed stamp can't delay
+        // the watchdog) and only ever move it FORWARD, so BgGeo replaying an
+        // old fix can't reset the staleness clock and mask a real GPS loss.
+        const fixMs = Math.min(position.timestamp || Date.now(), Date.now());
+        this.lastUsableFixAt = Math.max(this.lastUsableFixAt ?? 0, fixMs);
+
         // Feed accuracy into precision tracker
         GpsPrecision.feed(position.accuracy);
 
@@ -752,6 +779,38 @@ class AnchorWatchServiceClass {
         };
     }
 
+    /**
+     * Start the blind-watch watchdog. Seeds the staleness clock from "now"
+     * (the anchor was just set from a fresh fix) and polls on an interval.
+     * Idempotent — safe to call on every transition into 'watching'.
+     */
+    private startGpsWatchdog(): void {
+        this.stopGpsWatchdog();
+        this.lastUsableFixAt = Date.now();
+        this.gpsWatchdog = setInterval(() => this.checkGpsStaleness(), GPS_WATCHDOG_INTERVAL_MS);
+    }
+
+    private stopGpsWatchdog(): void {
+        if (this.gpsWatchdog) {
+            clearInterval(this.gpsWatchdog);
+            this.gpsWatchdog = null;
+        }
+    }
+
+    /**
+     * Independent of the GPS callback: if no usable fix has arrived within the
+     * staleness budget while watching, the watch is blind and drag detection
+     * is frozen — so raise a distinct GPS-lost alarm rather than silently
+     * holding the last distance.
+     */
+    private checkGpsStaleness(): void {
+        if (this.state !== 'watching') return;
+        if (isAnchorGpsStale(Date.now(), this.lastUsableFixAt, GPS_LOST_THRESHOLD_MS)) {
+            log.warn('GPS lost while watching — raising blind-watch alarm');
+            void this.triggerAlarm('gps-lost');
+        }
+    }
+
     private checkForDrag(): void {
         if (this.state !== 'watching') return;
 
@@ -760,7 +819,7 @@ class AnchorWatchServiceClass {
         if (isOutside) {
             this.outsideCircleCount++;
             if (this.outsideCircleCount >= ALARM_CONFIRM_COUNT) {
-                this.triggerAlarm();
+                this.triggerAlarm('drag');
             }
         } else {
             // Reset counter if back inside
@@ -768,10 +827,11 @@ class AnchorWatchServiceClass {
         }
     }
 
-    private async triggerAlarm(): Promise<void> {
+    private async triggerAlarm(cause: 'drag' | 'gps-lost' = 'drag'): Promise<void> {
         if (this.state === 'alarm') return; // Already alarming
 
         this.state = 'alarm';
+        this.alarmCause = cause;
         this.alarmTriggeredAt = Date.now();
 
         // Persist alarm state — crash during alarm should restore to alarm, not watching
@@ -833,8 +893,11 @@ class AnchorWatchServiceClass {
         if (!Capacitor.isNativePlatform()) return;
         const distance = Math.round(this.distanceFromAnchor ?? 0);
         const radius = Math.round(this.swingRadius ?? 0);
-        const title = '⚠️ Anchor Dragging';
-        const body = `${distance}m from anchor (swing radius ${radius}m). Check vessel position.`;
+        const isGpsLost = this.alarmCause === 'gps-lost';
+        const title = isGpsLost ? '⚠️ Anchor Watch Blind — GPS Lost' : '⚠️ Anchor Dragging';
+        const body = isGpsLost
+            ? `No GPS fix for over ${Math.round(GPS_LOST_THRESHOLD_MS / 1000)}s — the anchor watch can't detect dragging. Check your position.`
+            : `${distance}m from anchor (swing radius ${radius}m). Check vessel position.`;
 
         // Build the immediate + repeat schedule. iOS LocalNotifications
         // can't loop indefinitely, so we enqueue 20 discrete reminders.
