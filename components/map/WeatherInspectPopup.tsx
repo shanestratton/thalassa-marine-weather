@@ -8,6 +8,7 @@
 
 import React from 'react';
 import type { PointWeatherData } from '../../services/weather/pointWeather';
+import { mToFt } from '../../utils/units';
 
 interface Props {
     data: PointWeatherData | null;
@@ -27,7 +28,7 @@ function kmhToKnots(kmh: number): number {
 }
 
 function metresToFeet(m: number): number {
-    return Math.round(m * 3.281);
+    return Math.round(mToFt(m)); // canonical 3.28084 (was a drifted 3.281)
 }
 
 // ── Skeleton shimmer ──

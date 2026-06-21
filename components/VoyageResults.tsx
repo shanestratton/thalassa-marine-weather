@@ -2,6 +2,7 @@ import React from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { createLogger } from '../utils/createLogger';
 import { vesselDraftMetres } from '../services/units';
+import { ftToM } from '../utils/units';
 
 const _log = createLogger('VoyageResults');
 import { toast as _toast } from './Toast';
@@ -155,7 +156,7 @@ export const VoyageResults: React.FC<VoyageResultsProps> = React.memo(
         // All stored wave heights are in ft — convert at display time
         const displayWave = (ftVal: number | undefined): string => {
             if (ftVal === undefined || ftVal === null) return '--';
-            if (waveUnit === 'm') return (ftVal / 3.281).toFixed(1);
+            if (waveUnit === 'm') return ftToM(ftVal).toFixed(1); // canonical 0.3048 (was /3.281)
             return String(Math.round(ftVal * 10) / 10);
         };
 

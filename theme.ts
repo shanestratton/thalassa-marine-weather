@@ -392,7 +392,15 @@ function buildTheme(colors: ThemeColors, env: Environment): ThemeTokens {
 
         header: {
             bar: `${colors.bg.base}/90 backdrop-blur-lg border-b border-white/5 px-4 py-2 shrink-0`,
-            glass: `shrink-0 px-4 py-2.5 bg-gradient-to-r from-${env === 'offshore' ? 'slate' : 'stone'}-900/80 via-${env === 'offshore' ? 'slate' : 'stone'}-950/90 to-${env === 'offshore' ? 'slate' : 'stone'}-900/80 backdrop-blur-xl border-b border-white/[0.06]`,
+            // NOTE: Tailwind only keeps classes it sees as COMPLETE literal
+            // strings. Interpolating the colour family (`via-${env}-950/90`)
+            // purged every gradient stop, so this header rendered flat on
+            // device. Branch on full literal strings so both variants survive.
+            glass: `shrink-0 px-4 py-2.5 bg-gradient-to-r ${
+                env === 'offshore'
+                    ? 'from-slate-900/80 via-slate-950/90 to-slate-900/80'
+                    : 'from-stone-900/80 via-stone-950/90 to-stone-900/80'
+            } backdrop-blur-xl border-b border-white/[0.06]`,
         },
 
         input: {
