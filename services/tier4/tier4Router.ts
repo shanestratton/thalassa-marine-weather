@@ -34,6 +34,11 @@ export interface Tier4Context {
      *  marked channel rides where charted. Absent/empty ⇒ gate-follower only. */
     readonly recommendedTracks: readonly LeadingLine[];
     readonly marks: readonly LateralMark[];
+    /** OSM channel-midpoint CHAINS as ordered centrelines (one LeadingLine per
+     *  _chainId, vertices sorted by _chainOrder) — the buoyed channel's spine
+     *  (Shane's "7-5-3-1" Newport exit). Snapped onto FIRST: a buoyed chain IS the
+     *  channel, so NO land-veto and NO gate-pairing. Empty ⇒ RECTRC + gate fallback. */
+    readonly channelChains: readonly LeadingLine[];
 }
 
 const cellIdx = (g: NavGrid, lon: number, lat: number): number => {
@@ -88,6 +93,28 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         if (ll.snapped > 0) {
             poly = ll.polyline;
             prov.push(`rectrc×${ll.snapped}`);
+        }
+    }
+
+    // 1b. CHANNEL-MIDPOINT CHAIN — where no RECTRC covers the marks, snap onto the OSM
+    //     midpoint centreline (Shane's "7-5-3-1") BEFORE the gate-follower. A buoyed chain
+    //     IS the channel: isBlocked is OMITTED (no land veto) and there is no gate-pairing,
+    //     so this one snap sidesteps ALL THREE gate declines (near<2/side, gates0,
+    //     body-land) that otherwise leave the leg a stepped A* staircase. Generous corridor
+    //     captures the de-spiked A* slice a few 50 m cells off-centre; low minRun lets the
+    //     short Newport exit snap. snapToLeadingLines pins origin/dest + rejects a
+    //     perpendicular brush-by (maxAngleDeg), so it can't grab the PARALLEL channel
+    //     ~1.1 km away. Needs ≥4 vertices; on no-snap, falls through to the gate-follower.
+    if (prov.length === 0 && ctx.channelChains.length > 0 && poly.length >= 4) {
+        const ch = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.channelChains], {
+            isCaution,
+            corridorM: 180,
+            minRunM: 60,
+            maxAngleDeg: 35,
+        });
+        if (ch.snapped > 0) {
+            poly = ch.polyline;
+            prov.push(`chain×${ch.snapped}`);
         }
     }
 
