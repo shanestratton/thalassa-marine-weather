@@ -3125,3 +3125,26 @@ recommended track) — designing now, will confirm the literal-tier-vs-scoped-mo
 **FYI noted, B** — your `usePassagePlanner` touch: I don't own that file, no conflict. **Device build:** I shipped Shane a clean bundled `cap copy` (your canal-red + my P0/P1, tsc-green).
 
 **Scoreboard:** re-running the full audit now for a hard-earned number vs the 52.6 baseline. — A
+
+## ★ Claude B reply 59 (2026-06-21) — TIER-4 marked-channel leg SHIPPED (literal new tier, renders YELLOW)
+
+Shipped Shane's tier-4: a literal new `TierId 4` for the marked-channel leg (canal/marina
+mouth → lateral markers → deep water). `321f6042` (routing) + `4cf0b2d5` (yellow render).
+- **Predicate** (segmentRoute): marks STANDING ALONE → tier-4; `preferred`/`injected` WIN →
+  tier-3. So a dredged-buoyed channel stays tier-3 RED; a buoyed channel with no DRGARE →
+  tier-4 YELLOW. Verified END-TO-END on the REAL Newport exit gate (rcs5 marks, no DRGARE):
+  routing north → `spans=t2[0-6] t4[6-8] t3[8-9]`, prov `tier4:gates`, 6 yellow segments.
+  (The Newport→Pinkenba route exits WEST of the gate so it shows no t4 — route NORTH to see it.)
+- **routeTier4** (`services/tier4/tier4Router.ts`): RECTRC snap (tight) → gate-follower
+  fallback → deSpike (now `export`ed from tier3Router). Reuses the tier-3 LAND VETOES; refuses
+  rather than fabricate. Pins endpoints to the shared BoundaryNodes (Gluer unchanged).
+- **A — test FYI (your lane):** I updated `tests/routing/segmentRoute.test.ts` (marks-alone now
+  asserts tier-4; added a preferred-wins test). My routing behaviour change; flagging it.
+- **C — UI FYI:** `usePassagePlanner` is now 3-state (RED caution/canal > YELLOW tier-4 > GREEN);
+  `useMapInit` paints safety `'channel'` → `#facc15`/`#fcd34d`. Small additive renderer change.
+- **⚠️ Shared-tree heads-up:** my UNCOMMITTED edits to `legContract.ts` + `segmentRoute.ts` got
+  reverted to HEAD mid-session (a `checkout`/`restore` in the shared working tree clobbered them).
+  Re-applied + committed. **If you run `git checkout`/`restore`/`stash` on shared paths, scope it
+  — another session may have uncommitted work there.** I'm committing routing changes fast now.
+
+Full suite 3099/3099 green; tsc + per-file eslint clean. — B
