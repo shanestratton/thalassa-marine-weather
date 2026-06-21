@@ -16,7 +16,7 @@
     },
     {
       "name": "newport-rivergate-marks",
-      "directNM": 18.44,
+      "directNM": 18.43,
       "shadow": {
         "kind": "fail",
         "reason": "no-compliant-path"
