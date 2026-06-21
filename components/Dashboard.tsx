@@ -10,9 +10,12 @@ import { triggerHaptic } from '../utils/system';
 import { HeroSection } from './dashboard/Hero';
 import { CompactHeaderRow } from './dashboard/CompactHeaderRow';
 import { StatusBadges } from './dashboard/StatusBadges';
-// StalenessBanner removed from Glass page 2026-04-28 — see render-site
-// comment for rationale. File retained for potential reuse in System
-// Status modal.
+// StalenessBanner re-mounted 2026-06-21 (Claude A quality pass): a marine
+// safety app must warn when the displayed weather is stale or the device is
+// offline. Self-hides when data is fresh and online, so it adds no chrome in
+// the normal case. Lives in the bottom badges container, next to the
+// data-source badges, to avoid disturbing the hand-calc'd top layout stack.
+import { StalenessBanner } from './dashboard/StalenessBanner';
 import { GlassTutorial } from './dashboard/GlassTutorial';
 import { OffshoreBoundaryToast } from './dashboard/OffshoreBoundaryToast';
 import { getMoonPhase } from './dashboard/WeatherHelpers';
@@ -35,9 +38,7 @@ import { UnitPreferences, SourcedWeatherMetrics } from '../types';
 import { fetchMinutelyRainWithSummary, MinutelyRain } from '../services/weather/api/weatherkit';
 import { fetchRainbowPrecip } from '../services/weather/api/rainbowPrecip';
 import { useSettingsStore } from '../stores/settingsStore';
-// uiStore.isOffline reader removed with StalenessBanner — no other Dashboard
-// surface needs the offline flag. Re-add the import if a new offline-aware
-// element is introduced.
+import { useUIStore } from '../stores/uiStore';
 import {
     DndContext,
     PointerSensor,
@@ -116,6 +117,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
         handleAudioBroadcast,
         shareReport,
         staleRefresh,
+        refreshData,
         refreshInterval,
         settings,
     } = useDashboardController(props.viewMode);
@@ -133,8 +135,10 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
     // pinned-map or searched locations aren't overwritten.
     const liveLocationName = useLiveLocationName();
 
-    // (Previously: const isOffline = useUIStore(...). Removed with the
-    // StalenessBanner — Glass page now renders identically online/offline.)
+    // Reactive offline flag (internetProbe-verified WAN reachability, not just
+    // navigator.onLine) — feeds the StalenessBanner so the Glass page warns the
+    // moment the connection drops, even on otherwise-fresh data.
+    const isOffline = useUIStore((s) => s.isOffline);
     const isInland = data?.locationType === 'inland' || isLandlocked;
     const offshore = useOffshoreStatus(data?.locationType);
     const isOffshore = offshore.isOffshore;
@@ -1010,6 +1014,14 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                     className="fixed left-0 right-0 z-[125] px-4"
                                     style={{ bottom: 'calc(env(safe-area-inset-bottom) + 74px)' }}
                                 >
+                                    {/* Data-staleness / offline warning — self-hides when fresh + online */}
+                                    <StalenessBanner
+                                        generatedAt={data.generatedAt}
+                                        locationType={data.locationType}
+                                        isOffline={isOffline}
+                                        onRefresh={refreshData}
+                                        isSyncing={staleRefresh}
+                                    />
                                     <div className={`rounded-xl bg-black/40 ${t.border.default} p-2`}>
                                         <StatusBadges
                                             isLandlocked={isLandlocked}

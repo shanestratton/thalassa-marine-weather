@@ -50,7 +50,12 @@ describe('computePropulsionSplit', () => {
     });
 
     it('a single point or empty list yields all zeros', () => {
-        expect(computePropulsionSplit([])).toEqual({ motorMs: 0, sailMs: 0, unknownMs: 0 });
-        expect(computePropulsionSplit([e(0, 'running')])).toEqual({ motorMs: 0, sailMs: 0, unknownMs: 0 });
+        expect(computePropulsionSplit([])).toEqual({ motorMs: 0, sailMs: 0, unknownMs: 0, estimatedMs: 0 });
+        expect(computePropulsionSplit([e(0, 'running')])).toEqual({
+            motorMs: 0,
+            sailMs: 0,
+            unknownMs: 0,
+            estimatedMs: 0,
+        });
     });
 });
