@@ -10,6 +10,7 @@
  */
 
 import { createLogger } from '../utils/createLogger';
+import { mToFt } from '../utils/units';
 import { VoyagePlan, VesselProfile, PolarData, Waypoint } from '../types';
 import { supabase } from './supabase';
 import type { SpatiotemporalPayload } from '../types/spatiotemporal';
@@ -156,7 +157,7 @@ export function mergeWeatherRoute(voyagePlan: VoyagePlan, payload: Spatiotempora
         coordinates: { lat: pt.coordinates[1], lon: pt.coordinates[0] }, // GeoJSON → lat/lon
         depth_m: pt.conditions.depth_m ?? undefined,
         windSpeed: Math.round(pt.conditions.wind_spd_kts),
-        waveHeight: Math.round(pt.conditions.wave_ht_m * 3.281), // m → ft
+        waveHeight: Math.round(mToFt(pt.conditions.wave_ht_m)), // m → ft (canonical 3.28084)
     }));
 
     merged.waypoints = newWaypoints;
