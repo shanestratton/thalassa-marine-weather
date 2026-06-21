@@ -67,6 +67,7 @@ import {
     buildLeadingApproach,
     distM as llDistM,
     anyAlong as llAnyAlong,
+    type LeadingLine,
 } from './leadingLine';
 // Three-tier contract path (docs/THREE_TIER_ROUTING.md). segmentRoute + the
 // tier routers operate on the contract's [lon,lat] tuple LatLon, which the
@@ -4195,6 +4196,27 @@ function applyThreeTier(
             return { lat, lon, side: 'port' as const, key: '_mp', seq: 0, name: 'midpoint' };
         });
     const segMarks = midpointMarks.length ? [...marks, ...midpointMarks] : marks;
+    // CHANNEL-MIDPOINT CHAINS → ordered centrelines for tier-4. The same OSM
+    // pair-inferred midpoints carry _chainId + _chainOrder; group by chain, sort by
+    // order ⇒ one LeadingLine per buoyed channel = Shane's "7-5-3-1" spine. Tier-4
+    // snaps onto these FIRST (a buoyed chain IS the channel), bypassing the fragile
+    // gate-pairing AND the land veto — no cross-pair, no body-land. Tier-3 untouched.
+    const chainGroups = new Map<number, { order: number; lon: number; lat: number }[]>();
+    for (const f of layers.BOYLAT?.features ?? []) {
+        const cp = f.properties as { _class?: string; _chainId?: number; _chainOrder?: number } | null;
+        if (cp?._class !== 'channel_midpoint' || f.geometry?.type !== 'Point') continue;
+        if (typeof cp._chainId !== 'number' || typeof cp._chainOrder !== 'number') continue;
+        const [lon, lat] = (f.geometry as { coordinates: number[] }).coordinates;
+        const g = chainGroups.get(cp._chainId);
+        if (g) g.push({ order: cp._chainOrder, lon, lat });
+        else chainGroups.set(cp._chainId, [{ order: cp._chainOrder, lon, lat }]);
+    }
+    const channelChains: LeadingLine[] = [];
+    for (const g of chainGroups.values()) {
+        if (g.length < 2) continue; // need ≥2 points for a snappable centreline
+        g.sort((a, b) => a.order - b.order);
+        channelChains.push({ pts: g.map((p) => ({ lat: p.lat, lon: p.lon })) });
+    }
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
     // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
     // estate, drawn down the middle of every canal. tier-3 follows these FIRST.
@@ -4306,7 +4328,7 @@ function applyThreeTier(
         }
     };
     const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
-    const ctx4: Tier4Context = { grid, recommendedTracks: rectrcLines, marks };
+    const ctx4: Tier4Context = { grid, recommendedTracks: rectrcLines, marks, channelChains };
     const results: LegResult[] = spans.map((span) =>
         span.tier === 4
             ? routeTier4(span, route, ctx4)
