@@ -127,10 +127,11 @@ describe('watchBridgeListeners', () => {
     describe('phone → watch weather', () => {
         it('pushes a snapshot when weatherData lands', async () => {
             useWeatherStore.setState({ weatherData: makeWeather() });
-            // The subscription handler is async (it lazy-imports
-            // ShipLogService), so let microtasks settle.
-            await new Promise((r) => setTimeout(r, 50));
-            expect(pushWeather).toHaveBeenCalledTimes(1);
+            // The subscription handler is async (it lazy-imports ShipLogService).
+            // Wait until it actually fires instead of racing a fixed delay — a
+            // fixed setTimeout(50) flaked under parallel load when the dynamic
+            // import took longer than 50ms.
+            await vi.waitFor(() => expect(pushWeather).toHaveBeenCalledTimes(1));
             const snap = pushWeather.mock.calls[0][0];
             expect(snap.windKts).toBe(12);
             expect(snap.windDirDeg).toBe(90);
@@ -142,20 +143,19 @@ describe('watchBridgeListeners', () => {
 
         it('coalesces — does not push if wind/heading are unchanged', async () => {
             useWeatherStore.setState({ weatherData: makeWeather() });
-            await new Promise((r) => setTimeout(r, 50));
+            await vi.waitFor(() => expect(pushWeather).toHaveBeenCalledTimes(1));
             const callsAfterFirst = pushWeather.mock.calls.length;
             // Re-set with same content — different object identity, same values.
             useWeatherStore.setState({ weatherData: makeWeather() });
-            await new Promise((r) => setTimeout(r, 50));
+            await new Promise((r) => setTimeout(r, 50)); // negative assertion — allow time for a (non-)push
             expect(pushWeather.mock.calls.length).toBe(callsAfterFirst);
         });
 
         it('does push when wind speed changes', async () => {
             useWeatherStore.setState({ weatherData: makeWeather({ windSpeed: 12 }) });
-            await new Promise((r) => setTimeout(r, 50));
+            await vi.waitFor(() => expect(pushWeather).toHaveBeenCalledTimes(1));
             useWeatherStore.setState({ weatherData: makeWeather({ windSpeed: 18 }) });
-            await new Promise((r) => setTimeout(r, 50));
-            expect(pushWeather).toHaveBeenCalledTimes(2);
+            await vi.waitFor(() => expect(pushWeather).toHaveBeenCalledTimes(2));
         });
 
         it('skips when wind data is incomplete (would render zeros on the watch)', async () => {
