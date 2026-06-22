@@ -15,7 +15,7 @@
  */
 
 import { isPremiumUser, triggerPaywall, type SubscriptionStatus } from './SubscriptionManager';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('FeatureGate');
 

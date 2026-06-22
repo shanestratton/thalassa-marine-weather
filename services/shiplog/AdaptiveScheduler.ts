@@ -20,7 +20,7 @@
  * can guard "should I reschedule?" decisions without touching the
  * timer handle directly.
  */
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('ShipLog.Scheduler');
 

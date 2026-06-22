@@ -12,7 +12,7 @@
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Capacitor } from '@capacitor/core';
 import { supabase } from './supabase';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('Push');
 

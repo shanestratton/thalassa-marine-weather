@@ -12,7 +12,7 @@ import { Haptics, ImpactStyle } from '@capacitor/haptics';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { Preferences } from '@capacitor/preferences';
 import { GpsService, type GpsPosition } from './GpsService';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('MOB');
 

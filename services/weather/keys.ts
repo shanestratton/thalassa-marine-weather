@@ -1,5 +1,5 @@
 import { CapacitorHttp } from '@capacitor/core';
-import { getErrorMessage } from '../../utils/logger';
+import { getErrorMessage } from '../../utils/createLogger';
 import { rateLimiter } from '../../utils/rateLimiter';
 
 /**

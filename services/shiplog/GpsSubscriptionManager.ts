@@ -27,7 +27,7 @@
  * orchestrator passes accessor callbacks. Same pattern as the other
  * shiplog modules — keeps coupling one-way.
  */
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import { BgGeoManager } from '../BgGeoManager';
 import type { CachedPosition } from '../BgGeoManager';
 import { EnvironmentService } from '../EnvironmentService';

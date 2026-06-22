@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { useThalassa } from '../context/ThalassaContext';
 import { supabase } from '../services/supabase';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('NotifMgr');
 

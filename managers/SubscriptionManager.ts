@@ -11,7 +11,7 @@
  */
 
 import { supabase } from '../services/supabase';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SubscriptionManager');
 

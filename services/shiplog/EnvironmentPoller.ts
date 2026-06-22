@@ -14,7 +14,7 @@
  * orchestrator's `rescheduleAdaptiveInterval()`). It owns its own timer
  * and nothing else.
  */
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import type { CachedPosition } from '../BgGeoManager';
 import { checkIsOnWater } from './waterDetection';
 

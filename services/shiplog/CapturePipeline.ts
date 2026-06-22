@@ -45,7 +45,7 @@
 import type { ShipLogEntry } from '../../types';
 import type { CachedPosition } from '../BgGeoManager';
 import { BgGeoManager } from '../BgGeoManager';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import {
     saveEntryOnlineOrOffline,
     retryGpsAndUpdateEntry,

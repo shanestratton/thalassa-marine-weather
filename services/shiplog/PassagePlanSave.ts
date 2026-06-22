@@ -10,7 +10,7 @@ import { ShipLogEntry } from '../../types';
 import { calculateDistanceNM, calculateBearing, formatPositionDMS, toDbFormat, SHIP_LOGS_TABLE } from './helpers';
 import { queueOfflineEntry } from './OfflineQueue';
 import { fetchRoutesAndTracks, invalidateRoutesAndTracks } from './RoutesAndTracks';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('PassagePlanSave');
 

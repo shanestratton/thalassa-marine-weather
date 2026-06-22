@@ -16,7 +16,7 @@ import { queueOfflineEntry, demoteLatestPositionInQueue } from './OfflineQueue';
 import { BgGeoManager, CachedPosition } from '../BgGeoManager';
 import { GpsService } from '../GpsService';
 import { Capacitor } from '@capacitor/core';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('EntrySave');
 

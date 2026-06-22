@@ -6,7 +6,7 @@ import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput } from '../utils';
 import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
-import { getErrorMessage } from '../utils/logger';
+import { getErrorMessage } from '../utils/createLogger';
 import { withTimeout } from '../utils/deadline';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';

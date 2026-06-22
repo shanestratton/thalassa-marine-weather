@@ -46,7 +46,7 @@ import { isPlannedRouteGroup, excludeSuggestedRoutes } from '../utils/voyageStat
 import { exportVoyageAsGPX, shareGPXFile, readGPXFile, importGPXToEntries } from '../services/gpxService';
 import { TrackSharingService, TrackCategory } from '../services/TrackSharingService';
 import { LogFilters } from '../components/LogFilterToolbar';
-import { getErrorMessage } from '../utils/logger';
+import { getErrorMessage } from '../utils/createLogger';
 
 // ─── STATE SHAPE ──────────────────────────────────────────────────────────────
 

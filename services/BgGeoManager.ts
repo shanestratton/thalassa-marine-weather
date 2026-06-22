@@ -18,7 +18,7 @@ import BackgroundGeolocation, {
     Location,
     Subscription as BGSubscription,
 } from '@transistorsoft/capacitor-background-geolocation';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('BgGeo');
 
