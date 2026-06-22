@@ -510,12 +510,29 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             }
                         }
                     }
-                    // TEMP RENDER DIAGNOSTIC — which path wins route-line + what it draws.
-                    log.warn(
-                        `[render] route-line ← INSHORE (${inshoreFeatures.length}): ${inshoreFeatures
-                            .map((f) => f.properties?.safety)
-                            .join(',')}`,
-                    );
+                    // TEMP RENDER DIAGNOSTIC — dump EVERY line/overlay source's feature count so we can
+                    // see EXACTLY which layer draws the cyan "zigzag". The route is proven clean
+                    // (route-line ← INSHORE), so the zigzag is one of the OTHER sources below.
+                    {
+                        const dump = [
+                            'route-line',
+                            'confidence-route-gfs',
+                            'confidence-route-ecmwf',
+                            'isochrones',
+                            'harbour-seamarks',
+                            'waypoints',
+                        ]
+                            .map((sid) => {
+                                const s = map.getSource(sid) as unknown as
+                                    | { _data?: { features?: unknown[] } }
+                                    | undefined;
+                                const n =
+                                    s && s._data && Array.isArray(s._data.features) ? s._data.features.length : 'n/a';
+                                return `${sid}=${n}`;
+                            })
+                            .join(' ');
+                        log.warn(`[render] INSHORE feats=${inshoreFeatures.length} | ${dump}`);
+                    }
                     // A newer compute run may have started during the ~90s inshore await — don't let
                     // this (possibly stale) run paint over it. Two sequential runs (one fragmented, one
                     // chain-clean) were racing to write LAST, so the displayed route was non-deterministic
