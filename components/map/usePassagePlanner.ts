@@ -516,6 +516,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             .map((f) => f.properties?.safety)
                             .join(',')}`,
                     );
+                    // A newer compute run may have started during the ~90s inshore await — don't let
+                    // this (possibly stale) run paint over it. Two sequential runs (one fragmented, one
+                    // chain-clean) were racing to write LAST, so the displayed route was non-deterministic
+                    // — that is why code fixes appeared to "do nothing": a stale fragmented run sometimes won.
+                    if (gen !== computeGenRef.current) return;
                     const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                     if (routeSrc) {
                         routeSrc.setData({ type: 'FeatureCollection', features: inshoreFeatures });
@@ -563,6 +568,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }
 
                     dispatchPassageNotice(null); // route rendered — clear the computing band
+                    // Clear any STALE confidence braid (GFS cyan / ECMWF magenta) left by a PRIOR
+                    // long-route compute. The braid is only ever drawn AND cleared inside the
+                    // !isShortRoute isochrone block; the inshore path returns here without touching it,
+                    // and clearRoute doesn't either — so without this it persists as a cyan/magenta
+                    // zigzag over the gates that no inshore recompute erases. (Shane's "zigzag at the
+                    // gates" — it was a ghost braid sitting on top of the clean inshore route.)
+                    for (const braidId of ['confidence-route-gfs', 'confidence-route-ecmwf']) {
+                        const braidSrc = map.getSource(braidId) as mapboxgl.GeoJSONSource;
+                        if (braidSrc) braidSrc.setData({ type: 'FeatureCollection', features: [] });
+                    }
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
