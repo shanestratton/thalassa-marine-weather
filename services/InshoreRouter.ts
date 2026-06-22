@@ -82,6 +82,19 @@ const CLOUD_ROUTER_ENABLED = false;
 // up in route latency (it rides the grid cache, so it shouldn't).
 const SEAWAY_SHADOW_ENABLED = true;
 
+// Phase 13 — PROMOTE the Seaway Graph route (it threads dead-centre through the
+// lateral-mark gates by construction) when it is side-correct AND stays within the
+// PER-LEG detour cap. The engine route is computed first regardless and remains the
+// PERMANENT fallback. A compile-time `const` (NOT env/remote) so the minifier
+// dead-code-eliminates the whole promotion branch when off → the shipped binary is
+// provably engine-only and byte-identical to today; flipping it is a one-line commit.
+const SEAWAY_ROUTER_ENABLED = true;
+// PER-LEG (not whole-route) detour cap — a long near-straight open-water connector leg
+// must survive (the Newport→Rivergate direct-bay route).
+const SEAWAY_DETOUR_CAP = 1.35;
+// Effectively 100% gate side-correctness; 0.999 only absorbs float-equality.
+const SEAWAY_GATE_COMPLIANCE_MIN = 0.999;
+
 // Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
 // Scarborough/marker/midpoint traces, ribbon continuity, full polyline
 // coordinate dumps, phase timings). Gated OFF for production — the minifier
@@ -130,6 +143,9 @@ export interface InshoreRouteResult {
      * Empty/absent on a fully-inshore route.
      */
     offshoreMask?: boolean[];
+    /** Phase 13: present ONLY on a PROMOTED Seaway Graph route (for UI / Bosun
+     *  narration). Absent on every engine-fallback route. */
+    debug?: { seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number } };
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -1297,6 +1313,48 @@ async function tryInshoreRouteInner(
             const report = shadowCompare(merged, routeOpts, result, { regionalPairs: regionalPairsForShadow });
             if (report) {
                 log.warn(`SEAWAY SHADOW: ${shadowSummary(report, result.distanceNM)} (${Date.now() - tShadow} ms)`);
+                // Phase 13 — PROMOTE the graph route when it threads the gates side-correctly
+                // and every leg stays within the detour cap. Returns early with the graph
+                // polyline (which passes through every gate midpoint, "geometry is the law"),
+                // structurally skipping the engine post-hoc passes (they only run inside
+                // routeInshore on engine geometry). Any reject falls through to the engine route.
+                if (SEAWAY_ROUTER_ENABLED && report.graph) {
+                    const g = report.graph;
+                    const promotable =
+                        g.crossLineViolations === 0 &&
+                        g.gateCompliance !== null &&
+                        g.gateCompliance >= SEAWAY_GATE_COMPLIANCE_MIN &&
+                        g.maxLegDetour <= SEAWAY_DETOUR_CAP &&
+                        g.polyline.length >= 2;
+                    if (promotable) {
+                        log.warn(
+                            `SEAWAY ROUTER: PROMOTED graph route (${g.edgesUsed.length} edges, compliance ${g.gateCompliance}, maxLegDetour ${g.maxLegDetour.toFixed(2)})`,
+                        );
+                        const segCount = Math.max(0, g.polyline.length - 1);
+                        return {
+                            polyline: g.polyline,
+                            // The Seaway Graph route IS the marked-channel router's output → tier-4
+                            // YELLOW. (Connector approach/exit legs ride yellow too for now; a
+                            // channel-vs-connector split is a later refinement.)
+                            tier4Mask: new Array(segCount).fill(true),
+                            distanceNM: g.lengthM / 1852,
+                            cellsUsed,
+                            elapsedMs,
+                            debug: {
+                                seaway: {
+                                    edgesUsed: g.edgesUsed,
+                                    gateCount: g.gateCount,
+                                    gateCompliance: g.gateCompliance,
+                                    detourRatio: g.detourRatio,
+                                },
+                            },
+                        };
+                    }
+                    log.warn(
+                        `SEAWAY ROUTER: graph route DECLINED — violations=${g.crossLineViolations} ` +
+                            `compliance=${g.gateCompliance} maxLegDetour=${g.maxLegDetour.toFixed(2)} (engine route ships)`,
+                    );
+                }
             } else if (ROUTE_DEBUG) {
                 log.warn('SEAWAY SHADOW: corridor has no lateral marks — nothing to shadow');
             }

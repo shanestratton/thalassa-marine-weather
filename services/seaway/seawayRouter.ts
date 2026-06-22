@@ -116,8 +116,15 @@ export interface SeawayShadowRoute {
     resolveRounds: number;
     /** Fraction of route length on channel-edge geometry. */
     pctOnGraph: number;
-    /** lengthM / direct route's geometric length. */
+    /** lengthM / direct route's geometric length. WHOLE-route — telemetry only. */
     detourRatio: number;
+    /** Max over all legs (entry connector, each channel edge / hop, exit
+     *  connector) of legLengthM / legChordM (haversine between the leg's own
+     *  endpoints). The PER-LEG promotion arbiter (masterplan §3): whole-route
+     *  detourRatio is the wrong denominator — a long near-straight open-water
+     *  connector inflates it and would wrongly kill the Newport→Rivergate
+     *  direct-bay route. A degenerate/zero-chord leg yields Infinity ⇒ declines. */
+    maxLegDetour: number;
     entryNodeId: string;
     exitNodeId: string;
 }
@@ -505,19 +512,35 @@ export function shadowCompare(
                 if (!last || gateDistM(last, p) > 1) line.push(p);
             }
         };
-        push(entries.get(entryNode.id)!.path.map(cellToLatLon));
         const edgesUsed: string[] = [];
         let onGraphM = 0;
+        // PER-LEG detour (masterplan §3): each leg's actual length over the
+        // straight-line chord between its own endpoints. Math.max across all
+        // legs is the promotion arbiter — a near-straight open-water connector
+        // reads ~1.0 even when it is long, so the direct-bay route survives.
+        let maxLegDetour = 0;
+        const legDetour = (pts: SeawayLatLon[]): number => {
+            if (pts.length < 2) return 0;
+            const chord = gateDistM(pts[0], pts[pts.length - 1]);
+            const len = polylineLengthM(pts);
+            return chord > 1 ? len / chord : len > 1 ? Infinity : 0;
+        };
+        const entryPts = entries.get(entryNode.id)!.path.map(cellToLatLon);
+        maxLegDetour = Math.max(maxLegDetour, legDetour(entryPts));
+        push(entryPts);
         for (let i = 2; i < nodePath.length - 1; i++) {
             const link = prevLink[nodePath[i]];
             if (!link) continue;
+            maxLegDetour = Math.max(maxLegDetour, legDetour(link.polyline));
             push(link.polyline);
             if (link.edgeId) {
                 edgesUsed.push(link.edgeId);
                 onGraphM += link.weightM;
             }
         }
-        push([...exits.get(exitNode.id)!.path.map(cellToLatLon)].reverse());
+        const exitPts = [...exits.get(exitNode.id)!.path.map(cellToLatLon)].reverse();
+        maxLegDetour = Math.max(maxLegDetour, legDetour(exitPts));
+        push(exitPts);
         mark('assemble');
 
         // ── MEASURED cross-line compliance (crossLine.ts) ─────────────
@@ -581,6 +604,7 @@ export function shadowCompare(
                 resolveRounds,
                 pctOnGraph: lengthM > 0 ? onGraphM / lengthM : 0,
                 detourRatio: directLengthM > 0 ? lengthM / directLengthM : Infinity,
+                maxLegDetour,
                 entryNodeId: entryNode.id,
                 exitNodeId: exitNode.id,
             },
