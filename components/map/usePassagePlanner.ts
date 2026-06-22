@@ -1840,6 +1840,20 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                         ecmwfCoords = ecmwfSmoothed.map((n) => [n.lon, n.lat] as [number, number]);
                                     }
 
+                                    // Shane (2026-06-22): hide the GFS/ECMWF model-comparison braid over
+                                    // the INSHORE leg. On a short/coastal route depGate=departure (see
+                                    // ~line 687), so the braid is computed from the marina and overlays
+                                    // the buoyed channel where the tier route is authoritative — Shane's
+                                    // "zigzag at the gates". Drop braid points within INSHORE_BRAID_CLIP_NM
+                                    // of EITHER endpoint so it only draws on the open-water middle, where
+                                    // forecast divergence actually matters. Empty (fully-inshore hop) ⇒ no braid.
+                                    const INSHORE_BRAID_CLIP_NM = 3;
+                                    ecmwfCoords = ecmwfCoords.filter(
+                                        (c) =>
+                                            hav(departure.lat, departure.lon, c[1], c[0]) > INSHORE_BRAID_CLIP_NM &&
+                                            hav(arrival.lat, arrival.lon, c[1], c[0]) > INSHORE_BRAID_CLIP_NM,
+                                    );
+
                                     // Deferred GEBCO fine-resolution validation (same as primary route)
                                     (async () => {
                                         try {
