@@ -17,7 +17,7 @@ import { Capacitor } from '@capacitor/core';
 import { piCache } from '../services/PiCacheService';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import { supabase } from '../services/supabase';
-import { getErrorMessage } from '../utils/logger';
+import { getErrorMessage } from '../utils/createLogger';
 import { tierIsPro } from '../services/SubscriptionService';
 import { createLogger } from '../utils/createLogger';
 import { Geolocation } from '@capacitor/geolocation';

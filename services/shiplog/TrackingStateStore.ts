@@ -14,7 +14,7 @@
  * of `TrackingState` and pushes/pulls through these helpers.
  */
 import { Preferences } from '@capacitor/preferences';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import type { LoggingZone } from './helpers';
 
 const log = createLogger('ShipLog.Store');

@@ -24,7 +24,7 @@ import { Capacitor } from '@capacitor/core';
 import { ShipLogEntry } from '../types';
 import { BgGeoManager, CachedPosition } from './BgGeoManager';
 import { EnvironmentService } from './EnvironmentService';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 // --- Extracted modules ---
 import { savePassagePlanToLogbook as _savePassagePlanToLogbook } from './shiplog/PassagePlanSave';

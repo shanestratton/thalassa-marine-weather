@@ -7,7 +7,7 @@
  * Fail-open design: returns true on error (never penalise sailors).
  */
 
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WaterDetect');
 

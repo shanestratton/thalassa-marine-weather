@@ -15,7 +15,7 @@ import { App } from '@capacitor/app';
 import { supabase, isSupabaseConfigured } from './supabase';
 import { PushNotificationService } from './PushNotificationService';
 import type { AnchorPosition, VesselPosition, AnchorWatchConfig } from './AnchorWatchService';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('SyncService');
 

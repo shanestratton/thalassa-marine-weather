@@ -2,7 +2,7 @@
  * logger — Unit tests for logger utilities.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { getErrorMessage, createLogger } from './logger';
+import { getErrorMessage, createLogger } from './createLogger';
 
 describe('getErrorMessage', () => {
     it('extracts message from Error instance', () => {

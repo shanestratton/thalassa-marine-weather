@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { t } from '../theme';
 import { supabase } from '../services/supabase';
-import { getErrorMessage } from '../utils/logger';
+import { getErrorMessage } from '../utils/createLogger';
 import { XIcon, LockIcon, BoatIcon, CheckIcon, DiamondIcon } from './Icons';
 import { useFocusTrap } from '../hooks/useAccessibility';
 import { Capacitor } from '@capacitor/core';

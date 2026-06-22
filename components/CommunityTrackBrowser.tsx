@@ -9,7 +9,7 @@ import { t } from '../theme';
 import { TrackSharingService, SharedTrack, TrackCategory, BrowseFilters } from '../services/TrackSharingService';
 import { ShipLogService } from '../services/ShipLogService';
 import { importGPXToEntries } from '../services/gpxService';
-import { getErrorMessage } from '../utils/logger';
+import { getErrorMessage } from '../utils/createLogger';
 import { EmptyState } from './ui/EmptyState';
 import { ShimmerBlock } from './ui/ShimmerBlock';
 import { AlertTriangleIcon, MapIcon, MapPinIcon } from './Icons';

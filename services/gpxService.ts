@@ -9,7 +9,7 @@
 import { ShipLogEntry } from '../types';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 import { isTrackworthyEntry } from './shiplog/helpers';
 
 const log = createLogger('GPX');

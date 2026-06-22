@@ -10,7 +10,7 @@
 import { Preferences } from '@capacitor/preferences';
 import { ShipLogEntry } from '../../types';
 import { supabase, getCurrentUser } from '../supabase';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import { SHIP_LOGS_TABLE, toDbFormat } from './helpers';
 
 const log = createLogger('OfflineQueue');

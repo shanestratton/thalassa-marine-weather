@@ -40,7 +40,7 @@
  * `GpsPrecision.getAdaptedThresholds()` so it adapts when an external
  * high-precision GPS (Bad Elf Pro+) is connected.
  */
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import type { CachedPosition } from '../BgGeoManager';
 import { bearing, headingDelta } from './GpsTrackBuffer';
 import { GpsPrecision } from './GpsPrecisionTracker';

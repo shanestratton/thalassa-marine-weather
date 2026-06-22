@@ -16,7 +16,7 @@ import { fetchWeatherKitRealtime } from './weather/api/weatherkit';
 import { isStormglassKeyPresent } from './weather/keys';
 import { degreesToCardinal } from '../utils';
 import { EnvironmentService } from './EnvironmentService';
-import { getErrorMessage } from '../utils/logger';
+import { getErrorMessage } from '../utils/createLogger';
 import { GpsService } from './GpsService';
 import {
     saveLargeData as _saveLargeData,

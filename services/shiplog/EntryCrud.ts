@@ -7,7 +7,7 @@
 
 import { ShipLogEntry } from '../../types';
 import { supabase, getCurrentUser } from '../supabase';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import { SHIP_LOGS_TABLE, toDbFormat, fromDbFormat } from './helpers';
 import { deleteVoyageFromOfflineQueue, deleteEntryFromOfflineQueue } from './OfflineQueue';
 import { invalidateRoutesAndTracks } from './RoutesAndTracks';

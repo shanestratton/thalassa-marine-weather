@@ -26,7 +26,7 @@ import { Capacitor } from '@capacitor/core';
 import { BgGeoManager } from './BgGeoManager';
 import { AnchorWatchSyncService } from './AnchorWatchSyncService';
 import { AlarmAudioService } from './AlarmAudioService';
-import { createLogger } from '../utils/logger';
+import { createLogger } from '../utils/createLogger';
 import { GpsPrecision } from './shiplog/GpsPrecisionTracker';
 import { NmeaGpsProvider } from './NmeaGpsProvider';
 import { isAnchorGpsStale, GPS_LOST_THRESHOLD_MS, nextDragState } from './anchorGpsWatchdog';

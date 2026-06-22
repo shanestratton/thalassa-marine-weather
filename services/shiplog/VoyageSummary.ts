@@ -18,7 +18,7 @@
 import { ShipLogEntry } from '../../types';
 import { supabase, getCurrentUser, getCurrentUserId } from '../supabase';
 import { getCachedSummaries, setCachedSummaries } from './VoyageSummaryCache';
-import { createLogger } from '../../utils/logger';
+import { createLogger } from '../../utils/createLogger';
 import { SHIP_LOGS_TABLE, fromDbFormat } from './helpers';
 
 const log = createLogger('VoyageSummary');
