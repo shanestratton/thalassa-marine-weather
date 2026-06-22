@@ -4255,37 +4255,6 @@ function applyThreeTier(
     const spans = segmentRoute(route, grid, segMarks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
         refuseUnchartedRunM: null,
     });
-    // TEMP DIAGNOSTIC (Newport channel-vs-bay): per route-vertex WHY it classifies as it
-    // does. `I`=injected-canal water · `P`=preferred(DRGARE/FAIRWY) · `mNNN`=nearest parsed
-    // SENC lateral (m) · `mpNNN`=nearest OSM channel-midpoint (m) · `dNN`=depth (both marks
-    // shown <450 only). Header `marks=R+Mmp` = R real laterals + M midpoints. Tier-4 YELLOW
-    // needs (I or P) AND (m or mp) <450 m; I/P with no m/mp is canal RED; m/mp with no I/P is
-    // open bay (tier-2). Stepping shows as m/mp values straddling 450 on same-I/P vertices.
-    try {
-        const eqM = (aLat: number, aLon: number, bLat: number, bLon: number) =>
-            Math.hypot((aLat - bLat) * 110540, (aLon - bLon) * 111320 * Math.cos((aLat * Math.PI) / 180));
-        const why = route
-            .map(([lon, lat], i) => {
-                const x = Math.floor((lon - grid.minLon) / grid.dLon);
-                const y = Math.floor((lat - grid.minLat) / grid.dLat);
-                const on = x >= 0 && x < grid.width && y >= 0 && y < grid.height;
-                const idx = y * grid.width + x;
-                const I = on && grid.injectedCanal?.[idx] === 1 ? 'I' : '';
-                const P = on && grid.preferred?.[idx] === 1 ? 'P' : '';
-                const d = on ? grid.cells[idx] : NaN;
-                let nm = Infinity;
-                let nmp = Infinity;
-                for (const m of marks) nm = Math.min(nm, eqM(lat, lon, m.lat, m.lon));
-                for (const m of midpointMarks) nmp = Math.min(nmp, eqM(lat, lon, m.lat, m.lon));
-                const mk = nm < 450 ? `m${Math.round(nm)}` : '';
-                const mp = nmp < 450 ? `mp${Math.round(nmp)}` : '';
-                return `${i}:${I}${P}${mk}${mp}${Number.isNaN(d) ? 'dNaN' : `d${Math.round(d)}`}`;
-            })
-            .join(' ');
-        engineLog.warn(`[3tier] WHY marks=${marks.length}+${midpointMarks.length}mp ${why}`);
-    } catch {
-        /* diagnostic only — never break routing */
-    }
     if (isRefusal(spans)) {
         if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — segmentRoute refused (${spans.reason})`);
         return null;

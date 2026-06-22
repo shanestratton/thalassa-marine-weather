@@ -510,29 +510,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             }
                         }
                     }
-                    // TEMP RENDER DIAGNOSTIC — dump EVERY line/overlay source's feature count so we can
-                    // see EXACTLY which layer draws the cyan "zigzag". The route is proven clean
-                    // (route-line ← INSHORE), so the zigzag is one of the OTHER sources below.
-                    {
-                        const dump = [
-                            'route-line',
-                            'confidence-route-gfs',
-                            'confidence-route-ecmwf',
-                            'isochrones',
-                            'harbour-seamarks',
-                            'waypoints',
-                        ]
-                            .map((sid) => {
-                                const s = map.getSource(sid) as unknown as
-                                    | { _data?: { features?: unknown[] } }
-                                    | undefined;
-                                const n =
-                                    s && s._data && Array.isArray(s._data.features) ? s._data.features.length : 'n/a';
-                                return `${sid}=${n}`;
-                            })
-                            .join(' ');
-                        log.warn(`[render] INSHORE feats=${inshoreFeatures.length} | ${dump}`);
-                    }
                     // A newer compute run may have started during the ~90s inshore await — don't let
                     // this (possibly stale) run paint over it. Two sequential runs (one fragmented, one
                     // chain-clean) were racing to write LAST, so the displayed route was non-deterministic
@@ -1056,14 +1033,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // For long routes, the isochrone engine will replace it once computed.
         const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSrc) {
-            const passageFeats = buildFeatures(waterAwareCoords);
-            // TEMP RENDER DIAGNOSTIC — passage path setting route-line (may RACE the inshore path).
-            log.warn(
-                `[render] route-line ← PASSAGE (${passageFeats.length}): ${passageFeats
-                    .map((f) => `${f.properties?.safety}${f.properties?.dashed ? 'D' : ''}`)
-                    .join(',')}`,
-            );
-            routeSrc.setData({ type: 'FeatureCollection', features: passageFeats });
+            routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(waterAwareCoords) });
             log.info(
                 `[Passage] Trip Sandwich rendered (${waterAwareCoords !== gcCoords ? 'water-aware bypass' : 'great-circle'} preview: ${Math.round(straightLineNM)} NM)`,
             );
