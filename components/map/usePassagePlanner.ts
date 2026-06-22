@@ -510,6 +510,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             }
                         }
                     }
+                    // TEMP RENDER DIAGNOSTIC — which path wins route-line + what it draws.
+                    log.warn(
+                        `[render] route-line ← INSHORE (${inshoreFeatures.length}): ${inshoreFeatures
+                            .map((f) => f.properties?.safety)
+                            .join(',')}`,
+                    );
                     const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
                     if (routeSrc) {
                         routeSrc.setData({ type: 'FeatureCollection', features: inshoreFeatures });
@@ -1018,7 +1024,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // For long routes, the isochrone engine will replace it once computed.
         const routeSrc = map.getSource('route-line') as mapboxgl.GeoJSONSource;
         if (routeSrc) {
-            routeSrc.setData({ type: 'FeatureCollection', features: buildFeatures(waterAwareCoords) });
+            const passageFeats = buildFeatures(waterAwareCoords);
+            // TEMP RENDER DIAGNOSTIC — passage path setting route-line (may RACE the inshore path).
+            log.warn(
+                `[render] route-line ← PASSAGE (${passageFeats.length}): ${passageFeats
+                    .map((f) => `${f.properties?.safety}${f.properties?.dashed ? 'D' : ''}`)
+                    .join(',')}`,
+            );
+            routeSrc.setData({ type: 'FeatureCollection', features: passageFeats });
             log.info(
                 `[Passage] Trip Sandwich rendered (${waterAwareCoords !== gcCoords ? 'water-aware bypass' : 'great-circle'} preview: ${Math.round(straightLineNM)} NM)`,
             );
