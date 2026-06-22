@@ -276,6 +276,9 @@ export interface RouteDebug {
      *  failures on the strict grid and poison the promotion dataset. */
     relaxedLndare?: boolean;
     relaxZones?: RelaxZone[];
+    /** Phase 13: present ONLY on a PROMOTED Seaway Graph route. The engine
+     *  never sets this — InshoreRouter attaches it when the graph route wins. */
+    seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number };
 }
 
 export interface RouteResult {
