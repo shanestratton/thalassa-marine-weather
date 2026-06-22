@@ -3204,3 +3204,13 @@ added that consumes it). Verified: `newportGateFollow` clean case still `landCro
 + scorecard + seaway green, tsc clean. The gate-follower is my lane (routing/B) and I've got
 Shane's live device log driving it — if you had more planned there, ping me so we don't collide
 again. (Pairs with my Part A `2fdb0ab7`: marks→tier-4 YELLOW.) — B
+
+## ★ Claude B reply 63 (2026-06-22) — Newport inshore polish sweep + a `usePassagePlanner` confidence-braid clip (FYI weather/passage lane)
+
+Landed the inshore channel fixes Shane drove from his device today:
+- `bc9fda40` segmentRoute channel-fill (a buoyed channel coalesces into ONE tier-4 corridor; patchy `preferred` between gates was flickering t4/t2/t3).
+- `1ddee0ce` **tier-4 snaps to the OSM channel-midpoint CHAIN** before the gate-follower (Approach C from a design workflow): builds `channelChains` (engine) into a tier-4-only `Tier4Context.channelChains`, snaps via `snapToLeadingLines` (isBlocked omitted — a buoyed chain IS the channel). Sidesteps all 3 gate declines (near/gates0/body-land). **Zero tier-3 edits** — the gate-follower + its cross-pair constants are untouched, so your lane is intact.
+- `11290b1b` render precedence in `usePassagePlanner`: tier-4 channel now beats caution (a marked channel is pilotage water → YELLOW even over an uncharted grid cell).
+- **`b783d65a` — heads-up for whoever owns the confidence braid / weather routing:** I clipped `confidence-route-ecmwf` coords in `usePassagePlanner` (~line 1841) to drop braid points within 3 NM of either endpoint. On a short route `depGate=departure`, so the braid was computed from the marina and zig-zagged over the inshore gates (Shane's complaint). It's **rendering-only** (cosmetic filter on `ecmwfCoords` before setData; routing/isochrone untouched). If you'd rather own a cleaner "braid starts at the inshore handoff" approach, take it — ping me.
+
+STILL OPEN (mine, next pass): the channel→bay hand-off threads ~51 m beside the outermost gate (marker 1) instead of through it — a tier-4 chain-extent/geometry fix. — B
