@@ -460,7 +460,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Seaway Graph debug overlay (masterplan Stage IV Phase 10) — gates/
     // edges compiled from installed ENC cells. Per-device flag, never
     // cloud-synced (it's dev tooling, not a user setting).
-    const [seawayDebugVisible, setSeawayDebugVisible] = usePersistedState('thalassa_map_seaway_debug_visible', false);
+    // Bumped key (…_v2) on 2026-06-22 to RESET a stuck "on" value: Shane's device had the
+    // Seaway-Graph debug overlay (sky-blue channel-edge spans) persisted ON, painting over the
+    // route — he couldn't find the toggle, so this abandons the old key and defaults OFF again.
+    // The toggle (Charts → modes → "Seaway Graph") still works for dev use; it just starts off.
+    const [seawayDebugVisible, setSeawayDebugVisible] = usePersistedState(
+        'thalassa_map_seaway_debug_visible_v2',
+        false,
+    );
     const [skChartIds, setSkChartIds] = usePersistedStringSet('thalassa_map_sk_chart_ids');
     const [skChartOpacity, setSkChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
     const [localChartIds, setLocalChartIds] = usePersistedStringSet('thalassa_map_local_chart_ids');
