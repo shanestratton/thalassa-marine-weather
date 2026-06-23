@@ -63,6 +63,7 @@ import {
     type RouteRequest,
     type RouteResult,
 } from '../../services/inshoreRouterEngine';
+import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
 
 // This harness routes on the REAL ENC pulled live from the boat's chart server
@@ -97,6 +98,8 @@ const CELLS = [
 const OSM_OVERLAY = 'http://calypso.local:3001/api/osm/overlay';
 const OSM_BBOX = '153.05,-27.48,153.25,-27.15'; // covers Newport→bay→river→Pinkenba
 const OSM_PATH = '/tmp/osm_overlay_repro.json';
+const REGIONAL_MARKERS_URL =
+    'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
 
 // ── Geometry helpers ────────────────────────────────────────────────
 const R_EARTH = 6_371_000;
@@ -523,6 +526,47 @@ function runVariant(navSource: NavSource): { route: RouteResult; prov: string; h
     return { route: res, prov, hug };
 }
 
+async function runVariantWithRegionalMarkers(): Promise<{
+    route: RouteResult;
+    prov: string;
+    hug: HugReport;
+    regional: { midpoints: number; segments: number; wings: number };
+}> {
+    const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+    const regional = await fetchRegionalMarkers(
+        REGIONAL_MARKERS_URL,
+        layers.LNDARE?.features ?? [],
+        osmWaterFeatures(),
+        [...(layers.DEPARE?.features ?? []), ...(layers.DRGARE?.features ?? [])],
+    );
+    if (regional.midpoints.length > 0) layers.BOYLAT!.features.push(...(regional.midpoints as never[]));
+    if (regional.segments.length > 0) layers.FAIRWY!.features.push(...(regional.segments as never[]));
+    if (regional.wings.length > 0) layers.OBSTRN!.features.push(...(regional.wings as never[]));
+
+    const res = routeInshore(layers, REQ_BASE as RouteRequest);
+    if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
+    const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
+    const hug = measureHug(res);
+    return {
+        route: res,
+        prov,
+        hug,
+        regional: {
+            midpoints: regional.midpoints.length,
+            segments: regional.segments.length,
+            wings: regional.wings.length,
+        },
+    };
+}
+
+function osmWaterFeatures(): Feature[] {
+    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as {
+        water?: FeatureCollection;
+        marina?: FeatureCollection;
+    };
+    return [...((d.water?.features ?? []) as Feature[]), ...((d.marina?.features ?? []) as Feature[])];
+}
+
 describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real ENC', () => {
     it('sanity: RECTRC river chain + DRGARE assembled from the real cells', () => {
         // eslint-disable-next-line no-console
@@ -627,6 +671,63 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(Math.abs(endLat - (route.debug?.destinationSnap?.snappedLat ?? 0))).toBeLessThan(1e-8);
         expect(Math.abs(endLon - (route.debug?.destinationSnap?.snappedLon ?? 0))).toBeLessThan(1e-8);
         expect(hug.riverPts).toBeGreaterThan(0);
+    });
+
+    it('VARIANT D — REAL OSM + regional marker chains (live device path)', async () => {
+        const { route, prov, hug, regional } = await runVariantWithRegionalMarkers();
+        const newportPts = route.polyline
+            .filter(([lon, lat]) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
+            .map(([lon, lat]) => `${lat.toFixed(6)},${lon.toFixed(6)}`);
+        const indexedNewportPts = route.polyline
+            .map(([lon, lat], i) => ({ i, lon, lat }))
+            .filter(({ lon, lat }) => lat > -27.206 && lat < -27.178 && lon > 153.088 && lon < 153.098)
+            .map(
+                ({ i, lon, lat }) =>
+                    `${i}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
+                    `c${route.canalMask?.[i] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[i] ? 1 : 0}`,
+            );
+        const handoffPts = route.polyline
+            .slice(20, 33)
+            .map(
+                ([lon, lat], j) =>
+                    `${j + 20}:${lat.toFixed(6)},${lon.toFixed(6)} ` +
+                    `c${route.canalMask?.[j + 20] ? 1 : 0} y${(route.channelMask ?? route.tier4Mask)?.[j + 20] ? 1 : 0}`,
+            );
+        // eslint-disable-next-line no-console
+        console.log('\n=== VARIANT D (REAL OSM + regional marker chains) ===');
+        // eslint-disable-next-line no-console
+        console.log('regional:', regional);
+        // eslint-disable-next-line no-console
+        console.log('prov  :', prov);
+        // eslint-disable-next-line no-console
+        console.log('points:', route.polyline.length, ' distanceNM:', route.distanceNM.toFixed(2));
+        // eslint-disable-next-line no-console
+        console.log('newportPts:', newportPts.join(' | '));
+        // eslint-disable-next-line no-console
+        console.log('indexedNewportPts:', indexedNewportPts.join(' | '));
+        // eslint-disable-next-line no-console
+        console.log('handoffPts:', handoffPts.join(' | '));
+        // eslint-disable-next-line no-console
+        console.log(
+            `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
+                `meanSigned=${hug.meanSignedM.toFixed(0)}m(${hug.meanSignedM >= 0 ? 'LEFT' : 'RIGHT'}) ` +
+                `p90=${hug.p90RectrcM.toFixed(0)}m max=${hug.maxRectrcM.toFixed(0)}m insideDRGARE=${(
+                    hug.fracInsideDrgare * 100
+                ).toFixed(0)}%`,
+        );
+        expect(route.polyline.length).toBeGreaterThanOrEqual(2);
+        expect(regional.midpoints).toBeGreaterThan(0);
+        expect(prov).toContain('egress-channel×4');
+        expect(prov).toContain('tier2:chain×4');
+        expect(prov, 'no stray tier-2 gate fallback after the Newport egress chain').not.toContain('gate:gates1');
+        const outerGateIdx = route.polyline.findIndex(
+            ([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35,
+        );
+        expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
+        const ch = route.channelMask ?? route.tier4Mask ?? [];
+        expect(ch.slice(outerGateIdx + 1, outerGateIdx + 5).some(Boolean), 'bay side of the outer gate is tier-3').toBe(
+            false,
+        );
     });
 
     it('DIFF — A (none) vs B (chart NAVLNE) vs C (real OSM navLines): which hugs?', () => {

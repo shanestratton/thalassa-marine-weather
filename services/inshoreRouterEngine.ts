@@ -4074,7 +4074,7 @@ function routeInshoreOnce(
         // Per-segment tier-2 mask (the marked-channel leg). Rendered YELLOW (NOT red,
         // NOT in cautionMask) — a buoyed channel with a recommended track is pilotage
         // water, distinct from the red canal/caution and green open water.
-        const channelVtx = threeTier.channelMask;
+        const channelSeg = threeTier.channelMask;
         const offshoreVtx = threeTier.offshoreMask;
         finalCaution = [];
         finalCanalMask = [];
@@ -4085,7 +4085,7 @@ function routeInshoreOnce(
             const b = finalPolyline[i + 1];
             finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
             finalCanalMask.push(canalVtx[i] || canalVtx[i + 1]);
-            finalChannelMask.push(channelVtx[i] || channelVtx[i + 1]);
+            finalChannelMask.push(channelSeg[i] ?? false);
             finalOffshoreMask.push(offshoreVtx[i] || offshoreVtx[i + 1]);
         }
         debug.threeTier = threeTier.provenance;
@@ -4112,15 +4112,22 @@ function routeInshoreOnce(
     const destinationNeedsLandBridgeRepair =
         destinationTapOnHardLand || (debug.destinationSnap?.snapDistanceM ?? 0) > 30;
     if (debug.destinationWaterSnap && destinationNeedsLandBridgeRepair && finalPolyline.length >= 2) {
-        const segIdx = finalPolyline.length - 2;
-        const a = finalPolyline[segIdx];
-        const b = finalPolyline[segIdx + 1];
-        if (lineCrossesHardLand(grid, { lat: a[1], lon: a[0] }, { lat: b[1], lon: b[0] })) {
+        const tailScanM = Math.max(1500, (debug.destinationSnap?.snapDistanceM ?? 0) + 750);
+        let segIdx = -1;
+        let tailM = 0;
+        for (let i = finalPolyline.length - 2; i >= 0; i--) {
+            const a = finalPolyline[i];
+            const b = finalPolyline[i + 1];
+            tailM += tupleDistM(a, b);
+            if (tailM > tailScanM) break;
+            if (tupleLineCrossesHardLand(grid, a, b)) segIdx = i;
+        }
+        if (segIdx >= 0) {
+            const a = finalPolyline[segIdx];
+            const b = finalPolyline[finalPolyline.length - 1];
             const rawBridge = gridBridgePolyline(grid, { lat: a[1], lon: a[0] }, { lat: b[1], lon: b[0] });
             const bridge: [number, number][] = [];
             for (const p of rawBridge ?? []) {
-                const last = bridge[bridge.length - 1];
-                if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) continue;
                 bridge.push(p);
             }
             if (bridge && bridge.length >= 2) {
@@ -4145,7 +4152,8 @@ function routeInshoreOnce(
 
                 const expandMask = (mask: boolean[]): boolean[] => {
                     if (mask.length === 0) return mask;
-                    const fill = mask[segIdx] ?? false;
+                    const suffixSegCount = finalPolyline.length - 1 - segIdx;
+                    const fill = mask.slice(segIdx, segIdx + suffixSegCount).some(Boolean);
                     return [...mask.slice(0, segIdx), ...new Array(bridge.length - 1).fill(fill)];
                 };
 
@@ -4461,6 +4469,50 @@ function lineCrossesHardLand(grid: NavGrid, a: LatLon, b: LatLon, stepM = 25): b
     return false;
 }
 
+function tupleDistM(a: readonly [number, number], b: readonly [number, number]): number {
+    return haversineM(a[1], a[0], b[1], b[0]);
+}
+
+function tupleLineCrossesHardLand(
+    grid: NavGrid,
+    a: readonly [number, number],
+    b: readonly [number, number],
+    stepM = 25,
+): boolean {
+    return lineCrossesHardLand(grid, { lat: a[1], lon: a[0] }, { lat: b[1], lon: b[0] }, stepM);
+}
+
+function pruneBridgeEndpointGridCenters(grid: NavGrid, bridge: readonly [number, number][]): [number, number][] {
+    const out: [number, number][] = [];
+    for (const p of bridge) {
+        const last = out[out.length - 1];
+        if (last && tupleDistM(last, p) < 1) continue;
+        out.push([p[0], p[1]]);
+    }
+    if (out.length < 3) return out;
+
+    const cellM = grid.dLat * M_PER_DEG_LAT;
+    const endpointCellCenterM = Math.max(75, cellM * 1.8);
+    const stepM = Math.max(10, cellM / 3);
+    if (
+        out.length >= 3 &&
+        tupleDistM(out[0], out[1]) <= endpointCellCenterM &&
+        !tupleLineCrossesHardLand(grid, out[0], out[2], stepM)
+    ) {
+        out.splice(1, 1);
+    }
+    if (out.length >= 3) {
+        const i = out.length - 2;
+        if (
+            tupleDistM(out[i], out[i + 1]) <= endpointCellCenterM &&
+            !tupleLineCrossesHardLand(grid, out[i - 1], out[i + 1], stepM)
+        ) {
+            out.splice(i, 1);
+        }
+    }
+    return out;
+}
+
 function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, number][] | null {
     const start = snapToNavigable(grid, from.lat, from.lon, 8);
     const end = snapToNavigable(grid, to.lat, to.lon, 8);
@@ -4473,7 +4525,7 @@ function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, n
         out.push([grid.minLon + (c.x + 0.5) * grid.dLon, grid.minLat + (c.y + 0.5) * grid.dLat]);
     }
     out.push([to.lon, to.lat]);
-    return out;
+    return pruneBridgeEndpointGridCenters(grid, out);
 }
 
 export function spliceCanalEgressChannel(
@@ -4860,21 +4912,25 @@ function applyThreeTier(
     const canalPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const offshorePre: boolean[] = new Array(glued.polyline.length).fill(false);
+    const channelSegKeys = new Set<string>();
+    const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
+        `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
         if (leg.tierId === 1) for (let v = 0; v < len; v++) canalPre[gi + v] = true;
-        if (leg.tierId === 2) for (let v = 0; v < len; v++) channelPre[gi + v] = true;
+        if (leg.tierId === 2) {
+            for (let v = 0; v < len; v++) channelPre[gi + v] = true;
+            for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
+        }
         if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
     }
     const canalKeys = new Set<string>();
-    const channelKeys = new Set<string>();
     const offshoreKeys = new Set<string>();
     for (let i = 0; i < glued.polyline.length; i++) {
         const key = `${glued.polyline[i][0]}|${glued.polyline[i][1]}`;
         if (canalPre[i]) canalKeys.add(key);
-        if (channelPre[i]) channelKeys.add(key);
         if (offshorePre[i]) offshoreKeys.add(key);
     }
 
@@ -4896,7 +4952,9 @@ function applyThreeTier(
         const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
         return canalVtx[i] || canalKeys.has(`${lon}|${lat}`) || onCanalLine;
     });
-    const channelVtx = outPoly.map(([lon, lat], i) => channelKeys.has(`${lon}|${lat}`) && !tier1Vtx[i]);
+    const channelSeg = outPoly
+        .slice(0, -1)
+        .map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])) && !tier1Vtx[i] && !tier1Vtx[i + 1]);
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {
@@ -4905,10 +4963,10 @@ function applyThreeTier(
         spanCount: spans.length,
         // Per-vertex tier-1 flag (parallel to polyline) for canal/marina RED.
         canalMask: tier1Vtx,
-        // Per-vertex tier-2 flag (parallel to polyline) for the YELLOW marked-channel.
-        channelMask: channelVtx,
+        // Per-segment tier-2 flag for the YELLOW marked-channel.
+        channelMask: channelSeg,
         // Deprecated alias for callers that still use the old marked-channel name.
-        tier4Mask: channelVtx,
+        tier4Mask: channelSeg,
         // Per-vertex offshore (tier-4) flag for the DARK BLUE offshore leg.
         offshoreMask: offshoreVtx,
     };

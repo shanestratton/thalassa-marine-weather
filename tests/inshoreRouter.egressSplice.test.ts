@@ -26,6 +26,10 @@ function gridFor(points: Array<{ lat: number; lon: number }>): NavGrid {
     };
 }
 
+function distM(a: { lat: number; lon: number }, b: { lat: number; lon: number }): number {
+    return Math.hypot((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_LAT);
+}
+
 describe('canal egress splice', () => {
     it('still splices the tier contract when the existing route already passes near the gate centres', () => {
         const origin = { lat: -27.214, lon: 153.0852 }; // marina tap, about 250 m off the canal line
@@ -58,6 +62,12 @@ describe('canal egress splice', () => {
                 ([lon, lat]) => Math.abs(lon - innerGate.lon) < 1e-8 && Math.abs(lat - innerGate.lat) < 1e-8,
             ),
         ).toBe(true);
+        const outerIdx = result.polyline.findIndex(
+            ([lon, lat]) => Math.abs(lon - outerGate.lon) < 1e-8 && Math.abs(lat - outerGate.lat) < 1e-8,
+        );
+        expect(outerIdx).toBeGreaterThanOrEqual(0);
+        const next = result.polyline[outerIdx + 1];
+        expect(next ? distM(outerGate, { lat: next[1], lon: next[0] }) : Infinity).toBeGreaterThan(75);
         expect(result.forceTier2?.some(Boolean)).toBe(true);
     });
 });

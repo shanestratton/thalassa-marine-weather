@@ -104,6 +104,46 @@ export function segmentRoute(
     const draftFloor = draftM + safetyM;
     const forceTier2 = opts.forceTier2 ?? [];
 
+    // Cumulative distance, used by both egress-tail suppression and span-length
+    // hysteresis below.
+    const cum: number[] = [0];
+    for (let i = 1; i < polyline.length; i++) {
+        cum.push(cum[i - 1] + distM(polyline[i - 1][1], polyline[i - 1][0], polyline[i][1], polyline[i][0]));
+    }
+    const spanLenM = (lo: number, hi: number): number => cum[hi] - cum[lo];
+
+    // A forced canal-egress chain is authoritative tier 2 up to the final gate.
+    // The first few bridge vertices after that last gate can still sit inside
+    // the same injected/preferred marker corridor, which used to spawn a second
+    // stray yellow span in the bay. Suppress those egress-only channel hints on
+    // the OPEN-WATER side of the forced run; the canal side stays tier 1.
+    const forcedIdxs = forceTier2.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
+    const egressCanalTailV: boolean[] = new Array(polyline.length).fill(false);
+    const egressOpenTailV: boolean[] = new Array(polyline.length).fill(false);
+    let forcedCanalSideAtStart: boolean | null = null;
+    if (forcedIdxs.length > 0) {
+        const firstForced = forcedIdxs[0];
+        const lastForced = forcedIdxs[forcedIdxs.length - 1];
+        const canalSideAtStart = cum[firstForced] <= cum[polyline.length - 1] - cum[lastForced];
+        forcedCanalSideAtStart = canalSideAtStart;
+        const suppressM = TIER3_MARK_PROXIMITY_M * 1.5;
+        if (canalSideAtStart) {
+            for (let i = firstForced - 1; i >= 0 && cum[firstForced] - cum[i] <= suppressM; i--) {
+                egressCanalTailV[i] = true;
+            }
+            for (let i = lastForced + 1; i < polyline.length && cum[i] - cum[lastForced] <= suppressM; i++) {
+                egressOpenTailV[i] = true;
+            }
+        } else {
+            for (let i = lastForced + 1; i < polyline.length && cum[i] - cum[lastForced] <= suppressM; i++) {
+                egressCanalTailV[i] = true;
+            }
+            for (let i = firstForced - 1; i >= 0 && cum[firstForced] - cum[i] <= suppressM; i--) {
+                egressOpenTailV[i] = true;
+            }
+        }
+    }
+
     // ── 1. Classify each vertex, inside-out per Shane's brief ───────────────
     //   tier 1: canals / marinas
     //   tier 2: lead-out / marked / dredged channels
@@ -111,20 +151,22 @@ export function segmentRoute(
     //   tier 4: offshore / off-ENC, GEBCO-only water
     // Per-vertex "a channel mark/midpoint within reach", hoisted out because the
     // channel-fill pass (1b) reuses it to coalesce a buoyed channel into one corridor.
-    const nearMarkV: boolean[] = polyline.map(([lon, lat]) =>
-        marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M),
+    const nearMarkV: boolean[] = polyline.map(([lon, lat], i) =>
+        egressCanalTailV[i] || egressOpenTailV[i]
+            ? false
+            : marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M),
     );
     const cls: Cls[] = polyline.map(([lon, lat], i) => {
         if (forceTier2[i]) return 2;
         const idx = cellIdx(grid, lon, lat);
         const nearMark = nearMarkV[i];
-        const preferred = idx >= 0 && grid.preferred?.[idx] === 1;
+        const preferred = idx >= 0 && grid.preferred?.[idx] === 1 && !egressCanalTailV[i] && !egressOpenTailV[i];
         // Injected nearshore canal water (the wide Mapbox-water fill) is
         // canal/marina water, NOT open deep water — it must reach the tier-1
         // canal router even though its synthetic depth (≥ draft+safety) would
         // otherwise read tier-3 here. Keyed on the injected source only, so the
         // open bay (no injectedCanal flag) stays tier-3.
-        const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1;
+        const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1 && !egressOpenTailV[i];
         // TIER-2 YELLOW = the channel EXITING the canal/marina: it needs either
         // charted channel water (DRGARE/FAIRWY) or lateral marks over channel /
         // injected canal water. Marks beside PLAIN OPEN water — the bay — are NOT
@@ -176,13 +218,6 @@ export function segmentRoute(
         return Number.isNaN(d) || d < TIER2; // red where shallower than the marks-free band
     });
 
-    // ── 2. Cumulative distance, for metre-based hysteresis ──
-    const cum: number[] = [0];
-    for (let i = 1; i < polyline.length; i++) {
-        cum.push(cum[i - 1] + distM(polyline[i - 1][1], polyline[i - 1][0], polyline[i][1], polyline[i][0]));
-    }
-    const spanLenM = (lo: number, hi: number): number => cum[hi] - cum[lo];
-
     // ── 3. Hysteresis — absorb short ROUTABLE runs into a neighbour; never
     //       absorb an UNKNOWN run (a red patch always survives) ──
     let runs = encode(cls);
@@ -195,12 +230,33 @@ export function segmentRoute(
             // or a tier-2 mark-portal. Those are structural boundaries the
             // navigator depends on. Tiny tier-3 gaps inside a patchy channel may
             // still be absorbed into the surrounding tier-2 run.
-            if (run.cls === 'unknown' || run.cls === 1 || run.cls === 2) continue;
-            if (spanLenM(run.lo, run.hi) >= MIN_SPAN_M) continue;
+            const forcedTier2Run =
+                run.cls === 2 && forcedIdxs.length > 0 && forceTier2.slice(run.lo, run.hi + 1).some(Boolean);
+            const firstForced = forcedIdxs[0] ?? -1;
+            const lastForced = forcedIdxs[forcedIdxs.length - 1] ?? -1;
+            const egressAdjacentTier2Run =
+                run.cls === 2 &&
+                forcedIdxs.length > 0 &&
+                !forcedTier2Run &&
+                ((run.lo > lastForced && cum[run.lo] - cum[lastForced] <= 2500) ||
+                    (run.hi < firstForced && cum[firstForced] - cum[run.hi] <= 2500));
+            const structuralTier2Run =
+                run.cls === 2 && (forcedIdxs.length === 0 || forcedTier2Run || !egressAdjacentTier2Run);
+            if (run.cls === 'unknown' || run.cls === 1 || structuralTier2Run) continue;
+            if (!egressAdjacentTier2Run && spanLenM(run.lo, run.hi) >= MIN_SPAN_M) continue;
             // Absorb into the longer adjacent ROUTABLE neighbour (prefer prev).
             const prev = runs[r - 1];
             const next = runs[r + 1];
-            const target = pickNeighbour(prev, next, spanLenM);
+            const target =
+                egressAdjacentTier2Run && forcedCanalSideAtStart !== null
+                    ? run.lo > lastForced
+                        ? forcedCanalSideAtStart
+                            ? 3
+                            : 1
+                        : forcedCanalSideAtStart
+                          ? 1
+                          : 3
+                    : pickNeighbour(prev, next, spanLenM);
             if (!target) continue;
             for (let i = run.lo; i <= run.hi; i++) cls[i] = target;
             changed = true;
