@@ -4273,16 +4273,15 @@ function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, n
 
 function spliceCanalEgressChannel(
     polyline: [number, number][],
-    channelChains: readonly LeadingLine[],
+    egressTracks: readonly LeadingLine[],
     canalLines: readonly (readonly (readonly [number, number])[])[],
     grid: NavGrid,
-): { polyline: [number, number][]; spliced: boolean; gates: number } {
-    if (polyline.length < 3 || channelChains.length === 0 || canalLines.length === 0) {
+): { polyline: [number, number][]; spliced: boolean; gates: number; forceTier2?: boolean[] } {
+    if (polyline.length < 3 || egressTracks.length === 0 || canalLines.length === 0) {
         return { polyline, spliced: false, gates: 0 };
     }
 
     const origin: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
-    const dest: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
     const ORIGIN_ON_CANAL_M = 140;
     if (pointToTupleLinesM(origin, canalLines) > ORIGIN_ON_CANAL_M) {
         return { polyline, spliced: false, gates: 0 };
@@ -4295,16 +4294,15 @@ function spliceCanalEgressChannel(
     const MAX_CANAL_APPROACH_M = 3500;
     const MAX_EGRESS_DETOUR_RATIO = 3.5;
 
-    let best: { polyline: [number, number][]; gates: number; costM: number } | null = null;
+    let best: { polyline: [number, number][]; forceTier2: boolean[]; gates: number; costM: number } | null = null;
     const originalTotalM = tuplePathLengthM(polyline);
 
-    for (const chain of channelChains) {
+    for (const chain of egressTracks) {
         if (chain.pts.length < 2) continue;
         for (const reverse of [false, true]) {
             const pts = reverse ? chain.pts.slice().reverse() : chain.pts.slice();
             const inner = pts[0];
             const outer = pts[pts.length - 1];
-            if (llDistM(inner, dest) < llDistM(origin, dest)) continue;
             if (pointToTuplePolylineM(inner, polyline) > CHAIN_NEAR_EXISTING_ROUTE_M) continue;
             const maxChainMissM = Math.max(...pts.map((p) => pointToTuplePolylineM(p, polyline)));
             if (maxChainMissM <= ALREADY_THROUGH_CHAIN_M) continue;
@@ -4336,17 +4334,22 @@ function spliceCanalEgressChannel(
                 if (forcedTotalM > originalTotalM * MAX_EGRESS_DETOUR_RATIO) continue;
 
                 const out: [number, number][] = [];
-                const push = (p: [number, number]): void => {
+                const forceTier2: boolean[] = [];
+                const push = (p: [number, number], force = false): void => {
                     const last = out[out.length - 1];
-                    if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) return;
+                    if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) {
+                        if (force) forceTier2[forceTier2.length - 1] = true;
+                        return;
+                    }
                     out.push(p);
+                    forceTier2.push(force);
                 };
                 for (const p of canalPath) push([p.lon, p.lat]);
-                for (let i = 1; i < pts.length; i++) push([pts[i].lon, pts[i].lat]);
+                for (const p of pts) push([p.lon, p.lat], true);
                 for (let i = 1; i < bridge.length; i++) push([bridge[i][0], bridge[i][1]]);
                 for (const p of suffix) push([p[0], p[1]]);
 
-                const candidate = { polyline: out, gates: pts.length, costM: forcedTotalM };
+                const candidate = { polyline: out, forceTier2, gates: pts.length, costM: forcedTotalM };
                 if (!best || candidate.costM < best.costM) best = candidate;
                 break;
             }
@@ -4354,7 +4357,7 @@ function spliceCanalEgressChannel(
     }
 
     return best
-        ? { polyline: best.polyline, spliced: true, gates: best.gates }
+        ? { polyline: best.polyline, spliced: true, gates: best.gates, forceTier2: best.forceTier2 }
         : { polyline, spliced: false, gates: 0 };
 }
 
@@ -4521,7 +4524,8 @@ function applyThreeTier(
         }
     }
 
-    const canalEgress = spliceCanalEgressChannel(route, channelChains, canalLines, grid);
+    const egressTracks = [...channelChains, ...leadingLines, ...rectrcLines];
+    const canalEgress = spliceCanalEgressChannel(route, egressTracks, canalLines, grid);
     if (canalEgress.spliced) {
         route = canalEgress.polyline;
     }
@@ -4532,6 +4536,7 @@ function applyThreeTier(
     // silently falls back to the monolith. Unknown runs ride as caution spans.
     const spans = segmentRoute(route, grid, segMarks, draftM, safetyM, TIER_TIDE_SAFETY_M, {
         refuseUnchartedRunM: null,
+        forceTier2: canalEgress.forceTier2,
     });
     if (isRefusal(spans)) {
         if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — segmentRoute refused (${spans.reason})`);
@@ -4580,6 +4585,8 @@ function applyThreeTier(
         recommendedTracks: rectrcLines,
         marks,
         channelChains,
+        egressTracks,
+        egressMask: canalEgress.forceTier2,
         preferChannelChains: canalEgress.spliced,
     };
     const results: LegResult[] = spans.map((span) =>

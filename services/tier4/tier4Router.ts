@@ -40,8 +40,13 @@ export interface Tier4Context {
      *  (Shane's "7-5-3-1" Newport exit). Snapped onto FIRST: a buoyed chain IS the
      *  channel, so NO land-veto and NO gate-pairing. Empty ⇒ RECTRC + gate fallback. */
     readonly channelChains: readonly LeadingLine[];
-    /** When the engine has deliberately inserted a canal→channel egress, the
-     *  midpoint chain is the explicit route contract for that leg. */
+    /** The exact egress tracks the engine was willing to splice from canal to
+     *  lead-out water. Includes chart RECTRC fallback when regional midpoint
+     *  chains are absent. */
+    readonly egressTracks?: readonly LeadingLine[];
+    readonly egressMask?: readonly boolean[];
+    /** When the engine has deliberately inserted a canal→channel egress, that
+     *  egress track is the explicit route contract for this leg. */
     readonly preferChannelChains?: boolean;
 }
 
@@ -81,9 +86,12 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
 
     let poly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
     const prov: string[] = [];
+    const isEgressSpan = ctx.preferChannelChains && (ctx.egressMask?.slice(lo, hi + 1).some(Boolean) ?? false);
+    const chainTracks = (): readonly LeadingLine[] =>
+        isEgressSpan && ctx.egressTracks?.length ? ctx.egressTracks : ctx.channelChains;
     const explicitChainGateCount = (): number => {
         let best = 0;
-        for (const chain of ctx.channelChains) {
+        for (const chain of chainTracks()) {
             let n = 0;
             for (const gate of chain.pts) {
                 if (poly.some((p) => distM(p, gate) < 25)) n++;
@@ -93,8 +101,9 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         return best;
     };
     const snapChannelChain = (): boolean => {
-        if (ctx.channelChains.length === 0 || poly.length < 4) return false;
-        const ch = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.channelChains], {
+        const tracks = chainTracks();
+        if (tracks.length === 0 || poly.length < 4) return false;
+        const ch = snapToLeadingLines(poly, poly.map(isCaution), [...tracks], {
             isCaution,
             corridorM: 180,
             minRunM: 60,
@@ -108,7 +117,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         return false;
     };
 
-    if (ctx.preferChannelChains) {
+    if (isEgressSpan) {
         const explicitGates = explicitChainGateCount();
         if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
         else snapChannelChain();
@@ -183,8 +192,13 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         // a fabricated centreline).
     }
 
-    // 3. De-spike backstop — no >120° reversal survives the leg body.
-    poly = deSpike(poly, TIER3_DESPIKE_DEG);
+    // 3. De-spike backstop — no >120° reversal survives the leg body. The
+    // exception is a deliberate canal-egress chain: Newport→Pinkenba must sail
+    // out through the outer gate before turning back toward the bay route, and
+    // the Gluer has an explicit allow-list for that seam.
+    if (!(isEgressSpan && prov.some((p) => p.startsWith('chain×')))) {
+        poly = deSpike(poly, TIER3_DESPIKE_DEG);
+    }
     if (poly.length < 2) return { refused: true, reason: 'disconnected-grid' };
 
     // 4. Back to contract tuples; pin endpoints to the exact boundary nodes so the

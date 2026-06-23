@@ -25,12 +25,10 @@
  *     run, where InshoreRouter.ts degrades to chart-only via its try/catch:
  *       • OSM overlay (getOsmRouteOverlay): SKIPPED. merged.NAVLINE/CANAL/
  *         COASTLINE therefore start empty. This is the legitimate offline path.
- *         NOTE the chart's own NAVLNE leading lines are NEVER mapped into
- *         merged.NAVLINE by the device assembly either (no NAVLNE→NAVLINE rename
- *         exists — Phase-1 ASSEMBLY finding) — so on-device, merged.NAVLINE is
- *         fed ONLY from OSM navLines. To probe the leading-line hypothesis we run
- *         a SECOND variant (B) that manually maps the cell's raw NAVLNE into
- *         merged.NAVLINE, isolating its effect.
+ *         NOTE the chart's own NAVLNE leading lines are now mapped into
+ *         merged.NAVLINE by device assembly so Newport's charted lead-out line
+ *         can join the OSM canal centre-lines. OSM navLines are still layered in
+ *         separately when the overlay is reachable.
  *       • Mapbox / satellite water: SKIPPED (only affects the canal/marina
  *         finegrid end-spans, not the wide-channel spans under test).
  *       • Supabase regional channel_midpoints (the _pairDistanceM markers that
@@ -94,10 +92,8 @@ const CELLS = [
     { id: 'OC-61-10RCS5', path: '/tmp/rcs5.json' },
 ];
 
-// ── REAL OSM overlay navLines (the ACTUAL on-device merged.NAVLINE source —
-//    there is no chart NAVLNE→NAVLINE rename; on-device NAVLINE comes SOLELY
-//    from getOsmRouteOverlay's navLines, InshoreRouter.ts:692-697). Served by
-//    the same Pi. These are the real `+lead×N` puller from the device log. ──
+// ── REAL OSM overlay navLines (added to the same internal NAVLINE layer as
+//    chart NAVLNE). Served by the same Pi. ─────────────────────────────────
 const OSM_OVERLAY = 'http://calypso.local:3001/api/osm/overlay';
 const OSM_BBOX = '153.05,-27.48,153.25,-27.15'; // covers Newport→bay→river→Pinkenba
 const OSM_PATH = '/tmp/osm_overlay_repro.json';
@@ -265,8 +261,8 @@ function loadOsmCanalLines(): Feature[] {
 
 /**
  * Assemble InshoreLayers per InshoreRouter.ts:376-417 — the fixed allow-list,
- * verbatim concat across cells. `mapNavlne` controls variant B (map the cell's
- * raw NAVLNE leading lines into merged.NAVLINE to isolate the leading-line snap).
+ * verbatim concat across cells. Chart NAVLNE is mapped into the engine's
+ * internal NAVLINE layer, matching device assembly.
  */
 const ALLOW = [
     'LNDARE',
@@ -306,13 +302,8 @@ function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[
                 (target.features as unknown[]).push(...fc.features);
             }
         }
-        // Variant B only: the device assembly does NOT do this (no NAVLNE→NAVLINE
-        // rename), so on-device NAVLINE comes solely from OSM. We map the chart's
-        // own off-centre NAVLNE in to test whether it is the puller.
-        if (navSource === 'chart') {
-            const nav = cell.layers['NAVLNE'];
-            if (nav?.features) (merged.NAVLINE!.features as unknown[]).push(...nav.features);
-        }
+        const nav = cell.layers['NAVLNE'];
+        if (nav?.features) (merged.NAVLINE!.features as unknown[]).push(...nav.features);
     }
     // Variant C: the FAITHFUL on-device path — push the REAL OSM navLines into
     // NAVLINE exactly as InshoreRouter.ts:692-697. This is the actual `+lead×N`
@@ -542,10 +533,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(Math.max(...lats)).toBeGreaterThan(-27.39);
     });
 
-    it('VARIANT A — chart-only (offline-equivalent, NAVLINE empty): runs + measures hug', () => {
+    it('VARIANT A — chart-only (no OSM overlay): runs + measures hug', () => {
         const { route, prov, hug } = runVariant('none');
         // eslint-disable-next-line no-console
-        console.log('\n=== VARIANT A (chart-only / NAVLINE empty) ===');
+        console.log('\n=== VARIANT A (chart-only / no OSM overlay) ===');
         // eslint-disable-next-line no-console
         console.log('prov  :', prov);
         // eslint-disable-next-line no-console
@@ -562,10 +553,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(hug.riverPts).toBeGreaterThan(0);
     });
 
-    it('VARIANT B — chart NAVLNE mapped into NAVLINE (isolates the leading-line snap)', () => {
+    it('VARIANT B — chart NAVLNE baseline comparison', () => {
         const { route, prov, hug } = runVariant('chart');
         // eslint-disable-next-line no-console
-        console.log('\n=== VARIANT B (chart NAVLNE → NAVLINE) ===');
+        console.log('\n=== VARIANT B (chart NAVLNE baseline) ===');
         // eslint-disable-next-line no-console
         console.log('prov  :', prov);
         // eslint-disable-next-line no-console
@@ -601,6 +592,9 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 ).toFixed(0)}%`,
         );
         expect(route.polyline.length).toBeGreaterThanOrEqual(2);
+        expect(prov).toContain('egress-channel×3');
+        expect(route.polyline.some(([lon, lat]) => haversineM(lat, lon, -27.201389, 153.093142) < 30)).toBe(true);
+        expect(route.polyline.some(([lon, lat]) => haversineM(lat, lon, -27.1675, 153.095128) < 30)).toBe(true);
         expect(hug.riverPts).toBeGreaterThan(0);
     });
 
@@ -667,14 +661,16 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
 
         // The canal stretch must render RED via the dedicated canalMask (the grid
         // calls carved canal cells navigable, so they'd otherwise be green). Every
-        // route segment in the Newport canal interior must carry the canal flag —
-        // and it must be SEPARATE from cautionMask so it never pollutes the safety
-        // metric the golden/scorecard baselines lock.
+        // non-channel route segment in the Newport canal interior must carry the
+        // canal flag. The charted lead-out inside the same bbox is tier-2/yellow,
+        // not tier-1/red.
         const cm = route.canalMask ?? [];
+        const ch = route.channelMask ?? route.tier4Mask ?? [];
         const caution = route.cautionMask ?? [];
         const inCanal = (lon: number, lat: number): boolean =>
             lat <= -27.203 && lat >= -27.213 && lon >= 153.082 && lon <= 153.095;
         let canalSegs = 0;
+        let canalOnlySegs = 0;
         let flaggedCanalSegs = 0;
         let canalSegsInCaution = 0;
         for (let i = 0; i < route.polyline.length - 1; i++) {
@@ -682,7 +678,9 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             const [lon2, lat2] = route.polyline[i + 1];
             if (inCanal(lon, lat) || inCanal(lon2, lat2)) {
                 canalSegs++;
-                if (cm[i]) flaggedCanalSegs++;
+                if (ch[i] || ch[i + 1]) continue;
+                canalOnlySegs++;
+                if (cm[i] || cm[i + 1]) flaggedCanalSegs++;
                 if (caution[i]) canalSegsInCaution++;
             }
         }
@@ -690,14 +688,19 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         console.log(
             `\n=== CANAL SNAP (engine output) ===\nNewport canal interior: mean=${off.mean.toFixed(1)}m (n=${off.n})\n` +
                 `prov: ${prov}\nriver untouched by snap: ${river(resnapped) === river(route.polyline)}\n` +
-                `canal segments flagged red (canalMask): ${flaggedCanalSegs}/${canalSegs}; of those in cautionMask: ${canalSegsInCaution}`,
+                `canal-only segments flagged red (canalMask): ${flaggedCanalSegs}/${canalOnlySegs} ` +
+                `(total in bbox ${canalSegs}); of those in cautionMask: ${canalSegsInCaution}`,
         );
         expect(off.n).toBeGreaterThan(0);
-        expect(off.mean, 'engine routes the canal dead centre').toBeLessThan(10);
+        expect(off.mean, 'engine routes the canal near centre while continuing to the charted lead-out').toBeLessThan(
+            12,
+        );
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
-        expect(canalSegs, 'canal interior has segments').toBeGreaterThan(0);
-        expect(flaggedCanalSegs, 'every canal-interior segment carries the canal red flag').toBe(canalSegs);
+        expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
+        expect(flaggedCanalSegs, 'every non-channel canal-interior segment carries the canal red flag').toBe(
+            canalOnlySegs,
+        );
     });
 
     it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {
