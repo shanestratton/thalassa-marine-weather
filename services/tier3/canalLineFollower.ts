@@ -163,12 +163,20 @@ function routeGraph(g: CanalGraph, sKey: string, tKey: string): LL[] | null {
  * on the network within CANAL_SNAP_MAX_M). Returns [entry, …centre-line…, exit],
  * or null when off-network. Used by the bench + as a span-level primitive.
  */
-export function followCanalLines(entry: LL, exit: LL, canalLines: readonly (readonly LatLon[])[]): LL[] | null {
+export function followCanalLines(
+    entry: LL,
+    exit: LL,
+    canalLines: readonly (readonly LatLon[])[],
+    opts: { maxSnapM?: number; entrySnapMaxM?: number; exitSnapMaxM?: number } = {},
+): LL[] | null {
     const g = buildCanalGraph(canalLines);
     if (g.nodes.size < 2) return null;
     const s = g.nearest(entry);
     const t = g.nearest(exit);
-    if (!s || !t || s.d > CANAL_SNAP_MAX_M || t.d > CANAL_SNAP_MAX_M) return null;
+    const snapMaxM = opts.maxSnapM ?? CANAL_SNAP_MAX_M;
+    const entrySnapMaxM = opts.entrySnapMaxM ?? snapMaxM;
+    const exitSnapMaxM = opts.exitSnapMaxM ?? snapMaxM;
+    if (!s || !t || s.d > entrySnapMaxM || t.d > exitSnapMaxM) return null;
     const centre = routeGraph(g, s.k, t.k);
     if (!centre) return null;
     return [entry, ...centre, exit];

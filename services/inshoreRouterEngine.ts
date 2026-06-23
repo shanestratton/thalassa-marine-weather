@@ -60,7 +60,7 @@ import type {
 
 import { createLogger } from '../utils/createLogger';
 import { euclideanDistanceTransform, routeMarina, type Cell } from './marinaCenterline';
-import { parseLateralMarks, refineWithFairlead, type LatLon } from './fairlead';
+import { parseLateralMarks, refineWithFairlead, type LatLon, type LateralMark } from './fairlead';
 import {
     parseLeadingLines,
     snapToLeadingLines,
@@ -4209,6 +4209,90 @@ function llPathLengthM(pts: readonly LatLon[]): number {
     return len;
 }
 
+interface EgressTrack extends LeadingLine {
+    /** First point index that belongs to tier 2. Points before this are tier 1 handoff. */
+    tier2FromIndex?: number;
+}
+
+function sameGatePair(a: LateralMark, b: LateralMark): boolean {
+    if (a.key !== b.key) return false;
+    if (a.seq === b.seq) return true;
+    return Math.abs(a.seq - b.seq) === 1 && Math.ceil(a.seq / 2) === Math.ceil(b.seq / 2);
+}
+
+function buildGateCentreTracks(
+    marks: readonly LateralMark[],
+    polyline: readonly [number, number][],
+    referenceTracks: readonly LeadingLine[],
+): EgressTrack[] {
+    if (marks.length < 4 || polyline.length < 2) return [];
+
+    const origin: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
+    const referenceLines = referenceTracks
+        .filter((t) => t.pts.length >= 2)
+        .map((t) => t.pts.map((p) => [p.lon, p.lat] as [number, number]));
+    const ports = marks.map((m, idx) => ({ m, idx })).filter(({ m }) => m.side === 'port');
+    const stbds = marks.map((m, idx) => ({ m, idx })).filter(({ m }) => m.side === 'stbd');
+
+    const MIN_GATE_WIDTH_M = 12;
+    const MAX_GATE_WIDTH_M = 180;
+    const MAX_GATE_FROM_ORIGIN_M = 6000;
+    const MAX_GATE_ROUTE_M = 900;
+    const MAX_GATE_REFERENCE_M = 450;
+    const MAX_GATE_STEP_M = 1400;
+
+    const candidates: Array<{
+        portIdx: number;
+        stbdIdx: number;
+        lat: number;
+        lon: number;
+        widthM: number;
+        originM: number;
+    }> = [];
+
+    for (const p of ports) {
+        for (const s of stbds) {
+            if (!sameGatePair(p.m, s.m)) continue;
+            const widthM = llDistM(p.m, s.m);
+            if (widthM < MIN_GATE_WIDTH_M || widthM > MAX_GATE_WIDTH_M) continue;
+            const centre: LatLon = { lat: (p.m.lat + s.m.lat) / 2, lon: (p.m.lon + s.m.lon) / 2 };
+            const originM = llDistM(origin, centre);
+            if (originM > MAX_GATE_FROM_ORIGIN_M) continue;
+            const routeM = pointToTuplePolylineM(centre, polyline);
+            const referenceM = referenceLines.length > 0 ? pointToTupleLinesM(centre, referenceLines) : Infinity;
+            if (routeM > MAX_GATE_ROUTE_M && referenceM > MAX_GATE_REFERENCE_M) continue;
+            candidates.push({ portIdx: p.idx, stbdIdx: s.idx, lat: centre.lat, lon: centre.lon, widthM, originM });
+        }
+    }
+
+    candidates.sort((a, b) => a.widthM - b.widthM);
+    const usedPorts = new Set<number>();
+    const usedStbds = new Set<number>();
+    const centres: Array<{ lat: number; lon: number; originM: number }> = [];
+    for (const c of candidates) {
+        if (usedPorts.has(c.portIdx) || usedStbds.has(c.stbdIdx)) continue;
+        usedPorts.add(c.portIdx);
+        usedStbds.add(c.stbdIdx);
+        centres.push({ lat: c.lat, lon: c.lon, originM: c.originM });
+    }
+    if (centres.length < 2) return [];
+
+    centres.sort((a, b) => a.originM - b.originM);
+    const tracks: EgressTrack[] = [];
+    let run: Array<{ lat: number; lon: number }> = [];
+    const flush = (): void => {
+        if (run.length >= 2) tracks.push({ pts: run.map((p) => ({ lat: p.lat, lon: p.lon })), tier2FromIndex: 1 });
+        run = [];
+    };
+    for (const c of centres) {
+        const last = run[run.length - 1];
+        if (last && llDistM(last, c) > MAX_GATE_STEP_M) flush();
+        run.push(c);
+    }
+    flush();
+    return tracks;
+}
+
 function turnDegLL(a: LatLon, b: LatLon, c: LatLon): number {
     const mPerLon = mPerDegLon(b.lat);
     const ux = (b.lon - a.lon) * mPerLon;
@@ -4273,7 +4357,7 @@ function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, n
 
 function spliceCanalEgressChannel(
     polyline: [number, number][],
-    egressTracks: readonly LeadingLine[],
+    egressTracks: readonly EgressTrack[],
     canalLines: readonly (readonly (readonly [number, number])[])[],
     grid: NavGrid,
 ): { polyline: [number, number][]; spliced: boolean; gates: number; forceTier2?: boolean[] } {
@@ -4293,12 +4377,19 @@ function spliceCanalEgressChannel(
     const MAX_CANAL_APPROACH_M = 3500;
     const MAX_EGRESS_DETOUR_RATIO = 3.5;
 
-    let best: { polyline: [number, number][]; forceTier2: boolean[]; gates: number; costM: number } | null = null;
+    let best: {
+        polyline: [number, number][];
+        forceTier2: boolean[];
+        gates: number;
+        costM: number;
+        preferred: boolean;
+    } | null = null;
     const originalTotalM = tuplePathLengthM(polyline);
 
     for (const chain of egressTracks) {
         if (chain.pts.length < 2) continue;
-        for (const reverse of [false, true]) {
+        const reverseOptions = chain.tier2FromIndex === undefined ? [false, true] : [false];
+        for (const reverse of reverseOptions) {
             const pts = reverse ? chain.pts.slice().reverse() : chain.pts.slice();
             const inner = pts[0];
             const outer = pts[pts.length - 1];
@@ -4306,7 +4397,9 @@ function spliceCanalEgressChannel(
             const maxChainMissM = Math.max(...pts.map((p) => pointToTuplePolylineM(p, polyline)));
             if (maxChainMissM <= ALREADY_THROUGH_CHAIN_M) continue;
 
-            const rawCanalPath = followCanalLines(origin, inner, canalLines);
+            const rawCanalPath = followCanalLines(origin, inner, canalLines, {
+                exitSnapMaxM: chain.tier2FromIndex === undefined ? undefined : 180,
+            });
             if (!rawCanalPath) continue;
             const canalPath = trimInitialEgressSnap(rawCanalPath, grid);
             const canalM = llPathLengthM(canalPath);
@@ -4332,11 +4425,24 @@ function spliceCanalEgressChannel(
                 forceTier2.push(force);
             };
             for (const p of canalPath) push([p.lon, p.lat]);
-            for (const p of pts) push([p.lon, p.lat], true);
+            const tier2FromIndex = chain.tier2FromIndex ?? 0;
+            for (let i = 0; i < pts.length; i++) push([pts[i].lon, pts[i].lat], i >= tier2FromIndex);
             for (let i = 1; i < bridge.length; i++) push([bridge[i][0], bridge[i][1]]);
 
-            const candidate = { polyline: out, forceTier2, gates: pts.length, costM: forcedTotalM };
-            if (!best || candidate.costM < best.costM) best = candidate;
+            const candidate = {
+                polyline: out,
+                forceTier2,
+                gates: pts.length,
+                costM: forcedTotalM,
+                preferred: chain.tier2FromIndex !== undefined,
+            };
+            if (
+                !best ||
+                (candidate.preferred && !best.preferred) ||
+                (candidate.preferred === best.preferred && candidate.costM < best.costM)
+            ) {
+                best = candidate;
+            }
         }
     }
 
@@ -4508,7 +4614,8 @@ function applyThreeTier(
         }
     }
 
-    const egressTracks = [...channelChains, ...leadingLines, ...rectrcLines];
+    const gateCentreTracks = buildGateCentreTracks(marks, route, [...leadingLines, ...rectrcLines]);
+    const egressTracks: EgressTrack[] = [...gateCentreTracks, ...channelChains, ...leadingLines, ...rectrcLines];
     const canalEgress = spliceCanalEgressChannel(route, egressTracks, canalLines, grid);
     if (canalEgress.spliced) {
         route = canalEgress.polyline;

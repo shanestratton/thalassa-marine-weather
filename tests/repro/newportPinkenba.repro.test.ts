@@ -592,9 +592,20 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 ).toFixed(0)}%`,
         );
         expect(route.polyline.length).toBeGreaterThanOrEqual(2);
-        expect(prov).toContain('egress-channel×3');
-        expect(route.polyline.some(([lon, lat]) => haversineM(lat, lon, -27.201389, 153.093142) < 30)).toBe(true);
-        expect(route.polyline.some(([lon, lat]) => haversineM(lat, lon, -27.1675, 153.095128) < 30)).toBe(true);
+        expect(prov).toContain('egress-channel×4');
+        expect(prov).toContain('tier2:chain×4');
+        const newportGateCentres = [
+            ['7/8', -27.203175, 153.093041],
+            ['5/6', -27.1966915, 153.0934],
+            ['3/4', -27.19034, 153.0937765],
+            ['1/2', -27.183025, 153.094083],
+        ] as const;
+        for (const [name, lat, lon] of newportGateCentres) {
+            expect(
+                route.polyline.some(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 35),
+                `route passes through Newport gate ${name}`,
+            ).toBe(true);
+        }
         expect(hug.riverPts).toBeGreaterThan(0);
     });
 
