@@ -151,6 +151,19 @@ describe('segmentRoute', () => {
         if (!isRefusal(r)) expect(tiers(r)).toEqual([2, 3]); // buoyed injected channel → tier-2, deep north → tier-3
     });
 
+    it('a forced chart egress track stays tier-2 without regional midpoint marks', () => {
+        // Offline Newport fallback: chart RECTRC can supply the canal lead-out even
+        // when Supabase regional midpoint chains are absent. Once the engine picks
+        // that track, segmentation must preserve it as tier-2 instead of treating it
+        // as ordinary inshore bay water just because there are no parsed marks.
+        const grid = makeGrid({ injectedY: (y) => y <= 7 });
+        const line = corridorLine(1, 30);
+        const forceTier2 = line.map((_, i) => i >= 7 && i <= 13);
+        const r = segmentRoute(line, grid, [], 2.4, 0.2, 0.5, { refuseUnchartedRunM: null, forceTier2 });
+        expect(isRefusal(r)).toBe(false);
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([1, 2, 3]);
+    });
+
     it('CHANNEL FILL: patchy preferred between gates coalesces to ONE tier-2 span (the Newport stepping)', () => {
         // Gates (marks + preferred) at y=2,6,10,14,18 — 200 m apart — with the preferred
         // flag present ONLY at the gate rows (a real channel's charted/injected flag is

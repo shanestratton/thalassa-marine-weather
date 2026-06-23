@@ -38,6 +38,7 @@
  */
 
 import { CapacitorHttp } from '@capacitor/core';
+import type { FeatureCollection } from 'geojson';
 import { DeadlineExceeded, withDeadline } from '../utils/deadline';
 import { cellsForBBox, listCells } from './enc/EncCellMetadata';
 import type { EncCell } from './enc/types';
@@ -428,6 +429,9 @@ async function tryInshoreRouteInner(
         // RECTRC — the hydrographer's OFFICIAL recommended track. The engine
         // snaps the route onto it first (authoritative > derived buoy follow).
         RECTRC: { type: 'FeatureCollection', features: [] },
+        // NAVLINE is the engine's internal leading-line layer. It receives both
+        // chart NAVLNE and OSM seamark navigation lines below.
+        NAVLINE: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
     for (const cell of candidateCells) {
@@ -456,6 +460,10 @@ async function tryInshoreRouteInner(
             if (fc?.features && Array.isArray(fc.features) && target) {
                 (target.features as unknown[]).push(...fc.features);
             }
+        }
+        const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
+        if (navlne?.features && Array.isArray(navlne.features)) {
+            (merged.NAVLINE!.features as unknown[]).push(...navlne.features);
         }
         cellsUsed.push(cell.id);
     }

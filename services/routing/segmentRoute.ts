@@ -57,6 +57,12 @@ export interface TierSpan {
     readonly caution: boolean;
 }
 
+interface SegmentRouteOptions {
+    readonly refuseUnchartedRunM?: number | null;
+    /** Vertices deliberately spliced onto an authoritative lead-out track. */
+    readonly forceTier2?: readonly boolean[];
+}
+
 const distM = (aLat: number, aLon: number, bLat: number, bLon: number): number =>
     Math.hypot((bLon - aLon) * mPerLonAt(aLat), (bLat - aLat) * M_PER_LAT);
 
@@ -84,7 +90,7 @@ export function segmentRoute(
     draftM: number,
     safetyM: number,
     tideSafetyM: number,
-    opts: { refuseUnchartedRunM?: number | null } = {},
+    opts: SegmentRouteOptions = {},
 ): TierSpan[] | Refusal {
     if (polyline.length < 2) {
         return { refused: true, reason: 'disconnected-grid' };
@@ -96,6 +102,7 @@ export function segmentRoute(
     const refuseUnchartedRunM = opts.refuseUnchartedRunM === undefined ? UNCHARTED_MAX_RUN_M : opts.refuseUnchartedRunM;
     const TIER2 = tier2NavigableDepthM(draftM, tideSafetyM);
     const draftFloor = draftM + safetyM;
+    const forceTier2 = opts.forceTier2 ?? [];
 
     // ── 1. Classify each vertex, inside-out per Shane's brief ───────────────
     //   tier 1: canals / marinas
@@ -108,6 +115,7 @@ export function segmentRoute(
         marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M),
     );
     const cls: Cls[] = polyline.map(([lon, lat], i) => {
+        if (forceTier2[i]) return 2;
         const idx = cellIdx(grid, lon, lat);
         const nearMark = nearMarkV[i];
         const preferred = idx >= 0 && grid.preferred?.[idx] === 1;
