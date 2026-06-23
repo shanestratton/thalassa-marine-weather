@@ -4215,10 +4215,41 @@ function applyThreeTier(
         else chainGroups.set(cp._chainId, [{ order: cp._chainOrder, lon, lat }]);
     }
     const channelChains: LeadingLine[] = [];
+    const singletonChainPts: { lat: number; lon: number }[] = [];
     for (const g of chainGroups.values()) {
-        if (g.length < 2) continue; // need ≥2 points for a snappable centreline
+        if (g.length < 2) {
+            // Singleton: 1 paired gate (e.g. the seaward-most Newport exit gate).
+            // Collect separately — snapToLeadingLines requires ≥2 pts per chain.
+            singletonChainPts.push({ lat: g[0].lat, lon: g[0].lon });
+            continue;
+        }
         g.sort((a, b) => a.order - b.order);
         channelChains.push({ pts: g.map((p) => ({ lat: p.lat, lon: p.lon })) });
+    }
+    // Singleton attachment: if a singleton gate sits within 800 m of any multi-point
+    // chain endpoint, it is an extension of that channel (the outer gate is in its own
+    // cluster because it is spatially separated from the inner gates). Append/prepend
+    // so the chain snap threads through the outermost gate too.
+    const SINGLETON_ATTACH_M = 800;
+    for (const sp of singletonChainPts) {
+        let bestChain: LeadingLine | null = null;
+        let bestDist = SINGLETON_ATTACH_M;
+        let appendToEnd = true;
+        for (const chain of channelChains) {
+            const pts = chain.pts;
+            const dEnd = llDistM(pts[pts.length - 1], sp);
+            const dStart = llDistM(pts[0], sp);
+            const d = Math.min(dEnd, dStart);
+            if (d < bestDist) {
+                bestDist = d;
+                bestChain = chain;
+                appendToEnd = dEnd <= dStart;
+            }
+        }
+        if (bestChain) {
+            if (appendToEnd) bestChain.pts.push(sp);
+            else bestChain.pts.unshift(sp);
+        }
     }
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
     // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
