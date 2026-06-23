@@ -4421,7 +4421,7 @@ function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, n
     return out;
 }
 
-function spliceCanalEgressChannel(
+export function spliceCanalEgressChannel(
     polyline: [number, number][],
     egressTracks: readonly EgressTrack[],
     canalLines: readonly (readonly (readonly [number, number])[])[],
@@ -4457,13 +4457,12 @@ function spliceCanalEgressChannelFromOrigin(
 
     const origin: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
     const dest: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
-    const ORIGIN_ON_CANAL_M = 140;
+    const ORIGIN_ON_CANAL_M = 500;
     if (pointToTupleLinesM(origin, canalLines) > ORIGIN_ON_CANAL_M) {
         return { polyline, spliced: false, gates: 0 };
     }
 
     const CHAIN_NEAR_EXISTING_ROUTE_M = 900;
-    const ALREADY_THROUGH_CHAIN_M = 160;
     const MAX_CANAL_APPROACH_M = 3500;
     const MAX_EGRESS_DETOUR_RATIO = 3.5;
 
@@ -4484,10 +4483,9 @@ function spliceCanalEgressChannelFromOrigin(
             const inner = pts[0];
             const outer = pts[pts.length - 1];
             if (pointToTuplePolylineM(inner, polyline) > CHAIN_NEAR_EXISTING_ROUTE_M) continue;
-            const maxChainMissM = Math.max(...pts.map((p) => pointToTuplePolylineM(p, polyline)));
-            if (maxChainMissM <= ALREADY_THROUGH_CHAIN_M) continue;
 
             const rawCanalPath = followCanalLines(origin, inner, canalLines, {
+                entrySnapMaxM: ORIGIN_ON_CANAL_M,
                 exitSnapMaxM: chain.tier2FromIndex === undefined ? undefined : 180,
             });
             if (!rawCanalPath) continue;
