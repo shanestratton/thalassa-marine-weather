@@ -4282,6 +4282,7 @@ function spliceCanalEgressChannel(
     }
 
     const origin: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
+    const dest: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
     const ORIGIN_ON_CANAL_M = 140;
     if (pointToTupleLinesM(origin, canalLines) > ORIGIN_ON_CANAL_M) {
         return { polyline, spliced: false, gates: 0 };
@@ -4289,8 +4290,6 @@ function spliceCanalEgressChannel(
 
     const CHAIN_NEAR_EXISTING_ROUTE_M = 900;
     const ALREADY_THROUGH_CHAIN_M = 160;
-    const MIN_RESUME_FROM_INNER_M = 1100;
-    const RESUME_OFF_CANAL_M = 180;
     const MAX_CANAL_APPROACH_M = 3500;
     const MAX_EGRESS_DETOUR_RATIO = 3.5;
 
@@ -4314,45 +4313,30 @@ function spliceCanalEgressChannel(
             if (canalM > MAX_CANAL_APPROACH_M) continue;
 
             const chainM = llPathLengthM(pts);
-            for (let resumeIdx = 1; resumeIdx < polyline.length - 1; resumeIdx++) {
-                const resume: LatLon = { lat: polyline[resumeIdx][1], lon: polyline[resumeIdx][0] };
-                if (llDistM(resume, inner) < MIN_RESUME_FROM_INNER_M) continue;
-                if (pointToTupleLinesM(resume, canalLines) < RESUME_OFF_CANAL_M) continue;
-                const straightBridge: [number, number][] = [
-                    [outer.lon, outer.lat],
-                    [resume.lon, resume.lat],
-                ];
-                const bridge = lineCrossesHardLand(grid, outer, resume)
-                    ? gridBridgePolyline(grid, outer, resume)
-                    : straightBridge;
-                if (!bridge) continue;
+            const bridge = gridBridgePolyline(grid, outer, dest);
+            if (!bridge) continue;
 
-                const suffix = polyline.slice(resumeIdx);
-                const bridgeM = tuplePathLengthM(bridge);
-                const suffixM = tuplePathLengthM(suffix);
-                const forcedTotalM = canalM + chainM + bridgeM + suffixM;
-                if (forcedTotalM > originalTotalM * MAX_EGRESS_DETOUR_RATIO) continue;
+            const bridgeM = tuplePathLengthM(bridge);
+            const forcedTotalM = canalM + chainM + bridgeM;
+            if (forcedTotalM > originalTotalM * MAX_EGRESS_DETOUR_RATIO) continue;
 
-                const out: [number, number][] = [];
-                const forceTier2: boolean[] = [];
-                const push = (p: [number, number], force = false): void => {
-                    const last = out[out.length - 1];
-                    if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) {
-                        if (force) forceTier2[forceTier2.length - 1] = true;
-                        return;
-                    }
-                    out.push(p);
-                    forceTier2.push(force);
-                };
-                for (const p of canalPath) push([p.lon, p.lat]);
-                for (const p of pts) push([p.lon, p.lat], true);
-                for (let i = 1; i < bridge.length; i++) push([bridge[i][0], bridge[i][1]]);
-                for (const p of suffix) push([p[0], p[1]]);
+            const out: [number, number][] = [];
+            const forceTier2: boolean[] = [];
+            const push = (p: [number, number], force = false): void => {
+                const last = out[out.length - 1];
+                if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) {
+                    if (force) forceTier2[forceTier2.length - 1] = true;
+                    return;
+                }
+                out.push(p);
+                forceTier2.push(force);
+            };
+            for (const p of canalPath) push([p.lon, p.lat]);
+            for (const p of pts) push([p.lon, p.lat], true);
+            for (let i = 1; i < bridge.length; i++) push([bridge[i][0], bridge[i][1]]);
 
-                const candidate = { polyline: out, forceTier2, gates: pts.length, costM: forcedTotalM };
-                if (!best || candidate.costM < best.costM) best = candidate;
-                break;
-            }
+            const candidate = { polyline: out, forceTier2, gates: pts.length, costM: forcedTotalM };
+            if (!best || candidate.costM < best.costM) best = candidate;
         }
     }
 
@@ -4657,8 +4641,12 @@ function applyThreeTier(
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
-    const tier1Vtx = outPoly.map(([lon, lat], i) => canalVtx[i] || canalKeys.has(`${lon}|${lat}`));
-    const channelVtx = outPoly.map(([lon, lat]) => channelKeys.has(`${lon}|${lat}`));
+    const CANAL_RENDER_M = 45;
+    const tier1Vtx = outPoly.map(([lon, lat], i) => {
+        const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
+        return canalVtx[i] || canalKeys.has(`${lon}|${lat}`) || onCanalLine;
+    });
+    const channelVtx = outPoly.map(([lon, lat], i) => channelKeys.has(`${lon}|${lat}`) && !tier1Vtx[i]);
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {
