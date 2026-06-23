@@ -194,6 +194,7 @@ export function followCanalLines(entry: LL, exit: LL, canalLines: readonly (read
 export function snapRouteToCanalLines(
     polyline: readonly LatLon[],
     canalLines: readonly (readonly LatLon[])[],
+    opts: { protectedVertices?: readonly boolean[] } = {},
 ): { polyline: LatLon[]; onCanal: boolean[] } {
     const asTuples = (): LatLon[] => polyline.map((p) => [p[0], p[1]] as LatLon);
     if (polyline.length < 2 || canalLines.length === 0)
@@ -203,7 +204,9 @@ export function snapRouteToCanalLines(
 
     const pts: LL[] = polyline.map(([lon, lat]) => ({ lat, lon }));
     const n = pts.length;
-    const onCanal = pts.map((p) => {
+    const protectedVertices = opts.protectedVertices ?? [];
+    const onCanal = pts.map((p, i) => {
+        if (protectedVertices[i]) return false;
         const near = g.nearest(p);
         return near !== null && near.d <= ON_CANAL_M;
     });
@@ -225,6 +228,7 @@ export function snapRouteToCanalLines(
         // CANAL_RUN_GAP off-canal points (the A* corner-cuts inside the estate).
         let j = i;
         for (let k = i + 1; k < n; k++) {
+            if (protectedVertices[k]) break;
             if (onCanal[k]) j = k;
             else if (k - j > CANAL_RUN_GAP) break;
         }

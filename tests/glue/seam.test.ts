@@ -65,6 +65,20 @@ describe('glue seam — planted field-bug fixtures', () => {
         if (isRefusal(r)) expect(r.measuredTurnDeg).toBe(171);
     });
 
+    it('can explicitly allow a known canal-egress turn without changing the default double-back guard', () => {
+        const seam = [153.09, -27.21] as LatLon;
+        const a = leg(2, node([153.09, -27.22], 10), node(seam, 10), colNorth(153.09, -27.21), {
+            provenance: 'tier2:chain×4',
+        });
+        const b = leg(3, node(seam, 181), node([153.09, -27.2], 181), colSouth(153.09, -27.21));
+        const strict = glue(a, b);
+        expect(isRefusal(strict) && strict.reason).toBe('double-back');
+        const allowed = glue(a, b, {
+            allowDoubleBack: (legA, legB) => legB.tierId === 3 && legA.provenance.includes('tier2:chain'),
+        });
+        expect(isRefusal(allowed)).toBe(false);
+    });
+
     it('Newport-exit (tier-3 bay → tier-2 channel), aligned + between the marks → clean concat, no interior bead', () => {
         const seam = [153.201, -27.3] as LatLon; // between port 153.200 and stbd 153.202
         const cross = { port: [153.2, -27.3] as LatLon, stbd: [153.202, -27.3] as LatLon };

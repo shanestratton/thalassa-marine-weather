@@ -76,7 +76,7 @@ import {
 import { segmentRoute, type TierSpan } from './routing/segmentRoute';
 import { routeTier3, type Tier3Context } from './tier3/tier3Router';
 import { routeTier4, type Tier4Context } from './tier4/tier4Router';
-import { parseCanalLines, snapRouteToCanalLines } from './tier3/canalLineFollower';
+import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from './tier3/canalLineFollower';
 import { stitchLegs } from './glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from './routing/legContract';
 
@@ -4159,6 +4159,205 @@ function passthroughLeg(span: TierSpan, polyline: readonly [number, number][], g
     });
 }
 
+function pointToTupleSegM(p: { lat: number; lon: number }, a: readonly number[], b: readonly number[]): number {
+    const refLat = (a[1] + b[1]) / 2;
+    const mx = M_PER_DEG_LAT * Math.cos((refLat * Math.PI) / 180);
+    const my = M_PER_DEG_LAT;
+    const ax = a[0] * mx;
+    const ay = a[1] * my;
+    const bx = b[0] * mx;
+    const by = b[1] * my;
+    const px = p.lon * mx;
+    const py = p.lat * my;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function pointToTupleLinesM(
+    p: { lat: number; lon: number },
+    lines: readonly (readonly (readonly number[])[])[],
+): number {
+    let best = Infinity;
+    for (const line of lines) {
+        for (let i = 0; i + 1 < line.length; i++) {
+            const d = pointToTupleSegM(p, line[i], line[i + 1]);
+            if (d < best) best = d;
+        }
+    }
+    return best;
+}
+
+function pointToTuplePolylineM(
+    p: { lat: number; lon: number },
+    polyline: readonly (readonly [number, number])[],
+): number {
+    let best = Infinity;
+    for (let i = 0; i + 1 < polyline.length; i++) {
+        const d = pointToTupleSegM(p, polyline[i], polyline[i + 1]);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+function llPathLengthM(pts: readonly LatLon[]): number {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += llDistM(pts[i - 1], pts[i]);
+    return len;
+}
+
+function turnDegLL(a: LatLon, b: LatLon, c: LatLon): number {
+    const mPerLon = mPerDegLon(b.lat);
+    const ux = (b.lon - a.lon) * mPerLon;
+    const uy = (b.lat - a.lat) * M_PER_DEG_LAT;
+    const vx = (c.lon - b.lon) * mPerLon;
+    const vy = (c.lat - b.lat) * M_PER_DEG_LAT;
+    const lu = Math.hypot(ux, uy);
+    const lv = Math.hypot(vx, vy);
+    if (lu < 1 || lv < 1) return 0;
+    const cos = Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)));
+    return (Math.acos(cos) * 180) / Math.PI;
+}
+
+function trimInitialEgressSnap(path: LatLon[], grid: NavGrid): LatLon[] {
+    const out = path.slice();
+    while (
+        out.length > 3 &&
+        llDistM(out[0], out[1]) < 150 &&
+        turnDegLL(out[0], out[1], out[2]) > 120 &&
+        !lineCrossesHardLand(grid, out[0], out[2])
+    ) {
+        out.splice(1, 1);
+    }
+    return out;
+}
+
+function tuplePathLengthM(pts: readonly (readonly [number, number])[]): number {
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += haversineM(pts[i - 1][1], pts[i - 1][0], pts[i][1], pts[i][0]);
+    return len;
+}
+
+function lineCrossesHardLand(grid: NavGrid, a: LatLon, b: LatLon, stepM = 25): boolean {
+    const lenM = llDistM(a, b);
+    const steps = Math.max(1, Math.ceil(lenM / stepM));
+    for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const lat = a.lat + (b.lat - a.lat) * t;
+        const lon = a.lon + (b.lon - a.lon) * t;
+        const { x, y } = latLonToGrid(grid, lat, lon);
+        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+        const idx = y * grid.width + x;
+        if (grid.landBlocked ? grid.landBlocked[idx] === 1 : Number.isNaN(grid.cells[idx])) return true;
+    }
+    return false;
+}
+
+function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, number][] | null {
+    const start = snapToNavigable(grid, from.lat, from.lon, 8);
+    const end = snapToNavigable(grid, to.lat, to.lon, 8);
+    if (!start || !end) return null;
+    const path = aStar(grid, start, end);
+    if (!path || path.length < 2) return null;
+    const smoothed = smoothPath(grid, path);
+    const out: [number, number][] = [[from.lon, from.lat]];
+    for (const c of smoothed) {
+        out.push([grid.minLon + (c.x + 0.5) * grid.dLon, grid.minLat + (c.y + 0.5) * grid.dLat]);
+    }
+    out.push([to.lon, to.lat]);
+    return out;
+}
+
+function spliceCanalEgressChannel(
+    polyline: [number, number][],
+    channelChains: readonly LeadingLine[],
+    canalLines: readonly (readonly (readonly [number, number])[])[],
+    grid: NavGrid,
+): { polyline: [number, number][]; spliced: boolean; gates: number } {
+    if (polyline.length < 3 || channelChains.length === 0 || canalLines.length === 0) {
+        return { polyline, spliced: false, gates: 0 };
+    }
+
+    const origin: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
+    const dest: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
+    const ORIGIN_ON_CANAL_M = 140;
+    if (pointToTupleLinesM(origin, canalLines) > ORIGIN_ON_CANAL_M) {
+        return { polyline, spliced: false, gates: 0 };
+    }
+
+    const CHAIN_NEAR_EXISTING_ROUTE_M = 900;
+    const ALREADY_THROUGH_CHAIN_M = 160;
+    const MIN_RESUME_FROM_INNER_M = 1100;
+    const RESUME_OFF_CANAL_M = 180;
+    const MAX_CANAL_APPROACH_M = 3500;
+    const MAX_EGRESS_DETOUR_RATIO = 3.5;
+
+    let best: { polyline: [number, number][]; gates: number; costM: number } | null = null;
+    const originalTotalM = tuplePathLengthM(polyline);
+
+    for (const chain of channelChains) {
+        if (chain.pts.length < 2) continue;
+        for (const reverse of [false, true]) {
+            const pts = reverse ? chain.pts.slice().reverse() : chain.pts.slice();
+            const inner = pts[0];
+            const outer = pts[pts.length - 1];
+            if (llDistM(inner, dest) < llDistM(origin, dest)) continue;
+            if (pointToTuplePolylineM(inner, polyline) > CHAIN_NEAR_EXISTING_ROUTE_M) continue;
+            const maxChainMissM = Math.max(...pts.map((p) => pointToTuplePolylineM(p, polyline)));
+            if (maxChainMissM <= ALREADY_THROUGH_CHAIN_M) continue;
+
+            const rawCanalPath = followCanalLines(origin, inner, canalLines);
+            if (!rawCanalPath) continue;
+            const canalPath = trimInitialEgressSnap(rawCanalPath, grid);
+            const canalM = llPathLengthM(canalPath);
+            if (canalM > MAX_CANAL_APPROACH_M) continue;
+
+            const chainM = llPathLengthM(pts);
+            for (let resumeIdx = 1; resumeIdx < polyline.length - 1; resumeIdx++) {
+                const resume: LatLon = { lat: polyline[resumeIdx][1], lon: polyline[resumeIdx][0] };
+                if (llDistM(resume, inner) < MIN_RESUME_FROM_INNER_M) continue;
+                if (pointToTupleLinesM(resume, canalLines) < RESUME_OFF_CANAL_M) continue;
+                const straightBridge: [number, number][] = [
+                    [outer.lon, outer.lat],
+                    [resume.lon, resume.lat],
+                ];
+                const bridge = lineCrossesHardLand(grid, outer, resume)
+                    ? gridBridgePolyline(grid, outer, resume)
+                    : straightBridge;
+                if (!bridge) continue;
+
+                const suffix = polyline.slice(resumeIdx);
+                const bridgeM = tuplePathLengthM(bridge);
+                const suffixM = tuplePathLengthM(suffix);
+                const forcedTotalM = canalM + chainM + bridgeM + suffixM;
+                if (forcedTotalM > originalTotalM * MAX_EGRESS_DETOUR_RATIO) continue;
+
+                const out: [number, number][] = [];
+                const push = (p: [number, number]): void => {
+                    const last = out[out.length - 1];
+                    if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) return;
+                    out.push(p);
+                };
+                for (const p of canalPath) push([p.lon, p.lat]);
+                for (let i = 1; i < pts.length; i++) push([pts[i].lon, pts[i].lat]);
+                for (let i = 1; i < bridge.length; i++) push([bridge[i][0], bridge[i][1]]);
+                for (const p of suffix) push([p[0], p[1]]);
+
+                const candidate = { polyline: out, gates: pts.length, costM: forcedTotalM };
+                if (!best || candidate.costM < best.costM) best = candidate;
+                break;
+            }
+        }
+    }
+
+    return best
+        ? { polyline: best.polyline, spliced: true, gates: best.gates }
+        : { polyline, spliced: false, gates: 0 };
+}
+
 /**
  * Four-tier contract path — segment the REAL A*
  * route into ordered tier spans, route each by tier, glue with the concat-only
@@ -4322,6 +4521,11 @@ function applyThreeTier(
         }
     }
 
+    const canalEgress = spliceCanalEgressChannel(route, channelChains, canalLines, grid);
+    if (canalEgress.spliced) {
+        route = canalEgress.polyline;
+    }
+
     // refuseUnchartedRunM: null — the engine's strict-uncharted sweep below owns
     // the refuse-on-no-evidence decision; segmentRoute must NOT unilaterally
     // refuse (a relaxed berth-start crosses unvouched water) or the whole path
@@ -4371,7 +4575,13 @@ function applyThreeTier(
         }
     };
     const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
-    const ctx4: Tier4Context = { grid, recommendedTracks: rectrcLines, marks, channelChains };
+    const ctx4: Tier4Context = {
+        grid,
+        recommendedTracks: rectrcLines,
+        marks,
+        channelChains,
+        preferChannelChains: canalEgress.spliced,
+    };
     const results: LegResult[] = spans.map((span) =>
         span.tier === 2
             ? routeTier4(span, route, ctx4)
@@ -4379,29 +4589,26 @@ function applyThreeTier(
               ? routeTier3(span, route, ctx3)
               : passthroughLeg(span, route, grid),
     );
-
-    const glued = stitchLegs(results);
+    const glued = stitchLegs(
+        results,
+        canalEgress.spliced
+            ? {
+                  allowDoubleBack: (legA, legB) => legB.tierId === 3 && legA.provenance.includes('tier2:chain'),
+              }
+            : undefined,
+    );
     if (glued.refusal || glued.polyline.length < 2) {
         const why = glued.refusal ? `${glued.refusal.reason}@${glued.refusal.atIndex}` : `empty`;
         if (ENGINE_DEBUG) engineLog.warn(`[3tier] FALLBACK — glue refused (${why})`);
         return null;
     }
-    const rectrcTag = rectrcSnapped > 0 ? `rectrc×${rectrcSnapped} → ` : '';
+    const egressTag = canalEgress.spliced ? `egress-channel×${canalEgress.gates} → ` : '';
+    const rectrcTag = `${egressTag}${rectrcSnapped > 0 ? `rectrc×${rectrcSnapped} → ` : ''}`;
     // TEMP on-device diag — confirms RECTRC snap + gate-follow engage on Shane's
     // live Newport grid. Re-gate behind ENGINE_DEBUG once confirmed.
     engineLog.warn(
         `[tiers] ENGAGED ${rectrcTag}spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
     );
-
-    // Canal centre-line snap — wherever the assembled route rides the OSM canal
-    // lines (a wall-hug / corner-cut through a carved canal estate), replace that
-    // run with the dead-centre line. Tier-agnostic: the canal lines carve the
-    // estate to navigable water, so its spans can come out as inshore passthrough,
-    // not a canal leg — a per-span follow would miss them. No-op off-canal (the river /
-    // open water passes through byte-identical). Verified: Newport interior 0.0 m.
-    const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines);
-    const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
-    const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
     // Per-vertex masks from the glued legs:
     //   tier 1 → canal/marina RED
@@ -4429,6 +4636,20 @@ function applyThreeTier(
         if (channelPre[i]) channelKeys.add(key);
         if (offshorePre[i]) offshoreKeys.add(key);
     }
+
+    // Canal centre-line snap — wherever the assembled route rides the OSM canal
+    // lines (a wall-hug / corner-cut through a carved canal estate), replace that
+    // run with the dead-centre line. Tier-agnostic: the canal lines carve the
+    // estate to navigable water, so its spans can come out as inshore passthrough,
+    // not a canal leg — a per-span follow would miss them. Tier-2 channel vertices
+    // are protected so the canal snap cannot swallow a canal→marked-channel egress.
+    // No-op off-canal (the river / open water passes through byte-identical).
+    const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines, {
+        protectedVertices: channelPre,
+    });
+    const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
+    const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
+
     const tier1Vtx = outPoly.map(([lon, lat], i) => canalVtx[i] || canalKeys.has(`${lon}|${lat}`));
     const channelVtx = outPoly.map(([lon, lat]) => channelKeys.has(`${lon}|${lat}`));
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
