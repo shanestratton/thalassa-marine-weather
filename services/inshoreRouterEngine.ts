@@ -240,6 +240,8 @@ export interface RouteDebug {
     destinationSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
     /** True when a shore destination is rendered at the nearest suitable water cell, not the land tap. */
     destinationWaterSnap?: boolean;
+    /** True when the final snapped-water arrival leg was re-routed to avoid a hard-land chord. */
+    destinationLandBridgeRepaired?: boolean;
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;
@@ -4105,6 +4107,59 @@ function routeInshoreOnce(
         flFairlead = fl.fairlead;
         llLeadingLines = ll.leadingLines;
         laLeadingApproach = la.leadingApproach;
+    }
+
+    const destinationNeedsLandBridgeRepair =
+        destinationTapOnHardLand || (debug.destinationSnap?.snapDistanceM ?? 0) > 30;
+    if (debug.destinationWaterSnap && destinationNeedsLandBridgeRepair && finalPolyline.length >= 2) {
+        const segIdx = finalPolyline.length - 2;
+        const a = finalPolyline[segIdx];
+        const b = finalPolyline[segIdx + 1];
+        if (lineCrossesHardLand(grid, { lat: a[1], lon: a[0] }, { lat: b[1], lon: b[0] })) {
+            const rawBridge = gridBridgePolyline(grid, { lat: a[1], lon: a[0] }, { lat: b[1], lon: b[0] });
+            const bridge: [number, number][] = [];
+            for (const p of rawBridge ?? []) {
+                const last = bridge[bridge.length - 1];
+                if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) continue;
+                bridge.push(p);
+            }
+            if (bridge && bridge.length >= 2) {
+                const bridgeCaution: boolean[] = [];
+                const bridgeSegCrossesCaution = (p0: [number, number], p1: [number, number]): boolean => {
+                    const stepM = Math.max(25, resolutionM / 2);
+                    const segM = haversineM(p0[1], p0[0], p1[1], p1[0]);
+                    const steps = Math.max(1, Math.ceil(segM / stepM));
+                    for (let s = 0; s <= steps; s++) {
+                        const t = s / steps;
+                        const { x, y } = latLonToGrid(grid, p0[1] + (p1[1] - p0[1]) * t, p0[0] + (p1[0] - p0[0]) * t);
+                        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+                        const idx = y * grid.width + x;
+                        const d = grid.cells[idx];
+                        if (Number.isNaN(d) || d < 0 || isUnvouchedIdx(idx)) return true;
+                    }
+                    return false;
+                };
+                for (let i = 0; i < bridge.length - 1; i++) {
+                    bridgeCaution.push(bridgeSegCrossesCaution(bridge[i], bridge[i + 1]));
+                }
+
+                const expandMask = (mask: boolean[]): boolean[] => {
+                    if (mask.length === 0) return mask;
+                    const fill = mask[segIdx] ?? false;
+                    return [...mask.slice(0, segIdx), ...new Array(bridge.length - 1).fill(fill)];
+                };
+
+                finalPolyline = [
+                    ...finalPolyline.slice(0, segIdx),
+                    ...bridge.map(([lon, lat]) => [lon, lat] as [number, number]),
+                ];
+                finalCaution = [...finalCaution.slice(0, segIdx), ...bridgeCaution];
+                finalCanalMask = expandMask(finalCanalMask);
+                finalChannelMask = expandMask(finalChannelMask);
+                finalOffshoreMask = expandMask(finalOffshoreMask);
+                debug.destinationLandBridgeRepaired = true;
+            }
+        }
     }
 
     // Compute total length in NM along the final polyline.
