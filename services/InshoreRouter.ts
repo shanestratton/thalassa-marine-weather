@@ -131,15 +131,20 @@ export interface InshoreRouteResult {
      */
     canalMask?: boolean[];
     /**
-     * Per-segment tier-4 flag, length `polyline.length - 1`. true = the segment rides
-     * the MARKED-CHANNEL leg (lateral marks / recommended track from a canal-mouth out
-     * to deep water). The map renderer draws these YELLOW — pilotage water — distinct
-     * from the RED canal/caution and GREEN open water. Kept separate from caution/canal.
+     * Per-segment tier-2 flag, length `polyline.length - 1`. true = the segment rides
+     * the MARKED-CHANNEL / lead-out leg (lateral marks / recommended track from a
+     * canal-mouth out to bay water). The map renderer draws these YELLOW — pilotage
+     * water — distinct from RED canal/caution, GREEN inshore bay, and DARK BLUE offshore.
+     */
+    channelMask?: boolean[];
+    /**
+     * Deprecated compatibility alias for channelMask. It used to mean "marked
+     * channel" before tier 4 was reserved for offshore.
      */
     tier4Mask?: boolean[];
     /**
      * Per-segment offshore flag, length `polyline.length - 1`. true = the OFFSHORE leg
-     * (engine TierId 1, off the ENC grid). The map renderer draws these DARK BLUE.
+     * (engine TierId 4, off the ENC grid). The map renderer draws these DARK BLUE.
      * Empty/absent on a fully-inshore route.
      */
     offshoreMask?: boolean[];
@@ -978,7 +983,7 @@ async function tryInshoreRouteInner(
             ];
             // Prefer SATELLITE-classified water (the TRUE canal shape) over the
             // coarse OSM vector `water` layer — the vector outline is what threw
-            // routeMarina's centreline off. Satellite is tier-3 only (these
+            // routeMarina's centreline off. Satellite is tier-1 only (these
             // endpoint crops); the open bay is never fetched. Fall back to the
             // vector water per-crop on any satellite failure, so the canal is never
             // LESS routable than today.
@@ -1273,10 +1278,10 @@ async function tryInshoreRouteInner(
     log.info(
         `SUCCESS inshore route ${result.distanceNM.toFixed(2)} NM (${result.polyline.length} pts, ${elapsedMs} ms ${computeWhere}, cells: ${cellsUsed.join(',')})`,
     );
-    // TEMP diag (2026-06-19): which segmentation actually RENDERED? The [3tier]
+    // TEMP diag (2026-06-19): which segmentation actually RENDERED? The [tiers]
     // ENGAGED lines log every attempt (strict / relaxed / shadow); this is the
     // ONE that won — its provenance tells us whether the canal span rendered as
-    // finegrid or fell back to a coarse tier-2 passthrough.
+    // finegrid or fell back to a coarse tier-3 passthrough.
     log.warn(
         `RENDERED ROUTE prov="${(result as { debug?: { threeTier?: string } }).debug?.threeTier ?? 'n/a'}" (${result.distanceNM.toFixed(1)} NM, ${result.polyline.length} pts)`,
     );
@@ -1333,9 +1338,10 @@ async function tryInshoreRouteInner(
                         const segCount = Math.max(0, g.polyline.length - 1);
                         return {
                             polyline: g.polyline,
-                            // The Seaway Graph route IS the marked-channel router's output → tier-4
+                            // The Seaway Graph route IS the marked-channel router's output → tier-2
                             // YELLOW. (Connector approach/exit legs ride yellow too for now; a
                             // channel-vs-connector split is a later refinement.)
+                            channelMask: new Array(segCount).fill(true),
                             tier4Mask: new Array(segCount).fill(true),
                             distanceNM: g.lengthM / 1852,
                             cellsUsed,
@@ -1368,6 +1374,7 @@ async function tryInshoreRouteInner(
         polyline: result.polyline,
         cautionMask: (result as { cautionMask?: boolean[] }).cautionMask,
         canalMask: (result as { canalMask?: boolean[] }).canalMask,
+        channelMask: (result as { channelMask?: boolean[] }).channelMask,
         tier4Mask: (result as { tier4Mask?: boolean[] }).tier4Mask,
         offshoreMask: (result as { offshoreMask?: boolean[] }).offshoreMask,
         distanceNM: result.distanceNM,

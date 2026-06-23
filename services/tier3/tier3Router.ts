@@ -1,5 +1,5 @@
 /**
- * Tier-3 router adapter — docs/THREE_TIER_ROUTING.md §4 (re-home, not rewrite).
+ * Canal/marina router adapter — tier 1 in Shane's four-tier brief.
  *
  * Re-homes the EXISTING channel refiners (fairlead lateral-mark follow +
  * leading-line transit snap) onto a contract TierSpan. Given a span's two
@@ -11,11 +11,11 @@
  *     polyline; each splice silently mutated the prior across a contract-less
  *     boundary, and fairlead's `near/ch.length < minFrac` (the 0.59-vs-0.60
  *     Newport skip) would SILENTLY pass the raw zigzag through → stepping.
- *   - Here, segmentRoute has ALREADY decided this span is tier-3 (it abuts
- *     marks / a preferred channel), so the "should I act here?" decision is
+ *   - Here, segmentRoute has ALREADY decided this span belongs to this local
+ *     canal/marina adapter, so the "should I act here?" decision is
  *     gone. The adapter ENGAGES fairlead with a lowered floor, and — whatever
  *     happens — a >120° reversal can never survive the de-spike backstop. A
- *     tier-3 leg is de-stepped by construction or it refuses; it never emits a
+ *     tier-1 leg is de-stepped by construction or it refuses; it never emits a
  *     bead-on-a-string zigzag.
  *
  * Pure. New file only — no shared-seam edits (a local de-spike stands in for
@@ -38,10 +38,10 @@ interface LL {
     lon: number;
 }
 
-/** Max turn (deg) a tier-3 leg body may contain — matches the Gluer's
+/** Max turn (deg) a local canal/marina leg body may contain — matches the Gluer's
  *  SEAM_MAX_TURN_DEG and fairlead's reversal limit. Above it = a double-back. */
 export const TIER3_DESPIKE_DEG = 120;
-/** Fairlead engagement floor for a span segmentRoute ALREADY vouched as tier-3.
+/** Fairlead engagement floor for a span segmentRoute ALREADY vouched as local water.
  *  Low on purpose: segmentRoute has already decided this span abuts a marked
  *  channel, so fairlead should FOLLOW it even when the span covers only part
  *  of the channel's marks (a short berth-side approach span — field finding
@@ -86,7 +86,7 @@ const bearingDeg = (a: LL, b: LL): number => {
 
 /** Remove interior vertices whose deflection exceeds maxTurnDeg (a near-reversal).
  *  Endpoints are pinned. Mirrors fairlead.dropSpikes without importing it (that
- *  symbol isn't exported). Exported so tier-4 (the marked-channel leg) shares the
+ *  symbol isn't exported). Exported so the tier-2 marked-channel leg shares the
  *  identical de-spike backstop instead of duplicating it. */
 export function deSpike(pts: LL[], maxTurnDeg: number): LL[] {
     if (pts.length < 3) return pts;
@@ -263,7 +263,7 @@ export function followChannelGates(
 /**
  * Build the Tier-3 leg for one span, or refuse.
  *
- * @param span         the tier-3 span (carries entry/exit BoundaryNodes + the
+ * @param span         the local canal/marina span (carries entry/exit BoundaryNodes + the
  *                     [fromIdx,toIdx] range into `fullPolyline`)
  * @param fullPolyline the REAL navigable A* route (tuples [lon,lat])
  * @param ctx          grid + lateral marks + leading lines for this region
@@ -315,7 +315,7 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         return true;
     };
 
-    // 1. Fairlead — ENGAGE (lowered floor; segmentRoute already vouched tier-3).
+    // 1. Fairlead — ENGAGE (lowered floor; segmentRoute already vouched this span).
     if (ctx.marks.length >= 3) {
         const fl = refineWithFairlead(poly, [...ctx.marks], isLand, {
             fromIdx: 0,
@@ -375,7 +375,7 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         }
     }
 
-    // 3. De-spike backstop — no >120° reversal survives a tier-3 leg body.
+    // 3. De-spike backstop — no >120° reversal survives a local leg body.
     //    Skipped for the fine-grid leg: the marina solver's string-pulled
     //    centreline is monotonic + clearance-validated, and deSpike could drop a
     //    genuine sharp canal bend (a real >120° dog-leg the canal demands).
@@ -402,13 +402,13 @@ export function routeTier3(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     }
 
     return freezeLeg({
-        tierId: 3,
+        tierId: span.tier,
         entry: span.entry,
         exit: span.exit,
         polyline,
         cautionMask,
         depthSource: vouched ? 'marks-vouched' : 'charted',
         controllingDepthM: Number.isFinite(controlling) ? controlling : null,
-        provenance: `tier3:${prov.length ? prov.join('+') : 'astar'}`,
+        provenance: `tier${span.tier}:${prov.length ? prov.join('+') : 'astar'}`,
     });
 }

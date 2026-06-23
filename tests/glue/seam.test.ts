@@ -13,7 +13,7 @@ function node(at: LatLon, headingDeg: number, extra: Partial<BoundaryNode> = {})
     return { at, headingDeg, kind: 'channel-mouth', depthM: 10, snapped: true, ...extra };
 }
 function leg(
-    tierId: 1 | 2 | 3,
+    tierId: 1 | 2 | 3 | 4,
     entry: BoundaryNode,
     exit: BoundaryNode,
     polyline: LatLon[],
@@ -65,11 +65,11 @@ describe('glue seam — planted field-bug fixtures', () => {
         if (isRefusal(r)) expect(r.measuredTurnDeg).toBe(171);
     });
 
-    it('Newport-exit (tier-2 bay → tier-3 channel), aligned + between the marks → clean concat, no interior bead', () => {
+    it('Newport-exit (tier-3 bay → tier-2 channel), aligned + between the marks → clean concat, no interior bead', () => {
         const seam = [153.201, -27.3] as LatLon; // between port 153.200 and stbd 153.202
         const cross = { port: [153.2, -27.3] as LatLon, stbd: [153.202, -27.3] as LatLon };
-        const a = leg(2, node([153.201, -27.31], 0), node(seam, 0), colNorth(153.201, -27.3));
-        const b = leg(3, node(seam, 0, { crossLine: cross }), node([153.201, -27.29], 0), colSouth(153.201, -27.3));
+        const a = leg(3, node([153.201, -27.31], 0), node(seam, 0), colNorth(153.201, -27.3));
+        const b = leg(2, node(seam, 0, { crossLine: cross }), node([153.201, -27.29], 0), colSouth(153.201, -27.3));
         const r = glue(a, b);
         expect(isRefusal(r)).toBe(false);
         if (!isRefusal(r)) {

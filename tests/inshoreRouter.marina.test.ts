@@ -146,10 +146,10 @@ describe('Fairlead — end-to-end through routeInshore (grid-validated, open-wat
         );
         expect(isResult(r)).toBe(true);
         if (!isResult(r)) return;
-        // RE-PIN 2026-06-18 (3-tier Phase 4 + tier3 channel-follow, c05e9d02):
+        // RE-PIN 2026-06-18 (tier-contract path + channel-follow, c05e9d02):
         // the route STILL follows the BC channel — but the fairlead now runs
-        // inside the tier-3 span, so the provenance moved from
-        // debug.fairlead='BC' to debug.threeTier='tier3:fairlead(BC)'. Same
+        // inside the channel span, so the provenance moved from
+        // debug.fairlead='BC' to debug.threeTier='tier2:fairlead(BC)'. Same
         // intent (buoyed-channel follow), new path. Verified the debug live.
         expect(r.debug?.threeTier).toContain('fairlead(BC)');
     });

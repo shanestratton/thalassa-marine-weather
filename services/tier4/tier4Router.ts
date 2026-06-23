@@ -1,15 +1,15 @@
 /**
- * Tier-4 — the MARKED-CHANNEL leg.
+ * Tier-2 — the MARKED-CHANNEL / lead-out leg.
  *
- * Where a route leaves the canal/marina (tier-3) and meets the first set of
+ * Where a route leaves the canal/marina (tier-1) and meets the first set of
  * LATERAL MARKERS (a buoyed channel with NO charted DRGARE/FAIRWY polygon), it
- * enters tier-4: follow the channel straight out to deep water (tier-2). The
+ * enters tier-2: follow the channel straight out to inshore bay water (tier-3). The
  * spine is the RECOMMENDED TRACK (RECTRC) where charted; where the marks stand
  * alone with no recommended track (e.g. the Newport exit gate channel) it falls
  * back to the lateral-mark gate-follower. Renders YELLOW (pilotage water), as
  * distinct from the RED canal/caution and GREEN open water.
  *
- * SAFETY: the leg NEVER crosses land — it reuses the tier-3 land vetoes verbatim
+ * SAFETY: the leg NEVER crosses land — it reuses the local land vetoes verbatim
  * (the grid landBlocked check + followChannelGates' own MARK_VOUCH_M land check).
  * On any failure it REFUSES (typed Refusal) rather than fabricate a centreline,
  * so stitchLegs falls back to the proven monolith — the route can never get worse
@@ -18,7 +18,8 @@
  */
 import type { NavGrid } from '../inshoreRouterEngine';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
-import { followChannelGates, deSpike, TIER3_DESPIKE_DEG } from '../tier3/tier3Router';
+import { refineWithFairlead } from '../fairlead';
+import { followChannelGates, deSpike, TIER3_DESPIKE_DEG, TIER3_FAIRLEAD_MIN_FRAC } from '../tier3/tier3Router';
 import { freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
 import type { LateralMark } from '../fairlead';
@@ -49,9 +50,9 @@ const cellIdx = (g: NavGrid, lon: number, lat: number): number => {
 };
 
 /**
- * Build the tier-4 leg for one span, or refuse.
+ * Build the tier-2 leg for one span, or refuse.
  *
- * @param span         the tier-4 span (entry/exit BoundaryNodes + the [from,to]
+ * @param span         the tier-2 span (entry/exit BoundaryNodes + the [from,to]
  *                     range into `fullPolyline`)
  * @param fullPolyline the REAL navigable A* route (tuples [lon,lat])
  * @param ctx          grid + RECTRC tracks + lateral marks for this region
@@ -81,7 +82,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     // 1. RECTRC spine — snap onto the recommended track where charted. The whole
     //    route is already RECTRC-snapped before segmentation, so this is usually a
     //    no-op confirmation; it catches a span the global pass didn't cover. Tight
-    //    corridor; `protect` undefined because tier-4 IS the protected track.
+    //    corridor; `protect` undefined because tier-2 IS the protected track.
     if (ctx.recommendedTracks.length > 0) {
         const ll = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.recommendedTracks], {
             isBlocked: isLand,
@@ -118,13 +119,28 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         }
     }
 
+    // 1c. Fairlead — preserve the proven lateral-mark follower for charted
+    // buoyed channels. This catches wider synthetic/real gate spacing where the
+    // nearest-gate fallback declines, while still keeping the tier-2 boundary.
+    if (prov.length === 0 && ctx.marks.length >= 3) {
+        const fl = refineWithFairlead(poly, [...ctx.marks], isLand, {
+            fromIdx: 0,
+            minAlongFraction: TIER3_FAIRLEAD_MIN_FRAC,
+            traverseM: 500,
+        });
+        if (fl.replacedRange) {
+            poly = fl.polyline;
+            prov.push(`fairlead${fl.channelKey ? `(${fl.channelKey})` : ''}`);
+        }
+    }
+
     // 2. Gate-follower fallback — where no RECTRC covers the marks (the Newport
     //    exit gate channel: buoys, no recommended track). Its INTERNAL land veto
     //    (MARK_VOUCH_M=150 m) rejects a cross-paired midpoint that lands on a
     //    mudflat → null. We REFUSE rather than fabricate a centreline.
     // gateDecline carries WHY followChannelGates bailed (sub<2 / nearNpMs / gatesN / midsN /
     // entry-land / body-land / exit-land), folded into provenance below — without it the
-    // device cannot say why a tier-4 leg renders the stepped A* slice instead of straight.
+    // device cannot say why a tier-2 leg renders the stepped A* slice instead of straight.
     let gateDecline = ctx.marks.length < 3 ? `marks${ctx.marks.length}` : '';
     if (prov.length === 0 && ctx.marks.length >= 3) {
         const followed = followChannelGates(poly, [...ctx.marks], ctx.grid, (r) => {
@@ -137,7 +153,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         }
         // else: keep the A* slice (de-spiked below) rather than REFUSE. A marked
         // channel the gate-follower can't cleanly resolve (e.g. two parallel
-        // channels lumped, gate:body-land) stays tier-4 (YELLOW) on its A* geometry
+        // channels lumped, gate:body-land) stays tier-2 (YELLOW) on its A* geometry
         // — it does NOT drop the whole route to the monolith. The A* slice is on
         // navigable water, so the never-cross-land guarantee holds (honest A*, not
         // a fabricated centreline).
@@ -164,13 +180,13 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     }
 
     return freezeLeg({
-        tierId: 4,
+        tierId: span.tier,
         entry: span.entry,
         exit: span.exit,
         polyline,
         cautionMask,
         depthSource: prov.includes('gates') ? 'marks-vouched' : 'charted',
         controllingDepthM: Number.isFinite(controlling) ? controlling : null,
-        provenance: `tier4:${prov.length ? prov.join('+') : `astar${gateDecline ? `(gate:${gateDecline})` : ''}`}`,
+        provenance: `tier${span.tier}:${prov.length ? prov.join('+') : `astar${gateDecline ? `(gate:${gateDecline})` : ''}`}`,
     });
 }

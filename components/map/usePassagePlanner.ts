@@ -373,7 +373,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 if (gen !== computeGenRef.current) return; // user moved on, abort
                 if (backstop.crossesLand) {
                     log.warn(
-                        `[Passage] inshore route REJECTED by land backstop (${backstop.runs.length} land run(s)) — falling back`,
+                        `[Passage][BAYLEG] FELL THROUGH (land-backstop) → passage-planner GREEN will draw — ` +
+                            `${backstop.runs.length} land run(s); inshore route REJECTED on satellite bathymetry`,
                     );
                     dispatchPassageNotice({
                         severity: 'warn',
@@ -458,7 +459,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
                     // Per-segment colour, Shane's INNER→OUTER scheme. Precedence:
                     //   1. canal centre-line → RED ('danger')  — the marina basin (innermost).
-                    //   2. tier-4 marked channel → YELLOW ('channel') — and this BEATS caution:
+                    //   2. tier-2 marked channel → YELLOW ('channel') — and this BEATS caution:
                     //      a buoyed channel is pilotage water, the marks ARE the depth authority,
                     //      so it must read yellow even where the 50 m grid calls it shallow/
                     //      uncharted (d-1). (Was caution>channel, which reddened the marked
@@ -468,16 +469,16 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     //   4. offshore → DARK BLUE; else inshore A* → TEAL ('green' default).
                     const cautionMask = inshoreRes.cautionMask;
                     const canalMask = inshoreRes.canalMask;
-                    const tier4Mask = inshoreRes.tier4Mask;
+                    const channelMask = inshoreRes.channelMask ?? inshoreRes.tier4Mask;
                     const offshoreMask = inshoreRes.offshoreMask;
                     const anyMask =
-                        hasMask(cautionMask) || hasMask(canalMask) || hasMask(tier4Mask) || hasMask(offshoreMask);
+                        hasMask(cautionMask) || hasMask(canalMask) || hasMask(channelMask) || hasMask(offshoreMask);
                     const stateMask: ('danger' | 'channel' | 'offshore' | 'green')[] | null =
                         inshorePoly.length < 2 || !anyMask
                             ? null
                             : Array.from({ length: segCount }, (_, i) => {
                                   if (canalMask?.[i] ?? false) return 'danger'; // canal/marina RED
-                                  if (tier4Mask?.[i]) return 'channel'; // marked channel YELLOW (beats caution)
+                                  if (channelMask?.[i]) return 'channel'; // marked channel YELLOW (beats caution)
                                   if (cautionMask?.[i] ?? false) return 'danger'; // shallow OPEN water RED
                                   return offshoreMask?.[i] ? 'offshore' : 'green';
                               });
@@ -562,6 +563,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     }
 
                     dispatchPassageNotice(null); // route rendered — clear the computing band
+                    // [BAYLEG] render-truth (2026-06-23): fires ONLY when the inshore route survives
+                    // the land backstop and is actually drawn — teal/tier-coloured, with the
+                    // Scarborough OBSTRN half-disc rounding the mark + the river-follow active. If
+                    // Shane sees a GREEN (#00e676) bay, this line is ABSENT and a "FELL THROUGH"
+                    // line fired instead. Grep [Passage][BAYLEG] on reload to name the router.
+                    log.warn(
+                        `[Passage][BAYLEG] DREW INSHORE ${inshoreRes.distanceNM.toFixed(2)} NM cells=${inshoreRes.cellsUsed.join(',')}`,
+                    );
                     // Clear any STALE confidence braid (GFS cyan / ECMWF magenta) left by a PRIOR
                     // long-route compute. The braid is only ever drawn AND cleared inside the
                     // !isShortRoute isochrone block; the inshore path returns here without touching it,
@@ -576,7 +585,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
                 log.warn(
-                    `[Passage] inshore router could not produce a route: ${inshoreRes.error} (${inshoreRes.code ?? 'no code'})`,
+                    `[Passage][BAYLEG] FELL THROUGH (engine ${inshoreRes.code ?? 'no-code'}) → passage-planner GREEN will draw — ` +
+                        `${inshoreRes.error}`,
                 );
                 // The engine's error strings are skipper-readable
                 // ("Inshore charts don't cover the full passage yet —
@@ -591,7 +601,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // too-short check will bail with the friendly message.
             }
         } catch (err) {
-            log.warn(`[Passage] inshore routing threw — falling through`, err);
+            log.warn(
+                `[Passage][BAYLEG] FELL THROUGH (threw) → passage-planner GREEN will draw — inshore routing exception`,
+                err,
+            );
             dispatchPassageNotice({
                 severity: 'warn',
                 title: 'Inshore routing failed',
