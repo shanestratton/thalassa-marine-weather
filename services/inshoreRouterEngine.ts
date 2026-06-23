@@ -3044,9 +3044,17 @@ interface GridOverride {
     padDeg: number;
 }
 
-function hasCanalTierContract(route: RouteResult): boolean {
-    const prov = route.debug?.threeTier ?? '';
-    return prov.includes('egress-channel') || prov.includes('canalsnap') || (route.canalMask?.some(Boolean) ?? false);
+export function dropsProtectedCanalGateContract(
+    protectedRoute: { canalMask?: readonly boolean[]; debug?: { threeTier?: string } },
+    candidate: { canalMask?: readonly boolean[]; debug?: { threeTier?: string } },
+): boolean {
+    const protectedProv = protectedRoute.debug?.threeTier ?? '';
+    const candidateProv = candidate.debug?.threeTier ?? '';
+    if (protectedProv.includes('egress-channel') && !candidateProv.includes('egress-channel')) return true;
+    if (protectedProv.includes('canalsnap') && !candidateProv.includes('canalsnap')) return true;
+    if ((protectedRoute.canalMask?.some(Boolean) ?? false) && !(candidate.canalMask?.some(Boolean) ?? false))
+        return true;
+    return false;
 }
 
 function routeInshoreMain(
@@ -3127,7 +3135,7 @@ function routeInshoreMain(
     );
     const relaxed = routeInshoreOnce(layers, req, false, relaxZones, gridOverride);
     if ('error' in relaxed) return strict;
-    if (hasCanalTierContract(strict) && !hasCanalTierContract(relaxed)) {
+    if (dropsProtectedCanalGateContract(strict, relaxed)) {
         console.warn(
             '[inshoreEngine] localized-relaxed route dropped the canal/gate tier contract — keeping strict tiered route',
         );
