@@ -41,7 +41,7 @@
  *         (the other clause) IS, because DRGARE is loaded from the chart.
  *
  *  3. Calls routeInshore(layers, {Newport→Pinkenba, draftM 2, safetyM 1,
- *     resolutionM 50}) and captures debug.threeTier (the [3tier] provenance)
+ *     resolutionM 50}) and captures debug.threeTier (the tier-contract provenance)
  *     plus the polyline.
  *
  *  4. MEASURES the hug: builds the authoritative RECTRC river centreline chain
@@ -257,7 +257,7 @@ function loadOsmNavLines(): Feature[] {
 }
 
 /** The real OSM canal centre-lines (LineString FeatureCollection), pushed 1:1 into
- *  CANAL exactly as InshoreRouter.ts:677 does on-device — the lines tier-3 follows. */
+ *  CANAL exactly as InshoreRouter.ts:677 does on-device — the lines tier-1 follows. */
 function loadOsmCanalLines(): Feature[] {
     const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { canalLines?: FeatureCollection };
     return (d.canalLines?.features ?? []) as Feature[];
@@ -320,7 +320,7 @@ function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[
     if (navSource === 'osm') {
         (merged.NAVLINE!.features as unknown[]).push(...osmNav);
         // The device ALSO pushes OSM canalLines into CANAL (InshoreRouter.ts:677) —
-        // the canal centre-lines the tier-3 follower rides. Faithful on-device path.
+        // the canal centre-lines the tier-1 follower rides. Faithful on-device path.
         (merged.CANAL!.features as unknown[]).push(...osmCanal);
     }
     return merged;
@@ -628,7 +628,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
 
     it('CANAL SNAP — Newport canal rides dead centre, river left untouched', () => {
         // Variant C = the faithful on-device path (CANAL populated). The Newport
-        // canal comes out tier-2 passthrough here (the lines carve navigable water),
+        // canal can come out tier-3 passthrough here (the lines carve navigable water),
         // i.e. the raw A* wall-hug. snapRouteToCanalLines should pull it dead centre,
         // while the RECTRC-followed river at the Pinkenba end stays byte-identical.
         const { route, prov } = runVariant('osm');
@@ -700,11 +700,11 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(flaggedCanalSegs, 'every canal-interior segment carries the canal red flag').toBe(canalSegs);
     });
 
-    it('TIER-4 — routing through the Newport exit gate channel engages tier-4 (yellow)', () => {
+    it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {
         // The Newport→Pinkenba route exits WEST and bypasses the buoyed exit gate, so
-        // it shows no tier-4. Route NORTH instead — Newport marina → a point past the
+        // it shows no channel tier. Route NORTH instead — Newport marina → a point past the
         // green-7/red-8 gate (rcs5 BCNLAT, CATLAM 1/2) which has marks but NO DRGARE —
-        // and the marked channel must classify TIER-4 + populate the yellow mask.
+        // and the marked channel must classify tier-2 + populate the yellow mask.
         const layers = assembleLayers(cells, 'osm', osmNav, osmCanal);
         const res = routeInshore(layers, { ...REQ_BASE, toLat: -27.182, toLon: 153.0935 } as RouteRequest);
         if ('error' in res) {
@@ -716,13 +716,14 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             return;
         }
         const prov = res.debug?.threeTier ?? '';
-        const t4Segs = (res.tier4Mask ?? []).filter(Boolean).length;
+        const channelSegs = (res.channelMask ?? res.tier4Mask ?? []).filter(Boolean).length;
+        const channelMaskLen = (res.channelMask ?? res.tier4Mask ?? []).length;
         // eslint-disable-next-line no-console
         console.log(
-            `\n=== TIER-4 (north exit through the gate) ===\nprov: ${prov}\n` +
-                `tier4 segments (yellow): ${t4Segs}/${(res.tier4Mask ?? []).length}`,
+            `\n=== TIER-2 channel (north exit through the gate) ===\nprov: ${prov}\n` +
+                `channel segments (yellow): ${channelSegs}/${channelMaskLen}`,
         );
-        expect(prov, 'a tier-4 marked-channel span engaged').toContain('tier4');
-        expect(t4Segs, 'the yellow tier-4 mask is populated').toBeGreaterThan(0);
+        expect(prov, 'a tier-2 marked-channel span engaged').toContain('tier2');
+        expect(channelSegs, 'the yellow channel mask is populated').toBeGreaterThan(0);
     });
 });

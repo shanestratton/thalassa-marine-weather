@@ -1,11 +1,11 @@
 /**
- * Tier-2 router — docs/THREE_TIER_ROUTING.md §5 (coastal/bay deep water).
+ * Inshore bay router — tier 3 in Shane's four-tier brief.
  *
  * The marks-free, depth-safe crossing between channels: from "just outside the
  * last lead" to the next channel mouth, over water deep enough to cross
  * UNATTENDED without threading marks — charted depth ≥ tier2NavigableDepthM
  * (5 m all-tide for the Tayana, Shane-confirmed). Marks OFF, depth mask ON,
- * flat geodesic cost (no channel-preference bias — tier 2 is NOT centreline-
+ * flat geodesic cost (no channel-preference bias — tier 3 is NOT centreline-
  * hugging; it's the shortest deep line, bending only around shoals).
  *
  * Composes marinaCenterline's PROVEN pure grid primitives (snapToMask +
@@ -14,7 +14,7 @@
  * solver is 4-connected) rather than hand-rolling an A*. New file only — no
  * shared-engine edits.
  *
- * Returns a FROZEN Leg or a typed Refusal:
+ * Returns a FROZEN tier-3 Leg or a typed Refusal:
  *   - 'disconnected-grid'    entry/exit off the ENC grid
  *   - 'no-deepwater-corridor' no ≥5 m path connects entry→exit
  *   - 'exit-not-deepwater'   the exit boundary isn't on deep water
@@ -27,7 +27,7 @@ import { freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legCo
 import type { TierSpan } from '../routing/segmentRoute';
 
 /** A boundary node more than this many cells from the nearest deep cell is not
- *  genuinely on tier-2 water (≈200 m at the 50 m default grid). */
+ *  genuinely on tier-3 inshore bay water (≈200 m at the 50 m default grid). */
 export const TIER2_MAX_SNAP_CELLS = 4;
 
 export interface Tier2Context {
@@ -51,10 +51,10 @@ const toLatLon = (grid: NavGrid, c: Cell): LatLon => [
 ];
 
 /**
- * Route one tier-2 span (a deep-water crossing) into a frozen Leg, or refuse.
+ * Route one tier-3 span (an inshore deep-water crossing) into a frozen Leg, or refuse.
  *
- * @param span the tier-2 span (entry/exit BoundaryNodes — its polyline range
- *             is NOT followed; tier 2 routes its OWN deep line between the nodes)
+ * @param span the tier-3 span (entry/exit BoundaryNodes — its polyline range
+ *             is NOT followed; tier 3 routes its OWN deep line between the nodes)
  * @param ctx  grid + vessel draft/tide for the depth gate
  */
 export function routeTier2(span: TierSpan, ctx: Tier2Context): Leg | Refusal {
@@ -75,9 +75,9 @@ export function routeTier2(span: TierSpan, ctx: Tier2Context): Leg | Refusal {
         if (!Number.isNaN(d) && d >= TIER2) deep[i] = 1;
     }
 
-    // Snap the boundary nodes onto deep water (the boundary sits on the tier-3
-    // side; deep water starts adjacent). A far snap ⇒ the boundary isn't on
-    // tier-2 water at all.
+    // Snap the boundary nodes onto deep water (the boundary sits on the channel
+    // side; bay water starts adjacent). A far snap ⇒ the boundary isn't on
+    // tier-3 water at all.
     const snStart = snapToMask(deep, shape, entryCell);
     const snEnd = snapToMask(deep, shape, exitCell);
     if (!snStart || cellDist(snStart, entryCell) > TIER2_MAX_SNAP_CELLS) {
@@ -111,13 +111,13 @@ export function routeTier2(span: TierSpan, ctx: Tier2Context): Leg | Refusal {
     }
 
     return freezeLeg({
-        tierId: 2,
+        tierId: 3,
         entry: span.entry,
         exit: span.exit,
         polyline,
         cautionMask: polyline.map(() => false),
         depthSource: 'charted',
         controllingDepthM: Number.isFinite(controlling) ? controlling : null,
-        provenance: 'tier2:deepwater',
+        provenance: 'tier3:deepwater',
     });
 }

@@ -1,6 +1,6 @@
 /**
- * tier3Router (PHASE 2) — docs/THREE_TIER_ROUTING.md §4.
- * Proves the contract adapter UN-STEPS a tier-3 span: a stepped A* zigzag
+ * Canal/marina adapter — tier 1 in the four-tier brief.
+ * Proves the contract adapter UN-STEPS a tier-1 span: a stepped A* zigzag
  * through a marked channel comes out as a smooth, frozen Leg; a planted
  * double-back is removed; degenerate spans refuse; endpoints are pinned to
  * the span's BoundaryNodes by construction.
@@ -78,7 +78,7 @@ const node = (at: LatLon, headingDeg: number): BoundaryNode => ({
 
 function spanOver(poly: LatLon[]): TierSpan {
     return {
-        tier: 3,
+        tier: 1,
         entry: node(poly[0], 0),
         exit: node(poly[poly.length - 1], 0),
         fromIdx: 0,
@@ -99,7 +99,7 @@ describe('routeTier3', () => {
         if (isRefusal(leg)) return;
 
         // fairlead engaged — the channel the monolith would have skipped
-        expect(leg.tierId).toBe(3);
+        expect(leg.tierId).toBe(1);
         expect(leg.provenance).toContain('fairlead');
         expect(leg.depthSource).toBe('marks-vouched');
 
@@ -139,7 +139,7 @@ describe('routeTier3', () => {
 
         expect(auditStepping(mut(poly)).maxKinkDeg).toBeGreaterThan(120); // input has the spike
         expect(auditStepping(mut(leg.polyline)).maxKinkDeg).toBeLessThan(120); // leg never does
-        expect(leg.provenance).toBe('tier3:astar'); // no refiner engaged, just de-spiked
+        expect(leg.provenance).toBe('tier1:astar'); // no refiner engaged, just de-spiked
     });
 
     it('refuses a degenerate (single-vertex) span', () => {
@@ -159,7 +159,7 @@ describe('routeTier3', () => {
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
         expect(leg.depthSource).toBe('charted');
-        expect(leg.provenance).toBe('tier3:astar');
+        expect(leg.provenance).toBe('tier1:astar');
         expect(leg.controllingDepthM).toBe(10);
         expect(leg.polyline[0]).toBe(leg.entry.at);
         expect(leg.polyline[leg.polyline.length - 1]).toBe(leg.exit.at);
@@ -258,7 +258,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,real$/); // all-deep ⇒ connected real water
+        expect(leg.provenance).toMatch(/^tier1:finegrid:k\d+,real$/); // all-deep ⇒ connected real water
         expect(leg.depthSource).toBe('marks-vouched'); // fine pass vouches the water
         // endpoints still pinned to the span's BoundaryNodes
         expect(leg.polyline[0]).toBe(leg.entry.at);
@@ -271,7 +271,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar');
+        expect(leg.provenance).toBe('tier1:astar');
     });
 
     it('stays astar on a WIDE channel even with buildFineGrid (narrowness gate)', () => {
@@ -281,7 +281,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar(fine=notnarrow)'); // probe declined the wide channel
+        expect(leg.provenance).toBe('tier1:astar(fine=notnarrow)'); // probe declined the wide channel
     });
 
     it('FORCES finegrid on a WIDE channel when injectedCanal-flagged within the length cap', () => {
@@ -295,7 +295,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,real$/); // forced fine pass, all-deep ⇒ connects
+        expect(leg.provenance).toMatch(/^tier1:finegrid:k\d+,real$/); // forced fine pass, all-deep ⇒ connects
     });
 
     /** Build a straight-N injected wide-channel span of ~latSpanDeg degrees. */
@@ -332,7 +332,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(spanOver(poly), poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toMatch(/^tier3:finegrid:/); // injected + 3.5–9 km → coarse-grid medial axis
+        expect(leg.provenance).toMatch(/^tier1:finegrid:/); // injected + 3.5–9 km → coarse-grid medial axis
     });
 
     it('stays astar(fine=wide+long) when an injected span exceeds even the coarse-grid cap (>9 km)', () => {
@@ -343,7 +343,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(spanOver(poly), poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toBe('tier3:astar(fine=wide+long)');
+        expect(leg.provenance).toBe('tier1:astar(fine=wide+long)');
     });
 
     it('bridges a walled 2-basin fine grid via the coarse corridor → finegrid', () => {
@@ -371,7 +371,7 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
         // split real water + a measured bridged crossing (the diagnostic we need)
-        expect(leg.provenance).toMatch(/^tier3:finegrid:k\d+,split\/br\d+m$/);
+        expect(leg.provenance).toMatch(/^tier1:finegrid:k\d+,split\/br\d+m$/);
     });
 
     it('DECLINES a thick barrier (>cap m of charted land) → astar, not a fake fine route', () => {
@@ -394,6 +394,6 @@ describe('routeTier3 — fine canal fallback (Phase 2 branch wiring)', () => {
         const leg = routeTier3(span, poly, ctx);
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.provenance).toMatch(/^tier3:astar\(fine=barrier\/\d+m\)$/);
+        expect(leg.provenance).toMatch(/^tier1:astar\(fine=barrier\/\d+m\)$/);
     });
 });

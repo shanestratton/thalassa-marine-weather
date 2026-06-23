@@ -1,10 +1,10 @@
 /**
- * Three-tier wiring (PHASE 4) — end-to-end on Shane's REAL Newport→Murrarie
+ * Four-tier wiring — end-to-end on Shane's REAL Newport→Murrarie
  * route (tests/fixtures/newport-shane.corridor.json.gz). This is the
  * regression that proves the live wiring: routeInshore now runs
  * segmentRoute → per-span tier routers → glue, and the result must
- *   (1) be produced by the three-tier path (not the monolith fallback),
- *   (2) follow the Newport channel via a tier-3 fairlead span (the un-step),
+ *   (1) be produced by the tier-contract path (not the monolith fallback),
+ *   (2) follow the Newport channel via a tier-2 channel span (the un-step),
  *   (3) carry NO double-back anywhere (the de-spike contract, end to end),
  *   (4) span origin → destination.
  */
@@ -14,7 +14,7 @@ import { loadFixture, assembleLayers } from '../helpers/corridorFixture';
 import { auditStepping, type Gate } from '../helpers/routeScorecard';
 import { parseLateralMarks } from '../../services/fairlead';
 
-describe('three-tier wiring — Newport→Murrarie (Shane real route)', () => {
+describe('four-tier wiring — Newport→Murrarie (Shane real route)', () => {
     const fx = loadFixture('newport-shane.corridor.json.gz');
     const layers = assembleLayers(fx) as InshoreLayers;
     const req = fx.request as RouteRequest;
@@ -33,14 +33,14 @@ describe('three-tier wiring — Newport→Murrarie (Shane real route)', () => {
         expect(ok).toBe(true);
     });
 
-    it('the three-tier contract path produced the route (not the monolith fallback)', () => {
+    it('the tier contract path produced the route (not the monolith fallback)', () => {
         if (!('polyline' in result)) throw new Error('route failed');
         expect(result.debug?.threeTier).toBeTruthy();
     });
 
-    it('a tier-3 span carries the route (the Newport channel is segmented + routed)', () => {
+    it('a tier-2 span carries the Newport channel (segmented + routed)', () => {
         if (!('polyline' in result)) throw new Error('route failed');
-        expect(result.debug?.threeTier).toContain('tier3');
+        expect(result.debug?.threeTier).toContain('tier2');
     });
 
     it('no double-back anywhere on the route (de-spike contract holds end-to-end)', () => {

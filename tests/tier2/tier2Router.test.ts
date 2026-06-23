@@ -1,5 +1,5 @@
 /**
- * tier2Router (PHASE 3) — docs/THREE_TIER_ROUTING.md §5.
+ * Inshore bay router — tier 3 in the four-tier brief.
  * The marks-free deep-water crossing: a straight deep line where it can,
  * bending around a <5 m shoal without ever entering it, and refusing
  * honestly when the exit isn't on deep water or no deep corridor connects.
@@ -64,8 +64,8 @@ describe('routeTier2', () => {
         const leg = routeTier2(span(at(2, 15), at(37, 15)), ctx(makeGrid()));
         expect(isRefusal(leg)).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.tierId).toBe(2);
-        expect(leg.provenance).toBe('tier2:deepwater');
+        expect(leg.tierId).toBe(3);
+        expect(leg.provenance).toBe('tier3:deepwater');
         expect(leg.depthSource).toBe('charted');
         expect(leg.controllingDepthM).toBe(10);
         expect(leg.cautionMask.every((c) => c === false)).toBe(true);

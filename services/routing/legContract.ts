@@ -1,5 +1,11 @@
 /**
- * Three-tier routing — the immutable Leg contract (PHASE 0).
+ * Four-tier routing — the immutable Leg contract.
+ *
+ * Tier IDs are inside-out:
+ *   1 = canals / marinas
+ *   2 = lead-out / marked / dredged channels
+ *   3 = inshore bay / coastal charted water
+ *   4 = offshore / bluewater / GEBCO-only
  *
  * Design: docs/THREE_TIER_ROUTING.md §1.1 + §3. THE SEAM IS THE PRODUCT.
  *

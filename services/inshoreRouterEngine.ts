@@ -171,7 +171,7 @@ export interface InshoreLayers {
      * S-57 RECTRC (Recommended Track) LineStrings — the hydrographer's OFFICIAL
      * recommended route through a channel/approach, drawn on the chart (with
      * CATTRK + ORIENT bearing). Where present this is the AUTHORITATIVE channel
-     * line: the tier-3 router snaps the route onto it FIRST, ahead of the
+     * line: the channel router snaps the route onto it FIRST, ahead of the
      * derived buoy/leading-line follow. The "definitive set of routes out of
      * the marina" — it ships inside the ENC, we just plumb it through. Added
      * 2026-06-18 (Newport carries 43 RECTRC segments we were ignoring).
@@ -247,10 +247,10 @@ export interface RouteDebug {
     /** Channel key when Fairlead spliced a buoyed-channel segment (the route
      *  follows the lateral marks there), else absent. */
     fairlead?: string;
-    /** Present when the three-tier contract path (segmentRoute → per-span tier
+    /** Present when the tier contract path (segmentRoute → per-span tier
      *  routers → glue) produced the final route instead of the monolith
      *  fairlead/leading splice. Value = the joined leg provenance (e.g.
-     *  'tier3:fairlead(BC)+lead | tier2:passthrough'). Absent ⇒ the path
+     *  'tier2:fairlead(BC)+lead | tier3:passthrough'). Absent ⇒ the path
      *  refused and the route fell back to the proven splice chain. */
     threeTier?: string;
     /** Count of charted leading lines (navigation_line transits) the route was
@@ -303,17 +303,22 @@ export interface RouteResult {
      */
     canalMask?: boolean[];
     /**
-     * Per-segment tier-4 flag, length `polyline.length - 1`. `tier4Mask[i] === true`
-     * means the segment rides the MARKED-CHANNEL leg (lateral marks / recommended
-     * track from a canal-mouth out to deep water). The renderer draws these YELLOW —
-     * pilotage water — distinct from the RED canal/caution and GREEN open water. Red
-     * (caution/canal) takes precedence where a segment is both. Empty/absent when the
-     * route touches no marked channel.
+     * Per-segment tier-2 flag, length `polyline.length - 1`. `channelMask[i] === true`
+     * means the segment rides the MARKED-CHANNEL / lead-out leg (lateral marks /
+     * recommended track from a canal-mouth out to bay water). The renderer draws
+     * these YELLOW — pilotage water — distinct from RED canal/caution, GREEN
+     * inshore bay, and DARK BLUE offshore. Empty/absent when the route touches no
+     * marked channel.
+     */
+    channelMask?: boolean[];
+    /**
+     * Deprecated compatibility alias for channelMask. It used to mean "marked
+     * channel" before the four-tier contract assigned tier 4 to offshore.
      */
     tier4Mask?: boolean[];
     /**
      * Per-segment offshore flag, length `polyline.length - 1`. true = the segment is
-     * the OFFSHORE leg (engine TierId 1 — off the ENC grid, GEBCO-only). The renderer
+     * the OFFSHORE leg (engine TierId 4 — off the ENC grid, GEBCO-only). The renderer
      * draws these DARK BLUE. Empty/absent on a fully-inshore route.
      */
     offshoreMask?: boolean[];
@@ -607,7 +612,7 @@ export interface NavGrid {
      * (which already routes fine and is baked into the route-fixture baselines),
      * and — by construction — the open bay (the injection only ever covers the
      * ~4 km crops around origin + destination). The tier
-     * router uses it to (a) classify these vertices tier-3 (a canal, not "deep
+     * router uses it to (a) classify these vertices tier-1 (a canal, not "deep
      * open water") and (b) force the fine centreline pass over them even though
      * the wide injected fill defeats the coarse narrowness probe. Optional for
      * cached-grid + test back-compat (omitted ⇒ treated as all-zero).
@@ -918,9 +923,9 @@ function buildNavGrid(
     // routing, RESTRICTED (after the LNDARE passes) to cells with charted LAND
     // within MARINA_NEAR_CELLS — i.e. the canal CHANNEL bounded by the marina lots,
     // NOT the open-bay part of the ~4 km crop (land far away). The canal is often
-    // charted as a COARSE ENC DEPARE (reads deep ⇒ tier-2), so the discriminator
+    // charted as a COARSE ENC DEPARE (reads deep ⇒ tier-3), so the discriminator
     // is narrowness/land-proximity, NOT ENC-gap. Bounding it keeps the canal's
-    // tier-3 span short (fits the fine length cap, small fine grid). Kept separate
+    // tier-1 span short (fits the fine length cap, small fine grid). Kept separate
     // from osmWaterCells (broader, drives the LNDARE-conflict logic).
     const injectedCanalCells = new Uint8Array(width * height);
     // Per-cell "hard blocked" flag: 1 = blocked by LNDARE (land) or a
@@ -1065,7 +1070,7 @@ function buildNavGrid(
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
 
-            // Tag injected Mapbox canal water (both branches) → tier-3 + fine pass.
+            // Tag injected Mapbox canal water (both branches) → tier-1 + fine pass.
             // Narrowed to the actual channel after the LNDARE passes (see below).
             if (isMapboxWater) injectedCanalCells[idx] = 1;
 
@@ -1165,9 +1170,9 @@ function buildNavGrid(
                     osmWaterCells[idx] = 1; // OSM canal carve — keep clean under LNDARE
                     // NB: deliberately NOT flagged injectedCanal. The OSM carve is a
                     // thin 1-cell centreline that already routes fine and is baked
-                    // into the threeTierNewport + seaway corpus baselines; only the
-                    // WIDE Mapbox-water fill (which reads tier-2 + notnarrow) needs
-                    // the tier-3 + forced-fine treatment.
+                    // into the Newport + seaway corpus baselines; only the
+                    // WIDE Mapbox-water fill (which reads tier-3 + notnarrow) needs
+                    // the tier-1 + forced-fine treatment.
                 }
             }
         }
@@ -1762,7 +1767,7 @@ function buildNavGrid(
     // charted LAND (landBlocked, set by the LNDARE passes above) within
     // MARINA_NEAR_CELLS. A canal channel is bounded by the marina lots a cell or
     // two away; open bay in the ~4 km nearshore crop has land far off and is
-    // dropped — so the canal's tier-3 span stays the channel, fits the fine length
+    // dropped — so the canal's tier-1 span stays the channel, fits the fine length
     // cap, and the fine grid stays small. (No-op when no cell is near land, e.g.
     // a fully open crop, and on test/fixture grids with no injected cells.)
     const MARINA_NEAR_CELLS = 6; // ~300 m at 50 m: keeps the canal + immediate approach
@@ -3947,11 +3952,11 @@ function routeInshoreOnce(
         }
     }
 
-    // ── Three-tier contract path (PHASE 4, docs/THREE_TIER_ROUTING.md) ──
+    // ── Four-tier contract path ───────────────────────────────────────
     // segmentRoute → per-span tier routers → glue, REPLACING the sequential
     // fairlead/leading splices below. A contract leg cannot silently mutate
-    // across a tier seam (the implicit-splice bug class), and a tier-3 span
-    // re-homes onto the lateral-mark follower WITHOUT the 0.59-near-frac skip
+    // across a tier seam (the implicit-splice bug class), and channel/canal
+    // spans re-home onto their local followers WITHOUT the 0.59-near-frac skip
     // that left the Newport end stepped. On ANY refusal it returns null and we
     // run the EXACT proven monolith chain below — so the live route can never
     // get worse than today. Caution is recomputed here (not in the tier
@@ -3961,12 +3966,12 @@ function routeInshoreOnce(
     // Per-segment canal mask — the charted canal centre-line stretch. Rendered the
     // SAME red as caution, but kept OUT of cautionMask so it never pollutes the
     // safety/quality metric (the canal is known water, not water-to-verify). Empty
-    // on the monolith fallback (the canal snap only runs on the three-tier path).
+    // on the monolith fallback (the canal snap only runs on the tier-contract path).
     let finalCanalMask: boolean[] = [];
-    // Per-segment tier-4 marked-channel mask — rendered YELLOW. Empty on the
-    // monolith fallback (tier-4 only exists on the three-tier path).
-    let finalTier4Mask: boolean[] = [];
-    // Per-segment offshore (tier-1) mask — rendered DARK BLUE. Empty inshore/monolith.
+    // Per-segment tier-2 marked-channel mask — rendered YELLOW. Empty on the
+    // monolith fallback (the channel mask only exists on the contract path).
+    let finalChannelMask: boolean[] = [];
+    // Per-segment offshore (tier-4) mask — rendered DARK BLUE. Empty inshore/monolith.
     let finalOffshoreMask: boolean[] = [];
     // Monolith-path debug flags (set only on the fallback branch).
     let flFairlead: string | undefined;
@@ -4010,21 +4015,21 @@ function routeInshoreOnce(
         // scorecard/golden caution metric must stay pure). A segment is canal if
         // EITHER endpoint rides the centre-line (reddens the entry/exit seam too).
         const canalVtx = threeTier.canalMask;
-        // Per-segment tier-4 mask (the marked-channel leg). Rendered YELLOW (NOT red,
+        // Per-segment tier-2 mask (the marked-channel leg). Rendered YELLOW (NOT red,
         // NOT in cautionMask) — a buoyed channel with a recommended track is pilotage
         // water, distinct from the red canal/caution and green open water.
-        const tier4Vtx = threeTier.tier4Mask;
+        const channelVtx = threeTier.channelMask;
         const offshoreVtx = threeTier.offshoreMask;
         finalCaution = [];
         finalCanalMask = [];
-        finalTier4Mask = [];
+        finalChannelMask = [];
         finalOffshoreMask = [];
         for (let i = 0; i < finalPolyline.length - 1; i++) {
             const a = finalPolyline[i];
             const b = finalPolyline[i + 1];
             finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
             finalCanalMask.push(canalVtx[i] || canalVtx[i + 1]);
-            finalTier4Mask.push(tier4Vtx[i] || tier4Vtx[i + 1]);
+            finalChannelMask.push(channelVtx[i] || channelVtx[i + 1]);
             finalOffshoreMask.push(offshoreVtx[i] || offshoreVtx[i + 1]);
         }
         debug.threeTier = threeTier.provenance;
@@ -4101,7 +4106,8 @@ function routeInshoreOnce(
         polyline: finalPolyline,
         cautionMask: finalCaution,
         canalMask: finalCanalMask,
-        tier4Mask: finalTier4Mask,
+        channelMask: finalChannelMask,
+        tier4Mask: finalChannelMask,
         offshoreMask: finalOffshoreMask,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
@@ -4118,13 +4124,14 @@ function routeInshoreOnce(
 }
 
 /** Shane-confirmed rising-tide bar margin (docs/THREE_TIER_ROUTING.md §1.5).
- *  Feeds the tier-2 marks-free depth gate (→ 5 m all-tide for a 2.4 m draft). */
+ *  Feeds the marks-free inshore depth gate (→ 5 m all-tide for a 2.4 m draft). */
 const TIER_TIDE_SAFETY_M = 0.5;
 
 /**
- * Build a passthrough Leg for a tier-1/2 span: KEEP the A* sub-polyline (the
- * engine already routed deep water well — the standalone routeTier2 is for the
- * future boundary-node-driven path, not for refining an existing A* route).
+ * Build a passthrough Leg for a tier-3/4 span: KEEP the A* sub-polyline (the
+ * engine already routed inshore/offshore water well — the standalone deep-water
+ * router is for the future boundary-node-driven path, not for refining an
+ * existing A* route).
  * Endpoints pinned to the span's shared-seam BoundaryNodes; caution + depth
  * recomputed per-vertex from the grid.
  */
@@ -4146,17 +4153,17 @@ function passthroughLeg(span: TierSpan, polyline: readonly [number, number][], g
         exit: span.exit,
         polyline: sub,
         cautionMask,
-        depthSource: span.tier === 1 ? 'gebco' : 'charted',
+        depthSource: span.tier === 4 ? 'gebco' : 'charted',
         controllingDepthM: Number.isFinite(controlling) ? controlling : null,
         provenance: `tier${span.tier}:passthrough`,
     });
 }
 
 /**
- * Three-tier contract path (docs/THREE_TIER_ROUTING.md) — segment the REAL A*
+ * Four-tier contract path — segment the REAL A*
  * route into ordered tier spans, route each by tier, glue with the concat-only
- * Gluer. Tier-3 spans re-home onto the lateral-mark follower WITHOUT the
- * silent-passthrough skip that left Newport stepped; tier-1/2 spans keep the
+ * Gluer. Tier-1/2 spans re-home onto the canal/channel followers WITHOUT the
+ * silent-passthrough skip that left Newport stepped; tier-3/4 spans keep the
  * proven A* geometry. Returns the final geometry, or null on ANY refusal
  * (segmentation / a tier / a seam double-back) so the caller falls back to the
  * monolith splice — the live route can never get WORSE than today.
@@ -4178,6 +4185,7 @@ function applyThreeTier(
     provenance: string;
     spanCount: number;
     canalMask: boolean[];
+    channelMask: boolean[];
     tier4Mask: boolean[];
     offshoreMask: boolean[];
 } | null {
@@ -4188,9 +4196,9 @@ function applyThreeTier(
     // The marina mouth (Newport) has NO tessellated SENC laterals — its only channel
     // "marks" are OSM pair-inferred channel midpoints pushed into BOYLAT, which carry no
     // CATLAM/OBJNAM so parseLateralMarks drops them. They DO set grid.preferred, leaving the
-    // exit channel channelWater=true with ZERO parsed marks → permanently tier-3 RED. Feed
+    // exit channel channelWater=true with ZERO parsed marks → permanently tier-1 RED. Feed
     // them (channel-centre points; side irrelevant for a distance test) into a proximity-only
-    // list that segmentRoute's nearMark sees, WITHOUT polluting `marks` — the tier-3/4
+    // list that segmentRoute's nearMark sees, WITHOUT polluting `marks` — the tier-1/2
     // gate-followers need real SIDED marks, so they keep `marks` clean.
     const midpointMarks = (layers.BOYLAT?.features ?? [])
         .filter((f) => f.properties?._class === 'channel_midpoint' && f.geometry?.type === 'Point')
@@ -4199,9 +4207,9 @@ function applyThreeTier(
             return { lat, lon, side: 'port' as const, key: '_mp', seq: 0, name: 'midpoint' };
         });
     const segMarks = midpointMarks.length ? [...marks, ...midpointMarks] : marks;
-    // CHANNEL-MIDPOINT CHAINS → ordered centrelines for tier-4. The same OSM
+    // CHANNEL-MIDPOINT CHAINS → ordered centrelines for tier-2. The same OSM
     // pair-inferred midpoints carry _chainId + _chainOrder; group by chain, sort by
-    // order ⇒ one LeadingLine per buoyed channel = Shane's "7-5-3-1" spine. Tier-4
+    // order ⇒ one LeadingLine per buoyed channel = Shane's "7-5-3-1" spine. Tier-2
     // snaps onto these FIRST (a buoyed chain IS the channel), bypassing the fragile
     // gate-pairing AND the land veto — no cross-pair, no body-land. Tier-3 untouched.
     const chainGroups = new Map<number, { order: number; lon: number; lat: number }[]>();
@@ -4218,19 +4226,19 @@ function applyThreeTier(
     const singletonChainPts: { lat: number; lon: number }[] = [];
     for (const g of chainGroups.values()) {
         if (g.length < 2) {
-            // Singleton: 1 paired gate (e.g. the seaward-most Newport exit gate).
-            // Collect separately — snapToLeadingLines requires ≥2 pts per chain.
+            // 1-gate cluster (isolated gate pair). Collect; handle below.
             singletonChainPts.push({ lat: g[0].lat, lon: g[0].lon });
             continue;
         }
         g.sort((a, b) => a.order - b.order);
         channelChains.push({ pts: g.map((p) => ({ lat: p.lat, lon: p.lon })) });
     }
-    // Singleton attachment: if a singleton gate sits within 800 m of any multi-point
-    // chain endpoint, it is an extension of that channel (the outer gate is in its own
-    // cluster because it is spatially separated from the inner gates). Append/prepend
-    // so the chain snap threads through the outermost gate too.
+    // ── SINGLETON STEP 1: attach to nearest multi-point chain endpoint ──
+    // The outermost Newport exit gate is in its own 1-gate cluster (spatially
+    // separate from the inner gates). If a multi-point chain ends within 800 m,
+    // it is an extension — append or prepend so the snap threads the outer gate.
     const SINGLETON_ATTACH_M = 800;
+    const unattachedSingles: { lat: number; lon: number }[] = [];
     for (const sp of singletonChainPts) {
         let bestChain: LeadingLine | null = null;
         let bestDist = SINGLETON_ATTACH_M;
@@ -4249,11 +4257,43 @@ function applyThreeTier(
         if (bestChain) {
             if (appendToEnd) bestChain.pts.push(sp);
             else bestChain.pts.unshift(sp);
+        } else {
+            unattachedSingles.push(sp);
         }
     }
+    // ── SINGLETON STEP 2: synthesise chain when all gates are isolated ──
+    // Newport: every gate pair can end up in its own 1-gate cluster (no multi-
+    // point chain to attach to). Sort all unattached singletons by proximity
+    // along the A* polyline → the natural inner→outer order → a synthesised
+    // LeadingLine that snapToLeadingLines can snap onto, centering the route
+    // through EVERY gate in sequence.
+    if (unattachedSingles.length >= 2) {
+        const SYNTH_NEAR_ROUTE_M = 500;
+        const sorted = unattachedSingles
+            .map((sp) => {
+                let minD = Infinity;
+                let bestIdx = 0;
+                for (let i = 0; i < polyline.length; i++) {
+                    const d = haversineM(sp.lat, sp.lon, polyline[i][1], polyline[i][0]);
+                    if (d < minD) {
+                        minD = d;
+                        bestIdx = i;
+                    }
+                }
+                return { sp, bestIdx, minD };
+            })
+            .filter((s) => s.minD < SYNTH_NEAR_ROUTE_M)
+            .sort((a, b) => a.bestIdx - b.bestIdx);
+        if (sorted.length >= 2) {
+            channelChains.push({ pts: sorted.map((s) => s.sp) });
+        }
+    }
+    engineLog.warn(
+        `[chain] chains=${channelChains.length}(pts=${channelChains.map((c) => c.pts.length).join(',')}) sing=${singletonChainPts.length} unatt=${unattachedSingles.length}`,
+    );
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
     // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
-    // estate, drawn down the middle of every canal. tier-3 follows these FIRST.
+    // estate, drawn down the middle of every canal. tier-1 follows these FIRST.
     const canalLines = parseCanalLines((layers.CANAL?.features ?? []) as Parameters<typeof parseCanalLines>[0]);
 
     // ── RECTRC: snap onto the OFFICIAL recommended track FIRST ──
@@ -4333,9 +4373,9 @@ function applyThreeTier(
     const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
     const ctx4: Tier4Context = { grid, recommendedTracks: rectrcLines, marks, channelChains };
     const results: LegResult[] = spans.map((span) =>
-        span.tier === 4
+        span.tier === 2
             ? routeTier4(span, route, ctx4)
-            : span.tier === 3
+            : span.tier === 1
               ? routeTier3(span, route, ctx3)
               : passthroughLeg(span, route, grid),
     );
@@ -4350,55 +4390,60 @@ function applyThreeTier(
     // TEMP on-device diag — confirms RECTRC snap + gate-follow engage on Shane's
     // live Newport grid. Re-gate behind ENGINE_DEBUG once confirmed.
     engineLog.warn(
-        `[3tier] ENGAGED ${rectrcTag}spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
+        `[tiers] ENGAGED ${rectrcTag}spans=${spans.map((s) => `t${s.tier}[${s.fromIdx}-${s.toIdx}]`).join(' ')} prov="${glued.legs.map((l) => l.provenance).join(' | ')}"`,
     );
 
     // Canal centre-line snap — wherever the assembled route rides the OSM canal
     // lines (a wall-hug / corner-cut through a carved canal estate), replace that
     // run with the dead-centre line. Tier-agnostic: the canal lines carve the
-    // estate to navigable water, so its spans come out tier-2 passthrough, NOT
-    // tier-3 — a per-span follow would miss them. No-op off-canal (the river /
+    // estate to navigable water, so its spans can come out as inshore passthrough,
+    // not a canal leg — a per-span follow would miss them. No-op off-canal (the river /
     // open water passes through byte-identical). Verified: Newport interior 0.0 m.
     const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines);
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
-    // Per-vertex tier-4 (marked-channel) flag for YELLOW rendering. Build it from the
-    // glued legs (tierId===4), accounting for stitchLegs sharing each seam vertex, then
-    // carry it across the canal snap by coordinate: tier-4 water is disjoint from the
-    // canal centre-lines, so its vertices pass through the snap verbatim. (Where a
-    // vertex were both, canal RED wins at render, so dropping the flag there is right.)
-    // Same construction also yields the OFFSHORE (engine TierId 1 — off the ENC grid,
-    // GEBCO-only) flag, rendered DARK BLUE. Empty on a fully-inshore route.
-    const tier4Pre: boolean[] = new Array(glued.polyline.length).fill(false);
+    // Per-vertex masks from the glued legs:
+    //   tier 1 → canal/marina RED
+    //   tier 2 → lead-out/marked channel YELLOW
+    //   tier 4 → offshore DARK BLUE
+    // Carry them across the canal snap by exact coordinate. Where a vertex lands
+    // on both canal and channel, canal RED wins in the renderer.
+    const canalPre: boolean[] = new Array(glued.polyline.length).fill(false);
+    const channelPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const offshorePre: boolean[] = new Array(glued.polyline.length).fill(false);
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
-        if (leg.tierId === 4) for (let v = 0; v < len; v++) tier4Pre[gi + v] = true;
-        if (leg.tierId === 1) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
+        if (leg.tierId === 1) for (let v = 0; v < len; v++) canalPre[gi + v] = true;
+        if (leg.tierId === 2) for (let v = 0; v < len; v++) channelPre[gi + v] = true;
+        if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
     }
-    const tier4Keys = new Set<string>();
+    const canalKeys = new Set<string>();
+    const channelKeys = new Set<string>();
     const offshoreKeys = new Set<string>();
     for (let i = 0; i < glued.polyline.length; i++) {
         const key = `${glued.polyline[i][0]}|${glued.polyline[i][1]}`;
-        if (tier4Pre[i]) tier4Keys.add(key);
+        if (canalPre[i]) canalKeys.add(key);
+        if (channelPre[i]) channelKeys.add(key);
         if (offshorePre[i]) offshoreKeys.add(key);
     }
-    const tier4Vtx = outPoly.map(([lon, lat]) => tier4Keys.has(`${lon}|${lat}`));
+    const tier1Vtx = outPoly.map(([lon, lat], i) => canalVtx[i] || canalKeys.has(`${lon}|${lat}`));
+    const channelVtx = outPoly.map(([lon, lat]) => channelKeys.has(`${lon}|${lat}`));
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {
         polyline: outPoly,
         provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}`,
         spanCount: spans.length,
-        // Per-vertex canal flag (parallel to polyline) so the caller renders the
-        // canal stretch caution-red — the grid calls carved canal cells navigable.
-        canalMask: canalVtx,
-        // Per-vertex tier-4 flag (parallel to polyline) for the YELLOW marked-channel.
-        tier4Mask: tier4Vtx,
-        // Per-vertex offshore (tier-1) flag for the DARK BLUE offshore leg.
+        // Per-vertex tier-1 flag (parallel to polyline) for canal/marina RED.
+        canalMask: tier1Vtx,
+        // Per-vertex tier-2 flag (parallel to polyline) for the YELLOW marked-channel.
+        channelMask: channelVtx,
+        // Deprecated alias for callers that still use the old marked-channel name.
+        tier4Mask: channelVtx,
+        // Per-vertex offshore (tier-4) flag for the DARK BLUE offshore leg.
         offshoreMask: offshoreVtx,
     };
 }
