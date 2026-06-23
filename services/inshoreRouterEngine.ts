@@ -3044,6 +3044,11 @@ interface GridOverride {
     padDeg: number;
 }
 
+function hasCanalTierContract(route: RouteResult): boolean {
+    const prov = route.debug?.threeTier ?? '';
+    return prov.includes('egress-channel') || prov.includes('canalsnap') || (route.canalMask?.some(Boolean) ?? false);
+}
+
 function routeInshoreMain(
     layers: InshoreLayers,
     req: RouteRequest,
@@ -3122,6 +3127,12 @@ function routeInshoreMain(
     );
     const relaxed = routeInshoreOnce(layers, req, false, relaxZones, gridOverride);
     if ('error' in relaxed) return strict;
+    if (hasCanalTierContract(strict) && !hasCanalTierContract(relaxed)) {
+        console.warn(
+            '[inshoreEngine] localized-relaxed route dropped the canal/gate tier contract — keeping strict tiered route',
+        );
+        return strict;
+    }
     const relaxedWorstSnapM = Math.max(
         relaxed.debug?.originSnap?.snapDistanceM ?? Infinity,
         relaxed.debug?.destinationSnap?.snapDistanceM ?? Infinity,
@@ -4262,7 +4273,8 @@ function buildGateCentreTracks(
 ): EgressTrack[] {
     if (marks.length < 4 || polyline.length < 2) return [];
 
-    const origin: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
+    const routeStart: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
+    const routeEnd: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
     const referenceLines = referenceTracks
         .filter((t) => t.pts.length >= 2)
         .map((t) => t.pts.map((p) => [p.lon, p.lat] as [number, number]));
@@ -4274,7 +4286,7 @@ function buildGateCentreTracks(
     const MAX_GATE_FROM_ORIGIN_M = 6000;
     const MAX_GATE_ROUTE_M = 900;
     const MAX_GATE_REFERENCE_M = 450;
-    const MAX_GATE_STEP_M = 1400;
+    const MAX_GATE_STEP_M = 950;
 
     const candidates: Array<{
         portIdx: number;
@@ -4282,7 +4294,7 @@ function buildGateCentreTracks(
         lat: number;
         lon: number;
         widthM: number;
-        originM: number;
+        endpointM: number;
         referenceM: number;
     }> = [];
 
@@ -4292,8 +4304,8 @@ function buildGateCentreTracks(
             const widthM = llDistM(p.m, s.m);
             if (widthM < MIN_GATE_WIDTH_M || widthM > MAX_GATE_WIDTH_M) continue;
             const centre: LatLon = { lat: (p.m.lat + s.m.lat) / 2, lon: (p.m.lon + s.m.lon) / 2 };
-            const originM = llDistM(origin, centre);
-            if (originM > MAX_GATE_FROM_ORIGIN_M) continue;
+            const endpointM = Math.min(llDistM(routeStart, centre), llDistM(routeEnd, centre));
+            if (endpointM > MAX_GATE_FROM_ORIGIN_M) continue;
             const routeM = pointToTuplePolylineM(centre, polyline);
             const referenceM = referenceLines.length > 0 ? pointToTupleLinesM(centre, referenceLines) : Infinity;
             if (routeM > MAX_GATE_ROUTE_M && referenceM > MAX_GATE_REFERENCE_M) continue;
@@ -4303,7 +4315,7 @@ function buildGateCentreTracks(
                 lat: centre.lat,
                 lon: centre.lon,
                 widthM,
-                originM,
+                endpointM,
                 referenceM,
             });
         }
@@ -4319,7 +4331,7 @@ function buildGateCentreTracks(
         if (usedPorts.has(c.portIdx) || usedStbds.has(c.stbdIdx)) continue;
         usedPorts.add(c.portIdx);
         usedStbds.add(c.stbdIdx);
-        centres.push({ lat: c.lat, lon: c.lon, originM: c.originM });
+        centres.push({ lat: c.lat, lon: c.lon, originM: c.endpointM });
     }
     if (centres.length < 2) return [];
 
@@ -4402,6 +4414,30 @@ function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [number, n
 }
 
 function spliceCanalEgressChannel(
+    polyline: [number, number][],
+    egressTracks: readonly EgressTrack[],
+    canalLines: readonly (readonly (readonly [number, number])[])[],
+    grid: NavGrid,
+): { polyline: [number, number][]; spliced: boolean; gates: number; forceTier2?: boolean[] } {
+    const forward = spliceCanalEgressChannelFromOrigin(polyline, egressTracks, canalLines, grid);
+    if (forward.spliced) return forward;
+
+    // The same tier contract applies when Newport is the arrival end: bay/inshore
+    // tier-3 hands to tier-2 through the marked gates, then tier-1 runs dead-centre
+    // through the canal/marina. Reuse the origin-side splice on reversed geometry
+    // and flip the vertex masks back into caller order.
+    const reversed = [...polyline].reverse().map((p) => [p[0], p[1]] as [number, number]);
+    const backward = spliceCanalEgressChannelFromOrigin(reversed, egressTracks, canalLines, grid);
+    if (!backward.spliced) return forward;
+    return {
+        polyline: [...backward.polyline].reverse().map((p) => [p[0], p[1]] as [number, number]),
+        spliced: true,
+        gates: backward.gates,
+        forceTier2: backward.forceTier2 ? [...backward.forceTier2].reverse() : undefined,
+    };
+}
+
+function spliceCanalEgressChannelFromOrigin(
     polyline: [number, number][],
     egressTracks: readonly EgressTrack[],
     canalLines: readonly (readonly (readonly [number, number])[])[],
