@@ -96,6 +96,17 @@ const SEAWAY_DETOUR_CAP = 1.35;
 // Effectively 100% gate side-correctness; 0.999 only absorbs float-equality.
 const SEAWAY_GATE_COMPLIANCE_MIN = 0.999;
 
+export function seawayPromotionBlockReason(result: {
+    canalMask?: readonly boolean[];
+    debug?: { threeTier?: string };
+}): string | null {
+    const provenance = result.debug?.threeTier ?? '';
+    if (result.canalMask?.some(Boolean)) return 'tier-1 canal/marina mask present';
+    if (provenance.includes('egress-channel')) return 'engine egress-channel gate chain present';
+    if (provenance.includes('canalsnap')) return 'engine canal centreline snap present';
+    return null;
+}
+
 // Verbose orchestration diagnostics (OSM-coverage dumps, per-tag promotion,
 // Scarborough/marker/midpoint traces, ribbon continuity, full polyline
 // coordinate dumps, phase timings). Gated OFF for production — the minifier
@@ -1333,13 +1344,22 @@ async function tryInshoreRouteInner(
                 // routeInshore on engine geometry). Any reject falls through to the engine route.
                 if (SEAWAY_ROUTER_ENABLED && report.graph) {
                     const g = report.graph;
+                    const promotionBlockReason = seawayPromotionBlockReason({
+                        canalMask: (result as { canalMask?: boolean[] }).canalMask,
+                        debug: (result as { debug?: { threeTier?: string } }).debug,
+                    });
                     const promotable =
+                        promotionBlockReason === null &&
                         g.crossLineViolations === 0 &&
                         g.gateCompliance !== null &&
                         g.gateCompliance >= SEAWAY_GATE_COMPLIANCE_MIN &&
                         g.maxLegDetour <= SEAWAY_DETOUR_CAP &&
                         g.polyline.length >= 2;
-                    if (promotable) {
+                    if (promotionBlockReason) {
+                        log.warn(
+                            `SEAWAY ROUTER: graph route SHADOW-ONLY — ${promotionBlockReason}; engine tier route ships`,
+                        );
+                    } else if (promotable) {
                         log.warn(
                             `SEAWAY ROUTER: PROMOTED graph route (${g.edgesUsed.length} edges, compliance ${g.gateCompliance}, maxLegDetour ${g.maxLegDetour.toFixed(2)})`,
                         );
