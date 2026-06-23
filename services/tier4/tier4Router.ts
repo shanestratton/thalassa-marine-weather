@@ -29,6 +29,11 @@ interface LL {
     lon: number;
 }
 
+interface EgressLeadingLine extends LeadingLine {
+    /** First point index that belongs to tier 2 when this chain starts inside a canal handoff. */
+    readonly tier2FromIndex?: number;
+}
+
 export interface Tier4Context {
     readonly grid: NavGrid;
     /** RECTRC recommended tracks ONLY — the authoritative seaward lead-lines the
@@ -43,7 +48,7 @@ export interface Tier4Context {
     /** The exact egress tracks the engine was willing to splice from canal to
      *  lead-out water. Includes chart RECTRC fallback when regional midpoint
      *  chains are absent. */
-    readonly egressTracks?: readonly LeadingLine[];
+    readonly egressTracks?: readonly EgressLeadingLine[];
     readonly egressMask?: readonly boolean[];
     /** When the engine has deliberately inserted a canal→channel egress, that
      *  egress track is the explicit route contract for this leg. */
@@ -56,6 +61,62 @@ const cellIdx = (g: NavGrid, lon: number, lat: number): number => {
     if (x < 0 || y < 0 || x >= g.width || y >= g.height) return -1;
     return y * g.width + x;
 };
+
+function pointToSegmentM(p: LL, a: LL, b: LL): number {
+    const refLat = (a.lat + b.lat) / 2;
+    const mx = 111_320 * Math.cos((refLat * Math.PI) / 180);
+    const my = 110_540;
+    const ax = a.lon * mx;
+    const ay = a.lat * my;
+    const bx = b.lon * mx;
+    const by = b.lat * my;
+    const px = p.lon * mx;
+    const py = p.lat * my;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    if (len2 === 0) return Math.hypot(px - ax, py - ay);
+    const t = Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+function pointToPolylineM(p: LL, line: readonly LL[]): number {
+    if (line.length === 0) return Infinity;
+    if (line.length === 1) return distM(p, line[0]);
+    let best = Infinity;
+    for (let i = 0; i + 1 < line.length; i++) {
+        const d = pointToSegmentM(p, line[i], line[i + 1]);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+function nearestTrackIndex(p: LL, track: readonly LL[]): { idx: number; distM: number } {
+    let idx = 0;
+    let best = Infinity;
+    for (let i = 0; i < track.length; i++) {
+        const d = distM(p, track[i]);
+        if (d < best) {
+            best = d;
+            idx = i;
+        }
+    }
+    return { idx, distM: best };
+}
+
+function turnDeg(a: LL, b: LL, c: LL): number {
+    const mx = 111_320 * Math.cos((b.lat * Math.PI) / 180);
+    const my = 110_540;
+    const ux = (b.lon - a.lon) * mx;
+    const uy = (b.lat - a.lat) * my;
+    const vx = (c.lon - b.lon) * mx;
+    const vy = (c.lat - b.lat) * my;
+    const lu = Math.hypot(ux, uy);
+    const lv = Math.hypot(vx, vy);
+    if (lu < 1 || lv < 1) return 0;
+    const cos = Math.max(-1, Math.min(1, (ux * vx + uy * vy) / (lu * lv)));
+    return (Math.acos(cos) * 180) / Math.PI;
+}
 
 /**
  * Build the tier-2 leg for one span, or refuse.
@@ -89,16 +150,92 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     const isEgressSpan = ctx.preferChannelChains && (ctx.egressMask?.slice(lo, hi + 1).some(Boolean) ?? false);
     const chainTracks = (): readonly LeadingLine[] =>
         isEgressSpan && ctx.egressTracks?.length ? ctx.egressTracks : ctx.channelChains;
-    const explicitChainGateCount = (): number => {
-        let best = 0;
-        for (const chain of chainTracks()) {
-            let n = 0;
-            for (const gate of chain.pts) {
-                if (poly.some((p) => distM(p, gate) < 25)) n++;
+    const forceExplicitChainGeometry = (tracks: readonly LeadingLine[], allowRewrite: boolean): number => {
+        const GATE_ON_SPAN_M = 120;
+        const ENDPOINT_ON_CHAIN_M = isEgressSpan ? 3000 : 2500;
+        let best: {
+            pts: LL[];
+            gates: number;
+            endpointM: number;
+            needsStraighten: boolean;
+        } | null = null;
+
+        for (const track of tracks) {
+            if (track.pts.length < 2) continue;
+
+            const servedGateIdxs: number[] = [];
+            for (let i = 0; i < track.pts.length; i++) {
+                if (pointToPolylineM(track.pts[i], poly) <= GATE_ON_SPAN_M) servedGateIdxs.push(i);
             }
-            best = Math.max(best, n);
+            if (servedGateIdxs.length < 2) continue;
+
+            const entry = { lat: span.entry.at[1], lon: span.entry.at[0] };
+            const exit = { lat: span.exit.at[1], lon: span.exit.at[0] };
+            let start = nearestTrackIndex(entry, track.pts);
+            let end = nearestTrackIndex(exit, track.pts);
+            const endpointM = start.distM + end.distM;
+            if (endpointM > ENDPOINT_ON_CHAIN_M) continue;
+
+            if (start.idx === end.idx) {
+                start = { idx: servedGateIdxs[0], distM: start.distM };
+                end = { idx: servedGateIdxs[servedGateIdxs.length - 1], distM: end.distM };
+            }
+            const minServed = servedGateIdxs[0];
+            const maxServed = servedGateIdxs[servedGateIdxs.length - 1];
+            let startIdx = start.idx;
+            let endIdx = end.idx;
+            if (startIdx <= endIdx) {
+                startIdx = Math.min(startIdx, minServed);
+                endIdx = Math.max(endIdx, maxServed);
+            } else {
+                startIdx = Math.max(startIdx, maxServed);
+                endIdx = Math.min(endIdx, minServed);
+            }
+            const ordered =
+                startIdx <= endIdx
+                    ? track.pts.slice(startIdx, endIdx + 1)
+                    : track.pts.slice(endIdx, startIdx + 1).reverse();
+            if (ordered.length < 2) continue;
+
+            const out: LL[] = [entry];
+            for (const p of ordered) out.push({ lat: p.lat, lon: p.lon });
+            out.push(exit);
+
+            const deduped: LL[] = [];
+            for (const p of out) {
+                const last = deduped[deduped.length - 1];
+                if (last && distM(last, p) < 1) continue;
+                deduped.push(p);
+            }
+            if (deduped.length < 2) continue;
+
+            const hasOffCentreVertex = poly
+                .map((p) => pointToPolylineM(p, track.pts))
+                .some((d) => d <= GATE_ON_SPAN_M && d > 55);
+            const hasSharpGateTurn = poly.some(
+                (p, i) =>
+                    i > 0 &&
+                    i + 1 < poly.length &&
+                    pointToPolylineM(p, track.pts) <= GATE_ON_SPAN_M &&
+                    turnDeg(poly[i - 1], p, poly[i + 1]) > 95,
+            );
+            const needsStraighten = hasOffCentreVertex && hasSharpGateTurn;
+            const candidate = { pts: deduped, gates: servedGateIdxs.length, endpointM, needsStraighten };
+            if (
+                !best ||
+                candidate.gates > best.gates ||
+                (candidate.gates === best.gates && endpointM < best.endpointM)
+            ) {
+                best = candidate;
+            }
         }
-        return best;
+
+        if (!best) return 0;
+        if (allowRewrite) {
+            if (!best.needsStraighten) return 0;
+            poly = best.pts;
+        }
+        return best.gates;
     };
     const snapChannelChain = (): boolean => {
         const tracks = chainTracks();
@@ -118,7 +255,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     };
 
     if (isEgressSpan) {
-        const explicitGates = explicitChainGateCount();
+        const explicitGates = forceExplicitChainGeometry(chainTracks(), false);
         if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
         else snapChannelChain();
     }
@@ -150,7 +287,14 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     //     short Newport exit snap. snapToLeadingLines pins origin/dest + rejects a
     //     perpendicular brush-by (maxAngleDeg), so it can't grab the PARALLEL channel
     //     ~1.1 km away. Needs ≥4 vertices; on no-snap, falls through to the gate-follower.
-    if (prov.length === 0) snapChannelChain();
+    if (prov.length === 0) {
+        const explicitGates = forceExplicitChainGeometry(
+            [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])],
+            true,
+        );
+        if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
+        else snapChannelChain();
+    }
 
     // 1c. Fairlead — preserve the proven lateral-mark follower for charted
     // buoyed channels. This catches wider synthetic/real gate spacing where the
