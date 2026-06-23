@@ -238,6 +238,8 @@ export interface RouteDebug {
     originSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
     /** Destination snap result. */
     destinationSnap?: { x: number; y: number; snappedLat: number; snappedLon: number; snapDistanceM: number };
+    /** True when a shore destination is rendered at the nearest suitable water cell, not the land tap. */
+    destinationWaterSnap?: boolean;
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;
@@ -3322,6 +3324,25 @@ function routeInshoreOnce(
     // big enough that even a slight position error puts the carve in the
     // right water body.
     const mPerLonHere = mPerDegLon((grid.minLat + grid.minLat + grid.height * grid.dLat) / 2);
+    const endpointCellIdx = (lat: number, lon: number): number => {
+        const { x, y } = latLonToGrid(grid, lat, lon);
+        if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return -1;
+        return y * grid.width + x;
+    };
+    const pointInsideLndare = (lat: number, lon: number): boolean => {
+        for (const f of layers.LNDARE?.features ?? []) {
+            const geom = f.geometry;
+            if (!geom || (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon')) continue;
+            if (pointInGeometry(lon, lat, geom)) return true;
+        }
+        return false;
+    };
+    const destinationTapIdx = endpointCellIdx(req.toLat, req.toLon);
+    const destinationTapOnHardLand =
+        destinationTapIdx < 0 ||
+        pointInsideLndare(req.toLat, req.toLon) ||
+        (grid.landBlocked ? grid.landBlocked[destinationTapIdx] === 1 : Number.isNaN(grid.cells[destinationTapIdx]));
+
     const carveEndpoint = (lat: number, lon: number, radiusM: number): void => {
         const dLatBuf = radiusM / M_PER_DEG_LAT;
         const dLonBuf = radiusM / mPerLonHere;
@@ -3342,7 +3363,6 @@ function routeInshoreOnce(
         }
     };
     carveEndpoint(req.fromLat, req.fromLon, 60);
-    carveEndpoint(req.toLat, req.toLon, 60);
 
     let blocked = 0;
     for (let i = 0; i < grid.cells.length; i++) {
@@ -3491,6 +3511,7 @@ function routeInshoreOnce(
     // couldn't reach it.
     const minComponentCells = req.minComponentCells ?? 25;
     const maxSnapCells = Math.ceil(10_000 / resolutionM);
+    const MAX_DEST_DEEP_SNAP_M = 1500;
 
     // DEBUG 2026-05-19: dump the top 5 connected components by size,
     // each with bbox + can-origin-snap-here + can-dest-snap-here. Tells
@@ -3572,13 +3593,20 @@ function routeInshoreOnce(
             (idx) => labels[idx] === label,
         );
         if (!startCandidate) continue;
-        const endCandidate = snapWithPredicate(
-            grid,
-            req.toLat,
-            req.toLon,
-            maxSnapCells,
-            (idx) => labels[idx] === label,
-        );
+        const deepEndCandidate = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => {
+            const d = grid.cells[idx];
+            return labels[idx] === label && !Number.isNaN(d) && d >= req.draftM + safetyM;
+        });
+        const deepEnd =
+            deepEndCandidate &&
+            (() => {
+                const [lon, lat] = gridToLatLon(grid, deepEndCandidate.x, deepEndCandidate.y);
+                return haversineM(req.toLat, req.toLon, lat, lon) <= MAX_DEST_DEEP_SNAP_M;
+            })()
+                ? deepEndCandidate
+                : null;
+        const endCandidate =
+            deepEnd ?? snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => labels[idx] === label);
         if (!endCandidate) continue;
 
         const [startLon, startLat] = gridToLatLon(grid, startCandidate.x, startCandidate.y);
@@ -3646,6 +3674,7 @@ function routeInshoreOnce(
             snappedLon: snapLon,
             snapDistanceM: haversineM(req.toLat, req.toLon, snapLat, snapLon),
         };
+        if (destinationTapOnHardLand || debug.destinationSnap.snapDistanceM > 1) debug.destinationWaterSnap = true;
     }
 
     tPhase = mark('componentSnap', tPhase);
@@ -3871,30 +3900,36 @@ function routeInshoreOnce(
         return grid.cells[idx] < 0 || isUnvouchedIdx(idx);
     });
 
-    // Always splice the input coords as the visible start/end of the
-    // polyline. The bridge segment from input → first water cell
-    // (and last water cell → input) is shown as part of the route.
+    // Always splice the input origin as the visible start of the polyline.
+    // For the destination, render at the snapped safe-water cell: an arrival at
+    // "Pinkenba" means the nearest usable water off Pinkenba, not a final
+    // land-bridge onto the shoreline/place label.
     //
     // Earlier versions tried various gates (150 m threshold, LNDARE-
-    // crossing check) to hide the bridge when it would visually cross
-    // land — but that meant routes silently appeared to start/end
-    // somewhere different from where the user tapped. Confusing.
+    // crossing check) to hide endpoint bridges when they would visually cross
+    // land — but that meant routes silently appeared to start/end somewhere
+    // different from where the user tapped. For departures, the visible bridge
+    // is still useful feedback; for arrivals, the snapped water endpoint is the
+    // actionable seamanship point.
     //
     // User-visible behaviour now:
     //   - tap in open water → route visibly starts at the tap, bridge
     //     is short and over water, looks correct
     //   - tap in marina canal / on dock → bridge segment visibly
-    //     crosses dock structures, signalling "your tap wasn't in
-    //     clean water — move the pin if you want a cleaner approach"
-    //   - tap miles inland → long bridge over land, obvious that the
-    //     input was wrong
+    //     crosses dock structures, signalling "your start tap wasn't in
+    //     clean water — move the pin if you want a cleaner departure"
+    //   - destination on shore / label on land → route ends at the nearest
+    //     routeable water cell, with debug.destinationSnap telling the caller
+    //     how far that arrival berth moved from the requested place label
     //
     // Visual feedback is the right primitive for this — we don't have
     // the routing constraints to know whether the user *meant* a
     // marina exit or a coastline tap.
     if (polylineRaw.length > 0) {
         polylineRaw[0] = [req.fromLon, req.fromLat];
-        polylineRaw[polylineRaw.length - 1] = [req.toLon, req.toLat];
+        polylineRaw[polylineRaw.length - 1] = debug.destinationSnap
+            ? [debug.destinationSnap.snappedLon, debug.destinationSnap.snappedLat]
+            : [req.toLon, req.toLat];
     }
     // DP tolerance ≈ 1/4 cell. Tighter than the original 1/2 cell —
     // keeps more turn detail in winding channels (Savannah River
