@@ -164,6 +164,22 @@ describe('segmentRoute', () => {
         if (!isRefusal(r)) expect(tiers(r)).toEqual([1, 2, 3]);
     });
 
+    it('a forced egress chain owns tier-2; the just-beyond-gate tail returns to tier-3', () => {
+        const grid = makeGrid({ injectedY: () => true });
+        const line = corridorLine(1, 20);
+        const lon = MIN_LON + 1.5 * dLon;
+        const marks: LateralMark[] = [];
+        for (let y = 8; y <= 18; y += 2) {
+            const lat = MIN_LAT + (y + 0.5) * dLat;
+            marks.push({ lat, lon: lon - 0.0005, side: 'port', key: 'X', seq: y, name: `X${y}` });
+            marks.push({ lat, lon: lon + 0.0005, side: 'stbd', key: 'X', seq: y, name: `X${y}` });
+        }
+        const forceTier2 = line.map((_, i) => i >= 7 && i <= 12);
+        const r = segmentRoute(line, grid, marks, 2.4, 0.2, 0.5, { refuseUnchartedRunM: null, forceTier2 });
+        expect(isRefusal(r)).toBe(false);
+        if (!isRefusal(r)) expect(tiers(r)).toEqual([1, 2, 3]);
+    });
+
     it('CHANNEL FILL: patchy preferred between gates coalesces to ONE tier-2 span (the Newport stepping)', () => {
         // Gates (marks + preferred) at y=2,6,10,14,18 — 200 m apart — with the preferred
         // flag present ONLY at the gate rows (a real channel's charted/injected flag is
