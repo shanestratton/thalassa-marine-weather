@@ -62,13 +62,19 @@ const minNullable = (a: number | null, b: number | null): number | null => {
     return Math.min(a, b);
 };
 
+export interface GlueOptions {
+    /** Narrow escape hatch for route-shape cases that are real seamanship rather
+     *  than a routing spike. The default remains strict. */
+    allowDoubleBack?: (legA: Leg, legB: Leg, turnDeg: number) => boolean;
+}
+
 /**
  * Join two adjacent legs, or refuse. The joined leg is frozen and carries
  * legA's entry + legB's exit; its tierId is legA's (a folded multi-tier route
  * is anchored to its first tier — the per-tier truth lives in the leg list
  * that stitchLegs keeps).
  */
-export function glue(legA: Leg, legB: Leg): { joined: Leg } | Refusal {
+export function glue(legA: Leg, legB: Leg, opts: GlueOptions = {}): { joined: Leg } | Refusal {
     // ── Clause 1: shared boundary point (positional continuity) ──
     // Segmentation hands both spans the SAME portal, so this is normally an
     // identity match; the positional check (≤ JOIN_EPS_M) is what catches a
@@ -83,7 +89,7 @@ export function glue(legA: Leg, legB: Leg): { joined: Leg } | Refusal {
 
     // ── Clause 2a: heading continuity (the double-back killer) ──
     const turn = angularDiff(legA.exit.headingDeg, legB.entry.headingDeg);
-    if (turn > SEAM_MAX_TURN_DEG) {
+    if (turn > SEAM_MAX_TURN_DEG && !opts.allowDoubleBack?.(legA, legB, turn)) {
         return refuse('double-back', { measuredTurnDeg: Math.round(turn) });
     }
     // ── Clause 2b: cross-line wrong-side (only at a gate boundary) ──
@@ -141,7 +147,7 @@ export interface GluedRoute {
  * up to the failed seam plus an explicit refusal — never a silently-mutated
  * polyline past the seam.
  */
-export function stitchLegs(results: LegResult[]): GluedRoute {
+export function stitchLegs(results: LegResult[], opts: GlueOptions = {}): GluedRoute {
     const empty: GluedRoute = {
         polyline: [],
         cautionMask: [],
@@ -163,7 +169,7 @@ export function stitchLegs(results: LegResult[]): GluedRoute {
             legs.push(r);
             continue;
         }
-        const g = glue(acc, r);
+        const g = glue(acc, r, opts);
         if (isRefusal(g)) {
             return finalize(acc, legs, { atIndex: i, reason: g.reason, measuredTurnDeg: g.measuredTurnDeg });
         }

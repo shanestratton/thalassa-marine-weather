@@ -18,7 +18,7 @@
  */
 import type { NavGrid } from '../inshoreRouterEngine';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
-import { refineWithFairlead } from '../fairlead';
+import { distM, refineWithFairlead } from '../fairlead';
 import { followChannelGates, deSpike, TIER3_DESPIKE_DEG, TIER3_FAIRLEAD_MIN_FRAC } from '../tier3/tier3Router';
 import { freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
@@ -40,6 +40,9 @@ export interface Tier4Context {
      *  (Shane's "7-5-3-1" Newport exit). Snapped onto FIRST: a buoyed chain IS the
      *  channel, so NO land-veto and NO gate-pairing. Empty ⇒ RECTRC + gate fallback. */
     readonly channelChains: readonly LeadingLine[];
+    /** When the engine has deliberately inserted a canal→channel egress, the
+     *  midpoint chain is the explicit route contract for that leg. */
+    readonly preferChannelChains?: boolean;
 }
 
 const cellIdx = (g: NavGrid, lon: number, lat: number): number => {
@@ -78,12 +81,44 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
 
     let poly: LL[] = fullPolyline.slice(lo, hi + 1).map(([lon, lat]) => ({ lat, lon }));
     const prov: string[] = [];
+    const explicitChainGateCount = (): number => {
+        let best = 0;
+        for (const chain of ctx.channelChains) {
+            let n = 0;
+            for (const gate of chain.pts) {
+                if (poly.some((p) => distM(p, gate) < 25)) n++;
+            }
+            best = Math.max(best, n);
+        }
+        return best;
+    };
+    const snapChannelChain = (): boolean => {
+        if (ctx.channelChains.length === 0 || poly.length < 4) return false;
+        const ch = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.channelChains], {
+            isCaution,
+            corridorM: 180,
+            minRunM: 60,
+            maxAngleDeg: 35,
+        });
+        if (ch.snapped > 0) {
+            poly = ch.polyline;
+            prov.push(`chain×${ch.snapped}`);
+            return true;
+        }
+        return false;
+    };
+
+    if (ctx.preferChannelChains) {
+        const explicitGates = explicitChainGateCount();
+        if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
+        else snapChannelChain();
+    }
 
     // 1. RECTRC spine — snap onto the recommended track where charted. The whole
     //    route is already RECTRC-snapped before segmentation, so this is usually a
     //    no-op confirmation; it catches a span the global pass didn't cover. Tight
     //    corridor; `protect` undefined because tier-2 IS the protected track.
-    if (ctx.recommendedTracks.length > 0) {
+    if (prov.length === 0 && ctx.recommendedTracks.length > 0) {
         const ll = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.recommendedTracks], {
             isBlocked: isLand,
             isCaution,
@@ -106,18 +141,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     //     short Newport exit snap. snapToLeadingLines pins origin/dest + rejects a
     //     perpendicular brush-by (maxAngleDeg), so it can't grab the PARALLEL channel
     //     ~1.1 km away. Needs ≥4 vertices; on no-snap, falls through to the gate-follower.
-    if (prov.length === 0 && ctx.channelChains.length > 0 && poly.length >= 4) {
-        const ch = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.channelChains], {
-            isCaution,
-            corridorM: 180,
-            minRunM: 60,
-            maxAngleDeg: 35,
-        });
-        if (ch.snapped > 0) {
-            poly = ch.polyline;
-            prov.push(`chain×${ch.snapped}`);
-        }
-    }
+    if (prov.length === 0) snapChannelChain();
 
     // 1c. Fairlead — preserve the proven lateral-mark follower for charted
     // buoyed channels. This catches wider synthetic/real gate spacing where the
