@@ -4248,6 +4248,7 @@ function buildGateCentreTracks(
         lon: number;
         widthM: number;
         originM: number;
+        referenceM: number;
     }> = [];
 
     for (const p of ports) {
@@ -4261,15 +4262,25 @@ function buildGateCentreTracks(
             const routeM = pointToTuplePolylineM(centre, polyline);
             const referenceM = referenceLines.length > 0 ? pointToTupleLinesM(centre, referenceLines) : Infinity;
             if (routeM > MAX_GATE_ROUTE_M && referenceM > MAX_GATE_REFERENCE_M) continue;
-            candidates.push({ portIdx: p.idx, stbdIdx: s.idx, lat: centre.lat, lon: centre.lon, widthM, originM });
+            candidates.push({
+                portIdx: p.idx,
+                stbdIdx: s.idx,
+                lat: centre.lat,
+                lon: centre.lon,
+                widthM,
+                originM,
+                referenceM,
+            });
         }
     }
 
-    candidates.sort((a, b) => a.widthM - b.widthM);
+    const onReference = candidates.filter((c) => c.referenceM <= MAX_GATE_REFERENCE_M);
+    const usable = onReference.length >= 2 ? onReference : candidates;
+    usable.sort((a, b) => a.widthM - b.widthM);
     const usedPorts = new Set<number>();
     const usedStbds = new Set<number>();
     const centres: Array<{ lat: number; lon: number; originM: number }> = [];
-    for (const c of candidates) {
+    for (const c of usable) {
         if (usedPorts.has(c.portIdx) || usedStbds.has(c.stbdIdx)) continue;
         usedPorts.add(c.portIdx);
         usedStbds.add(c.stbdIdx);

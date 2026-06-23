@@ -259,6 +259,11 @@ function loadOsmCanalLines(): Feature[] {
     return (d.canalLines?.features ?? []) as Feature[];
 }
 
+function loadOsmCoastline(): Feature[] {
+    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { coastline?: FeatureCollection };
+    return (d.coastline?.features ?? []) as Feature[];
+}
+
 /**
  * Assemble InshoreLayers per InshoreRouter.ts:376-417 — the fixed allow-list,
  * verbatim concat across cells. Chart NAVLNE is mapped into the engine's
@@ -279,7 +284,13 @@ const ALLOW = [
 
 type NavSource = 'none' | 'chart' | 'osm';
 
-function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[], osmCanal: Feature[]): InshoreLayers {
+function assembleLayers(
+    cells: RawCell[],
+    navSource: NavSource,
+    osmNav: Feature[],
+    osmCanal: Feature[],
+    osmCoastline: Feature[],
+): InshoreLayers {
     const merged: InshoreLayers = {
         LNDARE: { type: 'FeatureCollection', features: [] },
         DEPARE: { type: 'FeatureCollection', features: [] },
@@ -293,6 +304,7 @@ function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[
         RECTRC: { type: 'FeatureCollection', features: [] },
         NAVLINE: { type: 'FeatureCollection', features: [] },
         CANAL: { type: 'FeatureCollection', features: [] },
+        COASTLINE: { type: 'FeatureCollection', features: [] },
     };
     for (const cell of cells) {
         for (const layer of ALLOW) {
@@ -313,6 +325,7 @@ function assembleLayers(cells: RawCell[], navSource: NavSource, osmNav: Feature[
         // The device ALSO pushes OSM canalLines into CANAL (InshoreRouter.ts:677) —
         // the canal centre-lines the tier-1 follower rides. Faithful on-device path.
         (merged.CANAL!.features as unknown[]).push(...osmCanal);
+        (merged.COASTLINE!.features as unknown[]).push(...osmCoastline);
     }
     return merged;
 }
@@ -432,6 +445,7 @@ let rectrcChain: Position[];
 let drgarePolys: Feature[];
 let osmNav: Feature[];
 let osmCanal: Feature[];
+let osmCoastline: Feature[];
 
 beforeAll(() => {
     ensureCells();
@@ -442,6 +456,7 @@ beforeAll(() => {
     drgarePolys = cells.flatMap((c) => (c.layers['DRGARE']?.features ?? []) as Feature[]);
     osmNav = loadOsmNavLines();
     osmCanal = loadOsmCanalLines();
+    osmCoastline = loadOsmCoastline();
 });
 
 // ── The reproduction ────────────────────────────────────────────────
@@ -500,7 +515,7 @@ function measureHug(route: RouteResult): HugReport {
 }
 
 function runVariant(navSource: NavSource): { route: RouteResult; prov: string; hug: HugReport } {
-    const layers = assembleLayers(cells, navSource, osmNav, osmCanal);
+    const layers = assembleLayers(cells, navSource, osmNav, osmCanal, osmCoastline);
     const res = routeInshore(layers, REQ_BASE as RouteRequest);
     if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
     const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
@@ -719,7 +734,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // it shows no channel tier. Route NORTH instead — Newport marina → a point past the
         // green-7/red-8 gate (rcs5 BCNLAT, CATLAM 1/2) which has marks but NO DRGARE —
         // and the marked channel must classify tier-2 + populate the yellow mask.
-        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal);
+        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
         const res = routeInshore(layers, { ...REQ_BASE, toLat: -27.182, toLon: 153.0935 } as RouteRequest);
         if ('error' in res) {
             // eslint-disable-next-line no-console
