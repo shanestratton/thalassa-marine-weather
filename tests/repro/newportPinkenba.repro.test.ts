@@ -621,6 +621,11 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 `route passes through Newport gate ${name}`,
             ).toBe(true);
         }
+        const [endLon, endLat] = route.polyline[route.polyline.length - 1];
+        expect(route.debug?.destinationWaterSnap, 'Pinkenba shore label resolves to a water endpoint').toBe(true);
+        expect(route.debug?.destinationSnap?.snapDistanceM ?? 0).toBeGreaterThan(10);
+        expect(Math.abs(endLat - (route.debug?.destinationSnap?.snappedLat ?? 0))).toBeLessThan(1e-8);
+        expect(Math.abs(endLon - (route.debug?.destinationSnap?.snappedLon ?? 0))).toBeLessThan(1e-8);
         expect(hug.riverPts).toBeGreaterThan(0);
     });
 

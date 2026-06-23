@@ -119,6 +119,21 @@ describe('inshore router — connectivity invariants', () => {
         expect(r.distanceNM).toBeGreaterThan(0);
     });
 
+    it('shore destination → stops at nearest deep-enough water, not on the land tap', () => {
+        const deepWater = fc(rect(153.05, -27.25, 153.13, -27.15, { DRVAL1: 8 }));
+        const shore = fc(rect(153.118, -27.205, 153.13, -27.195));
+        const r = routeInshore({ DEPARE: deepWater, LNDARE: shore }, baseReq());
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+
+        const [endLon, endLat] = r.polyline[r.polyline.length - 1];
+        expect(r.debug?.destinationWaterSnap).toBe(true);
+        expect(inRect(endLon, endLat, 153.118, -27.205, 153.13, -27.195)).toBe(false);
+        expect(r.debug?.destinationSnap?.snapDistanceM ?? 0).toBeGreaterThan(50);
+        expect(Math.abs(endLat - (r.debug?.destinationSnap?.snappedLat ?? 0))).toBeLessThan(1e-8);
+        expect(Math.abs(endLon - (r.debug?.destinationSnap?.snappedLon ?? 0))).toBeLessThan(1e-8);
+    });
+
     it('a full barrier with no detour → still routes, but FLAGS caution (warned, never silent)', () => {
         // Engine contract: rather than hard-fail with destination-
         // disconnected, it retries relaxed — routing THROUGH the barrier
