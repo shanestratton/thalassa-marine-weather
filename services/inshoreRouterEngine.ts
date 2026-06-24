@@ -1133,6 +1133,7 @@ function routeInshoreOnce(
         // water, distinct from the red canal/caution and green open water.
         const channelSeg = threeTier.channelMask;
         const offshoreVtx = threeTier.offshoreMask;
+        const verifiedInshoreSeg = threeTier.verifiedInshoreMask;
         finalCaution = [];
         finalCanalMask = [];
         finalChannelMask = [];
@@ -1141,7 +1142,7 @@ function routeInshoreOnce(
             const a = finalPolyline[i];
             const b = finalPolyline[i + 1];
             const isChannel = channelSeg[i] ?? false;
-            finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
+            finalCaution.push(!(verifiedInshoreSeg[i] ?? false) && segCrossesCaution(a[0], a[1], b[0], b[1]));
             // Tiers are mutually exclusive at render/export boundaries. A segment
             // that is explicitly tier 2 must stay yellow even when it touches the
             // canal centre-line at the handoff gate.

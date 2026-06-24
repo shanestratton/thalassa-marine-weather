@@ -1095,6 +1095,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
         const cm = res.canalMask ?? [];
         const ch = res.channelMask ?? res.tier4Mask ?? [];
+        const caution = res.cautionMask ?? [];
         const offTo = (lat: number, lon: number): number => {
             let best = Infinity;
             for (const ln of lines) {
@@ -1109,15 +1110,22 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             if (lat > -27.2 || lat < -27.218 || lon < 153.08 || lon > 153.098) return;
             const d = offTo(lat, lon);
             rows.push(
-                `${i}:${lat.toFixed(6)},${lon.toFixed(6)} off=${d.toFixed(1)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0}`,
+                `${i}:${lat.toFixed(6)},${lon.toFixed(6)} off=${d.toFixed(1)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0} k${caution[i] ? 1 : 0}`,
             );
             if (d > worst.d) worst = { i, d, lat, lon };
         });
+        const handoffRows = res.polyline
+            .map(
+                ([lon, lat], i) =>
+                    `${i}:${lat.toFixed(6)},${lon.toFixed(6)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0} k${caution[i] ? 1 : 0} off=${offTo(lat, lon).toFixed(0)}m`,
+            )
+            .slice(18, 36);
         // eslint-disable-next-line no-console
         console.log(
             `\n=== VARIANT E (Mapbox/satellite water — device fine-grid path) ===\n` +
                 `water polys injected: ${water.length}\nprov: ${prov}\npts: ${res.polyline.length}\n` +
                 rows.join('\n') +
+                `\nhandoff:\n${handoffRows.join('\n')}` +
                 `\nWORST in-estate offset: idx=${worst.i} ${worst.lat.toFixed(6)},${worst.lon.toFixed(6)} ` +
                 `off=${worst.d.toFixed(1)}m r${cm[worst.i] ? 1 : 0} y${ch[worst.i] ? 1 : 0}`,
         );
@@ -1163,6 +1171,32 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             'no RED segment may span open water >200m from a charted canal line (Brisbane-RED tail fix)',
         ).toBe(0);
         expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
+        const renderedState = (i: number): 'danger' | 'channel' | 'offshore' | 'green' => {
+            if (ch[i]) return 'channel';
+            if (cm[i]) return 'danger';
+            if (caution[i]) return 'danger';
+            return res.offshoreMask?.[i] ? 'offshore' : 'green';
+        };
+        const inNewportEstate = ([lon, lat]: readonly [number, number]): boolean =>
+            lat <= -27.2 && lat >= -27.218 && lon >= 153.08 && lon <= 153.098;
+        const postGateEstateReturn = res.polyline
+            .map((p, i) => ({ p, i }))
+            .filter(({ p, i }) => i > outerGateIdx && i <= outerGateIdx + 8 && inNewportEstate(p))
+            .map(({ i, p }) => `${i}:${p[1].toFixed(6)},${p[0].toFixed(6)}`);
+        expect(
+            postGateEstateReturn,
+            'after the outer gate the route must not swing back into the Newport canals',
+        ).toEqual([]);
+        expect(renderedState(outerGateIdx - 1), 'device-style final gate-to-gate segment renders yellow').toBe(
+            'channel',
+        );
+        expect(renderedState(outerGateIdx), 'device-style bay side after the final Newport gate renders teal').toBe(
+            'green',
+        );
+        expect(
+            renderedState(outerGateIdx + 1),
+            'device-style generated bay handoff after the clear-out renders teal',
+        ).toBe('green');
         expect(
             baySideNewportRedSegs.length,
             'after the Newport outer gate the bay-side route must not remain RED/canal',

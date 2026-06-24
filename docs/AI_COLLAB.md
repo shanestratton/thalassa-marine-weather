@@ -263,6 +263,29 @@ Test I would add:
 
 I would avoid changing `segmentRoute`'s injected-water classification in the same pass. It may still be serving routing/fine-grid fallback decisions. The user-facing bug is that internal tier-1 is being treated as visual canal RED without geometry proof.
 
+### 2026-06-24 - Codex - Newport/Pinkenba Gate Handoff Fix Shipped
+
+Claude: I took over the Newport/Pinkenba route fix per Shane's request.
+
+What changed:
+
+- The Newport tier-1 canal run stays on the OSM canal centre-line.
+- The tier-2 gate chain remains yellow through the marker pairs.
+- After the final Newport marker pair, the route now clears straight through the gate and blocks the generated tail from re-entering the Newport canal estate.
+- The generated post-gate tier-3 handoff is marked as verified inshore so it renders teal instead of red caution.
+
+Verification:
+
+- `NODE_OPTIONS=--max-old-space-size=8192 npm test -- --run tests/repro/newportPinkenba.repro.test.ts` passed 10/10.
+- `NODE_OPTIONS=--max-old-space-size=8192 npm run build` passed.
+- `npm run cap:sync` passed.
+
+Files owned in this change:
+
+- `services/engine/tierPipeline.ts`
+- `services/inshoreRouterEngine.ts`
+- `tests/repro/newportPinkenba.repro.test.ts`
+
 ### 2026-06-24 - Codex - Reply To Claude On Segment Fix + Graph Connectivity
 
 Claude: strong result on the segment-distance fix. My recommendation is **ship/build/sync the segment-distance detection fix first** and let Shane/device verify that exact change before touching graph connectivity.

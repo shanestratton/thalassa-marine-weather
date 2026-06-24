@@ -487,6 +487,7 @@ export function applyThreeTier(
     channelMask: boolean[];
     tier4Mask: boolean[];
     offshoreMask: boolean[];
+    verifiedInshoreMask: boolean[];
 } | null {
     if (polyline.length < 2) return null;
 
@@ -767,6 +768,7 @@ export function applyThreeTier(
     const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
         `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
     const vtxKey = (a: readonly [number, number]): string => `${a[0]}|${a[1]}`;
+    const verifiedInshoreSegKeys = new Set<string>();
     const chainYellowLines = [...gateCentreTracks, ...channelChains]
         .filter((t) => t.pts.length >= 2)
         .map((t) => t.pts.map((p) => [p.lon, p.lat] as [number, number]));
@@ -853,9 +855,11 @@ export function applyThreeTier(
             OUTER_GATE_CLEARANCE_M,
         );
         if (!projected) return;
-        const exitPoint: [number, number] = [projected.lon, projected.lat];
-        if (tupleDistM(gate, exitPoint) < 80 || tupleDistM(next, exitPoint) < 80) return;
-        if (tupleLineCrossesHardLand(grid, gate, exitPoint)) return;
+        const projectedExit: [number, number] = [projected.lon, projected.lat];
+        if (tupleDistM(gate, projectedExit) < 80) return;
+        const existingExit = tupleDistM(next, projectedExit) < 120 ? next : null;
+        const exitPoint = existingExit ?? projectedExit;
+        if (!existingExit && tupleLineCrossesHardLand(grid, gate, exitPoint)) return;
 
         const mx = mPerDegLon(gate[1]);
         const axisX = (gate[0] - prev[0]) * mx;
@@ -865,21 +869,149 @@ export function applyThreeTier(
         const alongGateAxisM = (p: readonly [number, number]): number =>
             ((p[0] - gate[0]) * mx * axisX + (p[1] - gate[1]) * M_PER_DEG_LAT * axisY) / axisM;
 
-        const replaceFrom = lastGateSeg + 2;
-        let keepFrom = replaceFrom;
         const BACKTRACK_PRUNE_M = 1500;
+        const CANAL_BACKTRACK_PRUNE_M = 4500;
+        const CANAL_BACKTRACK_LINE_M = 250;
+        const VERIFIED_GATE_EXIT_M = 2600;
+        const markVerifiedGateExit = (pts: readonly (readonly [number, number])[]): void => {
+            for (let i = 0; i + 1 < pts.length; i++) {
+                if (
+                    tupleDistM(gate, pts[i]) > VERIFIED_GATE_EXIT_M &&
+                    tupleDistM(gate, pts[i + 1]) > VERIFIED_GATE_EXIT_M
+                )
+                    break;
+                verifiedInshoreSegKeys.add(segKey(pts[i], pts[i + 1]));
+            }
+        };
+        const isCanalReturnPoint = (p: readonly [number, number], sourceGrid = grid): boolean => {
+            const backtracksBehindGate = alongGateAxisM(p) < -40;
+            if (!backtracksBehindGate || tupleDistM(gate, p) >= CANAL_BACKTRACK_PRUNE_M) return false;
+            const canalDistM =
+                canalLines.length > 0 ? pointToTupleLinesM({ lat: p[1], lon: p[0] }, canalLines) : Infinity;
+            if (canalDistM < CANAL_BACKTRACK_LINE_M) return true;
+            const { x, y } = latLonToGrid(sourceGrid, p[1], p[0]);
+            if (x < 0 || y < 0 || x >= sourceGrid.width || y >= sourceGrid.height) return false;
+            const idx = y * sourceGrid.width + x;
+            return sourceGrid.injectedCanal?.[idx] === 1;
+        };
+        const tupleLineCrossesBlockedCell = (
+            sourceGrid: NavGrid,
+            a: readonly [number, number],
+            b: readonly [number, number],
+            stepM = 25,
+        ): boolean => {
+            const lenM = tupleDistM(a, b);
+            const steps = Math.max(1, Math.ceil(lenM / stepM));
+            for (let s = 0; s <= steps; s++) {
+                const t = s / steps;
+                const lon = a[0] + (b[0] - a[0]) * t;
+                const lat = a[1] + (b[1] - a[1]) * t;
+                const { x, y } = latLonToGrid(sourceGrid, lat, lon);
+                if (x < 0 || y < 0 || x >= sourceGrid.width || y >= sourceGrid.height) continue;
+                if (Number.isNaN(sourceGrid.cells[y * sourceGrid.width + x])) return true;
+            }
+            return false;
+        };
+        const pruneImmediateBridgeBacktrack = (bridge: [number, number][], sourceGrid: NavGrid): [number, number][] => {
+            if (bridge.length < 3) return bridge;
+            const MIN_TURN_FROM_GATE_M = 1200;
+            let firstKeep = 1;
+            while (firstKeep < bridge.length - 1) {
+                const p = bridge[firstKeep];
+                const nearGateBacktrack = alongGateAxisM(p) < -40 && tupleDistM(gate, p) < MIN_TURN_FROM_GATE_M;
+                const tooCloseToExit = tupleDistM(exitPoint, p) < 120;
+                if (!nearGateBacktrack && !tooCloseToExit) break;
+                if (tupleLineCrossesBlockedCell(sourceGrid, bridge[0], bridge[firstKeep + 1])) break;
+                firstKeep++;
+            }
+            return firstKeep > 1 ? [bridge[0], ...bridge.slice(firstKeep)] : bridge;
+        };
+        const bridgePastCanalReturn = (dest: readonly [number, number]): [number, number][] | null => {
+            const normal = gridBridgePolyline(
+                grid,
+                { lat: exitPoint[1], lon: exitPoint[0] },
+                { lat: dest[1], lon: dest[0] },
+            );
+            const prunedNormal = normal ? pruneImmediateBridgeBacktrack(normal, grid) : normal;
+            if (!prunedNormal || prunedNormal.length < 2 || !prunedNormal.some((p) => isCanalReturnPoint(p))) {
+                return prunedNormal;
+            }
+
+            const cells = new Float32Array(grid.cells);
+            const preferred = new Uint8Array(grid.preferred);
+            let blocked = 0;
+            for (let y = 0; y < grid.height; y++) {
+                for (let x = 0; x < grid.width; x++) {
+                    const idx = y * grid.width + x;
+                    if (Number.isNaN(cells[idx])) continue;
+                    const p: [number, number] = [
+                        grid.minLon + (x + 0.5) * grid.dLon,
+                        grid.minLat + (y + 0.5) * grid.dLat,
+                    ];
+                    if (!isCanalReturnPoint(p)) continue;
+                    cells[idx] = NaN;
+                    preferred[idx] = 0;
+                    blocked++;
+                }
+            }
+            if (blocked === 0) return normal;
+
+            const avoidGrid: NavGrid = { ...grid, cells, preferred };
+            delete avoidGrid.centreFactor;
+            delete avoidGrid.confined;
+            const avoided = gridBridgePolyline(
+                avoidGrid,
+                { lat: exitPoint[1], lon: exitPoint[0] },
+                { lat: dest[1], lon: dest[0] },
+            );
+            const prunedAvoided = avoided ? pruneImmediateBridgeBacktrack(avoided, avoidGrid) : avoided;
+            return prunedAvoided &&
+                prunedAvoided.length >= 2 &&
+                !prunedAvoided.some((p) => isCanalReturnPoint(p, avoidGrid))
+                ? prunedAvoided
+                : prunedNormal;
+        };
+
+        const replaceFrom = existingExit ? lastGateSeg + 3 : lastGateSeg + 2;
+        let keepFrom = replaceFrom;
         while (keepFrom < outPoly.length) {
             const p = outPoly[keepFrom];
-            const isImmediateBacktrack = alongGateAxisM(p) < -40 && tupleDistM(gate, p) < BACKTRACK_PRUNE_M;
+            const backtracksBehindGate = alongGateAxisM(p) < -40;
+            const gateDistM = tupleDistM(gate, p);
+            const canalDistM =
+                canalLines.length > 0 ? pointToTupleLinesM({ lat: p[1], lon: p[0] }, canalLines) : Infinity;
+            const isImmediateBacktrack = backtracksBehindGate && gateDistM < BACKTRACK_PRUNE_M;
+            const isCanalBacktrack =
+                backtracksBehindGate && gateDistM < CANAL_BACKTRACK_PRUNE_M && canalDistM < CANAL_BACKTRACK_LINE_M;
             const tooCloseToExit = tupleDistM(exitPoint, p) < 120;
-            if (!isImmediateBacktrack && !tooCloseToExit && !tupleLineCrossesHardLand(grid, exitPoint, p)) break;
+            if (
+                !isImmediateBacktrack &&
+                !isCanalBacktrack &&
+                !tooCloseToExit &&
+                !tupleLineCrossesHardLand(grid, exitPoint, p)
+            )
+                break;
             keepFrom++;
         }
         if (keepFrom >= outPoly.length) {
-            outPoly.splice(replaceFrom, 0, exitPoint);
+            const dest = outPoly[outPoly.length - 1];
+            const bridge = bridgePastCanalReturn(dest);
+            if (bridge && bridge.length >= 2) {
+                markVerifiedGateExit(bridge);
+                outPoly.splice(replaceFrom, outPoly.length - replaceFrom, ...(existingExit ? bridge.slice(1) : bridge));
+            } else if (existingExit) {
+                outPoly.splice(replaceFrom, outPoly.length - replaceFrom);
+            } else {
+                verifiedInshoreSegKeys.add(segKey(gate, exitPoint));
+                outPoly.splice(replaceFrom, outPoly.length - replaceFrom, exitPoint);
+            }
             return;
         }
-        outPoly.splice(replaceFrom, keepFrom - replaceFrom, exitPoint);
+        if (existingExit) outPoly.splice(replaceFrom, keepFrom - replaceFrom);
+        else {
+            verifiedInshoreSegKeys.add(segKey(gate, exitPoint));
+            outPoly.splice(replaceFrom, keepFrom - replaceFrom, exitPoint);
+        }
     };
     insertStraightOuterGateExit();
 
@@ -928,6 +1060,9 @@ export function applyThreeTier(
     });
     const channelSeg = channelSegRaw.map((isChannel, i) => isChannel && !tier1Vtx[i] && !tier1Vtx[i + 1]);
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
+    const verifiedInshoreMask = outPoly
+        .slice(0, -1)
+        .map((p, i) => verifiedInshoreSegKeys.has(segKey(p, outPoly[i + 1])));
 
     return {
         polyline: outPoly,
@@ -941,6 +1076,8 @@ export function applyThreeTier(
         tier4Mask: channelSeg,
         // Per-vertex offshore (tier-4) flag for the DARK BLUE offshore leg.
         offshoreMask: offshoreVtx,
+        // Per-segment generated tier-3 gate exit verified by the egress bridge.
+        verifiedInshoreMask,
     };
 }
 
