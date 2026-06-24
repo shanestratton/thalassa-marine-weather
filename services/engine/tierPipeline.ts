@@ -121,6 +121,8 @@ export function llPathLengthM(pts: readonly LatLon[]): number {
 export interface EgressTrack extends LeadingLine {
     /** First point index that belongs to tier 2. Points before this are tier 1 handoff. */
     tier2FromIndex?: number;
+    /** Higher wins when multiple egress tracks can serve the same canal exit. */
+    egressPriority?: number;
 }
 
 export function sameGatePair(a: LateralMark, b: LateralMark): boolean {
@@ -383,6 +385,7 @@ export function spliceCanalEgressChannelFromOrigin(
         gates: number;
         costM: number;
         preferred: boolean;
+        priority: number;
     } | null = null;
     const originalTotalM = tuplePathLengthM(polyline);
 
@@ -434,11 +437,16 @@ export function spliceCanalEgressChannelFromOrigin(
                 gates: pts.length,
                 costM: forcedTotalM,
                 preferred: chain.tier2FromIndex !== undefined,
+                priority: chain.egressPriority ?? (chain.tier2FromIndex !== undefined ? 1 : 0),
             };
             if (
                 !best ||
-                (candidate.preferred && !best.preferred) ||
-                (candidate.preferred === best.preferred && candidate.costM < best.costM)
+                candidate.priority > best.priority ||
+                (candidate.priority === best.priority &&
+                    (candidate.gates > best.gates ||
+                        (candidate.gates === best.gates &&
+                            ((candidate.preferred && !best.preferred) ||
+                                (candidate.preferred === best.preferred && candidate.costM < best.costM)))))
             ) {
                 best = candidate;
             }
@@ -614,7 +622,12 @@ export function applyThreeTier(
     }
 
     const gateCentreTracks = buildGateCentreTracks(marks, route, [...leadingLines, ...rectrcLines]);
-    const egressTracks: EgressTrack[] = [...gateCentreTracks, ...channelChains, ...leadingLines, ...rectrcLines];
+    const channelEgressTracks: EgressTrack[] = channelChains.map((chain) => ({
+        ...chain,
+        tier2FromIndex: 1,
+        egressPriority: 2,
+    }));
+    const egressTracks: EgressTrack[] = [...channelEgressTracks, ...gateCentreTracks, ...leadingLines, ...rectrcLines];
     const canalEgress = spliceCanalEgressChannel(route, egressTracks, canalLines, grid);
     if (canalEgress.spliced) {
         route = canalEgress.polyline;

@@ -32,6 +32,8 @@ interface LL {
 interface EgressLeadingLine extends LeadingLine {
     /** First point index that belongs to tier 2 when this chain starts inside a canal handoff. */
     readonly tier2FromIndex?: number;
+    /** Higher wins when multiple egress tracks can serve the same canal exit. */
+    readonly egressPriority?: number;
 }
 
 export interface Tier4Context {
@@ -167,6 +169,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             pts: LL[];
             gates: number;
             endpointM: number;
+            priority: number;
             needsStraighten: boolean;
         } | null = null;
 
@@ -231,11 +234,18 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
                     turnDeg(poly[i - 1], p, poly[i + 1]) > 95,
             );
             const needsStraighten = hasOffCentreVertex && hasSharpGateTurn;
-            const candidate = { pts: deduped, gates: servedGateIdxs.length, endpointM, needsStraighten };
+            const candidate = {
+                pts: deduped,
+                gates: servedGateIdxs.length,
+                endpointM,
+                priority: (track as EgressLeadingLine).egressPriority ?? 0,
+                needsStraighten,
+            };
             if (
                 !best ||
-                candidate.gates > best.gates ||
-                (candidate.gates === best.gates && endpointM < best.endpointM)
+                candidate.priority > best.priority ||
+                (candidate.priority === best.priority &&
+                    (candidate.gates > best.gates || (candidate.gates === best.gates && endpointM < best.endpointM)))
             ) {
                 best = candidate;
             }
