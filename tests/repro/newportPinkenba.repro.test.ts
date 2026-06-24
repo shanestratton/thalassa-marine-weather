@@ -893,6 +893,20 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(ch[lastCanalStemIdx], 'the final canal-stem segment is not yellow').not.toBe(true);
         expect(ch[outerGateIdx - 1], 'the final gate-to-gate segment remains yellow').toBe(true);
         expect(ch[outerGateIdx], 'yellow stops at the final Newport gate before the bay handoff').not.toBe(true);
+        const outerGate = route.polyline[outerGateIdx];
+        const afterOuterGate = route.polyline[outerGateIdx + 1];
+        const beforeOuterGate = route.polyline[outerGateIdx - 1];
+        expect(afterOuterGate, 'route keeps a point after the Newport outer gate').toBeTruthy();
+        expect(
+            afterOuterGate[1],
+            'route exits straight beyond the outer gate before turning to the bay',
+        ).toBeGreaterThan(outerGate[1]);
+        const gateSlope = (outerGate[0] - beforeOuterGate[0]) / (outerGate[1] - beforeOuterGate[1]);
+        const expectedExitLon = outerGate[0] + (afterOuterGate[1] - outerGate[1]) * gateSlope;
+        expect(
+            haversineM(afterOuterGate[1], afterOuterGate[0], afterOuterGate[1], expectedExitLon),
+            'post-gate exit point stays on the final gate axis',
+        ).toBeLessThan(15);
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
         expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
