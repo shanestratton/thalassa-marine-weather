@@ -837,7 +837,30 @@ export function applyThreeTier(
         const exitPoint: [number, number] = [projected.lon, projected.lat];
         if (tupleDistM(gate, exitPoint) < 80 || tupleDistM(next, exitPoint) < 80) return;
         if (tupleLineCrossesHardLand(grid, gate, exitPoint)) return;
-        outPoly.splice(lastGateSeg + 2, 0, exitPoint);
+
+        const mx = mPerDegLon(gate[1]);
+        const axisX = (gate[0] - prev[0]) * mx;
+        const axisY = (gate[1] - prev[1]) * M_PER_DEG_LAT;
+        const axisM = Math.hypot(axisX, axisY);
+        if (axisM < 1) return;
+        const alongGateAxisM = (p: readonly [number, number]): number =>
+            ((p[0] - gate[0]) * mx * axisX + (p[1] - gate[1]) * M_PER_DEG_LAT * axisY) / axisM;
+
+        const replaceFrom = lastGateSeg + 2;
+        let keepFrom = replaceFrom;
+        const BACKTRACK_PRUNE_M = 1500;
+        while (keepFrom < outPoly.length) {
+            const p = outPoly[keepFrom];
+            const isImmediateBacktrack = alongGateAxisM(p) < -40 && tupleDistM(gate, p) < BACKTRACK_PRUNE_M;
+            const tooCloseToExit = tupleDistM(exitPoint, p) < 120;
+            if (!isImmediateBacktrack && !tooCloseToExit && !tupleLineCrossesHardLand(grid, exitPoint, p)) break;
+            keepFrom++;
+        }
+        if (keepFrom >= outPoly.length) {
+            outPoly.splice(replaceFrom, 0, exitPoint);
+            return;
+        }
+        outPoly.splice(replaceFrom, keepFrom - replaceFrom, exitPoint);
     };
     insertStraightOuterGateExit();
 
