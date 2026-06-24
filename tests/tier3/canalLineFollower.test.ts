@@ -26,4 +26,28 @@ describe('snapRouteToCanalLines', () => {
 
         expect(snapped.polyline).toContainEqual(protectedChannelVertex);
     });
+
+    it('prefers a supplied water-medial route over the OSM canal graph', () => {
+        const canal: LatLon[] = [
+            [153, -27],
+            [153, -26.99],
+        ];
+        const visualWaterCentre: LatLon[] = [
+            [153.0004, -27],
+            [153.0004, -26.995],
+            [153.0004, -26.99],
+        ];
+        const route: LatLon[] = [
+            [153, -27],
+            [153, -26.995],
+            [153, -26.99],
+        ];
+
+        const snapped = snapRouteToCanalLines(route, [canal], {
+            routeRun: () => visualWaterCentre,
+        });
+
+        expect(snapped.polyline).toEqual(visualWaterCentre);
+        expect(snapped.onCanal).toEqual([false, true, false]);
+    });
 });
