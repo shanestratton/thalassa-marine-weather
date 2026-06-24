@@ -910,6 +910,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             'post-gate exit point stays on the final gate axis',
         ).toBeLessThan(15);
         expect(
+            haversineM(outerGate[1], outerGate[0], afterOuterGate[1], afterOuterGate[0]),
+            'route holds the final gate axis well clear of the marker pair before turning',
+        ).toBeGreaterThan(900);
+        expect(
             haversineM(outerGate[1], outerGate[0], afterExitTurn[1], afterExitTurn[0]),
             'route must not double back to the old close bay handoff immediately after clearing the outer gate',
         ).toBeGreaterThan(1200);
@@ -1086,6 +1090,15 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             afterOuterGate[1],
             'device-style route exits straight beyond the outer gate before turning',
         ).toBeGreaterThan(res.polyline[outerGateIdx][1]);
+        expect(
+            haversineM(
+                res.polyline[outerGateIdx][1],
+                res.polyline[outerGateIdx][0],
+                afterOuterGate[1],
+                afterOuterGate[0],
+            ),
+            'device-style route holds the final gate axis well clear of the marker pair before turning',
+        ).toBeGreaterThan(900);
         expect(
             haversineM(
                 res.polyline[outerGateIdx][1],

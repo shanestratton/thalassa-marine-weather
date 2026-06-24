@@ -832,7 +832,12 @@ export function applyThreeTier(
         const prev = outPoly[lastGateSeg];
         const gate = outPoly[lastGateSeg + 1];
         const next = outPoly[lastGateSeg + 2];
-        const projected = projectBeyondGate({ lat: prev[1], lon: prev[0] }, { lat: gate[1], lon: gate[0] }, 260);
+        const OUTER_GATE_CLEARANCE_M = 1000;
+        const projected = projectBeyondGate(
+            { lat: prev[1], lon: prev[0] },
+            { lat: gate[1], lon: gate[0] },
+            OUTER_GATE_CLEARANCE_M,
+        );
         if (!projected) return;
         const exitPoint: [number, number] = [projected.lon, projected.lat];
         if (tupleDistM(gate, exitPoint) < 80 || tupleDistM(next, exitPoint) < 80) return;
