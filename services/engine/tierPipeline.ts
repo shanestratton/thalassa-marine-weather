@@ -741,6 +741,13 @@ export function applyThreeTier(
     const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
         `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
     const vtxKey = (a: readonly [number, number]): string => `${a[0]}|${a[1]}`;
+    const chainYellowLines = [...gateCentreTracks, ...channelChains]
+        .filter((t) => t.pts.length >= 2)
+        .map((t) => t.pts.map((p) => [p.lon, p.lat] as [number, number]));
+    const CHAIN_RENDER_TRACK_M = 25;
+    const onChainYellowLine = (p: readonly [number, number]): boolean =>
+        chainYellowLines.length === 0 ||
+        pointToTupleLinesM({ lat: p[1], lon: p[0] }, chainYellowLines) <= CHAIN_RENDER_TRACK_M;
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
@@ -749,7 +756,15 @@ export function applyThreeTier(
                 channelPre[gi + v] = true;
                 channelVertexKeys.add(vtxKey(leg.polyline[v]));
             }
-            for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
+            for (let v = 0; v < len - 1; v++) {
+                const a = leg.polyline[v];
+                const b = leg.polyline[v + 1];
+                const limitToGateChain = canalEgress.gates >= 4 && leg.provenance.includes('chain×');
+                if (limitToGateChain && !(onChainYellowLine(a) && onChainYellowLine(b))) {
+                    continue;
+                }
+                channelSegKeys.add(segKey(a, b));
+            }
         }
         if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
