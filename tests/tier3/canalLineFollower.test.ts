@@ -27,7 +27,7 @@ describe('snapRouteToCanalLines', () => {
         expect(snapped.polyline).toContainEqual(protectedChannelVertex);
     });
 
-    it('prefers a supplied water-medial route over the OSM canal graph', () => {
+    it('prefers the charted canal graph over a supplied water-medial fallback', () => {
         const canal: LatLon[] = [
             [153, -27],
             [153, -26.99],
@@ -44,6 +44,36 @@ describe('snapRouteToCanalLines', () => {
         ];
 
         const snapped = snapRouteToCanalLines(route, [canal], {
+            routeRun: () => visualWaterCentre,
+        });
+
+        expect(snapped.polyline).toEqual([route[0], canal[0], canal[1], route[2]]);
+        expect(snapped.onCanal).toEqual([false, true, true, false]);
+    });
+
+    it('falls back to a supplied water-medial route when the canal graph is disconnected', () => {
+        const disconnectedCanals: LatLon[][] = [
+            [
+                [153, -27],
+                [153, -26.999],
+            ],
+            [
+                [153, -26.991],
+                [153, -26.99],
+            ],
+        ];
+        const visualWaterCentre: LatLon[] = [
+            [153.0004, -27],
+            [153.0004, -26.995],
+            [153.0004, -26.99],
+        ];
+        const route: LatLon[] = [
+            [153, -27],
+            [153, -26.995],
+            [153, -26.99],
+        ];
+
+        const snapped = snapRouteToCanalLines(route, disconnectedCanals, {
             routeRun: () => visualWaterCentre,
         });
 

@@ -285,27 +285,32 @@ export function snapRouteToCanalLines(
             if (onCanal[k]) j = k;
             else if (k - j > CANAL_RUN_GAP) break;
         }
-        // Run [i..j] rides the canal. Route its ends along the centre-line.
-        const preferred = opts.routeRun?.(polyline.slice(i, j + 1), { fromIdx: i, toIdx: j }) ?? null;
-        if (preferred && preferred.length >= 2) {
-            for (let k = 0; k < preferred.length; k++) {
-                const [lon, lat] = preferred[k];
-                emit({ lat, lon }, !(i === 0 && k === 0) && !(j === n - 1 && k === preferred.length - 1));
-            }
+        // Run [i..j] rides the canal. Prefer the charted canal graph first: those
+        // vertices are the surveyed/OSM centre-line Shane sees on the chart. The
+        // optional routeRun (fine-grid medial water route) is only a fallback for
+        // disconnected or missing centre-line graph data; using it first collapses
+        // Newport's good Jabiru/Albatross canal vertices into a few visual chords.
+        const s = g.nearest(pts[i]);
+        const t = g.nearest(pts[j]);
+        const centre = s && t ? routeGraph(g, s.k, t.k) : null;
+        if (centre) {
+            // Keep the route origin/dest exactly (pinned bridge points, flagged
+            // NOT-canal for a clean open-water seam); the centre vertices between
+            // ARE the canal and carry the flag so they render caution-red.
+            if (i === 0) emit(pts[0], false);
+            for (const c of centre) emit(c, true);
+            if (j === n - 1) emit(pts[n - 1], false);
         } else {
-            const s = g.nearest(pts[i]);
-            const t = g.nearest(pts[j]);
-            const centre = s && t ? routeGraph(g, s.k, t.k) : null;
-            if (centre) {
-                // Keep the route origin/dest exactly (pinned bridge points, flagged
-                // NOT-canal for a clean open-water seam); the centre vertices between
-                // ARE the canal and carry the flag so they render caution-red.
-                if (i === 0) emit(pts[0], false);
-                for (const c of centre) emit(c, true);
-                if (j === n - 1) emit(pts[n - 1], false);
+            const preferred = opts.routeRun?.(polyline.slice(i, j + 1), { fromIdx: i, toIdx: j }) ?? null;
+            if (preferred && preferred.length >= 2) {
+                for (let k = 0; k < preferred.length; k++) {
+                    const [lon, lat] = preferred[k];
+                    emit({ lat, lon }, !(i === 0 && k === 0) && !(j === n - 1 && k === preferred.length - 1));
+                }
             } else {
-                // Couldn't route on the graph — keep the original points with their own
-                // on-canal flag (the run still rides the canal where flagged).
+                // Couldn't route on the graph or fallback — keep the original points
+                // with their own on-canal flag (the run still rides the canal where
+                // flagged).
                 for (let k = i; k <= j; k++) emit(pts[k], onCanal[k]);
             }
         }

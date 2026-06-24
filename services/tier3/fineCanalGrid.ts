@@ -27,10 +27,10 @@
 
 import type { NavGrid } from '../inshoreRouterEngine';
 import {
+    centrelineSimplify,
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
-    stringPullCentred,
     type Cell,
     type MarinaRouteParams,
     type MarinaRouteResult,
@@ -233,22 +233,31 @@ export function buildFineCanalLeg(
     // cell at a time — but NEVER below 1: keel 0 keeps cells with clearance ≥ 0,
     // which includes land (clearance 0), so it would route across the bank. At
     // 12 m keelCells is already 1, so this loop is a single safe pass there.
-    const depth = marinaDepthArray(fineGrid);
-    // Bridge the proven-navigable coarse corridor so a fine-grid barrier (a thin
-    // wall the 50 m carve averaged away) can't split the canal into two
-    // components. Low-preference, so the route still rides real water everywhere
-    // it exists; the bridge only spans genuine fine-grid gaps.
-    if (corridor) bridgeCorridor(fineGrid, depth, corridor);
     const shape = { width: fineGrid.width, height: fineGrid.height };
     let result: MarinaRouteResult | null = null;
     let keelUsed = baseParams.keelCells;
-    for (let k = baseParams.keelCells; k >= 1; k--) {
-        const r = routeMarina(depth, shape, start, end, { ...baseParams, keelCells: k });
-        if (r && r.waypoints.length >= 2) {
-            result = r;
-            keelUsed = k;
-            break;
+
+    const solve = (depth: Float32Array): { result: MarinaRouteResult | null; keelUsed: number } => {
+        for (let k = baseParams.keelCells; k >= 1; k--) {
+            const r = routeMarina(depth, shape, start, end, { ...baseParams, keelCells: k });
+            if (r && r.waypoints.length >= 2) {
+                return { result: r, keelUsed: k };
+            }
         }
+        return { result: null, keelUsed: baseParams.keelCells };
+    };
+
+    const realDepth = marinaDepthArray(fineGrid);
+    ({ result, keelUsed } = solve(realDepth));
+    // Only if the real fine water cannot connect do we bridge the proven coarse
+    // corridor. Bridging before trying real water can contaminate the medial axis:
+    // the old route gets stamped into the water mask and the "centred" result may
+    // still ride that off-centre chord. Real water first; bridge only as a data-gap
+    // fallback.
+    if (!result && corridor) {
+        const bridgedDepth = marinaDepthArray(fineGrid);
+        bridgeCorridor(fineGrid, bridgedDepth, corridor);
+        ({ result, keelUsed } = solve(bridgedDepth));
     }
     if (!result) return null;
 
@@ -264,20 +273,11 @@ export function buildFineCanalLeg(
         realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
     }
     // Render the fine canal centreline. routeMarina's 4-connected Dijkstra rides
-    // mid-channel but staircases/wanders at the cell scale.
-    //   • injected Mapbox canal (preferCentreline) — the user's canal-estate case.
-    //     stringPullCentred keeps the taut line's clean STRAIGHT runs (the wander is
-    //     ignored, so no drunk wobble) but forbids a chord from getting closer to a
-    //     bank than the centreline does — so the taut line can no longer cut the
-    //     inside of a corner; the route rounds it mid-channel instead.
-    //   • NARROW non-injected canal (default) — keep the proven taut string-pull the
-    //     threeTierNewport + seaway-corpus baselines were measured against.
-    // ALWAYS centre-preserve the simplify now that the Dijkstra cells ride the medial
-    // axis (depthWeight=0): stringPullCentred forbids a chord from getting closer to a
-    // bank than the centreline, so straight runs stay clean but bends round mid-channel
-    // instead of cutting the inside. Plain stringPull would taut the centred cells back
-    // toward the wall on every bend — re-introducing the hug we just removed.
-    const waypoints = stringPullCentred(result.cells, realWater, euclideanDistanceTransform(realWater, shape), shape);
+    // mid-channel but staircases at the cell scale. Use the centreline-preserving
+    // simplifier, not the greedy taut string-pull: the latter can turn a shaped
+    // canal run into a few long chords that are technically clear but visibly not
+    // in the middle of the canal (Newport red line, 2026-06-24).
+    const waypoints = centrelineSimplify(result.cells, realWater, shape, 2.5);
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse
