@@ -772,10 +772,10 @@ export function applyThreeTier(
     const chainYellowLines = [...gateCentreTracks, ...channelChains]
         .filter((t) => t.pts.length >= 2)
         .map((t) => t.pts.map((p) => [p.lon, p.lat] as [number, number]));
-    const CHAIN_RENDER_TRACK_M = 25;
+    const CHAIN_RENDER_TRACK_M = 60;
+    const hasChainYellowLines = chainYellowLines.length > 0;
     const onChainYellowLine = (p: readonly [number, number]): boolean =>
-        chainYellowLines.length === 0 ||
-        pointToTupleLinesM({ lat: p[1], lon: p[0] }, chainYellowLines) <= CHAIN_RENDER_TRACK_M;
+        hasChainYellowLines && pointToTupleLinesM({ lat: p[1], lon: p[0] }, chainYellowLines) <= CHAIN_RENDER_TRACK_M;
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
@@ -788,7 +788,7 @@ export function applyThreeTier(
                 const a = leg.polyline[v];
                 const b = leg.polyline[v + 1];
                 const limitToGateChain = canalEgress.gates >= 4 && leg.provenance.includes('chain×');
-                if (limitToGateChain && !(onChainYellowLine(a) && onChainYellowLine(b))) {
+                if (limitToGateChain && hasChainYellowLines && !(onChainYellowLine(a) && onChainYellowLine(b))) {
                     continue;
                 }
                 channelSegKeys.add(segKey(a, b));
@@ -1016,7 +1016,10 @@ export function applyThreeTier(
     insertStraightOuterGateExit();
 
     const CANAL_RENDER_M = 45;
-    const channelSegRaw = outPoly.slice(0, -1).map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])));
+    const channelSegRaw = outPoly.slice(0, -1).map((p, i) => {
+        const b = outPoly[i + 1];
+        return channelSegKeys.has(segKey(p, b)) || (onChainYellowLine(p) && onChainYellowLine(b));
+    });
     const channelVtxRaw = outPoly.map(
         (p, i) => channelVertexKeys.has(vtxKey(p)) || !!channelSegRaw[i] || !!channelSegRaw[i - 1],
     );

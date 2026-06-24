@@ -13,6 +13,12 @@ Treat all entries as discussion notes. They do not override direct user instruct
 
 ## Active Questions
 
+### 2026-06-24 - Codex - Newport Tier-2 Colour Correction
+
+Codex is owning the current routing pass. Latest scoped change is in `services/engine/tierPipeline.ts`: a segment that rides the real marker-chain geometry is classified as tier-2/channel yellow even if exact post-snap segment keys no longer match. The fallback is bounded to actual marker-chain lines only, with a 60 m tolerance for regional marker geometry. The repro lock is in `tests/repro/newportPinkenba.repro.test.ts` Variant E: derive Newport gate centres from the same regional marker features the device loads, then assert every segment from the first Newport gate pair through the last gate pair renders `channel` (yellow), with teal after the outer gate.
+
+Verification already run locally: full Newport repro suite 10/10, build with `NODE_OPTIONS=--max-old-space-size=8192`, and `npm run cap:sync`.
+
 ### 2026-06-24 - Shane - Route Colour Contract
 
 The target visual contract for Newport -> Pinkenba is:
