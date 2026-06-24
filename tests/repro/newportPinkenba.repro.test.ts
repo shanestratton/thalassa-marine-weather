@@ -801,18 +801,31 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // Distance is to the nearest line SEGMENT (not vertex): the canal lines have
         // long straight runs, so a vertex metric falsely reports a mid-segment point
         // as far off even when it rides the line exactly.
-        const interiorOffset = (poly: Position[]): { mean: number; n: number } => {
+        const interiorOffset = (
+            poly: Position[],
+            includeSegment: (i: number) => boolean = () => true,
+        ): { mean: number; n: number } => {
             let sum = 0;
             let n = 0;
-            for (const [lon, lat] of densify(poly, 20)) {
-                if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
-                let best = Infinity;
-                for (const ln of lines) {
-                    const d = pointToChainM(lat, lon, ln as unknown as Position[]);
-                    if (d < best) best = d;
+            for (let i = 0; i < poly.length - 1; i++) {
+                if (!includeSegment(i)) continue;
+                const [aLon, aLat] = poly[i];
+                const [bLon, bLat] = poly[i + 1];
+                const segM = haversineM(aLat, aLon, bLat, bLon);
+                const steps = Math.max(1, Math.ceil(segM / 20));
+                for (let s = 0; s <= steps; s++) {
+                    const t = s / steps;
+                    const lon = aLon + (bLon - aLon) * t;
+                    const lat = aLat + (bLat - aLat) * t;
+                    if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
+                    let best = Infinity;
+                    for (const ln of lines) {
+                        const d = pointToChainM(lat, lon, ln as unknown as Position[]);
+                        if (d < best) best = d;
+                    }
+                    sum += best;
+                    n++;
                 }
-                sum += best;
-                n++;
             }
             return { mean: n ? sum / n : NaN, n };
         };
@@ -820,7 +833,6 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // The engine now applies the snap internally, so route.polyline is the
         // FINAL on-device geometry. Verify it rides the canal centre + the snap
         // engaged (+canalsnap), and that re-snapping leaves the river byte-identical.
-        const off = interiorOffset(route.polyline);
         const { polyline: resnapped } = snapRouteToCanalLines(route.polyline, lines);
         const river = (poly: readonly (readonly number[])[]): string =>
             JSON.stringify(poly.filter(([, la]) => la < -27.38));
@@ -833,6 +845,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const cm = route.canalMask ?? [];
         const ch = route.channelMask ?? route.tier4Mask ?? [];
         const caution = route.cautionMask ?? [];
+        const off = interiorOffset(route.polyline, (i) => (cm[i] || cm[i + 1]) && !(ch[i] || ch[i + 1]));
         const inCanal = (lon: number, lat: number): boolean =>
             lat <= -27.203 && lat >= -27.213 && lon >= 153.082 && lon <= 153.095;
         let canalSegs = 0;
@@ -857,10 +870,18 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 `canal-only segments flagged red (canalMask): ${flaggedCanalSegs}/${canalOnlySegs} ` +
                 `(total in bbox ${canalSegs}); of those in cautionMask: ${canalSegsInCaution}`,
         );
-        expect(off.n).toBeGreaterThan(0);
-        expect(off.mean, 'engine routes the canal near centre while continuing to the charted lead-out').toBeLessThan(
-            12,
+        const firstChannelSeg = ch.findIndex(Boolean);
+        const firstGateIdx = route.polyline.findIndex(
+            ([lon, lat]) => haversineM(lat, lon, -27.203175, 153.093041) < 35,
         );
+        expect(off.n).toBeGreaterThan(0);
+        expect(off.mean, 'engine routes the red canal near the charted centreline').toBeLessThan(12);
+        expect(firstChannelSeg, 'Newport egress has a channel handoff').toBeGreaterThanOrEqual(0);
+        expect(firstGateIdx, 'route reaches the Newport inner gate').toBeGreaterThan(firstChannelSeg);
+        expect(
+            firstGateIdx - firstChannelSeg,
+            'the Newport main-channel stem is a direct centred leg to the first gate',
+        ).toBe(1);
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
         expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);

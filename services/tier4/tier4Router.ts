@@ -118,6 +118,16 @@ function turnDeg(a: LL, b: LL, c: LL): number {
     return (Math.acos(cos) * 180) / Math.PI;
 }
 
+function segmentCrossesLand(a: LL, b: LL, isLand: (p: LL) => boolean, stepM = 20): boolean {
+    const segM = distM(a, b);
+    const steps = Math.max(1, Math.ceil(segM / stepM));
+    for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        if (isLand({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t })) return true;
+    }
+    return false;
+}
+
 /**
  * Build the tier-2 leg for one span, or refuse.
  *
@@ -208,6 +218,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
                 deduped.push(p);
             }
             if (deduped.length < 2) continue;
+            if (deduped.some((p, i) => i > 0 && segmentCrossesLand(deduped[i - 1], p, isLand))) continue;
 
             const hasOffCentreVertex = poly
                 .map((p) => pointToPolylineM(p, track.pts))
@@ -255,7 +266,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     };
 
     if (isEgressSpan) {
-        const explicitGates = forceExplicitChainGeometry(chainTracks(), false);
+        const explicitGates = forceExplicitChainGeometry(chainTracks(), true);
         if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
         else snapChannelChain();
     }
