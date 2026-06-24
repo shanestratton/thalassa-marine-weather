@@ -811,7 +811,25 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         );
         expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
         const ch = route.channelMask ?? route.tier4Mask ?? [];
+        const cm = route.canalMask ?? [];
+        const caution = route.cautionMask ?? [];
+        const overlaps = ch
+            .map((yellow, i) => ({ i, yellow, red: cm[i] ?? false }))
+            .filter(({ yellow, red }) => yellow && red)
+            .map(({ i }) => i);
+        const renderedState = (i: number): 'danger' | 'channel' | 'offshore' | 'green' => {
+            if (ch[i]) return 'channel';
+            if (cm[i]) return 'danger';
+            if (caution[i]) return 'danger';
+            return route.offshoreMask?.[i] ? 'offshore' : 'green';
+        };
+        expect(overlaps, 'tier masks are exclusive: no segment is both canal red and channel yellow').toEqual([]);
         expect(ch[outerGateIdx - 1], 'the final regional gate-to-gate segment remains yellow').toBe(true);
+        expect(cm[outerGateIdx - 1], 'yellow final gate segment must not also carry canal red').toBe(false);
+        expect(renderedState(outerGateIdx - 1), 'rendered final gate-to-gate segment is yellow, not red').toBe(
+            'channel',
+        );
+        expect(renderedState(outerGateIdx), 'bay side of the final Newport gate renders as inshore teal').toBe('green');
         const beforeOuterGate = route.polyline[outerGateIdx - 1];
         const outerGate = route.polyline[outerGateIdx];
         const afterOuterGate = route.polyline[outerGateIdx + 1];

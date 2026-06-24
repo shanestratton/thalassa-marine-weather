@@ -458,13 +458,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     const segCount = inshorePoly.length - 1;
                     const hasMask = (m?: boolean[]): m is boolean[] => !!m && m.length === segCount;
                     // Per-segment colour, Shane's INNER→OUTER scheme. Precedence:
-                    //   1. canal centre-line → RED ('danger')  — the marina basin (innermost).
-                    //   2. tier-2 marked channel → YELLOW ('channel') — and this BEATS caution:
+                    //   1. tier-2 marked channel → YELLOW ('channel') — and this BEATS red:
                     //      a buoyed channel is pilotage water, the marks ARE the depth authority,
                     //      so it must read yellow even where the 50 m grid calls it shallow/
                     //      uncharted (d-1). (Was caution>channel, which reddened the marked
                     //      channel wherever it crossed an uncharted cell — the "red not yellow"
                     //      bug.) The cautionMask is still computed for the safety scorecard.
+                    //   2. canal centre-line → RED ('danger') — the marina basin.
                     //   3. caution (shallow/uncharted OPEN water, NOT a marked channel) → RED.
                     //   4. offshore → DARK BLUE; else inshore A* → TEAL ('green' default).
                     const cautionMask = inshoreRes.cautionMask;
@@ -477,8 +477,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         inshorePoly.length < 2 || !anyMask
                             ? null
                             : Array.from({ length: segCount }, (_, i) => {
-                                  if (canalMask?.[i] ?? false) return 'danger'; // canal/marina RED
                                   if (channelMask?.[i]) return 'channel'; // marked channel YELLOW (beats caution)
+                                  if (canalMask?.[i] ?? false) return 'danger'; // canal/marina RED
                                   if (cautionMask?.[i] ?? false) return 'danger'; // shallow OPEN water RED
                                   return offshoreMask?.[i] ? 'offshore' : 'green';
                               });

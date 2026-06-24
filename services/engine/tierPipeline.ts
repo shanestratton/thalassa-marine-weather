@@ -754,8 +754,9 @@ export function applyThreeTier(
     //   tier 1 → canal/marina RED
     //   tier 2 → lead-out/marked channel YELLOW
     //   tier 4 → offshore DARK BLUE
-    // Carry them across the canal snap by exact coordinate. Where a vertex lands
-    // on both canal and channel, canal RED wins in the renderer.
+    // Carry them across the canal snap by exact coordinate. Channel segments are
+    // rendered/exported as tier 2 at the engine boundary, so they must not also
+    // carry canal red on the same segment.
     // tier-1 (canal) RED is decided below by geometry (canal-line snap / proximity),
     // NOT by which leg emitted the vertex — so we no longer track a per-leg canal
     // flag here (that's what bled RED onto non-canal Mapbox-water tier-1 legs).
