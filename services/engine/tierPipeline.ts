@@ -778,8 +778,13 @@ export function applyThreeTier(
     const channelVtxRaw = outPoly.map(
         (p, i) => channelVertexKeys.has(vtxKey(p)) || !!channelSegRaw[i] || !!channelSegRaw[i - 1],
     );
-    const firstChannelIdx = channelVtxRaw.findIndex(Boolean);
-    const lastChannelIdx = channelVtxRaw.reduce((last, flagged, i) => (flagged ? i : last), -1);
+    const firstChannelSegIdx = channelSegRaw.findIndex(Boolean);
+    const lastChannelSegIdx = channelSegRaw.reduce((last, flagged, i) => (flagged ? i : last), -1);
+    const firstChannelIdx = firstChannelSegIdx >= 0 ? firstChannelSegIdx : channelVtxRaw.findIndex(Boolean);
+    const lastChannelIdx =
+        lastChannelSegIdx >= 0
+            ? lastChannelSegIdx + 1
+            : channelVtxRaw.reduce((last, flagged, i) => (flagged ? i : last), -1);
     const endpointCanalM = Math.max(CANAL_RENDER_M, 120);
     const originOnCanal =
         canalLines.length > 0 &&
