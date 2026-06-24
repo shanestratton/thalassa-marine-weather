@@ -1063,6 +1063,15 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             return;
         }
         const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+        const regional = await fetchRegionalMarkers(
+            REGIONAL_MARKERS_URL,
+            layers.LNDARE?.features ?? [],
+            osmWaterFeatures(),
+            [...(layers.DEPARE?.features ?? []), ...(layers.DRGARE?.features ?? [])],
+        );
+        if (regional.midpoints.length > 0) layers.BOYLAT!.features.push(...(regional.midpoints as never[]));
+        if (regional.segments.length > 0) layers.FAIRWY!.features.push(...(regional.segments as never[]));
+        if (regional.wings.length > 0) layers.OBSTRN!.features.push(...(regional.wings as never[]));
         // Inject satellite/vector water as authoritative DEPARE — verbatim InshoreRouter.ts:1009-1043.
         const crops = [corridorCrop(NEWPORT, PINKENBA), corridorCrop(PINKENBA, NEWPORT)];
         const waterFCs = await Promise.all(
@@ -1089,7 +1098,11 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 },
             });
         }
-        const res = routeInshore(layers, REQ_BASE as RouteRequest);
+        const res = routeInshore(layers, {
+            ...REQ_BASE,
+            safetyM: 0.2,
+            obstructionBufferM: 60,
+        } as RouteRequest);
         if ('error' in res) throw new Error(`VARIANT E route failed: ${res.error}`);
         const prov = res.debug?.threeTier ?? '(no threeTier)';
         const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
@@ -1124,6 +1137,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         console.log(
             `\n=== VARIANT E (Mapbox/satellite water — device fine-grid path) ===\n` +
                 `water polys injected: ${water.length}\nprov: ${prov}\npts: ${res.polyline.length}\n` +
+                `regional: midpoints=${regional.midpoints.length} segments=${regional.segments.length} wings=${regional.wings.length}\n` +
                 rows.join('\n') +
                 `\nhandoff:\n${handoffRows.join('\n')}` +
                 `\nWORST in-estate offset: idx=${worst.i} ${worst.lat.toFixed(6)},${worst.lon.toFixed(6)} ` +
@@ -1146,7 +1160,44 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         for (let i = 0; i < res.polyline.length - 1; i++) {
             if (cm[i] && offAt(i) > 200 && offAt(i + 1) > 200) farRedSegs.push(i);
         }
-        const outerGateIdx = res.polyline.findIndex(([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35);
+        const regionalNewportGateCenters = regional.midpoints
+            .map((f) => {
+                const feature = f as {
+                    properties?: { _chainId?: number; _chainOrder?: number; _pairDistanceM?: number };
+                    geometry?: { type?: string; coordinates?: [number, number] };
+                };
+                if (feature.geometry?.type !== 'Point') return null;
+                const [lon, lat] = feature.geometry.coordinates ?? [0, 0];
+                return {
+                    lat,
+                    lon,
+                    chainId: feature.properties?._chainId,
+                    chainOrder: feature.properties?._chainOrder,
+                    pairDistanceM: feature.properties?._pairDistanceM,
+                };
+            })
+            .filter(
+                (p): p is NonNullable<typeof p> =>
+                    !!p &&
+                    p.lat > -27.206 &&
+                    p.lat < -27.178 &&
+                    p.lon > 153.088 &&
+                    p.lon < 153.098 &&
+                    (p.pairDistanceM ?? 0) > 0,
+            )
+            .sort((a, b) => a.lat - b.lat);
+        const fallbackNewportGateCenters = [
+            { lat: -27.203175, lon: 153.093041 },
+            { lat: -27.196692, lon: 153.0934 },
+            { lat: -27.19034, lon: 153.093776 },
+            { lat: -27.183025, lon: 153.094083 },
+        ];
+        const newportGateCenters =
+            regionalNewportGateCenters.length >= 4 ? regionalNewportGateCenters : fallbackNewportGateCenters;
+        const newportGateIdxs = newportGateCenters.map(({ lat, lon }) =>
+            res.polyline.findIndex(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 45),
+        );
+        const outerGateIdx = newportGateIdxs[newportGateIdxs.length - 1] ?? -1;
         const baySideNewportRedSegs: number[] = [];
         if (outerGateIdx >= 0) {
             for (let i = outerGateIdx + 1; i < res.polyline.length - 1; i++) {
@@ -1164,7 +1215,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                           .slice(0, 6)
                           .map((i) => `${i}:${offAt(i).toFixed(0)}/${offAt(i + 1).toFixed(0)}m`)
                           .join(' ')
-                    : ''),
+                    : '') +
+                `\nnewportGateCenters: ${newportGateCenters
+                    .map((p, i) => `${i}:${p.lat.toFixed(6)},${p.lon.toFixed(6)}@${newportGateIdxs[i]}`)
+                    .join(' | ')}`,
         );
         expect(
             farRedSegs.length,
@@ -1190,6 +1244,18 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(renderedState(outerGateIdx - 1), 'device-style final gate-to-gate segment renders yellow').toBe(
             'channel',
         );
+        expect(
+            newportGateIdxs.every((i) => i >= 0),
+            'device-style route reaches every Newport gate centre',
+        ).toBe(true);
+        for (let g = 0; g + 1 < newportGateIdxs.length; g++) {
+            for (let i = newportGateIdxs[g]; i < newportGateIdxs[g + 1]; i++) {
+                expect(
+                    renderedState(i),
+                    `device-style Newport tier-2 gate chain segment ${i} renders yellow from first marker pair onward`,
+                ).toBe('channel');
+            }
+        }
         expect(renderedState(outerGateIdx), 'device-style bay side after the final Newport gate renders teal').toBe(
             'green',
         );
