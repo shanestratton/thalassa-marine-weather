@@ -737,13 +737,18 @@ export function applyThreeTier(
     const channelPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const offshorePre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelSegKeys = new Set<string>();
+    const channelVertexKeys = new Set<string>();
     const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
         `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
+    const vtxKey = (a: readonly [number, number]): string => `${a[0]}|${a[1]}`;
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
         if (leg.tierId === 2) {
-            for (let v = 0; v < len; v++) channelPre[gi + v] = true;
+            for (let v = 0; v < len; v++) {
+                channelPre[gi + v] = true;
+                channelVertexKeys.add(vtxKey(leg.polyline[v]));
+            }
             for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
         }
         if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
@@ -761,7 +766,7 @@ export function applyThreeTier(
     // not a canal leg — a per-span follow would miss them. Tier-2 channel vertices
     // are protected so the canal snap cannot swallow a canal→marked-channel egress.
     // No-op off-canal (the river / open water passes through byte-identical).
-    const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines, {
+    const { polyline: snappedPoly } = snapRouteToCanalLines(glued.polyline, canalLines, {
         protectedVertices: channelPre,
         routeRun: (run) => routeCanalRunViaFineGrid(run),
     });
@@ -769,9 +774,28 @@ export function applyThreeTier(
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
     const CANAL_RENDER_M = 45;
+    const channelSegRaw = outPoly.slice(0, -1).map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])));
+    const channelVtxRaw = outPoly.map(
+        (p, i) => channelVertexKeys.has(vtxKey(p)) || !!channelSegRaw[i] || !!channelSegRaw[i - 1],
+    );
+    const firstChannelIdx = channelVtxRaw.findIndex(Boolean);
+    const lastChannelIdx = channelVtxRaw.reduce((last, flagged, i) => (flagged ? i : last), -1);
+    const endpointCanalM = Math.max(CANAL_RENDER_M, 120);
+    const originOnCanal =
+        canalLines.length > 0 &&
+        outPoly.length > 0 &&
+        pointToTupleLinesM({ lat: outPoly[0][1], lon: outPoly[0][0] }, canalLines) <= endpointCanalM;
+    const destOnCanal =
+        canalLines.length > 0 &&
+        outPoly.length > 0 &&
+        pointToTupleLinesM({ lat: outPoly[outPoly.length - 1][1], lon: outPoly[outPoly.length - 1][0] }, canalLines) <=
+            endpointCanalM;
+    const canalAllowedAt = (i: number): boolean => {
+        if (firstChannelIdx < 0) return true;
+        return (originOnCanal && i <= firstChannelIdx) || (destOnCanal && i >= lastChannelIdx);
+    };
     const tier1Vtx = outPoly.map(([lon, lat], i) => {
         // RED requires GEOMETRY-CONFIRMED canal, not merely "was internally tier-1":
-        //   canalVtx   — the canal-line snap rode this vertex onto the centre-line
         //   onCanalLine — within CANAL_RENDER_M of a charted OSM canal/dock line
         // The old mask also reddened raw `canalKeys` (ANY glued tier-1 leg vertex).
         // That bled RED onto broad Mapbox/satellite-water tier-1 legs with no canal
@@ -779,12 +803,15 @@ export function applyThreeTier(
         // but ~3 km from any canal line (docs/AI_COLLAB.md 2026-06-24). Per Shane's
         // colour contract that water is YELLOW/TEAL, not RED. Drop the unguarded
         // canalKeys term; a tier-1 leg only reddens where the chart proves canal.
+        // Channel vertices stay yellow, and the canal side of a marked-channel
+        // egress is decided by route position: origin-side canal before the first
+        // channel, destination-side canal after the last channel. That stops the
+        // bay-side route after Newport's outer gate from turning red merely because
+        // it passes near the same canal linework.
         const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
-        return canalVtx[i] || onCanalLine;
+        return !channelVtxRaw[i] && canalAllowedAt(i) && onCanalLine;
     });
-    const channelSeg = outPoly
-        .slice(0, -1)
-        .map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])) && !tier1Vtx[i] && !tier1Vtx[i + 1]);
+    const channelSeg = channelSegRaw.map((isChannel, i) => isChannel && !tier1Vtx[i] && !tier1Vtx[i + 1]);
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {

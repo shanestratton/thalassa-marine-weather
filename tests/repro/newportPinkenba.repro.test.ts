@@ -997,6 +997,15 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         for (let i = 0; i < res.polyline.length - 1; i++) {
             if (cm[i] && offAt(i) > 200 && offAt(i + 1) > 200) farRedSegs.push(i);
         }
+        const outerGateIdx = res.polyline.findIndex(([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35);
+        const baySideNewportRedSegs: number[] = [];
+        if (outerGateIdx >= 0) {
+            for (let i = outerGateIdx + 1; i < res.polyline.length - 1; i++) {
+                const [lon, lat] = res.polyline[i];
+                if (lat < -27.23 || lat > -27.2 || lon < 153.08 || lon > 153.1) continue;
+                if (cm[i]) baySideNewportRedSegs.push(i);
+            }
+        }
         // eslint-disable-next-line no-console
         console.log(
             `far-red SEGMENTS (red, both ends >200m from any canal line): ${farRedSegs.length}` +
@@ -1011,6 +1020,11 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(
             farRedSegs.length,
             'no RED segment may span open water >200m from a charted canal line (Brisbane-RED tail fix)',
+        ).toBe(0);
+        expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
+        expect(
+            baySideNewportRedSegs.length,
+            'after the Newport outer gate the bay-side route must not remain RED/canal',
         ).toBe(0);
     });
 
