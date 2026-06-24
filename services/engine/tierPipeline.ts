@@ -320,6 +320,18 @@ export function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [nu
     return pruneBridgeEndpointGridCenters(grid, out);
 }
 
+function projectBeyondGate(prev: LatLon, gate: LatLon, distanceM: number): LatLon | null {
+    const mx = mPerDegLon(gate.lat);
+    const dxM = (gate.lon - prev.lon) * mx;
+    const dyM = (gate.lat - prev.lat) * M_PER_DEG_LAT;
+    const lenM = Math.hypot(dxM, dyM);
+    if (lenM < 1) return null;
+    return {
+        lat: gate.lat + (dyM / lenM) * (distanceM / M_PER_DEG_LAT),
+        lon: gate.lon + (dxM / lenM) * (distanceM / mx),
+    };
+}
+
 export function spliceCanalEgressChannel(
     polyline: [number, number][],
     egressTracks: readonly EgressTrack[],
@@ -787,6 +799,47 @@ export function applyThreeTier(
     });
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
+
+    const insertStraightOuterGateExit = (): void => {
+        if (canalEgress.gates < 4) return;
+        const rawChannelSeg = outPoly.slice(0, -1).map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])));
+        const runs: Array<{ from: number; to: number; minCanalM: number }> = [];
+        for (let i = 0; i < rawChannelSeg.length; i++) {
+            if (!rawChannelSeg[i]) continue;
+            const from = i;
+            while (i + 1 < rawChannelSeg.length && rawChannelSeg[i + 1]) i++;
+            const to = i;
+            let minCanalM = Infinity;
+            for (let v = from; v <= to + 1; v++) {
+                minCanalM = Math.min(
+                    minCanalM,
+                    canalLines.length > 0
+                        ? pointToTupleLinesM({ lat: outPoly[v][1], lon: outPoly[v][0] }, canalLines)
+                        : 0,
+                );
+            }
+            runs.push({ from, to, minCanalM });
+        }
+        const MIN_GATE_RUN_SEGS = Math.max(1, canalEgress.gates - 1);
+        const CANAL_GATE_ATTACH_M = 300;
+        const gateRun = runs
+            .filter((r) => r.to - r.from + 1 >= MIN_GATE_RUN_SEGS && r.minCanalM <= CANAL_GATE_ATTACH_M)
+            .sort((a, b) => a.minCanalM - b.minCanalM || a.from - b.from)[0];
+        if (!gateRun) return;
+        const lastGateSeg = gateRun.to;
+        if (lastGateSeg < 1 || lastGateSeg + 2 >= outPoly.length) return;
+
+        const prev = outPoly[lastGateSeg];
+        const gate = outPoly[lastGateSeg + 1];
+        const next = outPoly[lastGateSeg + 2];
+        const projected = projectBeyondGate({ lat: prev[1], lon: prev[0] }, { lat: gate[1], lon: gate[0] }, 260);
+        if (!projected) return;
+        const exitPoint: [number, number] = [projected.lon, projected.lat];
+        if (tupleDistM(gate, exitPoint) < 80 || tupleDistM(next, exitPoint) < 80) return;
+        if (tupleLineCrossesHardLand(grid, gate, exitPoint)) return;
+        outPoly.splice(lastGateSeg + 2, 0, exitPoint);
+    };
+    insertStraightOuterGateExit();
 
     const CANAL_RENDER_M = 45;
     const channelSegRaw = outPoly.slice(0, -1).map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])));
