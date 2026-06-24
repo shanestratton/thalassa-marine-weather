@@ -877,16 +877,22 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const lastCanalStemIdx = route.polyline.findIndex(
             ([lon, lat]) => haversineM(lat, lon, -27.20425, 153.092916) < 10,
         );
+        const outerGateIdx = route.polyline.findIndex(
+            ([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35,
+        );
         expect(off.n).toBeGreaterThan(0);
         expect(off.mean, 'engine routes the red canal near the charted centreline').toBeLessThan(12);
         expect(firstChannelSeg, 'Newport egress has a channel handoff').toBeGreaterThanOrEqual(0);
         expect(firstGateIdx, 'route reaches the Newport inner gate').toBeGreaterThanOrEqual(0);
+        expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
         expect(lastCanalStemIdx, 'route follows the final Albatross canal centreline node before the gate').toBe(
             firstGateIdx - 1,
         );
         expect(firstChannelSeg, 'yellow starts at the inner-gate segment, not the canal stem').toBe(firstGateIdx);
         expect(cm[lastCanalStemIdx], 'the final canal-stem segment to the first gate remains red').toBe(true);
         expect(ch[lastCanalStemIdx], 'the final canal-stem segment is not yellow').not.toBe(true);
+        expect(ch[outerGateIdx - 1], 'the final gate-to-gate segment remains yellow').toBe(true);
+        expect(ch[outerGateIdx], 'yellow stops at the final Newport gate before the bay handoff').not.toBe(true);
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
         expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
