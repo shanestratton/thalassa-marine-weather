@@ -65,6 +65,40 @@ import {
 } from '../../services/inshoreRouterEngine';
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
+import { fetchSatelliteWater } from '../../services/satelliteWater';
+import { fetchMapboxWater } from '../../services/mapboxWater';
+
+/** Read VITE_MAPBOX_ACCESS_TOKEN from .env.local (vitest doesn't always wire import.meta.env). */
+function readMapboxToken(): string {
+    try {
+        const env = readFileSync('.env.local', 'utf8');
+        const m = env.match(/^VITE_MAPBOX_ACCESS_TOKEN=(.+)$/m);
+        return m ? m[1].trim().replace(/^["']|["']$/g, '') : '';
+    } catch {
+        return '';
+    }
+}
+
+/** corridorCrop verbatim from InshoreRouter.ts:979 — ~4 km reach toward the other endpoint. */
+function corridorCrop(
+    a: { lat: number; lon: number },
+    b: { lat: number; lon: number },
+): [number, number, number, number] {
+    const REACH_M = 4000;
+    const PERP_DEG = 0.011;
+    const cosLat = Math.cos((a.lat * Math.PI) / 180) || 1;
+    const dLat = b.lat - a.lat;
+    const dLon = (b.lon - a.lon) * cosLat;
+    const len = Math.hypot(dLat, dLon) || 1;
+    const reachDeg = REACH_M / 111_320;
+    const far = { lat: a.lat + (dLat / len) * reachDeg, lon: a.lon + ((dLon / len) * reachDeg) / cosLat };
+    return [
+        Math.min(a.lon, far.lon) - PERP_DEG,
+        Math.min(a.lat, far.lat) - PERP_DEG,
+        Math.max(a.lon, far.lon) + PERP_DEG,
+        Math.max(a.lat, far.lat) + PERP_DEG,
+    ];
+}
 
 // This harness routes on the REAL ENC pulled live from the boat's chart server
 // (calypso.local). It is a DIAGNOSTIC, not a CI gate — when the Pi is unreachable
@@ -833,6 +867,151 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(flaggedCanalSegs, 'every non-channel canal-interior segment carries the canal red flag').toBe(
             canalOnlySegs,
         );
+    });
+
+    it('CANAL BEND DIAG — per-vertex offset from the OSM canal centre-line', () => {
+        const { route, prov } = runVariant('osm');
+        const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
+        const cm = route.canalMask ?? [];
+        const ch = route.channelMask ?? route.tier4Mask ?? [];
+        const nearestLine = (lat: number, lon: number): { d: number; li: number } => {
+            let best = Infinity;
+            let li = -1;
+            for (let k = 0; k < lines.length; k++) {
+                const d = pointToChainM(lat, lon, lines[k] as unknown as Position[]);
+                if (d < best) {
+                    best = d;
+                    li = k;
+                }
+            }
+            return { d: best, li };
+        };
+        // Dump every route vertex in the Newport canal/estate band (lat −27.218..−27.200).
+        const rows: string[] = [];
+        route.polyline.forEach(([lon, lat], i) => {
+            if (lat > -27.2 || lat < -27.218) return;
+            const { d, li } = nearestLine(lat, lon);
+            rows.push(
+                `${i}: ${lat.toFixed(6)},${lon.toFixed(6)} off=${d.toFixed(1)}m line=${li} ` +
+                    `c${cm[i] ? 1 : 0}/${cm[i - 1] ? 1 : 0} y${ch[i] ? 1 : 0}`,
+            );
+        });
+        // eslint-disable-next-line no-console
+        console.log(`\n=== CANAL BEND DIAG ===\nprov: ${prov}\ncanalLines=${lines.length}\n` + rows.join('\n'));
+        // Where is the worst offset, and is it flagged canal?
+        let worst = { i: -1, d: 0, lat: 0, lon: 0 };
+        route.polyline.forEach(([lon, lat], i) => {
+            if (lat > -27.2 || lat < -27.218) return;
+            const { d } = nearestLine(lat, lon);
+            if (d > worst.d) worst = { i, d, lat, lon };
+        });
+        // eslint-disable-next-line no-console
+        console.log(
+            `WORST in-estate offset: idx=${worst.i} ${worst.lat.toFixed(6)},${worst.lon.toFixed(6)} ` +
+                `off=${worst.d.toFixed(1)}m canalFlag=${cm[worst.i] ? 1 : 0} yellowFlag=${ch[worst.i] ? 1 : 0}`,
+        );
+        expect(route.polyline.length).toBeGreaterThan(2);
+    });
+
+    it('VARIANT E — Mapbox/satellite water → fine-grid canal (the device path)', async () => {
+        const token = readMapboxToken();
+        if (!token) {
+            // eslint-disable-next-line no-console
+            console.log('VARIANT E: no VITE_MAPBOX_ACCESS_TOKEN in .env.local — skipping');
+            expect(true).toBe(true);
+            return;
+        }
+        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+        // Inject satellite/vector water as authoritative DEPARE — verbatim InshoreRouter.ts:1009-1043.
+        const crops = [corridorCrop(NEWPORT, PINKENBA), corridorCrop(PINKENBA, NEWPORT)];
+        const waterFCs = await Promise.all(
+            crops.map(async (b) => {
+                try {
+                    const sat = await fetchSatelliteWater(b, token);
+                    if (sat.features.length > 0) return sat;
+                } catch {
+                    /* fall back to vector water */
+                }
+                return fetchMapboxWater(b, token);
+            }),
+        );
+        const water = waterFCs.flatMap((fc) => fc.features);
+        for (const f of water) {
+            (layers.DEPARE!.features as unknown[]).push({
+                ...f,
+                properties: {
+                    ...(f.properties ?? {}),
+                    natural: 'water',
+                    _source: 'mapbox-water',
+                    DRVAL1: 5.0,
+                    DRVAL2: 5.0,
+                },
+            });
+        }
+        const res = routeInshore(layers, REQ_BASE as RouteRequest);
+        if ('error' in res) throw new Error(`VARIANT E route failed: ${res.error}`);
+        const prov = res.debug?.threeTier ?? '(no threeTier)';
+        const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
+        const cm = res.canalMask ?? [];
+        const ch = res.channelMask ?? res.tier4Mask ?? [];
+        const offTo = (lat: number, lon: number): number => {
+            let best = Infinity;
+            for (const ln of lines) {
+                const d = pointToChainM(lat, lon, ln as unknown as Position[]);
+                if (d < best) best = d;
+            }
+            return best;
+        };
+        const rows: string[] = [];
+        let worst = { i: -1, d: 0, lat: 0, lon: 0 };
+        res.polyline.forEach(([lon, lat], i) => {
+            if (lat > -27.2 || lat < -27.218 || lon < 153.08 || lon > 153.098) return;
+            const d = offTo(lat, lon);
+            rows.push(
+                `${i}:${lat.toFixed(6)},${lon.toFixed(6)} off=${d.toFixed(1)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0}`,
+            );
+            if (d > worst.d) worst = { i, d, lat, lon };
+        });
+        // eslint-disable-next-line no-console
+        console.log(
+            `\n=== VARIANT E (Mapbox/satellite water — device fine-grid path) ===\n` +
+                `water polys injected: ${water.length}\nprov: ${prov}\npts: ${res.polyline.length}\n` +
+                rows.join('\n') +
+                `\nWORST in-estate offset: idx=${worst.i} ${worst.lat.toFixed(6)},${worst.lon.toFixed(6)} ` +
+                `off=${worst.d.toFixed(1)}m r${cm[worst.i] ? 1 : 0} y${ch[worst.i] ? 1 : 0}`,
+        );
+        expect(res.polyline.length).toBeGreaterThan(2);
+
+        // BRISBANE-RED FIX (docs/AI_COLLAB.md 2026-06-24): a vertex may only render
+        // RED (canalMask) where the chart proves canal — never just because it was
+        // internally routed tier-1:finegrid over broad Mapbox/satellite water. The
+        // Brisbane River approach to Pinkenba routes tier-1:finegrid ~3 km from any
+        // canal line; it must NOT be red. Assert no RED vertex sits far off a line.
+        const offAt = (i: number): number =>
+            i >= 0 && i < res.polyline.length ? offTo(res.polyline[i][1], res.polyline[i][0]) : Infinity;
+        // A genuine "RED over open water" bug is a red SEGMENT whose BOTH ends are far
+        // from any canal line (the Brisbane River run). A single boundary segment that
+        // enters/leaves a real canal (one end ≤200 m of a line — e.g. the Pinkenba
+        // destination-marina approach) is legitimately red and must be allowed.
+        const farRedSegs: number[] = [];
+        for (let i = 0; i < res.polyline.length - 1; i++) {
+            if (cm[i] && offAt(i) > 200 && offAt(i + 1) > 200) farRedSegs.push(i);
+        }
+        // eslint-disable-next-line no-console
+        console.log(
+            `far-red SEGMENTS (red, both ends >200m from any canal line): ${farRedSegs.length}` +
+                (farRedSegs.length
+                    ? ' :: ' +
+                      farRedSegs
+                          .slice(0, 6)
+                          .map((i) => `${i}:${offAt(i).toFixed(0)}/${offAt(i + 1).toFixed(0)}m`)
+                          .join(' ')
+                    : ''),
+        );
+        expect(
+            farRedSegs.length,
+            'no RED segment may span open water >200m from a charted canal line (Brisbane-RED tail fix)',
+        ).toBe(0);
     });
 
     it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {

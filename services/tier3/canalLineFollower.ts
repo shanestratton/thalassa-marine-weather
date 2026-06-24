@@ -27,6 +27,45 @@ const M_PER_LAT = 110_540;
 const mPerLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
 const distM = (a: LL, b: LL): number => Math.hypot((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_LAT);
 
+/** Perpendicular distance (m) from point p to the SEGMENT a→b, local planar frame. */
+function pointToSegM(p: LL, a: readonly [number, number], b: readonly [number, number]): number {
+    const refLat = (a[1] + b[1]) / 2;
+    const mx = mPerLon(refLat);
+    const ax = a[0] * mx,
+        ay = a[1] * M_PER_LAT;
+    const bx = b[0] * mx,
+        by = b[1] * M_PER_LAT;
+    const px = p.lon * mx,
+        py = p.lat * M_PER_LAT;
+    const dx = bx - ax,
+        dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * Min distance (m) from p to the nearest canal-line SEGMENT (not vertex).
+ *
+ * Why segments, not graph vertices: real canal centre-lines have long straight
+ * runs (Newport: 447 m / 297 m / 261 m segments). A point exactly on a long
+ * segment can sit hundreds of metres from either endpoint vertex — so a nearest-
+ * VERTEX test wrongly flags an on-centre fine-grid point (≈12 m spacing) as
+ * off-canal, shattering the snap run and leaving the bend's corner-cut unrepaired
+ * (docs/AI_COLLAB.md, 2026-06-24). Segment distance is the same metric the render
+ * path uses (pointToTupleLinesM), so detection and rendering finally agree.
+ */
+function distToCanalSegmentsM(p: LL, lines: readonly (readonly LatLon[])[]): number {
+    let best = Infinity;
+    for (const line of lines) {
+        for (let i = 0; i + 1 < line.length; i++) {
+            const d = pointToSegM(p, line[i], line[i + 1]);
+            if (d < best) best = d;
+        }
+    }
+    return best;
+}
+
 /** A point farther than this from the canal-line network is not on a charted
  *  canal. A wall-hugging route point in a ~40 m canal still sits ≤ ~25 m from the
  *  centre-line, so this comfortably catches a hug without grabbing open water. */
@@ -202,7 +241,10 @@ export function followCanalLines(
 export function snapRouteToCanalLines(
     polyline: readonly LatLon[],
     canalLines: readonly (readonly LatLon[])[],
-    opts: { protectedVertices?: readonly boolean[] } = {},
+    opts: {
+        protectedVertices?: readonly boolean[];
+        routeRun?: (run: readonly LatLon[], meta: { fromIdx: number; toIdx: number }) => readonly LatLon[] | null;
+    } = {},
 ): { polyline: LatLon[]; onCanal: boolean[] } {
     const asTuples = (): LatLon[] => polyline.map((p) => [p[0], p[1]] as LatLon);
     if (polyline.length < 2 || canalLines.length === 0)
@@ -213,10 +255,13 @@ export function snapRouteToCanalLines(
     const pts: LL[] = polyline.map(([lon, lat]) => ({ lat, lon }));
     const n = pts.length;
     const protectedVertices = opts.protectedVertices ?? [];
+    // Detect on-canal by point-to-SEGMENT distance, NOT nearest graph vertex: a
+    // point on a long straight canal segment is on-centre yet far from any vertex
+    // (see distToCanalSegmentsM). Routing below still uses the node graph (bends
+    // sit on nodes, so the Dijkstra path follows them).
     const onCanal = pts.map((p, i) => {
         if (protectedVertices[i]) return false;
-        const near = g.nearest(p);
-        return near !== null && near.d <= ON_CANAL_M;
+        return distToCanalSegmentsM(p, canalLines) <= ON_CANAL_M;
     });
 
     const out: LL[] = [];
@@ -241,20 +286,28 @@ export function snapRouteToCanalLines(
             else if (k - j > CANAL_RUN_GAP) break;
         }
         // Run [i..j] rides the canal. Route its ends along the centre-line.
-        const s = g.nearest(pts[i]);
-        const t = g.nearest(pts[j]);
-        const centre = s && t ? routeGraph(g, s.k, t.k) : null;
-        if (centre) {
-            // Keep the route origin/dest exactly (pinned bridge points, flagged
-            // NOT-canal for a clean open-water seam); the centre vertices between
-            // ARE the canal and carry the flag so they render caution-red.
-            if (i === 0) emit(pts[0], false);
-            for (const c of centre) emit(c, true);
-            if (j === n - 1) emit(pts[n - 1], false);
+        const preferred = opts.routeRun?.(polyline.slice(i, j + 1), { fromIdx: i, toIdx: j }) ?? null;
+        if (preferred && preferred.length >= 2) {
+            for (let k = 0; k < preferred.length; k++) {
+                const [lon, lat] = preferred[k];
+                emit({ lat, lon }, !(i === 0 && k === 0) && !(j === n - 1 && k === preferred.length - 1));
+            }
         } else {
-            // Couldn't route on the graph — keep the original points with their own
-            // on-canal flag (the run still rides the canal where flagged).
-            for (let k = i; k <= j; k++) emit(pts[k], onCanal[k]);
+            const s = g.nearest(pts[i]);
+            const t = g.nearest(pts[j]);
+            const centre = s && t ? routeGraph(g, s.k, t.k) : null;
+            if (centre) {
+                // Keep the route origin/dest exactly (pinned bridge points, flagged
+                // NOT-canal for a clean open-water seam); the centre vertices between
+                // ARE the canal and carry the flag so they render caution-red.
+                if (i === 0) emit(pts[0], false);
+                for (const c of centre) emit(c, true);
+                if (j === n - 1) emit(pts[n - 1], false);
+            } else {
+                // Couldn't route on the graph — keep the original points with their own
+                // on-canal flag (the run still rides the canal where flagged).
+                for (let k = i; k <= j; k++) emit(pts[k], onCanal[k]);
+            }
         }
         i = j + 1;
     }

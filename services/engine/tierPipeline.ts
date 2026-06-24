@@ -21,8 +21,16 @@ import { segmentRoute, type TierSpan } from '../routing/segmentRoute';
 import { routeTier3, type Tier3Context } from '../tier3/tier3Router';
 import { routeTier4, type Tier4Context } from '../tier4/tier4Router';
 import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tier3/canalLineFollower';
+import { buildFineCanalLeg, FINE_CANAL_APRON_DEG, FINE_CANAL_RES_M, spanCropBbox } from '../tier3/fineCanalGrid';
 import { stitchLegs } from '../glue/gluer';
-import { isRefusal, freezeLeg, type Leg, type LegResult } from '../routing/legContract';
+import {
+    isRefusal,
+    freezeLeg,
+    type BoundaryNode,
+    type LatLon as RouteLatLon,
+    type Leg,
+    type LegResult,
+} from '../routing/legContract';
 
 /** Shane-confirmed rising-tide bar margin (docs/THREE_TIER_ROUTING.md §1.5).
  *  Feeds the marks-free inshore depth gate (→ 5 m all-tide for a 2.4 m draft). */
@@ -649,6 +657,36 @@ export function applyThreeTier(
             return null;
         }
     };
+    const routeCanalRunViaFineGrid = (run: readonly RouteLatLon[]): RouteLatLon[] | null => {
+        if (run.length < 2) return null;
+        const runM = tuplePathLengthM(run);
+        if (runM < 80 || runM > 5000) return null;
+        const entry: BoundaryNode = {
+            at: run[0],
+            headingDeg: 0,
+            kind: 'origin',
+            depthM: null,
+            snapped: true,
+        };
+        const exit: BoundaryNode = {
+            at: run[run.length - 1],
+            headingDeg: 0,
+            kind: 'dest',
+            depthM: null,
+            snapped: true,
+        };
+        const span: TierSpan = {
+            tier: 1,
+            entry,
+            exit,
+            fromIdx: 0,
+            toIdx: run.length - 1,
+            caution: false,
+        };
+        const fineGrid = buildFineGrid(spanCropBbox(run, span, FINE_CANAL_APRON_DEG), FINE_CANAL_RES_M);
+        if (!fineGrid) return null;
+        return buildFineCanalLeg(fineGrid, span, undefined, run)?.polyline ?? null;
+    };
     const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
     const ctx4: Tier4Context = {
         grid,
@@ -693,7 +731,9 @@ export function applyThreeTier(
     //   tier 4 → offshore DARK BLUE
     // Carry them across the canal snap by exact coordinate. Where a vertex lands
     // on both canal and channel, canal RED wins in the renderer.
-    const canalPre: boolean[] = new Array(glued.polyline.length).fill(false);
+    // tier-1 (canal) RED is decided below by geometry (canal-line snap / proximity),
+    // NOT by which leg emitted the vertex — so we no longer track a per-leg canal
+    // flag here (that's what bled RED onto non-canal Mapbox-water tier-1 legs).
     const channelPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const offshorePre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelSegKeys = new Set<string>();
@@ -702,7 +742,6 @@ export function applyThreeTier(
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
-        if (leg.tierId === 1) for (let v = 0; v < len; v++) canalPre[gi + v] = true;
         if (leg.tierId === 2) {
             for (let v = 0; v < len; v++) channelPre[gi + v] = true;
             for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
@@ -710,12 +749,9 @@ export function applyThreeTier(
         if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
     }
-    const canalKeys = new Set<string>();
     const offshoreKeys = new Set<string>();
     for (let i = 0; i < glued.polyline.length; i++) {
-        const key = `${glued.polyline[i][0]}|${glued.polyline[i][1]}`;
-        if (canalPre[i]) canalKeys.add(key);
-        if (offshorePre[i]) offshoreKeys.add(key);
+        if (offshorePre[i]) offshoreKeys.add(`${glued.polyline[i][0]}|${glued.polyline[i][1]}`);
     }
 
     // Canal centre-line snap — wherever the assembled route rides the OSM canal
@@ -727,14 +763,24 @@ export function applyThreeTier(
     // No-op off-canal (the river / open water passes through byte-identical).
     const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines, {
         protectedVertices: channelPre,
+        routeRun: (run) => routeCanalRunViaFineGrid(run),
     });
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
     const CANAL_RENDER_M = 45;
     const tier1Vtx = outPoly.map(([lon, lat], i) => {
+        // RED requires GEOMETRY-CONFIRMED canal, not merely "was internally tier-1":
+        //   canalVtx   — the canal-line snap rode this vertex onto the centre-line
+        //   onCanalLine — within CANAL_RENDER_M of a charted OSM canal/dock line
+        // The old mask also reddened raw `canalKeys` (ANY glued tier-1 leg vertex).
+        // That bled RED onto broad Mapbox/satellite-water tier-1 legs with no canal
+        // nearby — e.g. the Brisbane River approach to Pinkenba routed `tier1:finegrid`
+        // but ~3 km from any canal line (docs/AI_COLLAB.md 2026-06-24). Per Shane's
+        // colour contract that water is YELLOW/TEAL, not RED. Drop the unguarded
+        // canalKeys term; a tier-1 leg only reddens where the chart proves canal.
         const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
-        return canalVtx[i] || canalKeys.has(`${lon}|${lat}`) || onCanalLine;
+        return canalVtx[i] || onCanalLine;
     });
     const channelSeg = outPoly
         .slice(0, -1)
