@@ -564,7 +564,13 @@ async function runVariantWithRegionalMarkers(): Promise<{
     route: RouteResult;
     prov: string;
     hug: HugReport;
-    regional: { midpoints: number; segments: number; wings: number };
+    regional: {
+        midpoints: number;
+        segments: number;
+        wings: number;
+        acceptedPairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }>;
+        midpointFeatures: unknown[];
+    };
 }> {
     const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
     const regional = await fetchRegionalMarkers(
@@ -589,6 +595,8 @@ async function runVariantWithRegionalMarkers(): Promise<{
             midpoints: regional.midpoints.length,
             segments: regional.segments.length,
             wings: regional.wings.length,
+            acceptedPairs: regional.acceptedPairs,
+            midpointFeatures: regional.midpoints,
         },
     };
 }
@@ -730,7 +738,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // eslint-disable-next-line no-console
         console.log('\n=== VARIANT D (REAL OSM + regional marker chains) ===');
         // eslint-disable-next-line no-console
-        console.log('regional:', regional);
+        console.log(`regional: midpoints=${regional.midpoints} segments=${regional.segments} wings=${regional.wings}`);
         // eslint-disable-next-line no-console
         console.log('prov  :', prov);
         // eslint-disable-next-line no-console
@@ -741,6 +749,48 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         console.log('indexedNewportPts:', indexedNewportPts.join(' | '));
         // eslint-disable-next-line no-console
         console.log('handoffPts:', handoffPts.join(' | '));
+        const newportPairs = regional.acceptedPairs
+            .map((p) => ({
+                port: p.port,
+                stbd: p.stbd,
+                mid: { lat: (p.port.lat + p.stbd.lat) / 2, lon: (p.port.lon + p.stbd.lon) / 2 },
+            }))
+            .filter(({ mid }) => mid.lat > -27.206 && mid.lat < -27.178 && mid.lon > 153.088 && mid.lon < 153.098)
+            .sort((a, b) => a.mid.lat - b.mid.lat)
+            .map(
+                ({ port, stbd, mid }) =>
+                    `mid=${mid.lat.toFixed(6)},${mid.lon.toFixed(6)} ` +
+                    `port=${port.lat.toFixed(6)},${port.lon.toFixed(6)} ` +
+                    `stbd=${stbd.lat.toFixed(6)},${stbd.lon.toFixed(6)}`,
+            );
+        // eslint-disable-next-line no-console
+        console.log('newportPairs:', newportPairs.join(' | '));
+        const newportMidpointRows = regional.midpointFeatures
+            .map((f) => {
+                const feature = f as {
+                    properties?: { _chainId?: number; _chainOrder?: number; _pairDistanceM?: number };
+                    geometry?: { type?: string; coordinates?: [number, number] };
+                };
+                if (feature.geometry?.type !== 'Point') return null;
+                const [lon, lat] = feature.geometry.coordinates ?? [0, 0];
+                return {
+                    lat,
+                    lon,
+                    chainId: feature.properties?._chainId,
+                    chainOrder: feature.properties?._chainOrder,
+                    pairDistanceM: feature.properties?._pairDistanceM,
+                };
+            })
+            .filter(
+                (p): p is NonNullable<typeof p> =>
+                    !!p && p.lat > -27.206 && p.lat < -27.178 && p.lon > 153.088 && p.lon < 153.098,
+            )
+            .sort((a, b) => (a.chainId ?? 0) - (b.chainId ?? 0) || (a.chainOrder ?? 0) - (b.chainOrder ?? 0));
+        const newportMidpoints = newportMidpointRows.map(
+            (p) => `c${p.chainId}/o${p.chainOrder} ${p.lat.toFixed(6)},${p.lon.toFixed(6)} d=${p.pairDistanceM}`,
+        );
+        // eslint-disable-next-line no-console
+        console.log('newportMidpoints:', newportMidpoints.join(' | '));
         // eslint-disable-next-line no-console
         console.log(
             `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
@@ -754,11 +804,28 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(prov).toContain('egress-channel×4');
         expect(prov).toContain('tier2:chain×4');
         expect(prov, 'no stray tier-2 gate fallback after the Newport egress chain').not.toContain('gate:gates1');
+        const finalNewportGate = newportMidpointRows[newportMidpointRows.length - 1];
+        if (!finalNewportGate) throw new Error('regional marker feed missing the final Newport gate midpoint');
         const outerGateIdx = route.polyline.findIndex(
-            ([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35,
+            ([lon, lat]) => haversineM(lat, lon, finalNewportGate.lat, finalNewportGate.lon) < 20,
         );
         expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
         const ch = route.channelMask ?? route.tier4Mask ?? [];
+        expect(ch[outerGateIdx - 1], 'the final regional gate-to-gate segment remains yellow').toBe(true);
+        const beforeOuterGate = route.polyline[outerGateIdx - 1];
+        const outerGate = route.polyline[outerGateIdx];
+        const afterOuterGate = route.polyline[outerGateIdx + 1];
+        if (!afterOuterGate) throw new Error('regional route missing a straight point after the Newport outer gate');
+        const gateSlope = (outerGate[0] - beforeOuterGate[0]) / (outerGate[1] - beforeOuterGate[1]);
+        const expectedExitLon = outerGate[0] + (afterOuterGate[1] - outerGate[1]) * gateSlope;
+        expect(
+            haversineM(afterOuterGate[1], afterOuterGate[0], afterOuterGate[1], expectedExitLon),
+            'regional post-gate exit point stays on the final gate axis',
+        ).toBeLessThan(15);
+        expect(
+            haversineM(outerGate[1], outerGate[0], afterOuterGate[1], afterOuterGate[0]),
+            'regional route holds the final gate axis well clear of the marker pair before turning',
+        ).toBeGreaterThan(900);
         expect(ch.slice(outerGateIdx + 1, outerGateIdx + 5).some(Boolean), 'bay side of the outer gate is tier-3').toBe(
             false,
         );
