@@ -1061,7 +1061,10 @@ export function applyThreeTier(
         const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
         return !channelVtxRaw[i] && canalAllowedAt(i) && onCanalLine;
     });
-    const channelSeg = channelSegRaw.map((isChannel, i) => isChannel && !tier1Vtx[i] && !tier1Vtx[i + 1]);
+    // Tier 2 owns the marker-gate corridor. Do not erase yellow just
+    // because a gate endpoint is still close to canal/marina linework;
+    // the engine-boundary canal mask suppresses red on channel segments.
+    const channelSeg = channelSegRaw.slice();
     const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
     const verifiedInshoreMask = outPoly
         .slice(0, -1)
