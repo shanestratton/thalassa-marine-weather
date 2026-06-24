@@ -17,7 +17,8 @@
  * fetch, no second grid build.
  */
 
-import { UNCHARTED_MAX_RUN_M, type NavGrid } from '../inshoreRouterEngine';
+import { UNCHARTED_MAX_RUN_M } from '../engine/constants';
+import type { NavGrid } from '../engine/types';
 import type { LateralMark } from '../fairlead';
 import { tier2NavigableDepthM } from '../tier2/depthThreshold';
 import type { BoundaryNode, LatLon, Refusal, TierId } from './legContract';
