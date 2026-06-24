@@ -895,8 +895,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(ch[outerGateIdx], 'yellow stops at the final Newport gate before the bay handoff').not.toBe(true);
         const outerGate = route.polyline[outerGateIdx];
         const afterOuterGate = route.polyline[outerGateIdx + 1];
+        const afterExitTurn = route.polyline[outerGateIdx + 2];
         const beforeOuterGate = route.polyline[outerGateIdx - 1];
         expect(afterOuterGate, 'route keeps a point after the Newport outer gate').toBeTruthy();
+        expect(afterExitTurn, 'route keeps a bay handoff after the straight gate exit').toBeTruthy();
         expect(
             afterOuterGate[1],
             'route exits straight beyond the outer gate before turning to the bay',
@@ -907,6 +909,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             haversineM(afterOuterGate[1], afterOuterGate[0], afterOuterGate[1], expectedExitLon),
             'post-gate exit point stays on the final gate axis',
         ).toBeLessThan(15);
+        expect(
+            haversineM(outerGate[1], outerGate[0], afterExitTurn[1], afterExitTurn[0]),
+            'route must not double back to the old close bay handoff immediately after clearing the outer gate',
+        ).toBeGreaterThan(1200);
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
         expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
@@ -1072,6 +1078,23 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             baySideNewportRedSegs.length,
             'after the Newport outer gate the bay-side route must not remain RED/canal',
         ).toBe(0);
+        const afterOuterGate = res.polyline[outerGateIdx + 1];
+        const afterExitTurn = res.polyline[outerGateIdx + 2];
+        expect(afterOuterGate, 'device-style route keeps a point after the Newport outer gate').toBeTruthy();
+        expect(afterExitTurn, 'device-style route keeps a bay handoff after the straight gate exit').toBeTruthy();
+        expect(
+            afterOuterGate[1],
+            'device-style route exits straight beyond the outer gate before turning',
+        ).toBeGreaterThan(res.polyline[outerGateIdx][1]);
+        expect(
+            haversineM(
+                res.polyline[outerGateIdx][1],
+                res.polyline[outerGateIdx][0],
+                afterExitTurn[1],
+                afterExitTurn[0],
+            ),
+            'device-style route must not double back to the old close bay handoff immediately after the outer gate',
+        ).toBeGreaterThan(1200);
     });
 
     it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {
