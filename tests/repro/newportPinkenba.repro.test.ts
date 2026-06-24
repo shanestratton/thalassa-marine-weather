@@ -551,16 +551,19 @@ function measureHug(route: RouteResult): HugReport {
     };
 }
 
-function runVariant(navSource: NavSource): { route: RouteResult; prov: string; hug: HugReport } {
+function runVariant(
+    navSource: NavSource,
+    req: RouteRequest = REQ_BASE as RouteRequest,
+): { route: RouteResult; prov: string; hug: HugReport } {
     const layers = assembleLayers(cells, navSource, osmNav, osmCanal, osmCoastline);
-    const res = routeInshore(layers, REQ_BASE as RouteRequest);
+    const res = routeInshore(layers, req);
     if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
     const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
     const hug = measureHug(res);
     return { route: res, prov, hug };
 }
 
-async function runVariantWithRegionalMarkers(): Promise<{
+async function runVariantWithRegionalMarkers(req: RouteRequest = REQ_BASE as RouteRequest): Promise<{
     route: RouteResult;
     prov: string;
     hug: HugReport;
@@ -583,7 +586,7 @@ async function runVariantWithRegionalMarkers(): Promise<{
     if (regional.segments.length > 0) layers.FAIRWY!.features.push(...(regional.segments as never[]));
     if (regional.wings.length > 0) layers.OBSTRN!.features.push(...(regional.wings as never[]));
 
-    const res = routeInshore(layers, REQ_BASE as RouteRequest);
+    const res = routeInshore(layers, req);
     if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
     const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
     const hug = measureHug(res);
@@ -846,6 +849,84 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         ).toBeGreaterThan(900);
         expect(ch.slice(outerGateIdx + 1, outerGateIdx + 5).some(Boolean), 'bay side of the outer gate is tier-3').toBe(
             false,
+        );
+    });
+
+    it('NEWPORT TAP — screenshot coordinate keeps canal red and marker channel yellow', async () => {
+        const req: RouteRequest = {
+            ...(REQ_BASE as RouteRequest),
+            fromLat: -27.2135,
+            fromLon: 153.0875,
+        };
+        const { route, prov, regional } = await runVariantWithRegionalMarkers(req);
+        const ch = route.channelMask ?? route.tier4Mask ?? [];
+        const cm = route.canalMask ?? [];
+        const caution = route.cautionMask ?? [];
+        const newportGateCenters = regional.midpointFeatures
+            .map((f) => {
+                const feature = f as {
+                    properties?: { _pairDistanceM?: number };
+                    geometry?: { type?: string; coordinates?: [number, number] };
+                };
+                if (feature.geometry?.type !== 'Point') return null;
+                const [lon, lat] = feature.geometry.coordinates ?? [0, 0];
+                return { lat, lon, pairDistanceM: feature.properties?._pairDistanceM };
+            })
+            .filter(
+                (p): p is NonNullable<typeof p> =>
+                    !!p &&
+                    p.lat > -27.206 &&
+                    p.lat < -27.178 &&
+                    p.lon > 153.088 &&
+                    p.lon < 153.098 &&
+                    (p.pairDistanceM ?? 0) > 0,
+            )
+            .sort((a, b) => a.lat - b.lat);
+        const gateIdxs = newportGateCenters.map(({ lat, lon }) =>
+            route.polyline.findIndex(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 45),
+        );
+        const renderedState = (i: number): 'danger' | 'channel' | 'offshore' | 'green' => {
+            if (ch[i]) return 'channel';
+            if (cm[i]) return 'danger';
+            if (caution[i]) return 'danger';
+            return route.offshoreMask?.[i] ? 'offshore' : 'green';
+        };
+        const overlaps = ch
+            .map((yellow, i) => ({ i, yellow, red: cm[i] ?? false }))
+            .filter(({ yellow, red }) => yellow && red)
+            .map(({ i }) => i);
+
+        // eslint-disable-next-line no-console
+        console.log(
+            `\n=== NEWPORT TAP (-27.2135,153.0875) ===\nprov: ${prov}\n` +
+                route.polyline
+                    .map(
+                        ([lon, lat], i) =>
+                            `${i}:${lat.toFixed(6)},${lon.toFixed(6)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0}`,
+                    )
+                    .filter((row) => row.includes('-27.2') || row.includes('-27.19') || row.includes('-27.18'))
+                    .join('\n') +
+                `\ngates: ${gateIdxs.join(',')} overlaps: ${overlaps.join(',')}`,
+        );
+
+        expect(prov, 'tiered Newport egress is engaged').toContain('egress-channel');
+        expect(
+            gateIdxs.every((i) => i >= 0),
+            'route reaches every Newport marker-pair centre',
+        ).toBe(true);
+        expect(overlaps, 'yellow marker segments must not also carry canal red').toEqual([]);
+        const firstGateIdx = gateIdxs[0];
+        const outerGateIdx = gateIdxs[gateIdxs.length - 1];
+        expect(firstGateIdx, 'first marker pair index exists').toBeGreaterThan(0);
+        expect(cm[firstGateIdx - 1], 'canal stem before the first marker pair remains red').toBe(true);
+        expect(ch[firstGateIdx - 1], 'canal stem before the first marker pair is not yellow').not.toBe(true);
+        for (let g = 0; g + 1 < gateIdxs.length; g++) {
+            for (let i = gateIdxs[g]; i < gateIdxs[g + 1]; i++) {
+                expect(renderedState(i), `marker-gate segment ${i} renders yellow`).toBe('channel');
+            }
+        }
+        expect(renderedState(outerGateIdx), 'bay side after the final Newport gate is not canal red').not.toBe(
+            'danger',
         );
     });
 
