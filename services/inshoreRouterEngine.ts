@@ -1140,9 +1140,13 @@ function routeInshoreOnce(
         for (let i = 0; i < finalPolyline.length - 1; i++) {
             const a = finalPolyline[i];
             const b = finalPolyline[i + 1];
+            const isChannel = channelSeg[i] ?? false;
             finalCaution.push(segCrossesCaution(a[0], a[1], b[0], b[1]));
-            finalCanalMask.push(canalVtx[i] || canalVtx[i + 1]);
-            finalChannelMask.push(channelSeg[i] ?? false);
+            // Tiers are mutually exclusive at render/export boundaries. A segment
+            // that is explicitly tier 2 must stay yellow even when it touches the
+            // canal centre-line at the handoff gate.
+            finalCanalMask.push(!isChannel && (canalVtx[i] || canalVtx[i + 1]));
+            finalChannelMask.push(isChannel);
             finalOffshoreMask.push(offshoreVtx[i] || offshoreVtx[i + 1]);
         }
         debug.threeTier = threeTier.provenance;
