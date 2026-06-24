@@ -73,6 +73,11 @@ export const ON_CANAL_M = 80;
 /** A span endpoint farther than this from the network means followCanalLines
  *  should decline rather than snap a long stub across unknown ground. */
 export const CANAL_SNAP_MAX_M = 120;
+/** A protected tier-2 seam vertex can sit just past the final canal-line node
+ *  (Newport inner gate: charted centreline stops ~120 m short). Let the canal
+ *  run route to the nearest canal node and then emit that protected endpoint,
+ *  without marking the endpoint itself as canal. */
+const PROTECTED_CANAL_ENDPOINT_M = 160;
 /** A canal run continues across up to this many consecutive off-canal route
  *  points. The coarse A* corner-cuts a canal bend, briefly bulging out of the
  *  ON_CANAL_M band mid-estate (Newport: a single 146 m excursion between two
@@ -285,13 +290,24 @@ export function snapRouteToCanalLines(
             if (onCanal[k]) j = k;
             else if (k - j > CANAL_RUN_GAP) break;
         }
-        // Run [i..j] rides the canal. Prefer the charted canal graph first: those
+        // If the next point is the first protected channel vertex and it sits just
+        // beyond the canal network, let it terminate the canal run. This centres
+        // Newport's final canal stem up to the inner gate while keeping the gate
+        // chain itself protected from red/canal snapping.
+        let runEndIdx = j;
+        for (let k = j + 1; k < n && protectedVertices[k]; k++) {
+            if (distToCanalSegmentsM(pts[k], canalLines) > PROTECTED_CANAL_ENDPOINT_M) break;
+            runEndIdx = k;
+        }
+        const hasProtectedEnd = runEndIdx !== j;
+
+        // Run [i..runEndIdx] rides the canal. Prefer the charted canal graph first: those
         // vertices are the surveyed/OSM centre-line Shane sees on the chart. The
         // optional routeRun (fine-grid medial water route) is only a fallback for
         // disconnected or missing centre-line graph data; using it first collapses
         // Newport's good Jabiru/Albatross canal vertices into a few visual chords.
         const s = g.nearest(pts[i]);
-        const t = g.nearest(pts[j]);
+        const t = g.nearest(pts[runEndIdx]);
         const centre = s && t ? routeGraph(g, s.k, t.k) : null;
         if (centre) {
             // Keep the route origin/dest exactly (pinned bridge points, flagged
@@ -299,22 +315,30 @@ export function snapRouteToCanalLines(
             // ARE the canal and carry the flag so they render caution-red.
             if (i === 0) emit(pts[0], false);
             for (const c of centre) emit(c, true);
-            if (j === n - 1) emit(pts[n - 1], false);
+            if (hasProtectedEnd) emit(pts[runEndIdx], false);
+            else if (j === n - 1) emit(pts[n - 1], false);
         } else {
-            const preferred = opts.routeRun?.(polyline.slice(i, j + 1), { fromIdx: i, toIdx: j }) ?? null;
+            const preferred =
+                opts.routeRun?.(polyline.slice(i, runEndIdx + 1), { fromIdx: i, toIdx: runEndIdx }) ?? null;
             if (preferred && preferred.length >= 2) {
                 for (let k = 0; k < preferred.length; k++) {
                     const [lon, lat] = preferred[k];
-                    emit({ lat, lon }, !(i === 0 && k === 0) && !(j === n - 1 && k === preferred.length - 1));
+                    emit(
+                        { lat, lon },
+                        !(i === 0 && k === 0) &&
+                            !(runEndIdx === n - 1 && k === preferred.length - 1) &&
+                            !(hasProtectedEnd && k === preferred.length - 1),
+                    );
                 }
             } else {
                 // Couldn't route on the graph or fallback — keep the original points
                 // with their own on-canal flag (the run still rides the canal where
                 // flagged).
-                for (let k = i; k <= j; k++) emit(pts[k], onCanal[k]);
+                for (let k = i; k <= runEndIdx; k++)
+                    emit(pts[k], hasProtectedEnd && k === runEndIdx ? false : onCanal[k]);
             }
         }
-        i = j + 1;
+        i = runEndIdx + 1;
     }
     return { polyline: out.map((p) => [p.lon, p.lat] as LatLon), onCanal: outCanal };
 }

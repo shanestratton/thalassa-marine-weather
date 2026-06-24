@@ -27,6 +27,23 @@ describe('snapRouteToCanalLines', () => {
         expect(snapped.polyline).toContainEqual(protectedChannelVertex);
     });
 
+    it('can terminate a canal run at the first protected channel seam', () => {
+        const canal: LatLon[] = [
+            [153, -27],
+            [153, -26.99],
+            [153, -26.98],
+        ];
+        const innerGate: LatLon = [153.0012, -26.98];
+        const route: LatLon[] = [[153, -27], [153.0002, -26.99], innerGate, [153.0015, -26.97]];
+
+        const snapped = snapRouteToCanalLines(route, [canal], {
+            protectedVertices: [false, false, true, true],
+        });
+
+        expect(snapped.polyline).toEqual([[153, -27], ...canal, innerGate, route[3]]);
+        expect(snapped.onCanal).toEqual([false, true, true, true, false, false]);
+    });
+
     it('prefers the charted canal graph over a supplied water-medial fallback', () => {
         const canal: LatLon[] = [
             [153, -27],
