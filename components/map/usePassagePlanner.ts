@@ -469,8 +469,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     //   4. offshore → DARK BLUE; else inshore A* → TEAL ('green' default).
                     const cautionMask = inshoreRes.cautionMask;
                     const canalMask = inshoreRes.canalMask;
-                    const channelMask = inshoreRes.channelMask ?? inshoreRes.tier4Mask;
                     const offshoreMask = inshoreRes.offshoreMask;
+                    const channelMask =
+                        hasMask(inshoreRes.channelMask) || !hasMask(inshoreRes.tier4Mask)
+                            ? inshoreRes.channelMask
+                            : inshoreRes.tier4Mask;
                     const anyMask =
                         hasMask(cautionMask) || hasMask(canalMask) || hasMask(channelMask) || hasMask(offshoreMask);
                     const stateMask: ('danger' | 'channel' | 'offshore' | 'green')[] | null =
