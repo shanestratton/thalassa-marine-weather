@@ -206,7 +206,18 @@ Deno.serve(async (req: Request) => {
 
         // ── Fetch from Apple WeatherKit ──
         const dataSetsParam = dataSets.join(',');
-        const url = `https://weatherkit.apple.com/api/v1/weather/${language}/${lat}/${lon}?dataSets=${dataSetsParam}`;
+        let url = `https://weatherkit.apple.com/api/v1/weather/${language}/${lat}/${lon}?dataSets=${dataSetsParam}`;
+        // Optional time-window params, forwarded to Apple when provided.
+        // hourlyStart/hourlyEnd (ISO8601) let callers request HISTORICAL hourly
+        // (e.g. yesterday) for the metric deep-dive. Backward-compatible: when
+        // absent, the URL is identical to before.
+        const b = body as Record<string, unknown>;
+        const extra: string[] = [];
+        for (const k of ['hourlyStart', 'hourlyEnd', 'dailyStart', 'dailyEnd', 'currentAsOf', 'timezone', 'countryCode']) {
+            const v = b[k];
+            if (typeof v === 'string' && v) extra.push(`${k}=${encodeURIComponent(v)}`);
+        }
+        if (extra.length) url += '&' + extra.join('&');
 
         console.info(`[fetch-weatherkit] Fetching: ${url}`);
 
