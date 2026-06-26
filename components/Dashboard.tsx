@@ -916,6 +916,7 @@ export const Dashboard: React.FC<DashboardProps> = React.memo((props) => {
                                         locationType={data.locationType}
                                         hourly={hourly}
                                         forecast={data.forecast}
+                                        coordinates={data.coordinates}
                                     />
                                 </div>
 
