@@ -56,6 +56,7 @@ import {
     computeCardDisplayValues,
     buildSlides,
 } from './hero/heroSlideHelpers';
+import { DailySummaryCard } from './hero/DailySummaryCard';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -215,8 +216,9 @@ const HeroSlideComponent = ({
             const hItem = hourlyToRender[activeHIdx - 1];
             return hItem ? new Date(hItem.time).getTime() : undefined;
         } else {
-            // FORECAST
-            const hItem = hourlyToRender[activeHIdx];
+            // FORECAST — slide 0 is the day-overview summary; hours start at slide 1.
+            if (activeHIdx === 0) return undefined; // day summary, no specific hour
+            const hItem = hourlyToRender[activeHIdx - 1];
             return hItem ? new Date(hItem.time).getTime() : undefined;
         }
     }, [activeHIdx, index, hourlyToRender]);
@@ -862,9 +864,11 @@ const HeroSlideComponent = ({
             if (newIdx !== lastScrollIdxRef.current && newIdx >= 0 && newIdx < slides.length) {
                 lastScrollIdxRef.current = newIdx;
                 setActiveHIdx(newIdx);
-                // Update hour index directly — avoids triggering Dashboard state via onTimeSelect
+                // Update hour index directly — avoids triggering Dashboard state via onTimeSelect.
+                // Forecast days have the day-overview summary at slide 0, so the real hour
+                // is one less than the slide index (summary + 00:00 both map to hour 0).
                 if (onHourChange) {
-                    onHourChange(newIdx);
+                    onHourChange(index > 0 ? Math.max(0, newIdx - 1) : newIdx);
                 }
                 // INSTANT UPDATE: Propagate active card data immediately without waiting for useEffect
                 // This eliminates one render cycle delay for temp/description updates
@@ -876,7 +880,7 @@ const HeroSlideComponent = ({
                 }
             }
         },
-        [slides, onHourChange, onActiveDataChange, isVisible],
+        [slides, onHourChange, onActiveDataChange, isVisible, index],
     );
 
     // Keyboard navigation for horizontal hour carousel
@@ -955,6 +959,20 @@ const HeroSlideComponent = ({
                         const precomputed = slideDisplayData[slideIdx];
                         // Guard against undefined precomputed data (race condition safety)
                         if (!precomputed) return null;
+
+                        // Day-overview landing card for forecast days (self-contained —
+                        // does not touch the hourly card chrome below).
+                        if (slide.type === 'daily' && slide.daily) {
+                            return (
+                                <div
+                                    key={slideIdx}
+                                    className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
+                                >
+                                    <DailySummaryCard daily={slide.daily} units={units} isLandlocked={isLandlocked} />
+                                </div>
+                            );
+                        }
+
                         const {
                             sunPhase: _sunPhase,
                             cardDisplayValues,

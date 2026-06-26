@@ -184,13 +184,34 @@ export function computeCardDisplayValues(
 // ── Build Slides Array ──────────────────────────────────────────────
 
 export interface SlideData {
-    type: 'current' | 'hourly';
+    type: 'current' | 'hourly' | 'daily';
     data: SourcedWeatherMetrics;
     time: number | undefined;
+    /** Present only when type === 'daily' — the day-overview summary fields. */
+    daily?: DailySummary;
+}
+
+/** Day-overview values shown on the daily-summary landing card (forecast days). */
+export interface DailySummary {
+    highTemp?: number;
+    lowTemp?: number;
+    condition?: string;
+    windSpeed?: number;
+    windGust?: number;
+    waveHeight?: number | null;
+    swellPeriod?: number;
+    tideSummary?: string;
+    sunrise?: string;
+    sunset?: string;
+    precipChance?: number;
 }
 
 /**
  * Build the slides array from base data + hourly forecasts.
+ *
+ * Today (index 0) leads with the live "NOW" card. Forecast days (index > 0)
+ * lead with a DAY-OVERVIEW summary card instead of midnight — the hourly cards
+ * (00:00, 01:00, …) follow it, one swipe left. (Midnight-first was useless.)
  */
 export function buildSlides(
     data: SourcedWeatherMetrics,
@@ -204,11 +225,59 @@ export function buildSlides(
         lowTemp?: number;
         sunrise?: string;
         sunset?: string;
+        condition?: string;
+        windSpeed?: number;
+        windGust?: number;
+        waveHeight?: number | null;
+        swellPeriod?: number;
+        tideSummary?: string;
     }>,
 ): SlideData[] {
     if (!data) return [];
+
+    // Forecast days: prepend a day-overview summary as the landing card.
+    let dailySlide: SlideData[] = [];
+    const firstHour = hourlyToRender?.[0];
+    if (index > 0 && firstHour) {
+        const dStr = new Date(firstHour.time).toLocaleDateString('en-CA');
+        const m = forecast.find((d) => d.isoDate === dStr || d.date === dStr);
+        if (m) {
+            dailySlide = [
+                {
+                    type: 'daily' as const,
+                    // Synthesised metrics so the shared precompute/header don't
+                    // crash on this slide; the rich card reads `daily` directly.
+                    data: {
+                        ...data,
+                        airTemperature: m.highTemp,
+                        windSpeed: m.windSpeed,
+                        windGust: m.windGust,
+                        waveHeight: m.waveHeight,
+                        sunrise: m.sunrise || data.sunrise,
+                        sunset: m.sunset || data.sunset,
+                        precipChance: m.precipChance,
+                    } as unknown as SourcedWeatherMetrics,
+                    time: new Date(firstHour.time).getTime(),
+                    daily: {
+                        highTemp: m.highTemp,
+                        lowTemp: m.lowTemp,
+                        condition: m.condition,
+                        windSpeed: m.windSpeed,
+                        windGust: m.windGust,
+                        waveHeight: m.waveHeight,
+                        swellPeriod: m.swellPeriod,
+                        tideSummary: m.tideSummary,
+                        sunrise: m.sunrise || data.sunrise,
+                        sunset: m.sunset || data.sunset,
+                        precipChance: m.precipChance,
+                    },
+                },
+            ];
+        }
+    }
+
     return [
-        ...(index === 0 ? [{ type: 'current' as const, data, time: undefined as number | undefined }] : []),
+        ...(index === 0 ? [{ type: 'current' as const, data, time: undefined as number | undefined }] : dailySlide),
         ...(hourlyToRender || []).map((h) => {
             const hDate = new Date(h.time);
             const hDayStr = hDate.toLocaleDateString('en-CA');
