@@ -89,6 +89,8 @@ interface HeroWidgetsProps {
     hourly?: HourlyForecast[];
     /** Daily forecast — feeds the metric deep-dive modal's "tomorrow" row. */
     forecast?: ForecastDay[];
+    /** Location — for the modal's WeatherKit historical (yesterday) fetch. */
+    coordinates?: { lat: number; lon: number };
 }
 
 // --- Trend Arrow Component ---
@@ -444,6 +446,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
     locationType,
     hourly,
     forecast,
+    coordinates,
 }) => {
     // Metric deep-dive modal — only armed on the live NOW card.
     const [deepDive, setDeepDive] = useState<MetricKey | null>(null);
@@ -814,6 +817,7 @@ const HeroWidgetsComponent: React.FC<HeroWidgetsProps> = ({
                 units={units}
                 hourly={hourly || []}
                 forecast={forecast || []}
+                coordinates={coordinates}
             />
         </MetricTapContext.Provider>
     );

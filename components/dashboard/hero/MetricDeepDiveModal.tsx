@@ -4,16 +4,17 @@
  * the rest of today, and today-vs-tomorrow ranges, framed for weather-window
  * planning.
  *
- * v1 runs on the data already in the Dashboard (hourly + daily forecast). The
- * "yesterday" series and extended multi-day hourly come from a WeatherKit
- * historical fetch once the fetch-weatherkit edge function (which now forwards
- * hourlyStart/hourlyEnd) is deployed — see `historyHourly` prop.
+ * Atmospheric metrics fetch a WeatherKit historical window (yesterday → +48h)
+ * via fetchWeatherKitHistory when `coordinates` is provided, so the chart spans
+ * yesterday → now → tomorrow. Marine metrics (wave/period) have no WeatherKit
+ * history, so they use the passed (marine) `hourly` forecast window instead.
  */
 import React from 'react';
 import { ModalSheet } from '../../ui/ModalSheet';
 import type { HourlyForecast, ForecastDay, UnitPreferences } from '../../../types';
 import { convertSpeed, convertLength, convertTemp, convertDistance } from '../../../utils/units';
 import { degreesToCardinal } from '../../../utils/format';
+import { fetchWeatherKitHistory } from '../../../services/weather/api/weatherkit';
 
 export type MetricKey =
     | 'wind'
@@ -40,6 +41,8 @@ interface MetricConfig {
     daily?: (d: ForecastDay, u: UnitPreferences) => string | null;
     /** Lower is better for window planning (e.g. wind, wave, rain). */
     lowerIsBetter?: boolean;
+    /** Marine metric — WeatherKit has no waves, so always use the passed (marine) hourly. */
+    marine?: boolean;
 }
 
 const num = (v: unknown): number | null => (typeof v === 'number' && !Number.isNaN(v) ? v : null);
@@ -79,6 +82,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         daily: (d, u) =>
             num(d.waveHeight) !== null ? `${convertLength(d.waveHeight, u.waveHeight)} ${u.waveHeight}` : null,
         lowerIsBetter: true,
+        marine: true,
     },
     period: {
         label: 'Swell period',
@@ -86,6 +90,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         pick: (h) => h.swellPeriod ?? null,
         fmt: (v) => `${Math.round(v)}`,
         unit: () => 's',
+        marine: true,
     },
     uv: {
         label: 'UV index',
@@ -99,7 +104,8 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         label: 'Visibility',
         accent: 'text-sky-300',
         pick: (h) => h.visibility ?? null,
-        fmt: (v, u) => `${convertDistance(v / 1000, u.visibility || 'nm')}`,
+        // HourlyForecast.visibility is already in km (app convention).
+        fmt: (v, u) => `${convertDistance(v, u.visibility || 'nm')}`,
         unit: (u) => u.visibility || 'nm',
     },
     pressure: {
@@ -144,8 +150,8 @@ interface MetricDeepDiveModalProps {
     hourly: HourlyForecast[];
     /** Daily forecast — index 1 is tomorrow. */
     forecast: ForecastDay[];
-    /** Optional historical hourly (yesterday → now), once the WeatherKit edge fn is deployed. */
-    historyHourly?: HourlyForecast[];
+    /** Location for the WeatherKit historical fetch (yesterday → +48h). */
+    coordinates?: { lat: number; lon: number };
 }
 
 /** A point on the chart. */
@@ -233,63 +239,81 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     units,
     hourly,
     forecast,
-    historyHourly,
+    coordinates,
 }) => {
     const cfg = metric ? CONFIG[metric] : null;
 
-    const { todaySeries, fullSeries, nowVal, todayMin, todayMax, trend, windowRead, tomorrowStr } =
-        React.useMemo(() => {
-            if (!cfg) {
-                return {
-                    todaySeries: [] as Pt[],
-                    fullSeries: [] as Pt[],
-                    nowVal: null as number | null,
-                    todayMin: null as number | null,
-                    todayMax: null as number | null,
-                    trend: 'steady' as 'rising' | 'falling' | 'steady',
-                    windowRead: '',
-                    tomorrowStr: null as string | null,
-                };
-            }
-            const today = buildSeries(hourly, cfg.pick);
-            const hist = buildSeries(historyHourly || [], cfg.pick);
-            const full = [...hist, ...today].sort((a, b) => a.t - b.t);
-            const vs = today.map((p) => p.v);
-            const tMin = vs.length ? Math.min(...vs) : null;
-            const tMax = vs.length ? Math.max(...vs) : null;
-            const now = today.length ? today[0].v : null;
+    // WeatherKit historical hourly (yesterday → +48h), fetched when the modal opens.
+    const [history, setHistory] = React.useState<HourlyForecast[]>([]);
+    React.useEffect(() => {
+        if (!metric || !coordinates) {
+            setHistory([]);
+            return;
+        }
+        let alive = true;
+        fetchWeatherKitHistory(coordinates.lat, coordinates.lon)
+            .then((h) => alive && setHistory(h))
+            .catch(() => {});
+        return () => {
+            alive = false;
+        };
+    }, [metric, coordinates]);
 
-            // Trend over the next ~6 hours of today.
-            let tr: 'rising' | 'falling' | 'steady' = 'steady';
-            if (today.length >= 2) {
-                const ahead = today[Math.min(today.length - 1, 6)].v;
-                const diff = ahead - today[0].v;
-                const span = (tMax ?? 0) - (tMin ?? 0) || 1;
-                if (diff > span * 0.12) tr = 'rising';
-                else if (diff < -span * 0.12) tr = 'falling';
-            }
+    const { series, nowVal, todayMin, todayMax, trend, windowRead, tomorrowStr, hasHistory } = React.useMemo(() => {
+        const base = {
+            series: [] as Pt[],
+            nowVal: null as number | null,
+            todayMin: null as number | null,
+            todayMax: null as number | null,
+            trend: 'steady' as 'rising' | 'falling' | 'steady',
+            windowRead: '',
+            tomorrowStr: null as string | null,
+            hasHistory: false,
+        };
+        if (!cfg) return base;
 
-            // Plain-English window read.
-            let read = 'Holding fairly steady through today.';
-            if (tr !== 'steady') {
-                const dirWord = tr === 'rising' ? 'building' : 'easing';
-                const good = cfg.lowerIsBetter ? tr === 'falling' : tr === 'rising';
-                read = `${cfg.label} is ${dirWord} through the day — ${good ? 'conditions improving' : 'watch the window'}.`;
-            }
+        // WeatherKit has no waves, so marine metrics always use the passed (marine) source.
+        const useHist = !cfg.marine && history.length > 0;
+        const all = buildSeries(useHist ? history : hourly, cfg.pick);
+        if (!all.length) return { ...base, windowRead: 'No data available for this metric right now.' };
 
-            const tomorrow = forecast && forecast.length > 1 && cfg.daily ? cfg.daily(forecast[1], units) : null;
+        const nowMs = Date.now();
+        const fwd = all.filter((p) => p.t >= nowMs - 3_600_000);
+        const fwdVs = fwd.map((p) => p.v);
+        const tMin = fwdVs.length ? Math.min(...fwdVs) : null;
+        const tMax = fwdVs.length ? Math.max(...fwdVs) : null;
+        const now = fwd.length ? fwd[0].v : all[all.length - 1].v;
 
-            return {
-                todaySeries: today,
-                fullSeries: full,
-                nowVal: now,
-                todayMin: tMin,
-                todayMax: tMax,
-                trend: tr,
-                windowRead: read,
-                tomorrowStr: tomorrow,
-            };
-        }, [cfg, hourly, historyHourly, forecast, units]);
+        // Trend over the next ~6 forward hours.
+        let tr: 'rising' | 'falling' | 'steady' = 'steady';
+        if (fwd.length >= 2) {
+            const ahead = fwd[Math.min(fwd.length - 1, 6)].v;
+            const diff = ahead - fwd[0].v;
+            const span = (tMax ?? 0) - (tMin ?? 0) || 1;
+            if (diff > span * 0.12) tr = 'rising';
+            else if (diff < -span * 0.12) tr = 'falling';
+        }
+
+        let read = 'Holding fairly steady through today.';
+        if (tr !== 'steady') {
+            const dirWord = tr === 'rising' ? 'building' : 'easing';
+            const good = cfg.lowerIsBetter ? tr === 'falling' : tr === 'rising';
+            read = `${cfg.label} is ${dirWord} through the day — ${good ? 'conditions improving' : 'watch the window'}.`;
+        }
+
+        const tomorrow = forecast && forecast.length > 1 && cfg.daily ? cfg.daily(forecast[1], units) : null;
+
+        return {
+            series: all,
+            nowVal: now,
+            todayMin: tMin,
+            todayMax: tMax,
+            trend: tr,
+            windowRead: read,
+            tomorrowStr: tomorrow,
+            hasHistory: useHist && all.some((p) => p.t < nowMs - 3_600_000),
+        };
+    }, [cfg, hourly, history, forecast, units]);
 
     if (!metric || !cfg) return null;
 
@@ -297,8 +321,8 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     const fmt = (v: number | null) => (v === null ? '--' : `${cfg.fmt(v, units)}${unit ? ' ' + unit : ''}`);
     const trendIcon = trend === 'rising' ? '↑' : trend === 'falling' ? '↓' : '→';
     const trendColor = trend === 'rising' ? 'text-amber-300' : trend === 'falling' ? 'text-sky-300' : 'text-white/50';
-    const nowT = todaySeries.length ? todaySeries[0].t : Date.now();
-    const chartPts = fullSeries.length >= 2 ? fullSeries : todaySeries;
+    const nowT = Date.now();
+    const chartPts = series;
 
     return (
         <ModalSheet isOpen={!!metric} onClose={onClose} title={cfg.label}>
@@ -318,8 +342,8 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 <div className="rounded-xl bg-white/[0.03] border border-white/5 p-2">
                     <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
                     <div className="flex justify-between text-[10px] text-white/35 px-1">
-                        <span>{historyHourly && historyHourly.length ? 'Yesterday' : 'Now'}</span>
-                        <span>Rest of today{forecast.length > 1 ? ' →' : ''}</span>
+                        <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
+                        <span>Next 48h →</span>
                     </div>
                 </div>
 
@@ -328,13 +352,13 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
 
                 {/* Rows */}
                 <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3">
-                    <Row label="Today range" value={`${fmt(todayMin)} – ${fmt(todayMax)}`} />
+                    <Row label="Next 24h range" value={`${fmt(todayMin)} – ${fmt(todayMax)}`} />
                     <Row label="Tomorrow" value={tomorrowStr || '--'} />
                 </div>
 
-                {!historyHourly?.length && (
+                {cfg.marine && (
                     <p className="text-[11px] text-white/30 leading-relaxed">
-                        Yesterday + multi-day history will appear here once the WeatherKit historical fetch is live.
+                        Marine metrics show the forecast window — yesterday history isn’t available for waves.
                     </p>
                 )}
             </div>

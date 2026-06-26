@@ -477,6 +477,47 @@ export const fetchWeatherKitRealtime = async (lat: number, lon: number): Promise
 };
 
 /**
+ * Fetch an hourly window spanning ~yesterday → +48h for the metric deep-dive
+ * modal. Uses the fetch-weatherkit edge fn's hourlyStart/hourlyEnd forwarding
+ * (deployed 2026-06-21) to pull HISTORICAL hourly that the forward-only forecast
+ * endpoints don't carry. Returns mapped HourlyForecast[] (km visibility, kt
+ * wind, °C temp — same convention as the rest of the app). Empty on any failure.
+ *
+ * NOTE: WeatherKit has no marine data, so waveHeight/swellPeriod are 0/null
+ * here — callers must use the marine source for those metrics.
+ */
+export const fetchWeatherKitHistory = async (lat: number, lon: number): Promise<HourlyForecast[]> => {
+    const supabaseUrl = getSupabaseUrl();
+    const supabaseKey = getSupabaseKey();
+    if (!supabaseUrl) return [];
+    const now = Date.now();
+    const hourlyStart = new Date(now - 30 * 3_600_000).toISOString(); // safely covers all of yesterday
+    const hourlyEnd = new Date(now + 48 * 3_600_000).toISOString();
+    const url = `${supabaseUrl}/functions/v1/fetch-weatherkit`;
+    try {
+        // JS timeout bound — CapacitorHttp ignores AbortSignal, so race it.
+        const res = await Promise.race([
+            fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(supabaseKey ? { Authorization: `Bearer ${supabaseKey}` } : {}),
+                },
+                body: JSON.stringify({ lat, lon, dataSets: ['forecastHourly'], hourlyStart, hourlyEnd }),
+            }),
+            new Promise<Response>((_, reject) =>
+                setTimeout(() => reject(new Error('weatherkit-history timeout')), 8000),
+            ),
+        ]);
+        if (!res.ok) return [];
+        const json = await res.json();
+        return json?.forecastHourly ? mapHourlyForecast(json.forecastHourly) : [];
+    } catch {
+        return [];
+    }
+};
+
+/**
  * Fetch minute-by-minute rain forecast from WeatherKit.
  * Fetch minute-by-minute rain from WeatherKit `forecastNextHour`.
  * Returns 60 data points (1 per minute) for the next hour.
