@@ -6,6 +6,8 @@ import { fetchWeatherKitFull, buildReportFromWeatherKit } from './api/weatherkit
 import { fetchUnifiedWeather } from './api/unified';
 import { fetchRealTides } from './api/tides';
 import { saveToCache, getFromCache, getFromCacheOffline } from './cache';
+import { assessShelter, dampReportWaves } from './shelter';
+import { withDeadline } from '../../utils/deadline';
 import { useAuthStore } from '../../stores/authStore';
 import { piCache } from '../PiCacheService';
 
@@ -433,6 +435,25 @@ const _fetchWeatherByStrategyImpl = async (
     report.modelUsed = sourcesParts.join('+') || report.modelUsed;
 
     report.locationName = name;
+
+    // --- SHELTERED-WATER WAVE DAMPING ---
+    // Global wave models leak open-ocean swell into enclosed bays the coarse
+    // grid can't resolve (Newport / Moreton Bay reads 2.7 m for a ~0.4 m bay).
+    // Where OSM coastline geometry confirms the point is boxed in, cap wave
+    // heights at what the local fetch can actually sustain. Best-effort and
+    // enclosed-only: an exposed coast, or any failure to get coastline, leaves
+    // the model values untouched. Time-boxed so it can't stall the load — on a
+    // cache miss the Overpass fetch still populates the cache for next time.
+    try {
+        const shelter = await withDeadline(assessShelter(lat, lon), 4_500, 'shelter-assess');
+        if (shelter?.enclosed) {
+            const adjusted = dampReportWaves(report, shelter);
+            if (adjusted) log.info(`shelter: capped waves (fetch ${report.shelterFetchKm} km) for ${name}`);
+        }
+    } catch (e) {
+        log.warn('shelter damping skipped:', (e as Error)?.message || e);
+    }
+
     saveToCache(name, report);
     return report;
 };
