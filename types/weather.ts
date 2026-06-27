@@ -290,6 +290,11 @@ export interface MarineWeatherReport {
     };
     _stale?: boolean;
     _staleAgeMinutes?: number;
+    /** True when wave heights were capped to local fetch because the point is
+     *  in enclosed water and the global wave model was over-stating swell. */
+    shelterAdjusted?: boolean;
+    /** The fetch (km) used for the shelter cap, for UI annotation. */
+    shelterFetchKm?: number;
 }
 
 export interface ChartDataPoint {
