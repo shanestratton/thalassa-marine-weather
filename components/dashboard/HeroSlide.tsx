@@ -57,6 +57,8 @@ import {
     buildSlides,
 } from './hero/heroSlideHelpers';
 import { DailySummaryCard } from './hero/DailySummaryCard';
+import { WindVsTideView } from './tide/WindVsTideView';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 import { createLogger } from '../../utils/createLogger';
 
@@ -128,6 +130,10 @@ const HeroSlideComponent = ({
     // 1. STATE HOISTING (Zero-Latency Architecture)
     // We define the scroll state AT THE TOP so it drives the entire component synchronously.
     const [activeHIdx, setActiveHIdx] = useState(0);
+    // Tide graph ↔ wind-vs-tide flip (single press on the tide card toggles).
+    const [showWindVsTide, setShowWindVsTide] = useState(false);
+    const floodDirection = useSettingsStore((s) => s.settings.tideFloodDirection);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
 
     // PERF: Refs for scroll optimization - prevent layout thrashing
     const scrollRafRef = useRef<number | null>(null);
@@ -1091,7 +1097,9 @@ const HeroSlideComponent = ({
                                     <div className="relative w-full h-full flex flex-col gap-2">
                                         {/* Tide Graph Card — 2/3 of space */}
                                         <div
-                                            className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
+                                            onClick={() => setShowWindVsTide((v) => !v)}
+                                            title="Tap for wind vs tide"
+                                            className={`relative flex-[2] min-h-0 w-full rounded-2xl overflow-hidden border bg-white/[0.04] shadow-[0_0_30px_-5px_rgba(0,0,0,0.3)] cursor-pointer ${isGolden ? 'border-amber-400/[0.15]' : isCardDay ? 'border-white/[0.08]' : 'border-sky-300/[0.08]'}`}
                                         >
                                             {/* BG Gradient — golden hour amber tinge */}
                                             <div className="absolute inset-0 z-0 pointer-events-none">
@@ -1100,7 +1108,25 @@ const HeroSlideComponent = ({
                                                 />
                                             </div>
                                             <div className="relative w-full h-full">
-                                                {shouldRenderChart ? (
+                                                {showWindVsTide ? (
+                                                    <WindVsTideView
+                                                        tideSeries={tideHourly}
+                                                        hourly={hourly}
+                                                        now={{
+                                                            windDeg: cardData.windDegree,
+                                                            windKts: cardData.windSpeed,
+                                                            currentDir: cardData.currentDirection,
+                                                            currentKts: cardData.currentSpeed,
+                                                        }}
+                                                        nowMs={cardTime || Date.now()}
+                                                        floodDirection={floodDirection}
+                                                        onSetFloodDirection={(deg) => {
+                                                            void updateSettings({ tideFloodDirection: deg });
+                                                        }}
+                                                        units={units}
+                                                        onClose={() => setShowWindVsTide(false)}
+                                                    />
+                                                ) : shouldRenderChart ? (
                                                     <TideGraph
                                                         tides={tides || []}
                                                         unit={units.tideHeight || 'm'}

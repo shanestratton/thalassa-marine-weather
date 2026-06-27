@@ -147,6 +147,10 @@ export interface UserSettings {
      * choice survives app restarts.
      */
     heroMetric?: string;
+    /** Local tidal-stream flood direction (degrees TOWARD, the way the stream
+     *  runs on a rising tide) for the wind-vs-tide view. Undefined = use the
+     *  modelled current instead. */
+    tideFloodDirection?: number;
     detailsWidgets?: string[];
     rowOrder?: string[];
     dynamicHeaderMetrics?: boolean;
