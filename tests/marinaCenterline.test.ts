@@ -267,3 +267,97 @@ describe('routeMarina — corridor bias keeps the route in the channel, not the 
         expect(withBiasMax).toBeLessThan(3); // the corridor pulls it back onto the channel side
     });
 });
+
+describe('routeMarina — corridor bias rounds bends instead of hugging the inside wall', () => {
+    // Shane's Newport bend in miniature. An L-shaped 9-wide channel; the supplied corridor
+    // (the coarse A* line) CUTS the inside of the curve. The flat corridor reward rides the
+    // route onto the inside wall ("a little close to the wall on the bend"); the clearance
+    // gate (corridorComfortCells) attenuates the reward near walls so the route rounds the
+    // bend at comfortable clearance — while straights, where the corridor is mid-channel,
+    // stay byte-identical (the gate is 1 there).
+    const w = 60;
+    const h = 60;
+    function buildL(): { depth: Float32Array; corridor: Cell[]; water: Uint8Array } {
+        const depth = new Float32Array(w * h).fill(NaN);
+        const water = new Uint8Array(w * h);
+        const wet = (x: number, y: number): void => {
+            if (x >= 0 && y >= 0 && x < w && y < h) {
+                depth[y * w + x] = 10;
+                water[y * w + x] = 1;
+            }
+        };
+        for (let y = 10; y <= 18; y++) for (let x = 5; x <= 40; x++) wet(x, y); // horizontal arm
+        for (let y = 10; y <= 50; y++) for (let x = 32; x <= 40; x++) wet(x, y); // vertical arm
+        // Corridor hugs the INSIDE corner (~2 cells off the inner walls).
+        const corridor: Cell[] = [];
+        for (let x = 5; x <= 33; x++) corridor.push({ x, y: 17 });
+        for (let y = 17; y <= 50; y++) corridor.push({ x: 33, y });
+        return { depth, corridor, water };
+    }
+
+    it('rounds the bend WITH the clearance gate, hugs the inside wall without it', () => {
+        const { depth, corridor, water } = buildL();
+        const shape = { width: w, height: h };
+        const clearance = euclideanDistanceTransform(water, shape);
+        const start: Cell = { x: 6, y: 14 };
+        const end: Cell = { x: 36, y: 48 };
+        const base = {
+            keelCells: 1,
+            depthWeight: 0,
+            canalHalfWidthCells: 12,
+            bias: 5,
+            corridorWeight: 8,
+            corridorHalfWidthCells: 6,
+        };
+        // Min wall-clearance the route holds through the corner region.
+        const cornerMin = (cells: Cell[]): number => {
+            let m = Infinity;
+            for (const c of cells) {
+                if (c.x >= 30 && c.x <= 42 && c.y >= 14 && c.y <= 22) m = Math.min(m, clearance[c.y * w + c.x]);
+            }
+            return m;
+        };
+
+        const flat = routeMarina(depth, shape, start, end, base, corridor);
+        const gated = routeMarina(depth, shape, start, end, { ...base, corridorComfortCells: 4 }, corridor);
+        expect(flat).not.toBeNull();
+        expect(gated).not.toBeNull();
+        assertNoLandCrossing(flat!.cells, depth, w);
+        assertNoLandCrossing(gated!.cells, depth, w);
+
+        const flatMin = cornerMin(flat!.cells);
+        const gatedMin = cornerMin(gated!.cells);
+        // eslint-disable-next-line no-console
+        console.log(
+            `[bend-gate] corner min clearance: flat=${flatMin.toFixed(1)} → gated=${gatedMin.toFixed(1)} cells`,
+        );
+        expect(flatMin).toBeLessThanOrEqual(2.5); // the flat reward seats the route on the inside wall
+        expect(gatedMin).toBeGreaterThanOrEqual(flatMin + 1.5); // the gate pushes it off the wall
+        expect(gatedMin).toBeGreaterThanOrEqual(3.5); // ... to comfortable clearance
+        expect(gated!.minClearanceCells).toBeGreaterThanOrEqual(flat!.minClearanceCells); // no clearance regression
+    });
+
+    it('introduces NO wobble on a straight reach (gate = 1 near a mid-channel corridor)', () => {
+        const sw = 30;
+        const sh = 40;
+        const depth = new Float32Array(sw * sh).fill(NaN);
+        for (let y = 2; y <= sh - 3; y++) for (let x = 10; x <= 18; x++) depth[y * sw + x] = 10; // 9-wide straight
+        const corridor: Cell[] = [];
+        for (let y = 2; y <= sh - 3; y++) corridor.push({ x: 14, y }); // dead centre
+        const base = {
+            keelCells: 1,
+            depthWeight: 0,
+            canalHalfWidthCells: 12,
+            bias: 5,
+            corridorWeight: 8,
+            corridorHalfWidthCells: 6,
+            corridorComfortCells: 4,
+        };
+        const r = routeMarina(depth, { width: sw, height: sh }, { x: 14, y: 3 }, { x: 14, y: sh - 4 }, base, corridor);
+        expect(r).not.toBeNull();
+        const maxOff = Math.max(...r!.cells.map((c) => Math.abs(c.x - 14)));
+        // eslint-disable-next-line no-console
+        console.log(`[straight-gate] max off-centre = ${maxOff} cells`);
+        expect(maxOff).toBeLessThanOrEqual(1);
+    });
+});
