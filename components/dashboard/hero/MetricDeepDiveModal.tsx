@@ -14,6 +14,7 @@ import { ModalSheet } from '../../ui/ModalSheet';
 import type { HourlyForecast, ForecastDay, UnitPreferences } from '../../../types';
 import { convertSpeed, convertLength, convertTemp, convertDistance } from '../../../utils/units';
 import { degreesToCardinal } from '../../../utils/format';
+import { circularMean, directionShift, type DirectionShift } from '../../../utils/circularStats';
 import { fetchWeatherKitHistory } from '../../../services/weather/api/weatherkit';
 
 export type MetricKey =
@@ -260,6 +261,42 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
     );
 };
 
+/** A compass arrow whose tip points toward the bearing the wind blows FROM. */
+const DirArrow: React.FC<{ deg: number | null; size?: number }> = ({ deg, size = 24 }) => (
+    <svg
+        width={size}
+        height={size}
+        viewBox="0 0 24 24"
+        className="shrink-0"
+        style={{
+            transform: deg == null ? undefined : `rotate(${deg}deg)`,
+            transition: 'transform 1s ease',
+            opacity: deg == null ? 0.25 : 1,
+        }}
+    >
+        <path d="M12 3L8 14h8L12 3Z" fill="rgba(110,231,183,0.92)" />
+        <path d="M12 21L8 14h8L12 21Z" fill="rgba(148,163,184,0.3)" />
+    </svg>
+);
+
+/** One Yesterday / Today / Tomorrow heading cell. */
+const DirCell: React.FC<{ label: string; deg: number | null; highlight?: boolean }> = ({ label, deg, highlight }) => (
+    <div
+        className={`flex-1 rounded-xl border px-2 py-3 flex flex-col items-center gap-1.5 ${
+            highlight ? 'bg-emerald-400/10 border-emerald-400/25' : 'bg-white/[0.04] border-white/[0.06]'
+        }`}
+    >
+        <div className="text-[10px] uppercase tracking-wider text-white/40">{label}</div>
+        <DirArrow deg={deg} />
+        <div className="text-base font-bold text-emerald-300 leading-none">
+            {deg == null ? '—' : degreesToCardinal(deg)}
+        </div>
+        <div className="text-[10px] text-white/45 tabular-nums leading-none">
+            {deg == null ? '' : `${Math.round(deg)}°`}
+        </div>
+    </div>
+);
+
 export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     metric,
     onClose,
@@ -342,6 +379,26 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
         };
     }, [cfg, hourly, history, forecast, units]);
 
+    // Direction is circular — "rising/falling" and min–max ranges are meaningless
+    // on a wrapped axis. Instead read the heading yesterday / today / tomorrow
+    // (vector means) and whether the wind is veering (clockwise) or backing.
+    const isDir = metric === 'dir';
+    const dirInfo = React.useMemo(() => {
+        if (!isDir) return null;
+        const H = 3_600_000;
+        const nowMs = Date.now();
+        const pickDeg = (h: HourlyForecast) => h.windDegree ?? null;
+        const hist = buildSeries(history, pickDeg);
+        const fwd = buildSeries(hourly, pickDeg);
+        const all = hist.length ? hist : fwd;
+        const win = (s: Pt[], lo: number, hi: number) => s.filter((p) => p.t >= lo && p.t <= hi).map((p) => p.v);
+        const yesterdayDeg = circularMean(win(hist, nowMs - 30 * H, nowMs - 12 * H));
+        const todayDeg = circularMean(win(all, nowMs - 3 * H, nowMs + 3 * H)) ?? nowVal;
+        const tomorrowDeg = circularMean(win(fwd.length ? fwd : all, nowMs + 18 * H, nowMs + 30 * H));
+        const shift: DirectionShift | null = directionShift(yesterdayDeg ?? todayDeg, tomorrowDeg ?? todayDeg);
+        return { yesterdayDeg, todayDeg, tomorrowDeg, shift };
+    }, [isDir, history, hourly, nowVal]);
+
     if (!metric || !cfg) return null;
 
     const unit = cfg.unit(units);
@@ -356,10 +413,31 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     const nowT = Date.now();
     const chartPts = series;
 
+    // Direction-specific header pill + read (veering / backing, not rising / falling).
+    const shift = dirInfo?.shift ?? null;
+    const shiftIcon = shift === 'veering' ? '↻' : shift === 'backing' ? '↺' : '→';
+    const shiftPill =
+        shift === 'veering'
+            ? 'bg-emerald-400/15 text-emerald-300'
+            : shift === 'backing'
+              ? 'bg-sky-400/15 text-sky-300'
+              : 'bg-white/10 text-white/55';
+    const cardOf = (d: number | null | undefined) => (d == null ? null : degreesToCardinal(d));
+    const dirRead = (() => {
+        if (!dirInfo) return '';
+        const today = cardOf(dirInfo.todayDeg);
+        if (!dirInfo.shift) return today ? `Wind sitting in the ${today}.` : 'Direction data unavailable right now.';
+        if (dirInfo.shift === 'steady')
+            return `Wind holding ${today ? `from the ${today}` : 'steady'} — little change over the next day.`;
+        const from = cardOf(dirInfo.yesterdayDeg) ?? today;
+        const to = cardOf(dirInfo.tomorrowDeg) ?? today;
+        return `Wind ${dirInfo.shift} from the ${from} toward the ${to} over the next day or so.`;
+    })();
+
     return (
         <ModalSheet isOpen={!!metric} onClose={onClose} title={cfg.label}>
             <div className="space-y-5">
-                {/* Now + trend */}
+                {/* Now + trend/shift */}
                 <div className="flex items-end justify-between">
                     <div>
                         <div className="text-[11px] uppercase tracking-wider text-white/40">Now</div>
@@ -369,48 +447,83 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                             {fmt(nowVal)}
                         </div>
                     </div>
-                    <div
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${trendPill}`}
-                    >
-                        <span className="text-base leading-none">{trendIcon}</span>
-                        <span className="capitalize">{trend}</span>
-                    </div>
-                </div>
-
-                {/* Chart */}
-                <div className="rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.015] border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
-                    <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
-                    <div className="flex justify-between text-[10px] text-white/35 px-1 mt-1">
-                        <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
-                        {hasHistory ? <span className="text-white/45">Now</span> : null}
-                        <span>+48h →</span>
-                    </div>
-                </div>
-
-                {/* Window read — accent callout */}
-                <div className="flex items-start gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-3">
-                    <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>{trendIcon}</span>
-                    <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
-                </div>
-
-                {/* Stat cards */}
-                <div className="grid grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-white/40">Next 24h range</div>
-                        <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
-                            {fmt(todayMin)} – {fmt(todayMax)}
+                    {isDir ? (
+                        <div
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${shiftPill}`}
+                        >
+                            <span className="text-base leading-none">{shiftIcon}</span>
+                            <span className="capitalize">{shift ?? 'steady'}</span>
                         </div>
-                    </div>
-                    <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
-                        <div className="text-[10px] uppercase tracking-wider text-white/40">Tomorrow</div>
-                        <div className="mt-0.5 text-sm font-bold text-white tabular-nums">{tomorrowStr || '--'}</div>
-                    </div>
+                    ) : (
+                        <div
+                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${trendPill}`}
+                        >
+                            <span className="text-base leading-none">{trendIcon}</span>
+                            <span className="capitalize">{trend}</span>
+                        </div>
+                    )}
                 </div>
 
-                {cfg.marine && (
-                    <p className="text-[11px] text-white/30 leading-relaxed">
-                        Marine metrics show the forecast window — yesterday history isn’t available for waves.
-                    </p>
+                {isDir ? (
+                    <>
+                        {/* Heading: yesterday / today / tomorrow */}
+                        <div className="flex items-stretch gap-2.5">
+                            <DirCell label="Yesterday" deg={dirInfo?.yesterdayDeg ?? null} />
+                            <DirCell label="Today" deg={dirInfo?.todayDeg ?? null} highlight />
+                            <DirCell label="Tomorrow" deg={dirInfo?.tomorrowDeg ?? null} />
+                        </div>
+
+                        {/* Shift read — accent callout */}
+                        <div className="flex items-start gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-3">
+                            <span className="mt-0.5 text-base leading-none text-emerald-300">{shiftIcon}</span>
+                            <p className="text-sm text-white/80 leading-relaxed">{dirRead}</p>
+                        </div>
+
+                        <p className="text-[11px] text-white/30 leading-relaxed">
+                            Wind direction is the compass bearing the wind blows <em>from</em>. Yesterday needs
+                            WeatherKit history; today and tomorrow come from the forecast.
+                        </p>
+                    </>
+                ) : (
+                    <>
+                        {/* Chart */}
+                        <div className="rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.015] border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+                            <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
+                            <div className="flex justify-between text-[10px] text-white/35 px-1 mt-1">
+                                <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
+                                {hasHistory ? <span className="text-white/45">Now</span> : null}
+                                <span>+48h →</span>
+                            </div>
+                        </div>
+
+                        {/* Window read — accent callout */}
+                        <div className="flex items-start gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-3">
+                            <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>{trendIcon}</span>
+                            <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
+                        </div>
+
+                        {/* Stat cards */}
+                        <div className="grid grid-cols-2 gap-3">
+                            <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
+                                <div className="text-[10px] uppercase tracking-wider text-white/40">Next 24h range</div>
+                                <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
+                                    {fmt(todayMin)} – {fmt(todayMax)}
+                                </div>
+                            </div>
+                            <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
+                                <div className="text-[10px] uppercase tracking-wider text-white/40">Tomorrow</div>
+                                <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
+                                    {tomorrowStr || '--'}
+                                </div>
+                            </div>
+                        </div>
+
+                        {cfg.marine && (
+                            <p className="text-[11px] text-white/30 leading-relaxed">
+                                Marine metrics show the forecast window — yesterday history isn’t available for waves.
+                            </p>
+                        )}
+                    </>
                 )}
             </div>
         </ModalSheet>
