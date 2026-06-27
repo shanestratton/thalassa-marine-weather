@@ -971,7 +971,12 @@ const HeroSlideComponent = ({
                                     // up/down day-swipe and the snap "bounces" (regression fix).
                                     className="w-full h-full min-h-0 overflow-hidden snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                                 >
-                                    <DailySummaryCard daily={slide.daily} units={units} isLandlocked={isLandlocked} />
+                                    <DailySummaryCard
+                                        daily={slide.daily}
+                                        units={units}
+                                        isLandlocked={isLandlocked}
+                                        dateLabel={rowDateLabel}
+                                    />
                                 </div>
                             );
                         }

@@ -16,6 +16,9 @@ interface DailySummaryCardProps {
     daily: DailySummary;
     units: UnitPreferences;
     isLandlocked?: boolean;
+    /** Day-of-week + date label (e.g. "Sat 25 Jun") — passed from HeroSlide's
+     *  timezone-aware rowDateLabel so it can't drift off-by-one. */
+    dateLabel?: string;
 }
 
 /** Pull an HH:MM out of an ISO string / Date string / already-formatted time. */
@@ -38,7 +41,7 @@ const Metric: React.FC<{ label: string; value: string; sub?: string }> = ({ labe
     </div>
 );
 
-export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units, isLandlocked }) => {
+export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units, isLandlocked, dateLabel }) => {
     const tempUnit = units.temp === 'F' ? '°F' : '°C';
     // convertTemp returns a string ('--' when missing, else a rounded number string)
     const high = convertTemp(daily.highTemp, units.temp);
@@ -54,9 +57,12 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
     const sunset = formatTime(daily.sunset);
 
     return (
-        <div className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-center gap-3 px-5 text-white">
-            {/* Day-overview tag */}
-            <span className="text-[11px] uppercase tracking-[0.2em] text-white/40">Day overview</span>
+        <div className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-center gap-2.5 px-5 text-white">
+            {/* Day of week + date */}
+            <div className="flex flex-col items-center gap-0.5">
+                {dateLabel ? <span className="text-sm font-bold tracking-wide text-white/90">{dateLabel}</span> : null}
+                <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Day overview</span>
+            </div>
 
             {/* Condition + high / low */}
             <div className="flex flex-col items-center gap-0.5">
@@ -75,12 +81,9 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
             </div>
 
             {/* Marine + wind row */}
-            <div className="flex items-start justify-center gap-6 flex-wrap">
-                <Metric
-                    label="Wind"
-                    value={wind !== null ? `${wind} ${units.speed}` : '--'}
-                    sub={gust !== null ? `gust ${gust}` : undefined}
-                />
+            <div className="flex items-start justify-center gap-4 flex-wrap">
+                <Metric label="Wind" value={wind !== null ? `${wind} ${units.speed}` : '--'} />
+                <Metric label="Gust" value={gust !== null ? `${gust} ${units.speed}` : '--'} />
                 {!isLandlocked ? (
                     <Metric
                         label="Wave"
