@@ -207,6 +207,25 @@ const _fetchWeatherByStrategyImpl = async (
         throw new Error(`All weather APIs failed for ${name}`);
     }
 
+    // --- EXTEND DAILY HORIZON ---
+    // WeatherKit / the unified endpoint cap the daily forecast at ~10 days
+    // (today + 9). OpenMeteo (always fetched above) reaches 16, so append its
+    // trailing days — keyed by ISO date, only dates strictly after the last one
+    // we already have — to give a full 10 days in advance in the day carousel.
+    // No-op when the primary source already reaches that far.
+    if (openMeteoReport?.forecast?.length && report.forecast?.length) {
+        const haveDates = new Set(report.forecast.map((d) => d.isoDate || d.date));
+        const last = report.forecast[report.forecast.length - 1];
+        const lastKey = last?.isoDate || last?.date || '';
+        const extraDays = openMeteoReport.forecast.filter((d) => {
+            const key = d.isoDate || d.date;
+            return !!key && !haveDates.has(key) && key > lastKey;
+        });
+        if (extraDays.length) {
+            report.forecast = [...report.forecast, ...extraDays].slice(0, 12);
+        }
+    }
+
     // --- DETERMINE LOCATION TYPE ---
     const computedLocationType =
         stormGlassReport?.locationType || locationType || openMeteoReport?.locationType || 'coastal';
