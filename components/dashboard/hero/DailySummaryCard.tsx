@@ -57,12 +57,9 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
     const sunset = formatTime(daily.sunset);
 
     return (
-        <div className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-center gap-2.5 px-5 text-white">
-            {/* Day of week + date */}
-            <div className="flex flex-col items-center gap-0.5">
-                {dateLabel ? <span className="text-sm font-bold tracking-wide text-white/90">{dateLabel}</span> : null}
-                <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Day overview</span>
-            </div>
+        <div className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-start pt-3 gap-2.5 px-5 text-white">
+            {/* Day of week + date — anchored to the top so it's never clipped */}
+            {dateLabel ? <span className="text-base font-bold tracking-wide text-white/90">{dateLabel}</span> : null}
 
             {/* Condition + high / low */}
             <div className="flex flex-col items-center gap-0.5">
@@ -77,7 +74,6 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
                         {low !== '--' ? `${low}${tempUnit}` : '--'}
                     </span>
                 </div>
-                <span className="text-[11px] uppercase tracking-wider text-white/40">High · Low</span>
             </div>
 
             {/* Marine + wind row */}
@@ -124,9 +120,6 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
                     </div>
                 )}
             </div>
-
-            {/* Swipe affordance toward the hourly cards */}
-            <span className="text-[11px] text-white/35 tracking-wide">Swipe ← for hourly</span>
         </div>
     );
 };
