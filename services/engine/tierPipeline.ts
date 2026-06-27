@@ -4,7 +4,8 @@
  */
 import { M_PER_DEG_LAT, ENGINE_DEBUG, engineLog } from './constants';
 import type { NavGrid, InshoreLayers, RelaxZone } from './types';
-import { mPerDegLon, haversineM, latLonToGrid } from './geometry';
+import { mPerDegLon, haversineM, latLonToGrid, pointInGeometry, geometryBbox, douglasPeucker } from './geometry';
+import type { Polygon, MultiPolygon } from 'geojson';
 import { buildNavGridCached, snapToNavigable } from './navGrid';
 import { aStar } from './aStar';
 import { smoothPath } from './pathShaping';
@@ -21,16 +22,8 @@ import { segmentRoute, type TierSpan } from '../routing/segmentRoute';
 import { routeTier3, type Tier3Context } from '../tier3/tier3Router';
 import { routeTier4, type Tier4Context } from '../tier4/tier4Router';
 import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tier3/canalLineFollower';
-import { buildFineCanalLeg, FINE_CANAL_APRON_DEG, FINE_CANAL_RES_M, spanCropBbox } from '../tier3/fineCanalGrid';
 import { stitchLegs } from '../glue/gluer';
-import {
-    isRefusal,
-    freezeLeg,
-    type BoundaryNode,
-    type LatLon as RouteLatLon,
-    type Leg,
-    type LegResult,
-} from '../routing/legContract';
+import { isRefusal, freezeLeg, type Leg, type LegResult } from '../routing/legContract';
 
 /** Shane-confirmed rising-tide bar margin (docs/THREE_TIER_ROUTING.md §1.5).
  *  Feeds the marks-free inshore depth gate (→ 5 m all-tide for a 2.4 m draft). */
@@ -121,8 +114,6 @@ export function llPathLengthM(pts: readonly LatLon[]): number {
 export interface EgressTrack extends LeadingLine {
     /** First point index that belongs to tier 2. Points before this are tier 1 handoff. */
     tier2FromIndex?: number;
-    /** Higher wins when multiple egress tracks can serve the same canal exit. */
-    egressPriority?: number;
 }
 
 export function sameGatePair(a: LateralMark, b: LateralMark): boolean {
@@ -322,18 +313,6 @@ export function gridBridgePolyline(grid: NavGrid, from: LatLon, to: LatLon): [nu
     return pruneBridgeEndpointGridCenters(grid, out);
 }
 
-function projectBeyondGate(prev: LatLon, gate: LatLon, distanceM: number): LatLon | null {
-    const mx = mPerDegLon(gate.lat);
-    const dxM = (gate.lon - prev.lon) * mx;
-    const dyM = (gate.lat - prev.lat) * M_PER_DEG_LAT;
-    const lenM = Math.hypot(dxM, dyM);
-    if (lenM < 1) return null;
-    return {
-        lat: gate.lat + (dyM / lenM) * (distanceM / M_PER_DEG_LAT),
-        lon: gate.lon + (dxM / lenM) * (distanceM / mx),
-    };
-}
-
 export function spliceCanalEgressChannel(
     polyline: [number, number][],
     egressTracks: readonly EgressTrack[],
@@ -385,7 +364,6 @@ export function spliceCanalEgressChannelFromOrigin(
         gates: number;
         costM: number;
         preferred: boolean;
-        priority: number;
     } | null = null;
     const originalTotalM = tuplePathLengthM(polyline);
 
@@ -437,16 +415,11 @@ export function spliceCanalEgressChannelFromOrigin(
                 gates: pts.length,
                 costM: forcedTotalM,
                 preferred: chain.tier2FromIndex !== undefined,
-                priority: chain.egressPriority ?? (chain.tier2FromIndex !== undefined ? 1 : 0),
             };
             if (
                 !best ||
-                candidate.priority > best.priority ||
-                (candidate.priority === best.priority &&
-                    (candidate.gates > best.gates ||
-                        (candidate.gates === best.gates &&
-                            ((candidate.preferred && !best.preferred) ||
-                                (candidate.preferred === best.preferred && candidate.costM < best.costM)))))
+                (candidate.preferred && !best.preferred) ||
+                (candidate.preferred === best.preferred && candidate.costM < best.costM)
             ) {
                 best = candidate;
             }
@@ -456,6 +429,168 @@ export function spliceCanalEgressChannelFromOrigin(
     return best
         ? { polyline: best.polyline, spliced: true, gates: best.gates, forceTier2: best.forceTier2 }
         : { polyline, spliced: false, gates: 0 };
+}
+
+/**
+ * Pull the canal RED off the OSM canal line onto the ENC channel medial axis.
+ *
+ * The canal red is snapped to the OSM canal centre-lines (frame 0 m), but the
+ * chart the user sees renders the ENC channel, which sits ~8–10 m to one side
+ * (the OSM↔ENC frames differ). So the red looks like it hugs a wall. The coarse
+ * 50 m grid can't fix a sub-cell offset, so re-centre against the raw LNDARE
+ * polygons directly: for each red vertex march perpendicular to travel until
+ * land on BOTH sides, and move to the midpoint.
+ *
+ * SAFE BY CONSTRUCTION:
+ *  - Acts ONLY on red (`redVtx`) and NEVER on yellow (`yellowVtx`) — gates untouched.
+ *  - Requires HARD LAND on BOTH sides within MAX_HALF_M, so the open marina basin /
+ *    bay (one-sided or unbounded) is left exactly as the OSM snap placed it.
+ *  - A red-run endpoint that abuts a YELLOW gate is pinned to its original spot,
+ *    so the canal→channel handoff has no dogleg (the yellow never moves).
+ */
+export function recentreCanalRedOnEnc(
+    poly: readonly (readonly [number, number])[],
+    redVtx: readonly boolean[],
+    yellowVtx: readonly boolean[],
+    lndare: ReadonlyArray<{ geom: Polygon | MultiPolygon; bbox: [number, number, number, number] }>,
+    chains: ReadonlyArray<{ pts: ReadonlyArray<{ lat: number; lon: number }> }> = [],
+): { polyline: [number, number][]; redMask: boolean[] } {
+    const fallback = {
+        polyline: poly.map((p) => [p[0], p[1]] as [number, number]),
+        redMask: redVtx.map((r, i) => r && !yellowVtx[i]),
+    };
+    if (lndare.length === 0 && chains.length === 0) return fallback;
+    const STEP_M = 3;
+    const MAX_HALF_M = 90; // LNDARE walls: wider ⇒ open basin/bay, leave it alone
+    const CHAIN_SNAP_M = 110; // buoy-chain snap reach (Shane: the marks run down the channel middle)
+    const DENSIFY_M = 12; // dense enough to ride the channel's curve, not just the vertices
+    const SIMPLIFY_DEG = 2.5 / 110_000; // ≈2.5 m — collapse the densify scaffold post-centre
+    const inLand = (lon: number, lat: number): boolean => {
+        for (const f of lndare) {
+            if (lon < f.bbox[0] || lon > f.bbox[2] || lat < f.bbox[1] || lat > f.bbox[3]) continue;
+            if (pointInGeometry(lon, lat, f.geom)) return true;
+        }
+        return false;
+    };
+    // Nearest point on any buoy-chain centre-line within CHAIN_SNAP_M. The lateral
+    // marks are charted DOWN THE MIDDLE of the channel, so the chain IS the centre —
+    // and the YELLOW already rides it, so snapping the RED here aligns the two.
+    const nearestOnChains = (lon: number, lat: number): [number, number] | null => {
+        const mLon = mPerDegLon(lat);
+        let best: [number, number] | null = null;
+        let bestD = CHAIN_SNAP_M;
+        for (const ch of chains) {
+            for (let k = 0; k + 1 < ch.pts.length; k++) {
+                const ax = (ch.pts[k].lon - lon) * mLon;
+                const ay = (ch.pts[k].lat - lat) * M_PER_DEG_LAT;
+                const bx = (ch.pts[k + 1].lon - lon) * mLon;
+                const by = (ch.pts[k + 1].lat - lat) * M_PER_DEG_LAT;
+                const dx = bx - ax;
+                const dy = by - ay;
+                const l2 = dx * dx + dy * dy;
+                const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+                const px = ax + t * dx;
+                const py = ay + t * dy;
+                const d = Math.hypot(px, py);
+                if (d < bestD) {
+                    bestD = d;
+                    best = [lon + px / mLon, lat + py / M_PER_DEG_LAT];
+                }
+            }
+        }
+        return best;
+    };
+    // Centre one point: snap to the buoy chain (channel centre where marks exist), else
+    // march to LNDARE land walls — "find the walls, divide by two" — for the marina canals.
+    const centre = (lon: number, lat: number, dx: number, dy: number): [number, number] => {
+        // 1. Buoy-chain snap — authoritative channel centre (marks down the middle).
+        if (chains.length > 0) {
+            const snapped = nearestOnChains(lon, lat);
+            if (snapped) return snapped;
+        }
+        // 2. LNDARE land walls — the charted marina-canal banks.
+        const dl = Math.hypot(dx, dy);
+        if (dl < 1e-9 || lndare.length === 0) return [lon, lat];
+        const mLon = mPerDegLon(lat);
+        const pLonPerM = -(dy / dl) / mLon;
+        const pLatPerM = dx / dl / M_PER_DEG_LAT;
+        const dist = (sign: number): number => {
+            for (let s = STEP_M; s <= MAX_HALF_M; s += STEP_M) {
+                if (inLand(lon + pLonPerM * s * sign, lat + pLatPerM * s * sign)) return s;
+            }
+            return Infinity;
+        };
+        const a = dist(1);
+        const b = dist(-1);
+        if (!Number.isFinite(a) || !Number.isFinite(b)) return [lon, lat]; // not two-walled
+        const shiftM = (a - b) / 2;
+        return [lon + pLonPerM * shiftM, lat + pLatPerM * shiftM];
+    };
+    const outP: [number, number][] = [];
+    const outRed: boolean[] = [];
+    let i = 0;
+    while (i < poly.length) {
+        if (!redVtx[i] || yellowVtx[i]) {
+            outP.push([poly[i][0], poly[i][1]]);
+            outRed.push(false);
+            i++;
+            continue;
+        }
+        // Contiguous canal-red run [i..j].
+        let j = i;
+        while (j + 1 < poly.length && redVtx[j + 1] && !yellowVtx[j + 1]) j++;
+        const run = poly.slice(i, j + 1).map((p) => [p[0], p[1]] as [number, number]);
+        // Densify so re-centring follows the channel curve, not just the sparse vertices.
+        const dense: [number, number][] = [run[0]];
+        for (let k = 0; k + 1 < run.length; k++) {
+            const segM = haversineM(run[k][1], run[k][0], run[k + 1][1], run[k + 1][0]);
+            const n = Math.max(1, Math.round(segM / DENSIFY_M));
+            for (let s = 1; s <= n; s++) {
+                const t = s / n;
+                dense.push([run[k][0] + (run[k + 1][0] - run[k][0]) * t, run[k][1] + (run[k + 1][1] - run[k][1]) * t]);
+            }
+        }
+        const cen = dense.map((p, k) => {
+            const prev = dense[Math.max(0, k - 1)];
+            const next = dense[Math.min(dense.length - 1, k + 1)];
+            const mLon = mPerDegLon(p[1]);
+            return centre(p[0], p[1], (next[0] - prev[0]) * mLon, (next[1] - prev[1]) * M_PER_DEG_LAT);
+        });
+        // Smooth out per-point march/finegrid jitter (endpoints pinned so the seam to the
+        // marina/gates stays put). A red run that feeds INTO a marker gate (Shane: "the
+        // line from the canal bend to the first marker pair") is the channel APPROACH: it
+        // has no marks until the gate, so the finegrid traces the NOISY satellite-water
+        // medial axis ~±20 m off-centre. Smooth it HARDER (iterated low-pass) so it sheds
+        // the wiggle while still FOLLOWING the channel's curve — the channel is NOT straight,
+        // so we must NOT straight-chord it. Marina-canal runs (no gate) get the light pass.
+        const abutsGate = (i > 0 && yellowVtx[i - 1]) || (j + 1 < poly.length && yellowVtx[j + 1]);
+        const smoothIters = abutsGate ? 6 : 1;
+        let sm = cen.map((c) => [c[0], c[1]] as [number, number]);
+        for (let it = 0; it < smoothIters; it++) {
+            sm = sm.map((c, k) =>
+                k === 0 || k === sm.length - 1
+                    ? c
+                    : [(sm[k - 1][0] + c[0] + sm[k + 1][0]) / 3, (sm[k - 1][1] + c[1] + sm[k + 1][1]) / 3],
+            );
+        }
+        // Drop the densify scaffolding: DP-collapse near-collinear points (tight tol, so the
+        // smoothed CURVE survives) to keep the vertex count from inflating per-vertex metrics.
+        const simplified = sm.length > 2 ? douglasPeucker(sm, SIMPLIFY_DEG) : sm;
+        // KICK FIX: a run endpoint that abuts a YELLOW gate is pinned to its original
+        // position, so the canal-red → channel-yellow handoff has no dogleg (the
+        // yellow never moves, so the red must meet it exactly where it did before).
+        if (simplified.length > 0) {
+            if (i > 0 && yellowVtx[i - 1]) simplified[0] = [run[0][0], run[0][1]];
+            if (j + 1 < poly.length && yellowVtx[j + 1])
+                simplified[simplified.length - 1] = [run[run.length - 1][0], run[run.length - 1][1]];
+        }
+        for (const p of simplified) {
+            outP.push(p);
+            outRed.push(true);
+        }
+        i = j + 1;
+    }
+    return { polyline: outP, redMask: outRed };
 }
 
 /**
@@ -487,7 +622,6 @@ export function applyThreeTier(
     channelMask: boolean[];
     tier4Mask: boolean[];
     offshoreMask: boolean[];
-    verifiedInshoreMask: boolean[];
 } | null {
     if (polyline.length < 2) return null;
 
@@ -623,12 +757,7 @@ export function applyThreeTier(
     }
 
     const gateCentreTracks = buildGateCentreTracks(marks, route, [...leadingLines, ...rectrcLines]);
-    const channelEgressTracks: EgressTrack[] = channelChains.map((chain) => ({
-        ...chain,
-        tier2FromIndex: 1,
-        egressPriority: 2,
-    }));
-    const egressTracks: EgressTrack[] = [...channelEgressTracks, ...gateCentreTracks, ...leadingLines, ...rectrcLines];
+    const egressTracks: EgressTrack[] = [...gateCentreTracks, ...channelChains, ...leadingLines, ...rectrcLines];
     const canalEgress = spliceCanalEgressChannel(route, egressTracks, canalLines, grid);
     if (canalEgress.spliced) {
         route = canalEgress.polyline;
@@ -683,36 +812,6 @@ export function applyThreeTier(
             return null;
         }
     };
-    const routeCanalRunViaFineGrid = (run: readonly RouteLatLon[]): RouteLatLon[] | null => {
-        if (run.length < 2) return null;
-        const runM = tuplePathLengthM(run);
-        if (runM < 80 || runM > 5000) return null;
-        const entry: BoundaryNode = {
-            at: run[0],
-            headingDeg: 0,
-            kind: 'origin',
-            depthM: null,
-            snapped: true,
-        };
-        const exit: BoundaryNode = {
-            at: run[run.length - 1],
-            headingDeg: 0,
-            kind: 'dest',
-            depthM: null,
-            snapped: true,
-        };
-        const span: TierSpan = {
-            tier: 1,
-            entry,
-            exit,
-            fromIdx: 0,
-            toIdx: run.length - 1,
-            caution: false,
-        };
-        const fineGrid = buildFineGrid(spanCropBbox(run, span, FINE_CANAL_APRON_DEG), FINE_CANAL_RES_M);
-        if (!fineGrid) return null;
-        return buildFineCanalLeg(fineGrid, span, undefined, run)?.polyline ?? null;
-    };
     const ctx3: Tier3Context = { grid, marks, leadingLines, recommendedTracks: rectrcLines, buildFineGrid };
     const ctx4: Tier4Context = {
         grid,
@@ -755,51 +854,40 @@ export function applyThreeTier(
     //   tier 1 → canal/marina RED
     //   tier 2 → lead-out/marked channel YELLOW
     //   tier 4 → offshore DARK BLUE
-    // Carry them across the canal snap by exact coordinate. Channel segments are
-    // rendered/exported as tier 2 at the engine boundary, so they must not also
-    // carry canal red on the same segment.
-    // tier-1 (canal) RED is decided below by geometry (canal-line snap / proximity),
-    // NOT by which leg emitted the vertex — so we no longer track a per-leg canal
-    // flag here (that's what bled RED onto non-canal Mapbox-water tier-1 legs).
+    // Carry them across the canal snap by exact coordinate. Where a vertex lands
+    // on both canal and channel, canal RED wins in the renderer.
+    const canalPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const offshorePre: boolean[] = new Array(glued.polyline.length).fill(false);
+    // Vertices from a tier-1 FINE-grid leg (routeMarina medial axis) already ride the
+    // dead-centre of the injected water — the middle of the open channel. The OSM
+    // canal-line snap below must NOT pull them onto the OSM canal line, which in wide
+    // uncharted water sits ~40-75 m off the open-water centre (OSM↔chart frame skew):
+    // that was Shane's Newport "main channel" hugging the west side. Protect finegrid
+    // vertices so they keep their medial axis = the middle of the open water. (Narrow
+    // marina canals: medial axis ≈ the OSM line, so no visible change there.)
+    const finegridPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelSegKeys = new Set<string>();
-    const channelVertexKeys = new Set<string>();
     const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
         `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
-    const vtxKey = (a: readonly [number, number]): string => `${a[0]}|${a[1]}`;
-    const verifiedInshoreSegKeys = new Set<string>();
-    const chainYellowLines = [...gateCentreTracks, ...channelChains]
-        .filter((t) => t.pts.length >= 2)
-        .map((t) => t.pts.map((p) => [p.lon, p.lat] as [number, number]));
-    const CHAIN_RENDER_TRACK_M = 60;
-    const hasChainYellowLines = chainYellowLines.length > 0;
-    const onChainYellowLine = (p: readonly [number, number]): boolean =>
-        hasChainYellowLines && pointToTupleLinesM({ lat: p[1], lon: p[0] }, chainYellowLines) <= CHAIN_RENDER_TRACK_M;
     let gi = 0;
     for (const leg of glued.legs) {
         const len = leg.polyline.length;
+        if (leg.tierId === 1) for (let v = 0; v < len; v++) canalPre[gi + v] = true;
+        if (leg.provenance.includes('finegrid')) for (let v = 0; v < len; v++) finegridPre[gi + v] = true;
         if (leg.tierId === 2) {
-            for (let v = 0; v < len; v++) {
-                channelPre[gi + v] = true;
-                channelVertexKeys.add(vtxKey(leg.polyline[v]));
-            }
-            for (let v = 0; v < len - 1; v++) {
-                const a = leg.polyline[v];
-                const b = leg.polyline[v + 1];
-                const limitToGateChain = canalEgress.gates >= 4 && leg.provenance.includes('chain×');
-                if (limitToGateChain && hasChainYellowLines && !(onChainYellowLine(a) && onChainYellowLine(b))) {
-                    continue;
-                }
-                channelSegKeys.add(segKey(a, b));
-            }
+            for (let v = 0; v < len; v++) channelPre[gi + v] = true;
+            for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
         }
         if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
     }
+    const canalKeys = new Set<string>();
     const offshoreKeys = new Set<string>();
     for (let i = 0; i < glued.polyline.length; i++) {
-        if (offshorePre[i]) offshoreKeys.add(`${glued.polyline[i][0]}|${glued.polyline[i][1]}`);
+        const key = `${glued.polyline[i][0]}|${glued.polyline[i][1]}`;
+        if (canalPre[i]) canalKeys.add(key);
+        if (offshorePre[i]) offshoreKeys.add(key);
     }
 
     // Canal centre-line snap — wherever the assembled route rides the OSM canal
@@ -809,281 +897,62 @@ export function applyThreeTier(
     // not a canal leg — a per-span follow would miss them. Tier-2 channel vertices
     // are protected so the canal snap cannot swallow a canal→marked-channel egress.
     // No-op off-canal (the river / open water passes through byte-identical).
-    const { polyline: snappedPoly } = snapRouteToCanalLines(glued.polyline, canalLines, {
-        protectedVertices: channelPre,
-        routeRun: (run) => routeCanalRunViaFineGrid(run),
+    const { polyline: snappedPoly, onCanal: canalVtx } = snapRouteToCanalLines(glued.polyline, canalLines, {
+        protectedVertices: channelPre.map((c, i) => c || finegridPre[i]),
     });
     const canalSnapTag = snappedPoly.length !== glued.polyline.length ? ' +canalsnap' : '';
     const outPoly = snappedPoly.map((p) => [p[0], p[1]] as [number, number]);
 
-    const insertStraightOuterGateExit = (): void => {
-        if (canalEgress.gates < 4) return;
-        const rawChannelSeg = outPoly.slice(0, -1).map((p, i) => channelSegKeys.has(segKey(p, outPoly[i + 1])));
-        const runs: Array<{ from: number; to: number; minCanalM: number }> = [];
-        for (let i = 0; i < rawChannelSeg.length; i++) {
-            if (!rawChannelSeg[i]) continue;
-            const from = i;
-            while (i + 1 < rawChannelSeg.length && rawChannelSeg[i + 1]) i++;
-            const to = i;
-            let minCanalM = Infinity;
-            for (let v = from; v <= to + 1; v++) {
-                minCanalM = Math.min(
-                    minCanalM,
-                    canalLines.length > 0
-                        ? pointToTupleLinesM({ lat: outPoly[v][1], lon: outPoly[v][0] }, canalLines)
-                        : 0,
-                );
-            }
-            runs.push({ from, to, minCanalM });
-        }
-        const MIN_GATE_RUN_SEGS = Math.max(1, canalEgress.gates - 1);
-        const CANAL_GATE_ATTACH_M = 300;
-        const gateRun = runs
-            .filter((r) => r.to - r.from + 1 >= MIN_GATE_RUN_SEGS && r.minCanalM <= CANAL_GATE_ATTACH_M)
-            .sort((a, b) => a.minCanalM - b.minCanalM || a.from - b.from)[0];
-        if (!gateRun) return;
-        const lastGateSeg = gateRun.to;
-        if (lastGateSeg < 1 || lastGateSeg + 2 >= outPoly.length) return;
-
-        const prev = outPoly[lastGateSeg];
-        const gate = outPoly[lastGateSeg + 1];
-        const next = outPoly[lastGateSeg + 2];
-        const OUTER_GATE_CLEARANCE_M = 1000;
-        const projected = projectBeyondGate(
-            { lat: prev[1], lon: prev[0] },
-            { lat: gate[1], lon: gate[0] },
-            OUTER_GATE_CLEARANCE_M,
-        );
-        if (!projected) return;
-        const projectedExit: [number, number] = [projected.lon, projected.lat];
-        if (tupleDistM(gate, projectedExit) < 80) return;
-        const existingExit = tupleDistM(next, projectedExit) < 120 ? next : null;
-        const exitPoint = existingExit ?? projectedExit;
-        if (!existingExit && tupleLineCrossesHardLand(grid, gate, exitPoint)) return;
-
-        const mx = mPerDegLon(gate[1]);
-        const axisX = (gate[0] - prev[0]) * mx;
-        const axisY = (gate[1] - prev[1]) * M_PER_DEG_LAT;
-        const axisM = Math.hypot(axisX, axisY);
-        if (axisM < 1) return;
-        const alongGateAxisM = (p: readonly [number, number]): number =>
-            ((p[0] - gate[0]) * mx * axisX + (p[1] - gate[1]) * M_PER_DEG_LAT * axisY) / axisM;
-
-        const BACKTRACK_PRUNE_M = 1500;
-        const CANAL_BACKTRACK_PRUNE_M = 4500;
-        const CANAL_BACKTRACK_LINE_M = 250;
-        const VERIFIED_GATE_EXIT_M = 2600;
-        const markVerifiedGateExit = (pts: readonly (readonly [number, number])[]): void => {
-            for (let i = 0; i + 1 < pts.length; i++) {
-                if (
-                    tupleDistM(gate, pts[i]) > VERIFIED_GATE_EXIT_M &&
-                    tupleDistM(gate, pts[i + 1]) > VERIFIED_GATE_EXIT_M
-                )
-                    break;
-                verifiedInshoreSegKeys.add(segKey(pts[i], pts[i + 1]));
-            }
-        };
-        const isCanalReturnPoint = (p: readonly [number, number], sourceGrid = grid): boolean => {
-            const backtracksBehindGate = alongGateAxisM(p) < -40;
-            if (!backtracksBehindGate || tupleDistM(gate, p) >= CANAL_BACKTRACK_PRUNE_M) return false;
-            const canalDistM =
-                canalLines.length > 0 ? pointToTupleLinesM({ lat: p[1], lon: p[0] }, canalLines) : Infinity;
-            if (canalDistM < CANAL_BACKTRACK_LINE_M) return true;
-            const { x, y } = latLonToGrid(sourceGrid, p[1], p[0]);
-            if (x < 0 || y < 0 || x >= sourceGrid.width || y >= sourceGrid.height) return false;
-            const idx = y * sourceGrid.width + x;
-            return sourceGrid.injectedCanal?.[idx] === 1;
-        };
-        const tupleLineCrossesBlockedCell = (
-            sourceGrid: NavGrid,
-            a: readonly [number, number],
-            b: readonly [number, number],
-            stepM = 25,
-        ): boolean => {
-            const lenM = tupleDistM(a, b);
-            const steps = Math.max(1, Math.ceil(lenM / stepM));
-            for (let s = 0; s <= steps; s++) {
-                const t = s / steps;
-                const lon = a[0] + (b[0] - a[0]) * t;
-                const lat = a[1] + (b[1] - a[1]) * t;
-                const { x, y } = latLonToGrid(sourceGrid, lat, lon);
-                if (x < 0 || y < 0 || x >= sourceGrid.width || y >= sourceGrid.height) continue;
-                if (Number.isNaN(sourceGrid.cells[y * sourceGrid.width + x])) return true;
-            }
-            return false;
-        };
-        const pruneImmediateBridgeBacktrack = (bridge: [number, number][], sourceGrid: NavGrid): [number, number][] => {
-            if (bridge.length < 3) return bridge;
-            const MIN_TURN_FROM_GATE_M = 1200;
-            let firstKeep = 1;
-            while (firstKeep < bridge.length - 1) {
-                const p = bridge[firstKeep];
-                const nearGateBacktrack = alongGateAxisM(p) < -40 && tupleDistM(gate, p) < MIN_TURN_FROM_GATE_M;
-                const tooCloseToExit = tupleDistM(exitPoint, p) < 120;
-                if (!nearGateBacktrack && !tooCloseToExit) break;
-                if (tupleLineCrossesBlockedCell(sourceGrid, bridge[0], bridge[firstKeep + 1])) break;
-                firstKeep++;
-            }
-            return firstKeep > 1 ? [bridge[0], ...bridge.slice(firstKeep)] : bridge;
-        };
-        const bridgePastCanalReturn = (dest: readonly [number, number]): [number, number][] | null => {
-            const normal = gridBridgePolyline(
-                grid,
-                { lat: exitPoint[1], lon: exitPoint[0] },
-                { lat: dest[1], lon: dest[0] },
-            );
-            const prunedNormal = normal ? pruneImmediateBridgeBacktrack(normal, grid) : normal;
-            if (!prunedNormal || prunedNormal.length < 2 || !prunedNormal.some((p) => isCanalReturnPoint(p))) {
-                return prunedNormal;
-            }
-
-            const cells = new Float32Array(grid.cells);
-            const preferred = new Uint8Array(grid.preferred);
-            let blocked = 0;
-            for (let y = 0; y < grid.height; y++) {
-                for (let x = 0; x < grid.width; x++) {
-                    const idx = y * grid.width + x;
-                    if (Number.isNaN(cells[idx])) continue;
-                    const p: [number, number] = [
-                        grid.minLon + (x + 0.5) * grid.dLon,
-                        grid.minLat + (y + 0.5) * grid.dLat,
-                    ];
-                    if (!isCanalReturnPoint(p)) continue;
-                    cells[idx] = NaN;
-                    preferred[idx] = 0;
-                    blocked++;
-                }
-            }
-            if (blocked === 0) return normal;
-
-            const avoidGrid: NavGrid = { ...grid, cells, preferred };
-            delete avoidGrid.centreFactor;
-            delete avoidGrid.confined;
-            const avoided = gridBridgePolyline(
-                avoidGrid,
-                { lat: exitPoint[1], lon: exitPoint[0] },
-                { lat: dest[1], lon: dest[0] },
-            );
-            const prunedAvoided = avoided ? pruneImmediateBridgeBacktrack(avoided, avoidGrid) : avoided;
-            return prunedAvoided &&
-                prunedAvoided.length >= 2 &&
-                !prunedAvoided.some((p) => isCanalReturnPoint(p, avoidGrid))
-                ? prunedAvoided
-                : prunedNormal;
-        };
-
-        const replaceFrom = existingExit ? lastGateSeg + 3 : lastGateSeg + 2;
-        let keepFrom = replaceFrom;
-        while (keepFrom < outPoly.length) {
-            const p = outPoly[keepFrom];
-            const backtracksBehindGate = alongGateAxisM(p) < -40;
-            const gateDistM = tupleDistM(gate, p);
-            const canalDistM =
-                canalLines.length > 0 ? pointToTupleLinesM({ lat: p[1], lon: p[0] }, canalLines) : Infinity;
-            const isImmediateBacktrack = backtracksBehindGate && gateDistM < BACKTRACK_PRUNE_M;
-            const isCanalBacktrack =
-                backtracksBehindGate && gateDistM < CANAL_BACKTRACK_PRUNE_M && canalDistM < CANAL_BACKTRACK_LINE_M;
-            const tooCloseToExit = tupleDistM(exitPoint, p) < 120;
-            if (
-                !isImmediateBacktrack &&
-                !isCanalBacktrack &&
-                !tooCloseToExit &&
-                !tupleLineCrossesHardLand(grid, exitPoint, p)
-            )
-                break;
-            keepFrom++;
-        }
-        if (keepFrom >= outPoly.length) {
-            const dest = outPoly[outPoly.length - 1];
-            const bridge = bridgePastCanalReturn(dest);
-            if (bridge && bridge.length >= 2) {
-                markVerifiedGateExit(bridge);
-                outPoly.splice(replaceFrom, outPoly.length - replaceFrom, ...(existingExit ? bridge.slice(1) : bridge));
-            } else if (existingExit) {
-                outPoly.splice(replaceFrom, outPoly.length - replaceFrom);
-            } else {
-                verifiedInshoreSegKeys.add(segKey(gate, exitPoint));
-                outPoly.splice(replaceFrom, outPoly.length - replaceFrom, exitPoint);
-            }
-            return;
-        }
-        if (existingExit) outPoly.splice(replaceFrom, keepFrom - replaceFrom);
-        else {
-            verifiedInshoreSegKeys.add(segKey(gate, exitPoint));
-            outPoly.splice(replaceFrom, keepFrom - replaceFrom, exitPoint);
-        }
-    };
-    insertStraightOuterGateExit();
-
     const CANAL_RENDER_M = 45;
-    const channelSegRaw = outPoly.slice(0, -1).map((p, i) => {
-        const b = outPoly[i + 1];
-        return channelSegKeys.has(segKey(p, b)) || (onChainYellowLine(p) && onChainYellowLine(b));
-    });
-    const channelVtxRaw = outPoly.map(
-        (p, i) => channelVertexKeys.has(vtxKey(p)) || !!channelSegRaw[i] || !!channelSegRaw[i - 1],
-    );
-    const firstChannelSegIdx = channelSegRaw.findIndex(Boolean);
-    const lastChannelSegIdx = channelSegRaw.reduce((last, flagged, i) => (flagged ? i : last), -1);
-    const firstChannelIdx = firstChannelSegIdx >= 0 ? firstChannelSegIdx : channelVtxRaw.findIndex(Boolean);
-    const lastChannelIdx =
-        lastChannelSegIdx >= 0
-            ? lastChannelSegIdx + 1
-            : channelVtxRaw.reduce((last, flagged, i) => (flagged ? i : last), -1);
-    const endpointCanalM = Math.max(CANAL_RENDER_M, 120);
-    const originOnCanal =
-        canalLines.length > 0 &&
-        outPoly.length > 0 &&
-        pointToTupleLinesM({ lat: outPoly[0][1], lon: outPoly[0][0] }, canalLines) <= endpointCanalM;
-    const destOnCanal =
-        canalLines.length > 0 &&
-        outPoly.length > 0 &&
-        pointToTupleLinesM({ lat: outPoly[outPoly.length - 1][1], lon: outPoly[outPoly.length - 1][0] }, canalLines) <=
-            endpointCanalM;
-    const canalAllowedAt = (i: number): boolean => {
-        if (firstChannelIdx < 0) return true;
-        return (originOnCanal && i <= firstChannelIdx) || (destOnCanal && i >= lastChannelIdx);
-    };
     const tier1Vtx = outPoly.map(([lon, lat], i) => {
-        // RED requires GEOMETRY-CONFIRMED canal, not merely "was internally tier-1":
-        //   onCanalLine — within CANAL_RENDER_M of a charted OSM canal/dock line
-        // The old mask also reddened raw `canalKeys` (ANY glued tier-1 leg vertex).
-        // That bled RED onto broad Mapbox/satellite-water tier-1 legs with no canal
-        // nearby — e.g. the Brisbane River approach to Pinkenba routed `tier1:finegrid`
-        // but ~3 km from any canal line (docs/AI_COLLAB.md 2026-06-24). Per Shane's
-        // colour contract that water is YELLOW/TEAL, not RED. Drop the unguarded
-        // canalKeys term; a tier-1 leg only reddens where the chart proves canal.
-        // Channel vertices stay yellow, and the canal side of a marked-channel
-        // egress is decided by route position: origin-side canal before the first
-        // channel, destination-side canal after the last channel. That stops the
-        // bay-side route after Newport's outer gate from turning red merely because
-        // it passes near the same canal linework.
         const onCanalLine = canalLines.length > 0 && pointToTupleLinesM({ lat, lon }, canalLines) <= CANAL_RENDER_M;
-        return !channelVtxRaw[i] && canalAllowedAt(i) && onCanalLine;
+        return canalVtx[i] || canalKeys.has(`${lon}|${lat}`) || onCanalLine;
     });
-    // Tier 2 owns the marker-gate corridor. Do not erase yellow just
-    // because a gate endpoint is still close to canal/marina linework;
-    // the engine-boundary canal mask suppresses red on channel segments.
-    const channelSeg = channelSegRaw.slice();
-    const offshoreVtx = outPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
-    const verifiedInshoreMask = outPoly
+    // Per-vertex YELLOW flag (an endpoint of a tier-2 marked-channel segment) — the
+    // gates. Re-centring must NEVER move these, so the yellow stays exactly between
+    // the marker pairs.
+    const yellowVtx = outPoly.map((p, i) => {
+        const a = i > 0 && channelSegKeys.has(segKey(outPoly[i - 1], p));
+        const b = i + 1 < outPoly.length && channelSegKeys.has(segKey(p, outPoly[i + 1]));
+        return a || b;
+    });
+    // Channel re-centre: pull the canal/main-channel RED onto the channel CENTRE.
+    // Two references, in priority order:
+    //   (1) the buoy chains (channelChains) — the lateral marks are charted down the
+    //       MIDDLE of the channel, and the YELLOW already rides them, so snapping the
+    //       RED onto the same chain centres it AND aligns red↔yellow (Shane's coupling);
+    //   (2) LNDARE land walls — "find the banks, divide by two" — for the marina canals.
+    // Yellow excluded; densify changes the polyline length, so a rebuilt red mask is returned.
+    const lndare = (layers.LNDARE?.features ?? [])
+        .filter((f) => f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon')
+        .map((f) => {
+            const geom = f.geometry as Polygon | MultiPolygon;
+            return { geom, bbox: geometryBbox(geom) };
+        });
+    const { polyline: finalPoly, redMask: finalRed } = recentreCanalRedOnEnc(
+        outPoly,
+        tier1Vtx,
+        yellowVtx,
+        lndare,
+        channelChains,
+    );
+    const channelSeg = finalPoly
         .slice(0, -1)
-        .map((p, i) => verifiedInshoreSegKeys.has(segKey(p, outPoly[i + 1])));
+        .map((p, i) => channelSegKeys.has(segKey(p, finalPoly[i + 1])) && !finalRed[i] && !finalRed[i + 1]);
+    const offshoreVtx = finalPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {
-        polyline: outPoly,
+        polyline: finalPoly,
         provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}`,
         spanCount: spans.length,
         // Per-vertex tier-1 flag (parallel to polyline) for canal/marina RED.
-        canalMask: tier1Vtx,
+        canalMask: finalRed,
         // Per-segment tier-2 flag for the YELLOW marked-channel.
         channelMask: channelSeg,
         // Deprecated alias for callers that still use the old marked-channel name.
         tier4Mask: channelSeg,
         // Per-vertex offshore (tier-4) flag for the DARK BLUE offshore leg.
         offshoreMask: offshoreVtx,
-        // Per-segment generated tier-3 gate exit verified by the egress bridge.
-        verifiedInshoreMask,
     };
 }
 

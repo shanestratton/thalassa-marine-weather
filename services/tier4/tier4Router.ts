@@ -32,8 +32,6 @@ interface LL {
 interface EgressLeadingLine extends LeadingLine {
     /** First point index that belongs to tier 2 when this chain starts inside a canal handoff. */
     readonly tier2FromIndex?: number;
-    /** Higher wins when multiple egress tracks can serve the same canal exit. */
-    readonly egressPriority?: number;
 }
 
 export interface Tier4Context {
@@ -120,16 +118,6 @@ function turnDeg(a: LL, b: LL, c: LL): number {
     return (Math.acos(cos) * 180) / Math.PI;
 }
 
-function segmentCrossesLand(a: LL, b: LL, isLand: (p: LL) => boolean, stepM = 20): boolean {
-    const segM = distM(a, b);
-    const steps = Math.max(1, Math.ceil(segM / stepM));
-    for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        if (isLand({ lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t })) return true;
-    }
-    return false;
-}
-
 /**
  * Build the tier-2 leg for one span, or refuse.
  *
@@ -169,7 +157,6 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             pts: LL[];
             gates: number;
             endpointM: number;
-            priority: number;
             needsStraighten: boolean;
         } | null = null;
 
@@ -221,7 +208,6 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
                 deduped.push(p);
             }
             if (deduped.length < 2) continue;
-            if (deduped.some((p, i) => i > 0 && segmentCrossesLand(deduped[i - 1], p, isLand))) continue;
 
             const hasOffCentreVertex = poly
                 .map((p) => pointToPolylineM(p, track.pts))
@@ -234,18 +220,11 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
                     turnDeg(poly[i - 1], p, poly[i + 1]) > 95,
             );
             const needsStraighten = hasOffCentreVertex && hasSharpGateTurn;
-            const candidate = {
-                pts: deduped,
-                gates: servedGateIdxs.length,
-                endpointM,
-                priority: (track as EgressLeadingLine).egressPriority ?? 0,
-                needsStraighten,
-            };
+            const candidate = { pts: deduped, gates: servedGateIdxs.length, endpointM, needsStraighten };
             if (
                 !best ||
-                candidate.priority > best.priority ||
-                (candidate.priority === best.priority &&
-                    (candidate.gates > best.gates || (candidate.gates === best.gates && endpointM < best.endpointM)))
+                candidate.gates > best.gates ||
+                (candidate.gates === best.gates && endpointM < best.endpointM)
             ) {
                 best = candidate;
             }
@@ -276,7 +255,7 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     };
 
     if (isEgressSpan) {
-        const explicitGates = forceExplicitChainGeometry(chainTracks(), true);
+        const explicitGates = forceExplicitChainGeometry(chainTracks(), false);
         if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
         else snapChannelChain();
     }

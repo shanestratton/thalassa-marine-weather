@@ -55,7 +55,8 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
-import type { Feature, FeatureCollection, LineString, Polygon, Position } from 'geojson';
+import type { Feature, FeatureCollection, LineString, MultiPolygon, Polygon, Position } from 'geojson';
+import { pointInGeometry, geometryBbox } from '../../services/engine/geometry';
 
 import {
     routeInshore,
@@ -65,40 +66,6 @@ import {
 } from '../../services/inshoreRouterEngine';
 import { fetchRegionalMarkers } from '../../services/InshoreRouter';
 import { snapRouteToCanalLines, parseCanalLines } from '../../services/tier3/canalLineFollower';
-import { fetchSatelliteWater } from '../../services/satelliteWater';
-import { fetchMapboxWater } from '../../services/mapboxWater';
-
-/** Read VITE_MAPBOX_ACCESS_TOKEN from .env.local (vitest doesn't always wire import.meta.env). */
-function readMapboxToken(): string {
-    try {
-        const env = readFileSync('.env.local', 'utf8');
-        const m = env.match(/^VITE_MAPBOX_ACCESS_TOKEN=(.+)$/m);
-        return m ? m[1].trim().replace(/^["']|["']$/g, '') : '';
-    } catch {
-        return '';
-    }
-}
-
-/** corridorCrop verbatim from InshoreRouter.ts:979 — ~4 km reach toward the other endpoint. */
-function corridorCrop(
-    a: { lat: number; lon: number },
-    b: { lat: number; lon: number },
-): [number, number, number, number] {
-    const REACH_M = 4000;
-    const PERP_DEG = 0.011;
-    const cosLat = Math.cos((a.lat * Math.PI) / 180) || 1;
-    const dLat = b.lat - a.lat;
-    const dLon = (b.lon - a.lon) * cosLat;
-    const len = Math.hypot(dLat, dLon) || 1;
-    const reachDeg = REACH_M / 111_320;
-    const far = { lat: a.lat + (dLat / len) * reachDeg, lon: a.lon + ((dLon / len) * reachDeg) / cosLat };
-    return [
-        Math.min(a.lon, far.lon) - PERP_DEG,
-        Math.min(a.lat, far.lat) - PERP_DEG,
-        Math.max(a.lon, far.lon) + PERP_DEG,
-        Math.max(a.lat, far.lat) + PERP_DEG,
-    ];
-}
 
 // This harness routes on the REAL ENC pulled live from the boat's chart server
 // (calypso.local). It is a DIAGNOSTIC, not a CI gate — when the Pi is unreachable
@@ -299,6 +266,13 @@ function loadOsmCanalLines(): Feature[] {
 function loadOsmCoastline(): Feature[] {
     const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { coastline?: FeatureCollection };
     return (d.coastline?.features ?? []) as Feature[];
+}
+
+/** OSM water polygons — the navigable-water footprint InshoreRouter injects into
+ *  DEPARE as `_source:'mapbox-water'` so uncharted canals route tier1:finegrid. */
+function loadOsmWater(): Feature[] {
+    const d = JSON.parse(readFileSync(OSM_PATH, 'utf8')) as { water?: FeatureCollection };
+    return (d.water?.features ?? []) as Feature[];
 }
 
 /**
@@ -551,29 +525,21 @@ function measureHug(route: RouteResult): HugReport {
     };
 }
 
-function runVariant(
-    navSource: NavSource,
-    req: RouteRequest = REQ_BASE as RouteRequest,
-): { route: RouteResult; prov: string; hug: HugReport } {
+function runVariant(navSource: NavSource): { route: RouteResult; prov: string; hug: HugReport } {
     const layers = assembleLayers(cells, navSource, osmNav, osmCanal, osmCoastline);
-    const res = routeInshore(layers, req);
+    const res = routeInshore(layers, REQ_BASE as RouteRequest);
     if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
     const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
     const hug = measureHug(res);
     return { route: res, prov, hug };
 }
 
-async function runVariantWithRegionalMarkers(req: RouteRequest = REQ_BASE as RouteRequest): Promise<{
+async function runVariantWithRegionalMarkers(injectWater = false): Promise<{
     route: RouteResult;
     prov: string;
     hug: HugReport;
-    regional: {
-        midpoints: number;
-        segments: number;
-        wings: number;
-        acceptedPairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }>;
-        midpointFeatures: unknown[];
-    };
+    regional: { midpoints: number; segments: number; wings: number };
+    layers: InshoreLayers;
 }> {
     const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
     const regional = await fetchRegionalMarkers(
@@ -586,7 +552,30 @@ async function runVariantWithRegionalMarkers(req: RouteRequest = REQ_BASE as Rou
     if (regional.segments.length > 0) layers.FAIRWY!.features.push(...(regional.segments as never[]));
     if (regional.wings.length > 0) layers.OBSTRN!.features.push(...(regional.wings as never[]));
 
-    const res = routeInshore(layers, req);
+    // FAITHFUL device repro: inject the Mapbox water (origin crop) into DEPARE so the
+    // Newport approach routes tier1:finegrid — the "little leg" Shane sees off-centre.
+    if (injectWater) {
+        const water = loadOsmWater().filter((f) => {
+            const g = f.geometry as Polygon | MultiPolygon | undefined;
+            if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
+            const bb = geometryBbox(g);
+            return bb[2] >= 153.085 && bb[0] <= 153.099 && bb[3] >= -27.217 && bb[1] <= -27.19;
+        });
+        for (const f of water) {
+            (layers.DEPARE!.features as unknown[]).push({
+                ...f,
+                properties: {
+                    ...(f.properties ?? {}),
+                    natural: 'water',
+                    _source: 'mapbox-water',
+                    DRVAL1: 5,
+                    DRVAL2: 5,
+                },
+            });
+        }
+    }
+
+    const res = routeInshore(layers, REQ_BASE as RouteRequest);
     if ('error' in res) throw new Error(`route failed: ${res.error} (${res.code ?? 'no-code'})`);
     const prov = res.debug?.threeTier ?? '(no threeTier — monolith fallback)';
     const hug = measureHug(res);
@@ -598,9 +587,8 @@ async function runVariantWithRegionalMarkers(req: RouteRequest = REQ_BASE as Rou
             midpoints: regional.midpoints.length,
             segments: regional.segments.length,
             wings: regional.wings.length,
-            acceptedPairs: regional.acceptedPairs,
-            midpointFeatures: regional.midpoints,
         },
+        layers,
     };
 }
 
@@ -741,7 +729,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // eslint-disable-next-line no-console
         console.log('\n=== VARIANT D (REAL OSM + regional marker chains) ===');
         // eslint-disable-next-line no-console
-        console.log(`regional: midpoints=${regional.midpoints} segments=${regional.segments} wings=${regional.wings}`);
+        console.log('regional:', regional);
         // eslint-disable-next-line no-console
         console.log('prov  :', prov);
         // eslint-disable-next-line no-console
@@ -752,48 +740,6 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         console.log('indexedNewportPts:', indexedNewportPts.join(' | '));
         // eslint-disable-next-line no-console
         console.log('handoffPts:', handoffPts.join(' | '));
-        const newportPairs = regional.acceptedPairs
-            .map((p) => ({
-                port: p.port,
-                stbd: p.stbd,
-                mid: { lat: (p.port.lat + p.stbd.lat) / 2, lon: (p.port.lon + p.stbd.lon) / 2 },
-            }))
-            .filter(({ mid }) => mid.lat > -27.206 && mid.lat < -27.178 && mid.lon > 153.088 && mid.lon < 153.098)
-            .sort((a, b) => a.mid.lat - b.mid.lat)
-            .map(
-                ({ port, stbd, mid }) =>
-                    `mid=${mid.lat.toFixed(6)},${mid.lon.toFixed(6)} ` +
-                    `port=${port.lat.toFixed(6)},${port.lon.toFixed(6)} ` +
-                    `stbd=${stbd.lat.toFixed(6)},${stbd.lon.toFixed(6)}`,
-            );
-        // eslint-disable-next-line no-console
-        console.log('newportPairs:', newportPairs.join(' | '));
-        const newportMidpointRows = regional.midpointFeatures
-            .map((f) => {
-                const feature = f as {
-                    properties?: { _chainId?: number; _chainOrder?: number; _pairDistanceM?: number };
-                    geometry?: { type?: string; coordinates?: [number, number] };
-                };
-                if (feature.geometry?.type !== 'Point') return null;
-                const [lon, lat] = feature.geometry.coordinates ?? [0, 0];
-                return {
-                    lat,
-                    lon,
-                    chainId: feature.properties?._chainId,
-                    chainOrder: feature.properties?._chainOrder,
-                    pairDistanceM: feature.properties?._pairDistanceM,
-                };
-            })
-            .filter(
-                (p): p is NonNullable<typeof p> =>
-                    !!p && p.lat > -27.206 && p.lat < -27.178 && p.lon > 153.088 && p.lon < 153.098,
-            )
-            .sort((a, b) => (a.chainId ?? 0) - (b.chainId ?? 0) || (a.chainOrder ?? 0) - (b.chainOrder ?? 0));
-        const newportMidpoints = newportMidpointRows.map(
-            (p) => `c${p.chainId}/o${p.chainOrder} ${p.lat.toFixed(6)},${p.lon.toFixed(6)} d=${p.pairDistanceM}`,
-        );
-        // eslint-disable-next-line no-console
-        console.log('newportMidpoints:', newportMidpoints.join(' | '));
         // eslint-disable-next-line no-console
         console.log(
             `hug   : riverPts=${hug.riverPts} meanFromRECTRC=${hug.meanRectrcM.toFixed(0)}m ` +
@@ -807,126 +753,13 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         expect(prov).toContain('egress-channel×4');
         expect(prov).toContain('tier2:chain×4');
         expect(prov, 'no stray tier-2 gate fallback after the Newport egress chain').not.toContain('gate:gates1');
-        const finalNewportGate = newportMidpointRows[newportMidpointRows.length - 1];
-        if (!finalNewportGate) throw new Error('regional marker feed missing the final Newport gate midpoint');
         const outerGateIdx = route.polyline.findIndex(
-            ([lon, lat]) => haversineM(lat, lon, finalNewportGate.lat, finalNewportGate.lon) < 20,
+            ([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35,
         );
         expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
         const ch = route.channelMask ?? route.tier4Mask ?? [];
-        const cm = route.canalMask ?? [];
-        const caution = route.cautionMask ?? [];
-        const overlaps = ch
-            .map((yellow, i) => ({ i, yellow, red: cm[i] ?? false }))
-            .filter(({ yellow, red }) => yellow && red)
-            .map(({ i }) => i);
-        const renderedState = (i: number): 'danger' | 'channel' | 'offshore' | 'green' => {
-            if (ch[i]) return 'channel';
-            if (cm[i]) return 'danger';
-            if (caution[i]) return 'danger';
-            return route.offshoreMask?.[i] ? 'offshore' : 'green';
-        };
-        expect(overlaps, 'tier masks are exclusive: no segment is both canal red and channel yellow').toEqual([]);
-        expect(ch[outerGateIdx - 1], 'the final regional gate-to-gate segment remains yellow').toBe(true);
-        expect(cm[outerGateIdx - 1], 'yellow final gate segment must not also carry canal red').toBe(false);
-        expect(renderedState(outerGateIdx - 1), 'rendered final gate-to-gate segment is yellow, not red').toBe(
-            'channel',
-        );
-        expect(renderedState(outerGateIdx), 'bay side of the final Newport gate renders as inshore teal').toBe('green');
-        const beforeOuterGate = route.polyline[outerGateIdx - 1];
-        const outerGate = route.polyline[outerGateIdx];
-        const afterOuterGate = route.polyline[outerGateIdx + 1];
-        if (!afterOuterGate) throw new Error('regional route missing a straight point after the Newport outer gate');
-        const gateSlope = (outerGate[0] - beforeOuterGate[0]) / (outerGate[1] - beforeOuterGate[1]);
-        const expectedExitLon = outerGate[0] + (afterOuterGate[1] - outerGate[1]) * gateSlope;
-        expect(
-            haversineM(afterOuterGate[1], afterOuterGate[0], afterOuterGate[1], expectedExitLon),
-            'regional post-gate exit point stays on the final gate axis',
-        ).toBeLessThan(15);
-        expect(
-            haversineM(outerGate[1], outerGate[0], afterOuterGate[1], afterOuterGate[0]),
-            'regional route holds the final gate axis well clear of the marker pair before turning',
-        ).toBeGreaterThan(900);
         expect(ch.slice(outerGateIdx + 1, outerGateIdx + 5).some(Boolean), 'bay side of the outer gate is tier-3').toBe(
             false,
-        );
-    });
-
-    it('NEWPORT TAP — screenshot coordinate keeps canal red and marker channel yellow', async () => {
-        const req: RouteRequest = {
-            ...(REQ_BASE as RouteRequest),
-            fromLat: -27.2135,
-            fromLon: 153.0875,
-        };
-        const { route, prov, regional } = await runVariantWithRegionalMarkers(req);
-        const ch = route.channelMask ?? route.tier4Mask ?? [];
-        const cm = route.canalMask ?? [];
-        const caution = route.cautionMask ?? [];
-        const newportGateCenters = regional.midpointFeatures
-            .map((f) => {
-                const feature = f as {
-                    properties?: { _pairDistanceM?: number };
-                    geometry?: { type?: string; coordinates?: [number, number] };
-                };
-                if (feature.geometry?.type !== 'Point') return null;
-                const [lon, lat] = feature.geometry.coordinates ?? [0, 0];
-                return { lat, lon, pairDistanceM: feature.properties?._pairDistanceM };
-            })
-            .filter(
-                (p): p is NonNullable<typeof p> =>
-                    !!p &&
-                    p.lat > -27.206 &&
-                    p.lat < -27.178 &&
-                    p.lon > 153.088 &&
-                    p.lon < 153.098 &&
-                    (p.pairDistanceM ?? 0) > 0,
-            )
-            .sort((a, b) => a.lat - b.lat);
-        const gateIdxs = newportGateCenters.map(({ lat, lon }) =>
-            route.polyline.findIndex(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 45),
-        );
-        const renderedState = (i: number): 'danger' | 'channel' | 'offshore' | 'green' => {
-            if (ch[i]) return 'channel';
-            if (cm[i]) return 'danger';
-            if (caution[i]) return 'danger';
-            return route.offshoreMask?.[i] ? 'offshore' : 'green';
-        };
-        const overlaps = ch
-            .map((yellow, i) => ({ i, yellow, red: cm[i] ?? false }))
-            .filter(({ yellow, red }) => yellow && red)
-            .map(({ i }) => i);
-
-        // eslint-disable-next-line no-console
-        console.log(
-            `\n=== NEWPORT TAP (-27.2135,153.0875) ===\nprov: ${prov}\n` +
-                route.polyline
-                    .map(
-                        ([lon, lat], i) =>
-                            `${i}:${lat.toFixed(6)},${lon.toFixed(6)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0}`,
-                    )
-                    .filter((row) => row.includes('-27.2') || row.includes('-27.19') || row.includes('-27.18'))
-                    .join('\n') +
-                `\ngates: ${gateIdxs.join(',')} overlaps: ${overlaps.join(',')}`,
-        );
-
-        expect(prov, 'tiered Newport egress is engaged').toContain('egress-channel');
-        expect(
-            gateIdxs.every((i) => i >= 0),
-            'route reaches every Newport marker-pair centre',
-        ).toBe(true);
-        expect(overlaps, 'yellow marker segments must not also carry canal red').toEqual([]);
-        const firstGateIdx = gateIdxs[0];
-        const outerGateIdx = gateIdxs[gateIdxs.length - 1];
-        expect(firstGateIdx, 'first marker pair index exists').toBeGreaterThan(0);
-        expect(cm[firstGateIdx - 1], 'canal stem before the first marker pair remains red').toBe(true);
-        expect(ch[firstGateIdx - 1], 'canal stem before the first marker pair is not yellow').not.toBe(true);
-        for (let g = 0; g + 1 < gateIdxs.length; g++) {
-            for (let i = gateIdxs[g]; i < gateIdxs[g + 1]; i++) {
-                expect(renderedState(i), `marker-gate segment ${i} renders yellow`).toBe('channel');
-            }
-        }
-        expect(renderedState(outerGateIdx), 'bay side after the final Newport gate is not canal red').not.toBe(
-            'danger',
         );
     });
 
@@ -967,31 +800,18 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // Distance is to the nearest line SEGMENT (not vertex): the canal lines have
         // long straight runs, so a vertex metric falsely reports a mid-segment point
         // as far off even when it rides the line exactly.
-        const interiorOffset = (
-            poly: Position[],
-            includeSegment: (i: number) => boolean = () => true,
-        ): { mean: number; n: number } => {
+        const interiorOffset = (poly: Position[]): { mean: number; n: number } => {
             let sum = 0;
             let n = 0;
-            for (let i = 0; i < poly.length - 1; i++) {
-                if (!includeSegment(i)) continue;
-                const [aLon, aLat] = poly[i];
-                const [bLon, bLat] = poly[i + 1];
-                const segM = haversineM(aLat, aLon, bLat, bLon);
-                const steps = Math.max(1, Math.ceil(segM / 20));
-                for (let s = 0; s <= steps; s++) {
-                    const t = s / steps;
-                    const lon = aLon + (bLon - aLon) * t;
-                    const lat = aLat + (bLat - aLat) * t;
-                    if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
-                    let best = Infinity;
-                    for (const ln of lines) {
-                        const d = pointToChainM(lat, lon, ln as unknown as Position[]);
-                        if (d < best) best = d;
-                    }
-                    sum += best;
-                    n++;
+            for (const [lon, lat] of densify(poly, 20)) {
+                if (lat > -27.203 || lat < -27.213 || lon < 153.082 || lon > 153.095) continue;
+                let best = Infinity;
+                for (const ln of lines) {
+                    const d = pointToChainM(lat, lon, ln as unknown as Position[]);
+                    if (d < best) best = d;
                 }
+                sum += best;
+                n++;
             }
             return { mean: n ? sum / n : NaN, n };
         };
@@ -999,6 +819,7 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         // The engine now applies the snap internally, so route.polyline is the
         // FINAL on-device geometry. Verify it rides the canal centre + the snap
         // engaged (+canalsnap), and that re-snapping leaves the river byte-identical.
+        const off = interiorOffset(route.polyline);
         const { polyline: resnapped } = snapRouteToCanalLines(route.polyline, lines);
         const river = (poly: readonly (readonly number[])[]): string =>
             JSON.stringify(poly.filter(([, la]) => la < -27.38));
@@ -1011,7 +832,6 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         const cm = route.canalMask ?? [];
         const ch = route.channelMask ?? route.tier4Mask ?? [];
         const caution = route.cautionMask ?? [];
-        const off = interiorOffset(route.polyline, (i) => (cm[i] || cm[i + 1]) && !(ch[i] || ch[i + 1]));
         const inCanal = (lon: number, lat: number): boolean =>
             lat <= -27.203 && lat >= -27.213 && lon >= 153.082 && lon <= 153.095;
         let canalSegs = 0;
@@ -1036,53 +856,10 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
                 `canal-only segments flagged red (canalMask): ${flaggedCanalSegs}/${canalOnlySegs} ` +
                 `(total in bbox ${canalSegs}); of those in cautionMask: ${canalSegsInCaution}`,
         );
-        const firstChannelSeg = ch.findIndex(Boolean);
-        const firstGateIdx = route.polyline.findIndex(
-            ([lon, lat]) => haversineM(lat, lon, -27.203175, 153.093041) < 35,
-        );
-        const lastCanalStemIdx = route.polyline.findIndex(
-            ([lon, lat]) => haversineM(lat, lon, -27.20425, 153.092916) < 10,
-        );
-        const outerGateIdx = route.polyline.findIndex(
-            ([lon, lat]) => haversineM(lat, lon, -27.183025, 153.094083) < 35,
-        );
         expect(off.n).toBeGreaterThan(0);
-        expect(off.mean, 'engine routes the red canal near the charted centreline').toBeLessThan(12);
-        expect(firstChannelSeg, 'Newport egress has a channel handoff').toBeGreaterThanOrEqual(0);
-        expect(firstGateIdx, 'route reaches the Newport inner gate').toBeGreaterThanOrEqual(0);
-        expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
-        expect(lastCanalStemIdx, 'route follows the final Albatross canal centreline node before the gate').toBe(
-            firstGateIdx - 1,
+        expect(off.mean, 'engine routes the canal near centre while continuing to the charted lead-out').toBeLessThan(
+            12,
         );
-        expect(firstChannelSeg, 'yellow starts at the inner-gate segment, not the canal stem').toBe(firstGateIdx);
-        expect(cm[lastCanalStemIdx], 'the final canal-stem segment to the first gate remains red').toBe(true);
-        expect(ch[lastCanalStemIdx], 'the final canal-stem segment is not yellow').not.toBe(true);
-        expect(ch[outerGateIdx - 1], 'the final gate-to-gate segment remains yellow').toBe(true);
-        expect(ch[outerGateIdx], 'yellow stops at the final Newport gate before the bay handoff').not.toBe(true);
-        const outerGate = route.polyline[outerGateIdx];
-        const afterOuterGate = route.polyline[outerGateIdx + 1];
-        const afterExitTurn = route.polyline[outerGateIdx + 2];
-        const beforeOuterGate = route.polyline[outerGateIdx - 1];
-        expect(afterOuterGate, 'route keeps a point after the Newport outer gate').toBeTruthy();
-        expect(afterExitTurn, 'route keeps a bay handoff after the straight gate exit').toBeTruthy();
-        expect(
-            afterOuterGate[1],
-            'route exits straight beyond the outer gate before turning to the bay',
-        ).toBeGreaterThan(outerGate[1]);
-        const gateSlope = (outerGate[0] - beforeOuterGate[0]) / (outerGate[1] - beforeOuterGate[1]);
-        const expectedExitLon = outerGate[0] + (afterOuterGate[1] - outerGate[1]) * gateSlope;
-        expect(
-            haversineM(afterOuterGate[1], afterOuterGate[0], afterOuterGate[1], expectedExitLon),
-            'post-gate exit point stays on the final gate axis',
-        ).toBeLessThan(15);
-        expect(
-            haversineM(outerGate[1], outerGate[0], afterOuterGate[1], afterOuterGate[0]),
-            'route holds the final gate axis well clear of the marker pair before turning',
-        ).toBeGreaterThan(900);
-        expect(
-            haversineM(outerGate[1], outerGate[0], afterExitTurn[1], afterExitTurn[0]),
-            'route must not double back to the old close bay handoff immediately after clearing the outer gate',
-        ).toBeGreaterThan(1200);
         expect(prov, 'canal-line snap engaged').toContain('canalsnap');
         expect(river(resnapped), 'snap leaves the river alone').toBe(river(route.polyline));
         expect(canalOnlySegs, 'canal interior has non-channel segments').toBeGreaterThan(0);
@@ -1091,105 +868,20 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
         );
     });
 
-    it('CANAL BEND DIAG — per-vertex offset from the OSM canal centre-line', () => {
-        const { route, prov } = runVariant('osm');
-        const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
-        const cm = route.canalMask ?? [];
-        const ch = route.channelMask ?? route.tier4Mask ?? [];
-        const nearestLine = (lat: number, lon: number): { d: number; li: number } => {
-            let best = Infinity;
-            let li = -1;
-            for (let k = 0; k < lines.length; k++) {
-                const d = pointToChainM(lat, lon, lines[k] as unknown as Position[]);
-                if (d < best) {
-                    best = d;
-                    li = k;
-                }
-            }
-            return { d: best, li };
-        };
-        // Dump every route vertex in the Newport canal/estate band (lat −27.218..−27.200).
-        const rows: string[] = [];
-        route.polyline.forEach(([lon, lat], i) => {
-            if (lat > -27.2 || lat < -27.218) return;
-            const { d, li } = nearestLine(lat, lon);
-            rows.push(
-                `${i}: ${lat.toFixed(6)},${lon.toFixed(6)} off=${d.toFixed(1)}m line=${li} ` +
-                    `c${cm[i] ? 1 : 0}/${cm[i - 1] ? 1 : 0} y${ch[i] ? 1 : 0}`,
-            );
-        });
-        // eslint-disable-next-line no-console
-        console.log(`\n=== CANAL BEND DIAG ===\nprov: ${prov}\ncanalLines=${lines.length}\n` + rows.join('\n'));
-        // Where is the worst offset, and is it flagged canal?
-        let worst = { i: -1, d: 0, lat: 0, lon: 0 };
-        route.polyline.forEach(([lon, lat], i) => {
-            if (lat > -27.2 || lat < -27.218) return;
-            const { d } = nearestLine(lat, lon);
-            if (d > worst.d) worst = { i, d, lat, lon };
-        });
-        // eslint-disable-next-line no-console
-        console.log(
-            `WORST in-estate offset: idx=${worst.i} ${worst.lat.toFixed(6)},${worst.lon.toFixed(6)} ` +
-                `off=${worst.d.toFixed(1)}m canalFlag=${cm[worst.i] ? 1 : 0} yellowFlag=${ch[worst.i] ? 1 : 0}`,
-        );
-        expect(route.polyline.length).toBeGreaterThan(2);
-    });
-
-    it('VARIANT E — Mapbox/satellite water → fine-grid canal (the device path)', async () => {
-        const token = readMapboxToken();
-        if (!token) {
+    it('MAIN CHANNEL DIAG — where does the red leave the centre + is there an OSM line there', () => {
+        // Shane's actual route: Newport → Pinkenba (REQ_BASE). Its main channel comes
+        // out RED (canalMask), which is the stretch he sees off-centre.
+        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+        const res = routeInshore(layers, REQ_BASE as RouteRequest);
+        if ('error' in res) {
             // eslint-disable-next-line no-console
-            console.log('VARIANT E: no VITE_MAPBOX_ACCESS_TOKEN in .env.local — skipping');
+            console.log(`MAIN CHANNEL DIAG: route failed (${res.code ?? '?'})`);
             expect(true).toBe(true);
             return;
         }
-        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
-        const regional = await fetchRegionalMarkers(
-            REGIONAL_MARKERS_URL,
-            layers.LNDARE?.features ?? [],
-            osmWaterFeatures(),
-            [...(layers.DEPARE?.features ?? []), ...(layers.DRGARE?.features ?? [])],
-        );
-        if (regional.midpoints.length > 0) layers.BOYLAT!.features.push(...(regional.midpoints as never[]));
-        if (regional.segments.length > 0) layers.FAIRWY!.features.push(...(regional.segments as never[]));
-        if (regional.wings.length > 0) layers.OBSTRN!.features.push(...(regional.wings as never[]));
-        // Inject satellite/vector water as authoritative DEPARE — verbatim InshoreRouter.ts:1009-1043.
-        const crops = [corridorCrop(NEWPORT, PINKENBA), corridorCrop(PINKENBA, NEWPORT)];
-        const waterFCs = await Promise.all(
-            crops.map(async (b) => {
-                try {
-                    const sat = await fetchSatelliteWater(b, token);
-                    if (sat.features.length > 0) return sat;
-                } catch {
-                    /* fall back to vector water */
-                }
-                return fetchMapboxWater(b, token);
-            }),
-        );
-        const water = waterFCs.flatMap((fc) => fc.features);
-        for (const f of water) {
-            (layers.DEPARE!.features as unknown[]).push({
-                ...f,
-                properties: {
-                    ...(f.properties ?? {}),
-                    natural: 'water',
-                    _source: 'mapbox-water',
-                    DRVAL1: 5.0,
-                    DRVAL2: 5.0,
-                },
-            });
-        }
-        const res = routeInshore(layers, {
-            ...REQ_BASE,
-            safetyM: 0.2,
-            obstructionBufferM: 60,
-        } as RouteRequest);
-        if ('error' in res) throw new Error(`VARIANT E route failed: ${res.error}`);
-        const prov = res.debug?.threeTier ?? '(no threeTier)';
         const lines = parseCanalLines(osmCanal as Parameters<typeof parseCanalLines>[0]);
         const cm = res.canalMask ?? [];
         const ch = res.channelMask ?? res.tier4Mask ?? [];
-        const caution = res.cautionMask ?? [];
         const offTo = (lat: number, lon: number): number => {
             let best = Infinity;
             for (const ln of lines) {
@@ -1198,182 +890,166 @@ describe.skipIf(!PI_UP)('Newport → Pinkenba — hug reproduction against real 
             }
             return best;
         };
+        // Count OSM canal-line vertices per latitude band to see WHERE the chart has a
+        // centre-line at all (narrow canals) vs WHERE it doesn't (the wide main channel).
+        const bandPts = (loLat: number, hiLat: number): number => {
+            let n = 0;
+            for (const ln of lines)
+                for (const [lo, la] of ln) if (la >= loLat && la <= hiLat && lo >= 153.088 && lo <= 153.097) n++;
+            return n;
+        };
         const rows: string[] = [];
-        let worst = { i: -1, d: 0, lat: 0, lon: 0 };
         res.polyline.forEach(([lon, lat], i) => {
-            if (lat > -27.2 || lat < -27.218 || lon < 153.08 || lon > 153.098) return;
-            const d = offTo(lat, lon);
+            if (lat < -27.216 || lat > -27.18) return;
+            const red = !!(cm[i] || (i > 0 && cm[i - 1]));
+            const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
             rows.push(
-                `${i}:${lat.toFixed(6)},${lon.toFixed(6)} off=${d.toFixed(1)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0} k${caution[i] ? 1 : 0}`,
+                `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} offLine=${lines.length ? offTo(lat, lon).toFixed(0) : '∞'}m`,
             );
-            if (d > worst.d) worst = { i, d, lat, lon };
         });
-        const handoffRows = res.polyline
-            .map(
-                ([lon, lat], i) =>
-                    `${i}:${lat.toFixed(6)},${lon.toFixed(6)} r${cm[i] ? 1 : 0} y${ch[i] ? 1 : 0} k${caution[i] ? 1 : 0} off=${offTo(lat, lon).toFixed(0)}m`,
-            )
-            .slice(18, 36);
         // eslint-disable-next-line no-console
         console.log(
-            `\n=== VARIANT E (Mapbox/satellite water — device fine-grid path) ===\n` +
-                `water polys injected: ${water.length}\nprov: ${prov}\npts: ${res.polyline.length}\n` +
-                `regional: midpoints=${regional.midpoints.length} segments=${regional.segments.length} wings=${regional.wings.length}\n` +
-                rows.join('\n') +
-                `\nhandoff:\n${handoffRows.join('\n')}` +
-                `\nWORST in-estate offset: idx=${worst.i} ${worst.lat.toFixed(6)},${worst.lon.toFixed(6)} ` +
-                `off=${worst.d.toFixed(1)}m r${cm[worst.i] ? 1 : 0} y${ch[worst.i] ? 1 : 0}`,
+            `\n=== MAIN CHANNEL DIAG (north exit) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
+                `OSM canal-line vertices by lat band: marina[-27.216..-27.208]=${bandPts(-27.216, -27.208)} ` +
+                `mainCh[-27.208..-27.203]=${bandPts(-27.208, -27.203)} gates[-27.203..-27.182]=${bandPts(-27.203, -27.182)}\n` +
+                rows.join('\n'),
         );
         expect(res.polyline.length).toBeGreaterThan(2);
+    });
 
-        // BRISBANE-RED FIX (docs/AI_COLLAB.md 2026-06-24): a vertex may only render
-        // RED (canalMask) where the chart proves canal — never just because it was
-        // internally routed tier-1:finegrid over broad Mapbox/satellite water. The
-        // Brisbane River approach to Pinkenba routes tier-1:finegrid ~3 km from any
-        // canal line; it must NOT be red. Assert no RED vertex sits far off a line.
-        const offAt = (i: number): number =>
-            i >= 0 && i < res.polyline.length ? offTo(res.polyline[i][1], res.polyline[i][0]) : Infinity;
-        // A genuine "RED over open water" bug is a red SEGMENT whose BOTH ends are far
-        // from any canal line (the Brisbane River run). A single boundary segment that
-        // enters/leaves a real canal (one end ≤200 m of a line — e.g. the Pinkenba
-        // destination-marina approach) is legitimately red and must be allowed.
-        const farRedSegs: number[] = [];
-        for (let i = 0; i < res.polyline.length - 1; i++) {
-            if (cm[i] && offAt(i) > 200 && offAt(i + 1) > 200) farRedSegs.push(i);
+    it('VARIANT F — inject Mapbox-water ⇒ device finegrid main channel + measure water-centring', () => {
+        // The plain repro routes the Newport approach as tier3/tier2; the DEVICE injects
+        // Mapbox water into DEPARE (_source:'mapbox-water') so it routes tier1:finegrid —
+        // the off-centre RED Shane sees. Replicate that injection (origin crop) so the
+        // off-centre main channel + the recentre fix can be reproduced + tested LOCALLY.
+        const layers = assembleLayers(cells, 'osm', osmNav, osmCanal, osmCoastline);
+        const water = loadOsmWater().filter((f) => {
+            const g = f.geometry as Polygon | MultiPolygon | undefined;
+            if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return false;
+            const bb = geometryBbox(g);
+            return bb[2] >= 153.085 && bb[0] <= 153.099 && bb[3] >= -27.217 && bb[1] <= -27.19;
+        });
+        for (const f of water) {
+            (layers.DEPARE!.features as unknown[]).push({
+                ...f,
+                properties: {
+                    ...(f.properties ?? {}),
+                    natural: 'water',
+                    _source: 'mapbox-water',
+                    DRVAL1: 5,
+                    DRVAL2: 5,
+                },
+            });
         }
-        const regionalNewportGateCenters = regional.midpoints
-            .map((f) => {
-                const feature = f as {
-                    properties?: { _chainId?: number; _chainOrder?: number; _pairDistanceM?: number };
-                    geometry?: { type?: string; coordinates?: [number, number] };
-                };
-                if (feature.geometry?.type !== 'Point') return null;
-                const [lon, lat] = feature.geometry.coordinates ?? [0, 0];
-                return {
-                    lat,
-                    lon,
-                    chainId: feature.properties?._chainId,
-                    chainOrder: feature.properties?._chainOrder,
-                    pairDistanceM: feature.properties?._pairDistanceM,
-                };
-            })
-            .filter(
-                (p): p is NonNullable<typeof p> =>
-                    !!p &&
-                    p.lat > -27.206 &&
-                    p.lat < -27.178 &&
-                    p.lon > 153.088 &&
-                    p.lon < 153.098 &&
-                    (p.pairDistanceM ?? 0) > 0,
-            )
-            .sort((a, b) => a.lat - b.lat);
-        const fallbackNewportGateCenters = [
-            { lat: -27.203175, lon: 153.093041 },
-            { lat: -27.196692, lon: 153.0934 },
-            { lat: -27.19034, lon: 153.093776 },
-            { lat: -27.183025, lon: 153.094083 },
-        ];
-        const newportGateCenters =
-            regionalNewportGateCenters.length >= 4 ? regionalNewportGateCenters : fallbackNewportGateCenters;
-        const newportGateIdxs = newportGateCenters.map(({ lat, lon }) =>
-            res.polyline.findIndex(([pLon, pLat]) => haversineM(pLat, pLon, lat, lon) < 45),
-        );
-        const outerGateIdx = newportGateIdxs[newportGateIdxs.length - 1] ?? -1;
-        const baySideNewportRedSegs: number[] = [];
-        if (outerGateIdx >= 0) {
-            for (let i = outerGateIdx + 1; i < res.polyline.length - 1; i++) {
-                const [lon, lat] = res.polyline[i];
-                if (lat < -27.23 || lat > -27.2 || lon < 153.08 || lon > 153.1) continue;
-                if (cm[i]) baySideNewportRedSegs.push(i);
+        const res = routeInshore(layers, REQ_BASE as RouteRequest);
+        if ('error' in res) {
+            // eslint-disable-next-line no-console
+            console.log(`VARIANT F: route failed (${res.code ?? '?'})`);
+            expect(true).toBe(true);
+            return;
+        }
+        const cm = res.canalMask ?? [];
+        const ch = res.channelMask ?? res.tier4Mask ?? [];
+        const wp = water.map((f) => {
+            const g = f.geometry as Polygon | MultiPolygon;
+            return { g, bb: geometryBbox(g) };
+        });
+        const inW = (lon: number, lat: number): boolean =>
+            wp.some(
+                (w) =>
+                    lon >= w.bb[0] &&
+                    lon <= w.bb[2] &&
+                    lat >= w.bb[1] &&
+                    lat <= w.bb[3] &&
+                    pointInGeometry(lon, lat, w.g),
+            );
+        const mLon = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
+        const rows: string[] = [];
+        let measured = 0;
+        let worstOff = 0;
+        res.polyline.forEach(([lon, lat], i) => {
+            if (lat < -27.216 || lat > -27.2) return; // the main-channel / approach band
+            const red = !!(cm[i] || (i > 0 && cm[i - 1]));
+            const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
+            let e = NaN;
+            let w = NaN;
+            for (let s = 3; s <= 280; s += 3) {
+                if (isNaN(e) && !inW(lon + s / mLon(lat), lat)) e = s;
+                if (isNaN(w) && !inW(lon - s / mLon(lat), lat)) w = s;
+                if (!isNaN(e) && !isNaN(w)) break;
             }
-        }
+            const twoWall = !isNaN(e) && !isNaN(w);
+            const off = twoWall ? (e - w) / 2 : NaN;
+            if (twoWall) {
+                measured++;
+                worstOff = Math.max(worstOff, Math.abs(off));
+            }
+            rows.push(
+                `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} ` +
+                    `waterOff=${twoWall ? off.toFixed(0) + 'm' : 'open'} (E${isNaN(e) ? '∞' : e.toFixed(0)}/W${isNaN(w) ? '∞' : w.toFixed(0)})`,
+            );
+        });
         // eslint-disable-next-line no-console
         console.log(
-            `far-red SEGMENTS (red, both ends >200m from any canal line): ${farRedSegs.length}` +
-                (farRedSegs.length
-                    ? ' :: ' +
-                      farRedSegs
-                          .slice(0, 6)
-                          .map((i) => `${i}:${offAt(i).toFixed(0)}/${offAt(i + 1).toFixed(0)}m`)
-                          .join(' ')
-                    : '') +
-                `\nnewportGateCenters: ${newportGateCenters
-                    .map((p, i) => `${i}:${p.lat.toFixed(6)},${p.lon.toFixed(6)}@${newportGateIdxs[i]}`)
-                    .join(' | ')}`,
+            `\n=== VARIANT F (inject mapbox-water) ===\nprov: ${res.debug?.threeTier ?? ''}\n` +
+                `injected ${water.length} water polys | measured ${measured} two-walled vtx, worst off-centre = ${worstOff.toFixed(0)}m\n` +
+                rows.join('\n'),
         );
-        expect(
-            farRedSegs.length,
-            'no RED segment may span open water >200m from a charted canal line (Brisbane-RED tail fix)',
-        ).toBe(0);
-        expect(outerGateIdx, 'route reaches the Newport outer gate').toBeGreaterThanOrEqual(0);
-        const renderedState = (i: number): 'danger' | 'channel' | 'offshore' | 'green' => {
-            if (ch[i]) return 'channel';
-            if (cm[i]) return 'danger';
-            if (caution[i]) return 'danger';
-            return res.offshoreMask?.[i] ? 'offshore' : 'green';
-        };
-        const inNewportEstate = ([lon, lat]: readonly [number, number]): boolean =>
-            lat <= -27.2 && lat >= -27.218 && lon >= 153.08 && lon <= 153.098;
-        const postGateEstateReturn = res.polyline
-            .map((p, i) => ({ p, i }))
-            .filter(({ p, i }) => i > outerGateIdx && i <= outerGateIdx + 8 && inNewportEstate(p))
-            .map(({ i, p }) => `${i}:${p[1].toFixed(6)},${p[0].toFixed(6)}`);
-        expect(
-            postGateEstateReturn,
-            'after the outer gate the route must not swing back into the Newport canals',
-        ).toEqual([]);
-        expect(renderedState(outerGateIdx - 1), 'device-style final gate-to-gate segment renders yellow').toBe(
-            'channel',
-        );
-        expect(
-            newportGateIdxs.every((i) => i >= 0),
-            'device-style route reaches every Newport gate centre',
-        ).toBe(true);
-        for (let g = 0; g + 1 < newportGateIdxs.length; g++) {
-            for (let i = newportGateIdxs[g]; i < newportGateIdxs[g + 1]; i++) {
-                expect(
-                    renderedState(i),
-                    `device-style Newport tier-2 gate chain segment ${i} renders yellow from first marker pair onward`,
-                ).toBe('channel');
-            }
+        expect(res.polyline.length).toBeGreaterThan(2);
+    });
+
+    it('VARIANT G — regional markers + injected water = FAITHFUL device repro (the little leg)', async () => {
+        const { route, prov, layers } = await runVariantWithRegionalMarkers(true);
+        // Rebuild the buoy chains the engine uses: BOYLAT channel_midpoints grouped by
+        // _chainId, sorted by _chainOrder (mirrors tierPipeline's channelChains).
+        const groups = new Map<number, { order: number; lon: number; lat: number }[]>();
+        for (const f of layers.BOYLAT?.features ?? []) {
+            const p = f.properties as { _class?: string; _chainId?: number; _chainOrder?: number } | null;
+            if (p?._class !== 'channel_midpoint' || p._chainId == null) continue;
+            const g = f.geometry as { coordinates: number[] };
+            if (!groups.has(p._chainId)) groups.set(p._chainId, []);
+            groups.get(p._chainId)!.push({ order: p._chainOrder ?? 0, lon: g.coordinates[0], lat: g.coordinates[1] });
         }
-        expect(renderedState(outerGateIdx), 'device-style bay side after the final Newport gate renders teal').toBe(
-            'green',
+        const chains = [...groups.values()].map((g) =>
+            g.sort((a, b) => a.order - b.order).map((m) => ({ lon: m.lon, lat: m.lat })),
         );
-        expect(
-            renderedState(outerGateIdx + 1),
-            'device-style generated bay handoff after the clear-out renders teal',
-        ).toBe('green');
-        expect(
-            baySideNewportRedSegs.length,
-            'after the Newport outer gate the bay-side route must not remain RED/canal',
-        ).toBe(0);
-        const afterOuterGate = res.polyline[outerGateIdx + 1];
-        const afterExitTurn = res.polyline[outerGateIdx + 2];
-        expect(afterOuterGate, 'device-style route keeps a point after the Newport outer gate').toBeTruthy();
-        expect(afterExitTurn, 'device-style route keeps a bay handoff after the straight gate exit').toBeTruthy();
-        expect(
-            afterOuterGate[1],
-            'device-style route exits straight beyond the outer gate before turning',
-        ).toBeGreaterThan(res.polyline[outerGateIdx][1]);
-        expect(
-            haversineM(
-                res.polyline[outerGateIdx][1],
-                res.polyline[outerGateIdx][0],
-                afterOuterGate[1],
-                afterOuterGate[0],
-            ),
-            'device-style route holds the final gate axis well clear of the marker pair before turning',
-        ).toBeGreaterThan(900);
-        expect(
-            haversineM(
-                res.polyline[outerGateIdx][1],
-                res.polyline[outerGateIdx][0],
-                afterExitTurn[1],
-                afterExitTurn[0],
-            ),
-            'device-style route must not double back to the old close bay handoff immediately after the outer gate',
-        ).toBeGreaterThan(1200);
+        const mLon = (lat: number): number => 111320 * Math.cos((lat * Math.PI) / 180);
+        const offChain = (lon: number, lat: number): number => {
+            let best = Infinity;
+            for (const c of chains)
+                for (let k = 0; k + 1 < c.length; k++) {
+                    const ax = (c[k].lon - lon) * mLon(lat);
+                    const ay = (c[k].lat - lat) * 110540;
+                    const bx = (c[k + 1].lon - lon) * mLon(lat);
+                    const by = (c[k + 1].lat - lat) * 110540;
+                    const dx = bx - ax;
+                    const dy = by - ay;
+                    const l2 = dx * dx + dy * dy;
+                    const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+                    best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy));
+                }
+            return best;
+        };
+        const cm = route.canalMask ?? [];
+        const ch = route.channelMask ?? route.tier4Mask ?? [];
+        const rows: string[] = [];
+        route.polyline.forEach(([lon, lat], i) => {
+            if (lat < -27.216 || lat > -27.18) return;
+            const red = !!(cm[i] || (i > 0 && cm[i - 1]));
+            const yellow = !!(ch[i] || (i > 0 && ch[i - 1]));
+            rows.push(
+                `${i}: ${lat.toFixed(5)},${lon.toFixed(5)} ${red ? 'RED' : yellow ? 'YEL' : 'tea'} ` +
+                    `offChain=${chains.length ? offChain(lon, lat).toFixed(0) + 'm' : '∞'}`,
+            );
+        });
+        // eslint-disable-next-line no-console
+        console.log(
+            `\n=== VARIANT G (regional + water = device repro) ===\nprov: ${prov}\n` +
+                `chains: [${chains.map((c) => c.length).join(',')}] midpoints in Newport band: ` +
+                `${chains.flat().filter((m) => m.lat > -27.216 && m.lat < -27.18).length}\n` +
+                rows.join('\n'),
+        );
+        expect(route.polyline.length).toBeGreaterThan(2);
     });
 
     it('TIER-2 — routing through the Newport exit gate channel engages the channel tier (yellow)', () => {

@@ -506,6 +506,19 @@ export interface MarinaRouteParams {
     canalHalfWidthCells: number;
     /** Dijkstra centring strength (spike: 5.0). */
     bias: number;
+    /**
+     * Corridor-proximity reward weight (default 0 = off). When a `corridorCells`
+     * path is supplied to routeMarina, each cell earns `corridorWeight ×
+     * (corridorHalfWidthCells − dist-to-corridor)` extra cost. Since solveCenterline
+     * PREFERS higher cost, this pulls the medial axis toward the corridor (the coarse
+     * A* line that already threads the channel) so it rides the CHANNEL near the
+     * corridor instead of the geometric centre of a wide basin. The centreline term
+     * still decides the exact centre within the corridor band, so it doesn't hug the
+     * corridor itself. Set in the fine canal pass; 0 keeps every other caller identical.
+     */
+    corridorWeight?: number;
+    /** Saturation radius (cells) for the corridor reward — ~one channel half-width. */
+    corridorHalfWidthCells?: number;
 }
 
 export const DEFAULT_MARINA_PARAMS: MarinaRouteParams = {
@@ -539,6 +552,8 @@ export function routeMarina(
     start: Cell,
     end: Cell,
     params: MarinaRouteParams = DEFAULT_MARINA_PARAMS,
+    corridorCells?: readonly Cell[],
+    realWater?: Uint8Array,
 ): MarinaRouteResult | null {
     const { width, height } = shape;
 
@@ -565,14 +580,35 @@ export function routeMarina(
     // Centerline inside the eroded graph, capped at one canal half-width.
     const centerline = euclideanDistanceTransform(graph, shape);
 
-    // Cost field: depth-weighted + centerline (matches the spike).
+    // Optional corridor-proximity reward: distance of every cell from the supplied
+    // corridor (the coarse A* line through the channel). Built as an EDT seeded on the
+    // corridor cells (corridor = 0, elsewhere = 1 ⇒ EDT = distance-to-corridor).
+    const corridorWeight = params.corridorWeight ?? 0;
+    const corridorHalf = params.corridorHalfWidthCells ?? 0;
+    let corridorDist: Float32Array | null = null;
+    if (corridorWeight > 0 && corridorHalf > 0 && corridorCells && corridorCells.length > 0) {
+        const seed = new Uint8Array(width * height).fill(1);
+        for (const c of corridorCells) {
+            if (c.x >= 0 && c.y >= 0 && c.x < width && c.y < height) seed[c.y * width + c.x] = 0;
+        }
+        corridorDist = euclideanDistanceTransform(seed, shape);
+    }
+
+    // Cost field: depth-weighted + centerline (matches the spike), plus the optional
+    // corridor reward. solveCenterline PREFERS higher cost, so a cell near the corridor
+    // earns more and the ridge rides the channel near the corridor, not the basin centre.
     const cost = new Float32Array(width * height);
     let costMax = 0;
     for (let i = 0; i < cost.length; i++) {
         if (!graph[i]) continue;
         const c = Math.min(centerline[i], params.canalHalfWidthCells);
         const d = Number.isNaN(depth[i]) ? 0 : depth[i];
-        const v = params.depthWeight * d + c;
+        let v = params.depthWeight * d + c;
+        // Corridor reward — but NEVER on bridged (non-real-water) cells, or the bias would
+        // pull the medial axis through a bridged corner-cut and re-introduce the clip.
+        if (corridorDist && (!realWater || realWater[i])) {
+            v += corridorWeight * (corridorHalf - Math.min(corridorDist[i], corridorHalf));
+        }
         cost[i] = v;
         if (v > costMax) costMax = v;
     }

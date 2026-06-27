@@ -27,10 +27,10 @@
 
 import type { NavGrid } from '../inshoreRouterEngine';
 import {
-    centrelineSimplify,
     euclideanDistanceTransform,
     routeMarina,
     snapToMask,
+    stringPullCentred,
     type Cell,
     type MarinaRouteParams,
     type MarinaRouteResult,
@@ -223,6 +223,14 @@ export function buildFineCanalLeg(
         depthWeight: 0,
         canalHalfWidthCells: 12,
         bias: 5.0,
+        // Corridor bias: pull the medial axis toward the coarse A* corridor (which threads
+        // the channel) so it rides the CHANNEL, not the geometric centre of a WIDE injected
+        // basin (Shane's Newport approach: the satellite water is wider than the channel, so
+        // the unbiased medial axis drifts off to the basin side). Proven on a synthetic basin
+        // in tests/marinaCenterline.test.ts (noBias 7 cells off → withBias 0). depthWeight=0
+        // alone can't fix it once the basin EDT saturates the half-width cap.
+        corridorWeight: 8,
+        corridorHalfWidthCells: 6,
         ...paramsOverride,
     };
 
@@ -233,31 +241,61 @@ export function buildFineCanalLeg(
     // cell at a time — but NEVER below 1: keel 0 keeps cells with clearance ≥ 0,
     // which includes land (clearance 0), so it would route across the bank. At
     // 12 m keelCells is already 1, so this loop is a single safe pass there.
+    const depth = marinaDepthArray(fineGrid);
+    // Bridge the proven-navigable coarse corridor so a fine-grid barrier (a thin
+    // wall the 50 m carve averaged away) can't split the canal into two
+    // components. Low-preference, so the route still rides real water everywhere
+    // it exists; the bridge only spans genuine fine-grid gaps.
+    if (corridor) bridgeCorridor(fineGrid, depth, corridor);
     const shape = { width: fineGrid.width, height: fineGrid.height };
-    let result: MarinaRouteResult | null = null;
-    let keelUsed = baseParams.keelCells;
-
-    const solve = (depth: Float32Array): { result: MarinaRouteResult | null; keelUsed: number } => {
-        for (let k = baseParams.keelCells; k >= 1; k--) {
-            const r = routeMarina(depth, shape, start, end, { ...baseParams, keelCells: k });
-            if (r && r.waypoints.length >= 2) {
-                return { result: r, keelUsed: k };
+    // Rasterise the coarse corridor to fine cells for the corridor bias (densify to
+    // ~1-cell steps so the seed is continuous along the line).
+    const corridorCells: Cell[] = [];
+    if (corridor && corridor.length > 0) {
+        const seen = new Set<number>();
+        for (let i = 0; i < corridor.length; i++) {
+            const a = corridor[i];
+            const b = corridor[Math.min(i + 1, corridor.length - 1)];
+            const steps = Math.max(
+                1,
+                Math.ceil(Math.hypot((b[0] - a[0]) / fineGrid.dLon, (b[1] - a[1]) / fineGrid.dLat)),
+            );
+            for (let s = 0; s <= steps; s++) {
+                const t = s / steps;
+                const c = toCell(fineGrid, a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t);
+                if (!c) continue;
+                const k = c.y * fineGrid.width + c.x;
+                // ONLY seed the bias on REAL water. A coarse corridor corner-cuts through
+                // fine-grid land (which bridgeCorridor stamps low-depth for connectivity);
+                // seeding those cells would pull the medial axis BACK through the bridged
+                // gap and re-introduce the clip. Excluding them keeps the bias on the real
+                // channel, so the route still rounds bends through genuine water.
+                const dv = fineGrid.cells[k];
+                if (Number.isNaN(dv) || dv < 0) continue;
+                if (!seen.has(k)) {
+                    seen.add(k);
+                    corridorCells.push(c);
+                }
             }
         }
-        return { result: null, keelUsed: baseParams.keelCells };
-    };
-
-    const realDepth = marinaDepthArray(fineGrid);
-    ({ result, keelUsed } = solve(realDepth));
-    // Only if the real fine water cannot connect do we bridge the proven coarse
-    // corridor. Bridging before trying real water can contaminate the medial axis:
-    // the old route gets stamped into the water mask and the "centred" result may
-    // still ride that off-centre chord. Real water first; bridge only as a data-gap
-    // fallback.
-    if (!result && corridor) {
-        const bridgedDepth = marinaDepthArray(fineGrid);
-        bridgeCorridor(fineGrid, bridgedDepth, corridor);
-        ({ result, keelUsed } = solve(bridgedDepth));
+    }
+    const corridorArg = corridorCells.length > 0 ? corridorCells : undefined;
+    // REAL water (pre-bridge) — passed to the corridor bias so it never rewards a bridged
+    // gap (also reused below for the centre-preserving simplify).
+    const realWater = new Uint8Array(fineGrid.cells.length);
+    for (let i = 0; i < realWater.length; i++) {
+        const c = fineGrid.cells[i];
+        realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
+    }
+    let result: MarinaRouteResult | null = null;
+    let keelUsed = baseParams.keelCells;
+    for (let k = baseParams.keelCells; k >= 1; k--) {
+        const r = routeMarina(depth, shape, start, end, { ...baseParams, keelCells: k }, corridorArg, realWater);
+        if (r && r.waypoints.length >= 2) {
+            result = r;
+            keelUsed = k;
+            break;
+        }
     }
     if (!result) return null;
 
@@ -267,17 +305,22 @@ export function buildFineCanalLeg(
     // (re-introducing the clip). Excluding bridge cells from the clear() test means
     // a chord can only ever collapse across genuine navigable water; the route
     // follows the Dijkstra path one cell at a time through any bridged gap.
-    const realWater = new Uint8Array(fineGrid.cells.length);
-    for (let i = 0; i < realWater.length; i++) {
-        const c = fineGrid.cells[i];
-        realWater[i] = Number.isNaN(c) || c < 0 ? 0 : 1;
-    }
+    // (realWater is built above, before the routeMarina loop.)
     // Render the fine canal centreline. routeMarina's 4-connected Dijkstra rides
-    // mid-channel but staircases at the cell scale. Use the centreline-preserving
-    // simplifier, not the greedy taut string-pull: the latter can turn a shaped
-    // canal run into a few long chords that are technically clear but visibly not
-    // in the middle of the canal (Newport red line, 2026-06-24).
-    const waypoints = centrelineSimplify(result.cells, realWater, shape, 2.5);
+    // mid-channel but staircases/wanders at the cell scale.
+    //   • injected Mapbox canal (preferCentreline) — the user's canal-estate case.
+    //     stringPullCentred keeps the taut line's clean STRAIGHT runs (the wander is
+    //     ignored, so no drunk wobble) but forbids a chord from getting closer to a
+    //     bank than the centreline does — so the taut line can no longer cut the
+    //     inside of a corner; the route rounds it mid-channel instead.
+    //   • NARROW non-injected canal (default) — keep the proven taut string-pull the
+    //     threeTierNewport + seaway-corpus baselines were measured against.
+    // ALWAYS centre-preserve the simplify now that the Dijkstra cells ride the medial
+    // axis (depthWeight=0): stringPullCentred forbids a chord from getting closer to a
+    // bank than the centreline, so straight runs stay clean but bends round mid-channel
+    // instead of cutting the inside. Plain stringPull would taut the centred cells back
+    // toward the wall on every bend — re-introducing the hug we just removed.
+    const waypoints = stringPullCentred(result.cells, realWater, euclideanDistanceTransform(realWater, shape), shape);
     const polyline: LatLon[] = waypoints.map((c) => cellCentreLatLon(fineGrid, c));
     // Pin endpoints to the exact seam nodes so the Gluer's identity check holds
     // (the fine interior lives on cell centres; the seams must match the coarse
