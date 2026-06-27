@@ -200,10 +200,10 @@ export const HeroSection = ({
                 });
             });
         }
-        // Cap at 10 rows total (Today + up to 9 future days). WeatherKit's
-        // daily forecast returns 10 days; Open-Meteo returns up to 16. Either
-        // way, 10 is the carousel's design ceiling.
-        return rows.slice(0, 10);
+        // Cap at 11 rows total (Today + up to 10 future days). WeatherKit's
+        // daily forecast returns 10 days; the weather service extends the tail
+        // with Open-Meteo (up to 16) so a full 10 days in advance are available.
+        return rows.slice(0, 11);
     }, [current, forecasts, hourly, timeZone]);
 
     const handleScroll = useCallback(
