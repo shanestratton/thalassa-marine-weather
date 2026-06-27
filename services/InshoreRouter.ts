@@ -1301,15 +1301,8 @@ async function tryInshoreRouteInner(
     // ENGAGED lines log every attempt (strict / relaxed / shadow); this is the
     // ONE that won — its provenance tells us whether the canal span rendered as
     // finegrid or fell back to a coarse tier-3 passthrough.
-    const renderedCanalMask = (result as { canalMask?: boolean[] }).canalMask;
-    const renderedChannelMask =
-        (result as { channelMask?: boolean[] }).channelMask ?? (result as { tier4Mask?: boolean[] }).tier4Mask;
-    const renderedCautionMask = (result as { cautionMask?: boolean[] }).cautionMask;
-    const maskCount = (mask?: boolean[]): number => mask?.filter(Boolean).length ?? 0;
     log.warn(
-        `RENDERED ROUTE prov="${(result as { debug?: { threeTier?: string } }).debug?.threeTier ?? 'n/a'}" ` +
-            `(${result.distanceNM.toFixed(1)} NM, ${result.polyline.length} pts, ` +
-            `masks red=${maskCount(renderedCanalMask)} yellow=${maskCount(renderedChannelMask)} caution=${maskCount(renderedCautionMask)})`,
+        `RENDERED ROUTE prov="${(result as { debug?: { threeTier?: string } }).debug?.threeTier ?? 'n/a'}" (${result.distanceNM.toFixed(1)} NM, ${result.polyline.length} pts)`,
     );
     // Full polyline vertex dump (lat,lon) — see exactly where the route
     // runs without eyeballing the rendered map.

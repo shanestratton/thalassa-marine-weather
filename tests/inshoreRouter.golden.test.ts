@@ -153,14 +153,23 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         expect(r.distanceNM).toBeLessThan(18.43 * 1.02);
     });
 
-    it('caution cells at or below the lock-in baseline (11)', () => {
+    it('caution cells at or below the lock-in baseline (12)', () => {
         expectConnected(r);
         // RE-PIN 10→11 (3-tier Phase 4 + along-segment caution, 42bf48c8):
         // route distance is byte-identical (18.43 NM pinned green), only the
         // caution count rose by ONE cell — the along-segment sampler catching
         // a mid-segment caution the old per-vertex sampler missed on the SAME
         // route. Honest by construction (stable geometry, +1 honest flag).
-        expect(cautionCount(r)).toBeLessThanOrEqual(11);
+        //
+        // RE-PIN 11→12 (recentreCanalRedOnEnc, Newport-end centring 2026-06-27):
+        // the Newport canal RED now rides the ENC channel medial axis instead of
+        // the OSM canal line it was snapped to (~8 m west). The centred path
+        // passes through ONE more caution cell than the off-centre OSM line did —
+        // the actual channel centre genuinely sits there. The re-centre marches
+        // strictly BETWEEN LNDARE walls (it cannot cross land), distance is
+        // unchanged (18.43 NM still green above), so this is +1 honest flag on a
+        // more-accurate path, not a hazard incursion.
+        expect(cautionCount(r)).toBeLessThanOrEqual(12);
     });
 
     // KNOWN ENGINE LIMITATION (Claude B's lane — re-diagnosed 2026-06-11 with

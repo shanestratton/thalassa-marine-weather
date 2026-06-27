@@ -208,3 +208,62 @@ describe('routeMarina', () => {
         expect(r).toBeNull();
     });
 });
+
+describe('routeMarina — corridor bias keeps the route in the channel, not the basin', () => {
+    // Shane's Newport case in miniature: the satellite water is a NARROW curving channel
+    // with a WIDE basin attached to one side. The medial axis (which prefers the widest
+    // water) drifts into the basin; the supplied corridor (the coarse A* line that already
+    // threads the channel) must pull it back so it rides the curving channel centre.
+    const w = 80;
+    const h = 50;
+    function buildGrid(): { depth: Float32Array; corridor: Cell[] } {
+        const depth = new Float32Array(w * h).fill(NaN); // NaN = land
+        const wet = (x: number, y: number): void => {
+            if (x >= 0 && y >= 0 && x < w && y < h) depth[y * w + x] = 10;
+        };
+        const corridor: Cell[] = [];
+        for (let y = 2; y <= h - 3; y++) {
+            // A ~21-cell-wide water body (like Newport's ~200 m basin at 12 m/cell, so the
+            // EDT stays under the canalHalfWidth cap and the medial axis hits the TRUE centre
+            // at x≈20). The navigable CHANNEL is the left side — the corridor at x=12 — while
+            // the right half is non-channel basin. The medial axis rides x≈20 (centre); the
+            // corridor must pull it left onto the channel at x≈12.
+            for (let x = 10; x <= 30; x++) wet(x, y);
+            corridor.push({ x: 12, y });
+        }
+        return { depth, corridor };
+    }
+    const distToCorridor = (c: Cell, corridor: Cell[]): number =>
+        Math.min(...corridor.map((k) => Math.hypot(k.x - c.x, k.y - c.y)));
+
+    it('drifts into the basin WITHOUT the corridor, tracks the channel WITH it', () => {
+        const { depth, corridor } = buildGrid();
+        const shape = { width: w, height: h };
+        const start: Cell = { x: 12, y: 3 };
+        const end: Cell = { x: 12, y: h - 4 };
+        const base = { keelCells: 1, depthWeight: 0, canalHalfWidthCells: 12, bias: 5 };
+
+        const noBias = routeMarina(depth, shape, start, end, base);
+        expect(noBias).not.toBeNull();
+        const noBiasMax = Math.max(...noBias!.cells.map((c) => distToCorridor(c, corridor)));
+
+        const withBias = routeMarina(
+            depth,
+            shape,
+            start,
+            end,
+            { ...base, corridorWeight: 8, corridorHalfWidthCells: 6 },
+            corridor,
+        );
+        expect(withBias).not.toBeNull();
+        const withBiasMax = Math.max(...withBias!.cells.map((c) => distToCorridor(c, corridor)));
+
+        // eslint-disable-next-line no-console
+        console.log(
+            `[corridor-bias] max off-corridor: noBias=${noBiasMax.toFixed(1)} → withBias=${withBiasMax.toFixed(1)} cells`,
+        );
+        assertNoLandCrossing(withBias!.cells, depth, w);
+        expect(noBiasMax).toBeGreaterThan(5); // the unbiased medial axis rides the basin centre, off the channel
+        expect(withBiasMax).toBeLessThan(3); // the corridor pulls it back onto the channel side
+    });
+});
