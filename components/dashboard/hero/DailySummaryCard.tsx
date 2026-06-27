@@ -54,20 +54,20 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
     const sunset = formatTime(daily.sunset);
 
     return (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-5 px-6 text-white">
+        <div className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-center gap-3 px-5 text-white">
             {/* Day-overview tag */}
             <span className="text-[11px] uppercase tracking-[0.2em] text-white/40">Day overview</span>
 
             {/* Condition + high / low */}
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex flex-col items-center gap-0.5">
                 {daily.condition ? (
-                    <span className="text-lg font-semibold text-white/90 text-center">{daily.condition}</span>
+                    <span className="text-base font-semibold text-white/90 text-center">{daily.condition}</span>
                 ) : null}
                 <div className="flex items-baseline gap-3">
-                    <span className="text-5xl font-black tabular-nums">
+                    <span className="text-4xl font-black tabular-nums">
                         {high !== '--' ? `${high}${tempUnit}` : '--'}
                     </span>
-                    <span className="text-2xl font-semibold text-white/45 tabular-nums">
+                    <span className="text-xl font-semibold text-white/45 tabular-nums">
                         {low !== '--' ? `${low}${tempUnit}` : '--'}
                     </span>
                 </div>

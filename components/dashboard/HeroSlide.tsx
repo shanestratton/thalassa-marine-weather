@@ -966,7 +966,10 @@ const HeroSlideComponent = ({
                             return (
                                 <div
                                     key={slideIdx}
-                                    className="w-full h-full snap-start snap-always shrink-0 relative pb-4 flex flex-col"
+                                    // overflow-hidden + min-h-0: the daily card must NOT make the
+                                    // parent's overflow-y-auto scrollable, or it captures the
+                                    // up/down day-swipe and the snap "bounces" (regression fix).
+                                    className="w-full h-full min-h-0 overflow-hidden snap-start snap-always shrink-0 relative pb-4 flex flex-col"
                                 >
                                     <DailySummaryCard daily={slide.daily} units={units} isLandlocked={isLandlocked} />
                                 </div>
