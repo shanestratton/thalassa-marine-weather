@@ -170,11 +170,14 @@ function buildSeries(samples: HourlyForecast[], pick: MetricConfig['pick']): Pt[
     return out.sort((a, b) => a.t - b.t);
 }
 
-/** Minimal, dependency-free area+line chart. */
+const accentHex = (accent: string): string =>
+    accent.includes('emerald') ? '#6ee7b7' : accent.includes('amber') ? '#fcd34d' : '#7dd3fc';
+
+/** Smooth, glowing area+line chart (dependency-free, Catmull-Rom curve). */
 const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts, nowT, accent }) => {
     const W = 320;
     const H = 120;
-    const PAD = 6;
+    const PAD = 8;
     if (pts.length < 2) {
         return (
             <div className="h-[120px] flex items-center justify-center text-white/40 text-sm">
@@ -193,45 +196,69 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
     }
     const x = (t: number) => PAD + ((t - minT) / (maxT - minT || 1)) * (W - 2 * PAD);
     const y = (v: number) => PAD + (1 - (v - minV) / (maxV - minV || 1)) * (H - 2 * PAD);
-    const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(' ');
-    const area = `${line} L${x(maxT).toFixed(1)},${H - PAD} L${x(minT).toFixed(1)},${H - PAD} Z`;
+    const sp = pts.map((p) => ({ x: x(p.t), y: y(p.v) }));
+
+    // Catmull-Rom → cubic-bezier for a smooth, premium curve.
+    let line = `M${sp[0].x.toFixed(1)},${sp[0].y.toFixed(1)}`;
+    for (let i = 0; i < sp.length - 1; i++) {
+        const p0 = sp[i - 1] || sp[i];
+        const p1 = sp[i];
+        const p2 = sp[i + 1];
+        const p3 = sp[i + 2] || p2;
+        const c1x = p1.x + (p2.x - p0.x) / 6;
+        const c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6;
+        const c2y = p2.y - (p3.y - p1.y) / 6;
+        line += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+    }
+    const area = `${line} L${sp[sp.length - 1].x.toFixed(1)},${H - PAD} L${sp[0].x.toFixed(1)},${H - PAD} Z`;
     const nowX = nowT >= minT && nowT <= maxT ? x(nowT) : null;
-    const stroke = accent.includes('emerald') ? '#6ee7b7' : accent.includes('amber') ? '#fcd34d' : '#7dd3fc';
+    const nowV = pts.find((p) => p.t >= nowT)?.v ?? pts[pts.length - 1].v;
+    const nowY = y(nowV);
+    const stroke = accentHex(accent);
     return (
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[120px]" preserveAspectRatio="none">
             <defs>
                 <linearGradient id="mdd-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={stroke} stopOpacity="0.35" />
+                    <stop offset="0%" stopColor={stroke} stopOpacity="0.42" />
                     <stop offset="100%" stopColor={stroke} stopOpacity="0" />
                 </linearGradient>
+                <filter id="mdd-glow" x="-30%" y="-30%" width="160%" height="160%">
+                    <feGaussianBlur stdDeviation="2.4" />
+                </filter>
             </defs>
             <path d={area} fill="url(#mdd-fill)" />
-            <path d={line} fill="none" stroke={stroke} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+            {/* soft glow underlay */}
+            <path
+                d={line}
+                fill="none"
+                stroke={stroke}
+                strokeWidth={4}
+                strokeOpacity={0.35}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                filter="url(#mdd-glow)"
+            />
+            <path d={line} fill="none" stroke={stroke} strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
             {nowX !== null && (
                 <>
                     <line
                         x1={nowX}
-                        y1={PAD}
+                        y1={PAD - 2}
                         x2={nowX}
                         y2={H - PAD}
                         stroke="#ffffff"
-                        strokeOpacity="0.5"
+                        strokeOpacity="0.4"
                         strokeWidth={1}
-                        strokeDasharray="3 3"
+                        strokeDasharray="2 3"
                     />
-                    <circle cx={nowX} cy={y(pts.find((p) => p.t >= nowT)?.v ?? pts[0].v)} r={3.5} fill="#fff" />
+                    <circle cx={nowX} cy={nowY} r={6} fill={stroke} opacity={0.3} />
+                    <circle cx={nowX} cy={nowY} r={2.8} fill="#fff" />
                 </>
             )}
         </svg>
     );
 };
-
-const Row: React.FC<{ label: string; value: string }> = ({ label, value }) => (
-    <div className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-        <span className="text-sm text-white/55">{label}</span>
-        <span className="text-sm font-semibold text-white tabular-nums">{value}</span>
-    </div>
-);
 
 export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     metric,
@@ -320,7 +347,12 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     const unit = cfg.unit(units);
     const fmt = (v: number | null) => (v === null ? '--' : `${cfg.fmt(v, units)}${unit ? ' ' + unit : ''}`);
     const trendIcon = trend === 'rising' ? '↑' : trend === 'falling' ? '↓' : '→';
-    const trendColor = trend === 'rising' ? 'text-amber-300' : trend === 'falling' ? 'text-sky-300' : 'text-white/50';
+    const trendPill =
+        trend === 'rising'
+            ? 'bg-amber-400/15 text-amber-300'
+            : trend === 'falling'
+              ? 'bg-sky-400/15 text-sky-300'
+              : 'bg-white/10 text-white/55';
     const nowT = Date.now();
     const chartPts = series;
 
@@ -331,29 +363,48 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 <div className="flex items-end justify-between">
                     <div>
                         <div className="text-[11px] uppercase tracking-wider text-white/40">Now</div>
-                        <div className={`text-4xl font-black tabular-nums ${cfg.accent}`}>{fmt(nowVal)}</div>
+                        <div
+                            className={`text-5xl font-black tabular-nums ${cfg.accent} drop-shadow-[0_2px_14px_rgba(255,255,255,0.12)]`}
+                        >
+                            {fmt(nowVal)}
+                        </div>
                     </div>
-                    <div className={`text-lg font-bold ${trendColor}`}>
-                        {trendIcon} {trend}
+                    <div
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-bold ${trendPill}`}
+                    >
+                        <span className="text-base leading-none">{trendIcon}</span>
+                        <span className="capitalize">{trend}</span>
                     </div>
                 </div>
 
                 {/* Chart */}
-                <div className="rounded-xl bg-white/[0.03] border border-white/5 p-2">
+                <div className="rounded-xl bg-gradient-to-b from-white/[0.05] to-white/[0.015] border border-white/[0.07] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
                     <Sparkline pts={chartPts} nowT={nowT} accent={cfg.accent} />
-                    <div className="flex justify-between text-[10px] text-white/35 px-1">
+                    <div className="flex justify-between text-[10px] text-white/35 px-1 mt-1">
                         <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
-                        <span>Next 48h →</span>
+                        {hasHistory ? <span className="text-white/45">Now</span> : null}
+                        <span>+48h →</span>
                     </div>
                 </div>
 
-                {/* Window read */}
-                <p className="text-sm text-white/75 leading-relaxed">{windowRead}</p>
+                {/* Window read — accent callout */}
+                <div className="flex items-start gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-3">
+                    <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>{trendIcon}</span>
+                    <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
+                </div>
 
-                {/* Rows */}
-                <div className="rounded-xl bg-white/[0.03] border border-white/5 px-3">
-                    <Row label="Next 24h range" value={`${fmt(todayMin)} – ${fmt(todayMax)}`} />
-                    <Row label="Tomorrow" value={tomorrowStr || '--'} />
+                {/* Stat cards */}
+                <div className="grid grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-white/40">Next 24h range</div>
+                        <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
+                            {fmt(todayMin)} – {fmt(todayMax)}
+                        </div>
+                    </div>
+                    <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
+                        <div className="text-[10px] uppercase tracking-wider text-white/40">Tomorrow</div>
+                        <div className="mt-0.5 text-sm font-bold text-white tabular-nums">{tomorrowStr || '--'}</div>
+                    </div>
                 </div>
 
                 {cfg.marine && (
