@@ -21,18 +21,6 @@ interface DailySummaryCardProps {
     dateLabel?: string;
 }
 
-/** Pull an HH:MM out of an ISO string / Date string / already-formatted time. */
-function formatTime(v?: string): string | null {
-    if (!v) return null;
-    const m = v.match(/(\d{1,2}):(\d{2})/);
-    if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
-    const d = new Date(v);
-    if (!Number.isNaN(d.getTime())) {
-        return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-    }
-    return null;
-}
-
 const Metric: React.FC<{ label: string; value: string; sub?: string }> = ({ label, value, sub }) => (
     <div className="flex flex-col items-center text-center px-2">
         <span className="text-[11px] uppercase tracking-wider text-white/45">{label}</span>
@@ -52,9 +40,6 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
 
     const hasWave = !isLandlocked && daily.waveHeight !== null && daily.waveHeight !== undefined;
     const wave = hasWave ? convertLength(daily.waveHeight as number, units.length) : null;
-
-    const sunrise = formatTime(daily.sunrise);
-    const sunset = formatTime(daily.sunset);
 
     return (
         <div className="w-full h-full min-h-0 overflow-hidden flex flex-col items-center justify-start pt-3 gap-2.5 px-5 text-white">
@@ -97,29 +82,13 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
                 />
             </div>
 
-            {/* Tide + sun row */}
-            <div className="flex flex-col items-center gap-2 w-full max-w-xs">
-                {daily.tideSummary ? (
-                    <div className="flex items-center gap-2 text-sm text-white/75 text-center">
-                        <span aria-hidden="true">🌊</span>
-                        <span>{daily.tideSummary}</span>
-                    </div>
-                ) : null}
-                {(sunrise || sunset) && (
-                    <div className="flex items-center justify-center gap-5 text-sm text-white/70">
-                        {sunrise ? (
-                            <span>
-                                <span aria-hidden="true">☀️</span> {sunrise}
-                            </span>
-                        ) : null}
-                        {sunset ? (
-                            <span>
-                                <span aria-hidden="true">🌙</span> {sunset}
-                            </span>
-                        ) : null}
-                    </div>
-                )}
-            </div>
+            {/* Tide row */}
+            {daily.tideSummary ? (
+                <div className="flex items-center gap-2 text-sm text-white/75 text-center max-w-xs">
+                    <span aria-hidden="true">🌊</span>
+                    <span>{daily.tideSummary}</span>
+                </div>
+            ) : null}
         </div>
     );
 };
