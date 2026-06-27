@@ -519,6 +519,17 @@ export interface MarinaRouteParams {
     corridorWeight?: number;
     /** Saturation radius (cells) for the corridor reward — ~one channel half-width. */
     corridorHalfWidthCells?: number;
+    /**
+     * Clearance (cells) at/above which the corridor reward is paid in FULL; below it
+     * the reward is linearly attenuated by `clamp(centerline / corridorComfortCells, 0, 1)`
+     * (default 0 = off, flat reward). Without this, on a BEND the coarse corridor cuts the
+     * inside of the curve and — because the reward (up to corridorWeight·corridorHalfWidthCells)
+     * dwarfs the centreline term — drags the route onto the inside WALL. Gating the reward by
+     * the cell's own wall clearance means a wall-adjacent cell can't collect it, so the route
+     * rounds the bend at a comfortable clearance while straights (corridor mid-channel, every
+     * nearby cell well clear) stay byte-identical.
+     */
+    corridorComfortCells?: number;
 }
 
 export const DEFAULT_MARINA_PARAMS: MarinaRouteParams = {
@@ -585,6 +596,7 @@ export function routeMarina(
     // corridor cells (corridor = 0, elsewhere = 1 ⇒ EDT = distance-to-corridor).
     const corridorWeight = params.corridorWeight ?? 0;
     const corridorHalf = params.corridorHalfWidthCells ?? 0;
+    const corridorComfort = params.corridorComfortCells ?? 0; // 0 = off (flat reward)
     let corridorDist: Float32Array | null = null;
     if (corridorWeight > 0 && corridorHalf > 0 && corridorCells && corridorCells.length > 0) {
         const seed = new Uint8Array(width * height).fill(1);
@@ -607,7 +619,24 @@ export function routeMarina(
         // Corridor reward — but NEVER on bridged (non-real-water) cells, or the bias would
         // pull the medial axis through a bridged corner-cut and re-introduce the clip.
         if (corridorDist && (!realWater || realWater[i])) {
-            v += corridorWeight * (corridorHalf - Math.min(corridorDist[i], corridorHalf));
+            let reward = corridorWeight * (corridorHalf - Math.min(corridorDist[i], corridorHalf));
+            // Clearance gate: a wall-adjacent cell (low centreline EDT) can't collect the full
+            // corridor reward, so where the coarse corridor cuts a bend's inside the bias no
+            // longer seats the route against the wall — it rounds the bend at comfortable
+            // clearance. The ramp is SQUARED: it saturates to 1 at corridorComfortCells of
+            // clearance (so straights & the wide-basin case, where near-corridor cells are
+            // well clear, are byte-identical), but bites hard below it — a linear ramp leaves
+            // a clearance-2 corridor cell at 0.5 reward, still enough to win the bend; the
+            // square drops it to 0.25 so the rounded medial cell takes over. Uses the RAW
+            // centreline EDT (not the canalHalfWidth-capped `c`) so the ramp is true clearance.
+            // Only ever reduces the reward, so the corner-clip invariant holds by construction.
+            if (corridorComfort > 0) {
+                let gate = centerline[i] / corridorComfort;
+                if (gate > 1) gate = 1;
+                else if (gate < 0) gate = 0;
+                reward *= gate * gate;
+            }
+            v += reward;
         }
         cost[i] = v;
         if (v > costMax) costMax = v;

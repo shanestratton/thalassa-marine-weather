@@ -231,6 +231,12 @@ export function buildFineCanalLeg(
         // alone can't fix it once the basin EDT saturates the half-width cap.
         corridorWeight: 8,
         corridorHalfWidthCells: 6,
+        // Clearance-gate the corridor reward so a BEND (where the coarse corridor cuts the
+        // inside of the curve) no longer drags the route onto the inside wall — it rounds the
+        // bend at ~comfort cells of clearance. 4 cells ≈ 48 m at 12 m/cell, well above keel
+        // (1 cell) so the floor-cell reward collapses to ~25%, and ≤ canalHalfWidthCells/2 (6)
+        // so straights keep the FULL corridor pull (no basin-drift regression). Newport bend.
+        corridorComfortCells: 4,
         ...paramsOverride,
     };
 
