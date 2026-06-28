@@ -180,6 +180,35 @@ describe('segmentRoute', () => {
         if (!isRefusal(r)) expect(tiers(r)).toEqual([1, 2, 3]);
     });
 
+    it('YELLOW ends AT the last gate even when channel-water bleeds far past it; a DISTANT channel keeps tier-2', () => {
+        // Shane's Newport EXIT: canal (injected) → forced exit gates → a LONG dredged/
+        // injected bleed past the last gate (>675 m, which USED to stay YELLOW into the
+        // bay) → open bay → a DISTANT marked channel (the Brisbane River by the dest,
+        // which MUST keep its tier-2). The bounded egress-open-tail suppression turns the
+        // bleed TEAL up to the open bay, then stops — so the distant river stays YELLOW.
+        const grid = makeGrid({
+            injectedY: (y) => y <= 6, // canal + a couple cells
+            // exit dredged bleed (~1100 m, used to stay yellow) + a DISTANT river channel
+            // past the 2500 m egress-adjacent window (the real Brisbane River is ~15 km out).
+            preferredY: (y) => (y >= 7 && y <= 28) || y >= 60,
+        });
+        const lon = MIN_LON + 1.5 * dLon;
+        const line = corridorLine(1, 68);
+        const marks: LateralMark[] = [];
+        for (let y = 3; y <= 7; y += 2) {
+            const lat = MIN_LAT + (y + 0.5) * dLat; // exit gates
+            marks.push({ lat, lon: lon - 0.0005, side: 'port', key: 'G', seq: y, name: `G${y}` });
+            marks.push({ lat, lon: lon + 0.0005, side: 'stbd', key: 'G', seq: y, name: `G${y}` });
+        }
+        const forceTier2 = line.map((_, i) => i >= 2 && i <= 6); // last forced vertex = i=6 (y=7)
+        const r = segmentRoute(line, grid, marks, 2.4, 0.2, 0.5, { refuseUnchartedRunM: null, forceTier2 });
+        expect(isRefusal(r)).toBe(false);
+        if (isRefusal(r)) return;
+        expect(tiers(r)).toEqual([1, 2, 3, 2]); // canal, gates, bleed+bay TEAL, distant river YELLOW
+        expect(r[1].toIdx).toBe(6); // YELLOW ends exactly at the last gate, not in the bleed
+        expect(r[3].tier).toBe(2); // distant marked channel preserved
+    });
+
     it('CHANNEL FILL: patchy preferred between gates coalesces to ONE tier-2 span (the Newport stepping)', () => {
         // Gates (marks + preferred) at y=2,6,10,14,18 — 200 m apart — with the preferred
         // flag present ONLY at the gate rows (a real channel's charted/injected flag is

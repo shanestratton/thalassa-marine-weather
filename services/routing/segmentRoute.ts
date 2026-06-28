@@ -44,6 +44,14 @@ export const TIER3_MARK_PROXIMITY_M = 450;
  *  (kills single-cell flapping at band edges — the same noise that beads A*).
  *  An UNKNOWN span is NEVER absorbed — a red patch always survives. */
 export const MIN_SPAN_M = 300;
+/** After the LAST forced canal-egress gate, the marked channel must END (Shane: "from
+ *  the last pair of markers the line turns teal"). The Newport exit's injected/dredged
+ *  (channel-water) flag — and scattered marks — bleed past the fixed 675 m egress-tail
+ *  window, keeping the bay side YELLOW. Suppress the contiguous exit-corridor run (channel
+ *  water OR near a mark) past the last gate until the first GENUINE open-bay vertex.
+ *  EXIT_TAIL_MAX_M hard-caps the run so it can never reach a DISTANT marked channel (e.g.
+ *  the Brisbane River by the dest, ~10 km on), which keeps its tier-2. */
+export const EXIT_TAIL_MAX_M = 5000;
 
 type Cls = 1 | 2 | 3 | 4 | 'unknown';
 
@@ -121,6 +129,21 @@ export function segmentRoute(
     const forcedIdxs = forceTier2.map((v, i) => (v ? i : -1)).filter((i) => i >= 0);
     const egressCanalTailV: boolean[] = new Array(polyline.length).fill(false);
     const egressOpenTailV: boolean[] = new Array(polyline.length).fill(false);
+    // Extends egressOpenTailV along the contiguous channel-water run after the LAST gate
+    // (bounded by the open bay / a hard cap) so the YELLOW marked channel ends AT the gate
+    // even when the exit's injected/dredged water bleeds past the fixed 675 m window.
+    const egressOpenTailAllV: boolean[] = new Array(polyline.length).fill(false);
+    // A vertex still inside the exit's marked corridor: on channel-water (dredged/injected)
+    // OR within reach of a lateral mark. The egress-open-tail suppression walks the
+    // contiguous such run past the last gate and stops at the first GENUINE open-bay vertex
+    // (neither) — a per-vertex bound that survives the long sparse bridge segments the gate
+    // hands to (the 24→25 segment was 1.77 km, so a distance-gap bound broke instantly).
+    const inExitCorridor = (i: number): boolean => {
+        const idx = cellIdx(grid, polyline[i][0], polyline[i][1]);
+        if (idx >= 0 && (grid.preferred?.[idx] === 1 || grid.injectedCanal?.[idx] === 1)) return true;
+        const [lon, lat] = polyline[i];
+        return marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M);
+    };
     let forcedCanalSideAtStart: boolean | null = null;
     if (forcedIdxs.length > 0) {
         const firstForced = forcedIdxs[0];
@@ -135,12 +158,22 @@ export function segmentRoute(
             for (let i = lastForced + 1; i < polyline.length && cum[i] - cum[lastForced] <= suppressM; i++) {
                 egressOpenTailV[i] = true;
             }
+            // Open side = forward of the last gate (the bay). End the marked channel here.
+            for (let i = lastForced + 1; i < polyline.length; i++) {
+                if (cum[i] - cum[lastForced] > EXIT_TAIL_MAX_M || !inExitCorridor(i)) break;
+                egressOpenTailAllV[i] = true;
+            }
         } else {
             for (let i = lastForced + 1; i < polyline.length && cum[i] - cum[lastForced] <= suppressM; i++) {
                 egressCanalTailV[i] = true;
             }
             for (let i = firstForced - 1; i >= 0 && cum[firstForced] - cum[i] <= suppressM; i--) {
                 egressOpenTailV[i] = true;
+            }
+            // Open side = behind the first gate (canal is the arrival end).
+            for (let i = firstForced - 1; i >= 0; i--) {
+                if (cum[firstForced] - cum[i] > EXIT_TAIL_MAX_M || !inExitCorridor(i)) break;
+                egressOpenTailAllV[i] = true;
             }
         }
     }
@@ -153,7 +186,7 @@ export function segmentRoute(
     // Per-vertex "a channel mark/midpoint within reach", hoisted out because the
     // channel-fill pass (1b) reuses it to coalesce a buoyed channel into one corridor.
     const nearMarkV: boolean[] = polyline.map(([lon, lat], i) =>
-        egressCanalTailV[i] || egressOpenTailV[i]
+        egressCanalTailV[i] || egressOpenTailV[i] || egressOpenTailAllV[i]
             ? false
             : marks.some((m) => distM(lat, lon, m.lat, m.lon) < TIER3_MARK_PROXIMITY_M),
     );
@@ -161,13 +194,18 @@ export function segmentRoute(
         if (forceTier2[i]) return 2;
         const idx = cellIdx(grid, lon, lat);
         const nearMark = nearMarkV[i];
-        const preferred = idx >= 0 && grid.preferred?.[idx] === 1 && !egressCanalTailV[i] && !egressOpenTailV[i];
+        const preferred =
+            idx >= 0 &&
+            grid.preferred?.[idx] === 1 &&
+            !egressCanalTailV[i] &&
+            !egressOpenTailV[i] &&
+            !egressOpenTailAllV[i];
         // Injected nearshore canal water (the wide Mapbox-water fill) is
         // canal/marina water, NOT open deep water — it must reach the tier-1
         // canal router even though its synthetic depth (≥ draft+safety) would
         // otherwise read tier-3 here. Keyed on the injected source only, so the
         // open bay (no injectedCanal flag) stays tier-3.
-        const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1 && !egressOpenTailV[i];
+        const injected = idx >= 0 && grid.injectedCanal?.[idx] === 1 && !egressOpenTailV[i] && !egressOpenTailAllV[i];
         // TIER-2 YELLOW = the channel EXITING the canal/marina: it needs either
         // charted channel water (DRGARE/FAIRWY) or lateral marks over channel /
         // injected canal water. Marks beside PLAIN OPEN water — the bay — are NOT
@@ -264,6 +302,22 @@ export function segmentRoute(
             break;
         }
         if (changed) runs = encode(cls);
+    }
+
+    // ── 3b. Re-assert the egress-open-tail suppression ──
+    // Hysteresis (and the channel-fill before it) can pull a suppressed exit-corridor cell
+    // back into the marked-channel (tier-2) run, so the YELLOW bleeds one vertex past the
+    // last gate again. egressOpenTailAllV marks the cells that MUST be tier-3 (the bay side
+    // of the last gate); force them back so the yellow ends exactly AT the gate.
+    if (forcedIdxs.length > 0) {
+        let reAsserted = false;
+        for (let i = 0; i < cls.length; i++) {
+            if (egressOpenTailAllV[i] && cls[i] === 2) {
+                cls[i] = 3;
+                reAsserted = true;
+            }
+        }
+        if (reAsserted) runs = encode(cls);
     }
 
     // ── 4. Refuse a long uncharted run BEFORE any router sees the span ──
