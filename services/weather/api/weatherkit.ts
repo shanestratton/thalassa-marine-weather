@@ -477,7 +477,7 @@ export const fetchWeatherKitRealtime = async (lat: number, lon: number): Promise
 };
 
 /**
- * Fetch an hourly window spanning ~yesterday → +48h for the metric deep-dive
+ * Fetch an hourly window spanning ~yesterday → +5 days for the metric deep-dive
  * modal. Uses the fetch-weatherkit edge fn's hourlyStart/hourlyEnd forwarding
  * (deployed 2026-06-21) to pull HISTORICAL hourly that the forward-only forecast
  * endpoints don't carry. Returns mapped HourlyForecast[] (km visibility, kt
@@ -492,7 +492,7 @@ export const fetchWeatherKitHistory = async (lat: number, lon: number): Promise<
     if (!supabaseUrl) return [];
     const now = Date.now();
     const hourlyStart = new Date(now - 30 * 3_600_000).toISOString(); // safely covers all of yesterday
-    const hourlyEnd = new Date(now + 48 * 3_600_000).toISOString();
+    const hourlyEnd = new Date(now + 120 * 3_600_000).toISOString(); // +5 days forward
     const url = `${supabaseUrl}/functions/v1/fetch-weatherkit`;
     try {
         // JS timeout bound — CapacitorHttp ignores AbortSignal, so race it.
