@@ -1,13 +1,14 @@
 /**
  * MetricDeepDiveModal — tap a grid tile on the live NOW card (Glass page) to
- * open a deep-dive for that metric: current value + trend, an hourly chart for
- * the rest of today, and today-vs-tomorrow ranges, framed for weather-window
- * planning.
+ * open a deep-dive for that metric: current value + trend, an hourly outlook
+ * chart spanning ~1 day back → 5 days forward, and 5-day-range / tomorrow
+ * stats, framed for weather-window planning.
  *
- * Atmospheric metrics fetch a WeatherKit historical window (yesterday → +48h)
+ * Atmospheric metrics fetch a WeatherKit historical window (yesterday → +5 days)
  * via fetchWeatherKitHistory when `coordinates` is provided, so the chart spans
- * yesterday → now → tomorrow. Marine metrics (wave/period) have no WeatherKit
- * history, so they use the passed (marine) `hourly` forecast window instead.
+ * yesterday → now → +5 days. Marine metrics (wave/period) have no WeatherKit
+ * history, so they use the passed (marine) `hourly` forecast window instead
+ * (which carries up to 16 days); both are clipped to the same outlook window.
  */
 import React from 'react';
 import { ModalSheet } from '../../ui/ModalSheet';
@@ -160,6 +161,10 @@ interface Pt {
     t: number;
     v: number;
 }
+
+/** Deep-dive outlook window: ~1 day back, 5 days forward. */
+const PAST_WINDOW_MS = 30 * 3_600_000;
+const FWD_WINDOW_MS = 120 * 3_600_000;
 
 function buildSeries(samples: HourlyForecast[], pick: MetricConfig['pick']): Pt[] {
     const out: Pt[] = [];
@@ -338,10 +343,15 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
 
         // WeatherKit has no waves, so marine metrics always use the passed (marine) source.
         const useHist = !cfg.marine && history.length > 0;
-        const all = buildSeries(useHist ? history : hourly, cfg.pick);
-        if (!all.length) return { ...base, windowRead: 'No data available for this metric right now.' };
+        const allRaw = buildSeries(useHist ? history : hourly, cfg.pick);
+        if (!allRaw.length) return { ...base, windowRead: 'No data available for this metric right now.' };
 
         const nowMs = Date.now();
+        // Clip to the −1 day → +5 day outlook window. Keeps atmospheric (WeatherKit
+        // history) and marine (forecast carries up to 16 days) on the same span.
+        const all = allRaw.filter((p) => p.t >= nowMs - PAST_WINDOW_MS && p.t <= nowMs + FWD_WINDOW_MS);
+        if (!all.length) return { ...base, windowRead: 'No data available for this metric right now.' };
+
         const fwd = all.filter((p) => p.t >= nowMs - 3_600_000);
         const fwdVs = fwd.map((p) => p.v);
         const tMin = fwdVs.length ? Math.min(...fwdVs) : null;
@@ -492,7 +502,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                             <div className="flex justify-between text-[10px] text-white/35 px-1 mt-1">
                                 <span>{hasHistory ? 'Yesterday' : 'Now'}</span>
                                 {hasHistory ? <span className="text-white/45">Now</span> : null}
-                                <span>+48h →</span>
+                                <span>+5 days →</span>
                             </div>
                         </div>
 
@@ -505,7 +515,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         {/* Stat cards */}
                         <div className="grid grid-cols-2 gap-3">
                             <div className="rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-2.5">
-                                <div className="text-[10px] uppercase tracking-wider text-white/40">Next 24h range</div>
+                                <div className="text-[10px] uppercase tracking-wider text-white/40">5-day range</div>
                                 <div className="mt-0.5 text-sm font-bold text-white tabular-nums">
                                     {fmt(todayMin)} – {fmt(todayMax)}
                                 </div>
