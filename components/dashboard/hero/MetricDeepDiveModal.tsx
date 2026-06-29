@@ -238,7 +238,29 @@ function buildSeries(samples: HourlyForecast[], pick: MetricConfig['pick']): Pt[
 const accentHex = (accent: string): string =>
     accent.includes('emerald') ? '#6ee7b7' : accent.includes('amber') ? '#fcd34d' : '#7dd3fc';
 
-/** Smooth, glowing area+line chart (dependency-free, Catmull-Rom curve). */
+/** Smooth Catmull-Rom path through a set of screen points. */
+function smoothPath(s: { x: number; y: number }[]): string {
+    if (s.length < 1) return '';
+    let d = `M${s[0].x.toFixed(1)},${s[0].y.toFixed(1)}`;
+    for (let i = 0; i < s.length - 1; i++) {
+        const p0 = s[i - 1] || s[i];
+        const p1 = s[i];
+        const p2 = s[i + 1];
+        const p3 = s[i + 2] || p2;
+        const c1x = p1.x + (p2.x - p0.x) / 6;
+        const c1y = p1.y + (p2.y - p0.y) / 6;
+        const c2x = p2.x - (p3.x - p1.x) / 6;
+        const c2y = p2.y - (p3.y - p1.y) / 6;
+        d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
+    }
+    return d;
+}
+
+/**
+ * Smooth, glowing area+line chart (dependency-free). History (before now) is a
+ * dim dotted trace; the forecast is solid and glowing; faint 24 h gridlines and
+ * small peak / calmest dots help read the 5-day span.
+ */
 const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts, nowT, accent }) => {
     const W = 320;
     const H = 120;
@@ -261,50 +283,105 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
     }
     const x = (t: number) => PAD + ((t - minT) / (maxT - minT || 1)) * (W - 2 * PAD);
     const y = (v: number) => PAD + (1 - (v - minV) / (maxV - minV || 1)) * (H - 2 * PAD);
-    const sp = pts.map((p) => ({ x: x(p.t), y: y(p.v) }));
+    const sp = pts.map((p) => ({ x: x(p.t), y: y(p.v), t: p.t, v: p.v }));
 
-    // Catmull-Rom → cubic-bezier for a smooth, premium curve.
-    let line = `M${sp[0].x.toFixed(1)},${sp[0].y.toFixed(1)}`;
-    for (let i = 0; i < sp.length - 1; i++) {
-        const p0 = sp[i - 1] || sp[i];
-        const p1 = sp[i];
-        const p2 = sp[i + 1];
-        const p3 = sp[i + 2] || p2;
-        const c1x = p1.x + (p2.x - p0.x) / 6;
-        const c1y = p1.y + (p2.y - p0.y) / 6;
-        const c2x = p2.x - (p3.x - p1.x) / 6;
-        const c2y = p2.y - (p3.y - p1.y) / 6;
-        line += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}`;
-    }
-    const area = `${line} L${sp[sp.length - 1].x.toFixed(1)},${H - PAD} L${sp[0].x.toFixed(1)},${H - PAD} Z`;
+    // Split past / future at "now" (forecast carries one seam point back).
+    let fIdx = sp.findIndex((s) => s.t >= nowT);
+    if (fIdx < 0) fIdx = sp.length;
+    const pastSp = sp.slice(0, Math.min(sp.length, fIdx + 1));
+    const futureSp = sp.slice(Math.max(0, fIdx - 1));
+
+    const lineAll = smoothPath(sp);
+    const linePast = smoothPath(pastSp);
+    const lineFuture = smoothPath(futureSp);
+    const area = `${lineAll} L${sp[sp.length - 1].x.toFixed(1)},${H - PAD} L${sp[0].x.toFixed(1)},${H - PAD} Z`;
+
     const nowX = nowT >= minT && nowT <= maxT ? x(nowT) : null;
     const nowV = pts.find((p) => p.t >= nowT)?.v ?? pts[pts.length - 1].v;
     const nowY = y(nowV);
+
+    // Peak / calmest of the forecast portion.
+    const fwd = futureSp.length > 1 ? futureSp : sp;
+    const peak = fwd.reduce((a, b) => (b.v > a.v ? b : a));
+    const trough = fwd.reduce((a, b) => (b.v < a.v ? b : a));
+
+    // Faint day gridlines every 24 h from now.
+    const dayTicks: number[] = [];
+    for (let k = -1; k <= 5; k++) {
+        const t = nowT + k * 86_400_000;
+        if (t > minT + 1800_000 && t < maxT - 1800_000 && Math.abs(t - nowT) > 3600_000) dayTicks.push(x(t));
+    }
+
     const stroke = accentHex(accent);
+    const hasFuture = futureSp.length > 1;
     return (
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[120px]" preserveAspectRatio="none">
             <defs>
                 <linearGradient id="mdd-fill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={stroke} stopOpacity="0.42" />
+                    <stop offset="55%" stopColor={stroke} stopOpacity="0.12" />
                     <stop offset="100%" stopColor={stroke} stopOpacity="0" />
                 </linearGradient>
                 <filter id="mdd-glow" x="-30%" y="-30%" width="160%" height="160%">
-                    <feGaussianBlur stdDeviation="2.4" />
+                    <feGaussianBlur stdDeviation="2.6" />
                 </filter>
             </defs>
+
+            {/* day gridlines */}
+            {dayTicks.map((tx, i) => (
+                <line
+                    key={i}
+                    x1={tx}
+                    y1={PAD}
+                    x2={tx}
+                    y2={H - PAD}
+                    stroke="#ffffff"
+                    strokeOpacity={0.05}
+                    strokeWidth={1}
+                />
+            ))}
+
             <path d={area} fill="url(#mdd-fill)" />
-            {/* soft glow underlay */}
+
+            {/* history — dim dotted */}
             <path
-                d={line}
+                d={linePast}
                 fill="none"
                 stroke={stroke}
-                strokeWidth={4}
-                strokeOpacity={0.35}
+                strokeWidth={1.8}
+                strokeOpacity={0.3}
+                strokeDasharray="2 3"
                 strokeLinejoin="round"
                 strokeLinecap="round"
-                filter="url(#mdd-glow)"
             />
-            <path d={line} fill="none" stroke={stroke} strokeWidth={2.2} strokeLinejoin="round" strokeLinecap="round" />
+
+            {/* forecast — glow underlay + solid line */}
+            {hasFuture && (
+                <>
+                    <path
+                        d={lineFuture}
+                        fill="none"
+                        stroke={stroke}
+                        strokeWidth={4.5}
+                        strokeOpacity={0.4}
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                        filter="url(#mdd-glow)"
+                    />
+                    <path
+                        d={lineFuture}
+                        fill="none"
+                        stroke={stroke}
+                        strokeWidth={2.4}
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                    />
+                    {/* peak (bright) + calmest (soft) */}
+                    <circle cx={peak.x} cy={peak.y} r={2.6} fill={stroke} />
+                    <circle cx={trough.x} cy={trough.y} r={2.6} fill={stroke} fillOpacity={0.55} />
+                </>
+            )}
+
             {nowX !== null && (
                 <>
                     <line
@@ -317,7 +394,7 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
                         strokeWidth={1}
                         strokeDasharray="2 3"
                     />
-                    <circle cx={nowX} cy={nowY} r={6} fill={stroke} opacity={0.3} />
+                    <circle cx={nowX} cy={nowY} r={7} fill={stroke} opacity={0.3} />
                     <circle cx={nowX} cy={nowY} r={2.8} fill="#fff" />
                 </>
             )}
