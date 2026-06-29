@@ -36,7 +36,11 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
     const low = convertTemp(daily.lowTemp, units.temp);
 
     const wind = convertSpeed(daily.windSpeed, units.speed);
-    const gust = convertSpeed(daily.windGust, units.speed);
+    // Gust falls back to a sustained×1.3 estimate when the provider omits the
+    // daily gust — matches the hourly cards' convention so the summary never
+    // reads blank while the hourly slides show a value.
+    const gustRaw = daily.windGust || (daily.windSpeed ? daily.windSpeed * 1.3 : null);
+    const gust = convertSpeed(gustRaw, units.speed);
 
     const hasWave = !isLandlocked && daily.waveHeight !== null && daily.waveHeight !== undefined;
     const wave = hasWave ? convertLength(daily.waveHeight as number, units.length) : null;
