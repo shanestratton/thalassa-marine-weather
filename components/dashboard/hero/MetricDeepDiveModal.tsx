@@ -17,6 +17,9 @@ import { convertSpeed, convertLength, convertTemp, convertDistance } from '../..
 import { degreesToCardinal } from '../../../utils/format';
 import { circularMean, directionShift, type DirectionShift } from '../../../utils/circularStats';
 import { fetchWeatherKitHistory } from '../../../services/weather/api/weatherkit';
+import { useSettingsStore } from '../../../stores/settingsStore';
+import { SmartPolarStore } from '../../../services/SmartPolarStore';
+import { vesselWindowThresholds } from '../../../services/vesselWindowThresholds';
 
 export type MetricKey =
     | 'wind'
@@ -368,6 +371,20 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
 }) => {
     const cfg = metric ? CONFIG[metric] : null;
 
+    // Vessel-aware window thresholds: wind/gust/wave scale to the actual boat
+    // (its maxWindSpeed / learned polar / length and maxWaveHeight). UV / vis /
+    // rain stay on the metric's own (crew-safety) defaults.
+    const vessel = useSettingsStore((s) => s.settings.vessel);
+    const vWindow = React.useMemo(() => vesselWindowThresholds(vessel, SmartPolarStore.exportToPolarData()), [vessel]);
+    const metricWindow =
+        metric === 'wind'
+            ? vWindow.wind
+            : metric === 'gust'
+              ? vWindow.gust
+              : metric === 'wave'
+                ? vWindow.wave
+                : cfg?.window;
+
     // WeatherKit historical hourly (yesterday → +48h), fetched when the modal opens.
     const [history, setHistory] = React.useState<HourlyForecast[]>([]);
     React.useEffect(() => {
@@ -450,9 +467,10 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
 
             const tomorrow = forecast && forecast.length > 1 && cfg.daily ? cfg.daily(forecast[1], units) : null;
 
-            // 👍/🆗/👎 window verdict from the near-term (next 24h) average.
+            // 👍/🆗/👎 window verdict from the near-term (next 24h) average, judged
+            // against the vessel-aware thresholds for wind/gust/wave.
             const next24 = fwd.filter((p) => p.t <= nowMs + 24 * 3_600_000).map((p) => p.v);
-            const verdict = windowVerdict(cfg.window, cfg.lowerIsBetter, next24.length ? mean(next24) : now);
+            const verdict = windowVerdict(metricWindow, cfg.lowerIsBetter, next24.length ? mean(next24) : now);
 
             return {
                 series: all,
@@ -465,7 +483,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 hasHistory: useHist && all.some((p) => p.t < nowMs - 3_600_000),
                 verdict,
             };
-        }, [cfg, hourly, history, forecast, units]);
+        }, [cfg, hourly, history, forecast, units, metricWindow]);
 
     // Direction is circular — "rising/falling" and min–max ranges are meaningless
     // on a wrapped axis. Instead read the heading yesterday / today / tomorrow
