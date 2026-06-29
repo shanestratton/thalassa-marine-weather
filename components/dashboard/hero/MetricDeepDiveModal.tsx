@@ -45,7 +45,57 @@ interface MetricConfig {
     lowerIsBetter?: boolean;
     /** Marine metric — WeatherKit has no waves, so always use the passed (marine) hourly. */
     marine?: boolean;
+    /** Good/poor cut-offs (in the metric's raw pick units) for the 👍/🆗/👎
+     *  window verdict. Direction is taken from lowerIsBetter (visibility, with
+     *  no lowerIsBetter, is judged higher-is-better). Omit for metrics with no
+     *  clear good/bad (pressure, humidity, temp, swell period). */
+    window?: { good: number; poor: number };
 }
+
+type WindowVerdict = 'good' | 'marginal' | 'poor';
+
+/** Judge a near-term value against a metric's window thresholds. */
+export function windowVerdict(
+    window: { good: number; poor: number } | undefined,
+    lowerIsBetter: boolean | undefined,
+    v: number | null,
+): WindowVerdict | null {
+    if (!window || v == null || !Number.isFinite(v)) return null;
+    if (lowerIsBetter) {
+        if (v <= window.good) return 'good';
+        if (v >= window.poor) return 'poor';
+        return 'marginal';
+    }
+    // higher is better (visibility)
+    if (v >= window.good) return 'good';
+    if (v <= window.poor) return 'poor';
+    return 'marginal';
+}
+
+const VERDICT_UI: Record<WindowVerdict, { thumb: string; word: string; badge: string; banner: string; text: string }> =
+    {
+        good: {
+            thumb: '👍',
+            word: 'Good window',
+            badge: 'bg-emerald-400/15 text-emerald-300',
+            banner: 'bg-emerald-500/[0.12] border-emerald-400/30',
+            text: 'text-emerald-300',
+        },
+        marginal: {
+            thumb: '🆗',
+            word: 'Marginal',
+            badge: 'bg-amber-400/15 text-amber-200',
+            banner: 'bg-amber-500/[0.12] border-amber-400/30',
+            text: 'text-amber-200',
+        },
+        poor: {
+            thumb: '👎',
+            word: 'Poor window',
+            badge: 'bg-red-400/15 text-red-300',
+            banner: 'bg-red-500/[0.12] border-red-400/30',
+            text: 'text-red-300',
+        },
+    };
 
 const num = (v: unknown): number | null => (typeof v === 'number' && !Number.isNaN(v) ? v : null);
 
@@ -58,6 +108,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         unit: (u) => u.speed,
         daily: (d, u) => (num(d.windSpeed) !== null ? `${convertSpeed(d.windSpeed, u.speed)} ${u.speed}` : null),
         lowerIsBetter: true,
+        window: { good: 15, poor: 22 }, // kts
     },
     dir: {
         label: 'Direction',
@@ -74,6 +125,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         unit: (u) => u.speed,
         daily: (d, u) => (num(d.windGust) !== null ? `${convertSpeed(d.windGust!, u.speed)} ${u.speed}` : null),
         lowerIsBetter: true,
+        window: { good: 20, poor: 28 }, // kts
     },
     wave: {
         label: 'Wave height',
@@ -85,6 +137,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
             num(d.waveHeight) !== null ? `${convertLength(d.waveHeight, u.waveHeight)} ${u.waveHeight}` : null,
         lowerIsBetter: true,
         marine: true,
+        window: { good: 3.3, poor: 5.9 }, // ft (≈1.0 m / 1.8 m)
     },
     period: {
         label: 'Swell period',
@@ -101,6 +154,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         fmt: (v) => `${Math.round(v)}`,
         unit: () => '',
         lowerIsBetter: true,
+        window: { good: 5, poor: 8 }, // UV index
     },
     vis: {
         label: 'Visibility',
@@ -109,6 +163,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         // HourlyForecast.visibility is already in km (app convention).
         fmt: (v, u) => `${convertDistance(v, u.visibility || 'nm')}`,
         unit: (u) => u.visibility || 'nm',
+        window: { good: 9.26, poor: 3.7 }, // km — higher is better (≥5 nm good / ≤2 nm poor)
     },
     pressure: {
         label: 'Pressure',
@@ -132,6 +187,7 @@ const CONFIG: Record<MetricKey, MetricConfig> = {
         unit: () => '%',
         daily: (d) => (num(d.precipChance) !== null ? `${Math.round(d.precipChance!)}%` : null),
         lowerIsBetter: true,
+        window: { good: 20, poor: 50 }, // % chance
     },
     temp: {
         label: 'Temperature',
@@ -328,81 +384,88 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
         };
     }, [metric, coordinates]);
 
-    const { series, nowVal, todayMin, todayMax, trend, windowRead, tomorrowStr, hasHistory } = React.useMemo(() => {
-        const base = {
-            series: [] as Pt[],
-            nowVal: null as number | null,
-            todayMin: null as number | null,
-            todayMax: null as number | null,
-            trend: 'steady' as 'rising' | 'falling' | 'steady',
-            windowRead: '',
-            tomorrowStr: null as string | null,
-            hasHistory: false,
-        };
-        if (!cfg) return base;
+    const { series, nowVal, todayMin, todayMax, trend, windowRead, tomorrowStr, hasHistory, verdict } =
+        React.useMemo(() => {
+            const base = {
+                series: [] as Pt[],
+                nowVal: null as number | null,
+                todayMin: null as number | null,
+                todayMax: null as number | null,
+                trend: 'steady' as 'rising' | 'falling' | 'steady',
+                windowRead: '',
+                tomorrowStr: null as string | null,
+                hasHistory: false,
+                verdict: null as WindowVerdict | null,
+            };
+            if (!cfg) return base;
 
-        // WeatherKit has no waves, so marine metrics always use the passed (marine) source.
-        const useHist = !cfg.marine && history.length > 0;
-        const allRaw = buildSeries(useHist ? history : hourly, cfg.pick);
-        if (!allRaw.length) return { ...base, windowRead: 'No data available for this metric right now.' };
+            // WeatherKit has no waves, so marine metrics always use the passed (marine) source.
+            const useHist = !cfg.marine && history.length > 0;
+            const allRaw = buildSeries(useHist ? history : hourly, cfg.pick);
+            if (!allRaw.length) return { ...base, windowRead: 'No data available for this metric right now.' };
 
-        const nowMs = Date.now();
-        // Clip to the −1 day → +5 day outlook window. Keeps atmospheric (WeatherKit
-        // history) and marine (forecast carries up to 16 days) on the same span.
-        const all = allRaw.filter((p) => p.t >= nowMs - PAST_WINDOW_MS && p.t <= nowMs + FWD_WINDOW_MS);
-        if (!all.length) return { ...base, windowRead: 'No data available for this metric right now.' };
+            const nowMs = Date.now();
+            // Clip to the −1 day → +5 day outlook window. Keeps atmospheric (WeatherKit
+            // history) and marine (forecast carries up to 16 days) on the same span.
+            const all = allRaw.filter((p) => p.t >= nowMs - PAST_WINDOW_MS && p.t <= nowMs + FWD_WINDOW_MS);
+            if (!all.length) return { ...base, windowRead: 'No data available for this metric right now.' };
 
-        const fwd = all.filter((p) => p.t >= nowMs - 3_600_000);
-        const fwdVs = fwd.map((p) => p.v);
-        const tMin = fwdVs.length ? Math.min(...fwdVs) : null;
-        const tMax = fwdVs.length ? Math.max(...fwdVs) : null;
-        const now = fwd.length ? fwd[0].v : all[all.length - 1].v;
+            const fwd = all.filter((p) => p.t >= nowMs - 3_600_000);
+            const fwdVs = fwd.map((p) => p.v);
+            const tMin = fwdVs.length ? Math.min(...fwdVs) : null;
+            const tMax = fwdVs.length ? Math.max(...fwdVs) : null;
+            const now = fwd.length ? fwd[0].v : all[all.length - 1].v;
 
-        // Trend across the whole forward 5-day window (smoothed start vs end), with
-        // the peak / calmest day called out for weather-window planning.
-        const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-        const dayWord = (t: number) => {
-            const d = Math.round((t - nowMs) / 86_400_000);
-            return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`;
-        };
-        let tr: 'rising' | 'falling' | 'steady' = 'steady';
-        let read = `${cfg.label} holds fairly steady over the next 5 days.`;
-        if (fwd.length >= 4) {
-            const headMean = mean(fwd.slice(0, Math.min(6, fwd.length)).map((p) => p.v));
-            const tailMean = mean(fwd.slice(-Math.min(24, fwd.length)).map((p) => p.v));
-            const span = (tMax ?? 0) - (tMin ?? 0) || 1;
-            const diff = tailMean - headMean;
-            if (diff > span * 0.12) tr = 'rising';
-            else if (diff < -span * 0.12) tr = 'falling';
+            // Trend across the whole forward 5-day window (smoothed start vs end), with
+            // the peak / calmest day called out for weather-window planning.
+            const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+            const dayWord = (t: number) => {
+                const d = Math.round((t - nowMs) / 86_400_000);
+                return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`;
+            };
+            let tr: 'rising' | 'falling' | 'steady' = 'steady';
+            let read = `${cfg.label} holds fairly steady over the next 5 days.`;
+            if (fwd.length >= 4) {
+                const headMean = mean(fwd.slice(0, Math.min(6, fwd.length)).map((p) => p.v));
+                const tailMean = mean(fwd.slice(-Math.min(24, fwd.length)).map((p) => p.v));
+                const span = (tMax ?? 0) - (tMin ?? 0) || 1;
+                const diff = tailMean - headMean;
+                if (diff > span * 0.12) tr = 'rising';
+                else if (diff < -span * 0.12) tr = 'falling';
 
-            const peak = fwd.reduce((a, b) => (b.v > a.v ? b : a));
-            const trough = fwd.reduce((a, b) => (b.v < a.v ? b : a));
-            if (tr !== 'steady') {
-                if (cfg.lowerIsBetter) {
-                    read =
-                        tr === 'falling'
-                            ? `${cfg.label} eases over the next 5 days — calmest ${dayWord(trough.t)}.`
-                            : `${cfg.label} builds over the next 5 days — watch ${dayWord(peak.t)}.`;
-                } else {
-                    const dirWord = tr === 'rising' ? 'building' : 'easing';
-                    read = `${cfg.label} is ${dirWord} over the next 5 days — ${tr === 'rising' ? `peaks ${dayWord(peak.t)}` : `lowest ${dayWord(trough.t)}`}.`;
+                const peak = fwd.reduce((a, b) => (b.v > a.v ? b : a));
+                const trough = fwd.reduce((a, b) => (b.v < a.v ? b : a));
+                if (tr !== 'steady') {
+                    if (cfg.lowerIsBetter) {
+                        read =
+                            tr === 'falling'
+                                ? `${cfg.label} eases over the next 5 days — calmest ${dayWord(trough.t)}.`
+                                : `${cfg.label} builds over the next 5 days — watch ${dayWord(peak.t)}.`;
+                    } else {
+                        const dirWord = tr === 'rising' ? 'building' : 'easing';
+                        read = `${cfg.label} is ${dirWord} over the next 5 days — ${tr === 'rising' ? `peaks ${dayWord(peak.t)}` : `lowest ${dayWord(trough.t)}`}.`;
+                    }
                 }
             }
-        }
 
-        const tomorrow = forecast && forecast.length > 1 && cfg.daily ? cfg.daily(forecast[1], units) : null;
+            const tomorrow = forecast && forecast.length > 1 && cfg.daily ? cfg.daily(forecast[1], units) : null;
 
-        return {
-            series: all,
-            nowVal: now,
-            todayMin: tMin,
-            todayMax: tMax,
-            trend: tr,
-            windowRead: read,
-            tomorrowStr: tomorrow,
-            hasHistory: useHist && all.some((p) => p.t < nowMs - 3_600_000),
-        };
-    }, [cfg, hourly, history, forecast, units]);
+            // 👍/🆗/👎 window verdict from the near-term (next 24h) average.
+            const next24 = fwd.filter((p) => p.t <= nowMs + 24 * 3_600_000).map((p) => p.v);
+            const verdict = windowVerdict(cfg.window, cfg.lowerIsBetter, next24.length ? mean(next24) : now);
+
+            return {
+                series: all,
+                nowVal: now,
+                todayMin: tMin,
+                todayMax: tMax,
+                trend: tr,
+                windowRead: read,
+                tomorrowStr: tomorrow,
+                hasHistory: useHist && all.some((p) => p.t < nowMs - 3_600_000),
+                verdict,
+            };
+        }, [cfg, hourly, history, forecast, units]);
 
     // Direction is circular — "rising/falling" and min–max ranges are meaningless
     // on a wrapped axis. Instead read the heading yesterday / today / tomorrow
@@ -459,6 +522,8 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
         return `Wind ${dirInfo.shift} from the ${from} toward the ${to} over the next day or so.`;
     })();
 
+    const vUI = verdict ? VERDICT_UI[verdict] : null;
+
     return (
         <ModalSheet isOpen={!!metric} onClose={onClose} title={cfg.label}>
             <div className="space-y-5">
@@ -478,6 +543,13 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         >
                             <span className="text-base leading-none">{shiftIcon}</span>
                             <span className="capitalize">{shift ?? 'steady'}</span>
+                        </div>
+                    ) : vUI ? (
+                        <div
+                            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-black ${vUI.badge}`}
+                        >
+                            <span className="text-base leading-none">{vUI.thumb}</span>
+                            <span>{vUI.word}</span>
                         </div>
                     ) : (
                         <div
@@ -521,10 +593,25 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                             </div>
                         </div>
 
-                        {/* Window read — accent callout */}
-                        <div className="flex items-start gap-2.5 rounded-xl bg-white/[0.04] border border-white/[0.06] px-3.5 py-3">
-                            <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>{trendIcon}</span>
-                            <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
+                        {/* Window verdict + 5-day read — the merged hero callout */}
+                        <div
+                            className={`flex items-start gap-3 rounded-xl border px-3.5 py-3 ${
+                                vUI ? vUI.banner : 'bg-white/[0.04] border-white/[0.06]'
+                            }`}
+                        >
+                            {vUI ? (
+                                <span className="text-2xl leading-none">{vUI.thumb}</span>
+                            ) : (
+                                <span className={`mt-0.5 text-base leading-none ${cfg.accent}`}>{trendIcon}</span>
+                            )}
+                            <div className="min-w-0">
+                                {vUI ? (
+                                    <div className={`text-xs font-black uppercase tracking-wide ${vUI.text}`}>
+                                        {vUI.word}
+                                    </div>
+                                ) : null}
+                                <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
+                            </div>
                         </div>
 
                         {/* Stat cards */}
