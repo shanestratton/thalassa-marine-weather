@@ -426,6 +426,38 @@ const _fetchWeatherByStrategyImpl = async (
         report.utcOffset = openMeteoReport?.utcOffset ?? stormGlassReport?.utcOffset;
     }
 
+    // --- BACKFILL DAILY GUST + SWELL PERIOD FROM HOURLY ---
+    // The daily forecast from some providers omits windGust (native WeatherKit
+    // daily) and swellPeriod (only the StormGlass daily merge sets it, and it
+    // doesn't reach the back days) — which blanked Gust + swell on the
+    // day-overview cards for forecast days. The hourly series carries both, so
+    // derive them per local day (max gust, median period). Gap-fill only.
+    if (report.forecast?.length && report.hourly?.length) {
+        const tzOpt = report.timeZone ? { timeZone: report.timeZone } : {};
+        const hoursByDay = new Map<string, typeof report.hourly>();
+        for (const h of report.hourly) {
+            const day = new Date(h.time).toLocaleDateString('en-CA', tzOpt);
+            const list = hoursByDay.get(day);
+            if (list) list.push(h);
+            else hoursByDay.set(day, [h]);
+        }
+        const median = (xs: number[]): number => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
+        report.forecast = report.forecast.map((d) => {
+            const hrs = hoursByDay.get(d.isoDate || d.date);
+            if (!hrs?.length) return d;
+            const out = { ...d };
+            if (out.windGust == null) {
+                const gusts = hrs.map((h) => h.windGust).filter((g): g is number => typeof g === 'number' && g > 0);
+                if (gusts.length) out.windGust = parseFloat(Math.max(...gusts).toFixed(1));
+            }
+            if (out.swellPeriod == null) {
+                const pers = hrs.map((h) => h.swellPeriod).filter((p): p is number => typeof p === 'number' && p > 0);
+                if (pers.length) out.swellPeriod = parseFloat(median(pers).toFixed(1));
+            }
+            return out;
+        });
+    }
+
     // --- MODEL TAG ---
     const sourcesParts: string[] = [];
     if (unifiedReport) sourcesParts.push(unifiedReport.modelUsed.includes('rb') ? 'rb+om' : 'wk');
