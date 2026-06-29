@@ -361,6 +361,46 @@ const DirCell: React.FC<{ label: string; deg: number | null; highlight?: boolean
     </div>
 );
 
+/**
+ * Barometric-tendency verdict for pressure (hPa). The absolute value isn't
+ * good/bad — the RATE OF CHANGE is. Steady or gently rising = settled (👍); a
+ * fast sustained fall = a low/front closing in (👎); a fast rise = brisk winds
+ * clearing through (🆗). Reads the slope over the next ~12 h.
+ */
+export function pressureTendency(
+    series: Pt[],
+    nowMs: number,
+): { verdict: WindowVerdict; word: string; read: string } | null {
+    const H = 3_600_000;
+    const meanIn = (loH: number, hiH: number): number | null => {
+        const xs = series.filter((p) => p.t >= nowMs + loH * H && p.t <= nowMs + hiH * H).map((p) => p.v);
+        return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+    };
+    const p0 = meanIn(-1, 2); // around now
+    const p1 = meanIn(9, 12); // ~12 h ahead
+    if (p0 == null || p1 == null) return null;
+    const per3h = (p1 - p0) / 4; // 12 h span = 4 × 3 h
+    if (per3h <= -3.5)
+        return {
+            verdict: 'poor',
+            word: 'Dropping fast',
+            read: 'Barometer dropping fast — a front or low is closing in.',
+        };
+    if (per3h <= -1)
+        return {
+            verdict: 'marginal',
+            word: 'Falling',
+            read: 'Barometer easing — change on the way; watch for more wind.',
+        };
+    if (per3h >= 3)
+        return {
+            verdict: 'marginal',
+            word: 'Rising fast',
+            read: 'Barometer climbing fast — often brisk winds as it clears.',
+        };
+    return { verdict: 'good', word: 'Settled', read: 'Barometer steady — settled conditions holding.' };
+}
+
 export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
     metric,
     onClose,
@@ -401,7 +441,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
         };
     }, [metric, coordinates]);
 
-    const { series, nowVal, todayMin, todayMax, trend, windowRead, tomorrowStr, hasHistory, verdict } =
+    const { series, nowVal, todayMin, todayMax, trend, windowRead, tomorrowStr, hasHistory, verdict, verdictWord } =
         React.useMemo(() => {
             const base = {
                 series: [] as Pt[],
@@ -413,6 +453,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 tomorrowStr: null as string | null,
                 hasHistory: false,
                 verdict: null as WindowVerdict | null,
+                verdictWord: null as string | null,
             };
             if (!cfg) return base;
 
@@ -470,7 +511,20 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
             // 👍/🆗/👎 window verdict from the near-term (next 24h) average, judged
             // against the vessel-aware thresholds for wind/gust/wave.
             const next24 = fwd.filter((p) => p.t <= nowMs + 24 * 3_600_000).map((p) => p.v);
-            const verdict = windowVerdict(metricWindow, cfg.lowerIsBetter, next24.length ? mean(next24) : now);
+            let verdict = windowVerdict(metricWindow, cfg.lowerIsBetter, next24.length ? mean(next24) : now);
+            let verdictWord: string | null = null;
+            let readOut = read;
+
+            // Pressure is judged by its TENDENCY (rate of change), not a value
+            // threshold — the barometer's slope is the real window signal.
+            if (metric === 'pressure') {
+                const t = pressureTendency(all, nowMs);
+                if (t) {
+                    verdict = t.verdict;
+                    verdictWord = t.word;
+                    readOut = t.read;
+                }
+            }
 
             return {
                 series: all,
@@ -478,12 +532,13 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                 todayMin: tMin,
                 todayMax: tMax,
                 trend: tr,
-                windowRead: read,
+                windowRead: readOut,
                 tomorrowStr: tomorrow,
                 hasHistory: useHist && all.some((p) => p.t < nowMs - 3_600_000),
                 verdict,
+                verdictWord,
             };
-        }, [cfg, hourly, history, forecast, units, metricWindow]);
+        }, [cfg, metric, hourly, history, forecast, units, metricWindow]);
 
     // Direction is circular — "rising/falling" and min–max ranges are meaningless
     // on a wrapped axis. Instead read the heading yesterday / today / tomorrow
@@ -567,7 +622,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                             className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-black ${vUI.badge}`}
                         >
                             <span className="text-base leading-none">{vUI.thumb}</span>
-                            <span>{vUI.word}</span>
+                            <span>{verdictWord ?? vUI.word}</span>
                         </div>
                     ) : (
                         <div
@@ -625,7 +680,7 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                             <div className="min-w-0">
                                 {vUI ? (
                                     <div className={`text-xs font-black uppercase tracking-wide ${vUI.text}`}>
-                                        {vUI.word}
+                                        {verdictWord ?? vUI.word}
                                     </div>
                                 ) : null}
                                 <p className="text-sm text-white/80 leading-relaxed">{windowRead}</p>
