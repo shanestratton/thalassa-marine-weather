@@ -186,6 +186,7 @@ interface RawWKDay {
     sunset?: string | null;
     uvIndexMax?: number;
     windSpeedMax?: number;
+    windGustSpeedMax?: number;
 }
 
 interface RawWKMinute {
@@ -254,7 +255,10 @@ function nativeWeatherKitToStandard(raw: unknown, lat: number, lon: number): Sta
         tempMax: d.temperatureMax ?? 0,
         tempMin: d.temperatureMin ?? 0,
         windSpeedMax: typeof d.windSpeedMax === 'number' ? d.windSpeedMax / 1.852 : 0,
-        windGustMax: null,
+        // Apple gives daily gust in km/h — convert to knots (matches windSpeedMax).
+        // Was hardcoded null, so forecast-day cards showed no gust while today did
+        // (today's gust comes from live current.windGust, not the daily forecast).
+        windGustMax: typeof d.windGustSpeedMax === 'number' ? d.windGustSpeedMax / 1.852 : null,
         condition: d.conditionCode || 'Unknown',
         precipSum: d.precipitationAmount ?? 0,
         precipProbability: typeof d.precipitationChance === 'number' ? d.precipitationChance * 100 : null,
