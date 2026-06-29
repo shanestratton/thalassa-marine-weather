@@ -358,21 +358,36 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
         const tMax = fwdVs.length ? Math.max(...fwdVs) : null;
         const now = fwd.length ? fwd[0].v : all[all.length - 1].v;
 
-        // Trend over the next ~6 forward hours.
+        // Trend across the whole forward 5-day window (smoothed start vs end), with
+        // the peak / calmest day called out for weather-window planning.
+        const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+        const dayWord = (t: number) => {
+            const d = Math.round((t - nowMs) / 86_400_000);
+            return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`;
+        };
         let tr: 'rising' | 'falling' | 'steady' = 'steady';
-        if (fwd.length >= 2) {
-            const ahead = fwd[Math.min(fwd.length - 1, 6)].v;
-            const diff = ahead - fwd[0].v;
+        let read = `${cfg.label} holds fairly steady over the next 5 days.`;
+        if (fwd.length >= 4) {
+            const headMean = mean(fwd.slice(0, Math.min(6, fwd.length)).map((p) => p.v));
+            const tailMean = mean(fwd.slice(-Math.min(24, fwd.length)).map((p) => p.v));
             const span = (tMax ?? 0) - (tMin ?? 0) || 1;
+            const diff = tailMean - headMean;
             if (diff > span * 0.12) tr = 'rising';
             else if (diff < -span * 0.12) tr = 'falling';
-        }
 
-        let read = 'Holding fairly steady through today.';
-        if (tr !== 'steady') {
-            const dirWord = tr === 'rising' ? 'building' : 'easing';
-            const good = cfg.lowerIsBetter ? tr === 'falling' : tr === 'rising';
-            read = `${cfg.label} is ${dirWord} through the day — ${good ? 'conditions improving' : 'watch the window'}.`;
+            const peak = fwd.reduce((a, b) => (b.v > a.v ? b : a));
+            const trough = fwd.reduce((a, b) => (b.v < a.v ? b : a));
+            if (tr !== 'steady') {
+                if (cfg.lowerIsBetter) {
+                    read =
+                        tr === 'falling'
+                            ? `${cfg.label} eases over the next 5 days — calmest ${dayWord(trough.t)}.`
+                            : `${cfg.label} builds over the next 5 days — watch ${dayWord(peak.t)}.`;
+                } else {
+                    const dirWord = tr === 'rising' ? 'building' : 'easing';
+                    read = `${cfg.label} is ${dirWord} over the next 5 days — ${tr === 'rising' ? `peaks ${dayWord(peak.t)}` : `lowest ${dayWord(trough.t)}`}.`;
+                }
+            }
         }
 
         const tomorrow = forecast && forecast.length > 1 && cfg.daily ? cfg.daily(forecast[1], units) : null;
