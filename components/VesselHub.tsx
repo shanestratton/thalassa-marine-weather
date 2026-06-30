@@ -696,6 +696,48 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 </div>
                             </div>
                         </button>
+
+                        {/* Skipper's Reference — marine-weather reference cards (GRIB / synoptic / forecast / squalls) */}
+                        <button
+                            aria-label="Open Skipper's Reference"
+                            onClick={() => {
+                                triggerHaptic('light');
+                                onNavigate('skipperReference');
+                            }}
+                            style={{
+                                ...GLASS.card,
+                                background:
+                                    'linear-gradient(135deg, rgba(56,189,248,0.16) 0%, rgba(20,25,35,0.6) 100%)',
+                                borderColor: 'rgba(56,189,248,0.32)',
+                            }}
+                            className="mt-3 w-full p-4 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
+                        >
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(56,189,248,0.16)' }}>
+                                    <svg
+                                        className="w-5 h-5"
+                                        fill="none"
+                                        viewBox="0 0 24 24"
+                                        stroke="#38bdf8"
+                                        strokeWidth={2}
+                                    >
+                                        <path
+                                            strokeLinecap="round"
+                                            strokeLinejoin="round"
+                                            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+                                        />
+                                    </svg>
+                                </div>
+                                <div>
+                                    <h4 className="text-[13px] font-black text-white tracking-wide">
+                                        Skipper's Reference
+                                    </h4>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
+                                        GRIB · Synoptic · Forecast · Squalls
+                                    </p>
+                                </div>
+                            </div>
+                        </button>
                     </CollapsibleContent>
                 </div>
 
