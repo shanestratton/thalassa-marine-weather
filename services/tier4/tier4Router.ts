@@ -271,6 +271,8 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             corridorM: 150,
             minRunM: 80,
             maxAngleDeg: 30,
+            // Follow the RECTRC's curve through river bends, don't chord across (wall-hug fix).
+            followInteriorVertices: true,
         });
         if (ll.snapped > 0) {
             poly = ll.polyline;

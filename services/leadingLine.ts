@@ -58,8 +58,8 @@ function lineAngleDiffDeg(a: number, b: number): number {
     return d;
 }
 
-/** Project p onto segment a→b; closest point + its distance from p. */
-function projectToSegment(p: LatLon, a: LatLon, b: LatLon): { point: LatLon; dist: number } {
+/** Project p onto segment a→b; closest point + its distance from p + param t∈[0,1]. */
+function projectToSegment(p: LatLon, a: LatLon, b: LatLon): { point: LatLon; dist: number; t: number } {
     const mLat = 110_540;
     const mLon = 111_320 * Math.cos((a.lat * Math.PI) / 180);
     const bx = (b.lon - a.lon) * mLon;
@@ -70,7 +70,7 @@ function projectToSegment(p: LatLon, a: LatLon, b: LatLon): { point: LatLon; dis
     let t = len2 > 0 ? (px * bx + py * by) / len2 : 0;
     t = Math.max(0, Math.min(1, t));
     const point = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-    return { point, dist: distM(p, point) };
+    return { point, dist: distM(p, point), t };
 }
 
 /** Nearest point on a (multi-segment) line to p. */
@@ -78,9 +78,42 @@ function projectToLine(p: LatLon, line: LatLon[]): { point: LatLon; dist: number
     let best = { point: line[0], dist: Infinity };
     for (let i = 0; i < line.length - 1; i++) {
         const pr = projectToSegment(p, line[i], line[i + 1]);
-        if (pr.dist < best.dist) best = pr;
+        if (pr.dist < best.dist) best = { point: pr.point, dist: pr.dist };
     }
     return best;
+}
+
+/** Like projectToLine, but also returns WHICH segment [seg, seg+1] the projection
+ *  landed on and the param t along it — so a snap can walk the line's OWN interior
+ *  vertices between two projections instead of chording straight across them. */
+function projectToLineIndexed(p: LatLon, line: LatLon[]): { point: LatLon; dist: number; seg: number; t: number } {
+    let best = { point: line[0], dist: Infinity, seg: 0, t: 0 };
+    for (let i = 0; i < line.length - 1; i++) {
+        const pr = projectToSegment(p, line[i], line[i + 1]);
+        if (pr.dist < best.dist) best = { point: pr.point, dist: pr.dist, seg: i, t: pr.t };
+    }
+    return best;
+}
+
+/** The sub-polyline of `line` from projection a to projection b, INCLUSIVE of every
+ *  intermediate line vertex between them — so a curved recommended track is followed
+ *  around its bends, not chorded across (which would cut the inside of the bend and
+ *  pin the route to one bank). Returns [a.point, …interior…, b.point] in the route's
+ *  travel direction. A straight line (no interior vertex between the projections)
+ *  returns exactly [a.point, b.point] — identical to the old chord. */
+function onLineSubPolyline(
+    line: LatLon[],
+    a: { point: LatLon; seg: number; t: number },
+    b: { point: LatLon; seg: number; t: number },
+): LatLon[] {
+    const aBeforeB = a.seg < b.seg || (a.seg === b.seg && a.t <= b.t);
+    const lo = aBeforeB ? a : b;
+    const hi = aBeforeB ? b : a;
+    const out: LatLon[] = [lo.point];
+    for (let v = lo.seg + 1; v <= hi.seg; v++) out.push(line[v]);
+    out.push(hi.point);
+    const ordered = aBeforeB ? out : out.reverse();
+    return ordered.filter((p, i) => i === 0 || distM(ordered[i - 1], p) > 1);
 }
 
 /** True if any point sampled ~every stepM along the polyline satisfies pred. */
@@ -155,6 +188,13 @@ export interface SnapOptions {
     /** How close a run's sampled body must be to a `protect` line to count as
      *  "on the recommended track" and veto the lead snap (metres). */
     protectM?: number;
+    /** Follow the line's OWN interior vertices when snapping onto a BENDING line
+     *  (curved RECTRC recommended track) instead of collapsing the run to a
+     *  straight chord — which cuts the inside of every bend and pins the route to
+     *  one bank. OFF by default so straight leading lines + the synthetic channel
+     *  chains stay byte-identical; set ONLY at the RECTRC call sites. A straight
+     *  line is a no-op either way. */
+    followInteriorVertices?: boolean;
 }
 
 export interface SnapResult {
@@ -189,6 +229,7 @@ export function snapToLeadingLines(
     const { isBlocked, isCaution } = opts;
     const protect = opts.protect ?? [];
     const protectM = opts.protectM ?? 70;
+    const followInteriorVertices = opts.followInteriorVertices ?? false;
 
     /** True if EVERY sampled point of poly[from..to] already rides within
      *  protectM of a protect (RECTRC) line — i.e. the run is on the official
@@ -251,27 +292,38 @@ export function snapToLeadingLines(
         // pull it off onto the (deliberately off-centre) leading line.
         if (onProtectedTrack(runStart, runEnd)) continue;
 
-        // Project the run endpoints onto the line → the on-line transit segment.
-        const projA = projectToLine(poly[runStart], line.pts).point;
-        const projB = projectToLine(poly[runEnd], line.pts).point;
+        // Project the run endpoints onto the line.
+        const pa = projectToLineIndexed(poly[runStart], line.pts);
+        const pb = projectToLineIndexed(poly[runEnd], line.pts);
+        const projA = pa.point;
+        const projB = pb.point;
 
-        // Never snap across solid land. Validate entry-bridge + transit +
-        // exit-bridge against hard-blocked water (caution is allowed — the
-        // approach to a leading line is often shallow).
-        const spliced = [poly[runStart - 1], projA, projB, poly[runEnd + 1]];
+        // What we EMIT: the line's own interior vertices for a BENDING opted-in line
+        // (follow the curved RECTRC, no inside-of-bend wall-hug), else the straight
+        // chord. A straight line yields [projA, projB] either way → byte-identical.
+        const onLine = followInteriorVertices ? onLineSubPolyline(line.pts, pa, pb) : [projA, projB];
+        const useInterior = onLine.length > 2;
+
+        // Never snap across solid land — validate the ACTUAL emitted geometry
+        // (entry-bridge + the emitted run + exit-bridge), not a chord we don't emit.
+        const emit = useInterior ? onLine : [projA, projB];
+        const spliced = [poly[runStart - 1], ...emit, poly[runEnd + 1]];
         if (isBlocked && anyAlong(spliced, 25, isBlocked)) continue;
 
-        // Honest caution: the on-line transit stays red only if it actually
-        // crosses caution water (it won't, where Pass 5b rescued the corridor).
-        const onLineCaution = isCaution ? anyAlong([projA, projB], 25, isCaution) : false;
+        // Honest caution: the on-line run stays red only if it actually crosses
+        // caution water (it won't, where Pass 5b rescued the corridor).
+        const onLineCaution = isCaution ? anyAlong(emit, 25, isCaution) : false;
 
-        // Splice: replace vertices [runStart..runEnd] with [projA, projB].
-        //   newPoly    = poly[0..runStart-1] + projA + projB + poly[runEnd+1..]
-        //   newCaution = caution[0..runStart-1] + onLineCaution + caution[runEnd..]
-        // (lengths reconcile: the run's interior vertices collapse to the
-        //  straight on-line segment; both endpoints' bridges keep their caution.)
-        poly = [...poly.slice(0, runStart), projA, projB, ...poly.slice(runEnd + 1)];
-        caution = [...caution.slice(0, runStart), onLineCaution, ...caution.slice(runEnd)];
+        if (useInterior) {
+            // Follow the curve: replace [runStart..runEnd] with the on-line sub-polyline.
+            // (lengths reconcile: K emitted vertices + caution.slice(runEnd+1).)
+            poly = [...poly.slice(0, runStart), ...onLine, ...poly.slice(runEnd + 1)];
+            caution = [...caution.slice(0, runStart), ...onLine.map(() => onLineCaution), ...caution.slice(runEnd + 1)];
+        } else {
+            // Original chord splice — byte-identical to the pre-change behaviour.
+            poly = [...poly.slice(0, runStart), projA, projB, ...poly.slice(runEnd + 1)];
+            caution = [...caution.slice(0, runStart), onLineCaution, ...caution.slice(runEnd)];
+        }
         snapped++;
     }
 
