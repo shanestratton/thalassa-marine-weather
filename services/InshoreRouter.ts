@@ -445,6 +445,14 @@ async function tryInshoreRouteInner(
         NAVLINE: { type: 'FeatureCollection', features: [] },
     };
     const cellsUsed: string[] = [];
+    // ENC cardinal marks (BOYCAR/BCNCAR) ride the blob but the layer-merge below omits them,
+    // so they're display-only and never reach routing — an East cardinal could end up on the
+    // WRONG side of the track. Collect them here, then feed them (with CATCAM direction) into
+    // the hazard-orientation path so each is avoided on its SAFE side.
+    const encCardinalSrc: {
+        geometry?: { type?: string; coordinates?: [number, number] } | null;
+        properties?: Record<string, unknown> | null;
+    }[] = [];
     for (const cell of candidateCells) {
         const blob = await loadCellGeoJSON(cell.id);
         if (!blob) {
@@ -475,6 +483,12 @@ async function tryInshoreRouteInner(
         const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
         if (navlne?.features && Array.isArray(navlne.features)) {
             (merged.NAVLINE!.features as unknown[]).push(...navlne.features);
+        }
+        for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
+            const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[cl];
+            if (fc?.features && Array.isArray(fc.features)) {
+                encCardinalSrc.push(...(fc.features as unknown as typeof encCardinalSrc));
+            }
         }
         cellsUsed.push(cell.id);
     }
@@ -1092,7 +1106,26 @@ async function tryInshoreRouteInner(
                 (fairwy.features as unknown[]).push(...segments);
                 merged.FAIRWY = fairwy;
             }
-            if (hazards.length > 0) {
+            // Fold ENC cardinals (BOYCAR/BCNCAR) into the hazard set. The ENC cardinal WINS over
+            // a co-located OSM marker (~11 m grid): the OSM seamark feed often tags the same buoy
+            // as a directionLESS 'cardinal', which orientHazardsTowardLand can only orient toward
+            // SHORE — wrong side. The ENC mark carries CATCAM → _osmClass='cardinal_<nesw>', so it
+            // gets a true directional disc. So we generate ALL valid ENC cardinals (deduped only
+            // against each other) and DROP any OSM hazard at the same spot, replacing the worse
+            // copy instead of throwing the good one away.
+            const encCardinalHazards = encCardinalsToHazards(encCardinalSrc, new Set());
+            const encCardinalKeys = new Set<string>(
+                encCardinalHazards.map((h) => {
+                    const [lon, lat] = h.geometry.coordinates;
+                    return `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+                }),
+            );
+            const filteredOsmHazards = (hazards as { geometry?: { coordinates?: [number, number] } }[]).filter((hh) => {
+                const c = hh.geometry?.coordinates;
+                return c ? !encCardinalKeys.has(`${c[1].toFixed(4)}|${c[0].toFixed(4)}`) : true;
+            });
+            const allHazards = [...(filteredOsmHazards as unknown[]), ...encCardinalHazards];
+            if (allHazards.length > 0) {
                 // IALA-A orientation: for each solo hazard marker, the
                 // hazard sits between the marker and the nearest shore
                 // (reef edge, isolated rock, shoal). Boats pass on the
@@ -1104,7 +1137,10 @@ async function tryInshoreRouteInner(
                 // side, which is often the wrong (shore) side.
                 const lndareForOrientation = merged.LNDARE?.features ?? [];
                 const orientedHazards = orientHazardsTowardLand(
-                    hazards as { geometry: { type: 'Point'; coordinates: [number, number] }; properties?: unknown }[],
+                    allHazards as {
+                        geometry: { type: 'Point'; coordinates: [number, number] };
+                        properties?: unknown;
+                    }[],
                     lndareForOrientation,
                 );
                 const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
@@ -1481,6 +1517,55 @@ async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: Inshor
 }
 
 /**
+ * Convert ENC cardinal marks (BOYCAR/BCNCAR) into direction-tagged Point hazards for the
+ * router's avoidance path. CATCAM (1=N, 2=E, 3=S, 4=W) → _osmClass='cardinal_<nesw>', which
+ * orientHazardsTowardLand then uses to block the HAZARD side (an East cardinal ⇒ pass east).
+ *
+ * ENC cardinals are otherwise DISPLAY-ONLY — loaded on-device but never fed to routing — so
+ * an East cardinal could end up on the WRONG side of the track (Shane, Moreton Bay: two East
+ * cardinals on opposite sides). Guardrails: skip a feature whose CATCAM is missing/invalid
+ * (NEVER default a direction — a wrong one blocks the wrong side), skip non-Point geometry,
+ * and dedup against existing OSM hazard keys (~11 m grid) so a buoy in both feeds gets ONE
+ * disc. Pure + exported for unit testing.
+ */
+export function encCardinalsToHazards(
+    encFeatures: ReadonlyArray<{
+        geometry?: { type?: string; coordinates?: [number, number] } | null;
+        properties?: Record<string, unknown> | null;
+    }>,
+    osmHazardKeys: ReadonlySet<string>,
+): {
+    type: 'Feature';
+    geometry: { type: 'Point'; coordinates: [number, number] };
+    properties: Record<string, unknown>;
+}[] {
+    const DIR = ['n', 'e', 's', 'w'] as const;
+    const out: {
+        type: 'Feature';
+        geometry: { type: 'Point'; coordinates: [number, number] };
+        properties: Record<string, unknown>;
+    }[] = [];
+    const seen = new Set<string>(osmHazardKeys);
+    for (const f of encFeatures) {
+        if (f.geometry?.type !== 'Point' || !Array.isArray(f.geometry.coordinates)) continue;
+        const [lon, lat] = f.geometry.coordinates;
+        if (typeof lon !== 'number' || typeof lat !== 'number') continue;
+        const raw = f.properties?.CATCAM ?? f.properties?.catcam;
+        const c = Math.round(Number(raw));
+        if (!(c >= 1 && c <= 4)) continue; // missing/invalid CATCAM — skip, never guess a direction
+        const key = `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+        if (seen.has(key)) continue; // dedup vs OSM hazards + other ENC cardinals (one buoy → one disc)
+        seen.add(key);
+        out.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [lon, lat] },
+            properties: { _class: 'direct-hazard', _osmClass: `cardinal_${DIR[c - 1]}`, _source: 'enc-cardinal' },
+        });
+    }
+    return out;
+}
+
+/**
  * Turn each Point-hazard marker into a half-circle Polygon facing
  * the nearest shore.
  *
@@ -1516,7 +1601,7 @@ async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: Inshor
  *   unchanged. These are typically far-offshore solo markers
  *   (deep-ocean obstructions) where symmetric buffering is fine.
  */
-function orientHazardsTowardLand(
+export function orientHazardsTowardLand(
     hazards: {
         geometry: { type: 'Point'; coordinates: [number, number] };
         properties?: unknown;
@@ -1567,7 +1652,16 @@ function orientHazardsTowardLand(
     // Mud I. fringing (~400 m), Peel I. fringing (~700 m). Excludes
     // mid-Moreton-Bay solo laterals (typically > 1 km from any land).
     const HAZARD_RADIUS_MIN_M = 80;
-    const DIRECT_HAZARD_RADIUS_MAX_M = 300; // cardinals/dangers — compact
+    const DIRECT_HAZARD_RADIUS_MAX_M = 300; // dangers/isolated — compact
+    // A CARDINAL's safe side is intrinsic (from CATCAM), not shore-derived, so its avoidance
+    // disc is ONE-SIDED — only the hazard side is blocked, the safe side is always open. That
+    // makes a LARGE radius connectivity-safe (a half-disc can't wall off water the way a
+    // symmetric buffer would) AND necessary: an open-water cardinal can sit 500 m+ off the
+    // route, so the 300 m cap never reaches it (Shane's Brisbane River pair ended up on
+    // opposite sides because the disc couldn't push the track across). Gated DOWN by shore
+    // proximity so a near-shore cardinal can't pinch a narrow channel.
+    const CARDINAL_RADIUS_MAX_M = 1000;
+    const CARDINAL_RADIUS_MIN_M = 400;
     const LATERAL_RADIUS_MAX_M = 800; // solo laterals near shore — extend to reach reef
     const LATERAL_REEF_GATE_M = 800; // solo laterals further out → treat as compact
     // `isolated` markers flag reef-edge beacons. Originally the disc
@@ -1627,8 +1721,18 @@ function orientHazardsTowardLand(
         }
 
         const shoreDistM = haversineMetres(mLat, mLon, bestLat, bestLon);
-        if (shoreDistM > MAX_SHORE_DISTANCE_M) {
-            // Offshore — keep as Point, engine buffers symmetrically.
+        // Detect a CARDINAL up front: its _osmClass carries the safe-water direction, which is
+        // intrinsic — so it must NOT be dropped to a Point when far from shore (that left
+        // open-water cardinals with no directional disc at all) and its radius/arc come from
+        // the direction below, not the shore bearing.
+        const hazardProps =
+            (h.properties as { _class?: string; _osmClass?: string; _markerKind?: string } | null | undefined) ?? {};
+        const hazardClass = hazardProps._class;
+        const osmClass = hazardProps._osmClass;
+        const cardDirMatch = typeof osmClass === 'string' ? /^cardinal_([nesw])$/.exec(osmClass) : null;
+        const cardDir = cardDirMatch ? cardDirMatch[1] : null;
+        if (cardDir == null && shoreDistM > MAX_SHORE_DISTANCE_M) {
+            // Offshore non-cardinal — keep as Point, engine buffers symmetrically.
             result.push(h);
             continue;
         }
@@ -1639,7 +1743,7 @@ function orientHazardsTowardLand(
         const landDxM = (bestLon - mLon) * mPerLonAtMid;
         const landDyM = (bestLat - mLat) * 111_320;
         const landLen = Math.sqrt(landDxM * landDxM + landDyM * landDyM);
-        if (landLen < 1) {
+        if (cardDir == null && landLen < 1) {
             result.push(h);
             continue;
         }
@@ -1651,10 +1755,17 @@ function orientHazardsTowardLand(
         // else (direct hazards, OR solo laterals further than the
         // reef-gate) stays compact at DIRECT_HAZARD_RADIUS_MAX.
         const landAngle = Math.atan2(landDyM, landDxM);
-        const hazardProps =
-            (h.properties as { _class?: string; _osmClass?: string; _markerKind?: string } | null | undefined) ?? {};
-        const hazardClass = hazardProps._class;
-        const osmClass = hazardProps._osmClass;
+        // CARDINAL marks carry a safe-water DIRECTION (an East cardinal ⇒ safe water EAST,
+        // hazard WEST ⇒ the boat passes to the EAST). The direction survives extraction as
+        // `cardinal_<nesw>` in _osmClass (detected above). Orient the avoidance half-disc to
+        // block the HAZARD side (opposite the safe quadrant) instead of the shore bearing, so
+        // the route is guaranteed onto the cardinal's safe side (two same-direction cardinals
+        // end up on the same side of the track — Shane's two East cardinals).
+        // Convention: atan2(north, east) ⇒ east=0, north=+π/2, west=π, south=-π/2; the hazard
+        // centre is the safe bearing + π. Bare 'cardinal' (no direction) and every non-cardinal
+        // hazard keep the shore-bearing orientation.
+        const SAFE_ANGLE: Record<string, number> = { e: 0, n: Math.PI / 2, w: Math.PI, s: -Math.PI / 2 };
+        const arcCentre = cardDir != null ? SAFE_ANGLE[cardDir] + Math.PI : landAngle;
         const isReefEdgeSoloLateral = hazardClass === 'lateral-marker-as-hazard' && shoreDistM <= LATERAL_REEF_GATE_M;
         // `isolated` markers are intentionally tagged in nav_markers
         // .geojson to mark reef edges (Scarborough Reef beacon being
@@ -1670,7 +1781,13 @@ function orientHazardsTowardLand(
         } else {
             maxRadiusForClass = DIRECT_HAZARD_RADIUS_MAX_M;
         }
-        const radiusM = Math.min(maxRadiusForClass, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
+        // Cardinals use a one-sided directional disc, sized to REACH the route (large, gated
+        // down only near shore). Non-cardinals keep the shore-tied formula that holds symmetric
+        // discs compact.
+        const radiusM =
+            cardDir != null
+                ? Math.min(CARDINAL_RADIUS_MAX_M, Math.max(CARDINAL_RADIUS_MIN_M, shoreDistM))
+                : Math.min(maxRadiusForClass, Math.max(HAZARD_RADIUS_MIN_M, shoreDistM + 30));
 
         // DEBUG — log markers near Scarborough Reef so we can see whether
         // the gate is doing its job. Bbox matches the RAW-marker bbox so
@@ -1688,7 +1805,7 @@ function orientHazardsTowardLand(
         // the polygon doesn't double-cover the diameter line.
         for (let i = 0; i <= ARC_SEGMENTS; i++) {
             const t = i / ARC_SEGMENTS;
-            const angle = landAngle - Math.PI / 2 + t * Math.PI;
+            const angle = arcCentre - Math.PI / 2 + t * Math.PI;
             const dxM = radiusM * Math.cos(angle);
             const dyM = radiusM * Math.sin(angle);
             const lon = mLon + dxM / mPerLonAtMid;
@@ -1704,9 +1821,15 @@ function orientHazardsTowardLand(
             type: 'Feature',
             properties: {
                 _class: 'iala-oriented-hazard',
-                _source: 'land-bearing-inferred',
+                _source: cardDir != null ? 'cardinal-direction' : 'land-bearing-inferred',
+                _cardinalDir: cardDir,
+                _cardinalOriented: cardDir != null,
                 _shoreDistanceM: Math.round(shoreDistM),
                 _radiusM: Math.round(radiusM),
+                // True marker position (the half-disc centroid is offset toward the hazard side,
+                // so the cardinal clamp must read the buoy point, not the polygon centroid).
+                _markerLat: mLat,
+                _markerLon: mLon,
                 // Keep the original Point's properties for debug
                 _origin: h.properties,
             },
