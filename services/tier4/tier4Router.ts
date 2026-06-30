@@ -20,6 +20,7 @@ import type { NavGrid } from '../inshoreRouterEngine';
 import { snapToLeadingLines, type LeadingLine } from '../leadingLine';
 import { distM, refineWithFairlead } from '../fairlead';
 import { followChannelGates, deSpike, TIER3_DESPIKE_DEG, TIER3_FAIRLEAD_MIN_FRAC } from '../tier3/tier3Router';
+import { engineLog } from '../engine/constants';
 import { freezeLeg, type LatLon, type Leg, type Refusal } from '../routing/legContract';
 import type { TierSpan } from '../routing/segmentRoute';
 import type { LateralMark } from '../fairlead';
@@ -346,6 +347,31 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         poly = deSpike(poly, TIER3_DESPIKE_DEG);
     }
     if (poly.length < 2) return { refused: true, reason: 'disconnected-grid' };
+
+    // 3b. Ride the recommended track. A HUGGING tier-2 leg — a partial RECTRC snap (rectrc×k, the
+    //     rest still raw A*) or a gate-decline A* slice — rides the channel EDGE near the bank, not
+    //     its centre (Shane's Pinkenba: the route hugs the NW edge of a channel that itself
+    //     correctly runs near the NW wall). The RECTRC IS the channel CENTRELINE, so a firmer
+    //     re-snap NOW — after the de-spike, when the leg is smoother + more parallel; the step-1
+    //     snap only caught a few vertices off the raw A* staircase — rides the route down the
+    //     channel centre. Skips clean paired-mark structures (chain/fairlead/gates own their
+    //     centreline). isBlocked=isLand keeps it off land; corridor + maxAngle reject a
+    //     perpendicular brush-by so it can't grab a parallel channel.
+    const ridable = !prov.some((p) => p.startsWith('gates') || p.startsWith('chain') || p.startsWith('fairlead'));
+    if (ridable && ctx.recommendedTracks.length > 0) {
+        const ride = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.recommendedTracks], {
+            isBlocked: isLand,
+            isCaution,
+            corridorM: 250,
+            minRunM: 40,
+            maxAngleDeg: 45,
+            followInteriorVertices: true,
+        });
+        if (ride.snapped > 0) {
+            poly = ride.polyline;
+            engineLog.warn(`[channelRide] tier2 rode RECTRC +${ride.snapped} (was ${prov.join('+') || 'astar'})`);
+        }
+    }
 
     // 4. Back to contract tuples; pin endpoints to the exact boundary nodes so the
     //    Gluer's positional clause (≤1 m) is satisfied by construction.
