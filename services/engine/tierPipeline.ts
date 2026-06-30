@@ -22,6 +22,7 @@ import { segmentRoute, type TierSpan } from '../routing/segmentRoute';
 import { routeTier3, type Tier3Context } from '../tier3/tier3Router';
 import { routeTier4, type Tier4Context } from '../tier4/tier4Router';
 import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tier3/canalLineFollower';
+import { clampRouteToCardinalSafeSide, parseCardinalDiscs } from '../tier3/cardinalClamp';
 import { stitchLegs } from '../glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from '../routing/legContract';
 
@@ -868,6 +869,11 @@ export function applyThreeTier(
     // marina canals: medial axis ≈ the OSM line, so no visible change there.)
     const finegridPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelSegKeys = new Set<string>();
+    // TRUE lateral-pair gates only (chain / fairlead) — segments where the route threads dead
+    // centre between a port/starboard pair. The cardinal clamp pins THESE (a buoyed gate outranks
+    // a single cardinal's quadrant) but NOT a tier2 rectrc/gate-astar recommended track, which a
+    // cardinal should be able to pull onto its safe side.
+    const gateSegKeys = new Set<string>();
     const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
         `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
     let gi = 0;
@@ -878,6 +884,9 @@ export function applyThreeTier(
         if (leg.tierId === 2) {
             for (let v = 0; v < len; v++) channelPre[gi + v] = true;
             for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
+            if (leg.provenance.includes('chain') || leg.provenance.includes('fairlead')) {
+                for (let v = 0; v < len - 1; v++) gateSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
+            }
         }
         if (leg.tierId === 4) for (let v = 0; v < len; v++) offshorePre[gi + v] = true;
         gi += len - 1;
@@ -936,17 +945,28 @@ export function applyThreeTier(
         lndare,
         channelChains,
     );
-    const channelSeg = finalPoly
+    // Cardinal safe-side clamp on the fully-assembled polyline — the only layer that can enforce a
+    // cardinal's safe side uniformly, because the gate/track followers (chain/rectrc/gate-astar)
+    // discard the obstacle grid, so an avoidance disc can't steer them. No-op when no cardinals are
+    // present (golden/repro) or the route already clears them; canal-RED + gate vertices are pinned.
+    const cardinalDiscs = parseCardinalDiscs(layers.OBSTRN?.features ?? []);
+    const {
+        polyline: clampedPoly,
+        redMask: clampedRed,
+        movedCardinals: clampMoved,
+    } = clampRouteToCardinalSafeSide(finalPoly, finalRed, cardinalDiscs, grid, { gateSegKeys });
+    const cardinalClampTag = clampMoved > 0 ? ` +cardinalclamp×${clampMoved}` : '';
+    const channelSeg = clampedPoly
         .slice(0, -1)
-        .map((p, i) => channelSegKeys.has(segKey(p, finalPoly[i + 1])) && !finalRed[i] && !finalRed[i + 1]);
-    const offshoreVtx = finalPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
+        .map((p, i) => channelSegKeys.has(segKey(p, clampedPoly[i + 1])) && !clampedRed[i] && !clampedRed[i + 1]);
+    const offshoreVtx = clampedPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
 
     return {
-        polyline: finalPoly,
-        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}`,
+        polyline: clampedPoly,
+        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}${cardinalClampTag}`,
         spanCount: spans.length,
         // Per-vertex tier-1 flag (parallel to polyline) for canal/marina RED.
-        canalMask: finalRed,
+        canalMask: clampedRed,
         // Per-segment tier-2 flag for the YELLOW marked-channel.
         channelMask: channelSeg,
         // Deprecated alias for callers that still use the old marked-channel name.
