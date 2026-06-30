@@ -10,6 +10,7 @@ import {
     parseCardinalDiscs,
     clampRouteToCardinalSafeSide,
     type CardinalDisc,
+    type LateralClampMark,
 } from '../../services/tier3/cardinalClamp';
 import type { NavGrid } from '../../services/engine/types';
 
@@ -58,6 +59,40 @@ function nsRoute(lon: number, latFrom: number, latTo: number, n = 9): [number, n
     const out: [number, number][] = [];
     for (let i = 0; i < n; i++) out.push([lon, latFrom + ((latTo - latFrom) * i) / (n - 1)]);
     return out;
+}
+
+// A roughly E-W route at the given latitude.
+function ewRoute(lat: number, lonFrom: number, lonTo: number, n = 21): [number, number][] {
+    const out: [number, number][] = [];
+    for (let i = 0; i < n; i++) out.push([lonFrom + ((lonTo - lonFrom) * i) / (n - 1), lat]);
+    return out;
+}
+
+/** Output vertex longitude nearest the given latitude (for side-of-mark assertions). */
+function lonNearestLat(poly: readonly [number, number][], lat: number): number {
+    let best = Infinity;
+    let lon = NaN;
+    for (const [vlon, vlat] of poly) {
+        const d = Math.abs(vlat - lat);
+        if (d < best) {
+            best = d;
+            lon = vlon;
+        }
+    }
+    return lon;
+}
+/** Output vertex latitude nearest the given longitude. */
+function latNearestLon(poly: readonly [number, number][], lon: number): number {
+    let best = Infinity;
+    let lat = NaN;
+    for (const [vlon, vlat] of poly) {
+        const d = Math.abs(vlon - lon);
+        if (d < best) {
+            best = d;
+            lat = vlat;
+        }
+    }
+    return lat;
 }
 
 const noGates = { gateSegKeys: new Set<string>() };
@@ -194,5 +229,93 @@ describe('clampRouteToCardinalSafeSide', () => {
         const red = route.map(() => false);
         const out = clampRouteToCardinalSafeSide(route, red, [far], waterGrid(), noGates);
         expect(out.polyline).toEqual(route);
+    });
+});
+
+describe('clampRouteToCardinalSafeSide — solo laterals (IALA-A red-to-port / green-to-starboard)', () => {
+    // A southbound route (lat decreasing) at lon 153.1. Travel tangent ≈ (east 0, north −1).
+    //   RED (port-hand): safe side = RIGHT of travel = WEST  ⇒ the boat passes west of the mark.
+    //   GREEN (stbd):    safe side = LEFT  of travel = EAST  ⇒ the boat passes east of the mark.
+    const southbound = (): [number, number][] => nsRoute(153.1, -27.295, -27.305, 25);
+    const lat = -27.3;
+    const clamp = (route: [number, number][], laterals: LateralClampMark[], grid = waterGrid(), gates = noGates) =>
+        clampRouteToCardinalSafeSide(
+            route,
+            route.map(() => false),
+            [],
+            grid,
+            { ...gates, laterals },
+        );
+
+    it('RED on the route’s east (boat to its east = WRONG) ⇒ route pushed WEST of the red', () => {
+        const route = southbound();
+        const redMark: LateralClampMark = { lat, lon: 153.099, side: 'port' }; // ~99 m west of the track
+        const out = clamp(route, [redMark]);
+        expect(out.movedLaterals).toBe(1);
+        expect(lonNearestLat(out.polyline, lat)).toBeLessThan(redMark.lon); // crossed onto the WEST (safe) side
+    });
+
+    it('GREEN on the route’s west (boat to its west = WRONG) ⇒ route pushed EAST of the green', () => {
+        const route = southbound();
+        const grnMark: LateralClampMark = { lat, lon: 153.101, side: 'stbd' }; // ~99 m east of the track
+        const out = clamp(route, [grnMark]);
+        expect(out.movedLaterals).toBe(1);
+        expect(lonNearestLat(out.polyline, lat)).toBeGreaterThan(grnMark.lon); // crossed onto the EAST (safe) side
+    });
+
+    it('already on the safe side ⇒ byte-identical no-op', () => {
+        const route = southbound();
+        // RED's safe side is WEST. Put it EAST of the track ⇒ the boat (153.1) is already WEST of it
+        // (its safe side) ⇒ nothing to do.
+        const redMark: LateralClampMark = { lat, lon: 153.101, side: 'port' };
+        const out = clamp(route, [redMark]);
+        expect(out.movedLaterals).toBe(0);
+        expect(out.polyline).toEqual(route);
+    });
+
+    it('a port/starboard PAIR (a gate) ⇒ never clamped (paired marks belong to the channel router)', () => {
+        const route = southbound();
+        const pair: LateralClampMark[] = [
+            { lat, lon: 153.099, side: 'port' }, // would be wrong-side on its own…
+            { lat, lon: 153.101, side: 'stbd' }, // …but its opposite partner is ~198 m away ⇒ a gate
+        ];
+        const out = clamp(route, pair);
+        expect(out.movedLaterals).toBe(0);
+        expect(out.polyline).toEqual(route); // route stays dead-centre between the pair
+    });
+
+    it('solo wrong-side RED but on a GATE segment ⇒ never moved (gate vertices pinned)', () => {
+        const route = southbound();
+        const mid = Math.floor(route.length / 2);
+        const gateSegKeys = new Set<string>([segKey(route[mid], route[mid + 1])]);
+        const redMark: LateralClampMark = { lat, lon: 153.099, side: 'port' };
+        const out = clamp(route, [redMark], waterGrid(), { gateSegKeys });
+        expect(out.movedLaterals).toBe(0);
+        expect(out.polyline).toContainEqual(route[mid]);
+    });
+
+    it('safe side is land ⇒ no-op (never wall off the route)', () => {
+        const grid = waterGrid();
+        addLand(grid, 153.0, 153.099, -27.4, -27.2); // everything WEST of the red is land
+        const route = southbound();
+        const redMark: LateralClampMark = { lat, lon: 153.099, side: 'port' }; // safe side = west = land
+        const out = clamp(route, [redMark], grid);
+        expect(out.movedLaterals).toBe(0);
+        expect(out.polyline).toEqual(route);
+    });
+
+    it('travel-relative: an EASTBOUND route puts a RED’s safe side to the SOUTH', () => {
+        // Travel tangent ≈ (east 1, north 0). RED safe = RIGHT of travel = SOUTH.
+        const route = ewRoute(-27.3, 153.095, 153.105, 25);
+        const lon0 = 153.1;
+        const redMark: LateralClampMark = { lat: -27.299, lon: lon0, side: 'port' }; // ~111 m NORTH of the track
+        // Boat is SOUTH of the mark already (track lat −27.3 < mark −27.299) ⇒ correct ⇒ no-op.
+        const okOut = clamp(route, [redMark]);
+        expect(okOut.movedLaterals).toBe(0);
+        // Now put the RED SOUTH of the track ⇒ boat is NORTH ⇒ wrong ⇒ pushed south past it.
+        const redSouth: LateralClampMark = { lat: -27.301, lon: lon0, side: 'port' };
+        const wrongOut = clamp(route, [redSouth]);
+        expect(wrongOut.movedLaterals).toBe(1);
+        expect(latNearestLon(wrongOut.polyline, lon0)).toBeLessThan(redSouth.lat); // moved SOUTH (more-negative lat)
     });
 });

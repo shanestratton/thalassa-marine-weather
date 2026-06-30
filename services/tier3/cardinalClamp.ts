@@ -38,6 +38,18 @@ export interface CardinalDisc {
     radiusM: number;
 }
 
+/**
+ * A solo IALA-A lateral mark fed to the same clamp. Side is from CATLAM (1 = port/red,
+ * 2 = stbd/green). Unlike a cardinal, a lateral's safe side is TRAVEL-relative (it depends on the
+ * direction of buoyage), so its safe vector is resolved from the route's local tangent at the
+ * closest approach — see `applyDetour`.
+ */
+export interface LateralClampMark {
+    lat: number;
+    lon: number;
+    side: 'port' | 'stbd';
+}
+
 // Safe-side unit vectors in (east, north) metres. Mirrors SAFE_ANGLE in InshoreRouter.ts.
 const SAFE_VEC: Record<'n' | 'e' | 's' | 'w', readonly [number, number]> = {
     e: [1, 0],
@@ -57,6 +69,24 @@ const CLEARANCE_M = 90; // the detour's peak offset PAST the safe line, at the c
 const RAMP_M = 700; // along-track half-width of the detour curve — larger = gentler bulge
 const DENSIFY_M = 25; // sample spacing along the detour bezier
 const SMOOTH_ITERS = 24; // moving-average passes that round the raw A* grid-staircase in open water
+
+// ── Lateral (solo red/green) dials ───────────────────────────────────────────────────────────
+// A solo lateral only governs the route within roughly a gate-width — tighter than a cardinal's
+// open-water band so a mark off to the side (a different channel) never displaces the route.
+const LATERAL_BAND_M = 200;
+// An opposite-side mark this close ⇒ the two form a channel GATE the chain/fairlead/egress routing
+// already threads dead-centre. Clamping one mark of a pair would shove the route off the gate (the
+// reverted prototype's failure), so paired marks are dropped before the clamp ever sees them.
+const LATERAL_PAIR_DIST_M = 200;
+// Only detour when the route is GENUINELY on the wrong side — a small deadband absorbs the global
+// smoother's sub-metre jitter so a mark the route already respects stays a byte-identical no-op.
+const LATERAL_DEADBAND_M = 10;
+// Push a wrong-side solo lateral just onto its safe side (a modest clearance — the mark sits at a
+// channel/hazard edge, so a large bulge could overshoot a narrow passage the way a cardinal won't).
+const LATERAL_CLEARANCE_M = 30;
+// Along-track half-width of a lateral detour — tighter than a cardinal's so the bulge stays local
+// to the solo mark and is less likely to ramp into a protected gate/canal vertex (→ a 'prot' bail).
+const LATERAL_RAMP_M = 350;
 
 const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
     `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
@@ -144,30 +174,64 @@ function pointToSegM(lat: number, lon: number, a: readonly [number, number], b: 
     return Math.hypot(ax + t * dx, ay + t * dy);
 }
 
-/** A mark generalised to its SAFE-side unit vector (currently cardinals only). */
+/** A mark generalised for the clamp. A cardinal carries a FIXED absolute safe vector (N/E/S/W); a
+ *  lateral carries `safeVec:null` + `side`, and its safe vector is resolved per-detour from the
+ *  route's local travel tangent (the IALA side is relative to the direction of buoyage). */
 interface MarkSafe {
     lat: number;
     lon: number;
-    safeVec: readonly [number, number];
+    kind: 'cardinal' | 'lateral';
+    safeVec: readonly [number, number] | null;
+    side?: 'port' | 'stbd';
 }
 
 /**
- * Force the route onto each cardinal's SAFE side (absolute N/E/S/W quadrant) on the final assembled
- * polyline: first a global smooth that rounds the raw A* grid-staircase in open water, then one
- * analytical bezier detour per cardinal that bulges to clearance at the closest approach and rejoins
- * the track tangentially — smooth AND correct by construction. No-ops when no cardinals are present
- * or the route already clears them (so the golden/repro routes are returned byte-identical).
+ * Force the route onto each mark's SAFE side on the final assembled polyline: first a global smooth
+ * that rounds the raw A* grid-staircase in open water, then one analytical bezier detour per mark
+ * that bulges to clearance at the closest approach and rejoins the track tangentially — smooth AND
+ * correct by construction. Handles two mark kinds:
+ *   • CARDINALS (BOYCAR/BCNCAR) — absolute N/E/S/W safe quadrant.
+ *   • SOLO LATERALS (BOYLAT/BCNLAT) — IALA-A red-to-port / green-to-starboard, TRAVEL-relative.
+ *     Only un-paired marks are honoured: a port/stbd PAIR is a channel gate the chain/fairlead/
+ *     egress routing already threads dead-centre, so clamping one mark of a pair would shove the
+ *     route off the gate (the reverted prototype's failure). Paired marks are dropped here, and a
+ *     detour is additionally refused on a gate/canal vertex via the shared `prot` mask.
+ * No-ops when no marks are present or the route already clears them all (the golden/repro routes,
+ * whose every near-route lateral is either paired or already on the correct side, stay byte-identical).
  */
 export function clampRouteToCardinalSafeSide(
     polyline: readonly [number, number][],
     redMask: readonly boolean[],
     cardinals: readonly CardinalDisc[],
     grid: NavGrid,
-    opts: { gateSegKeys: ReadonlySet<string> },
-): { polyline: [number, number][]; redMask: boolean[]; relevant: number; movedCardinals: number; reasons: string[] } {
-    // Cardinals only (absolute safe quadrant). Lateral enforcement was prototyped but reverted —
-    // it conflicted with the channel-gate/egress routing and regressed the Newport repro.
-    const marks: MarkSafe[] = cardinals.map((c) => ({ lat: c.lat, lon: c.lon, safeVec: SAFE_VEC[c.dir] }));
+    opts: { gateSegKeys: ReadonlySet<string>; laterals?: readonly LateralClampMark[] },
+): {
+    polyline: [number, number][];
+    redMask: boolean[];
+    relevant: number;
+    movedCardinals: number;
+    movedLaterals: number;
+    reasons: string[];
+} {
+    const cardinalMarks: MarkSafe[] = cardinals.map((c) => ({
+        lat: c.lat,
+        lon: c.lon,
+        kind: 'cardinal',
+        safeVec: SAFE_VEC[c.dir],
+    }));
+    // Keep only SOLO laterals — no opposite-side partner within a gate-width (LATERAL_PAIR_DIST_M).
+    const laterals = opts.laterals ?? [];
+    const isSolo = (m: LateralClampMark): boolean =>
+        !laterals.some(
+            (o) =>
+                o !== m &&
+                o.side !== m.side &&
+                Math.hypot((o.lon - m.lon) * mPerDegLon(m.lat), (o.lat - m.lat) * M_PER_DEG_LAT) <= LATERAL_PAIR_DIST_M,
+        );
+    const lateralMarks: MarkSafe[] = laterals
+        .filter(isSolo)
+        .map((m) => ({ lat: m.lat, lon: m.lon, kind: 'lateral', safeVec: null, side: m.side }));
+    const marks: MarkSafe[] = [...cardinalMarks, ...lateralMarks];
     // GUARD 1 — byte-identical no-op when there are no marks at all.
     if (marks.length === 0) {
         // Return the input REFERENCES (not copies) so a no-op is truly byte-identical downstream.
@@ -176,6 +240,7 @@ export function clampRouteToCardinalSafeSide(
             redMask: redMask as boolean[],
             relevant: 0,
             movedCardinals: 0,
+            movedLaterals: 0,
             reasons: [],
         };
     }
@@ -225,14 +290,15 @@ export function clampRouteToCardinalSafeSide(
     //       at the route's closest approach and rejoins the track tangentially. Smooth AND correct by
     //       construction — no iterative push/pin tug-of-war (that was the stepping ⇄ wrong-side flip). ─
     let movedCardinals = 0;
-    const reasons: string[] = []; // per relevant cardinal: moved | safe | prot | land
-    // Safe axis already committed to each vertex by a prior detour, so an opposed cardinal can't fight
+    let movedLaterals = 0;
+    const reasons: string[] = []; // per relevant mark: moved | safe | prot | land
+    // Safe axis already committed to each vertex by a prior detour, so an opposed mark can't fight
     // it (two opposed marks near each other → first one wins, the second no-ops there).
     const committedAxis: (readonly [number, number] | null)[] = new Array(pts.length).fill(null);
 
     // One detour — mutates pts/red/prot/committedAxis in place, recomputing on the CURRENT route.
     const applyDetour = (m: MarkSafe): string => {
-        const safe = m.safeVec;
+        const isLateral = m.kind === 'lateral';
         const mPerLon = mPerDegLon(m.lat);
         let best = Infinity;
         let bk = 0;
@@ -245,26 +311,48 @@ export function clampRouteToCardinalSafeSide(
                 bt = t;
             }
         }
-        if (best > CLAMP_BAND_M) return 'safe'; // route doesn't come near this cardinal
+        const band = isLateral ? LATERAL_BAND_M : CLAMP_BAND_M;
+        if (best > band) return 'safe'; // route doesn't come near this mark
+        // Safe-side unit vector. Cardinal: fixed quadrant. Lateral: TRAVEL-relative — the safe side
+        // is RIGHT of travel for a red (port-hand) mark and LEFT for a green (stbd) mark, the IALA-A
+        // rule when the boat runs WITH the direction of buoyage (inbound / upstream — the documented
+        // scope). The tangent is taken from the closest-approach segment of the CURRENT route.
+        let safe: readonly [number, number];
+        if (!isLateral) {
+            safe = m.safeVec as readonly [number, number];
+        } else {
+            let te = (pts[bk + 1][0] - pts[bk][0]) * mPerLon;
+            let tn = (pts[bk + 1][1] - pts[bk][1]) * M_PER_DEG_LAT;
+            const tl = Math.hypot(te, tn);
+            if (tl < 1e-6) return 'safe'; // degenerate segment — no travel direction
+            te /= tl;
+            tn /= tl;
+            safe = m.side === 'port' ? [tn, -te] : [-tn, te];
+        }
         const P: [number, number] = [
             pts[bk][0] + (pts[bk + 1][0] - pts[bk][0]) * bt,
             pts[bk][1] + (pts[bk + 1][1] - pts[bk][1]) * bt,
         ];
         const sideP = (P[0] - m.lon) * mPerLon * safe[0] + (P[1] - m.lat) * M_PER_DEG_LAT * safe[1];
-        if (sideP >= CLEARANCE_M) return 'safe'; // already clears the cardinal's safe line
+        // Cardinal: push to CLEARANCE even if already slightly past. Lateral: only fire when GENUINELY
+        // wrong-side (beyond the jitter deadband), then push just onto the safe side.
+        const triggerBelow = isLateral ? -LATERAL_DEADBAND_M : CLEARANCE_M;
+        const clearTarget = isLateral ? LATERAL_CLEARANCE_M : CLEARANCE_M;
+        const rampM = isLateral ? LATERAL_RAMP_M : RAMP_M;
+        if (sideP >= triggerBelow) return 'safe'; // already on the safe side
         // Apex: the closest-approach point pushed onto the safe side by `clearance`.
-        const push = Math.min(MAX_PUSH_M, CLEARANCE_M - sideP);
+        const push = Math.min(MAX_PUSH_M, clearTarget - sideP);
         const A: [number, number] = [P[0] + (safe[0] * push) / mPerLon, P[1] + (safe[1] * push) / M_PER_DEG_LAT];
-        // Entry/exit vertices ±RAMP_M along-track from the closest approach.
+        // Entry/exit vertices ±rampM along-track from the closest approach.
         let eIdx = bk;
         let accE = haversineM(P[1], P[0], pts[bk][1], pts[bk][0]);
-        while (eIdx > 0 && accE < RAMP_M) {
+        while (eIdx > 0 && accE < rampM) {
             accE += haversineM(pts[eIdx][1], pts[eIdx][0], pts[eIdx - 1][1], pts[eIdx - 1][0]);
             eIdx--;
         }
         let xIdx = bk + 1;
         let accX = haversineM(P[1], P[0], pts[bk + 1][1], pts[bk + 1][0]);
-        while (xIdx < pts.length - 1 && accX < RAMP_M) {
+        while (xIdx < pts.length - 1 && accX < rampM) {
             accX += haversineM(pts[xIdx][1], pts[xIdx][0], pts[xIdx + 1][1], pts[xIdx + 1][0]);
             xIdx++;
         }
@@ -306,7 +394,7 @@ export function clampRouteToCardinalSafeSide(
         return 'moved';
     };
 
-    // Process the cardinals the route comes near, in along-track order (each detour recomputes on the
+    // Process the marks the route comes near, in along-track order (each detour recomputes on the
     // running route so the splices compose cleanly).
     const ordered = marks
         .map((m) => {
@@ -321,26 +409,30 @@ export function clampRouteToCardinalSafeSide(
             }
             return { m, bk, best };
         })
-        .filter((o) => o.best <= CLAMP_BAND_M)
+        .filter((o) => o.best <= (o.m.kind === 'lateral' ? LATERAL_BAND_M : CLAMP_BAND_M))
         .sort((a, b) => a.bk - b.bk);
     const relevant = ordered.length;
 
     for (const { m } of ordered) {
         const r = applyDetour(m);
         reasons.push(r);
-        if (r === 'moved') movedCardinals++;
+        if (r === 'moved') {
+            if (m.kind === 'lateral') movedLaterals++;
+            else movedCardinals++;
+        }
     }
 
-    // Nothing detoured (every cardinal already clear / land / gated): return the ORIGINAL geometry
+    // Nothing detoured (every mark already clear / land / gated): return the ORIGINAL geometry
     // byte-identical — the global smooth only earns its keep when a detour actually fires.
-    if (movedCardinals === 0) {
+    if (movedCardinals === 0 && movedLaterals === 0) {
         return {
             polyline: polyline as [number, number][],
             redMask: redMask as boolean[],
             relevant,
             movedCardinals: 0,
+            movedLaterals: 0,
             reasons,
         };
     }
-    return { polyline: pts, redMask: red, relevant, movedCardinals, reasons };
+    return { polyline: pts, redMask: red, relevant, movedCardinals, movedLaterals, reasons };
 }

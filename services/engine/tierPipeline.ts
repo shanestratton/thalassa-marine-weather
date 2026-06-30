@@ -749,7 +749,9 @@ export function applyThreeTier(
             route.map(([lon, lat]) => ({ lat, lon })),
             route.map(() => false),
             rectrcLines,
-            { corridorM: 300, minRunM: 80, maxAngleDeg: 45, isBlocked: landOnly },
+            // followInteriorVertices: a RECTRC bends with the river — follow its curve instead of
+            // chording across it (which cut the inside of every bend and hugged the bank).
+            { corridorM: 300, minRunM: 80, maxAngleDeg: 45, isBlocked: landOnly, followInteriorVertices: true },
         );
         if (snapped.snapped > 0) {
             route = snapped.polyline.map((p) => [p.lon, p.lat] as [number, number]);
@@ -950,12 +952,24 @@ export function applyThreeTier(
     // discard the obstacle grid, so an avoidance disc can't steer them. No-op when no cardinals are
     // present (golden/repro) or the route already clears them; canal-RED + gate vertices are pinned.
     const cardinalDiscs = parseCardinalDiscs(layers.OBSTRN?.features ?? []);
+    // Solo-lateral side-enforcement rides the SAME final-polyline post-process: `marks` are the
+    // real chart laterals (parseLateralMarks, above). The clamp keeps only un-paired marks (a
+    // port/stbd pair is a gate the chain/fairlead/egress routing already threads dead-centre) and
+    // refuses a detour on a chain/fairlead gate or canal-RED vertex (gateSegKeys + the red mask) —
+    // so it only ever rounds a SOLO mark the route passes on the wrong side (e.g. VQR), never a gate.
+    const lateralClampMarks = marks.map((m) => ({ lat: m.lat, lon: m.lon, side: m.side }));
     const {
         polyline: clampedPoly,
         redMask: clampedRed,
         movedCardinals: clampMoved,
-    } = clampRouteToCardinalSafeSide(finalPoly, finalRed, cardinalDiscs, grid, { gateSegKeys });
-    const cardinalClampTag = clampMoved > 0 ? ` +cardinalclamp×${clampMoved}` : '';
+        movedLaterals: clampMovedLat,
+    } = clampRouteToCardinalSafeSide(finalPoly, finalRed, cardinalDiscs, grid, {
+        gateSegKeys,
+        laterals: lateralClampMarks,
+    });
+    const cardinalClampTag =
+        (clampMoved > 0 ? ` +cardinalclamp×${clampMoved}` : '') +
+        (clampMovedLat > 0 ? ` +lateralclamp×${clampMovedLat}` : '');
     const channelSeg = clampedPoly
         .slice(0, -1)
         .map((p, i) => channelSegKeys.has(segKey(p, clampedPoly[i + 1])) && !clampedRed[i] && !clampedRed[i + 1]);
