@@ -402,7 +402,8 @@ const Sparkline: React.FC<{ pts: Pt[]; nowT: number; accent: string }> = ({ pts,
     );
 };
 
-/** A compass arrow whose tip points toward the bearing the wind blows FROM. */
+/** A compass arrow that points the way the wind BLOWS (downwind). deg is the
+ *  bearing the wind comes from, so rotate +180 — matches the app's other arrows. */
 const DirArrow: React.FC<{ deg: number | null; size?: number }> = ({ deg, size = 24 }) => (
     <svg
         width={size}
@@ -410,7 +411,7 @@ const DirArrow: React.FC<{ deg: number | null; size?: number }> = ({ deg, size =
         viewBox="0 0 24 24"
         className="shrink-0"
         style={{
-            transform: deg == null ? undefined : `rotate(${deg}deg)`,
+            transform: deg == null ? undefined : `rotate(${deg + 180}deg)`,
             transition: 'transform 1s ease',
             opacity: deg == null ? 0.25 : 1,
         }}
@@ -727,8 +728,8 @@ export const MetricDeepDiveModal: React.FC<MetricDeepDiveModalProps> = ({
                         </div>
 
                         <p className="text-[11px] text-white/30 leading-relaxed">
-                            Wind direction is the compass bearing the wind blows <em>from</em>. Yesterday needs
-                            WeatherKit history; today and tomorrow come from the forecast.
+                            The cardinal is where the wind blows <em>from</em>; the arrow points where it's heading.
+                            Yesterday needs WeatherKit history; today and tomorrow come from the forecast.
                         </p>
                     </>
                 ) : (
