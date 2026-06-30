@@ -30,9 +30,17 @@ const Metric: React.FC<{ label: string; value: string; sub?: string }> = ({ labe
     </div>
 );
 
-/** Compass arrow — tip points toward the bearing the wind blows FROM. */
+/** Compass arrow — points the way the wind BLOWS (downwind). windDegree is the
+ *  bearing the wind comes from, so rotate +180 to point where it's heading,
+ *  matching the app's map / current-conditions arrows. */
 const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
-    <svg width={22} height={22} viewBox="0 0 24 24" className="shrink-0" style={{ transform: `rotate(${deg}deg)` }}>
+    <svg
+        width={22}
+        height={22}
+        viewBox="0 0 24 24"
+        className="shrink-0"
+        style={{ transform: `rotate(${deg + 180}deg)` }}
+    >
         <path d="M12 3L8 14h8L12 3Z" fill="rgba(125,211,252,0.95)" />
         <path d="M12 21L8 14h8L12 21Z" fill="rgba(148,163,184,0.3)" />
     </svg>
