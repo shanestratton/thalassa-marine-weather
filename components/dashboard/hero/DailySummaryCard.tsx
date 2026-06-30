@@ -11,6 +11,7 @@ import React from 'react';
 import type { DailySummary } from './heroSlideHelpers';
 import type { UnitPreferences } from '../../../types';
 import { convertTemp, convertSpeed, convertLength } from '../../../utils/units';
+import { degreesToCardinal } from '../../../utils/format';
 
 interface DailySummaryCardProps {
     daily: DailySummary;
@@ -26,6 +27,23 @@ const Metric: React.FC<{ label: string; value: string; sub?: string }> = ({ labe
         <span className="text-[11px] uppercase tracking-wider text-white/45">{label}</span>
         <span className="text-xl font-bold text-white tabular-nums">{value}</span>
         {sub ? <span className="text-[11px] text-white/55">{sub}</span> : null}
+    </div>
+);
+
+/** Compass arrow — tip points toward the bearing the wind blows FROM. */
+const WindArrow: React.FC<{ deg: number }> = ({ deg }) => (
+    <svg width={22} height={22} viewBox="0 0 24 24" className="shrink-0" style={{ transform: `rotate(${deg}deg)` }}>
+        <path d="M12 3L8 14h8L12 3Z" fill="rgba(125,211,252,0.95)" />
+        <path d="M12 21L8 14h8L12 21Z" fill="rgba(148,163,184,0.3)" />
+    </svg>
+);
+
+/** Wind-direction cell: arrow with the cardinal underneath. */
+const DirCell: React.FC<{ deg: number }> = ({ deg }) => (
+    <div className="flex flex-col items-center text-center px-2">
+        <span className="text-[11px] uppercase tracking-wider text-white/45">Dir</span>
+        <WindArrow deg={deg} />
+        <span className="text-[11px] font-semibold text-white/80">{degreesToCardinal(deg)}</span>
     </div>
 );
 
@@ -68,6 +86,9 @@ export const DailySummaryCard: React.FC<DailySummaryCardProps> = ({ daily, units
             {/* Marine + wind row */}
             <div className="flex items-start justify-center gap-4 flex-wrap">
                 <Metric label="Wind" value={wind !== null ? `${wind} ${units.speed}` : '--'} />
+                {daily.windDegree !== undefined && daily.windDegree !== null ? (
+                    <DirCell deg={daily.windDegree} />
+                ) : null}
                 <Metric label="Gust" value={gust !== null ? `${gust} ${units.speed}` : '--'} />
                 {!isLandlocked ? (
                     <Metric

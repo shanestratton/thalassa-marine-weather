@@ -14,6 +14,7 @@ import {
 } from '../../../utils';
 import { UnitPreferences, SourcedWeatherMetrics, HourlyForecast } from '../../../types';
 import { ShipLogService } from '../../../services/ShipLogService';
+import { circularMean } from '../../../utils/circularStats';
 
 // ── Sun Phase Helper ────────────────────────────────────────────────
 
@@ -198,6 +199,8 @@ export interface DailySummary {
     condition?: string;
     windSpeed?: number;
     windGust?: number;
+    /** Day's general wind direction (deg FROM), circular-mean of the hourly. */
+    windDegree?: number;
     waveHeight?: number | null;
     swellPeriod?: number;
     tideSummary?: string;
@@ -242,6 +245,9 @@ export function buildSlides(
         const dStr = new Date(firstHour.time).toLocaleDateString('en-CA');
         const m = forecast.find((d) => d.isoDate === dStr || d.date === dStr);
         if (m) {
+            // Day's general wind direction = circular mean of the day's hourly
+            // bearings (the daily forecast carries no direction field).
+            const dayWindDeg = circularMean(hourlyToRender.map((h) => h.windDegree));
             dailySlide = [
                 {
                     type: 'daily' as const,
@@ -264,6 +270,7 @@ export function buildSlides(
                         condition: m.condition,
                         windSpeed: m.windSpeed,
                         windGust: m.windGust,
+                        windDegree: dayWindDeg ?? undefined,
                         waveHeight: m.waveHeight,
                         swellPeriod: m.swellPeriod,
                         tideSummary: m.tideSummary,
