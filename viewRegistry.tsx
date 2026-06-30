@@ -91,6 +91,10 @@ const WeatherWindowCheckPage = lazyRetry(
     () => import('./components/weatherWindow/WeatherWindowCheck').then((m) => ({ default: m.WeatherWindowCheck })),
     'WeatherWindowCheck',
 );
+const SkipperReferencePage = lazyRetry(
+    () => import('./components/reference/SkipperReference').then((m) => ({ default: m.SkipperReference })),
+    'SkipperReference',
+);
 
 const GuardianPage = lazyRetry(
     () => import('./components/GuardianPage').then((m) => ({ default: m.GuardianPage })),
@@ -257,6 +261,12 @@ export const VIEW_REGISTRY: Record<string, ViewConfig> = {
     weatherWindow: {
         component: WeatherWindowCheckPage,
         boundaryName: 'WeatherWindow',
+        group: 'vessel',
+        getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
+    },
+    skipperReference: {
+        component: SkipperReferencePage,
+        boundaryName: 'SkipperReference',
         group: 'vessel',
         getProps: (ctx) => ({ onBack: () => ctx.setPage('vessel') }),
     },
