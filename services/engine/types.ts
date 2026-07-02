@@ -197,6 +197,29 @@ export interface RouteDebug {
     seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number };
 }
 
+/**
+ * One contiguous charted-shallow (caution) run on the final polyline — the
+ * substrate for the Phase 7 tide-window annotation ("clears 09:40–15:10").
+ * Display/annotation only: tide changes feasibility AND timing, never geometry.
+ */
+export interface ShallowRunInfo {
+    /** First segment index of the run (segment i = polyline[i] → polyline[i+1]). */
+    startSeg: number;
+    /** Last segment index of the run (inclusive). */
+    endSeg: number;
+    lengthM: number;
+    /**
+     * Shallowest REAL charted DRVAL1 (m below LAT) sampled along the run — the
+     * depth the CAUTION sentinel in grid.cells erases. NULL when nothing charted
+     * vouches a depth there (uncharted / conflict caution): callers must NOT
+     * fabricate a tide window from a null.
+     */
+    minDepthM: number | null;
+    /** Run midpoint (by along-track length) — where the window chip anchors. */
+    midLat: number;
+    midLon: number;
+}
+
 export interface RouteResult {
     polyline: [number, number][]; // [lon, lat], lon-first per GeoJSON convention
     /**
@@ -241,6 +264,12 @@ export interface RouteResult {
     distanceNM: number;
     gridSize: { width: number; height: number };
     bbox: [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
+    /**
+     * Contiguous charted-shallow caution runs ≥200 m on the final polyline,
+     * with the real charted min depth where the chart vouches one — the input
+     * to the tide-window annotation. Absent on cloud/legacy results.
+     */
+    shallowRuns?: ShallowRunInfo[];
     debug?: RouteDebug;
     /**
      * Per-phase timing in ms. Useful for finding the bottleneck during
@@ -310,6 +339,15 @@ export interface NavGrid {
      * `cells[idx] === UNKNOWN_OPEN`. Optional for cached-grid back-compat.
      */
     unvouched?: Uint8Array;
+    /**
+     * Per-cell REAL charted depth (shallowest DRVAL1, m below LAT) for cells a
+     * shallow-for-draft DEPARE claimed in Pass 1 — the depth the CAUTION
+     * sentinel in `cells` erases. NaN where no shallow DEPARE touched the cell.
+     * Routing never reads it; it exists so the tide-window annotation can
+     * compute requiredRiseM = draft + tideSafety − depth per red run
+     * (display-only, masterplan Phase 7). Optional for cached-grid back-compat.
+     */
+    shallowDepthM?: Float32Array;
     /**
      * Per-cell "INJECTED canal/marina channel water" flag: 1 = the cell was
      * claimed by the nearshore Mapbox vector-water fill we INJECTED for routing
