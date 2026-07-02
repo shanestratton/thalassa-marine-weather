@@ -82,6 +82,16 @@ export interface NtmRoutingPack {
     zones: NtmZone[];
     /** Virtual AIS marks from the notice — DISPLAY always, routing never. */
     marks: NtmMark[];
+    /**
+     * The notice's alternative-route TRACK through its marks ([lon, lat]
+     * chain). When the pack is acked + current this is injected as a chart
+     * transit (NAVLINE, acronym 'NAVLNE') so the route rides DEAD-ON through
+     * the promulgated marks — same trust class as an ENC leading line: MSQ
+     * drew it, we follow it. Depth honesty is preserved because the NTM
+     * survey zones stamp AFTER the transit rescue and override its corridor
+     * with the surveyed values.
+     */
+    trackline?: Position[];
     /** [minLon, minLat, maxLon, maxLat] of every zone/mark, for corridor tests. */
     bbox: [number, number, number, number];
 }
@@ -164,6 +174,14 @@ const MOOLOOLAH_BAR_2026_364: NtmRoutingPack = {
     marks: [
         { name: 'BNE MRB REF 1', lat: -(26 + 40.8675 / 60), lon: 153 + 7.8257 / 60 },
         { name: 'BNE MRB REF 2', lat: -(26 + 40.7927 / 60), lon: 153 + 7.9164 / 60 },
+    ],
+    // Entrance-mouth midpoint → REF 2 → REF 1 → 150 m seaward extension:
+    // the promulgated alternative route, ridden dead-on when acked.
+    trackline: [
+        [153.132498, -26.67968],
+        [153 + 7.9164 / 60, -(26 + 40.7927 / 60)],
+        [153 + 7.8257 / 60, -(26 + 40.8675 / 60)],
+        [153.129317, -26.682042],
     ],
     bbox: [153.1288, -26.6825, 153.1329, -26.6781],
 };
@@ -347,8 +365,9 @@ export async function packsForCorridor(
  */
 export async function activeNtmZonesFor(
     corridorBbox: [number, number, number, number],
-): Promise<{ features: Feature[]; packIds: string[] }> {
+): Promise<{ features: Feature[]; tracklines: Feature[]; packIds: string[] }> {
     const features: Feature[] = [];
+    const tracklines: Feature[] = [];
     const packIds: string[] = [];
     for (const { pack, status, acked } of await packsForCorridor(corridorBbox)) {
         if (status.status !== 'current') {
@@ -378,10 +397,26 @@ export async function activeNtmZonesFor(
                 geometry: { type: 'Polygon', coordinates: [z.polygon] },
             });
         }
+        if (pack.trackline && pack.trackline.length >= 2) {
+            tracklines.push({
+                type: 'Feature',
+                properties: {
+                    // acronym 'NAVLNE' puts it in the chart-transit trust class:
+                    // Pass 5b rides it preferred and may resolve land-paint
+                    // conflicts along it — MSQ promulgated this exact line.
+                    acronym: 'NAVLNE',
+                    _source: 'ntm-pack',
+                    _noticeKey: `${pack.noticeKey}#r${pack.rev ?? 1}`,
+                },
+                geometry: { type: 'LineString', coordinates: pack.trackline },
+            });
+        }
         packIds.push(pack.id);
-        log.warn(`[ntmRouting] INJECTING ${pack.zones.length} surveyed zone(s) from "${pack.noticeKey}" (${pack.id})`);
+        log.warn(
+            `[ntmRouting] INJECTING ${pack.zones.length} surveyed zone(s)${pack.trackline ? ' + alternative-route transit' : ''} from "${pack.noticeKey}" (${pack.id})`,
+        );
     }
-    return { features, packIds };
+    return { features, tracklines, packIds };
 }
 
 /** Point-in-zone test for the render-side lock styling. */

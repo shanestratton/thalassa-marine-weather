@@ -1160,7 +1160,18 @@ async function tryInshoreRouteInner(
     // OSM regional solo/cardinal hazard markers (SE-QLD marker file) — empty outside
     // that file's bbox; the ENC cardinal fold below runs EITHER WAY.
     let osmRegionalHazards: { geometry?: { coordinates?: [number, number] } }[] = [];
-    if (regionalMarkersUrl) {
+    // ── ENC lateral fold — REGION-INDEPENDENT (like the cardinal fold below).
+    // Chart BCNLAT/BOYLAT with CATLAM 1 (port) / 2 (starboard) enter the same
+    // cluster/pair pipeline as the regional file's marks: the Mooloolah River
+    // carries 15 ENC beacons and 2 OSM marks, so without this the route never
+    // threaded the red/green pairs out of the channel (Shane, 2026-07-02).
+    // CATLAM 3/4 (preferred-channel) stay out of the simple fold — they carry
+    // side semantics the mixed-pair machinery handles from the file's classes.
+    const encLaterals = encLateralsFromFeatures([
+        ...(merged.BCNLAT?.features ?? []),
+        ...(merged.BOYLAT?.features ?? []),
+    ]);
+    if (regionalMarkersUrl || encLaterals.length > 0) {
         try {
             // Combined OSM water+marina list. Used inside the pair loop
             // as a tie-breaker against LNDARE-bleed: if the midpoint of
@@ -1178,6 +1189,7 @@ async function tryInshoreRouteInner(
                 // OFFLINE, when the Pi's OSM-water overlay is absent. ENC truth
                 // beats OSM. This is the Newport→Scarborough fix.
                 [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])],
+                encLaterals,
             );
             regionalPairsForShadow = acceptedPairs;
             if (midpoints.length > 0) {
@@ -1275,6 +1287,15 @@ async function tryInshoreRouteInner(
         const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
         if (ntm.features.length > 0) {
             merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
+        }
+        if (ntm.tracklines.length > 0) {
+            // The notice's alternative-route transit joins NAVLINE so the exit
+            // over the bar rides DEAD-ON through the promulgated REF marks
+            // (Shane 2026-07-02). Survey zones stamp after the transit rescue,
+            // so the corridor keeps its honest surveyed depths.
+            const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            (navline.features as unknown[]).push(...ntm.tracklines);
+            merged.NAVLINE = navline;
         }
     } catch (err) {
         log.warn(
@@ -1645,6 +1666,33 @@ const REGIONAL_MARKER_FILES: { bbox: [number, number, number, number]; slug: str
 // Old `regionalMarkerCache` removed — see `rawMarkerFetchCache` below
 // (cache only the HTTP fetch, not the processed pairing result, because
 // pairing decisions now depend on the cell pack's LNDARE polygons).
+
+/**
+ * ENC lateral marks (BCNLAT/BOYLAT, acronym-gated) with CATLAM 1/2 →
+ * port/starboard pairing candidates. Shared by tryInshoreRoute and the
+ * device-faithful test harnesses so both fold the same set. CATLAM 3/4
+ * (preferred-channel) deliberately excluded — their side semantics belong
+ * to the mixed-pair machinery. Pure + exported for tests.
+ */
+export function encLateralsFromFeatures(
+    features: ReadonlyArray<{
+        geometry?: { type?: string; coordinates?: unknown } | null;
+        properties?: Record<string, unknown> | null;
+    }>,
+): { lat: number; lon: number; kind: 'port' | 'starboard' | 'special' }[] {
+    const out: { lat: number; lon: number; kind: 'port' | 'starboard' | 'special' }[] = [];
+    for (const f of features) {
+        const p = f.properties;
+        const g = f.geometry;
+        if (!p || typeof p.acronym !== 'string' || g?.type !== 'Point' || !Array.isArray(g.coordinates)) continue;
+        const catlam = Number(p.CATLAM);
+        if (catlam !== 1 && catlam !== 2) continue;
+        const [lon, lat] = g.coordinates as [number, number];
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+        out.push({ lat, lon, kind: catlam === 1 ? 'port' : 'starboard' });
+    }
+    return out;
+}
 
 async function pickRegionalMarkersUrl(origin: InshoreOrigin, destination: InshoreOrigin): Promise<string | null> {
     const supabaseBase =
@@ -2463,13 +2511,25 @@ const rawMarkerFetchCache = new Map<
 const MARKER_FETCH_DEADLINE_MS = 15_000;
 
 export async function fetchRegionalMarkers(
-    url: string,
+    /** Regional OSM marker file, or null = chart-marks-only pairing (regions
+     *  with no curated file still get ENC gates via extraLaterals). */
+    url: string | null,
     lndareFeatures: { geometry?: { type?: string; coordinates?: unknown } }[],
     osmWaterFeatures: { geometry?: { type?: string; coordinates?: unknown } }[] = [],
     chartedWaterFeatures: { geometry?: { type?: string; coordinates?: unknown } }[] = [],
+    /**
+     * ENC lateral marks (BCNLAT/BOYLAT CATLAM 1/2 → port/starboard) folded
+     * into the SAME cluster/pair pipeline as the OSM file's marks. The chart
+     * is the AUTHORITATIVE mark source — the OSM file simply predates ENC
+     * coverage in most of SE-QLD; where both know a buoy (~25 m) the OSM
+     * copy wins the dedupe (its positions built the existing goldens).
+     * Mooloolah River 2026-07-02: 15 ENC beacons, 2 OSM marks — the route
+     * ignored every red/green pair until this fold.
+     */
+    extraLaterals: { lat: number; lon: number; kind: 'port' | 'starboard' | 'special' }[] = [],
 ): Promise<RegionalChannelData> {
-    let dataPromise = rawMarkerFetchCache.get(url);
-    if (!dataPromise) {
+    let dataPromise = url ? rawMarkerFetchCache.get(url) : null;
+    if (url && !dataPromise) {
         dataPromise = (async () => {
             const res = await withDeadline(fetch(url), MARKER_FETCH_DEADLINE_MS, 'nav_markers fetch');
             if (!res.ok) throw new Error(`HTTP ${res.status} fetching nav_markers`);
@@ -2488,10 +2548,10 @@ export async function fetchRegionalMarkers(
         // promise until app restart.
         rawMarkerFetchCache.set(url, dataPromise);
         dataPromise.catch(() => {
-            if (rawMarkerFetchCache.get(url) === dataPromise) rawMarkerFetchCache.delete(url);
+            if (url && rawMarkerFetchCache.get(url) === dataPromise) rawMarkerFetchCache.delete(url);
         });
     }
-    const data = await dataPromise;
+    const data = dataPromise ? await dataPromise : { features: [] };
     return (async () => {
         // ── Step 1: Parse markers ───────────────────────────────
         // Two classes:
@@ -2553,6 +2613,24 @@ export async function fetchRegionalMarkers(
             else if (cls === 'notice') markers.push({ lat, lon, kind: 'special' });
             else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
             else droppedByClass.set(cls || '<empty>', (droppedByClass.get(cls || '<empty>') ?? 0) + 1);
+        }
+        // ── Step 1b: ENC lateral fold ──────────────────────────────
+        // Chart marks join the pipeline AFTER the file's marks so the
+        // ~25 m dedupe below keeps the OSM copy of a shared buoy (the
+        // golden-pinned positions) and adds only the chart-exclusive
+        // marks (the whole Mooloolah River set).
+        if (extraLaterals.length > 0) {
+            const DEDUPE_M = 25;
+            let folded = 0;
+            for (const m of extraLaterals) {
+                const mx = 111_320 * Math.cos((m.lat * Math.PI) / 180);
+                const dup = markers.some((e) => Math.hypot((e.lon - m.lon) * mx, (e.lat - m.lat) * 110_540) < DEDUPE_M);
+                if (dup) continue;
+                markers.push({ lat: m.lat, lon: m.lon, kind: m.kind });
+                folded++;
+            }
+            if (folded > 0)
+                log.warn(`[encLaterals] folded ${folded}/${extraLaterals.length} chart lateral(s) into pairing`);
         }
         if (ROUTE_DEBUG && droppedByClass.size > 0) {
             const summary = [...droppedByClass.entries()]

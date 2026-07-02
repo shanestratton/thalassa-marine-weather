@@ -197,7 +197,8 @@ async function assemble(from: [number, number], to: [number, number]): Promise<I
         (merged.NAVLINE!.features as unknown[]).push(...((overlay.navLines?.features ?? []) as unknown[]));
     }
     try {
-        const { fetchRegionalMarkers, orientHazardsTowardLand } = await import('../../services/InshoreRouter');
+        const { fetchRegionalMarkers, orientHazardsTowardLand, encLateralsFromFeatures } =
+            await import('../../services/InshoreRouter');
         const url =
             'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
         const { midpoints, segments, hazards, wings } = await fetchRegionalMarkers(
@@ -205,6 +206,8 @@ async function assemble(from: [number, number], to: [number, number]): Promise<I
             (merged.LNDARE?.features ?? []) as never,
             ((overlay?.water?.features ?? []) as never) ?? [],
             [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])] as never,
+            // Device-faithful ENC lateral fold (the Mooloolah beacon gates).
+            encLateralsFromFeatures([...(merged.BCNLAT?.features ?? []), ...(merged.BOYLAT?.features ?? [])] as never),
         );
         (merged.BOYLAT!.features as unknown[]).push(...midpoints);
         (merged.FAIRWY!.features as unknown[]).push(...segments);
