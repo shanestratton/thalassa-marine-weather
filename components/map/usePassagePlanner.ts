@@ -521,15 +521,38 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                 : [ln, lt, ln, lt];
                         }
                         if (rb && stateMask) {
-                            const lockPacks = (await packsForCorridor(rb))
+                            const corridorPacks = await packsForCorridor(rb);
+                            // Self-heal a superseded ack: the pack can no longer
+                            // inject (fail-closed), so the stale "applied" state
+                            // must not linger — revoke recomputes via the ack
+                            // event and the popup reverts to the superseded
+                            // explanation (review finding #9).
+                            for (const { pack, status, acked } of corridorPacks) {
+                                if (status.status === 'superseded' && acked) {
+                                    const { revokePackAck } = await import('../../services/ntmRouting');
+                                    log.warn(`[ntmRouting] ${pack.id} superseded while acked — auto-revoking`);
+                                    revokePackAck(pack);
+                                }
+                            }
+                            const lockPacks = corridorPacks
                                 .filter(({ status, acked }) => status.status === 'current' && !acked)
                                 .map(({ pack }) => pack);
                             if (lockPacks.length > 0 && gen === computeGenRef.current) {
                                 let locked = 0;
                                 for (let i = 0; i < stateMask.length; i++) {
-                                    const mLon = (inshorePoly[i][0] + inshorePoly[i + 1][0]) / 2;
-                                    const mLat = (inshorePoly[i][1] + inshorePoly[i + 1][1]) / 2;
-                                    if (lockPacks.some((p) => pointInPack(mLon, mLat, p))) {
+                                    // Sample ALONG the segment, not just its midpoint —
+                                    // a long smoothed segment can cross a whole zone
+                                    // between samples (review finding #4).
+                                    let hit = false;
+                                    for (let s = 0; s <= 4 && !hit; s++) {
+                                        const t = s / 4;
+                                        const qLon =
+                                            inshorePoly[i][0] + (inshorePoly[i + 1][0] - inshorePoly[i][0]) * t;
+                                        const qLat =
+                                            inshorePoly[i][1] + (inshorePoly[i + 1][1] - inshorePoly[i][1]) * t;
+                                        hit = lockPacks.some((p) => pointInPack(qLon, qLat, p));
+                                    }
+                                    if (hit) {
                                         stateMask[i] = 'ntmlock';
                                         locked++;
                                     }
@@ -693,6 +716,11 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     // surfaces in the banner and the 📄 chart icon carries the text.
                     void (async () => {
                         try {
+                            // The NtM LOCK banner outranks this generic advisory —
+                            // this fire-and-forget block resolves later and was
+                            // clobbering the read-the-notice instruction at the
+                            // flagship site (review finding #14).
+                            if (ntmLockBanner) return;
                             const { loadLocalNotices, localNoticesNearPolyline } =
                                 await import('../../services/localNotices');
                             const hits = localNoticesNearPolyline(await loadLocalNotices(), inshoreRes.polyline, 500);
@@ -2332,13 +2360,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             if (routeProfileRef.current === profile) return;
             routeProfileRef.current = profile;
             log.warn(`[routeProfile] ${profile} selected`);
-            if (mapReady && departure && arrival) {
+            // showPassage guard: never recompute (and camera-jump) after the
+            // planner is closed (review finding #17).
+            if (mapReady && showPassage && departure && arrival) {
                 computePassage().catch((err) => log.warn('[routeProfile] recompute failed:', err));
             }
         };
         window.addEventListener('thalassa:route-profile', onProfile);
         return () => window.removeEventListener('thalassa:route-profile', onProfile);
-    }, [mapReady, departure, arrival, computePassage]);
+    }, [mapReady, showPassage, departure, arrival, computePassage]);
 
     // Recompute when an NtM routing acknowledgment changes (📄 popup "apply to
     // routing" tap, services/ntmRouting.ts): the ack flips which survey zones
@@ -2346,14 +2376,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     // locked leg becomes the honest surveyed red/teal with its tide chips.
     useEffect(() => {
         const onNtmAck = () => {
-            if (mapReady && departure && arrival) {
+            if (mapReady && showPassage && departure && arrival) {
                 log.warn('[ntmRouting] ack changed — recomputing displayed route');
                 computePassage().catch((err) => log.warn('[ntmRouting] recompute failed:', err));
             }
         };
         window.addEventListener('thalassa:ntm-ack-changed', onNtmAck);
         return () => window.removeEventListener('thalassa:ntm-ack-changed', onNtmAck);
-    }, [mapReady, departure, arrival, computePassage]);
+    }, [mapReady, showPassage, departure, arrival, computePassage]);
 
     // Route-nudge listener removed 2026-05-05.
     // The drag-to-nudge interaction in useRouteNudge was half-implemented —

@@ -695,6 +695,12 @@ export function buildNavGrid(
     markPass('pass2b-coastline', tPassCoast, coastline.length);
 
     // ── Pass 3: point obstructions — block radius around each ──────
+    // obstnBlocked marks every cell a hazard (OBSTRN/WRECKS/UWTROC) claimed,
+    // INDEPENDENTLY of landBlocked — the land-conflict reopens (NTM survey
+    // zones, chart transits) key off "landBlocked ∧ DEPARE claim" and must
+    // never resurrect a cell that is ALSO a wreck buffer just because land
+    // paint and a depth band overlap it too (adversarial-review finding #7).
+    const obstnBlocked = new Uint8Array(width * height);
     const blockPointBuffer = (lat: number, lon: number): void => {
         const dLatBuf = obstructionBufferM / M_PER_DEG_LAT;
         const dLonBuf = obstructionBufferM / mPerLon;
@@ -710,6 +716,7 @@ export function buildNavGrid(
                 if (dM <= obstructionBufferM) {
                     cells[y * width + x] = BLOCKED;
                     hardBlocked[y * width + x] = 1;
+                    obstnBlocked[y * width + x] = 1;
                 }
             }
         }
@@ -738,6 +745,7 @@ export function buildNavGrid(
                 const idx = y * width + x;
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
+                obstnBlocked[idx] = 1;
                 if (isClearanceBar) clearanceBarred[idx] = 1;
             });
         }
@@ -972,6 +980,7 @@ export function buildNavGrid(
                         chartTransit &&
                         landBlocked[idx] === 1 &&
                         clearanceBarred[idx] !== 1 &&
+                        obstnBlocked[idx] !== 1 && // a wreck under land paint stays a wreck
                         !Number.isNaN(depareVerdict[idx]);
                     if (!landConflict) continue;
                     hardBlocked[idx] = 0;
@@ -1124,7 +1133,10 @@ export function buildNavGrid(
         if (ntmZones.length > 0) {
             const tPassNtm = Date.now();
             const floorM = draftM + safetyM;
-            const ntmRiseM = new Float32Array(width * height).fill(Number.NaN);
+            // Lazy: a big-corridor grid is ~10 MB of Float32 for a handful of
+            // stamped cells — only allocate once a zone actually stamps.
+            let ntmRiseM: Float32Array | null = null;
+            const riseArr = (): Float32Array => (ntmRiseM ??= new Float32Array(width * height).fill(Number.NaN));
             let stamped = 0;
             let reopened = 0;
             // Stamp in array order — the pack lists its deepest/most-specific
@@ -1147,7 +1159,10 @@ export function buildNavGrid(
                         // bridge bars (clearanceBarred) can never reopen, and a
                         // DEPARE-less breakwater stays land.
                         const landConflict =
-                            landBlocked[idx] === 1 && clearanceBarred[idx] !== 1 && !Number.isNaN(depareVerdict[idx]);
+                            landBlocked[idx] === 1 &&
+                            clearanceBarred[idx] !== 1 &&
+                            obstnBlocked[idx] !== 1 && // a wreck under land paint stays a wreck
+                            !Number.isNaN(depareVerdict[idx]);
                         if (!landConflict) return;
                         hardBlocked[idx] = 0;
                         landBlocked[idx] = 0;
@@ -1157,15 +1172,21 @@ export function buildNavGrid(
                     protectedCells[idx] = 1; // survey = authoritative water evidence
                     if (depthM >= floorM) {
                         cells[idx] = depthM;
-                        ntmRiseM[idx] = Number.NaN; // prices as normal water
+                        // rise 0 (NOT NaN): "surveyed, no tide needed". The cost
+                        // fn's preferred short-circuit treats 0 like NaN (flat
+                        // 1.0×), but the keelMargin sampler can now tell a
+                        // deep-STAMPED cell from an unstamped one — without
+                        // this it fell back to the superseded chart edition
+                        // under deep zone cells (review finding #3).
+                        riseArr()[idx] = 0;
                     } else {
                         cells[idx] = CAUTION;
-                        ntmRiseM[idx] = floorM - depthM;
+                        riseArr()[idx] = floorM - depthM;
                     }
                     stamped++;
                 });
             }
-            grid.ntmRiseM = ntmRiseM;
+            if (ntmRiseM) grid.ntmRiseM = ntmRiseM;
             markPass('passNTM-survey-override', tPassNtm, ntmZones.length);
             engineLog.warn(
                 `[ntmRouting] NTM pass stamped ${stamped} cell(s) from ${ntmZones.length} survey zone(s)${reopened > 0 ? ` (${reopened} land-conflict cell(s) reopened by the survey)` : ''}`,

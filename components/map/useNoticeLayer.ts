@@ -257,14 +257,21 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                         popupAt(n0.lon as number, n0.lat as number, html);
                         if (!pack) return;
                         const rerender = () => el.dispatchEvent(new MouseEvent('click'));
-                        document.getElementById(`ntm-apply-${pack.id}`)?.addEventListener('click', () => {
-                            ackPack(pack);
-                            rerender();
-                        });
-                        document.getElementById(`ntm-revoke-${pack.id}`)?.addEventListener('click', () => {
-                            revokePackAck(pack);
-                            rerender();
-                        });
+                        // Disable on first tap: every ack event triggers a full
+                        // route recompute, so a double-tap must not fire twice
+                        // (review finding #15).
+                        const wire = (id: string, action: () => void): void => {
+                            const btn = document.getElementById(id) as HTMLButtonElement | null;
+                            btn?.addEventListener('click', () => {
+                                if (btn.disabled) return;
+                                btn.disabled = true;
+                                btn.textContent = 'Working…';
+                                action();
+                                rerender();
+                            });
+                        };
+                        wire(`ntm-apply-${pack.id}`, () => ackPack(pack));
+                        wire(`ntm-revoke-${pack.id}`, () => revokePackAck(pack));
                     })();
                 });
                 localMarkersRef.current.push(
@@ -272,20 +279,31 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 );
                 placed++;
             }
-            // Virtual AIS marks from routing packs — display ALWAYS (MSQ
-            // promulgated them for exactly this), routing never.
-            for (const pack of NTM_ROUTING_PACKS) {
-                for (const m of pack.marks) {
-                    const el = virtualMarkEl();
-                    el.addEventListener('click', (ev) => {
-                        ev.stopPropagation();
-                        popupAt(m.lon, m.lat, virtualMarkPopupHtml(pack, m.name));
-                    });
-                    localMarkersRef.current.push(
-                        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([m.lon, m.lat]).addTo(map),
-                    );
+            // Virtual AIS marks from routing packs — display while the source
+            // notice is current (or unverifiable — benefit of the doubt for a
+            // DISPLAY-only symbol), routing never. A SUPERSEDED temporary
+            // notice's virtual marks must leave the chart: MSQ repositions
+            // them survey-by-survey (review finding #16).
+            void (async () => {
+                for (const pack of NTM_ROUTING_PACKS) {
+                    const status = await ntmPackStatus(pack); // deadlined + cached
+                    if (disposed) return;
+                    if (status.status === 'superseded') {
+                        log.warn(`[ntm] ${pack.id} superseded — virtual marks not shown`);
+                        continue;
+                    }
+                    for (const m of pack.marks) {
+                        const el = virtualMarkEl();
+                        el.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            popupAt(m.lon, m.lat, virtualMarkPopupHtml(pack, m.name));
+                        });
+                        localMarkersRef.current.push(
+                            new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([m.lon, m.lat]).addTo(map),
+                        );
+                    }
                 }
-            }
+            })();
             // Curated entries: only where no live anchor sits within ~600 m.
             const nearLive = (lat: number, lon: number): boolean => {
                 for (const [, group] of anchors) {

@@ -190,7 +190,14 @@ export function cellCostMultiplier(
     // (it was coming through at 0.914 m / 3 ft, far too shallow for a
     // 55' Tayana, so everything reads navigable) + FAIRWY coverage, NOT
     // cost tuning. Reverted to flat 1.0×.
-    if (preferred) return 1.0;
+    // NTM-surveyed SUB-FLOOR cells are exempt from the preferred short-circuit
+    // (adversarial-review finding: bar-survey zones are issued precisely for
+    // dredged entrances, which are where charts carry FAIRWY/DRGARE — the
+    // preferred 1.0× was silently erasing the surveyed requiredRise grading,
+    // so a surveyed 1.4 m shoal priced as baseline channel water). rise > 0 ⇒
+    // fall through to the graded caution branch; NaN or 0 (deep-stamped zone
+    // cells) keep the flat-preferred doctrine untouched.
+    if (preferred && !(ntmRiseM > 0)) return 1.0;
 
     // Outside marked channels, prefer deeper water but allow shallow
     // navigable cells. The penalties are stiffer than before (was
