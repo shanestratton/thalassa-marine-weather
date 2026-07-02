@@ -344,6 +344,23 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
             await printWindows('C', stitched, draftM, from, until);
         }
 
+        // D) DEVICE TWO-TAP CHECK — on the boat Shane taps Mooloolaba→PEARL_N,
+        // then PEARL_N→Newport. Verify the second tap's FREE A* (no forced
+        // PEARL_S via) still rides the spine south and rounds the banks,
+        // instead of cutting across the drying Moreton Banks.
+        const d2 = routeInshore(layers, {
+            ...req,
+            fromLat: PEARL_N[1],
+            fromLon: PEARL_N[0],
+            toLat: NEWPORT_CHANNEL[1],
+            toLon: NEWPORT_CHANNEL[0],
+        });
+        if ('error' in d2) console.log(`TWO-TAP LEG REFUSED: ${d2.error}`);
+        else {
+            describeRoute('D · TWO-TAP: Pearl N entry → Newport (free A*)', d2);
+            await printWindows('D', d2, draftM, from, until);
+        }
+
         expect(true).toBe(true);
     }, 300_000);
 });
