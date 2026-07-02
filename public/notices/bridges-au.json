@@ -16,10 +16,10 @@
         },
         {
             "id": "au-qld-newport-klingner-rd",
-            "name": "Klingner Road bridge (Newport canal)",
-            "clearanceM": 2.7,
+            "name": "Klingner Road footbridge (Newport canal)",
+            "clearanceM": 1.0,
             "estimated": true,
-            "source": "no published clearance found (B2B enlargement stops at Griffith Rd; Stockland lake is non-tidal behind its lock) — estimate retained",
+            "source": "owner local knowledge 2026-07-02: pedestrian bridge, 'pressed to get a tender under it' — ~1.0 m; no published value exists",
             "span": [
                 [153.0935879, -27.2203846],
                 [153.0934272, -27.2204036]
@@ -27,10 +27,10 @@
         },
         {
             "id": "au-qld-newport-dalton-st",
-            "name": "Dalton Street bridge (Newport canal)",
-            "clearanceM": 2.4,
+            "name": "Dalton Street footbridge (Newport canal)",
+            "clearanceM": 1.0,
             "estimated": true,
-            "source": "no published clearance found — estimate retained",
+            "source": "owner local knowledge 2026-07-02: pedestrian bridge, 'pressed to get a tender under it' — ~1.0 m; no published value exists",
             "span": [
                 [153.0926304, -27.2242615],
                 [153.0928412, -27.2242898]
