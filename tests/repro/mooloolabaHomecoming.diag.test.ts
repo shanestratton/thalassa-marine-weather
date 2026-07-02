@@ -319,14 +319,82 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
                 properties: { _class: 'ntm-survey', depthM: z.depthM, _noticeKey: pack.noticeKey, _label: z.label },
                 geometry: { type: 'Polygon' as const, coordinates: [z.polygon] },
             }));
-            const withNtm = routeInshore(
-                { ...layers, NTMZONE: { type: 'FeatureCollection', features: ntmFeatures } },
-                req,
-            );
+            // DEVICE PARITY: tryInshoreRoute injects the pack trackline into
+            // NAVLINE *and* RECTRC (the tier-2 rider) — mirror it here.
+            const trackFeatures = (
+                pack.trackline && pack.trackline.length >= 2
+                    ? [
+                          {
+                              type: 'Feature' as const,
+                              properties: { acronym: 'NAVLNE', _source: 'ntm-pack' },
+                              geometry: { type: 'LineString' as const, coordinates: pack.trackline },
+                          },
+                      ]
+                    : []
+            ) as Feature[];
+            // ZONES ONLY — device parity with tryInshoreRoute. The trackline
+            // injection (NAVLINE and a RECTRC copy) was TRIED 2026-07-03 and
+            // REMOVED: neither closed the REF 1 gap (275 m vs 268 m bare) and
+            // both perturbed global tier/egress ordering — the NAVLINE form
+            // replaced the clean Newport approach with a 1.59 NM drying
+            // crossing 40 NM from the transit. Task #26's origin-side splice
+            // inside tierPipeline is the real fix; trackFeatures kept here
+            // (unused) as the ready-made input for that work.
+            void trackFeatures;
+            const ntmLayers = {
+                ...layers,
+                NTMZONE: { type: 'FeatureCollection' as const, features: ntmFeatures },
+            };
+            const withNtm = routeInshore(ntmLayers, req);
             if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
             else {
                 describeRoute('A+NTM · SAFEST with NtM 364(T) surveyed zones applied', withNtm);
                 await printWindows('A+NTM', withNtm, draftM, from, until);
+                // PILOTAGE AUDIT (Shane 2026-07-03): REF-mark corridor adherence
+                // + which SIDE the three unpaired river greens fall on outbound.
+                const poly = withNtm.polyline as Position[];
+                const minDistTo = (lat: number, lon: number): number => {
+                    let best = Infinity;
+                    for (let i = 0; i + 1 < poly.length; i++) {
+                        for (let s = 0; s <= 10; s++) {
+                            const t = s / 10;
+                            const qLon = poly[i][0] + (poly[i + 1][0] - poly[i][0]) * t;
+                            const qLat = poly[i][1] + (poly[i + 1][1] - poly[i][1]) * t;
+                            best = Math.min(best, distM([qLon, qLat], [lon, lat]));
+                        }
+                    }
+                    return best;
+                };
+                const sideOf = (lat: number, lon: number): string => {
+                    // Sign of cross product at the CLOSEST segment, relative to
+                    // travel direction (wharf→Newport = outbound).
+                    let best = Infinity;
+                    let side = '?';
+                    for (let i = 0; i + 1 < poly.length; i++) {
+                        const d = distM(poly[i], [lon, lat]);
+                        if (d < best) {
+                            best = d;
+                            const vx = poly[i + 1][0] - poly[i][0];
+                            const vy = poly[i + 1][1] - poly[i][1];
+                            const wx = lon - poly[i][0];
+                            const wy = lat - poly[i][1];
+                            side = vx * wy - vy * wx > 0 ? 'LEFT(port)' : 'RIGHT(stbd)';
+                        }
+                    }
+                    return side;
+                };
+                console.log(
+                    `  [pilotage] REF2 minDist ${minDistTo(-(26 + 40.7927 / 60), 153 + 7.9164 / 60).toFixed(0)} m, REF1 minDist ${minDistTo(-(26 + 40.8675 / 60), 153 + 7.8257 / 60).toFixed(0)} m (target ≤ ~90 m each)`,
+                );
+                const greens: [string, number, number][] = [
+                    ['green A (153.12747)', -26.687214, 153.12747],
+                    ['green B (153.129887)', -26.687175, 153.129887],
+                    ['green C (153.11951)', -26.687727, 153.11951],
+                ];
+                for (const [name, lat, lon] of greens)
+                    console.log(
+                        `  [pilotage] ${name}: ${minDistTo(lat, lon).toFixed(0)} m off track, on our ${sideOf(lat, lon)} outbound`,
+                    );
             }
         }
 

@@ -1288,15 +1288,16 @@ async function tryInshoreRouteInner(
         if (ntm.features.length > 0) {
             merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
         }
-        if (ntm.tracklines.length > 0) {
-            // The notice's alternative-route transit joins NAVLINE so the exit
-            // over the bar rides DEAD-ON through the promulgated REF marks
-            // (Shane 2026-07-02). Survey zones stamp after the transit rescue,
-            // so the corridor keeps its honest surveyed depths.
-            const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
-            (navline.features as unknown[]).push(...ntm.tracklines);
-            merged.NAVLINE = navline;
-        }
+        // NtM tracklines are NOT injected into NAVLINE (removed 2026-07-03
+        // after triple-check verification). Measured on the real corridor:
+        // the trackline never achieved the REF-mark ride (REF 1 miss 275 m
+        // with vs 268 m without) because nothing splices an ORIGIN-side
+        // transit in the three-tier path — but as a global leadingLine/
+        // egressTrack it PERTURBED tier ordering 40 NM away, replacing the
+        // clean Newport approach with a 1.59 NM drying crossing. The zones
+        // (surveyed depths, graded pricing) carry the safety value; the
+        // dead-on transit ride lands with task #26's tierPipeline splice,
+        // behind fixtures. pack.trackline stays curated for that work.
     } catch (err) {
         log.warn(
             `[ntmRouting] zone injection failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
