@@ -62,6 +62,7 @@ import { useOfflineBaseLayer } from './useOfflineBaseLayer';
 import { useSeamarkLayer } from './useSeamarkLayer';
 import { useTideStationLayer } from './useTideStationLayer';
 import { useAnchorageLayer } from './useAnchorageLayer';
+import { useNoticeLayer } from './useNoticeLayer';
 import { useLightningLayer } from './useLightningLayer';
 import { useOceanCurrentParticleLayer, isCmemsCurrentsEnabled } from './useOceanCurrentParticleLayer';
 import { useOceanWaveParticleLayer, isCmemsWavesEnabled } from './useOceanWaveParticleLayer';
@@ -1244,6 +1245,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Tide Station Markers ──
     const tideStations = useTideStationLayer(mapRef, mapReady, tideStationsVisible);
     useAnchorageLayer(mapRef, mapReady, anchorageVisible);
+
+    // ── Notices to Mariners on the chart (📄 tap-to-read) ──
+    // Curated standing notices (MSQ-class, e.g. Mooloolah River bar) always
+    // show; broadcast NAVAREA warnings show viewport-scoped at zoom ≥ 6.
+    useNoticeLayer(mapRef, mapReady, true);
 
     // ── Lightning Strikes (Xweather GLD360) ──
     useLightningLayer(mapRef, mapReady, lightningVisible);
