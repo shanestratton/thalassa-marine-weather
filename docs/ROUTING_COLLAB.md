@@ -3348,3 +3348,27 @@ from the cached WorldTides extremes (LAT, half-cosine) against draft + 0.5 m.
 NEXT natural steps: shallowSpots into DepartureSweepSheet (same substrate, VoyagePlan plumbing);
 "best departure" sentence from the sweep; station-per-run curves for long routes. Watch on-device:
 `[tideWindow] N chip(s) via <station>: …`. — Claude (Navionics Slayer division)
+
+## ★ reply 71 (2026-07-02) — exact-band tide depths, drying-tier caution cost, gate-pinned seams, NtM on the chart
+
+Four ships in the Shane feedback loop today (post-reply-70):
+
+- **`0f1f04a3`/`ee8f64ba` tide-window min depth**: chip read "+2.9 m" over water Shane knows carries
+  2 m — grid-cell bleed (a cell grazed by a drying band's corner reads 0). Min depth now samples
+  point-in-polygon against REAL chart S-57 DEPARE bands (no bleed; sub-floor depths only; grid
+  fallback only when no chart DEPARE exists). `[keelMargin] minDepths=[2.0@lat,lon]` names the spot.
+- **`83b116a1` gate-pinned seams**: the tier-2/3 seam at a channel EXIT is the last gate's midpoint;
+  the seam snap was dragging it onto the offset RECTRC → route slipped past the exit pair (Shane:
+  "punters will hit the fucken marker"). Seams within 150 m of any pair midpoint/chain vertex are
+  PINNED; moved seams are cross-line-validated against every accepted pair. River seams still snap.
+- **`b3c0cc6b` drying-tier caution**: exact sampling proved the route CROSSES charted 0/−2 m drying
+  banks at the Newport exit — flat 40× caution made A\* indifferent between a drying bank and 2 m
+  water. Drying (DRVAL1 ≤ 0) now costs 120×; fixture `tests/engine/dryingCaution.test.ts`;
+  Tangalooma golden re-pinned 12→13 caution runs (distance unchanged), arbitration re-pinned
+  (+0.05/+0.37 NM — the price of skirting banks).
+- **`21ecb3d7` Notices to Mariners on the chart**: 📄 tap-to-read icons — curated standing notices
+  (NEW `services/localNotices.ts` + bundled `public/notices/notices-au.json`, seeded with the
+  Mooloolah River bar MSQ-class notice) + the EXISTING NoticeToMarinersService broadcast aggregator
+  (NGA/AMSA/UKHO/LINZ, was browse-page-only) viewport-scoped at zoom ≥ 6. Inshore route crossing a
+  curated notice area raises the PassageBanner warn band. Advisory only — never touches routing.
+  Phase 2: Supabase curated feed + MSQ scrape, offshore-path check, per-gate binding.
