@@ -3441,3 +3441,25 @@ is green including land checks on TODAY's build, and Shane's screenshot predates
   tail ending at the river. If the line still paints on tan there, the remaining suspect is
   CHART-vs-BASEMAP disagreement (route on chart-navigable water Mapbox draws as land) — a render
   question, not a routing one. The lumped-channel `gate:body-land` A\* leg remains queue item (3).
+
+## ★ reply 75 (2026-07-02) — BAY SWEEP first run (12 passages) + NtM popup dark card (7ef57487)
+
+Sweep harness landed (`tests/repro/baySweep.diag.test.ts` — chart-only engine core vs live Pi
+cells, scale-shadow merged). First-run triage:
+
+- **CLEAN (0 hard-land, sane ratios):** Manly→Tangalooma (1.306), Manly→Peel (1.497),
+  Manly→Dunwich (1.313), Tangalooma→Mooloolaba (**1.007**, 30.6 NM), Caloundra→Mooloolaba (1.142),
+  Cleveland→Coochiemudlo (1.724 — buoyed channel detour, expected).
+- **RIVER CLASS (known data artifact):** Rivergate→Manly hardLand 138/151 — the Brisbane River
+  sits inside mainland LNDARE with no hole; this chart-only harness lacks the OSM-water/DEPARE
+  promotion the DEVICE applies, so the river reads as land here. Harness fix next: fetch the Pi
+  OSM overlay for device-faithful runs before pointing fixes at the engine. Same class taints
+  Newport→Pinkenba (49/607) and Newport→Tangalooma (52/633) exit segments.
+- **REAL LEADS:** Scarborough→Mooloolaba ratio **1.800** (54.5 NM sailed vs ~30 direct — needs a
+  look at the northern exit path); Scarborough→Bribie 13/303 hard-land + 4× drying runs
+  (Deception Bay flats — check drying-tier is steering as intended at 50 m); Seaway→Paradise
+  Point 3/51 + −2.6 m drying (Broadwater banks).
+- Compute: 0.5-5.6 s per passage in node (device ~10× slower — queue item 2 stands).
+
+Also `7ef57487`: NtM/bridge popups now render in the house dark-glass card (.ntm-popup CSS —
+they were bare text over the chart, Shane-reported).
