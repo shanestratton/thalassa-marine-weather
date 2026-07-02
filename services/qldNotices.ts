@@ -201,6 +201,15 @@ export function gazetteerMatch(text: string): { lat: number; lon: number; label:
     return null;
 }
 
+/**
+ * When the live feed was last successfully fetched (epoch ms), or null if
+ * never. ntmRouting's fail-closed currency check keys off this: a routing
+ * pack cannot be vouched by a cache older than its verify horizon.
+ */
+export function qldNoticesFetchedAt(): number | null {
+    return loadCache()?.fetchedAt ?? null;
+}
+
 let inflight: Promise<QldNotice[]> | null = null;
 
 /** All current QLD notices (cache-first, 12 h TTL). Fail-quiet per dataset. */

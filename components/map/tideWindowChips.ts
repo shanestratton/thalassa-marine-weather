@@ -66,7 +66,7 @@ export interface TideChipOptions {
     map: mapboxgl.Map;
     runs: readonly ShallowRunInfo[];
     /** The renderer's per-segment state — chips only on rendered-'danger' runs. */
-    stateMask: readonly ('danger' | 'channel' | 'offshore' | 'green')[] | null;
+    stateMask: readonly ('danger' | 'channel' | 'offshore' | 'green' | 'ntmlock')[] | null;
     /** Vessel draft in METRES (caller converts — vessel.draft is stored in feet). */
     draftM: number;
     /** Departure time (ms epoch) — the window horizon start. */
@@ -138,6 +138,9 @@ export async function annotateTideWindows(opts: TideChipOptions): Promise<void> 
                         ? `clears until ${fmtHM(w.closeMs)}${approx}`
                         : `clears ${fmtHM(w.openMs)}–${fmtHM(w.closeMs)}${approx}`;
             }
+            // Depth from an acknowledged NtM survey, not the chart edition —
+            // say so: the skipper needs to know WHICH authority the number is.
+            if (run.ntmSurveyed) label += ' (NtM survey)';
             if (isStale()) return;
             const marker = new mapboxgl.Marker({ element: chipElement(label), anchor: 'bottom', offset: [0, -8] })
                 .setLngLat([run.midLon, run.midLat])

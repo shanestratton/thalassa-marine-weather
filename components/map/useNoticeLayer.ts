@@ -20,6 +20,15 @@ import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { loadLocalNotices, type LocalNotice } from '../../services/localNotices';
 import { loadQldNotices, groupByAnchor, type QldNotice } from '../../services/qldNotices';
+import {
+    NTM_ROUTING_PACKS,
+    ntmPackStatus,
+    isPackAcked,
+    ackPack,
+    revokePackAck,
+    type NtmRoutingPack,
+    type NtmPackStatus,
+} from '../../services/ntmRouting';
 import { loadLowBridges, type LowBridge } from '../../services/lowBridges';
 import { vesselAirDraftMetres } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -88,6 +97,61 @@ function qldGroupPopupHtml(label: string, group: readonly QldNotice[]): string {
         <div style="font-size:13px;font-weight:700;margin-bottom:6px;">${esc(label)}</div>
         ${items}
         ${more}
+      </div>`;
+}
+
+/**
+ * Routing-guidance section appended to a notice popup when a curated routing
+ * pack (services/ntmRouting.ts) exists for the anchor. The APPLY button is the
+ * explicit acknowledgment — reading the PDF alone never changes routing.
+ */
+function packSectionHtml(pack: NtmRoutingPack, status: NtmPackStatus, acked: boolean): string {
+    const depths = pack.zones.map((z) => `${esc(z.label)} ${z.depthM.toFixed(1)} m`).join(' · ');
+    let action: string;
+    if (status.status === 'superseded') {
+        action = `<div style="font-size:11px;color:#f87171;">Superseded by ${esc(status.liveNumber)} — routing guidance disabled until this app's transcription is updated to the new notice. Read the current PDF above.</div>`;
+    } else if (status.status === 'unverified') {
+        action = `<div style="font-size:11px;color:#fbbf24;">Can't verify this notice is still current (${esc(status.reason)}) — routing guidance disabled. It re-enables when the notice feed refreshes.</div>`;
+    } else if (acked) {
+        action = `<div style="font-size:11px;color:#4ade80;">✓ Applied to routing for this passage.</div>
+          <button id="ntm-revoke-${esc(pack.id)}" style="margin-top:4px;font-size:10px;padding:3px 8px;background:transparent;color:#94a3b8;border:1px solid rgba(148,163,184,0.4);border-radius:6px;cursor:pointer;">Remove from routing</button>`;
+    } else {
+        action = `<button id="ntm-apply-${esc(pack.id)}" style="margin-top:2px;font-size:11px;font-weight:700;padding:6px 10px;background:#7c3aed;color:#f5f3ff;border:none;border-radius:7px;cursor:pointer;">I've read it — apply surveyed depths to routing (24 h)</button>`;
+    }
+    return `
+      <div style="margin-top:8px;padding-top:7px;border-top:1px solid rgba(148,163,184,0.25);">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#c084fc;margin-bottom:3px;">⚓ ROUTING GUIDANCE — SURVEYED ${esc(pack.surveyed)}</div>
+        <div style="font-size:11px;color:#cbd5e1;margin-bottom:5px;">${depths}</div>
+        ${action}
+        <div style="font-size:9px;color:#64748b;margin-top:5px;">Guidance only — never a substitute for the notice itself, your own eyes, or local knowledge. Coastal bars change rapidly.</div>
+      </div>`;
+}
+
+/** Magenta virtual-AtoN symbol (AIS virtual aids from the notice — display always). */
+function virtualMarkEl(): HTMLDivElement {
+    const el = document.createElement('div');
+    el.textContent = '◈';
+    Object.assign(el.style, {
+        fontSize: '13px',
+        lineHeight: '1',
+        padding: '1px 3px',
+        color: '#e879f9',
+        background: 'rgba(15, 23, 42, 0.85)',
+        border: '1px solid rgba(232, 121, 249, 0.55)',
+        borderRadius: '50%',
+        cursor: 'pointer',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
+    } satisfies Partial<CSSStyleDeclaration>);
+    return el;
+}
+
+function virtualMarkPopupHtml(pack: NtmRoutingPack, name: string): string {
+    return `
+      <div style="font-family:inherit;color:#e2e8f0;max-width:230px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#e879f9;margin-bottom:2px;">◈ VIRTUAL NAVIGATION AID</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(name)}</div>
+        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">AIS virtual reference mark from NtM ${esc(pack.noticeKey)} — promulgated for an alternative route. There is NO physical mark in the water.</div>
+        <div style="font-size:10px;color:#94a3b8;">Guidance only — do not rely on it as your only means of navigation.</div>
       </div>`;
 }
 
@@ -175,15 +239,52 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
             for (const [label, group] of anchors) {
                 const n0 = group[0];
                 if (n0.lat === undefined || n0.lon === undefined) continue;
+                // Routing pack for this anchor (Mooloolaba today) — status is
+                // resolved fresh at TAP time so the popup never shows a stale
+                // verdict, and the APPLY tap is the explicit routing ack.
+                const pack = NTM_ROUTING_PACKS.find((p) => p.anchorLabel === label) ?? null;
                 const el = chipEl('local');
                 el.addEventListener('click', (ev) => {
                     ev.stopPropagation();
-                    popupAt(n0.lon as number, n0.lat as number, qldGroupPopupHtml(label, group));
+                    void (async () => {
+                        let html = qldGroupPopupHtml(label, group);
+                        let status: NtmPackStatus | null = null;
+                        if (pack) {
+                            status = await ntmPackStatus(pack);
+                            html += packSectionHtml(pack, status, isPackAcked(pack));
+                        }
+                        if (disposed) return;
+                        popupAt(n0.lon as number, n0.lat as number, html);
+                        if (!pack) return;
+                        const rerender = () => el.dispatchEvent(new MouseEvent('click'));
+                        document.getElementById(`ntm-apply-${pack.id}`)?.addEventListener('click', () => {
+                            ackPack(pack);
+                            rerender();
+                        });
+                        document.getElementById(`ntm-revoke-${pack.id}`)?.addEventListener('click', () => {
+                            revokePackAck(pack);
+                            rerender();
+                        });
+                    })();
                 });
                 localMarkersRef.current.push(
                     new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([n0.lon, n0.lat]).addTo(map),
                 );
                 placed++;
+            }
+            // Virtual AIS marks from routing packs — display ALWAYS (MSQ
+            // promulgated them for exactly this), routing never.
+            for (const pack of NTM_ROUTING_PACKS) {
+                for (const m of pack.marks) {
+                    const el = virtualMarkEl();
+                    el.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        popupAt(m.lon, m.lat, virtualMarkPopupHtml(pack, m.name));
+                    });
+                    localMarkersRef.current.push(
+                        new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([m.lon, m.lat]).addTo(map),
+                    );
+                }
             }
             // Curated entries: only where no live anchor sits within ~600 m.
             const nearLive = (lat: number, lon: number): boolean => {

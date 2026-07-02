@@ -1421,11 +1421,27 @@ function routeInshoreOnce(
             }
             return best;
         };
+        // NTM survey zones override the chart: where the grid carries an NtM
+        // requiredRise (acknowledged + current notice, navGrid NTM pass), the
+        // surveyed depth in grid.shallowDepthM is FRESHER than any DEPARE band
+        // — the exact sampler must not "correct" a 1 Jul survey back to the
+        // chart edition. Returns the surveyed depth or null when not stamped.
+        const ntmSurveyDepthAt = (lon: number, lat: number): number | null => {
+            const rise = grid.ntmRiseM;
+            if (!rise || !sd) return null;
+            const { x, y } = latLonToGrid(grid, lat, lon);
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return null;
+            const idx = y * grid.width + x;
+            if (Number.isNaN(rise[idx])) return null;
+            const d = sd[idx];
+            return Number.isNaN(d) ? null : d;
+        };
         let shallowMaxM = 0;
         let runStart = -1;
         let runM = 0;
         let runMin = Infinity;
         let runMinAt: [number, number] | null = null;
+        let runNtm = false;
         const flush = (endSeg: number): void => {
             if (runStart < 0) return;
             if (runM > shallowMaxM) shallowMaxM = runM;
@@ -1452,12 +1468,14 @@ function routeInshoreOnce(
                     midLat: mid[1],
                     midLon: mid[0],
                     ...(runMinAt ? { minAtLat: runMinAt[1], minAtLon: runMinAt[0] } : {}),
+                    ...(runNtm ? { ntmSurveyed: true } : {}),
                 });
             }
             runStart = -1;
             runM = 0;
             runMin = Infinity;
             runMinAt = null;
+            runNtm = false;
         };
         for (let i = 0; i < finalCaution.length; i++) {
             if (!finalCaution[i]) {
@@ -1481,7 +1499,13 @@ function routeInshoreOnce(
                 // shallow band has NO sub-floor depth on the line — requiredRise
                 // goes ≤0 and no chip appears, which is the honest outcome.
                 let d: number | null = null;
-                if (chartDepare.length > 0) {
+                let dNtm = false;
+                const surveyed = ntmSurveyDepthAt(qLon, qLat);
+                if (surveyed !== null) {
+                    // Fresh NtM survey outranks the chart edition (both ways).
+                    d = surveyed;
+                    dNtm = true;
+                } else if (chartDepare.length > 0) {
                     d = chartShallowDepthAt(qLon, qLat);
                 } else if (sd) {
                     const { x, y } = latLonToGrid(grid, qLat, qLon);
@@ -1493,6 +1517,7 @@ function routeInshoreOnce(
                 if (d !== null && d < runMin) {
                     runMin = d;
                     runMinAt = [qLon, qLat];
+                    runNtm = dNtm;
                 }
             }
         }

@@ -487,7 +487,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             : inshoreRes.tier4Mask;
                     const anyMask =
                         hasMask(cautionMask) || hasMask(canalMask) || hasMask(channelMask) || hasMask(offshoreMask);
-                    const stateMask: ('danger' | 'channel' | 'offshore' | 'green')[] | null =
+                    const stateMask: ('danger' | 'channel' | 'offshore' | 'green' | 'ntmlock')[] | null =
                         inshorePoly.length < 2 || !anyMask
                             ? null
                             : Array.from({ length: segCount }, (_, i) => {
@@ -496,6 +496,62 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                   if (cautionMask?.[i] ?? false) return 'danger'; // shallow OPEN water RED
                                   return offshoreMask?.[i] ? 'offshore' : 'green';
                               });
+                    // ── NtM lock: segments through a CURRENT survey-notice zone the
+                    // skipper has NOT acknowledged render slate-grey "locked" (Shane's
+                    // read-the-paperwork-first gate, minus the chart-occluding image).
+                    // The engine had NO surveyed depths here (un-acked zones are never
+                    // injected), so the drawn line is chart-edition truth at best —
+                    // the lock says "MSQ knows more than this line; read the notice".
+                    // Ack'd + current packs render normally: honest red + tide chips
+                    // from the surveyed depths the engine DID get.
+                    let ntmLockBanner: PassageNotice | null = null;
+                    try {
+                        const { packsForCorridor, pointInPack } = await import('../../services/ntmRouting');
+                        let rb: [number, number, number, number] | null = null;
+                        for (const [ln, lt] of inshorePoly) {
+                            rb = rb
+                                ? [Math.min(rb[0], ln), Math.min(rb[1], lt), Math.max(rb[2], ln), Math.max(rb[3], lt)]
+                                : [ln, lt, ln, lt];
+                        }
+                        if (rb && stateMask) {
+                            const lockPacks = (await packsForCorridor(rb))
+                                .filter(({ status, acked }) => status.status === 'current' && !acked)
+                                .map(({ pack }) => pack);
+                            if (lockPacks.length > 0 && gen === computeGenRef.current) {
+                                let locked = 0;
+                                for (let i = 0; i < stateMask.length; i++) {
+                                    const mLon = (inshorePoly[i][0] + inshorePoly[i + 1][0]) / 2;
+                                    const mLat = (inshorePoly[i][1] + inshorePoly[i + 1][1]) / 2;
+                                    if (lockPacks.some((p) => pointInPack(mLon, mLat, p))) {
+                                        stateMask[i] = 'ntmlock';
+                                        locked++;
+                                    }
+                                }
+                                if (locked > 0) {
+                                    log.warn(
+                                        `[ntmRouting] ${locked} route segment(s) LOCKED behind ${lockPacks
+                                            .map((p) => p.noticeKey)
+                                            .join(', ')} — awaiting acknowledgment`,
+                                    );
+                                    // Dispatched at the route-rendered site below, so the
+                                    // "clear the computing band" call can't erase it.
+                                    ntmLockBanner = {
+                                        severity: 'warn',
+                                        title: 'Notice to Mariners applies to this route',
+                                        message: `${lockPacks
+                                            .map((p) => `${p.noticeKey} — ${p.title} (surveyed ${p.surveyed})`)
+                                            .join(
+                                                ' · ',
+                                            )}. The grey leg has fresher surveyed depths than the chart. Tap the 📄 icon, read the notice, then apply it to routing.`,
+                                    };
+                                }
+                            }
+                        }
+                    } catch (err) {
+                        log.warn(
+                            `[ntmRouting] render lock failed: ${err instanceof Error ? err.message : String(err)}`,
+                        );
+                    }
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
                     if (!stateMask) {
                         // No (or mismatched) safety data — single green line.
@@ -584,6 +640,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             title: 'Destination is inland',
                             message: `The pin sits ~${Math.round(inshoreRes.destinationInlandTrimM)} m onto charted land — the route ends at the nearest navigable water. Drop the pin on the waterway for a berth-accurate route.`,
                         });
+                    } else if (ntmLockBanner) {
+                        dispatchPassageNotice(ntmLockBanner);
                     } else {
                         dispatchPassageNotice(null);
                     }
@@ -2256,6 +2314,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             });
         }
     }, [mapReady, showPassage, departure, arrival, computePassage]);
+
+    // Recompute when an NtM routing acknowledgment changes (📄 popup "apply to
+    // routing" tap, services/ntmRouting.ts): the ack flips which survey zones
+    // inject into the engine, so a displayed route must be rebuilt — the grey
+    // locked leg becomes the honest surveyed red/teal with its tide chips.
+    useEffect(() => {
+        const onNtmAck = () => {
+            if (mapReady && departure && arrival) {
+                log.warn('[ntmRouting] ack changed — recomputing displayed route');
+                computePassage().catch((err) => log.warn('[ntmRouting] recompute failed:', err));
+            }
+        };
+        window.addEventListener('thalassa:ntm-ack-changed', onNtmAck);
+        return () => window.removeEventListener('thalassa:ntm-ack-changed', onNtmAck);
+    }, [mapReady, departure, arrival, computePassage]);
 
     // Route-nudge listener removed 2026-05-05.
     // The drag-to-nudge interaction in useRouteNudge was half-implemented —

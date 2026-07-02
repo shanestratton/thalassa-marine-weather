@@ -64,7 +64,20 @@ export function navGridCacheKey(
         layers.CANAL?.features.length ?? 0,
         layers.NAVLINE?.features.length ?? 0,
     ].join(',');
-    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${routeProfile}_${sig}`;
+    // NTM zones need more than a count: a superseding notice can ship the same
+    // number of zones with different surveyed depths, and acking toggles the
+    // set — key on count + notice keys + depth sum so no stale grid survives.
+    const ntmFeats = layers.NTMZONE?.features ?? [];
+    const ntmSig =
+        ntmFeats.length === 0
+            ? '0'
+            : `${ntmFeats.length}:${ntmFeats
+                  .map((f) => {
+                      const p = f.properties as { depthM?: number; _noticeKey?: string } | null;
+                      return `${p?._noticeKey ?? '?'}@${p?.depthM ?? '?'}`;
+                  })
+                  .join('|')}`;
+    return `${bbox.join(',')}_${resolutionM}_${draftM}_${safetyM}_${obstructionBufferM}_${relaxedLndare ? 'relaxed' : 'strict'}_rz${relaxZonesKey(relaxZones)}_${routeProfile}_${sig}_ntm${ntmSig}`;
 }
 
 /**
@@ -1003,6 +1016,93 @@ export function buildNavGrid(
     }
 
     // ── Pass 6: LNDARE 1-cell buffer ─────────────────────────────────
+    // ── NTM pass: Notice-to-Mariners surveyed-depth overrides ─────────
+    // Acknowledged + current notice survey zones (services/ntmRouting.ts)
+    // stamp their surveyed least depth over whatever the chart said — a
+    // days-old hydrographic survey outranks the ENC edition in BOTH
+    // directions (the Mooloolah entrance: ENC says drying −1.6 where the
+    // 1 Jul survey says 1.4–2.5 m; the same survey says 1.4 m where the
+    // ENC's band claims 2–5 m). Ordering is load-bearing:
+    //   • AFTER LNDARE/coastline/obstruction/wing passes — a survey zone
+    //     NEVER carves land or a hard block; if the hand-transcribed polygon
+    //     clips a breakwater, the breakwater wins. Within a zone the survey
+    //     overwrites synthetic wings (real survey beats derived caution).
+    //   • BEFORE the Pass-6 land buffer, with stamped cells PROTECTED — the
+    //     survey is authoritative water evidence, so a surveyed entrance
+    //     channel a cell or two wide (the Mooloolah mouth: ~120 m between
+    //     breakwaters ≈ 2 cells) must not be buffered shut like anonymous
+    //     caution water. Without the pack the buffer behaves exactly as
+    //     before.
+    //   • BEFORE the tideAssist mask, which then reads the OVERRIDDEN
+    //     shallowDepthM — assist eligibility follows the survey.
+    // Sub-floor cells stay CAUTION (red, tide-chipped); ntmRiseM records the
+    // survey's requiredRise so cellCostMultiplier grades the caution price —
+    // the router prefers the deepest surveyed water without any zone ever
+    // being "preferred" (doctrine: survey data changes DEPTH, not preference).
+    {
+        const ntmZones = (layers.NTMZONE?.features ?? []).filter((f) => {
+            const p = f.properties as { _class?: string; depthM?: number } | null;
+            const g = f.geometry;
+            return (
+                p?._class === 'ntm-survey' &&
+                typeof p.depthM === 'number' &&
+                p.depthM > 0 && // a drying survey is never injected as water
+                !!g &&
+                (g.type === 'Polygon' || g.type === 'MultiPolygon')
+            );
+        });
+        if (ntmZones.length > 0) {
+            const tPassNtm = Date.now();
+            const floorM = draftM + safetyM;
+            const ntmRiseM = new Float32Array(width * height).fill(Number.NaN);
+            let stamped = 0;
+            let reopened = 0;
+            // Stamp in array order — the pack lists its deepest/most-specific
+            // corridor LAST so overlaps resolve to the corridor's depth.
+            for (const f of ntmZones) {
+                const depthM = (f.properties as { depthM: number }).depthM;
+                rasterizePolygonCells(grid, f.geometry as Polygon | MultiPolygon, (x, y) => {
+                    const idx = y * width + x;
+                    if (hardBlocked[idx] === 1 || Number.isNaN(cells[idx])) {
+                        // The LNDARE-vs-DEPARE conflict class, resolved by the
+                        // survey: an overview-band cell's GENERALISED land paint
+                        // (1:90k draws the Mooloolah entrance as coastline)
+                        // survives scale-shadow because the landmass polygon is
+                        // never fully inside the fine cell's bbox — and Pass 2
+                        // blocks the harbour cell's own D2-5 water under it. If
+                        // a finer chart claimed ANY depth here (depareVerdict)
+                        // and MSQ surveyed water here LAST WEEK, land paint
+                        // loses. Reopen is land-conflict ONLY: obstructions and
+                        // wrecks (hardBlocked without landBlocked) and air-draft
+                        // bridge bars (clearanceBarred) can never reopen, and a
+                        // DEPARE-less breakwater stays land.
+                        const landConflict =
+                            landBlocked[idx] === 1 && clearanceBarred[idx] !== 1 && !Number.isNaN(depareVerdict[idx]);
+                        if (!landConflict) return;
+                        hardBlocked[idx] = 0;
+                        landBlocked[idx] = 0;
+                        reopened++;
+                    }
+                    shallowDepthM[idx] = depthM;
+                    protectedCells[idx] = 1; // survey = authoritative water evidence
+                    if (depthM >= floorM) {
+                        cells[idx] = depthM;
+                        ntmRiseM[idx] = Number.NaN; // prices as normal water
+                    } else {
+                        cells[idx] = CAUTION;
+                        ntmRiseM[idx] = floorM - depthM;
+                    }
+                    stamped++;
+                });
+            }
+            grid.ntmRiseM = ntmRiseM;
+            markPass('passNTM-survey-override', tPassNtm, ntmZones.length);
+            engineLog.warn(
+                `[ntmRouting] NTM pass stamped ${stamped} cell(s) from ${ntmZones.length} survey zone(s)${reopened > 0 ? ` (${reopened} land-conflict cell(s) reopened by the survey)` : ''}`,
+            );
+        }
+    }
+
     // The scanline rasterizer marks cells whose centre is inside an
     // LNDARE polygon. Cells along the polygon boundary whose centre is
     // OUTSIDE but pixels overlap stay navigable — A* can then thread a

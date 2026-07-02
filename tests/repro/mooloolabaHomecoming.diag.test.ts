@@ -302,6 +302,31 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
             await printWindows('A', safest, draftM, from, until);
         }
 
+        // A+NTM) SAFEST with NtM 364(T) survey zones applied (as if acked +
+        // current) — the Mooloolaba entrance re-priced by the 1 Jul survey:
+        // the ENC's drying −1.6 artifact becomes surveyed 1.4/1.5/2.0/2.5 m
+        // zones, the exit should ride the REF-mark alternative corridor, and
+        // the entrance chip should turn from "needs +4.5 — never" into the
+        // corridor's honest "+0.4 above LAT".
+        {
+            const { NTM_ROUTING_PACKS } = await import('../../services/ntmRouting');
+            const pack = NTM_ROUTING_PACKS.find((p) => p.id === 'mooloolah-bar')!;
+            const ntmFeatures = pack.zones.map((z) => ({
+                type: 'Feature' as const,
+                properties: { _class: 'ntm-survey', depthM: z.depthM, _noticeKey: pack.noticeKey, _label: z.label },
+                geometry: { type: 'Polygon' as const, coordinates: [z.polygon] },
+            }));
+            const withNtm = routeInshore(
+                { ...layers, NTMZONE: { type: 'FeatureCollection', features: ntmFeatures } },
+                req,
+            );
+            if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
+            else {
+                describeRoute('A+NTM · SAFEST with NtM 364(T) surveyed zones applied', withNtm);
+                await printWindows('A+NTM', withNtm, draftM, from, until);
+            }
+        }
+
         // B) SHORTEST (tideAssist)
         const shortest = routeInshore(layers, { ...req, routeProfile: 'tideAssist' });
         if ('error' in shortest) console.log(`SHORTEST REFUSED: ${shortest.error}`);
