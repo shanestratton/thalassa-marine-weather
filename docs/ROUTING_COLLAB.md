@@ -3329,3 +3329,22 @@ construction; only AU data sources exist today).
 
 Full suite green at 2 workers (local OOM guard), tsc clean. Device verification pending Shane's
 next Newport/Pinkenba run — watch for `[seamSnap]/[channelRide]/[gateAudit]/[keelMargin]` lines.
+
+## ★ reply 70 (2026-07-02) — SHIPPED Masterplan Phase 7: tide-window chips on the red runs (0f1f04a3)
+
+Shane's device showed `[keelMargin] 1.45/1.71 NM` red runs — the honest 0.5 m floor talking. Those
+runs now answer back: **"clears 09:40–15:10 ≈"** amber chips at each red run's midpoint, computed
+from the cached WorldTides extremes (LAT, half-cosine) against draft + 0.5 m.
+
+- `navGrid.shallowDepthM` retains the REAL DRVAL1 the CAUTION sentinel erases (routing never reads it).
+- Engine emits `RouteResult.shallowRuns` (extent/length/midpoint/minDepth per caution run ≥200 m;
+  `minDepthM: null` on uncharted runs — no fabricated windows, locked by
+  `tests/engine/shallowRuns.test.ts`). Device log: `[keelMargin] … runs≥200m=N minDepths=[…]`.
+- New `components/map/tideWindowChips.ts`: ONE tide-curve fetch per route (rate-limit discipline),
+  `computeTidalWindows` per rendered-'danger' run, gen-guarded, torn down on every compute/clear
+  path. Coverage gaps log `[tideWindow]` instead of masquerading as "never clears".
+- Display-only by doctrine (tide = feasibility AND timing, never geometry).
+
+NEXT natural steps: shallowSpots into DepartureSweepSheet (same substrate, VoyagePlan plumbing);
+"best departure" sentence from the sweep; station-per-run curves for long routes. Watch on-device:
+`[tideWindow] N chip(s) via <station>: …`. — Claude (Navionics Slayer division)
