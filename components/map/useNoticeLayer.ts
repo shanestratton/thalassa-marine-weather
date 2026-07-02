@@ -150,7 +150,14 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
         };
         const popupAt = (lon: number, lat: number, html: string) => {
             closePopup();
-            popupRef.current = new mapboxgl.Popup({ closeButton: true, maxWidth: '270px', offset: 12 })
+            // className wires the dark glass card in index.css (.ntm-popup) —
+            // without it the content renders bare text over the chart.
+            popupRef.current = new mapboxgl.Popup({
+                closeButton: true,
+                maxWidth: '290px',
+                offset: 12,
+                className: 'ntm-popup',
+            })
                 .setLngLat([lon, lat])
                 .setHTML(html)
                 .addTo(map);

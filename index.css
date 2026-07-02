@@ -2587,6 +2587,50 @@ body,
     background: rgba(255, 255, 255, 0.1) !important;
 }
 
+/* ── Notices to Mariners / bridge popups — dark glass card (Shane: the bare
+   text was unreadable against the chart) ─────────────────────────────── */
+.ntm-popup {
+    z-index: 800 !important;
+}
+
+.ntm-popup .mapboxgl-popup-content {
+    background: rgba(15, 23, 42, 0.96) !important;
+    backdrop-filter: blur(16px) !important;
+    -webkit-backdrop-filter: blur(16px) !important;
+    box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    padding: 14px 14px 12px !important;
+    border-radius: 16px !important;
+    border: 1px solid rgba(251, 191, 36, 0.18) !important;
+    max-height: 46vh;
+    overflow-y: auto;
+}
+
+.ntm-popup .mapboxgl-popup-tip {
+    border-top-color: rgba(15, 23, 42, 0.96) !important;
+    border-bottom-color: rgba(15, 23, 42, 0.96) !important;
+}
+
+.ntm-popup .mapboxgl-popup-close-button {
+    color: #94a3b8 !important;
+    font-size: 18px !important;
+    right: 8px !important;
+    top: 8px !important;
+    width: 24px !important;
+    height: 24px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 8px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+}
+
+.ntm-popup .mapboxgl-popup-close-button:hover {
+    color: #e2e8f0 !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+}
+
 /* Hide scrollbar on VesselHub (keeps scroll functionality) */
 .vessel-hub-no-scrollbar {
     scrollbar-width: none; /* Firefox */
