@@ -456,13 +456,35 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        try {
-            if (map.getLayer('satellite-base-layer')) {
-                map.setLayoutProperty('satellite-base-layer', 'visibility', satelliteVisible ? 'visible' : 'none');
+        const apply = () => {
+            try {
+                if (map.getLayer('satellite-base-layer')) {
+                    map.setLayoutProperty('satellite-base-layer', 'visibility', satelliteVisible ? 'visible' : 'none');
+                }
+                // The opaque ENC area fills + the ocean-bathymetry raster sit
+                // ABOVE the satellite base and blanket the whole viewport in
+                // covered areas — with them visible, toggling satellite did
+                // nothing anywhere it mattered (Shane 2026-07-03: "satellite
+                // overlay is not active on a plan"). Satellite ON = hide the
+                // FILLS ONLY; depth contours, coastline, soundings, marks,
+                // routes and chips all stay on top of the imagery.
+                for (const id of ['enc-vec-lndare-fill', 'enc-vec-depare-fill', 'maptiler-ocean-layer']) {
+                    if (map.getLayer(id)) {
+                        map.setLayoutProperty(id, 'visibility', satelliteVisible ? 'none' : 'visible');
+                    }
+                }
+            } catch {
+                /* style mid-swap — re-applied on the next styledata tick */
             }
-        } catch {
-            /* style mid-swap — the init-time read applies it next load */
-        }
+        };
+        apply();
+        // ENC layers are (re)added asynchronously as cells load — re-assert
+        // whenever the style gains layers so a late-added fill can't cover
+        // the imagery.
+        map.on('styledata', apply);
+        return () => {
+            map.off('styledata', apply);
+        };
     }, [satelliteVisible, mapReady]);
     // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
     const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
