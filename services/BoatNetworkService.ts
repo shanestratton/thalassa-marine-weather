@@ -328,9 +328,20 @@ class BoatNetworkServiceClass {
         log.info('Starting boat network scan...');
 
         try {
-            // Build candidate list: preferred → saved → mDNS hostnames
+            // Build candidate list: preferred → user-configured → saved → mDNS.
             const candidates: string[] = [];
             if (preferredHost) candidates.push(preferredHost);
+            // The manually-entered Settings host (PiCacheTab "Hostname / IP")
+            // was only tried when THAT tab drove the scan — an app-boot or
+            // background scan ignored it entirely, so a typed IP "didn't
+            // work" anywhere else (Shane 2026-07-03, boat network page).
+            try {
+                const { useSettingsStore } = await import('../stores/settingsStore');
+                const manual = useSettingsStore.getState().settings?.piCacheHost as string | undefined;
+                if (manual && manual.trim() && !candidates.includes(manual.trim())) candidates.push(manual.trim());
+            } catch {
+                /* settings store unavailable (tests) — skip */
+            }
             const { host: saved } = loadFromStorage();
             if (saved && !candidates.includes(saved)) candidates.push(saved);
             for (const h of MDNS_HOSTS) {
@@ -346,16 +357,24 @@ class BoatNetworkServiceClass {
                     const total = candidates.length;
 
                     candidates.forEach((host) => {
-                        probeHost(host).then((services) => {
-                            // First host with any service wins — resolve immediately
-                            if (services.length > 0) {
-                                resolve({ host, services });
-                            }
-                            settled++;
-                            if (settled >= total) {
-                                resolve(null); // all done, nothing found
-                            }
-                        });
+                        probeHost(host)
+                            .then((services) => {
+                                // First host with any service wins — resolve immediately
+                                if (services.length > 0) {
+                                    resolve({ host, services });
+                                }
+                            })
+                            .catch(() => {
+                                /* a rejecting probe must still count as settled —
+                                   without this the race only ended at the hard
+                                   ceiling, making every failed scan feel slow */
+                            })
+                            .finally(() => {
+                                settled++;
+                                if (settled >= total) {
+                                    resolve(null); // all done, nothing found
+                                }
+                            });
                     });
                 }),
                 PROBE_TIMEOUT_MS + 2000, // hard ceiling: probe timeout + 2s grace
@@ -386,15 +405,18 @@ class BoatNetworkServiceClass {
                 return effectiveHost;
             }
 
-            // Not found
-            log.info('No Pi found on network');
-            saveToStorage(null);
+            // Not found. Keep the REMEMBERED host on disk — a single failed
+            // scan (wifi blip, Pi rebooting, wrong network for a minute) used
+            // to wipe it, so the next scan lost its best candidate and the
+            // connection "worked sometimes" (Shane 2026-07-03). State shows
+            // disconnected; storage keeps the memory for the next attempt.
+            log.info('No Pi found on network (remembered host retained for next scan)');
             this.setState({
                 piHost: null,
                 services: [],
                 scanning: false,
                 lastScan: Date.now(),
-                error: 'No Pi found. Make sure it is on and connected to the same WiFi.',
+                error: 'No Pi found. Check the Pi is powered and on the same WiFi — or enter its IP under Manual settings.',
             });
             return null;
         } catch (err) {

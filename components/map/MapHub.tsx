@@ -448,6 +448,22 @@ export const MapHub: React.FC<MapHubProps> = ({
     );
     const [seamarkVisible, setSeamarkVisible] = usePersistedState('thalassa_map_seamark_visible', false);
     const [anchorageVisible, setAnchorageVisible] = usePersistedState('thalassa_map_anchorage_visible', false);
+    // Satellite BASE imagery (Esri World Imagery raster under every custom
+    // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
+    // "satellite overlay instead of the enc overlay when running a route".
+    // Key doubles as the init-time visibility read in useMapInit.
+    const [satelliteVisible, setSatelliteVisible] = usePersistedState('thalassa_satellite_base', false);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        try {
+            if (map.getLayer('satellite-base-layer')) {
+                map.setLayoutProperty('satellite-base-layer', 'visibility', satelliteVisible ? 'visible' : 'none');
+            }
+        } catch {
+            /* style mid-swap — the init-time read applies it next load */
+        }
+    }, [satelliteVisible, mapReady]);
     // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
     const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
         'thalassa_map_chart_controls_hidden',
@@ -2005,6 +2021,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setVesselTrackingVisible={setVesselTrackingVisible}
                     mpaVisible={weather.mpaVisible}
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
+                    satelliteVisible={satelliteVisible}
+                    setSatelliteVisible={setSatelliteVisible}
                     encCellCount={encCellCount}
                     seawayDebugVisible={seawayDebugVisible}
                     onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}
