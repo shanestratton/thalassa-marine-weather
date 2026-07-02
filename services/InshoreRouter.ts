@@ -1076,6 +1076,9 @@ async function tryInshoreRouteInner(
     // gates (regionalGates, 0.7). Stays empty when the regional fetch is
     // skipped or fails — the shadow compiles chart + geometric tiers only.
     let regionalPairsForShadow: RegionalChannelData['acceptedPairs'] = [];
+    // OSM regional solo/cardinal hazard markers (SE-QLD marker file) — empty outside
+    // that file's bbox; the ENC cardinal fold below runs EITHER WAY.
+    let osmRegionalHazards: { geometry?: { coordinates?: [number, number] } }[] = [];
     if (regionalMarkersUrl) {
         try {
             // Combined OSM water+marina list. Used inside the pair loop
@@ -1106,47 +1109,7 @@ async function tryInshoreRouteInner(
                 (fairwy.features as unknown[]).push(...segments);
                 merged.FAIRWY = fairwy;
             }
-            // Fold ENC cardinals (BOYCAR/BCNCAR) into the hazard set. The ENC cardinal WINS over
-            // a co-located OSM marker (~11 m grid): the OSM seamark feed often tags the same buoy
-            // as a directionLESS 'cardinal', which orientHazardsTowardLand can only orient toward
-            // SHORE — wrong side. The ENC mark carries CATCAM → _osmClass='cardinal_<nesw>', so it
-            // gets a true directional disc. So we generate ALL valid ENC cardinals (deduped only
-            // against each other) and DROP any OSM hazard at the same spot, replacing the worse
-            // copy instead of throwing the good one away.
-            const encCardinalHazards = encCardinalsToHazards(encCardinalSrc, new Set());
-            const encCardinalKeys = new Set<string>(
-                encCardinalHazards.map((h) => {
-                    const [lon, lat] = h.geometry.coordinates;
-                    return `${lat.toFixed(4)}|${lon.toFixed(4)}`;
-                }),
-            );
-            const filteredOsmHazards = (hazards as { geometry?: { coordinates?: [number, number] } }[]).filter((hh) => {
-                const c = hh.geometry?.coordinates;
-                return c ? !encCardinalKeys.has(`${c[1].toFixed(4)}|${c[0].toFixed(4)}`) : true;
-            });
-            const allHazards = [...(filteredOsmHazards as unknown[]), ...encCardinalHazards];
-            if (allHazards.length > 0) {
-                // IALA-A orientation: for each solo hazard marker, the
-                // hazard sits between the marker and the nearest shore
-                // (reef edge, isolated rock, shoal). Boats pass on the
-                // SEAWARD side. We turn each Point hazard into a
-                // half-circle Polygon facing land — engine blocks the
-                // shore-side cells, leaving the seaward side open.
-                // Symmetric full-circle buffering can't do this; it
-                // blocks both sides equally and A* picks the shorter
-                // side, which is often the wrong (shore) side.
-                const lndareForOrientation = merged.LNDARE?.features ?? [];
-                const orientedHazards = orientHazardsTowardLand(
-                    allHazards as {
-                        geometry: { type: 'Point'; coordinates: [number, number] };
-                        properties?: unknown;
-                    }[],
-                    lndareForOrientation,
-                );
-                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
-                (obstrn.features as unknown[]).push(...orientedHazards);
-                merged.OBSTRN = obstrn;
-            }
+            osmRegionalHazards = hazards as { geometry?: { coordinates?: [number, number] } }[];
             if (wings.length > 0) {
                 // Step 4.5 outboard CAUTION wings (masterplan Phase 3). They
                 // travel in OBSTRN but the engine's Pass 3 skips them — only
@@ -1166,14 +1129,60 @@ async function tryInshoreRouteInner(
         }
     }
 
-    // safetyM=0.2 instead of the engine's 1.0 m default. Our public-data
-    // DEPARE bands are 1 m wide (DRVAL1 ∈ {0,1,2,3,5,8,…}), so a 1 m
-    // safety re-blocks the 2 m-depth band (depth 2-3 m) even though a
-    // 1.8 m-draft boat clears it comfortably. 0.2 m keeps the 2 m band
-    // open and acknowledges the discretisation noise without demanding
-    // a full extra metre of clearance the chart can't express. Tide
-    // planning is the skipper's job — chart datum is already lowest
-    // astronomical tide.
+    // Fold ENC cardinals (BOYCAR/BCNCAR) into the hazard set — REGION-INDEPENDENT.
+    // (This used to live inside the regionalMarkersUrl gate above, which matches a single
+    // SE-QLD bbox — so a route past a cardinal in Sydney, NZ or the US got NO cardinal
+    // honouring even with full ENC cells installed. The ENC path needs nothing from the
+    // OSM marker file; it only DEDUPES against its hazards when they exist.)
+    // The ENC cardinal WINS over a co-located OSM marker (~11 m grid): the OSM seamark
+    // feed often tags the same buoy as a directionLESS 'cardinal', which
+    // orientHazardsTowardLand can only orient toward SHORE — wrong side. The ENC mark
+    // carries CATCAM → _osmClass='cardinal_<nesw>', so it gets a true directional disc.
+    try {
+        const encCardinalHazards = encCardinalsToHazards(encCardinalSrc, new Set());
+        const encCardinalKeys = new Set<string>(
+            encCardinalHazards.map((h) => {
+                const [lon, lat] = h.geometry.coordinates;
+                return `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+            }),
+        );
+        const filteredOsmHazards = osmRegionalHazards.filter((hh) => {
+            const c = hh.geometry?.coordinates;
+            return c ? !encCardinalKeys.has(`${c[1].toFixed(4)}|${c[0].toFixed(4)}`) : true;
+        });
+        const allHazards = [...(filteredOsmHazards as unknown[]), ...encCardinalHazards];
+        if (allHazards.length > 0) {
+            // IALA orientation: for each solo hazard marker, the hazard sits between
+            // the marker and the nearest shore (reef edge, isolated rock, shoal).
+            // Boats pass on the SEAWARD side. We turn each Point hazard into a
+            // half-circle Polygon facing land — engine blocks the shore-side cells,
+            // leaving the seaward side open. Symmetric full-circle buffering can't do
+            // this; it blocks both sides equally and A* picks the shorter side, which
+            // is often the wrong (shore) side.
+            const lndareForOrientation = merged.LNDARE?.features ?? [];
+            const orientedHazards = orientHazardsTowardLand(
+                allHazards as {
+                    geometry: { type: 'Point'; coordinates: [number, number] };
+                    properties?: unknown;
+                }[],
+                lndareForOrientation,
+            );
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+            (obstrn.features as unknown[]).push(...orientedHazards);
+            merged.OBSTRN = obstrn;
+        }
+    } catch (err) {
+        log.warn(`ENC cardinal fold failed (continuing without): ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // safetyM=0.5 — the owner's keel margin ("always 1/2 m deeper than our keel",
+    // Shane 2026-07-02, matching the confirmed tideSafetyM=0.5 bar margin). Water the
+    // chart puts inside draft+0.5 m at LAT costs 40× and renders red. Was 0.2 (chosen
+    // against 1 m-banded DEPARE discretisation noise: a 1 m safety re-blocked the 2 m
+    // band for a 1.8 m draft); 0.5 accepts that a shallow-draft boat now sees the
+    // NEXT 1 m band flagged when its draft sits within 0.5 m of a band edge — that is
+    // the honest read of the owner's margin, not noise. Chart datum is LAT; tide
+    // credit stays the departure-sweep's job, never geometry's.
     if (ROUTE_DEBUG)
         log.warn(
             `STAGE: loaded ${cellsUsed.join(',')} — LNDARE=${merged.LNDARE?.features.length ?? 0} DEPARE=${merged.DEPARE?.features.length ?? 0} OBSTRN=${merged.OBSTRN?.features.length ?? 0} FAIRWY=${merged.FAIRWY?.features.length ?? 0} COASTLINE=${merged.COASTLINE?.features.length ?? 0}, calling routeInshore`,
@@ -1195,7 +1204,7 @@ async function tryInshoreRouteInner(
         toLat: destination.lat,
         toLon: destination.lon,
         draftM,
-        safetyM: 0.2,
+        safetyM: 0.5,
         obstructionBufferM: 60,
         // LIVE routes never treat no-evidence space as clean water: cells
         // nothing vouches for flag red, and >1 NM unvouched runs refuse
@@ -1400,13 +1409,16 @@ async function tryInshoreRouteInner(
                             `SEAWAY ROUTER: PROMOTED graph route (${g.edgesUsed.length} edges, compliance ${g.gateCompliance}, maxLegDetour ${g.maxLegDetour.toFixed(2)})`,
                         );
                         const segCount = Math.max(0, g.polyline.length - 1);
+                        // Channel-edge segments render YELLOW; connector approach/exit legs
+                        // stay TEAL; caution sampled against the grid so the promoted route
+                        // sheds red honestly — the engine's recompute never sees this path.
+                        const chanMask =
+                            g.channelSegMask.length === segCount ? g.channelSegMask : new Array(segCount).fill(true);
                         return {
                             polyline: g.polyline,
-                            // The Seaway Graph route IS the marked-channel router's output → tier-2
-                            // YELLOW. (Connector approach/exit legs ride yellow too for now; a
-                            // channel-vs-connector split is a later refinement.)
-                            channelMask: new Array(segCount).fill(true),
-                            tier4Mask: new Array(segCount).fill(true),
+                            channelMask: chanMask,
+                            tier4Mask: chanMask,
+                            cautionMask: g.cautionSegMask.length === segCount ? g.cautionSegMask : undefined,
                             distanceNM: g.lengthM / 1852,
                             cellsUsed,
                             elapsedMs,
@@ -1432,6 +1444,29 @@ async function tryInshoreRouteInner(
             // Shadow failures must never touch the live route.
             log.warn(`SEAWAY SHADOW: failed (route unaffected): ${err instanceof Error ? err.message : String(err)}`);
         }
+    }
+
+    // Mask-desync guard: a mask whose length fits neither per-vertex (n) nor
+    // per-segment (n-1) is silently ignored by the renderer — the whole route
+    // paints single-colour teal with ZERO log output, indistinguishable from a
+    // mask-less route. Name the desync here so it is a console line, not a
+    // silent colour regression.
+    {
+        const n = result.polyline.length;
+        const auditMask = (name: string, m: boolean[] | undefined): void => {
+            if (m && m.length !== n && m.length !== n - 1)
+                log.warn(`MASK DESYNC: ${name}.length=${m.length} vs polyline=${n} — renderer will ignore it`);
+        };
+        const r = result as {
+            cautionMask?: boolean[];
+            canalMask?: boolean[];
+            channelMask?: boolean[];
+            offshoreMask?: boolean[];
+        };
+        auditMask('cautionMask', r.cautionMask);
+        auditMask('canalMask', r.canalMask);
+        auditMask('channelMask', r.channelMask);
+        auditMask('offshoreMask', r.offshoreMask);
     }
 
     return {
@@ -1929,12 +1964,13 @@ export interface RegionalChannelData {
  *
  * Why midpoints and not raw markers
  * ─────────────────────────────────
- * IALA-A buoyage (used in AU, EU, most of the world): red markers on
- * port (left), green on starboard (right) when entering harbour. The
- * channel itself is the corridor BETWEEN paired red+green markers —
- * never around either marker individually.
+ * IALA buoyage: port-hand marks one side, starboard-hand the other when
+ * entering harbour (region A: port-hand = red; region B/USA: port-hand =
+ * green — SIDE semantics are identical, only the paint flips, so never
+ * hardcode a colour here). The channel itself is the corridor BETWEEN
+ * paired port+starboard markers — never around either individually.
  */
-type Marker = { lat: number; lon: number; kind: 'port' | 'starboard' };
+type Marker = { lat: number; lon: number; kind: 'port' | 'starboard' | 'special' };
 type Midpoint = { lat: number; lon: number; pairDistM: number; chainId: number; chainOrder: number };
 
 /**
@@ -2367,11 +2403,13 @@ export async function fetchRegionalMarkers(
             'cardinal_w',
             'danger',
             'isolated',
-            // 'notice' deliberately omitted: IALA-A "special marks"
-            // (yellow X-topmark) are informational — they mark
+            // 'notice' deliberately omitted from HAZARDS: IALA
+            // "special marks" (yellow X-topmark) are informational —
             // no-anchoring zones, fishing areas, water-ski zones,
-            // cable crossings, etc. They are NOT navigational
-            // hazards.
+            // cable crossings. NOT hazards; but they DO enter the
+            // cluster pipeline as kind:'special' so a red/yellow or
+            // green/yellow MIXED pair can gate a channel edge
+            // (Shane's spec: stay between, bias to the lateral).
             // 'pile' deliberately omitted (2026-05-12): mooring
             // piles around port terminals form regular arcs (~15+
             // piles around the SE corner of Fisherman Island
@@ -2399,6 +2437,7 @@ export async function fetchRegionalMarkers(
             }
             if (cls === 'port') markers.push({ lat, lon, kind: 'port' });
             else if (cls === 'starboard') markers.push({ lat, lon, kind: 'starboard' });
+            else if (cls === 'notice') markers.push({ lat, lon, kind: 'special' });
             else if (DIRECT_HAZARD_CLASSES.has(cls)) directHazards.push({ lat, lon, cls });
             else droppedByClass.set(cls || '<empty>', (droppedByClass.get(cls || '<empty>') ?? 0) + 1);
         }
@@ -2597,25 +2636,29 @@ export async function fetchRegionalMarkers(
         for (let chainId = 0; chainId < clusters.length; chainId++) {
             const cluster = clusters[chainId];
             if (cluster.length < 2) {
-                // Isolated single marker — definitely a hazard.
-                for (const idx of cluster) soloMarkers.push(markers[idx]);
+                // Isolated single marker — definitely a hazard (a lone SPECIAL is
+                // informational, never a hazard — drop it).
+                for (const idx of cluster) if (markers[idx].kind !== 'special') soloMarkers.push(markers[idx]);
                 continue;
             }
 
             const clusterPorts: { lat: number; lon: number }[] = [];
             const clusterStbds: { lat: number; lon: number }[] = [];
+            const clusterSpecials: { lat: number; lon: number }[] = [];
             for (const idx of cluster) {
                 const m = markers[idx];
                 if (m.kind === 'port') clusterPorts.push({ lat: m.lat, lon: m.lon });
-                else clusterStbds.push({ lat: m.lat, lon: m.lon });
+                else if (m.kind === 'starboard') clusterStbds.push({ lat: m.lat, lon: m.lon });
+                else clusterSpecials.push({ lat: m.lat, lon: m.lon });
             }
-            if (clusterPorts.length === 0 || clusterStbds.length === 0) {
-                // Single-colour cluster — hazard indicators, not
-                // a channel edge. Common at reefs (e.g. Scarborough
-                // Reef green marker).
-                for (const idx of cluster) soloMarkers.push(markers[idx]);
+            if ((clusterPorts.length === 0 || clusterStbds.length === 0) && clusterSpecials.length === 0) {
+                // Single-colour cluster with no specials — hazard indicators, not
+                // a channel edge. Common at reefs (e.g. Scarborough Reef green
+                // marker).
+                for (const idx of cluster) if (markers[idx].kind !== 'special') soloMarkers.push(markers[idx]);
                 continue;
             }
+            if (clusterPorts.length === 0 && clusterStbds.length === 0) continue; // specials only — nothing to gate
 
             // Sort each list along the cluster's principal axis so
             // index i corresponds to chain-position i.
@@ -2628,7 +2671,7 @@ export async function fetchRegionalMarkers(
             // — wide enough to pair a port mark with a starboard mark a full
             // gate ahead (diagonal pairs → midpoints between gates, skewed
             // ribbon). Masterplan §3 Phase 2.
-            const allPts = [...clusterPorts, ...clusterStbds];
+            const allPts = [...clusterPorts, ...clusterStbds, ...clusterSpecials];
             let meanLat = 0;
             let meanLon = 0;
             for (const p of allPts) {
@@ -2667,6 +2710,7 @@ export async function fetchRegionalMarkers(
             // usually reef edges or isolated marks that should
             // never be passed within the buffer distance).
             let chainOrder = 0;
+            const clusterMidStart = midpointCoords.length;
             const pairedPorts = new Set<{ lat: number; lon: number }>();
             const pairedStbds = new Set<{ lat: number; lon: number }>();
             for (const p of clusterPorts) {
@@ -2747,6 +2791,76 @@ export async function fetchRegionalMarkers(
                     chainOrder: chainOrder++,
                 });
             }
+            // ── Mixed pairs: red/yellow + green/yellow (owner spec 2026-07-02) ──
+            // A lateral that found no opposite lateral may gate against a SPECIAL
+            // (yellow) mark instead: the boat stays BETWEEN them but the gate
+            // point is BIASED toward the lateral (60/40 split) — the yellow only
+            // bounds the fairway (works area, spoil ground, cable), while the
+            // lateral carries the channel side. Same stagger/width/land guards as
+            // the real pairing; a special anchors at most one mixed gate. Real
+            // red/green pairs always win (this pass sees only leftovers).
+            let mixedAdded = 0;
+            if (clusterSpecials.length > 0) {
+                const pairedSpecials = new Set<{ lat: number; lon: number }>();
+                const tryMixed = (lm: { lat: number; lon: number }, isPort: boolean): void => {
+                    const lmProj = projection(lm);
+                    let bestDist = Infinity;
+                    let bestY: { lat: number; lon: number } | null = null;
+                    for (const y of clusterSpecials) {
+                        if (pairedSpecials.has(y)) continue;
+                        const projDiff = Math.abs(projection(y) - lmProj);
+                        if (staggerGateActive && projDiff > PAIR_PROJ_MAX_M) continue;
+                        const d = haversineMetres(lm.lat, lm.lon, y.lat, y.lon);
+                        if (d < PAIR_MIN_DIST_M || d >= bestDist || d > PAIR_MAX_DIST_M) continue;
+                        // Same midpoint-on-water discipline as the real pairing, applied
+                        // at the BIASED point the route will actually be asked to sail.
+                        const gLat = lm.lat * 0.6 + y.lat * 0.4;
+                        const gLon = lm.lon * 0.6 + y.lon * 0.4;
+                        if (pointInAnyPolygon(gLon, gLat, lndareFeatures)) {
+                            const wet =
+                                pointInAnyPolygon(gLon, gLat, osmWaterFeatures) ||
+                                pointInAnyPolygon(gLon, gLat, chartedWaterFeatures);
+                            if (!wet) continue;
+                        }
+                        bestDist = d;
+                        bestY = y;
+                    }
+                    if (!bestY) return;
+                    pairedSpecials.add(bestY);
+                    if (isPort) pairedPorts.add(lm);
+                    else pairedStbds.add(lm);
+                    // The special stands in on the lateral's EMPTY side, so the pair's
+                    // cross-line / wings / shadow-gate semantics stay port-vs-stbd
+                    // coherent — and Step 3.5's acceptedPairs↔midpointCoords index
+                    // parity (it suppresses both arrays by one index) is preserved.
+                    acceptedPairs.push(isPort ? { port: lm, stbd: bestY } : { port: bestY, stbd: lm });
+                    midpointCoords.push({
+                        lat: lm.lat * 0.6 + bestY.lat * 0.4,
+                        lon: lm.lon * 0.6 + bestY.lon * 0.4,
+                        pairDistM: bestDist,
+                        chainId,
+                        chainOrder: chainOrder++,
+                    });
+                    mixedAdded++;
+                };
+                for (const p of clusterPorts) if (!pairedPorts.has(p)) tryMixed(p, true);
+                for (const s of clusterStbds) if (!pairedStbds.has(s)) tryMixed(s, false);
+            }
+            // Mixed gates land mid-chain by position, not by insertion order — re-rank
+            // this cluster's slice of BOTH parallel arrays along the channel axis so the
+            // chain assembler threads them in sailing order (and Step 3.5's index parity
+            // survives). Skipped when no mixed gate formed (byte-identical baselines).
+            if (mixedAdded > 0) {
+                const mids = midpointCoords.slice(clusterMidStart);
+                const pairs = acceptedPairs.slice(clusterMidStart);
+                const order = mids.map((_, i) => i).sort((a, b) => projection(mids[a]) - projection(mids[b]));
+                order.forEach((src, dst) => {
+                    midpointCoords[clusterMidStart + dst] = mids[src];
+                    acceptedPairs[clusterMidStart + dst] = pairs[src];
+                });
+                for (let i = 0; i < order.length; i++) midpointCoords[clusterMidStart + i].chainOrder = i;
+            }
+
             for (const p of clusterPorts) {
                 if (!pairedPorts.has(p)) soloMarkers.push({ lat: p.lat, lon: p.lon, kind: 'port' });
             }
