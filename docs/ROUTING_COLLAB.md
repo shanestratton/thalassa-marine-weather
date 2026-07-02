@@ -3273,3 +3273,59 @@ Shane drove this on-device; I (cardinals/clamp lane) did the full diagnosis but 
 **Deeper caveat (matters for either fix):** to centre on the VISIBLE channel you need a water mask that matches it. The fine satellite/Mapbox water is only fetched at the ~4-6 km endpoint crops (InshoreRouter.ts:1000-1060) — mid-river relies on coarse ENC DEPARE, whose ridge IS where the route already sits (I verified on-device: a coarse-grid medial-axis pass found the tier-3 legs already on the coarse ridge, movedRuns=0). So a pure geometric centre on the coarse grid is a no-op mid-river; the durable fix likely needs fine water extended along the river corridor (or the channelChains/RECTRC extended). Near Pinkenba itself the destination crop _may_ carry satellite water — worth checking if a fallback re-centre bites there.
 
 **What I did NOT touch:** I reverted my speculative tier-3 medial-axis post-process (it only acted on tier-3 open-water legs → no-op on this tier-2 hug). The RECTRC `followInteriorVertices` curve-follow (82ac0880) stands and is honoured at tierPipeline.ts:~755. Your gate-follower / pairing / tier4Router fallback are untouched by me. — Claude (cardinals/river-diagnosis)
+
+## ★ reply 69 (2026-07-02) — FOUR-TIER SPEC PASS: 21-agent audit + 10-wave fix sweep (sole Claude)
+
+Shane re-stated the four-tier contract (RED canal centreline / YELLOW through pair middles, mixed
+red-or-green+yellow pairs biased to the lateral / TEAL bathymetry at keel+0.5 m / all tiers
+IALA-region-correct / BLUE offshore untouched) and asked "is it right — make it work properly."
+Ran a 6-auditor + adversarial-verify workflow (15 confirmed gaps, 0 refuted) + a tier-2 midpoint
+re-audit, then landed:
+
+- **Seam-snap/RECTRC-ride hardened** (the uncommitted Pinkenba fix): ±45° along-track angle gate
+  (`RECTRC_ALIGN_MAX_DEG`) so a crossing/parallel channel's track can't grab the route; projected
+  vertices refused on land OR sub-keel-margin cells; seam-adjacent segments land-swept
+  endpoint-inclusive; moved BoundaryNodes get recomputed headingDeg/depthM so the Gluer judges the
+  REAL seam; >100° snap-kink rejected (`tierPipeline.ts`).
+- **Tier-2 midpoint discipline**: chain (vetted pair midpoints) now outranks RECTRC on ALL tier-2
+  spans (was RECTRC-first on non-egress — spec inversion); `snapChannelChain` rides chain interior
+  vertices (`followInteriorVertices` — no more chording across bent chains); `gates` provenance
+  joins `gateSegKeys` (cardinal clamp + its 24-pass smooth can no longer move gate-follower
+  midpoints); `deSpike` pins pair-midpoint vertices; `followChannelGates` pairing is mutual-best +
+  consumed-starboard (no more diagonal fabricated midpoints); NEW whole-route `[gateAudit]`
+  cross-line check names any wrong-side pass in the device log (`tier4Router.ts`, `tier3Router.ts`,
+  `tierPipeline.ts`).
+- **Mixed pairs (spec CRITICAL)**: OSM 'notice' (yellow special) marks enter the cluster pipeline
+  as `kind:'special'`; a lateral with no opposite lateral gates against a special with the gate
+  point biased 60/40 toward the LATERAL; the special stands in on the empty side of
+  `acceptedPairs` (cross-line/wings/shadow coherent, Step 3.5 index parity preserved); solo
+  specials never become hazards (`InshoreRouter.ts`).
+- **CATLAM 3/4 preferred-channel marks (spec CRITICAL)**: parsed into routing with treat-as sides
+  (3→port-hand, 4→stbd-hand; region-safe) in `fairlead.parseLateralMarks` + `seaway/markSplit` —
+  they now join gates, chains and the solo-lateral clamp (`preferredChannel` flag carried).
+- **Cardinal enforcement un-gated from SE-QLD**: the ENC BOYCAR/BCNCAR fold + solo-hazard
+  orientation moved OUT of the `regionalMarkersUrl` bbox gate — cardinals honoured wherever ENC
+  cells exist (Sydney/NZ/US), with its own try/catch (`InshoreRouter.ts`).
+- **Solo-lateral ABSOLUTE buoyage side**: per-mark safe vector derived from the IALA numbering
+  convention (seq ascends from seaward → buoyage direction through channel-key neighbours) in
+  `tierPipeline`, consumed by `cardinalClamp` — outbound legs no longer mirror the rule onto the
+  hazard side; travel-tangent stays as documented fallback.
+- **Keel margin 0.5 m**: live `safetyM` 0.2→0.5 (Shane 2026-07-02: "always 1/2 m deeper than our
+  keel"); new `[keelMargin]` warn names the longest charted-shallow run the route ships red.
+- **Seaway PROMOTED masks**: promoted graph route now carries real `channelSegMask` (channel edges
+  YELLOW, connectors TEAL) + grid-sampled `cautionSegMask` — no more blanket yellow / lost red.
+- **Canal node-vs-segment fix RESTORED** (lost in cc4e2840): `distToCanalSegmentsM` detection +
+  `tests/tier3/canalSnap.bend.test.ts` lock (see AI_COLLAB reply to Codex 2026-06-27).
+- **Offshore guard-rails**: sea-buoy GEBCO fallback now projects along the passage great-circle
+  (was AU-longitude-hardcoded → US/Med gates went inland) + deepest-found degraded answer;
+    > 100 NM gate-to-gate ocean leg renders tier-scheme DARK BLUE (`safety:'offshore'`); MASK DESYNC
+    > warn in the InshoreRouter return path; IALA colour-authority comments swept region-neutral.
+
+DEFERRED (named, not forgotten): ENC BOYSPP/BCNSPP into InshoreLayers (extractor+plumbing) for
+chart-side mixed pairs; BoundaryNode.crossLine population (gluer clause 2b stays dead — the new
+whole-route gateAudit covers detection); CANAL_RENDER_M=45 reddening non-canal tiers; PONTON
+parsing for marina fairways; IALA-B validation corpus (routing is CATLAM-side-safe by
+construction; only AU data sources exist today).
+
+Full suite green at 2 workers (local OOM guard), tsc clean. Device verification pending Shane's
+next Newport/Pinkenba run — watch for `[seamSnap]/[channelRide]/[gateAudit]/[keelMargin]` lines.
