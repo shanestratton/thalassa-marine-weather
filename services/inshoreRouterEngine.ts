@@ -56,7 +56,15 @@
 // single file — the hand-sync now maps this directory onto that one file.
 
 import { engineLog, ENGINE_DEBUG, M_PER_DEG_LAT, UNKNOWN_OPEN, CAUTION, UNCHARTED_MAX_RUN_M } from './engine/constants';
-import type { InshoreLayers, RouteRequest, RouteDebug, RouteResult, RouteFailure, RelaxZone } from './engine/types';
+import type {
+    InshoreLayers,
+    RouteRequest,
+    RouteDebug,
+    RouteResult,
+    RouteFailure,
+    RelaxZone,
+    ShallowRunInfo,
+} from './engine/types';
 import {
     mPerDegLon,
     haversineM,
@@ -1279,23 +1287,76 @@ function routeInshoreOnce(
     // CHARTED-shallow companion to the uncharted sweep above: the keel margin
     // (draft + safetyM) is preference-weighted in A* (40×) but never refused, so a
     // route squeezed through sub-margin water ships with only red shading. Name the
-    // longest such run in the device log — the skipper-visible number behind the red.
+    // longest such run in the device log, AND collect per-run records — length,
+    // midpoint, and the shallowest REAL charted depth along the run (from
+    // grid.shallowDepthM, the DRVAL1 the CAUTION sentinel erased) — the substrate
+    // for the Phase 7 tide-window annotation. minDepthM stays null when nothing
+    // charted vouches a depth (uncharted/conflict caution): a window computed from
+    // a null would be fabricated, so callers must skip those runs.
+    const shallowRuns: ShallowRunInfo[] = [];
     {
-        let shallowRunM = 0;
+        const sd = grid.shallowDepthM;
+        const MIN_RUN_M = 200; // below this a chip is noise, not pilotage info
         let shallowMaxM = 0;
-        for (let i = 1; i < finalCaution.length; i++) {
-            if (finalCaution[i]) {
-                const [lonA, latA] = finalPolyline[i - 1];
-                const [lonB, latB] = finalPolyline[i];
-                shallowRunM += haversineM(latA, lonA, latB, lonB);
-                if (shallowRunM > shallowMaxM) shallowMaxM = shallowRunM;
-            } else {
-                shallowRunM = 0;
+        let runStart = -1;
+        let runM = 0;
+        let runMin = Infinity;
+        const flush = (endSeg: number): void => {
+            if (runStart < 0) return;
+            if (runM > shallowMaxM) shallowMaxM = runM;
+            if (runM >= MIN_RUN_M) {
+                // Midpoint by along-track length — where the window chip anchors.
+                let acc = 0;
+                let mid = finalPolyline[runStart];
+                for (let k = runStart; k <= endSeg; k++) {
+                    const [lonA, latA] = finalPolyline[k];
+                    const [lonB, latB] = finalPolyline[k + 1];
+                    const segM = haversineM(latA, lonA, latB, lonB);
+                    if (acc + segM >= runM / 2) {
+                        const t = segM > 0 ? (runM / 2 - acc) / segM : 0;
+                        mid = [lonA + (lonB - lonA) * t, latA + (latB - latA) * t];
+                        break;
+                    }
+                    acc += segM;
+                }
+                shallowRuns.push({
+                    startSeg: runStart,
+                    endSeg,
+                    lengthM: Math.round(runM),
+                    minDepthM: Number.isFinite(runMin) ? runMin : null,
+                    midLat: mid[1],
+                    midLon: mid[0],
+                });
+            }
+            runStart = -1;
+            runM = 0;
+            runMin = Infinity;
+        };
+        for (let i = 0; i < finalCaution.length; i++) {
+            if (!finalCaution[i]) {
+                flush(i - 1);
+                continue;
+            }
+            if (runStart < 0) runStart = i;
+            const [lonA, latA] = finalPolyline[i];
+            const [lonB, latB] = finalPolyline[i + 1];
+            const segM = haversineM(latA, lonA, latB, lonB);
+            runM += segM;
+            if (sd) {
+                const steps = Math.max(1, Math.ceil(segM / 25));
+                for (let s = 0; s <= steps; s++) {
+                    const t = s / steps;
+                    const { x, y } = latLonToGrid(grid, latA + (latB - latA) * t, lonA + (lonB - lonA) * t);
+                    if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+                    const d = sd[y * grid.width + x];
+                    if (!Number.isNaN(d) && d < runMin) runMin = d;
+                }
             }
         }
+        flush(finalCaution.length - 1);
         if (shallowMaxM > 500)
             engineLog.warn(
-                `[keelMargin] longest sub-margin/caution run ${(shallowMaxM / 1852).toFixed(2)} NM — route ships red there (draft+${safetyM} m floor)`,
+                `[keelMargin] longest sub-margin/caution run ${(shallowMaxM / 1852).toFixed(2)} NM — route ships red there (draft+${safetyM} m floor); runs≥${MIN_RUN_M}m=${shallowRuns.length} minDepths=[${shallowRuns.map((r) => (r.minDepthM === null ? '∅' : r.minDepthM.toFixed(1))).join(',')}]`,
             );
     }
 
@@ -1306,6 +1367,7 @@ function routeInshoreOnce(
         channelMask: finalChannelMask,
         tier4Mask: finalChannelMask,
         offshoreMask: finalOffshoreMask,
+        shallowRuns,
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,

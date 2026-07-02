@@ -215,6 +215,10 @@ export function buildNavGrid(
     // LNDARE *bleed* falsely hard-blocked — un-blocking the buoyed channel
     // WITHOUT faking depth, and never touching real land (NaN → stays blocked).
     const depareVerdict = new Float32Array(width * height).fill(NaN);
+    // Real charted depth (shallowest DRVAL1) of shallow-for-draft cells — the
+    // value the CAUTION sentinel erases from `cells`/`depareVerdict`. Exported on
+    // the grid for the Phase 7 tide-window annotation; routing never reads it.
+    const shallowDepthM = new Float32Array(width * height).fill(NaN);
     const preferred = new Uint8Array(width * height);
     // Per-cell "protected" flag: 1 = a DEPARE (chart S-57 OR authoritative
     // OSM engineered water) claimed this cell as deep, so the LNDARE pass
@@ -395,6 +399,13 @@ export function buildNavGrid(
             const prevV = depareVerdict[idx];
             if (shallow) {
                 if (Number.isNaN(prevV)) depareVerdict[idx] = CAUTION;
+                // Keep the REAL charted depth the CAUTION sentinel erases
+                // (shallowest wins) — the tide-window annotator's requiredRise
+                // input. Recorded regardless of protectedCells: the chart's
+                // depth claim is true either way, consumers key off cautionMask.
+                if (Number.isNaN(shallowDepthM[idx]) || drval1Num < shallowDepthM[idx]) {
+                    shallowDepthM[idx] = drval1Num;
+                }
             } else if (Number.isNaN(prevV) || prevV === CAUTION || drval1Num < prevV) {
                 depareVerdict[idx] = drval1Num;
             }
@@ -1077,6 +1088,7 @@ export function buildNavGrid(
         grid.unvouched = unvouched;
         markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
     }
+    grid.shallowDepthM = shallowDepthM;
     // Narrow the injected-canal mask to the actual CHANNEL: keep only cells with
     // charted LAND (landBlocked, set by the LNDARE passes above) within
     // MARINA_NEAR_CELLS. A canal channel is bounded by the marina lots a cell or

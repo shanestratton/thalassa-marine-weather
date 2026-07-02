@@ -167,6 +167,14 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
+    // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
+    // Owned here so every compute/clear path tears them down — a chip that
+    // outlives its route ghosts over the next one (the confidence-braid lesson).
+    const tideChipMarkersRef = useRef<mapboxgl.Marker[]>([]);
+    const clearTideChips = useCallback(() => {
+        for (const m of tideChipMarkersRef.current) m.remove();
+        tideChipMarkersRef.current = [];
+    }, []);
 
     // ── Passage mode activation (from Ship's Office / RoutePlanner → MAP tab) ──
     useEffect(() => {
@@ -320,6 +328,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         // return — the rest of the deep-water pipeline is irrelevant
         // for a 6-NM trip up the Savannah River.
         dispatchPassageNotice(null); // fresh compute, clear any stale band
+        clearTideChips(); // stale window chips must not ride over the new route
         try {
             const { tryInshoreRoute } = await import('../../services/InshoreRouter');
             // tryInshoreRoute / the engine work in metres but vessel.draft
@@ -583,6 +592,23 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     for (const braidId of ['confidence-route-gfs', 'confidence-route-ecmwf']) {
                         const braidSrc = map.getSource(braidId) as mapboxgl.GeoJSONSource;
                         if (braidSrc) braidSrc.setData({ type: 'FeatureCollection', features: [] });
+                    }
+                    // ── Phase 7: tide-window chips on the red runs (display-only —
+                    // tide changes feasibility AND timing, never geometry). Fire-and-
+                    // forget AFTER the route paints; stale computes are gen-guarded
+                    // inside, and the markers land in tideChipMarkersRef so every
+                    // compute/clear path tears them down.
+                    if (inshoreRes.shallowRuns?.length) {
+                        const { annotateTideWindows } = await import('./tideWindowChips');
+                        void annotateTideWindows({
+                            map,
+                            runs: inshoreRes.shallowRuns,
+                            stateMask,
+                            draftM: vesselDraftM,
+                            departureMs: departureDate.getTime(),
+                            isStale: () => gen !== computeGenRef.current,
+                            markers: tideChipMarkersRef.current,
+                        });
                     }
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
@@ -2213,6 +2239,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         turnWaypointsRef.current = [];
         computeGenRef.current++; // Invalidate any running computation
         PassageStore.clear();
+        clearTideChips(); // window chips die with the route they annotate
 
         const map = mapRef.current;
         if (!map) return;

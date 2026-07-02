@@ -44,6 +44,7 @@ import { cellsForBBox, listCells } from './enc/EncCellMetadata';
 import type { EncCell } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
+import type { ShallowRunInfo } from './engine/types';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
@@ -163,6 +164,13 @@ export interface InshoreRouteResult {
     /** Phase 13: present ONLY on a PROMOTED Seaway Graph route (for UI / Bosun
      *  narration). Absent on every engine-fallback route. */
     debug?: { seaway?: { edgesUsed: string[]; gateCount: number; gateCompliance: number | null; detourRatio: number } };
+    /**
+     * Charted-shallow caution runs ≥200 m with the real charted min depth where
+     * the chart vouches one (null = uncharted/conflict caution — never fabricate
+     * a tide window from those). Substrate for the Phase 7 "clears HH:MM–HH:MM"
+     * chips. Absent on cloud/promoted results.
+     */
+    shallowRuns?: ShallowRunInfo[];
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -1476,6 +1484,7 @@ async function tryInshoreRouteInner(
         channelMask: (result as { channelMask?: boolean[] }).channelMask,
         tier4Mask: (result as { tier4Mask?: boolean[] }).tier4Mask,
         offshoreMask: (result as { offshoreMask?: boolean[] }).offshoreMask,
+        shallowRuns: (result as { shallowRuns?: ShallowRunInfo[] }).shallowRuns,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,
