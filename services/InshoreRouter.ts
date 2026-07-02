@@ -1251,6 +1251,27 @@ async function tryInshoreRouteInner(
         log.warn(`ENC cardinal fold failed (continuing without): ${err instanceof Error ? err.message : String(err)}`);
     }
 
+    // ── NtM routing packs — surveyed-depth zones (ack- AND currency-gated) ──
+    // Acknowledged, still-current notice surveys (services/ntmRouting.ts) join
+    // the engine blob as NTMZONE; the navGrid NTM pass stamps their surveyed
+    // least depths over the chart edition. Fail-quiet and fail-CLOSED: any
+    // error, a superseded/unverified notice, or a missing acknowledgment means
+    // NO injection — the notice stays an advisory icon. The pad keeps a bar
+    // zone sitting just outside the endpoint lat/lon envelope in scope (the
+    // Mooloolah entrance lies EAST of both the wharf and Newport).
+    try {
+        const { activeNtmZonesFor } = await import('./ntmRouting');
+        const ntmPad = 0.02;
+        const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
+        if (ntm.features.length > 0) {
+            merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
+        }
+    } catch (err) {
+        log.warn(
+            `[ntmRouting] zone injection failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+
     // safetyM=0.5 — the owner's keel margin ("always 1/2 m deeper than our keel",
     // Shane 2026-07-02, matching the confirmed tideSafetyM=0.5 bar margin). Water the
     // chart puts inside draft+0.5 m at LAT costs 40× and renders red. Was 0.2 (chosen

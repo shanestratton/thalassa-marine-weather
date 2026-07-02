@@ -169,7 +169,13 @@ export const CENTRE_NORM_CELLS = 6;
  * A* will detour up to 50 cells through marked-deep water before
  * accepting a single unmarked cell.
  */
-export function cellCostMultiplier(depth: number, preferred: boolean, drying = false, tideAssist = false): number {
+export function cellCostMultiplier(
+    depth: number,
+    preferred: boolean,
+    drying = false,
+    tideAssist = false,
+    ntmRiseM = Number.NaN,
+): number {
     // Cells inside a marked fairway / dredged area always get the
     // baseline cost regardless of depth band — that's how we get
     // A* to follow the channel instead of cutting across deeper
@@ -283,7 +289,26 @@ export function cellCostMultiplier(depth: number, preferred: boolean, drying = f
     // construction (the assist mask requires charted depth > 0), so no tide
     // profile ever prices a drying bank as passable water.
     // Fixture: tests/engine/tideAssist.test.ts.
-    if (depth < 0) return tideAssist ? 10.0 : drying ? 120.0 : 40.0;
+    //
+    // NTM-SURVEYED tier (acknowledged + current Notice-to-Mariners survey
+    // zones, services/ntmRouting.ts): caution whose depth comes from a
+    // days-old hydrographic survey is graded by requiredRise instead of the
+    // flat 40× — we actually KNOW how deep it is, so a surveyed 2.5 m
+    // corridor (rise 0.4 → 31×) must beat a surveyed 1.4 m shoal (rise 1.5 →
+    // 75×) even at ~2× the crossing length. That is precisely the MSQ
+    // alternative-route intent at the Mooloolah bar. Ordinary chart caution
+    // keeps the flat 40× — grading it re-opens the 2026-05-15 "80× made it
+    // worse" tuning swamp; the trust boundary is the fresh survey, nothing
+    // else. Capped at 110 (below drying 120), floored at 5. Under the
+    // tideAssist profile the same grading applies on the assist scale.
+    // Fixture: tests/engine/ntmSurvey.test.ts.
+    if (depth < 0) {
+        if (!Number.isNaN(ntmRiseM)) {
+            const graded = tideAssist ? 5 + 10 * ntmRiseM : 15 + 40 * ntmRiseM;
+            return Math.min(110, Math.max(5, graded));
+        }
+        return tideAssist ? 10.0 : drying ? 120.0 : 40.0;
+    }
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.
@@ -487,10 +512,11 @@ export function aStar(
             // NaN ≤ 0 is false, so absent shallowDepthM ⇒ never drying.
             const cellDrying = cellDepth < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[nIdx] <= 0;
             const cellAssist = cellDepth < 0 && grid.tideAssist !== undefined && grid.tideAssist[nIdx] === 1;
+            const cellNtmRise = cellDepth < 0 && grid.ntmRiseM !== undefined ? grid.ntmRiseM[nIdx] : Number.NaN;
             const tentativeG =
                 curG +
                 stepLengthsM[n] *
-                    cellCostMultiplier(cellDepth, cellPreferred, cellDrying, cellAssist) *
+                    cellCostMultiplier(cellDepth, cellPreferred, cellDrying, cellAssist, cellNtmRise) *
                     centreFactor[nIdx] +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
@@ -515,7 +541,8 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     const centre = grid.centreFactor ? grid.centreFactor[idx] : 1;
     const drying = grid.cells[idx] < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[idx] <= 0;
     const assist = grid.cells[idx] < 0 && grid.tideAssist !== undefined && grid.tideAssist[idx] === 1;
-    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1, drying, assist) * centre;
+    const ntmRise = grid.cells[idx] < 0 && grid.ntmRiseM !== undefined ? grid.ntmRiseM[idx] : Number.NaN;
+    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1, drying, assist, ntmRise) * centre;
 }
 
 export function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {

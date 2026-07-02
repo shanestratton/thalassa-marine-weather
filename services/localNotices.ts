@@ -11,7 +11,10 @@
  *
  * Doctrine: notices are ADVISORY overlays — they never touch routing geometry
  * or cost. A notice is something the skipper reads, not something the engine
- * steers around.
+ * steers around. ONE guarded exception lives in services/ntmRouting.ts:
+ * hand-curated survey zones from a SPECIFIC notice, injected only while that
+ * notice is verifiably current AND the skipper has explicitly acknowledged it
+ * — see that module's header for the full guard stack.
  */
 import { createLogger } from '../utils/createLogger';
 

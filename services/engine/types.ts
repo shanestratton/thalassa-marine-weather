@@ -89,6 +89,18 @@ export interface InshoreLayers {
      * 2026-06-18 (Newport carries 43 RECTRC segments we were ignoring).
      */
     RECTRC?: FeatureCollection;
+    /**
+     * Notice-to-Mariners surveyed-depth override zones (services/ntmRouting.ts
+     * — curated from a specific MSQ notice, injected ONLY when that notice is
+     * current on the CKAN feed AND the skipper acknowledged it). Polygons with
+     * `_class:'ntm-survey'` + `depthM` (surveyed least depth at LAT, > 0).
+     * The NTM pass in buildNavGrid stamps them over chart DEPARE — a fresh
+     * hydrographic survey outranks the ENC edition — recording the surveyed
+     * depth in shallowDepthM and the requiredRise in ntmRiseM so caution
+     * pricing grades by how much tide the crossing actually needs. Never
+     * preferred, never a depth rescue above the survey.
+     */
+    NTMZONE?: FeatureCollection;
 }
 
 export interface RouteRequest {
@@ -236,6 +248,12 @@ export interface ShallowRunInfo {
     /** Where the minimum depth was sampled — the exact spot to check on the chart. */
     minAtLat?: number;
     minAtLon?: number;
+    /**
+     * True when the run's minimum depth came from an NtM surveyed-override
+     * zone (grid ntmRiseM stamped) rather than the chart DEPARE — the chip
+     * can then say "surveyed" instead of "charted".
+     */
+    ntmSurveyed?: boolean;
 }
 
 export interface RouteResult {
@@ -387,6 +405,17 @@ export interface NavGrid {
      * cells. Optional for cached-grid back-compat.
      */
     tideAssist?: Uint8Array;
+    /**
+     * Per-cell NtM-surveyed requiredRise (m above LAT needed for this vessel's
+     * floor), for CAUTION cells whose depth was overridden by an acknowledged,
+     * current Notice-to-Mariners survey zone (NTM pass). NaN everywhere else.
+     * aStar/cellCostAt grade these cells' caution price by rise — a freshly
+     * surveyed 2.5 m corridor beats a surveyed 1.4 m shoal — while ordinary
+     * chart caution keeps the flat 40×. Zone cells at or above the floor carry
+     * no entry (they price as normal water). Optional for cached-grid
+     * back-compat.
+     */
+    ntmRiseM?: Float32Array;
     /**
      * Per-cell "INJECTED canal/marina channel water" flag: 1 = the cell was
      * claimed by the nearshore Mapbox vector-water fill we INJECTED for routing
