@@ -242,8 +242,24 @@ export function cellCostMultiplier(
     //         Tangalooma settles at +14.5% (18.43 NM) vs +21% at 5×;
     //   5   → same flips, Tangalooma +21%.
     // 4 is the smallest value that keeps every seamanship flip.
+    //
+    // 2026-07-03 owner ask: teal should "prefer the white water over the
+    // blue water on the ENC layer, as long as we aren't going the wrong
+    // way or anything big". Deep is PINNED at 4.0 (the sweep above shows
+    // going lower un-flips gate-shortcut/staggered discipline), so the
+    // white-over-blue preference is widened from the blue side: mid
+    // 4.8→5.6 ONLY. Detour tolerance becomes 40% through ≥10 m water vs
+    // the 5-10 m band (was 20%) — and Moreton Bay's "blue" is almost
+    // entirely that band, so this is the visible change. The 0-5 m band
+    // deliberately stays 6.4: raising it to 7.2 shrank the caution/shallow
+    // ratio (6.25→5.56) and the Tangalooma golden immediately crossed MORE
+    // caution cells (shortcuts through 40× got relatively cheaper than a
+    // shallow-band detour) — cosmetic depth preference must never buy
+    // real-caution crossings. Raising the blue side only STRENGTHENS
+    // channel discipline (preferred 1.0 gets relatively cheaper) —
+    // referee'd against golden + scorecard + corpus + homecoming diag.
     if (depth >= 10) return 4.0;
-    if (depth >= 5) return 4.8;
+    if (depth >= 5) return 5.6;
     // depth ∈ (0, 5) — shallow but passes the draft+safety cutoff.
     // Tried 18× on 2026-05-15 to push A* harder toward deep water at
     // Brisbane (user: "we will need to get out and push"). Combined

@@ -1429,6 +1429,60 @@ export function buildNavGrid(
     // change.
     grid.centreFactor = computeCentreFactor(grid, markGoverned);
 
+    // Shore skin (2026-07-03, Point Cartwright): on OPEN COAST, never price
+    // the cell touching the rocks the same as the water one cell out. Chart
+    // DEPARE often runs deep right to the LNDARE edge on headlands, so Pass
+    // 6's buffer (correctly — `prior > 0`) never seals those cells; A* then
+    // rides the land-adjacent cell and the smoothed line passes metres off
+    // charted rock (measured 7 m at -26.67688,153.14007 rounding Point
+    // Cartwright). SURCHARGE — never block — the 1-cell skin against land,
+    // folded into centreFactor so aStar, cellCostAt, the smoother and the
+    // acceptance gates all price it identically and nothing can re-straighten
+    // a leg back onto the shore. A* stands off whenever open water exists;
+    // where the skin is the only way through, the route still goes (2× cost,
+    // not a wall) — connectivity is untouchable by construction. Exemptions
+    // keep every confined/vouched water class at its tuned price:
+    //   confined     — two-sided water (rivers, canals, the Tangalooma
+    //                  gutter): centring owns lateral placement there, and
+    //                  skinning both banks would inflate the whole reach;
+    //   preferred    — channels/gates/transits are vouched water;
+    //   markGoverned — gate-governed cells near paired marks (the wrong-side-
+    //                  temptation zone: repelling from shore at a headland
+    //                  gate must not shove the route to the wrong side);
+    //   relaxMask    — localized relax corridors thread land intentionally;
+    //   caution/land — non-navigable cells already price their own risk.
+    {
+        const SHORE_SKIN_FACTOR = 2.0;
+        const tShoreSkin = Date.now();
+        const confinedMask = grid.confined;
+        const centreFactorArr = grid.centreFactor;
+        let skinned = 0;
+        for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+                const idx = y * width + x;
+                if (!(cells[idx] >= 0)) continue; // NaN land + caution excluded
+                if (preferred[idx] === 1) continue;
+                if (relaxMask[idx] === 1) continue;
+                if (markGoverned[idx] === 1) continue;
+                if (confinedMask && confinedMask[idx] === 1) continue;
+                let touchesLand = false;
+                for (let dy = -1; dy <= 1 && !touchesLand; dy++) {
+                    for (let dx = -1; dx <= 1 && !touchesLand; dx++) {
+                        if (dx === 0 && dy === 0) continue;
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                        if (hardBlocked[ny * width + nx] === 1) touchesLand = true;
+                    }
+                }
+                if (!touchesLand) continue;
+                centreFactorArr[idx] *= SHORE_SKIN_FACTOR;
+                skinned++;
+            }
+        }
+        markPass('pass6b-shoreSkin', tShoreSkin, skinned);
+    }
+
     // Per-pass breakdown — surfaces which polygon scanner is the hot
     // path. Format: pass=Nms(F features) so the eye can pair time
     // against feature count at a glance.
