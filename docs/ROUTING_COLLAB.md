@@ -3399,3 +3399,24 @@ overland tail. Both landed:
 
 165 routing tests green (22 files), tsc clean. NOTE for Shane: the Newport bridge clearances are
 ESTIMATES from OSM geometry — verify/adjust in bridges-au.json when known.
+
+## ★ reply 73 (2026-07-02) — scale-shadow ENC de-confliction (the Tangalooma tan wall) + teal metrics
+
+- **`49d976c0` scale-shadow**: Shane's "is this some bullshit ENC chart shit?" — yes: OC-61-051031
+  is the 30°×30° Coral Sea OVERVIEW cell; its Moreton Island LNDARE blob bulged ~500 m over the
+  Tangalooma anchorage/wrecks the 1°×1° detail cell charts correctly, and we merged both for render
+  AND routing. New `services/enc/scaleShadow.ts`: features from a ≥16×-coarser cell fully inside a
+  finer cell's bbox are dropped (finer cell owns that ground); partial features kept (no clipping
+  v1 — mainland bleed inside detail bboxes remains, documented). Applied to routing merge
+  (LNDARE/DEPARE) + render merge (LNDARE/DEPARE/COALNE/DEPCNT). Device: `[scaleShadow] <cell>:
+dropped N…`. Lock: `tests/enc/scaleShadow.test.ts`.
+- **`3f5f9d24` teal metrics**: EFFICIENCY + DEPTH BANDS printed by the Tangalooma diag against the
+  live cell — ratio 1.106 (the charted RECTRC's own offset), 67% ≥10 m / 33% 5-10 m / 0 shallow.
+  Verdict: no cost knob condemned; the depth gradient already delivers "deepest water possible".
+
+CARTE BLANCHE QUEUE (Shane 2026-07-02, in priority order): (1) bay-passage validation sweep
+(~10-15 classic Moreton Bay passages via the repro harness against live Pi cells — the
+biggest-value grind); (2) compute speed (worker thread or Pi engine resync + CLOUD_ROUTER flip —
+NOTE the Pi mirror is STALE vs today's engine work, resync before flipping); (3) Pinkenba
+lumped-channel gate:body-land structural fix; (4) MSQ dredged-channel survey data. Tracked tasks:
+southern-estate powerboat land-clip diagnosis.
