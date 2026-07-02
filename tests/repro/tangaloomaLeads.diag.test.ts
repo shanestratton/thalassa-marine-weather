@@ -175,6 +175,74 @@ describe('Tangalooma leading-line approach (diagnostic)', () => {
         const poly = (r.polyline ?? []) as Position[];
         console.log('\n=== ROUTE ===  vertices:', poly.length);
 
+        // ── EFFICIENCY + DEPTH-UTILISATION metrics (Shane 2026-07-02: "teal must be
+        // the most efficient route possible utilising the deepest water") ──
+        {
+            const dist = (a: Position, b: Position): number => {
+                const mx = 111_320 * Math.cos((((a[1] + b[1]) / 2) * Math.PI) / 180);
+                return Math.hypot((b[0] - a[0]) * mx, (b[1] - a[1]) * 110_540);
+            };
+            let routeM = 0;
+            for (let i = 1; i < poly.length; i++) routeM += dist(poly[i - 1], poly[i]);
+            const directM = dist(poly[0], poly[poly.length - 1]);
+            // Depth-band occupancy: sample every ~100 m against the cell's DEPARE bands.
+            const cell = loadCell();
+            const depare = (cell.layers['DEPARE']?.features ?? [])
+                .filter((f) => f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon')
+                .map((f) => ({
+                    g: f.geometry as { type: string; coordinates: unknown },
+                    d: (f.properties as Record<string, unknown>)?.DRVAL1 as number,
+                }))
+                .filter((x) => typeof x.d === 'number');
+            const ptInRing = (lon: number, lat: number, ring: number[][]): boolean => {
+                let inside = false;
+                for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                    const [xi, yi] = ring[i];
+                    const [xj, yj] = ring[j];
+                    if (yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) inside = !inside;
+                }
+                return inside;
+            };
+            const depthAt = (lon: number, lat: number): number | null => {
+                let best: number | null = null;
+                for (const { g, d } of depare) {
+                    const polys =
+                        g.type === 'Polygon' ? [g.coordinates as number[][][]] : (g.coordinates as number[][][][]);
+                    for (const p of polys) {
+                        if (p[0] && ptInRing(lon, lat, p[0])) {
+                            if (best === null || d < best) best = d;
+                        }
+                    }
+                }
+                return best;
+            };
+            const bands = { deep10: 0, mid5to10: 0, shallow0to5: 0, drying: 0, uncharted: 0 };
+            let samples = 0;
+            for (let i = 1; i < poly.length; i++) {
+                const segM = dist(poly[i - 1], poly[i]);
+                const steps = Math.max(1, Math.ceil(segM / 100));
+                for (let s = 0; s < steps; s++) {
+                    const t = s / steps;
+                    const lon = poly[i - 1][0] + (poly[i][0] - poly[i - 1][0]) * t;
+                    const lat = poly[i - 1][1] + (poly[i][1] - poly[i - 1][1]) * t;
+                    const d = depthAt(lon, lat);
+                    samples++;
+                    if (d === null) bands.uncharted++;
+                    else if (d >= 10) bands.deep10++;
+                    else if (d >= 5) bands.mid5to10++;
+                    else if (d > 0) bands.shallow0to5++;
+                    else bands.drying++;
+                }
+            }
+            const pct = (n: number): string => `${((100 * n) / Math.max(1, samples)).toFixed(0)}%`;
+            console.log(
+                `EFFICIENCY: route ${(routeM / 1852).toFixed(2)} NM vs direct ${(directM / 1852).toFixed(2)} NM — ratio ${(routeM / Math.max(1, directM)).toFixed(3)}`,
+            );
+            console.log(
+                `DEPTH BANDS: deep≥10m ${pct(bands.deep10)} | 5-10m ${pct(bands.mid5to10)} | 0-5m ${pct(bands.shallow0to5)} | drying ${pct(bands.drying)} | uncharted ${pct(bands.uncharted)} (${samples} samples)`,
+            );
+        }
+
         // Only the legs near Tangalooma (lon>153.33) — the bay run-in isn't on a lead.
         const tail = poly.filter((p) => p[0] > 153.33);
         const offOuter = tail.map((p) => pointToChainM(p[1], p[0], OUTER));
