@@ -33,6 +33,7 @@ import type { Feature, FeatureCollection } from 'geojson';
 import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
+import { shadowingCells, featureIsShadowed } from './scaleShadow';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -497,6 +498,13 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         cellCount: 0,
     };
 
+    // Scale-shadow de-confliction (the Tangalooma tan wall): an overview cell's
+    // crude island/land polygons bulge over water a finer cell charts correctly.
+    // Coarse-cell area geometry fully inside a much-finer cell's bbox is dropped
+    // — the finer cell owns that ground. Applies to the chart-geometry classes
+    // (land, depth areas, coastline, contours); point marks are untouched.
+    const cellExtents = cells.map((c) => ({ id: c.id, bbox: c.bbox }));
+    const SHADOWED_CLASSES = new Set(['LNDARE', 'DEPARE', 'COALNE', 'DEPCNT']);
     for (const cell of cells) {
         let blob;
         try {
@@ -509,6 +517,7 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         merged.cellCount++;
 
         const ialaRegion = ialaRegionForSourceHO(cell.sourceHO);
+        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents);
 
         const tagAndPush = (
             target: keyof Omit<EncMergedVectorData, 'cellCount'>,
@@ -518,6 +527,7 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
             const dest = merged[target];
             for (const feat of fc.features) {
                 if (!feat || !feat.geometry) continue;
+                if (shadows.length > 0 && SHADOWED_CLASSES.has(target) && featureIsShadowed(feat, shadows)) continue;
                 // Decorate properties with provenance so the map
                 // can keep "which cell" context for clicks/etc.
                 const props: Record<string, unknown> = {
@@ -551,7 +561,12 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
                 ) {
                     const featProps = (feat.properties ?? {}) as Record<string, unknown>;
                     props._icon = encNavaidIconId(target, featProps, ialaRegion);
-                    props._priority = target === 'BOYCAR' || target === 'BCNCAR' ? 0 : target === 'BOYSPP' || target === 'BCNSPP' ? 2 : 1;
+                    props._priority =
+                        target === 'BOYCAR' || target === 'BCNCAR'
+                            ? 0
+                            : target === 'BOYSPP' || target === 'BCNSPP'
+                              ? 2
+                              : 1;
                 }
 
                 // Lights: pre-bake everything the renderer + label
