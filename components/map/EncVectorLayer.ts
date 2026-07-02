@@ -843,14 +843,38 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
 }
 
 /**
+ * Satellite-base gate. When the user has satellite imagery on, the opaque
+ * area fills must never paint — they'd blanket the imagery (the whole point
+ * of the toggle). Every visibility writer in this module consults this so
+ * that cell-list bumps, master toggles, detail mode and route-focus can't
+ * re-show a fill behind MapHub's back, whatever order they run in. Contour
+ * LINES, coastline, markers and hazards are unaffected — they read fine on
+ * top of imagery.
+ */
+const SATELLITE_KEY = 'thalassa_satellite_base';
+const SATELLITE_HIDE_LAYERS: readonly string[] = [
+    ENC_VEC_LAYERS.LNDARE,
+    ENC_VEC_LAYERS.LNDARE_ISLET,
+    ENC_VEC_LAYERS.DEPARE,
+];
+function satelliteBaseOn(): boolean {
+    try {
+        return localStorage.getItem(SATELLITE_KEY) === 'true';
+    } catch {
+        return false;
+    }
+}
+
+/**
  * Toggle layer visibility without mutating sources. Useful for the
  * UI toggle (when added) — keeps the tile cache warm so re-show
  * is instant.
  */
 export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): void {
-    const value = visible ? 'visible' : 'none';
+    const satOn = satelliteBaseOn();
     for (const id of ALL_LAYER_IDS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
+        const wantVisible = visible && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
 }
 
@@ -912,9 +936,10 @@ export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void 
     const masterVisible = map.getLayoutProperty(ENC_VEC_LAYERS.BCNLAT, 'visibility') !== 'none';
     if (!masterVisible) return; // every ENC layer already hidden — leave it
 
-    const value = focused ? 'none' : 'visible';
+    const satOn = satelliteBaseOn();
     for (const id of ROUTE_FOCUS_HIDE_LAYERS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
+        const wantVisible = !focused && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
 }
 
@@ -934,9 +959,11 @@ export function setEncChartDetail(map: mapboxgl.Map, detailed: boolean): void {
     const masterVisible = map.getLayoutProperty(ENC_VEC_LAYERS.BCNLAT, 'visibility') !== 'none';
     if (!masterVisible) return;
 
-    const value = detailed ? 'visible' : 'none';
+    const satOn = satelliteBaseOn();
     for (const id of CHART_DETAIL_HIDE_LAYERS) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', value);
+        // Contour lines stay under satellite — only the area fills yield.
+        const wantVisible = detailed && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
+        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
 }
 
