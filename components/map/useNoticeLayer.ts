@@ -23,9 +23,8 @@ import { loadQldNotices, groupByAnchor, type QldNotice } from '../../services/ql
 import {
     NTM_ROUTING_PACKS,
     ntmPackStatus,
-    isPackAcked,
-    ackPack,
-    revokePackAck,
+    isPackOptedOut,
+    setPackOptedOut,
     type NtmRoutingPack,
     type NtmPackStatus,
 } from '../../services/ntmRouting';
@@ -102,21 +101,22 @@ function qldGroupPopupHtml(label: string, group: readonly QldNotice[]): string {
 
 /**
  * Routing-guidance section appended to a notice popup when a curated routing
- * pack (services/ntmRouting.ts) exists for the anchor. The APPLY button is the
- * explicit acknowledgment — reading the PDF alone never changes routing.
+ * pack (services/ntmRouting.ts) exists for the anchor. CURRENT packs apply
+ * automatically (owner call 2026-07-02) — the button here is the opt-OUT.
  */
-function packSectionHtml(pack: NtmRoutingPack, status: NtmPackStatus, acked: boolean): string {
+function packSectionHtml(pack: NtmRoutingPack, status: NtmPackStatus, optedOut: boolean): string {
     const depths = pack.zones.map((z) => `${esc(z.label)} ${z.depthM.toFixed(1)} m`).join(' · ');
     let action: string;
     if (status.status === 'superseded') {
         action = `<div style="font-size:11px;color:#f87171;">Superseded by ${esc(status.liveNumber)} — routing guidance disabled until this app's transcription is updated to the new notice. Read the current PDF above.</div>`;
     } else if (status.status === 'unverified') {
         action = `<div style="font-size:11px;color:#fbbf24;">Can't verify this notice is still current (${esc(status.reason)}) — routing guidance disabled. It re-enables when the notice feed refreshes.</div>`;
-    } else if (acked) {
-        action = `<div style="font-size:11px;color:#4ade80;">✓ Applied to routing for this passage.</div>
-          <button id="ntm-revoke-${esc(pack.id)}" style="margin-top:4px;font-size:10px;padding:3px 8px;background:transparent;color:#94a3b8;border:1px solid rgba(148,163,184,0.4);border-radius:6px;cursor:pointer;">Remove from routing</button>`;
+    } else if (optedOut) {
+        action = `<div style="font-size:11px;color:#94a3b8;">Removed from routing by you — the route uses chart-edition data here.</div>
+          <button id="ntm-apply-${esc(pack.id)}" style="margin-top:4px;font-size:11px;font-weight:700;padding:6px 10px;background:#7c3aed;color:#f5f3ff;border:none;border-radius:7px;cursor:pointer;">Re-apply to routing</button>`;
     } else {
-        action = `<button id="ntm-apply-${esc(pack.id)}" style="margin-top:2px;font-size:11px;font-weight:700;padding:6px 10px;background:#7c3aed;color:#f5f3ff;border:none;border-radius:7px;cursor:pointer;">I've read it — apply surveyed depths to routing (24 h)</button>`;
+        action = `<div style="font-size:11px;color:#4ade80;">✓ Applied to routing — surveyed depths + the promulgated track.</div>
+          <button id="ntm-revoke-${esc(pack.id)}" style="margin-top:4px;font-size:10px;padding:3px 8px;background:transparent;color:#94a3b8;border:1px solid rgba(148,163,184,0.4);border-radius:6px;cursor:pointer;">Remove from routing</button>`;
     }
     return `
       <div style="margin-top:8px;padding-top:7px;border-top:1px solid rgba(148,163,184,0.25);">
@@ -251,7 +251,7 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                         let status: NtmPackStatus | null = null;
                         if (pack) {
                             status = await ntmPackStatus(pack);
-                            html += packSectionHtml(pack, status, isPackAcked(pack));
+                            html += packSectionHtml(pack, status, isPackOptedOut(pack));
                         }
                         if (disposed) return;
                         popupAt(n0.lon as number, n0.lat as number, html);
@@ -270,8 +270,8 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                                 rerender();
                             });
                         };
-                        wire(`ntm-apply-${pack.id}`, () => ackPack(pack));
-                        wire(`ntm-revoke-${pack.id}`, () => revokePackAck(pack));
+                        wire(`ntm-apply-${pack.id}`, () => setPackOptedOut(pack, false));
+                        wire(`ntm-revoke-${pack.id}`, () => setPackOptedOut(pack, true));
                     })();
                 });
                 localMarkersRef.current.push(

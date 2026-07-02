@@ -167,10 +167,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
-    // Route profile from the PassageBanner chips. A ref (not state) so
-    // computePassage always reads the CURRENT value without re-memoising;
-    // the thalassa:route-profile listener below recomputes on change.
-    const routeProfileRef = useRef<'safest' | 'tideAssist'>('safest');
     // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
     // Owned here so every compute/clear path tears them down — a chip that
     // outlives its route ghosts over the next one (the confidence-braid lesson).
@@ -364,9 +360,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     vesselDraftM,
                     // Air draft (mast height) — null = no bridge gating.
                     vesselAirDraftMetres(useSettingsStore.getState().settings.vessel),
-                    // Route profile from the PassageBanner chips (SAFEST default;
-                    // TIDE-ASSIST = explicit shortest-with-the-tide).
-                    routeProfileRef.current,
+                    // ALWAYS SAFEST (Shane 2026-07-02: no punter-facing profile
+                    // option). The engine's tideAssist profile remains for
+                    // tests/expert surfaces.
+                    'safest',
                 ),
                 {
                     error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
@@ -503,83 +500,43 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                                   if (cautionMask?.[i] ?? false) return 'danger'; // shallow OPEN water RED
                                   return offshoreMask?.[i] ? 'offshore' : 'green';
                               });
-                    // ── NtM lock: segments through a CURRENT survey-notice zone the
-                    // skipper has NOT acknowledged render slate-grey "locked" (Shane's
-                    // read-the-paperwork-first gate, minus the chart-occluding image).
-                    // The engine had NO surveyed depths here (un-acked zones are never
-                    // injected), so the drawn line is chart-edition truth at best —
-                    // the lock says "MSQ knows more than this line; read the notice".
-                    // Ack'd + current packs render normally: honest red + tide chips
-                    // from the surveyed depths the engine DID get.
+                    // NtM lock UI removed (owner call 2026-07-02): CURRENT notice
+                    // packs apply to routing AUTOMATICALLY — the engine already
+                    // routed on the surveyed depths and the promulgated transit,
+                    // so there is nothing to gate. When a pack applied to this
+                    // corridor, name it in a banner so the skipper knows the
+                    // route follows the notice — and still reads it.
                     let ntmLockBanner: PassageNotice | null = null;
                     try {
-                        const { packsForCorridor, pointInPack } = await import('../../services/ntmRouting');
+                        const { packsForCorridor } = await import('../../services/ntmRouting');
                         let rb: [number, number, number, number] | null = null;
                         for (const [ln, lt] of inshorePoly) {
                             rb = rb
                                 ? [Math.min(rb[0], ln), Math.min(rb[1], lt), Math.max(rb[2], ln), Math.max(rb[3], lt)]
                                 : [ln, lt, ln, lt];
                         }
-                        if (rb && stateMask) {
-                            const corridorPacks = await packsForCorridor(rb);
-                            // Self-heal a superseded ack: the pack can no longer
-                            // inject (fail-closed), so the stale "applied" state
-                            // must not linger — revoke recomputes via the ack
-                            // event and the popup reverts to the superseded
-                            // explanation (review finding #9).
-                            for (const { pack, status, acked } of corridorPacks) {
-                                if (status.status === 'superseded' && acked) {
-                                    const { revokePackAck } = await import('../../services/ntmRouting');
-                                    log.warn(`[ntmRouting] ${pack.id} superseded while acked — auto-revoking`);
-                                    revokePackAck(pack);
-                                }
-                            }
-                            const lockPacks = corridorPacks
-                                .filter(({ status, acked }) => status.status === 'current' && !acked)
-                                .map(({ pack }) => pack);
-                            if (lockPacks.length > 0 && gen === computeGenRef.current) {
-                                let locked = 0;
-                                for (let i = 0; i < stateMask.length; i++) {
-                                    // Sample ALONG the segment, not just its midpoint —
-                                    // a long smoothed segment can cross a whole zone
-                                    // between samples (review finding #4).
-                                    let hit = false;
-                                    for (let s = 0; s <= 4 && !hit; s++) {
-                                        const t = s / 4;
-                                        const qLon =
-                                            inshorePoly[i][0] + (inshorePoly[i + 1][0] - inshorePoly[i][0]) * t;
-                                        const qLat =
-                                            inshorePoly[i][1] + (inshorePoly[i + 1][1] - inshorePoly[i][1]) * t;
-                                        hit = lockPacks.some((p) => pointInPack(qLon, qLat, p));
-                                    }
-                                    if (hit) {
-                                        stateMask[i] = 'ntmlock';
-                                        locked++;
-                                    }
-                                }
-                                if (locked > 0) {
-                                    log.warn(
-                                        `[ntmRouting] ${locked} route segment(s) LOCKED behind ${lockPacks
-                                            .map((p) => p.noticeKey)
-                                            .join(', ')} — awaiting acknowledgment`,
-                                    );
-                                    // Dispatched at the route-rendered site below, so the
-                                    // "clear the computing band" call can't erase it.
-                                    ntmLockBanner = {
-                                        severity: 'warn',
-                                        title: 'Notice to Mariners applies to this route',
-                                        message: `${lockPacks
-                                            .map((p) => `${p.noticeKey} — ${p.title} (surveyed ${p.surveyed})`)
-                                            .join(
-                                                ' · ',
-                                            )}. The grey leg has fresher surveyed depths than the chart. Tap the 📄 icon, read the notice, then apply it to routing.`,
-                                    };
-                                }
+                        if (rb) {
+                            const applied = (await packsForCorridor(rb)).filter(
+                                ({ status, optedOut }) => status.status === 'current' && !optedOut,
+                            );
+                            if (applied.length > 0 && gen === computeGenRef.current) {
+                                ntmLockBanner = {
+                                    severity: 'info',
+                                    title: 'Routing follows a current Notice to Mariners',
+                                    message: `${applied
+                                        .map(
+                                            ({ pack }) =>
+                                                `${pack.noticeKey} — ${pack.title} (surveyed ${pack.surveyed})`,
+                                        )
+                                        .join(
+                                            ' · ',
+                                        )}. Surveyed depths and the promulgated track are applied. Tap the 📄 icon to read the notice.`,
+                                };
                             }
                         }
                     } catch (err) {
                         log.warn(
-                            `[ntmRouting] render lock failed: ${err instanceof Error ? err.message : String(err)}`,
+                            `[ntmRouting] banner check failed: ${err instanceof Error ? err.message : String(err)}`,
                         );
                     }
                     const inshoreFeatures: GeoJSON.Feature<GeoJSON.LineString>[] = [];
@@ -2363,26 +2320,6 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 setRouteAnalysis(null);
             });
         }
-    }, [mapReady, showPassage, departure, arrival, computePassage]);
-
-    // Route-profile chips (PassageBanner): store the choice and recompute the
-    // displayed route under the new profile. Same shape as the NtM-ack
-    // listener below.
-    useEffect(() => {
-        const onProfile = (ev: Event) => {
-            const profile = (ev as CustomEvent<{ profile?: 'safest' | 'tideAssist' }>).detail?.profile;
-            if (profile !== 'safest' && profile !== 'tideAssist') return;
-            if (routeProfileRef.current === profile) return;
-            routeProfileRef.current = profile;
-            log.warn(`[routeProfile] ${profile} selected`);
-            // showPassage guard: never recompute (and camera-jump) after the
-            // planner is closed (review finding #17).
-            if (mapReady && showPassage && departure && arrival) {
-                computePassage().catch((err) => log.warn('[routeProfile] recompute failed:', err));
-            }
-        };
-        window.addEventListener('thalassa:route-profile', onProfile);
-        return () => window.removeEventListener('thalassa:route-profile', onProfile);
     }, [mapReady, showPassage, departure, arrival, computePassage]);
 
     // Recompute when an NtM routing acknowledgment changes (📄 popup "apply to

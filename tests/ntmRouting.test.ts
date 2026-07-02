@@ -5,11 +5,11 @@
 import { describe, expect, it } from 'vitest';
 import {
     resolvePackStatus,
-    isAckValid,
+    isPackOptedOut,
+    setPackOptedOut,
     pointInPack,
     NTM_ROUTING_PACKS,
     MAX_VERIFY_AGE_MS,
-    ACK_TTL_MS,
     type NtmRoutingPack,
 } from '../services/ntmRouting';
 import type { QldNotice } from '../services/qldNotices';
@@ -114,20 +114,20 @@ describe('resolvePackStatus (fail-closed currency)', () => {
     });
 });
 
-describe('isAckValid (per-passage acknowledgment)', () => {
-    it('valid inside the TTL for the exact notice', () => {
-        expect(isAckValid({ noticeKey: '364 T of 2026', ackMs: NOW - 1000 }, '364 T of 2026', NOW)).toBe(true);
-    });
-    it('expires after the 24 h TTL', () => {
-        expect(isAckValid({ noticeKey: '364 T of 2026', ackMs: NOW - ACK_TTL_MS - 1 }, '364 T of 2026', NOW)).toBe(
-            false,
-        );
-    });
-    it('a superseding notice self-revokes the old ack', () => {
-        expect(isAckValid({ noticeKey: '364 T of 2026', ackMs: NOW - 1000 }, '371 T of 2026', NOW)).toBe(false);
-    });
-    it('absent entry is not acked', () => {
-        expect(isAckValid(undefined, '364 T of 2026', NOW)).toBe(false);
+describe('opt-out store (current packs apply by DEFAULT)', () => {
+    it('defaults to applied (not opted out), toggles both ways, survives corruption', () => {
+        localStorage.removeItem('thalassa_ntm_optout_v1');
+        expect(isPackOptedOut(pack)).toBe(false); // owner default: applied
+        setPackOptedOut(pack, true);
+        expect(isPackOptedOut(pack)).toBe(true);
+        setPackOptedOut(pack, false);
+        expect(isPackOptedOut(pack)).toBe(false);
+        // Corrupted store degrades to the default, never throws.
+        localStorage.setItem('thalassa_ntm_optout_v1', 'null');
+        expect(isPackOptedOut(pack)).toBe(false);
+        localStorage.setItem('thalassa_ntm_optout_v1', '"garbage"');
+        expect(isPackOptedOut(pack)).toBe(false);
+        localStorage.removeItem('thalassa_ntm_optout_v1');
     });
 });
 
