@@ -219,6 +219,11 @@ export function buildNavGrid(
     // value the CAUTION sentinel erases from `cells`/`depareVerdict`. Exported on
     // the grid for the Phase 7 tide-window annotation; routing never reads it.
     const shallowDepthM = new Float32Array(width * height).fill(NaN);
+    // Cells under a low-clearance structure (a fixed bridge this vessel's air
+    // draft can't make) — impassable ABSOLUTELY: no rescue, relax, or carve
+    // pass may ever re-open them. Exported on the grid so the component-bridge
+    // and endpoint carves can refuse to tunnel.
+    const clearanceBarred = new Uint8Array(width * height);
     const preferred = new Uint8Array(width * height);
     // Per-cell "protected" flag: 1 = a DEPARE (chart S-57 OR authoritative
     // OSM engineered water) claimed this cell as deep, so the LNDARE pass
@@ -652,6 +657,13 @@ export function buildNavGrid(
         // Hard-blocking them here would turn a mispair into no-path instead
         // of a red wiggle.
         if ((f.properties as { _class?: string } | null)?._class === 'pair-wing') return;
+        // Low-clearance structures (a fixed bridge the vessel's air draft
+        // can't make — injected by the orchestrator when airDraft exceeds the
+        // curated clearance). LAND for this vessel: blocked + hardBlocked +
+        // clearanceBarred, and the barred flag makes every rescue/carve pass
+        // (chart FAIRWY/DRGARE keys-back, component bridge carve, endpoint
+        // carve) refuse to tunnel it.
+        const isClearanceBar = (f.properties as { _class?: string } | null)?._class === 'low-clearance';
         if (f.geometry.type === 'Point') {
             const [lon, lat] = (f.geometry as Point).coordinates;
             blockPointBuffer(lat, lon);
@@ -661,6 +673,7 @@ export function buildNavGrid(
                 const idx = y * width + x;
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
+                if (isClearanceBar) clearanceBarred[idx] = 1;
             });
         }
     };
@@ -722,6 +735,9 @@ export function buildNavGrid(
         const isMarkRibbon = props?._class === 'synthetic-channel-segment';
         rasterizePolygonCells(grid, g, (x, y) => {
             const idx = y * width + x;
+            // A low-clearance bar (fixed bridge) is impassable for this vessel
+            // — not even a chart-authoritative FAIRWY/DRGARE gets the keys back.
+            if (clearanceBarred[idx] === 1) return;
             preferred[idx] = 1;
             const blockedOrShallow = Number.isNaN(cells[idx]) || cells[idx] < 0;
             if (!blockedOrShallow) return;
@@ -1089,6 +1105,7 @@ export function buildNavGrid(
         markPass('unvouched-mask', tPassUnvouched, unvouchedCount);
     }
     grid.shallowDepthM = shallowDepthM;
+    grid.clearanceBarred = clearanceBarred;
     // Narrow the injected-canal mask to the actual CHANNEL: keep only cells with
     // charted LAND (landBlocked, set by the LNDARE passes above) within
     // MARINA_NEAR_CELLS. A canal channel is bounded by the marina lots a cell or

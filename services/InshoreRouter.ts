@@ -171,6 +171,9 @@ export interface InshoreRouteResult {
      * chips. Absent on cloud/promoted results.
      */
     shallowRuns?: ShallowRunInfo[];
+    /** Metres of overland tail trimmed off an inland destination pin —
+     *  present only when the trim fired (route ends at the water's edge). */
+    destinationInlandTrimM?: number;
     distanceNM: number;
     cellsUsed: string[];
     elapsedMs: number;
@@ -315,6 +318,10 @@ export async function tryInshoreRoute(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
     draftM: number,
+    /** Vessel air draft (mast height) in METRES, or null/omitted = no
+     *  clearance gating. Callers convert via vesselAirDraftMetres() —
+     *  vessel.airDraft is stored in FEET. */
+    airDraftM: number | null = null,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
@@ -326,7 +333,7 @@ export async function tryInshoreRoute(
 
     // Dedupe check — quantise to 4 decimal places (~11 m precision)
     // so tiny float jitter between callers still hits the same key.
-    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}`;
+    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}`;
     const inflight = inflightRouteRequests.get(dedupeKey);
     if (inflight) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
@@ -342,7 +349,7 @@ export async function tryInshoreRoute(
     // returns a skipper-readable failure instead of an opaque throw.
     const INSHORE_WATCHDOG_MS = 85_000;
     const promise = withDeadline(
-        tryInshoreRouteInner(origin, destination, draftM),
+        tryInshoreRouteInner(origin, destination, draftM, airDraftM),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -389,6 +396,7 @@ async function tryInshoreRouteInner(
     origin: InshoreOrigin,
     destination: InshoreOrigin,
     draftM: number,
+    airDraftM: number | null = null,
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
@@ -1070,6 +1078,46 @@ async function tryInshoreRouteInner(
         );
     }
 
+    // ── Low-clearance bridges (air-draft gating) ──
+    // A fixed bridge this vessel's mast cannot clear is LAND for this vessel.
+    // Curated bridge spans whose clearance < airDraft become thin
+    // `_class:'low-clearance'` OBSTRN bars across the waterway: the grid
+    // hard-blocks them, no rescue/carve pass may tunnel them, and the canal
+    // centre-line network is severed across them (tierPipeline). No air draft
+    // set, or no clearance data ⇒ no gating (never fabricate a clearance).
+    if (airDraftM !== null && airDraftM > 0) {
+        try {
+            const { loadLowBridges, blockedBridgesFor, bridgeBarPolygon } = await import('./lowBridges');
+            const blocked = blockedBridgesFor(await loadLowBridges(), airDraftM);
+            if (blocked.length > 0) {
+                const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+                for (const b of blocked) {
+                    (obstrn.features as unknown[]).push({
+                        type: 'Feature',
+                        properties: {
+                            _class: 'low-clearance',
+                            _bridgeId: b.id,
+                            _name: b.name,
+                            _clearanceM: b.clearanceM,
+                            _estimated: b.estimated === true,
+                        },
+                        geometry: bridgeBarPolygon(b),
+                    });
+                }
+                merged.OBSTRN = obstrn;
+                log.warn(
+                    `[airDraft] ${blocked.length} low bridge(s) BLOCKED for airDraft ${airDraftM.toFixed(1)} m: ${blocked
+                        .map((b) => `${b.name} (${b.clearanceM.toFixed(1)} m${b.estimated ? ' est' : ''})`)
+                        .join(', ')}`,
+                );
+            }
+        } catch (err) {
+            log.warn(
+                `[airDraft] bridge gating failed (continuing without): ${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
+    }
+
     // ── Regional nav-markers (lateral buoys/beacons) ──
     // The app already loads this file for chart display (useMapInit.ts).
     // For routing we re-fetch it and convert port/starboard markers to
@@ -1485,6 +1533,7 @@ async function tryInshoreRouteInner(
         tier4Mask: (result as { tier4Mask?: boolean[] }).tier4Mask,
         offshoreMask: (result as { offshoreMask?: boolean[] }).offshoreMask,
         shallowRuns: (result as { shallowRuns?: ShallowRunInfo[] }).shallowRuns,
+        destinationInlandTrimM: (result as { destinationInlandTrimM?: number }).destinationInlandTrimM,
         distanceNM: result.distanceNM,
         cellsUsed,
         elapsedMs,

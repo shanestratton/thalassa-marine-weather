@@ -1,0 +1,36 @@
+{
+    "version": 1,
+    "updated": "2026-07-02",
+    "bridges": [
+        {
+            "id": "au-qld-newport-griffith-rd",
+            "name": "Griffith Road bridge (Newport canal)",
+            "clearanceM": 3.0,
+            "estimated": true,
+            "span": [
+                [153.0940954, -27.2123043],
+                [153.0947812, -27.2118978]
+            ]
+        },
+        {
+            "id": "au-qld-newport-klingner-rd",
+            "name": "Klingner Road bridge (Newport canal)",
+            "clearanceM": 2.7,
+            "estimated": true,
+            "span": [
+                [153.0935879, -27.2203846],
+                [153.0934272, -27.2204036]
+            ]
+        },
+        {
+            "id": "au-qld-newport-dalton-st",
+            "name": "Dalton Street bridge (Newport canal)",
+            "clearanceM": 2.4,
+            "estimated": true,
+            "span": [
+                [153.0926304, -27.2242615],
+                [153.0928412, -27.2242898]
+            ]
+        }
+    ]
+}

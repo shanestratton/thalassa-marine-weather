@@ -47,7 +47,7 @@ import { triggerHaptic } from '../../utils/system';
 import { Preferences } from '@capacitor/preferences';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
-import { vesselDraftMetres } from '../../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
 
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
@@ -358,6 +358,8 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     { lat: departure.lat, lon: departure.lon },
                     { lat: arrival.lat, lon: arrival.lon },
                     vesselDraftM,
+                    // Air draft (mast height) — null = no bridge gating.
+                    vesselAirDraftMetres(useSettingsStore.getState().settings.vessel),
                 ),
                 {
                     error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
@@ -574,7 +576,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         /* not fatal */
                     }
 
-                    dispatchPassageNotice(null); // route rendered — clear the computing band
+                    // Route rendered — clear the computing band, or explain the trimmed
+                    // tail when the pin geocoded to dry land (suburb-centroid class).
+                    if (inshoreRes.destinationInlandTrimM) {
+                        dispatchPassageNotice({
+                            severity: 'warn',
+                            title: 'Destination is inland',
+                            message: `The pin sits ~${Math.round(inshoreRes.destinationInlandTrimM)} m onto charted land — the route ends at the nearest navigable water. Drop the pin on the waterway for a berth-accurate route.`,
+                        });
+                    } else {
+                        dispatchPassageNotice(null);
+                    }
                     // [BAYLEG] render-truth (2026-06-23): fires ONLY when the inshore route survives
                     // the land backstop and is actually drawn — teal/tier-coloured, with the
                     // Scarborough OBSTRN half-disc rounding the mark + the river-follow active. If

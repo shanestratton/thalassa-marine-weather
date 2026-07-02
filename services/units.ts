@@ -30,3 +30,17 @@ export function vesselDraftMetres(vessel: { draft?: number } | undefined | null,
     if (typeof draftFt !== 'number' || !Number.isFinite(draftFt) || draftFt <= 0) return fallbackM;
     return draftFt / FEET_PER_METRE;
 }
+
+/**
+ * The vessel's AIR DRAFT (mast height above waterline) in METRES, converted
+ * from the FEET-stored profile value. Returns NULL when unset/zero/invalid —
+ * unlike draft there is NO safe fallback: assuming a tall mast would block
+ * powerboats under every bridge, assuming a short one would send a sailboat
+ * under a fixed bridge. Null means "no clearance gating" and consumers must
+ * treat it that way.
+ */
+export function vesselAirDraftMetres(vessel: { airDraft?: number } | undefined | null): number | null {
+    const airFt = vessel?.airDraft;
+    if (typeof airFt !== 'number' || !Number.isFinite(airFt) || airFt <= 0) return null;
+    return airFt / FEET_PER_METRE;
+}
