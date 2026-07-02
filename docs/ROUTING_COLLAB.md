@@ -3420,3 +3420,24 @@ biggest-value grind); (2) compute speed (worker thread or Pi engine resync + CLO
 NOTE the Pi mirror is STALE vs today's engine work, resync before flipping); (3) Pinkenba
 lumped-channel gate:body-land structural fix; (4) MSQ dredged-channel survey data. Tracked tasks:
 southern-estate powerboat land-clip diagnosis.
+
+## ★ reply 74 (2026-07-02) — LIVE QLD-wide Notices to Mariners, direct PDF links (f15081c3)
+
+MSQ notices live on the QLD Government CKAN portal (publications.qld.gov.au) as one dataset per
+pilotage region — 28 datasets, Brisbane → Thursday Island → Karumba, JSON API, every notice a
+resource with number + "DD/MM/YYYY: Locality — subject" description + DIRECT PDF URL. New
+`services/qldNotices.ts`: fetches all regions (parallel-capped, 12 h cache, fail-quiet per
+region), ~55-anchor locality gazetteer geocodes the description prefix. `useNoticeLayer` renders
+one 📄 per locality; popup lists the freshest notices each linked STRAIGHT to its PDF + the
+regional list. Curated bundled notices demoted to offline fallback (600 m suppression). Today's
+Mooloolaba icon auto-resolves to "364 T of 2026 — Mooloolah River bar — shoaling and dredging"
+(issued this morning). Locks: tests/qldNotices.test.ts. Phase 2: route-crossing banner off the
+live set, PDF text extraction, ungeocoded-notice browse in NoticesPage.
+
+PINKENBA LAND CROSSING: engine-side the full Newport→Pinkenba repro (variant G, device-faithful)
+is green including land checks on TODAY's build, and Shane's screenshot predates the inland-trim
+
+- drying-tier builds. Awaiting a fresh on-device run: expect `[inlandTrim] trimmed N m` + the
+  tail ending at the river. If the line still paints on tan there, the remaining suspect is
+  CHART-vs-BASEMAP disagreement (route on chart-navigable water Mapbox draws as land) — a render
+  question, not a routing one. The lumped-channel `gate:body-land` A\* leg remains queue item (3).
