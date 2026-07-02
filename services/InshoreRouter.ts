@@ -1266,7 +1266,12 @@ async function tryInshoreRouteInner(
     // Mooloolah entrance lies EAST of both the wharf and Newport).
     try {
         const { activeNtmZonesFor } = await import('./ntmRouting');
-        const ntmPad = 0.02;
+        // Pad with the ENGINE's OWN grid formula (inshoreRouterEngine bbox:
+        // max(span·0.5, 0.08°)) — a fixed 0.02° pad silently dropped packs
+        // that sat inside the grid but outside the endpoint envelope (an
+        // upriver start whose only exit crosses the bar), while the popup
+        // still claimed "applied". Adversarial-review finding #0.
+        const ntmPad = Math.max(Math.max(maxLat - minLat, maxLon - minLon) * 0.5, 0.08);
         const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
         if (ntm.features.length > 0) {
             merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };

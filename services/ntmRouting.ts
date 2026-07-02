@@ -30,6 +30,7 @@
  */
 import type { Feature, FeatureCollection, Position } from 'geojson';
 import { loadQldNotices, qldNoticesFetchedAt, type QldNotice } from './qldNotices';
+import { withDeadline } from '../utils/deadline';
 import { createLogger } from '../utils/createLogger';
 
 const log = createLogger('ntmRouting');
@@ -55,10 +56,22 @@ export interface NtmRoutingPack {
     id: string;
     /** EXACT CKAN resource name of the source notice, e.g. "364 T of 2026". */
     noticeKey: string;
+    /** Bump when zones/marks change without a new notice — joins the grid
+     *  cache fingerprint so a re-transcription invalidates cached grids. */
+    rev?: number;
     /** Gazetteer anchor label this notice files under (qldNotices GAZETTEER). */
     anchorLabel: string;
     /** Lowercase substring the live notice subject must contain to be "this" notice line. */
     subjectMatch: string;
+    /**
+     * BROADER lowercase substring for the supersession scan (defaults to
+     * subjectMatch): ANY newer notice at the anchor whose subject contains
+     * this kills the pack — so a reworded superseding notice ("Mooloolah
+     * River entrance — depths") still revokes a pack keyed to "mooloolah
+     * river bar". Adversarial-review fix: exact-line matching failed OPEN
+     * on rewordings.
+     */
+    waterwayMatch?: string;
     title: string;
     /** Survey date shown to the skipper. */
     surveyed: string;
@@ -85,8 +98,10 @@ export interface NtmRoutingPack {
 const MOOLOOLAH_BAR_2026_364: NtmRoutingPack = {
     id: 'mooloolah-bar',
     noticeKey: '364 T of 2026',
+    rev: 1,
     anchorLabel: 'Mooloolaba',
     subjectMatch: 'mooloolah river bar',
+    waterwayMatch: 'mooloolah',
     title: 'Mooloolah River bar — shoaling and dredging',
     surveyed: '1 July 2026',
     zones: [
@@ -159,17 +174,33 @@ export const NTM_ROUTING_PACKS: readonly NtmRoutingPack[] = [MOOLOOLAH_BAR_2026_
 
 /** Verified-freshness horizon: a CKAN check older than this cannot vouch a pack. */
 export const MAX_VERIFY_AGE_MS = 48 * 60 * 60 * 1000;
+/** Hard pack lifetime: past this age since the notice's own date the pack is
+ *  dead regardless of what the feed says — active-bar surveys refresh on a
+ *  weeks cadence, and a fully reworded superseding notice (one that no longer
+ *  even names the waterway) would defeat the supersession scan below. The
+ *  ceiling bounds that residual fail-open window. */
+export const PACK_MAX_AGE_MS = 28 * 24 * 60 * 60 * 1000;
 
 export type NtmPackStatus =
     | { status: 'current' }
     | { status: 'superseded'; liveNumber: string }
     | { status: 'unverified'; reason: string };
 
+/** "DD/MM/YYYY" → epoch ms, NaN when unparsable. */
+function parseDmy(dateStr: string): number {
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(dateStr ?? '');
+    if (!m) return Number.NaN;
+    return Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+}
+
 /**
- * PURE currency check (exported for tests): the pack is current iff the
- * freshest live notice for its anchor whose subject matches subjectMatch has
- * EXACTLY the pack's notice number, and the feed was fetched recently enough
- * to trust. Anything else fails closed.
+ * PURE currency check (exported for tests), fail-closed at every branch:
+ *   1. the feed must have been fetched within MAX_VERIFY_AGE_MS;
+ *   2. the pack's EXACT notice must still exist at its anchor;
+ *   3. NO newer notice at the anchor may match waterwayMatch (broad scan —
+ *      a reworded superseding notice still revokes);
+ *   4. the pack's notice must be younger than PACK_MAX_AGE_MS (bounds the
+ *      fully-reworded-supersession residual).
  */
 export function resolvePackStatus(
     pack: NtmRoutingPack,
@@ -180,22 +211,43 @@ export function resolvePackStatus(
     if (fetchedAtMs === null || nowMs - fetchedAtMs > MAX_VERIFY_AGE_MS) {
         return { status: 'unverified', reason: 'notice feed not verified within 48 h' };
     }
-    const line = notices
-        .filter((n) => n.localityLabel === pack.anchorLabel && n.subject.toLowerCase().includes(pack.subjectMatch))
+    const atAnchor = notices.filter((n) => n.localityLabel === pack.anchorLabel);
+    const own = atAnchor.find((n) => n.number.trim() === pack.noticeKey);
+    if (!own) return { status: 'unverified', reason: 'pack notice not on the live feed' };
+    const waterway = (pack.waterwayMatch ?? pack.subjectMatch).toLowerCase();
+    const newer = atAnchor
+        .filter((n) => n.createdMs > own.createdMs && n.subject.toLowerCase().includes(waterway))
         .sort((a, b) => b.createdMs - a.createdMs);
-    if (line.length === 0) return { status: 'unverified', reason: 'no matching live notice on the feed' };
-    if (line[0].number.trim() === pack.noticeKey) return { status: 'current' };
-    return { status: 'superseded', liveNumber: line[0].number };
+    if (newer.length > 0) return { status: 'superseded', liveNumber: newer[0].number };
+    const ownDateMs = parseDmy(own.dateStr);
+    if (Number.isNaN(ownDateMs)) return { status: 'unverified', reason: 'pack notice date unparsable' };
+    if (nowMs - ownDateMs > PACK_MAX_AGE_MS) {
+        return { status: 'unverified', reason: 'pack notice older than 28 days — re-curation required' };
+    }
+    return { status: 'current' };
 }
+
+/** Bound + cache: one verdict per pack per window, so neither the compute
+ *  path nor the render path ever re-parses the feed blob or waits on a dead
+ *  marine-LTE socket (adversarial-review criticals: the un-deadlined CKAN
+ *  fetch could stall route paint and the popup for minutes). */
+const NTM_FEED_DEADLINE_MS = 8_000;
+const STATUS_CACHE_MS = 3 * 60 * 1000;
+const statusCache = new Map<string, { status: NtmPackStatus; atMs: number }>();
 
 /** Live currency check — loads the (12 h-cached) CKAN feed. Fail-closed. */
 export async function ntmPackStatus(pack: NtmRoutingPack): Promise<NtmPackStatus> {
+    const hit = statusCache.get(pack.id);
+    if (hit && Date.now() - hit.atMs < STATUS_CACHE_MS) return hit.status;
+    let status: NtmPackStatus;
     try {
-        const notices = await loadQldNotices();
-        return resolvePackStatus(pack, notices, qldNoticesFetchedAt(), Date.now());
+        const notices = await withDeadline(loadQldNotices(), NTM_FEED_DEADLINE_MS, 'ntm notice feed');
+        status = resolvePackStatus(pack, notices, qldNoticesFetchedAt(), Date.now());
     } catch (err) {
-        return { status: 'unverified', reason: err instanceof Error ? err.message : String(err) };
+        status = { status: 'unverified', reason: err instanceof Error ? err.message : String(err) };
     }
+    statusCache.set(pack.id, { status, atMs: Date.now() });
+    return status;
 }
 
 // ── Acknowledgment (per-passage, per-notice) ─────────────────────────
@@ -214,7 +266,13 @@ interface AckEntry {
 function loadAcks(): Record<string, AckEntry> {
     try {
         const raw = localStorage.getItem(ACK_KEY);
-        return raw ? (JSON.parse(raw) as Record<string, AckEntry>) : {};
+        if (!raw) return {};
+        const parsed = JSON.parse(raw) as unknown;
+        // A corrupted store ('null', an array, a string) must degrade to
+        // "nothing acked", never throw through the popup/render paths.
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+            ? (parsed as Record<string, AckEntry>)
+            : {};
     } catch {
         return {};
     }
@@ -222,7 +280,13 @@ function loadAcks(): Record<string, AckEntry> {
 
 /** PURE ack validity (exported for tests): exact notice, within TTL. */
 export function isAckValid(entry: AckEntry | undefined, noticeKey: string, nowMs: number): boolean {
-    return !!entry && entry.noticeKey === noticeKey && nowMs - entry.ackMs < ACK_TTL_MS;
+    return (
+        !!entry &&
+        typeof entry === 'object' &&
+        entry.noticeKey === noticeKey &&
+        typeof entry.ackMs === 'number' &&
+        nowMs - entry.ackMs < ACK_TTL_MS
+    );
 }
 
 export function isPackAcked(pack: NtmRoutingPack): boolean {
@@ -303,7 +367,14 @@ export async function activeNtmZonesFor(
             if (!(z.depthM > 0)) continue; // never inject a drying survey as water
             features.push({
                 type: 'Feature',
-                properties: { _class: 'ntm-survey', depthM: z.depthM, _noticeKey: pack.noticeKey, _label: z.label },
+                properties: {
+                    _class: 'ntm-survey',
+                    depthM: z.depthM,
+                    // rev joins the grid cache fingerprint (navGridCacheKey) so a
+                    // re-transcription of the same notice invalidates cached grids.
+                    _noticeKey: `${pack.noticeKey}#r${pack.rev ?? 1}`,
+                    _label: z.label,
+                },
                 geometry: { type: 'Polygon', coordinates: [z.polygon] },
             });
         }

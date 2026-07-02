@@ -86,6 +86,15 @@ export async function annotateTideWindows(opts: TideChipOptions): Promise<void> 
     try {
         const eligible = runs.filter((r) => {
             if (r.minDepthM === null) return false; // uncharted — no fabricated windows
+            if (stateMask) {
+                // A run touching an un-acked NtM lock gets NO chip: the grey
+                // leg's instruction is "read the notice", and a chart-edition
+                // window there would contradict the survey the skipper hasn't
+                // applied yet (review finding #18).
+                for (let s = r.startSeg; s <= r.endSeg && s < stateMask.length; s++) {
+                    if (stateMask[s] === 'ntmlock') return false;
+                }
+            }
             const midSeg = Math.floor((r.startSeg + r.endSeg) / 2);
             return !stateMask || stateMask[midSeg] === 'danger';
         });

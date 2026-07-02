@@ -19,6 +19,7 @@ const pack: NtmRoutingPack = {
     noticeKey: '364 T of 2026',
     anchorLabel: 'Mooloolaba',
     subjectMatch: 'mooloolah river bar',
+    waterwayMatch: 'mooloolah',
     title: 'test',
     surveyed: '1 July 2026',
     zones: [
@@ -55,10 +56,12 @@ const notice = (
     createdMs,
 });
 
-const NOW = 1_800_000_000_000;
+// A week after the pack notice's own date (02/07/2026) — inside the 28-day
+// pack lifetime ceiling, so 'current' verdicts are reachable.
+const NOW = Date.UTC(2026, 6, 10);
 
 describe('resolvePackStatus (fail-closed currency)', () => {
-    it('current: freshest matching notice has exactly the pack notice number', () => {
+    it('current: the exact pack notice is on the feed with nothing newer for the waterway', () => {
         const s = resolvePackStatus(pack, [notice('364 T of 2026', 100)], NOW - 1000, NOW);
         expect(s.status).toBe('current');
     });
@@ -71,6 +74,15 @@ describe('resolvePackStatus (fail-closed currency)', () => {
         );
         expect(s).toEqual({ status: 'superseded', liveNumber: '371 T of 2026' });
     });
+    it('superseded: a REWORDED newer notice still revokes via waterwayMatch (review critical)', () => {
+        const s = resolvePackStatus(
+            pack,
+            [notice('364 T of 2026', 100), notice('371 T of 2026', 200, 'Mooloolah River entrance — revised depths')],
+            NOW - 1000,
+            NOW,
+        );
+        expect(s).toEqual({ status: 'superseded', liveNumber: '371 T of 2026' });
+    });
     it('unverified: never-fetched feed fails closed', () => {
         expect(resolvePackStatus(pack, [notice('364 T of 2026', 100)], null, NOW).status).toBe('unverified');
     });
@@ -78,7 +90,7 @@ describe('resolvePackStatus (fail-closed currency)', () => {
         const s = resolvePackStatus(pack, [notice('364 T of 2026', 100)], NOW - MAX_VERIFY_AGE_MS - 1, NOW);
         expect(s.status).toBe('unverified');
     });
-    it('unverified: no matching notice line on the feed fails closed', () => {
+    it('unverified: pack notice absent from the feed fails closed', () => {
         const s = resolvePackStatus(
             pack,
             [notice('99 of 2026', 100, 'Maroochy River — beacon works')],
@@ -86,6 +98,15 @@ describe('resolvePackStatus (fail-closed currency)', () => {
             NOW,
         );
         expect(s.status).toBe('unverified');
+    });
+    it('unverified: pack notice older than the 28-day lifetime ceiling fails closed', () => {
+        const late = Date.UTC(2026, 7, 15); // 44 days after 02/07/2026
+        const s = resolvePackStatus(pack, [notice('364 T of 2026', 100)], late - 1000, late);
+        expect(s.status).toBe('unverified');
+    });
+    it('unverified: unparsable pack-notice date fails closed', () => {
+        const bad = { ...notice('364 T of 2026', 100), dateStr: 'July 2026' };
+        expect(resolvePackStatus(pack, [bad], NOW - 1000, NOW).status).toBe('unverified');
     });
     it('other-locality notices never vouch the pack', () => {
         const other = { ...notice('364 T of 2026', 100), localityLabel: 'Noosa' };
