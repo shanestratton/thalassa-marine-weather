@@ -959,6 +959,24 @@ export function applyThreeTier(
     // node onto the recommended track lands BOTH adjacent legs' seam segments on the channel centre.
     let routedSpans = spans;
     if (rectrcLines.length > 0 && spans.length > 1) {
+        // A seam that IS a gate — the shared vertex sits on (or within a gate-width of) a
+        // pair midpoint / chain vertex — is the one point the yellow MUST pass through.
+        // Never drag it onto the RECTRC: the charted track is routinely offset from the
+        // buoyed line, and dragging the LAST-gate seam sideways is exactly how a route
+        // stops threading the exit pair ("clipped the marker on the way out"). Gate
+        // authority beats track authority at a gate, always.
+        const gateProtectPts: LatLon[] = [
+            ...gatePairs.map((g) => ({ lat: (g.port.lat + g.stbd.lat) / 2, lon: (g.port.lon + g.stbd.lon) / 2 })),
+            ...gateCentreTracks.flatMap((t) => t.pts),
+            ...channelChains.flatMap((t) => t.pts),
+        ];
+        const GATE_SEAM_PROTECT_M = 150;
+        const gateGuards =
+            gatePairs.length > 0
+                ? gatePairs.map(
+                      (g, gi) => ({ id: `seamGate${gi}`, portMark: g.port, stbdMark: g.stbd }) as unknown as GateNode,
+                  )
+                : null;
         const seamAt = new Map<number, [number, number]>(); // shared seam idx → RECTRC point [lon,lat]
         for (let i = 0; i + 1 < spans.length; i++) {
             const a = spans[i];
@@ -968,11 +986,14 @@ export function applyThreeTier(
             // tier-3↔tier-3 seams also sit on the wall between the yellow legs.
             const channelSeam = (a.tier === 2 || a.tier === 3) && (b.tier === 2 || b.tier === 3);
             if (!channelSeam) continue;
+            const seamPt = { lat: a.exit.at[1], lon: a.exit.at[0] };
+            if (gateProtectPts.some((p) => llDistM(p, seamPt) < GATE_SEAM_PROTECT_M)) continue; // seam IS a gate — pinned
             const prev = route[Math.max(a.toIdx - 1, 0)];
             const next = route[Math.min(a.toIdx + 1, route.length - 1)];
             // The seam may only move ALONG its own channel (route-aligned track segment), onto
-            // navigable water, and the two seam-adjacent segments it creates must be land-clean
-            // and not fold the route back on itself. Any failure keeps the raw A* seam.
+            // navigable water, and the two seam-adjacent segments it creates must be land-clean,
+            // not fold the route back on itself, and not wrong-side any accepted pair. Any
+            // failure keeps the raw A* seam.
             const snapped = nearestOnLeadingLines(
                 a.exit.at[1],
                 a.exit.at[0],
@@ -987,6 +1008,15 @@ export function applyThreeTier(
                 continue;
             if (headingDiffDeg(tupleBearingDeg(prev, snapped), tupleBearingDeg(snapped, next)) > SEAM_SNAP_MAX_TURN_DEG)
                 continue;
+            if (gateGuards) {
+                // The two moved seam segments must not cross any gate's line OUTSIDE the marks.
+                const mini = [
+                    { lat: prev[1], lon: prev[0] },
+                    { lat: snapped[1], lon: snapped[0] },
+                    { lat: next[1], lon: next[0] },
+                ];
+                if (!validateAgainstCrossLines(mini, gateGuards).ok) continue;
+            }
             seamAt.set(a.toIdx, snapped);
         }
         if (seamAt.size > 0) {
