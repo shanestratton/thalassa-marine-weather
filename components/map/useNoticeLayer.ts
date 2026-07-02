@@ -19,6 +19,7 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { loadLocalNotices, type LocalNotice } from '../../services/localNotices';
+import { loadQldNotices, groupByAnchor, type QldNotice } from '../../services/qldNotices';
 import { loadLowBridges, type LowBridge } from '../../services/lowBridges';
 import { vesselAirDraftMetres } from '../../services/units';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -62,6 +63,31 @@ function localPopupHtml(n: LocalNotice): string {
         <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">${esc(n.summary)}</div>
         <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">${esc(n.detail)}</div>
         ${src ? `<div style="font-size:11px;">${src}</div>` : ''}
+      </div>`;
+}
+
+function qldGroupPopupHtml(label: string, group: readonly QldNotice[]): string {
+    const items = group
+        .slice(0, 4)
+        .map(
+            (n) => `
+        <div style="margin-bottom:7px;">
+          <a href="${esc(n.pdfUrl)}" target="_blank" rel="noopener" style="color:#38bdf8;text-decoration:underline;font-size:12px;font-weight:700;">${esc(n.number)}</a>
+          <span style="font-size:10px;color:#64748b;"> · ${esc(n.dateStr)}</span>
+          <div style="font-size:11px;color:#cbd5e1;">${esc(n.subject)}</div>
+        </div>`,
+        )
+        .join('');
+    const more =
+        group.length > 4
+            ? `<div style="font-size:10px;"><a href="${esc(group[0].datasetUrl)}" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:underline;">+${group.length - 4} more — all ${esc(group[0].region)} notices</a></div>`
+            : `<div style="font-size:10px;"><a href="${esc(group[0].datasetUrl)}" target="_blank" rel="noopener" style="color:#94a3b8;text-decoration:underline;">All ${esc(group[0].region)} notices</a></div>`;
+    return `
+      <div style="font-family:inherit;color:#e2e8f0;max-width:260px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#fcd34d;margin-bottom:2px;">📄 NOTICES TO MARINERS — MSQ</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:6px;">${esc(label)}</div>
+        ${items}
+        ${more}
       </div>`;
 }
 
@@ -130,10 +156,41 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 .addTo(map);
         };
 
-        // ── Curated local notices — always on the chart ──
-        void loadLocalNotices().then((notices) => {
+        // ── QLD LIVE notices (CKAN, direct PDF links) + curated fallback ──
+        // One 📄 per locality anchor; the popup lists the freshest notices for
+        // that spot each linked STRAIGHT to its PDF (the thing that is "very
+        // difficult to find" on the MSQ site). Curated bundled notices only
+        // render where no live anchor covers the same spot (offline fallback).
+        void Promise.all([loadQldNotices().catch(() => []), loadLocalNotices()]).then(([live, curated]) => {
             if (disposed) return;
-            for (const n of notices) {
+            const anchors = groupByAnchor(live);
+            let placed = 0;
+            for (const [label, group] of anchors) {
+                const n0 = group[0];
+                if (n0.lat === undefined || n0.lon === undefined) continue;
+                const el = chipEl('local');
+                el.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    popupAt(n0.lon as number, n0.lat as number, qldGroupPopupHtml(label, group));
+                });
+                localMarkersRef.current.push(
+                    new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([n0.lon, n0.lat]).addTo(map),
+                );
+                placed++;
+            }
+            // Curated entries: only where no live anchor sits within ~600 m.
+            const nearLive = (lat: number, lon: number): boolean => {
+                for (const [, group] of anchors) {
+                    const a = group[0];
+                    if (a.lat === undefined || a.lon === undefined) continue;
+                    const dx = (a.lon - lon) * 111_320 * Math.cos((lat * Math.PI) / 180);
+                    const dy = (a.lat - lat) * 110_540;
+                    if (Math.hypot(dx, dy) < 600) return true;
+                }
+                return false;
+            };
+            for (const n of curated) {
+                if (nearLive(n.lat, n.lon)) continue;
                 const el = chipEl('local');
                 el.addEventListener('click', (ev) => {
                     ev.stopPropagation();
@@ -142,8 +199,9 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 localMarkersRef.current.push(
                     new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([n.lon, n.lat]).addTo(map),
                 );
+                placed++;
             }
-            if (notices.length > 0) log.warn(`[ntm-local] ${notices.length} chart icon(s) placed`);
+            if (placed > 0) log.warn(`[ntm] ${placed} notice icon(s) placed (${anchors.size} live QLD anchors)`);
         });
 
         // ── Curated low bridges — 🌉 with clearance-vs-air-draft verdict ──
