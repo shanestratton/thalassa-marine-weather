@@ -329,7 +329,11 @@ export interface RouteFailure {
         | 'origin-out-of-bounds'
         | 'destination-out-of-bounds'
         | 'empty-grid'
-        | 'uncharted-corridor';
+        | 'uncharted-corridor'
+        /** A fixed bridge with insufficient clearance for this vessel's air
+         *  draft severs the only channel — the honest verdict is "no
+         *  mast-safe route", never a cross-country workaround. */
+        | 'air-draft-blocked';
     debug?: RouteDebug;
 }
 
@@ -414,6 +418,14 @@ export interface NavGrid {
      * cached-grid back-compat.
      */
     wetConflict?: Uint8Array;
+    /**
+     * Per-cell localized-relax flag (1 = LNDARE softened to CAUTION inside an
+     * endpoint relax zone). Exposed so the relax-retry acceptance can detect
+     * a route CIRCUMVENTING a low-clearance bridge overland (relax-carved
+     * cells near a clearanceBarred cell) and refuse instead. Present only on
+     * grids built with relax zones.
+     */
+    relaxMask?: Uint8Array;
     /**
      * Per-cell NtM-surveyed requiredRise (m above LAT needed for this vessel's
      * floor), for CAUTION cells whose depth was overridden by an acknowledged,

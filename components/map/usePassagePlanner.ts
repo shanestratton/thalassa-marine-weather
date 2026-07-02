@@ -742,6 +742,21 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {
+                // A bridge verdict is FINAL — no offshore fallback, no green
+                // line, no cross-country workaround. The pin is behind a fixed
+                // structure this vessel cannot pass; the only fixes are moving
+                // the pin or correcting the air draft (Shane 2026-07-02:
+                // "just say route not possible").
+                if (inshoreRes.code === 'air-draft-blocked') {
+                    log.warn(`[Passage][BAYLEG] REFUSED (air-draft-blocked) — no fallback drawn`);
+                    dispatchPassageNotice({
+                        severity: 'warn',
+                        title: 'Route not possible — fixed bridge',
+                        message: inshoreRes.error,
+                    });
+                    setRouteAnalysis(null);
+                    return;
+                }
                 log.warn(
                     `[Passage][BAYLEG] FELL THROUGH (engine ${inshoreRes.code ?? 'no-code'}) → passage-planner GREEN will draw — ` +
                         `${inshoreRes.error}`,
