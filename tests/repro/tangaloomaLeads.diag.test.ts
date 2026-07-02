@@ -265,4 +265,45 @@ describe('Tangalooma leading-line approach (diagnostic)', () => {
             );
         }
     });
+
+    // Shane's screenshot case (2026-07-02): from NEWPORT the route must not
+    // shortcut across the sand bar north of the leads — it should join the
+    // 072.5° outer transit, turn to port at the dog-leg, and ride the 031°
+    // inner transit to the anchorage. Same cell, real distance.
+    it('NEWPORT origin rides the dog-leg transits', () => {
+        if (!PI_UP) {
+            console.log('SKIP — Pi unreachable');
+            return;
+        }
+        const layers = assemble(loadCell());
+        const r2 = routeInshore(layers, {
+            fromLat: -27.2135,
+            fromLon: 153.0875,
+            toLat: DEST.lat,
+            toLon: DEST.lon,
+            draftM: 2.4,
+            safetyM: 0.5,
+            resolutionM: 50,
+        } as Parameters<typeof routeInshore>[1]);
+        expect(r2).toBeTruthy();
+        if ('error' in r2) {
+            console.log('NEWPORT ROUTE FAILURE:', JSON.stringify(r2));
+            return;
+        }
+        const dbg = (r2 as unknown as { debug?: Record<string, unknown> }).debug ?? {};
+        console.log('NEWPORT threeTier:', JSON.stringify(dbg.threeTier));
+        console.log(`NEWPORT route ${r2.distanceNM.toFixed(2)} NM, vertices ${r2.polyline.length}`);
+        const tail2 = (r2.polyline as Position[]).filter((p) => p[0] > 153.35);
+        const offs = tail2.map((p) => Math.min(pointToChainM(p[1], p[0], OUTER), pointToChainM(p[1], p[0], INNER)));
+        const meanOff = offs.length ? offs.reduce((s, x) => s + x, 0) / offs.length : NaN;
+        console.log(`NEWPORT tail (lon>153.35): ${tail2.length} vtx, mean transit offset ${meanOff.toFixed(0)} m`);
+        for (const p of tail2)
+            console.log(
+                `  [${p[0].toFixed(5)},${p[1].toFixed(5)}] outer=${pointToChainM(p[1], p[0], OUTER).toFixed(0)}m inner=${pointToChainM(p[1], p[0], INNER).toFixed(0)}m`,
+            );
+        for (const run of r2.shallowRuns ?? [])
+            console.log(
+                `  run ${(run.lengthM / 1852).toFixed(2)} NM min ${run.minDepthM} @ ${run.minAtLat?.toFixed(4)},${run.minAtLon?.toFixed(4)}`,
+            );
+    }, 300_000);
 });
