@@ -295,7 +295,8 @@ async function applyDeviceEnrichment(
         pnt[0] >= SEQ[0] && pnt[0] <= SEQ[2] && pnt[1] >= SEQ[1] && pnt[1] <= SEQ[3];
     if (inSeq(passage.from) && inSeq(passage.to)) {
         try {
-            const { fetchRegionalMarkers, orientHazardsTowardLand } = await import('../../services/InshoreRouter');
+            const { fetchRegionalMarkers, orientHazardsTowardLand, encLateralsFromFeatures } =
+                await import('../../services/InshoreRouter');
             const url =
                 'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
             const { midpoints, segments, hazards, wings } = await fetchRegionalMarkers(
@@ -303,6 +304,11 @@ async function applyDeviceEnrichment(
                 (merged.LNDARE?.features ?? []) as never,
                 osmWater as never,
                 [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])] as never,
+                // Device-faithful ENC lateral fold.
+                encLateralsFromFeatures([
+                    ...(merged.BCNLAT?.features ?? []),
+                    ...(merged.BOYLAT?.features ?? []),
+                ] as never),
             );
             (merged.BOYLAT!.features as unknown[]).push(...midpoints);
             (merged.FAIRWY!.features as unknown[]).push(...segments);
