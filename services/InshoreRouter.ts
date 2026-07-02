@@ -45,6 +45,7 @@ import type { EncCell } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type { ShallowRunInfo } from './engine/types';
+import { shadowingCells, featureIsShadowed } from './enc/scaleShadow';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
@@ -469,12 +470,20 @@ async function tryInshoreRouteInner(
         geometry?: { type?: string; coordinates?: [number, number] } | null;
         properties?: Record<string, unknown> | null;
     }[] = [];
+    // Scale-shadow de-confliction (the Tangalooma tan wall): a 30°×30° overview
+    // cell's Moreton Island LNDARE bulges ~500 m over the anchorage the 1°×1°
+    // detail cell charts correctly. Overview LNDARE/DEPARE features fully inside
+    // a much-finer cell's bbox are dropped — the finer cell owns that ground —
+    // so the router never ingests fake land / coarse depth where detail exists.
+    const cellExtents = candidateCells.map((c) => ({ id: c.id, bbox: c.bbox }));
     for (const cell of candidateCells) {
         const blob = await loadCellGeoJSON(cell.id);
         if (!blob) {
             log.warn(`cell ${cell.id} listed but GeoJSON not on device — sync via Pi Cache first`);
             continue;
         }
+        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents);
+        let shadowDropped = 0;
         // BOYLAT/BCNLAT (lateral marks) feed the Fairlead pass — where the
         // route transits a buoyed channel in open water it follows the
         // red/green marks. Merged from the cells here.
@@ -493,9 +502,20 @@ async function tryInshoreRouteInner(
             const fc = blob.layers?.[layer];
             const target = merged[layer];
             if (fc?.features && Array.isArray(fc.features) && target) {
-                (target.features as unknown[]).push(...fc.features);
+                if ((layer === 'LNDARE' || layer === 'DEPARE') && shadows.length > 0) {
+                    const kept = (fc.features as GeoJSON.Feature[]).filter((f) => {
+                        const drop = featureIsShadowed(f, shadows);
+                        if (drop) shadowDropped++;
+                        return !drop;
+                    });
+                    (target.features as unknown[]).push(...kept);
+                } else {
+                    (target.features as unknown[]).push(...fc.features);
+                }
             }
         }
+        if (shadowDropped > 0)
+            log.warn(`[scaleShadow] ${cell.id}: dropped ${shadowDropped} overview feature(s) shadowed by finer cells`);
         const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
         if (navlne?.features && Array.isArray(navlne.features)) {
             (merged.NAVLINE!.features as unknown[]).push(...navlne.features);
