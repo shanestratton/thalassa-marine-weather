@@ -52,17 +52,10 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
     deviceMode: _deviceMode,
 }) => {
     const [passageToast, setPassageToast] = useState<{ text: string; tone: 'ok' | 'err' } | null>(null);
-    // Route profile chips — SAFEST (default) vs TIDE-ASSIST (the explicit
-    // shortest-with-the-tide option: crossings recoverable on ≤1.8 m of tide
-    // are allowed at a price and chipped with their windows). The planner
-    // listens on thalassa:route-profile and recomputes.
-    const [routeProfile, setRouteProfile] = useState<'safest' | 'tideAssist'>('safest');
-    const selectProfile = (profile: 'safest' | 'tideAssist') => {
-        if (profile === routeProfile) return;
-        triggerHaptic('light');
-        setRouteProfile(profile);
-        window.dispatchEvent(new CustomEvent('thalassa:route-profile', { detail: { profile } }));
-    };
+    // Route-profile chips REMOVED (Shane 2026-07-02: "we should just double
+    // down on safest every time — don't give the punter an option"). The
+    // engine's tideAssist profile survives for tests/expert surfaces; the
+    // app always routes SAFEST.
 
     if (!passage.showPassage || embedded || isPinView) return null;
 
@@ -384,44 +377,6 @@ export const PassageBanner: React.FC<PassageBannerProps> = ({
                                 </div>
                             </div>
                         </div>
-                    </div>
-                )}
-
-                {/* ── Route profile chips ── SAFEST vs TIDE-ASSIST. Shown with
-                    a computed route (same gate as the action row) so the
-                    skipper can flip profiles and watch the line rebuild. */}
-                {passage.routeAnalysis && passage.departure && passage.arrival && !isoProgress && (
-                    <div className="border-t border-white/[0.06] px-3.5 py-2">
-                        <div className="flex items-center gap-2">
-                            <button
-                                aria-label="Safest route profile"
-                                onClick={() => selectProfile('safest')}
-                                className={`flex-1 py-2 rounded-lg text-[12px] font-bold uppercase tracking-wider transition-colors ${
-                                    routeProfile === 'safest'
-                                        ? 'bg-teal-500/20 text-teal-200 border border-teal-400/40'
-                                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.06] active:bg-white/[0.08]'
-                                }`}
-                            >
-                                Safest
-                            </button>
-                            <button
-                                aria-label="Tide-assist route profile"
-                                onClick={() => selectProfile('tideAssist')}
-                                className={`flex-1 py-2 rounded-lg text-[12px] font-bold uppercase tracking-wider transition-colors ${
-                                    routeProfile === 'tideAssist'
-                                        ? 'bg-amber-500/20 text-amber-200 border border-amber-400/40'
-                                        : 'bg-white/[0.04] text-slate-400 border border-white/[0.06] active:bg-white/[0.08]'
-                                }`}
-                            >
-                                Tide-assist
-                            </button>
-                        </div>
-                        {routeProfile === 'tideAssist' && (
-                            <p className="mt-1.5 text-[10px] leading-snug text-amber-200/70">
-                                Shortest with the tide: bank crossings recoverable on ≤ 1.8 m of rise are allowed —
-                                every one ships red with its tide window. Time your departure to the chips.
-                            </p>
-                        )}
                     </div>
                 )}
 

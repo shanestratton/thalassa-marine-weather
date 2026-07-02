@@ -84,7 +84,7 @@ export interface NtmRoutingPack {
     marks: NtmMark[];
     /**
      * The notice's alternative-route TRACK through its marks ([lon, lat]
-     * chain). When the pack is acked + current this is injected as a chart
+     * chain). When the pack is current (and not user-removed) this is injected as a chart
      * transit (NAVLINE, acronym 'NAVLNE') so the route rides DEAD-ON through
      * the promulgated marks — same trust class as an ENC leading line: MSQ
      * drew it, we follow it. Depth honesty is preserved because the NTM
@@ -176,7 +176,7 @@ const MOOLOOLAH_BAR_2026_364: NtmRoutingPack = {
         { name: 'BNE MRB REF 2', lat: -(26 + 40.7927 / 60), lon: 153 + 7.9164 / 60 },
     ],
     // Entrance-mouth midpoint → REF 2 → REF 1 → 150 m seaward extension:
-    // the promulgated alternative route, ridden dead-on when acked.
+    // the promulgated alternative route, ridden dead-on while current.
     trackline: [
         [153.132498, -26.67968],
         [153 + 7.9164 / 60, -(26 + 40.7927 / 60)],
@@ -268,74 +268,50 @@ export async function ntmPackStatus(pack: NtmRoutingPack): Promise<NtmPackStatus
     return status;
 }
 
-// ── Acknowledgment (per-passage, per-notice) ─────────────────────────
+// ── Opt-out (owner default: current notices APPLY automatically) ─────
+//
+// Shane 2026-07-02, on the water: "the two virtual markers at the mouth —
+// the route should be following those." The per-passage acknowledgment
+// ceremony was the wrong gate for the field: a CURRENT notice's surveyed
+// depths and alternative-route transit now apply to routing by default
+// (currency stays fail-closed: exact notice on the feed, 28-day ceiling,
+// 48-h verify). The notice popup offers "Remove from routing" for a
+// skipper who disagrees with the pack; the route-crossing banner still
+// pushes reading the notice itself.
 
-const ACK_KEY = 'thalassa_ntm_ack_v1';
-/** Per-passage horizon: an ack older than this no longer injects. */
-export const ACK_TTL_MS = 24 * 60 * 60 * 1000;
-/** window event fired when an ack changes — the planner recomputes on it. */
+const OPTOUT_KEY = 'thalassa_ntm_optout_v1';
+/** window event fired when applied-state changes — the planner recomputes on it. */
 export const NTM_ACK_EVENT = 'thalassa:ntm-ack-changed';
 
-interface AckEntry {
-    noticeKey: string;
-    ackMs: number;
-}
-
-function loadAcks(): Record<string, AckEntry> {
+function loadOptOuts(): Record<string, boolean> {
     try {
-        const raw = localStorage.getItem(ACK_KEY);
+        const raw = localStorage.getItem(OPTOUT_KEY);
         if (!raw) return {};
         const parsed = JSON.parse(raw) as unknown;
-        // A corrupted store ('null', an array, a string) must degrade to
-        // "nothing acked", never throw through the popup/render paths.
+        // A corrupted store must degrade to "nothing opted out", never throw
+        // through the popup/render paths.
         return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-            ? (parsed as Record<string, AckEntry>)
+            ? (parsed as Record<string, boolean>)
             : {};
     } catch {
         return {};
     }
 }
 
-/** PURE ack validity (exported for tests): exact notice, within TTL. */
-export function isAckValid(entry: AckEntry | undefined, noticeKey: string, nowMs: number): boolean {
-    return (
-        !!entry &&
-        typeof entry === 'object' &&
-        entry.noticeKey === noticeKey &&
-        typeof entry.ackMs === 'number' &&
-        nowMs - entry.ackMs < ACK_TTL_MS
-    );
+export function isPackOptedOut(pack: NtmRoutingPack): boolean {
+    return loadOptOuts()[pack.id] === true;
 }
 
-export function isPackAcked(pack: NtmRoutingPack): boolean {
-    return isAckValid(loadAcks()[pack.id], pack.noticeKey, Date.now());
-}
-
-export function ackPack(pack: NtmRoutingPack): void {
+export function setPackOptedOut(pack: NtmRoutingPack, out: boolean): void {
     try {
-        const acks = loadAcks();
-        acks[pack.id] = { noticeKey: pack.noticeKey, ackMs: Date.now() };
-        localStorage.setItem(ACK_KEY, JSON.stringify(acks));
+        const opts = loadOptOuts();
+        if (out) opts[pack.id] = true;
+        else delete opts[pack.id];
+        localStorage.setItem(OPTOUT_KEY, JSON.stringify(opts));
     } catch {
-        /* quota — the feature just stays advisory */
+        /* quota — worst case the default (applied) persists */
     }
-    log.warn(`[ntmRouting] ACK ${pack.id} (${pack.noticeKey}) — surveyed zones apply for 24 h`);
-    try {
-        window.dispatchEvent(new CustomEvent(NTM_ACK_EVENT));
-    } catch {
-        /* non-browser env */
-    }
-}
-
-export function revokePackAck(pack: NtmRoutingPack): void {
-    try {
-        const acks = loadAcks();
-        delete acks[pack.id];
-        localStorage.setItem(ACK_KEY, JSON.stringify(acks));
-    } catch {
-        /* ignore */
-    }
-    log.warn(`[ntmRouting] ack revoked ${pack.id}`);
+    log.warn(`[ntmRouting] ${pack.id} ${out ? 'REMOVED from routing by user' : 're-applied to routing'}`);
     try {
         window.dispatchEvent(new CustomEvent(NTM_ACK_EVENT));
     } catch {
@@ -348,20 +324,21 @@ export function revokePackAck(pack: NtmRoutingPack): void {
 const bboxIntersects = (a: [number, number, number, number], b: [number, number, number, number]): boolean =>
     a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
 
-/** Packs whose bbox intersects the routing corridor, with live status + ack. */
+/** Packs whose bbox intersects the routing corridor, with live status + opt-out. */
 export async function packsForCorridor(
     corridorBbox: [number, number, number, number],
-): Promise<{ pack: NtmRoutingPack; status: NtmPackStatus; acked: boolean }[]> {
+): Promise<{ pack: NtmRoutingPack; status: NtmPackStatus; optedOut: boolean }[]> {
     const hits = NTM_ROUTING_PACKS.filter((p) => bboxIntersects(p.bbox, corridorBbox));
     return Promise.all(
-        hits.map(async (pack) => ({ pack, status: await ntmPackStatus(pack), acked: isPackAcked(pack) })),
+        hits.map(async (pack) => ({ pack, status: await ntmPackStatus(pack), optedOut: isPackOptedOut(pack) })),
     );
 }
 
 /**
- * Zone features to inject as merged.NTMZONE for the engine — ONLY packs that
- * are acked AND current. Every skip is device-logged so a missing injection
- * is diagnosable from the passage log.
+ * Zone features to inject as merged.NTMZONE for the engine — CURRENT packs
+ * apply by default (owner call 2026-07-02); a user opt-out removes one.
+ * Every skip is device-logged so a missing injection is diagnosable from
+ * the passage log.
  */
 export async function activeNtmZonesFor(
     corridorBbox: [number, number, number, number],
@@ -369,7 +346,7 @@ export async function activeNtmZonesFor(
     const features: Feature[] = [];
     const tracklines: Feature[] = [];
     const packIds: string[] = [];
-    for (const { pack, status, acked } of await packsForCorridor(corridorBbox)) {
+    for (const { pack, status, optedOut } of await packsForCorridor(corridorBbox)) {
         if (status.status !== 'current') {
             log.warn(
                 `[ntmRouting] ${pack.id} NOT injected — ${status.status}${
@@ -378,8 +355,8 @@ export async function activeNtmZonesFor(
             );
             continue;
         }
-        if (!acked) {
-            log.warn(`[ntmRouting] ${pack.id} current but NOT acknowledged — advisory only`);
+        if (optedOut) {
+            log.warn(`[ntmRouting] ${pack.id} current but REMOVED by user — advisory only`);
             continue;
         }
         for (const z of pack.zones) {
