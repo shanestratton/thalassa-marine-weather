@@ -90,6 +90,17 @@
                 [153.12215, -26.706],
                 [153.12285, -26.706]
             ]
+        },
+        {
+            "id": "au-qld-kawana-parrearra-lock",
+            "name": "Parrearra Lock & Weir (Kawana Waters)",
+            "clearanceM": 0.0,
+            "estimated": false,
+            "source": "MSQ B2B SC-5/SC-6: the Lock & Weir gates ALL access between the Parrearra Channel and the Kawana Waters lake system — no free transit for routing purposes. Modelled as zero clearance so any vessel with an air draft set is barred; the 2026-07-02 device regression routed a 55-ft yacht through the lock as if it were open water.",
+            "span": [
+                [153.1219, -26.7068],
+                [153.1231, -26.7068]
+            ]
         }
     ]
 }
