@@ -169,7 +169,16 @@ describe('GOLDEN: Newport → Tangalooma (leading-line approach)', () => {
         // strictly BETWEEN LNDARE walls (it cannot cross land), distance is
         // unchanged (18.43 NM still green above), so this is +1 honest flag on a
         // more-accurate path, not a hazard incursion.
-        expect(cautionCount(r)).toBeLessThanOrEqual(12);
+        //
+        // RE-PIN 12→13 (drying-tier caution cost, 2026-07-02): drying cells
+        // (charted DRVAL1 ≤ 0) now cost 120× vs wet caution's 40×, so the route
+        // skirts drying banks through adjacent wet-shallow water instead of
+        // cutting straight across (Shane's Newport exit crossed charted 0/−2 m
+        // with a 2 m band alongside). The diversion splits/adds ONE caution run;
+        // distance unchanged (18.43 NM still green above), leading-line approach
+        // still fires. Safer water, +1 honest flag — the intended trade, locked
+        // by tests/engine/dryingCaution.test.ts.
+        expect(cautionCount(r)).toBeLessThanOrEqual(13);
     });
 
     // KNOWN ENGINE LIMITATION (Claude B's lane — re-diagnosed 2026-06-11 with

@@ -169,7 +169,7 @@ export const CENTRE_NORM_CELLS = 6;
  * A* will detour up to 50 cells through marked-deep water before
  * accepting a single unmarked cell.
  */
-export function cellCostMultiplier(depth: number, preferred: boolean): number {
+export function cellCostMultiplier(depth: number, preferred: boolean, drying = false): number {
     // Cells inside a marked fairway / dredged area always get the
     // baseline cost regardless of depth band — that's how we get
     // A* to follow the channel instead of cutting across deeper
@@ -262,7 +262,17 @@ export function cellCostMultiplier(depth: number, preferred: boolean): number {
     //     see on screen reads as caution in our 30 m bathymetry too,
     //     so no cost tune fixes it. Needs better depth data.
     //   • Reverted to 40×.
-    if (depth < 0) return 40.0;
+    // DRYING tier within caution (charted DRVAL1 ≤ 0 — the bank dries at LAT).
+    // Flat 40× made A* INDIFFERENT between a drying bank and 2 m of honest
+    // water, so routes cut straight across banks a local skipper skirts
+    // (Shane's Newport exit: the line crossed DRVAL1 0/−2 with a charted 2 m
+    // band alongside). 3× the wet-caution cost steers off the bank without
+    // recreating the 400×-era zigzags (drying cells are a narrow SUBSET of
+    // caution, hugging the banks). Marked channels are exempt via `preferred`
+    // above — a mark-vouched channel over a charted drying band still routes.
+    // NOT the reverted depth-grading of d55ea29f: that graded PREFERRED water;
+    // this grades only the red. Fixture: tests/engine/dryingCaution.test.ts.
+    if (depth < 0) return drying ? 120.0 : 40.0;
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.
@@ -463,9 +473,11 @@ export function aStar(
             // stays admissible; cellCostMultiplier untouched, flat-preferred
             // doctrine preserved). See EXIT_PENALTY_M.
             const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
+            // NaN ≤ 0 is false, so absent shallowDepthM ⇒ never drying.
+            const cellDrying = cellDepth < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[nIdx] <= 0;
             const tentativeG =
                 curG +
-                stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred) * centreFactor[nIdx] +
+                stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred, cellDrying) * centreFactor[nIdx] +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
@@ -487,7 +499,8 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     // × centreFactor so the smoother + acceptance gates price edges EXACTLY as
     // aStar did (centred). Absent on cached/test grids ⇒ 1 (prior behaviour).
     const centre = grid.centreFactor ? grid.centreFactor[idx] : 1;
-    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1) * centre;
+    const drying = grid.cells[idx] < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[idx] <= 0;
+    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1, drying) * centre;
 }
 
 export function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {

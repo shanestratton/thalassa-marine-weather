@@ -9,14 +9,14 @@
     },
     {
       "name": "newport-tangalooma",
-      "directNM": 18.43,
+      "directNM": 18.48,
       "shadow": {
         "kind": "no-marks"
       }
     },
     {
       "name": "newport-rivergate-marks",
-      "directNM": 18.39,
+      "directNM": 18.76,
       "shadow": {
         "kind": "fail",
         "reason": "no-compliant-path"
