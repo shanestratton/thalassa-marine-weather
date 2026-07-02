@@ -1210,12 +1210,13 @@ export function applyThreeTier(
             clampedPoly.map(([lon, lat]) => ({ lat, lon })),
             gates,
         );
-        if (!audit.ok)
-            engineLog.warn(
-                `[gateAudit] wrongSidePasses=${audit.violations.length} — ${audit.violations
-                    .map((v) => `${v.gateId}:${v.side}@seg${v.segIndex}`)
-                    .join(' ')}`,
-            );
+        // Always one line per route — silence on-device is ambiguous (clean vs never-ran).
+        const detail = audit.ok
+            ? 'CLEAN'
+            : audit.violations.map((v) => `${v.gateId}:${v.side}@seg${v.segIndex}`).join(' ');
+        engineLog.warn(
+            `[gateAudit] gates=${audit.gatesChecked} crossed=${audit.crossings.length} wrongSidePasses=${audit.violations.length} — ${detail}`,
+        );
     }
 
     return {
