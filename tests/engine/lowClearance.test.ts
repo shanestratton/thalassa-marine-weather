@@ -103,4 +103,48 @@ describe('low-clearance bridge blocking', () => {
             expect(r.error).toBeTruthy();
         }
     });
+
+    it('a CAGED origin refuses with air-draft-blocked — never a cross-country runner', () => {
+        // The origin pocket's ONLY exit is the barred bridge: banks on both
+        // sides AND a land cap sealing the west end. Strict routing splits the
+        // components, the carve refuses the bar, and the verdict must be the
+        // honest refusal naming the bridge — not a relax-zone hop over the
+        // bank beside it (Shane 2026-07-02: "instead of going cross country
+        // like a fucken runner, just say route not possible").
+        const layers = {
+            DEPARE: WATER,
+            LNDARE: fc(
+                ...BANKS,
+                rect(153.298, -27.5, 153.302, -27.49, { acronym: 'LNDARE' }), // west cap — pocket sealed
+            ),
+            OBSTRN: fc(
+                rect(BAR_LON - 0.0004, -27.501, BAR_LON + 0.0004, -27.489, {
+                    _class: 'low-clearance',
+                    _name: 'test fixed bridge',
+                    _clearanceM: 3.0,
+                }),
+            ),
+        };
+        const r = routeInshore(layers, {
+            ...req,
+            fromLat: -27.495,
+            fromLon: 153.31, // inside the cage (west of the bar, east of the cap)
+            toLat: -27.495,
+            toLon: 153.335, // open water east of the bridge
+        });
+        if (isResult(r)) {
+            // If a route ships anyway, it must stay INSIDE the cage (a legal
+            // same-side snap) — never span the bar or hop the banks.
+            let minLon = Infinity;
+            let maxLon = -Infinity;
+            for (const [lon] of r.polyline) {
+                if (lon < minLon) minLon = lon;
+                if (lon > maxLon) maxLon = lon;
+            }
+            expect(minLon < BAR_LON - 0.0006 && maxLon > BAR_LON + 0.0006).toBe(false);
+        } else {
+            expect(r.code).toBe('air-draft-blocked');
+            expect(r.error).toMatch(/mast-safe|bridge/i);
+        }
+    });
 });

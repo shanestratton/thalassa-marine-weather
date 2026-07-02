@@ -1316,6 +1316,10 @@ export function buildNavGrid(
     grid.shallowDepthM = shallowDepthM;
     grid.clearanceBarred = clearanceBarred;
     grid.wetConflict = wetConflict;
+    // Exposed only when endpoint relax zones softened land — the relax-retry
+    // acceptance uses it to catch a route circumventing a low-clearance
+    // bridge overland (relax-carved cells near a clearanceBarred cell).
+    if (relaxZones.length > 0) grid.relaxMask = relaxMask;
     if (routeProfile === 'tideAssist') {
         // Tide-recoverable caution cells: wet at LAT (charted depth > 0) and
         // within a normal tide's reach of the keel margin. Computed AFTER all

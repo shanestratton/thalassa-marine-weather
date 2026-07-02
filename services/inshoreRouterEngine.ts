@@ -202,7 +202,14 @@ function routeInshoreMain(
         `[inshoreEngine] endpoint snapped far (origin ${Math.round(originSnapM)}m / dest ${Math.round(destSnapM)}m) — retrying with ${relaxZones.length} localized relax zone(s) so the route starts at the real berth (barrier shown red, mainland stays blocked)`,
     );
     const relaxed = routeInshoreOnce(layers, req, false, relaxZones, gridOverride);
-    if ('error' in relaxed) return strict;
+    if ('error' in relaxed) {
+        // A bridge refusal from the relaxed pass is a VERDICT, not a rescue
+        // failure: the pin sits behind a fixed bridge the vessel cannot pass.
+        // Returning the strict route here would silently start the passage
+        // 2 km away and hide the impassable structure.
+        if (relaxed.code === 'air-draft-blocked') return relaxed;
+        return strict;
+    }
     if (dropsProtectedCanalGateContract(strict, relaxed)) {
         console.warn(
             '[inshoreEngine] localized-relaxed route dropped the canal/gate tier contract — keeping strict tiered route',
@@ -471,6 +478,10 @@ function routeInshoreOnce(
     // water body. Drives the shared-component snap below.
     let { labels, sizes } = labelConnectedComponents(grid);
     tPhase = mark('labelComponents', tPhase);
+    // Set when the component bridge below finds that the ONLY gap between the
+    // endpoints' water bodies is a low-clearance structure this vessel cannot
+    // pass — the disconnected failure then names the bridge as the reason.
+    let airDraftGapRefused = false;
 
     // ── Component bridge ────────────────────────────────────────────
     // Connect a small origin/destination component to the main routing
@@ -578,8 +589,11 @@ function routeInshoreOnce(
                     engineLog.warn(
                         `[airDraft] component carve REFUSED — the ${Math.round(bestGap * resolutionM)}m gap is a low-clearance structure this vessel cannot pass`,
                     );
-                    // No carve: the pocket stays its own component and the
-                    // shared-component snap resolves the route honestly.
+                    // No carve: the pocket stays its own component. If the
+                    // endpoints then share no component, the failure below
+                    // names the BRIDGE as the reason instead of a generic
+                    // "disconnected water bodies".
+                    airDraftGapRefused = true;
                 } else {
                     for (const c of carvePath) {
                         if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
@@ -743,6 +757,16 @@ function routeInshoreOnce(
     }
 
     if (!bestStart || !bestEnd) {
+        // A bridge severed the only connection — say so, plainly, instead of
+        // any generic disconnection message (Shane 2026-07-02: "just say
+        // route not possible").
+        if (airDraftGapRefused) {
+            return {
+                error: 'No mast-safe route: a fixed bridge with less clearance than your air draft blocks the only channel between these points. Move the pin to water on the seaward side of the bridge, or check your air draft in Vessel settings.',
+                code: 'air-draft-blocked',
+                debug,
+            };
+        }
         // No sizeable component lies within snap radius of both endpoints.
         // Distinguish "origin on land" from "no shared water body".
         const originNav = snapToNavigable(grid, req.fromLat, req.fromLon, maxSnapCells);
@@ -1537,6 +1561,53 @@ function routeInshoreOnce(
                     )
                     .join(' ')}]`,
             );
+    }
+
+    // ── Bridge-circumvention refusal (Shane 2026-07-02: "if there is a
+    // bridge in the way, instead of going cross country like a fucken
+    // runner, just say route not possible"). A localized endpoint relax
+    // zone softens LNDARE to 500× caution so a route can start at a real
+    // berth across a thin barrier — but when the barrier is a LOW-CLEARANCE
+    // BRIDGE, the relax corridor lets A* hop the BANK BESIDE the bar and
+    // carry on overland. A route that crosses relax-carved land within two
+    // cells of a clearance bar is circumventing a bridge the vessel cannot
+    // pass: the honest verdict is refusal, not a workaround.
+    if (grid.relaxMask && grid.clearanceBarred) {
+        const NEAR = 2;
+        for (let i = 0; i + 1 < finalPolyline.length; i++) {
+            const segM = haversineM(
+                finalPolyline[i][1],
+                finalPolyline[i][0],
+                finalPolyline[i + 1][1],
+                finalPolyline[i + 1][0],
+            );
+            const steps = Math.max(1, Math.ceil(segM / (resolutionM / 2)));
+            for (let s = 0; s <= steps; s++) {
+                const t = s / steps;
+                const qLat = finalPolyline[i][1] + (finalPolyline[i + 1][1] - finalPolyline[i][1]) * t;
+                const qLon = finalPolyline[i][0] + (finalPolyline[i + 1][0] - finalPolyline[i][0]) * t;
+                const { x, y } = latLonToGrid(grid, qLat, qLon);
+                if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+                if (grid.relaxMask[y * grid.width + x] !== 1) continue;
+                for (let dy = -NEAR; dy <= NEAR; dy++) {
+                    for (let dx = -NEAR; dx <= NEAR; dx++) {
+                        const nx = x + dx;
+                        const ny = y + dy;
+                        if (nx < 0 || ny < 0 || nx >= grid.width || ny >= grid.height) continue;
+                        if (grid.clearanceBarred[ny * grid.width + nx] === 1) {
+                            engineLog.warn(
+                                `[airDraft] relaxed route circumvents a low-clearance bridge overland at ${qLat.toFixed(4)},${qLon.toFixed(4)} — REFUSING`,
+                            );
+                            return {
+                                error: 'No mast-safe route: a fixed bridge with less clearance than your air draft blocks the channel here. Move the pin to water on the seaward side of the bridge, or check your air draft in Vessel settings.',
+                                code: 'air-draft-blocked',
+                                debug,
+                            };
+                        }
+                    }
+                }
+            }
+        }
     }
 
     return {
