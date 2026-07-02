@@ -167,6 +167,10 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
     const isoResultRef = useRef<IsochroneResult | null>(null);
     const turnWaypointsRef = useRef<TurnWaypoint[]>([]);
     const computeGenRef = useRef(0); // generation counter — prevents stale writes
+    // Route profile from the PassageBanner chips. A ref (not state) so
+    // computePassage always reads the CURRENT value without re-memoising;
+    // the thalassa:route-profile listener below recomputes on change.
+    const routeProfileRef = useRef<'safest' | 'tideAssist'>('safest');
     // Phase 7 tide-window chips ("clears 09:40–15:10") anchored on the red runs.
     // Owned here so every compute/clear path tears them down — a chip that
     // outlives its route ghosts over the next one (the confidence-braid lesson).
@@ -360,6 +364,9 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     vesselDraftM,
                     // Air draft (mast height) — null = no bridge gating.
                     vesselAirDraftMetres(useSettingsStore.getState().settings.vessel),
+                    // Route profile from the PassageBanner chips (SAFEST default;
+                    // TIDE-ASSIST = explicit shortest-with-the-tide).
+                    routeProfileRef.current,
                 ),
                 {
                     error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
@@ -2314,6 +2321,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             });
         }
     }, [mapReady, showPassage, departure, arrival, computePassage]);
+
+    // Route-profile chips (PassageBanner): store the choice and recompute the
+    // displayed route under the new profile. Same shape as the NtM-ack
+    // listener below.
+    useEffect(() => {
+        const onProfile = (ev: Event) => {
+            const profile = (ev as CustomEvent<{ profile?: 'safest' | 'tideAssist' }>).detail?.profile;
+            if (profile !== 'safest' && profile !== 'tideAssist') return;
+            if (routeProfileRef.current === profile) return;
+            routeProfileRef.current = profile;
+            log.warn(`[routeProfile] ${profile} selected`);
+            if (mapReady && departure && arrival) {
+                computePassage().catch((err) => log.warn('[routeProfile] recompute failed:', err));
+            }
+        };
+        window.addEventListener('thalassa:route-profile', onProfile);
+        return () => window.removeEventListener('thalassa:route-profile', onProfile);
+    }, [mapReady, departure, arrival, computePassage]);
 
     // Recompute when an NtM routing acknowledgment changes (📄 popup "apply to
     // routing" tap, services/ntmRouting.ts): the ack flips which survey zones
