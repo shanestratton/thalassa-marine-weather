@@ -253,6 +253,15 @@ export function buildNavGrid(
     // doesn't hard-block it. Generic OSM `natural=water` and bathymetry-
     // derived DEPARE do NOT get this protection — LNDARE beats them.
     const protectedCells = new Uint8Array(width * height);
+    // Per-cell "wet-at-LAT chart claim": 1 = an S-57 DEPARE band with
+    // DRVAL1 > 0 covered this cell — shallow for this keel (CAUTION) but
+    // genuinely WATER at chart datum. Pass 2 uses it to resolve
+    // LNDARE-vs-wet-chart-water conflicts (generalised overview-band
+    // coastline painted over a finer cell's charted river — the Mooloolah
+    // wharf→bar mile): conflict cells stay CAUTION and become protected so
+    // the Pass-6 buffer can't seal the river shut. Never set by drying
+    // bands (DRVAL1 ≤ 0) — a charted drying spit defers to land paint.
+    const wetChartClaim = new Uint8Array(width * height);
     // Per-cell "OSM-vouched water" flag: 1 = the protection above came
     // from an OSM-authoritative source (marina/canal/dock/river) or an
     // OSM canal carve — NOT from a chart S-57 DEPARE. Used by Pass 2 to
@@ -457,6 +466,19 @@ export function buildNavGrid(
                 if (protectedCells[idx] !== 1) {
                     cells[idx] = CAUTION;
                 }
+                // Wet-at-LAT S-57 cells (DRVAL1 > 0: shallow for this keel but
+                // genuinely WATER at chart datum) are recorded in wetChartClaim
+                // so Pass 2 can resolve LNDARE-vs-wet-chart-water conflicts
+                // (the Mooloolah sealed-river bug, 2026-07-02). Recorded here,
+                // ACTED ON only where land paint actually collides: the broad
+                // protect-all-wet-shallow knob was tried first and regressed
+                // the Tangalooma golden +7.5% / Rivergate caution 3.7× by
+                // perturbing the land buffer and centring EDT everywhere — the
+                // conflict-scoped form leaves every non-conflict grid
+                // byte-identical. Drying bands (DRVAL1 ≤ 0) never claim: where
+                // the chart says the bottom dries, land paint keeps authority
+                // — the Mooloolaba beach spit stays a spit.
+                if (isS57Depare && drval1Num > 0) wetChartClaim[idx] = 1;
             } else {
                 // Deep enough for this vessel.
                 const prior = cells[idx];
@@ -585,6 +607,26 @@ export function buildNavGrid(
                 if (osmWaterCells[idx] !== 1 && cells[idx] >= 0) {
                     cells[idx] = CAUTION;
                 }
+                return;
+            }
+            if (wetChartClaim[idx] === 1) {
+                // LNDARE-vs-WET-chart-water conflict — the shallow sibling of
+                // the deep conflict above, same doctrine: the chart's own
+                // layers disagree (typically a coarse overview-cell landmask
+                // bulging over a finer cell's charted river — 1:90k paints the
+                // whole Mooloolah wharf→bar mile as coastline over the harbour
+                // cell's D2-5). Keep the honest CAUTION the DEPARE pass set
+                // (red, 40×, tide-chipped) instead of erasing charted water,
+                // and protect it so the coastline strip and the Pass-6 land
+                // buffer can't seal the 2-cell-wide river shut — without this,
+                // routes out of Mooloolaba exited over the drying beach spit
+                // at 120× because the charted front door didn't exist in the
+                // grid. Conflict-scoped ON PURPOSE: protecting ALL wet-shallow
+                // chart water regressed the Tangalooma golden +7.5% and
+                // Rivergate caution 3.7× by perturbing the buffer and centring
+                // EDT everywhere; this branch leaves every non-conflict grid
+                // byte-identical. Fixture: tests/engine/wetChartProtection.
+                protectedCells[idx] = 1;
                 return;
             }
             if (relaxedLndare || relaxMask[idx] === 1) {
