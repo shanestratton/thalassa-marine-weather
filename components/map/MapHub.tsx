@@ -73,6 +73,11 @@ import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
 import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
+// Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
+import {
+    setEncVectorVisibility as encApplyLayerVisibility,
+    setEncChartDetail as encApplyChartDetailLayers,
+} from './EncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
@@ -467,10 +472,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // nothing anywhere it mattered (Shane 2026-07-03: "satellite
                 // overlay is not active on a plan"). Satellite ON = hide the
                 // FILLS ONLY; depth contours, coastline, soundings, marks,
-                // routes and chips all stay on top of the imagery.
-                for (const id of ['enc-vec-lndare-fill', 'enc-vec-depare-fill', 'maptiler-ocean-layer']) {
-                    if (map.getLayer(id)) {
-                        map.setLayoutProperty(id, 'visibility', satelliteVisible ? 'none' : 'visible');
+                // routes and chips all stay on top of the imagery. The ENC
+                // setters in EncVectorLayer are satellite-gated too, so a
+                // route-plan cell load can't repaint a fill between our
+                // styledata ticks — this loop is the belt, that's the braces.
+                if (satelliteVisible) {
+                    for (const id of [
+                        'enc-vec-lndare-fill',
+                        'enc-vec-lndare-islet',
+                        'enc-vec-depare-fill',
+                        'maptiler-ocean-layer',
+                    ]) {
+                        if (map.getLayer(id)) {
+                            map.setLayoutProperty(id, 'visibility', 'none');
+                        }
                     }
                 }
             } catch {
@@ -478,6 +493,21 @@ export const MapHub: React.FC<MapHubProps> = ({
             }
         };
         apply();
+        if (!satelliteVisible) {
+            // Toggled OFF: hand the fills back to their owners (ENC master
+            // toggle + chart-detail mode) instead of force-showing them —
+            // forcing 'visible' here used to override a user's ENC-off/clean
+            // chart state.
+            try {
+                if (map.getLayer('maptiler-ocean-layer')) {
+                    map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'visible');
+                }
+                encApplyLayerVisibility(map, encVisible);
+                encApplyChartDetailLayers(map, encChartDetail);
+            } catch {
+                /* ENC layers not mounted yet — the mount path applies both */
+            }
+        }
         // ENC layers are (re)added asynchronously as cells load — re-assert
         // whenever the style gains layers so a late-added fill can't cover
         // the imagery.
@@ -485,7 +515,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         return () => {
             map.off('styledata', apply);
         };
-    }, [satelliteVisible, mapReady]);
+    }, [satelliteVisible, mapReady, encVisible, encChartDetail]);
     // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
     const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
         'thalassa_map_chart_controls_hidden',
