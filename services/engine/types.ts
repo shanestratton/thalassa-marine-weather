@@ -218,6 +218,9 @@ export interface ShallowRunInfo {
     /** Run midpoint (by along-track length) — where the window chip anchors. */
     midLat: number;
     midLon: number;
+    /** Where the minimum depth was sampled — the exact spot to check on the chart. */
+    minAtLat?: number;
+    minAtLon?: number;
 }
 
 export interface RouteResult {
