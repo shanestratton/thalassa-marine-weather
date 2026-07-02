@@ -69,6 +69,7 @@ import {
     mPerDegLon,
     haversineM,
     pointInGeometry,
+    geometryBbox,
     gridToLatLon,
     latLonToGrid,
     bresenhamCells,
@@ -1297,10 +1298,51 @@ function routeInshoreOnce(
     {
         const sd = grid.shallowDepthM;
         const MIN_RUN_M = 200; // below this a chip is noise, not pilotage info
+        const cautionFloorM = req.draftM + safetyM;
+        // EXACT chart-depth sampler. The 50 m grid cell records the MIN DRVAL1 of
+        // every band rasterized into it, so a cell merely GRAZED by a drying bank's
+        // corner reads 0 m even where the route line itself stays inside the 2 m
+        // band — and the chip then demands the full keel+margin rise (Shane's
+        // Newport "+2.9 m" on water the chart carries at 2 m). Point-in-polygon
+        // against the REAL chart S-57 DEPARE features has no such bleed (bands
+        // don't overlap; synthetic injected water is excluded by the acronym
+        // gate). Only depths BELOW the caution floor count toward the min — a
+        // deep-band sample can never launder an uncharted run into "deep & safe",
+        // so uncharted-only runs still ship minDepthM null. Grid cell = fallback.
+        const chartDepare = (finalCaution.some(Boolean) ? (layers.DEPARE?.features ?? []) : [])
+            .filter((f) => {
+                const p = f.properties as Record<string, unknown> | null;
+                const g = f.geometry;
+                return (
+                    typeof p?.acronym === 'string' &&
+                    typeof p?.DRVAL1 === 'number' &&
+                    !!g &&
+                    (g.type === 'Polygon' || g.type === 'MultiPolygon')
+                );
+            })
+            .map((f) => {
+                const geom = f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon;
+                return {
+                    geom,
+                    bbox: geometryBbox(geom),
+                    drval1: (f.properties as Record<string, unknown>).DRVAL1 as number,
+                };
+            });
+        const chartShallowDepthAt = (lon: number, lat: number): number | null => {
+            let best: number | null = null;
+            for (const d of chartDepare) {
+                if (d.drval1 >= cautionFloorM) continue; // deep band — not what reddened this run
+                if (best !== null && d.drval1 >= best) continue; // can't improve the min
+                if (lon < d.bbox[0] || lon > d.bbox[2] || lat < d.bbox[1] || lat > d.bbox[3]) continue;
+                if (pointInGeometry(lon, lat, d.geom)) best = d.drval1;
+            }
+            return best;
+        };
         let shallowMaxM = 0;
         let runStart = -1;
         let runM = 0;
         let runMin = Infinity;
+        let runMinAt: [number, number] | null = null;
         const flush = (endSeg: number): void => {
             if (runStart < 0) return;
             if (runM > shallowMaxM) shallowMaxM = runM;
@@ -1326,11 +1368,13 @@ function routeInshoreOnce(
                     minDepthM: Number.isFinite(runMin) ? runMin : null,
                     midLat: mid[1],
                     midLon: mid[0],
+                    ...(runMinAt ? { minAtLat: runMinAt[1], minAtLon: runMinAt[0] } : {}),
                 });
             }
             runStart = -1;
             runM = 0;
             runMin = Infinity;
+            runMinAt = null;
         };
         for (let i = 0; i < finalCaution.length; i++) {
             if (!finalCaution[i]) {
@@ -1342,21 +1386,43 @@ function routeInshoreOnce(
             const [lonB, latB] = finalPolyline[i + 1];
             const segM = haversineM(latA, lonA, latB, lonB);
             runM += segM;
-            if (sd) {
-                const steps = Math.max(1, Math.ceil(segM / 25));
-                for (let s = 0; s <= steps; s++) {
-                    const t = s / steps;
-                    const { x, y } = latLonToGrid(grid, latA + (latB - latA) * t, lonA + (lonB - lonA) * t);
-                    if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
-                    const d = sd[y * grid.width + x];
-                    if (!Number.isNaN(d) && d < runMin) runMin = d;
+            const steps = Math.max(1, Math.ceil(segM / 25));
+            for (let s = 0; s <= steps; s++) {
+                const t = s / steps;
+                const qLat = latA + (latB - latA) * t;
+                const qLon = lonA + (lonB - lonA) * t;
+                // Exact chart band when chart DEPARE exists; the bleed-prone grid
+                // cell ONLY when it doesn't (fixtures / injected-water-only areas).
+                // Falling back per-point would re-import the very graze the exact
+                // sampler exists to reject: a run the chart says never crosses a
+                // shallow band has NO sub-floor depth on the line — requiredRise
+                // goes ≤0 and no chip appears, which is the honest outcome.
+                let d: number | null = null;
+                if (chartDepare.length > 0) {
+                    d = chartShallowDepthAt(qLon, qLat);
+                } else if (sd) {
+                    const { x, y } = latLonToGrid(grid, qLat, qLon);
+                    if (x >= 0 && y >= 0 && x < grid.width && y < grid.height) {
+                        const g = sd[y * grid.width + x];
+                        if (!Number.isNaN(g)) d = g;
+                    }
+                }
+                if (d !== null && d < runMin) {
+                    runMin = d;
+                    runMinAt = [qLon, qLat];
                 }
             }
         }
         flush(finalCaution.length - 1);
         if (shallowMaxM > 500)
             engineLog.warn(
-                `[keelMargin] longest sub-margin/caution run ${(shallowMaxM / 1852).toFixed(2)} NM — route ships red there (draft+${safetyM} m floor); runs≥${MIN_RUN_M}m=${shallowRuns.length} minDepths=[${shallowRuns.map((r) => (r.minDepthM === null ? '∅' : r.minDepthM.toFixed(1))).join(',')}]`,
+                `[keelMargin] longest sub-margin/caution run ${(shallowMaxM / 1852).toFixed(2)} NM — route ships red there (draft+${safetyM} m floor); runs≥${MIN_RUN_M}m=${shallowRuns.length} minDepths=[${shallowRuns
+                    .map((r) =>
+                        r.minDepthM === null
+                            ? '∅'
+                            : `${r.minDepthM.toFixed(1)}@${r.minAtLat?.toFixed(4)},${r.minAtLon?.toFixed(4)}`,
+                    )
+                    .join(' ')}]`,
             );
     }
 
