@@ -262,6 +262,13 @@ export function buildNavGrid(
     // the Pass-6 buffer can't seal the river shut. Never set by drying
     // bands (DRVAL1 ≤ 0) — a charted drying spit defers to land paint.
     const wetChartClaim = new Uint8Array(width * height);
+    // Cells where the wet claim actually RESOLVED a land conflict (a subset
+    // of wetChartClaim). Exposed as grid.wetConflict: routable mid-route at
+    // 40× caution, but endpoint snapping must PREFER honest water — a
+    // geocoded suburb pin snapping straight onto a conflict creek turned the
+    // Mooloolaba canal estates into a phantom departure highway (device
+    // screenshot 2026-07-02).
+    const wetConflict = new Uint8Array(width * height);
     // Per-cell "OSM-vouched water" flag: 1 = the protection above came
     // from an OSM-authoritative source (marina/canal/dock/river) or an
     // OSM canal carve — NOT from a chart S-57 DEPARE. Used by Pass 2 to
@@ -627,6 +634,7 @@ export function buildNavGrid(
                 // EDT everywhere; this branch leaves every non-conflict grid
                 // byte-identical. Fixture: tests/engine/wetChartProtection.
                 protectedCells[idx] = 1;
+                wetConflict[idx] = 1;
                 return;
             }
             if (relaxedLndare || relaxMask[idx] === 1) {
@@ -1307,6 +1315,7 @@ export function buildNavGrid(
     }
     grid.shallowDepthM = shallowDepthM;
     grid.clearanceBarred = clearanceBarred;
+    grid.wetConflict = wetConflict;
     if (routeProfile === 'tideAssist') {
         // Tide-recoverable caution cells: wet at LAT (charted depth > 0) and
         // within a normal tide's reach of the keel margin. Computed AFTER all

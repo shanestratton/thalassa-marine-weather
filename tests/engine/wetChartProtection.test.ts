@@ -104,6 +104,31 @@ describe('wet-at-LAT S-57 protection (sealed-river knob)', () => {
         expect((r.shallowRuns ?? []).some((x) => x.minDepthM === 2)).toBe(true);
     });
 
+    it('endpoint snap prefers HONEST water over a conflict creek (phantom-departure guard)', () => {
+        // Pin on the north bank, equidistant-ish between the conflict-class
+        // river mouth (land paint over the wet band, ~closer) and the honest
+        // open sea to the east. The origin must snap to honest water, not
+        // start the route inside the conflict corridor (the Mooloolaba
+        // canal-estate phantom-departure regression, device 2026-07-02).
+        const r = routeInshore(layers, {
+            ...req,
+            // On the mouth's land blob: nearest cells are conflict-caution.
+            fromLat: -27.9,
+            fromLon: 152.5155,
+            toLat: -27.9,
+            toLon: 152.53,
+        });
+        expect(isResult(r)).toBe(true);
+        if (!isResult(r)) return;
+        const snap = (r as unknown as { debug?: { originSnap?: { snappedLon: number; snappedLat: number } } }).debug
+            ?.originSnap;
+        console.log(`originSnap: ${JSON.stringify(snap)}  polyline0: ${JSON.stringify(r.polyline[0])}`);
+        // The ORIGIN SNAP must sit in honest water — east of the conflict
+        // blob (lon ≥ 152.517, the open-sea band), never inside it.
+        expect(snap).toBeDefined();
+        expect(snap!.snappedLon).toBeGreaterThanOrEqual(152.5165);
+    });
+
     it('a DRYING channel (DRVAL1 = 0) stays sealed — the spit is still a spit', () => {
         const drying = {
             ...layers,

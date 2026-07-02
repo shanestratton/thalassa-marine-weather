@@ -697,15 +697,21 @@ function routeInshoreOnce(
     let bestCombinedM = Infinity;
     let bestComponentSize = 0;
 
+    // Endpoint snaps PREFER honest water: a wet-chart-land-conflict cell
+    // (grid.wetConflict — coarse land paint over a charted creek, kept as
+    // 40× caution) is legal to CROSS but a terrible place to START — a
+    // geocoded suburb pin snapping onto a conflict creek departed Shane's
+    // route through the Mooloolaba canal-estate maze instead of the harbour
+    // (device screenshot 2026-07-02). Fall back to any-cell only when the
+    // honest-water snap finds nothing in range.
+    const notConflict = (idx: number): boolean => grid.wetConflict?.[idx] !== 1;
+    const snapPreferHonest = (lat: number, lon: number, pred: (idx: number) => boolean) =>
+        snapWithPredicate(grid, lat, lon, maxSnapCells, (idx) => pred(idx) && notConflict(idx)) ??
+        snapWithPredicate(grid, lat, lon, maxSnapCells, pred);
+
     for (const [label, size] of sizes) {
         if (size < minComponentCells) continue;
-        const startCandidate = snapWithPredicate(
-            grid,
-            req.fromLat,
-            req.fromLon,
-            maxSnapCells,
-            (idx) => labels[idx] === label,
-        );
+        const startCandidate = snapPreferHonest(req.fromLat, req.fromLon, (idx) => labels[idx] === label);
         if (!startCandidate) continue;
         const deepEndCandidate = snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => {
             const d = grid.cells[idx];
@@ -719,8 +725,7 @@ function routeInshoreOnce(
             })()
                 ? deepEndCandidate
                 : null;
-        const endCandidate =
-            deepEnd ?? snapWithPredicate(grid, req.toLat, req.toLon, maxSnapCells, (idx) => labels[idx] === label);
+        const endCandidate = deepEnd ?? snapPreferHonest(req.toLat, req.toLon, (idx) => labels[idx] === label);
         if (!endCandidate) continue;
 
         const [startLon, startLat] = gridToLatLon(grid, startCandidate.x, startCandidate.y);

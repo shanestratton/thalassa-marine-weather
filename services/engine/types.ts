@@ -406,6 +406,15 @@ export interface NavGrid {
      */
     tideAssist?: Uint8Array;
     /**
+     * Per-cell wet-chart-land-conflict flag (1 = a coarse LNDARE painted over
+     * a finer cell's wet DEPARE band and the wet claim won — the cell is
+     * honest CAUTION, protected from the land buffer). Routable mid-route;
+     * endpoint snapping PREFERS honest water over these so a geocoded
+     * land pin never departs from a phantom conflict creek. Optional for
+     * cached-grid back-compat.
+     */
+    wetConflict?: Uint8Array;
+    /**
      * Per-cell NtM-surveyed requiredRise (m above LAT needed for this vessel's
      * floor), for CAUTION cells whose depth was overridden by an acknowledged,
      * current Notice-to-Mariners survey zone (NTM pass). NaN everywhere else.
