@@ -367,7 +367,11 @@ export const VoyageCard: React.FC<{
         const startLabel = startLocName || formatFallback(first);
         const endLabel = endLocName || formatFallback(last);
 
-        const voyageFilteredEntries = entries.filter((e) => filteredEntries.some((f) => f.id === e.id));
+        // Set lookup, NOT nested .some() — the O(n²) form was ~33M comparisons
+        // per render for an expanded one-day passage (audit 2026-07-03), and
+        // grows quadratically with the full-retention capture cadence.
+        const filteredIds = new Set(filteredEntries.map((f) => f.id));
+        const voyageFilteredEntries = entries.filter((e) => filteredIds.has(e.id));
 
         return (
             <div className="mb-3 relative overflow-hidden rounded-2xl snap-start">

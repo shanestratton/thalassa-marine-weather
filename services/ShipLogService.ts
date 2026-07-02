@@ -239,6 +239,12 @@ class ShipLogServiceClass {
                 if (isActive && this.trackingState.isTracking && !this.trackingState.isPaused) {
                     await this.checkMissedEntries();
                 }
+                // Backgrounding: force the debounced offline-queue cache to
+                // disk so an iOS suspend/kill can't cost the ~10 s window.
+                if (!isActive) {
+                    const { flushOfflineQueueToDisk } = await import('./shiplog/OfflineQueue');
+                    await flushOfflineQueueToDisk().catch(() => {});
+                }
             });
 
             // WEB FALLBACK: Also listen for browser visibility changes (for PWA/web)

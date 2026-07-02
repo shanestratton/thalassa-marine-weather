@@ -140,16 +140,36 @@ Deno.serve(async (req: Request) => {
         // ── Fetch vessel info, entries, track ──────────────────────
         // Track keyed by boat_id when present; falls back to user_id for
         // pre-migration rows where boat_id isn't backfilled yet.
-        const trackQuery = supabase
-            .from('ship_log')
-            .select(
-                'latitude, longitude, timestamp, speed_kts, course_deg, heading_deg, pressure, ' +
-                    'wind_speed_apparent, wind_angle_apparent, wind_speed_true, wind_direction_true, ' +
-                    'depth_m, air_temp, water_temp, wave_height',
-            )
-            .gte('timestamp', trackSince)
-            .order('timestamp', { ascending: true })
-            .limit(MAX_TRACK_POINTS);
+        //
+        // PAGINATED: PostgREST clamps ANY single request to its max-rows
+        // setting (default 1000) regardless of .limit() — the old
+        // .limit(MAX_TRACK_POINTS) call silently truncated an 8-hour
+        // passage's public track to its first ~17 minutes (audit
+        // 2026-07-03). Page ascending in 1000-row steps up to the
+        // declared envelope.
+        const TRACK_SELECT =
+            'latitude, longitude, timestamp, speed_kts, course_deg, heading_deg, pressure, ' +
+            'wind_speed_apparent, wind_angle_apparent, wind_speed_true, wind_direction_true, ' +
+            'depth_m, air_temp, water_temp, wave_height';
+        const fetchTrack = async (): Promise<{ data: Record<string, unknown>[]; error: unknown }> => {
+            const rows: Record<string, unknown>[] = [];
+            const PAGE = 1000;
+            while (rows.length < MAX_TRACK_POINTS) {
+                let q = supabase
+                    .from('ship_log')
+                    .select(TRACK_SELECT)
+                    .gte('timestamp', trackSince)
+                    .order('timestamp', { ascending: true })
+                    .range(rows.length, rows.length + PAGE - 1);
+                q = boatId ? q.eq('boat_id', boatId) : q.eq('user_id', ownerId);
+                const { data, error } = await q;
+                if (error) return { data: rows, error };
+                const page = (data ?? []) as Record<string, unknown>[];
+                rows.push(...page);
+                if (page.length < PAGE) break;
+            }
+            return { data: rows, error: null };
+        };
 
         const [vesselRes, entriesRes, trackRes] = await Promise.all([
             boatId
@@ -169,7 +189,7 @@ Deno.serve(async (req: Request) => {
                 .eq('is_public', true)
                 .order('created_at', { ascending: false })
                 .limit(MAX_ENTRIES),
-            boatId ? trackQuery.eq('boat_id', boatId) : trackQuery.eq('user_id', ownerId),
+            fetchTrack(),
         ]);
 
         if (vesselRes.error || entriesRes.error || trackRes.error) {

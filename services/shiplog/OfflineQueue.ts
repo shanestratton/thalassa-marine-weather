@@ -18,6 +18,95 @@ const log = createLogger('OfflineQueue');
 const OFFLINE_QUEUE_KEY = 'ship_log_offline_queue';
 const MAX_OFFLINE_QUEUE = 50_000;
 
+// ── IN-MEMORY WRITE-THROUGH CACHE (2026-07-03) ──────────────────────
+// The queue used to be re-read + re-serialised from Preferences on EVERY
+// point — twice per auto point (append + rolling-waypoint demote). At the
+// real iOS fix rate (~1 Hz underway; the "5 s cadence" is Android-only)
+// an 8-hour passage builds a ~17 MB queue, so each new point cost two
+// full multi-MB JSON parse+stringify cycles: O(n²) churn that stalls the
+// flush loop behind GPS ingest until the 1200-slot ring buffer silently
+// drops the OLDEST unflushed fixes — genuine track loss in the final
+// hours of a long passage (adversarial audit 2026-07-03, finding #0).
+//
+// Now the queue lives in memory and persists on a debounce: at most one
+// disk write per PERSIST_INTERVAL_MS (or every PERSIST_EVERY_N appends,
+// whichever trips first), plus an awaited flush before any sync/delete
+// snapshot. Trade-off, documented and accepted: a hard crash can lose up
+// to ~10 s of points — versus the O(n²) cascade that lost HOURS.
+// Append-only semantics and the sync prefix contract are unchanged; all
+// readers/writers below go through the same in-memory queue.
+const PERSIST_INTERVAL_MS = 10_000;
+const PERSIST_EVERY_N = 25;
+
+let memQueue: Partial<ShipLogEntry>[] | null = null;
+let hydrating: Promise<Partial<ShipLogEntry>[]> | null = null;
+let appendsSincePersist = 0;
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persisting: Promise<void> | null = null;
+
+async function loadQueue(): Promise<Partial<ShipLogEntry>[]> {
+    if (memQueue) return memQueue;
+    if (hydrating) return hydrating;
+    hydrating = (async () => {
+        try {
+            const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
+            memQueue = value ? (JSON.parse(value) as Partial<ShipLogEntry>[]) : [];
+        } catch (e) {
+            log.error('offline queue hydrate failed — starting empty (disk copy left untouched)', e);
+            memQueue = [];
+        }
+        hydrating = null;
+        return memQueue;
+    })();
+    return hydrating;
+}
+
+async function persistNow(): Promise<void> {
+    // Serialise writes — overlapping Preferences.set with a multi-MB value
+    // is exactly the churn this cache exists to avoid.
+    if (persisting) await persisting;
+    if (!memQueue) return;
+    if (persistTimer) {
+        clearTimeout(persistTimer);
+        persistTimer = null;
+    }
+    appendsSincePersist = 0;
+    const snapshot = memQueue;
+    persisting = (async () => {
+        try {
+            if (snapshot.length === 0) {
+                await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
+            } else {
+                await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(snapshot) });
+            }
+        } catch (e) {
+            log.error('offline queue persist failed (entries remain in memory)', e);
+        } finally {
+            persisting = null;
+        }
+    })();
+    await persisting;
+}
+
+function schedulePersist(): void {
+    appendsSincePersist++;
+    if (appendsSincePersist >= PERSIST_EVERY_N) {
+        void persistNow();
+        return;
+    }
+    if (persistTimer) return;
+    persistTimer = setTimeout(() => {
+        persistTimer = null;
+        void persistNow();
+    }, PERSIST_INTERVAL_MS);
+}
+
+/** Awaited disk flush — for lifecycle hooks (app background, tracking stop). */
+export async function flushOfflineQueueToDisk(): Promise<void> {
+    await loadQueue();
+    await persistNow();
+}
+
 // ── LOCAL-ONLY CAPTURE MODE ─────────────────────────────────────────
 // While a voyage is actively recording, every captured point is written
 // to the DEVICE only (this queue) — zero network on the capture path.
@@ -43,9 +132,7 @@ export function isCaptureLocalOnly(): boolean {
  */
 export async function queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<void> {
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        const queue: Partial<ShipLogEntry>[] = value ? JSON.parse(value) : [];
-
+        const queue = await loadQueue();
         queue.push(entry);
 
         // PERF: Cap queue size — drop oldest entries if we exceed the limit
@@ -54,10 +141,8 @@ export async function queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<v
             queue.splice(0, queue.length - MAX_OFFLINE_QUEUE);
         }
 
-        await Preferences.set({
-            key: OFFLINE_QUEUE_KEY,
-            value: JSON.stringify(queue),
-        });
+        // Debounced — NOT a per-point multi-MB Preferences.set (see header).
+        schedulePersist();
     } catch (error) {
         log.error('queueOfflineEntry failed', error);
     }
@@ -73,10 +158,7 @@ export async function queueOfflineEntry(entry: Partial<ShipLogEntry>): Promise<v
 export async function demoteLatestPositionInQueue(voyageId: string): Promise<void> {
     if (!voyageId) return;
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        if (!value) return;
-        const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
-
+        const queue = await loadQueue();
         let changed = false;
         for (const e of queue) {
             if (e.voyageId === voyageId && e.entryType === 'waypoint' && e.waypointName === 'Latest Position') {
@@ -85,9 +167,9 @@ export async function demoteLatestPositionInQueue(voyageId: string): Promise<voi
                 changed = true;
             }
         }
-        if (changed) {
-            await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(queue) });
-        }
+        // In-memory mutation only — this used to be the SECOND full-queue
+        // disk rewrite on every auto point. The debounced persist carries it.
+        if (changed) schedulePersist();
     } catch (e) {
         log.warn('demoteLatestPositionInQueue failed', e);
     }
@@ -160,10 +242,10 @@ export async function syncOfflineQueue(): Promise<number> {
 
     isSyncing = true;
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        if (!value) return 0;
-
-        const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
+        // Snapshot the LIVE in-memory queue (hydrating from disk if this is a
+        // fresh session). slice() pins the upload set; appends during the
+        // upload land in memQueue and survive via commitProgress below.
+        const queue = (await loadQueue()).slice();
         if (queue.length === 0) return 0;
 
         const user = await getCurrentUser();
@@ -171,18 +253,14 @@ export async function syncOfflineQueue(): Promise<number> {
 
         const normalized = normalizeLatestPositions(queue);
 
-        // Rewrite the queue as (live queue) minus (synced prefix). The
-        // queue only ever grows by appends, so entries [0, syncedCount)
-        // of the re-read queue are exactly what we uploaded.
+        // Drop the synced prefix from the LIVE queue. The queue only ever
+        // grows by appends, so entries [0, syncedCount) of the live queue are
+        // exactly what we uploaded; everything after survives. Persisted
+        // immediately — upload progress must never be replayable from disk.
         const commitProgress = async (syncedCount: number) => {
-            const { value: nowValue } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-            const liveQueue: Partial<ShipLogEntry>[] = nowValue ? JSON.parse(nowValue) : [];
-            const remainder = liveQueue.slice(syncedCount);
-            if (remainder.length === 0) {
-                await Preferences.remove({ key: OFFLINE_QUEUE_KEY });
-            } else {
-                await Preferences.set({ key: OFFLINE_QUEUE_KEY, value: JSON.stringify(remainder) });
-            }
+            const live = await loadQueue();
+            live.splice(0, syncedCount);
+            await persistNow();
         };
 
         let synced = 0;
@@ -218,13 +296,10 @@ export async function syncOfflineQueue(): Promise<number> {
  */
 export async function getOfflineQueueCount(): Promise<number> {
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        if (!value) return 0;
-        const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
-        return queue.length;
+        return (await loadQueue()).length;
     } catch (e) {
         log.warn('[OfflineQueue]', e);
-        /* Preferences read/parse failure — 0 is safe default */
+        /* read failure — 0 is safe default */
         return 0;
     }
 }
@@ -235,10 +310,7 @@ export async function getOfflineQueueCount(): Promise<number> {
  */
 export async function getOfflineEntries(): Promise<ShipLogEntry[]> {
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        if (!value) return [];
-
-        const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
+        const queue = await loadQueue();
 
         // Add temporary IDs for display
         return queue.map(
@@ -259,27 +331,22 @@ export async function getOfflineEntries(): Promise<ShipLogEntry[]> {
  */
 export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<boolean> {
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        if (!value) return false;
-
-        const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
+        const queue = await loadQueue();
         const originalLength = queue.length;
 
         // Filter out entries matching voyageId (or null/empty for default_voyage)
-        const filteredQueue = queue.filter((entry) => {
+        const filtered = queue.filter((entry) => {
             if (voyageId === 'default_voyage') {
                 return entry.voyageId && entry.voyageId !== '';
             }
             return entry.voyageId !== voyageId;
         });
 
-        if (filteredQueue.length === originalLength) return false;
+        if (filtered.length === originalLength) return false;
 
-        await Preferences.set({
-            key: OFFLINE_QUEUE_KEY,
-            value: JSON.stringify(filteredQueue),
-        });
-
+        queue.length = 0;
+        queue.push(...filtered);
+        await persistNow(); // destructive op — hit disk immediately
         return true;
     } catch (error) {
         return false;
@@ -291,21 +358,15 @@ export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<bo
  */
 export async function deleteEntryFromOfflineQueue(entryId: string): Promise<boolean> {
     try {
-        const { value } = await Preferences.get({ key: OFFLINE_QUEUE_KEY });
-        if (!value) return false;
-
-        const queue: Partial<ShipLogEntry>[] = JSON.parse(value);
+        const queue = await loadQueue();
         const originalLength = queue.length;
 
-        const filteredQueue = queue.filter((entry) => entry.id !== entryId);
+        const filtered = queue.filter((entry) => entry.id !== entryId);
+        if (filtered.length === originalLength) return false;
 
-        if (filteredQueue.length === originalLength) return false;
-
-        await Preferences.set({
-            key: OFFLINE_QUEUE_KEY,
-            value: JSON.stringify(filteredQueue),
-        });
-
+        queue.length = 0;
+        queue.push(...filtered);
+        await persistNow(); // destructive op — hit disk immediately
         return true;
     } catch (error) {
         return false;
