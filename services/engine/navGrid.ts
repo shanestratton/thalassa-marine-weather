@@ -948,14 +948,38 @@ export function buildNavGrid(
     const navDepth = Math.max(draftM + safetyM, 5.0);
     const NAVLINE_BRUSH_CELLS = 1; // 1-cell Chebyshev radius → ~3-cell (≈150 m) wide corridor
     let navlineCellsMarked = 0;
-    const stampNavlineCell = (cx: number, cy: number): void => {
+    let transitReopened = 0;
+    const stampNavlineCell = (cx: number, cy: number, chartTransit: boolean): void => {
         for (let dy = -NAVLINE_BRUSH_CELLS; dy <= NAVLINE_BRUSH_CELLS; dy++) {
             for (let dx = -NAVLINE_BRUSH_CELLS; dx <= NAVLINE_BRUSH_CELLS; dx++) {
                 const nx = cx + dx;
                 const ny = cy + dy;
                 if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
                 const idx = ny * width + nx;
-                if (hardBlocked[idx] === 1) continue; // never carve real land
+                if (hardBlocked[idx] === 1) {
+                    // OSM/community navigation lines never carve blocked cells
+                    // (the Dart Harbour community-edit lesson). A CHART transit
+                    // (S-57 NAVLNE, acronym-gated — the hydrographer's own
+                    // leading line) resolves the familiar LNDARE-vs-charted-
+                    // water conflict: the 1:90k landmask paints the Tangalooma
+                    // sand bar over the same chart's (0-2 m) band AND its own
+                    // 072.5°/031° dog-leg transit through it — the official
+                    // "line up the leads" approach (IALA pilotage). Land paint
+                    // loses to the transit ONLY where a DEPARE band claims the
+                    // cell; DEPARE-less real land, obstructions/wrecks (no
+                    // landBlocked) and air-draft bridge bars stay shut.
+                    const landConflict =
+                        chartTransit &&
+                        landBlocked[idx] === 1 &&
+                        clearanceBarred[idx] !== 1 &&
+                        !Number.isNaN(depareVerdict[idx]);
+                    if (!landConflict) continue;
+                    hardBlocked[idx] = 0;
+                    landBlocked[idx] = 0;
+                    cells[idx] = CAUTION; // rescued below like any corridor cell
+                    protectedCells[idx] = 1; // Pass 6 must not re-seal the transit
+                    transitReopened++;
+                }
                 preferred[idx] = 1; // attract A* onto the marked channel
                 if (cells[idx] < 0 || cells[idx] === UNKNOWN_OPEN) {
                     // Rescue a shallow-reading (CAUTION) or unknown cell on
@@ -970,6 +994,10 @@ export function buildNavGrid(
     for (const f of navlineFeatures) {
         const g = f.geometry;
         if (!g) continue;
+        // Chart S-57 NAVLNE carries the extractor's acronym; OSM seamark
+        // navigation lines don't. Only the chart transit may reopen land
+        // conflicts above.
+        const chartTransit = (f.properties as { acronym?: string } | null)?.acronym === 'NAVLNE';
         let lineRings: Position[][] = [];
         if (g.type === 'LineString') lineRings = [(g as LineString).coordinates];
         else if (g.type === 'MultiLineString') lineRings = (g as MultiLineString).coordinates;
@@ -983,7 +1011,7 @@ export function buildNavGrid(
                 const gx1 = Math.floor((lon1 - minLon) / dLon);
                 const gy1 = Math.floor((lat1 - minLat) / dLat);
                 for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) {
-                    stampNavlineCell(c.x, c.y);
+                    stampNavlineCell(c.x, c.y, chartTransit);
                 }
             }
         }
@@ -991,7 +1019,7 @@ export function buildNavGrid(
     markPass('pass5b-navline', tPassNavline, navlineFeatures.length);
     if (ENGINE_DEBUG && navlineFeatures.length > 0) {
         console.warn(
-            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred`,
+            `[inshoreEngine] NAVLINE: ${navlineFeatures.length} navigation lines → ${navlineCellsMarked} channel cells rescued/preferred${transitReopened > 0 ? ` (${transitReopened} land-conflict cells reopened by chart transits)` : ''}`,
         );
     }
 
