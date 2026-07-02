@@ -454,6 +454,35 @@ export function useMapInit(opts: UseMapInitOptions) {
                 }
             }
 
+            // ── Satellite base (Shane 2026-07-03: "satellite overlay instead
+            // of the ENC overlay when running a route") ──
+            // Added FIRST after style load so every custom layer (routes,
+            // seamarks, weather, ENC) renders ABOVE it. Deliberately a raster
+            // layer inside the existing style, NOT map.setStyle() — a style
+            // swap destroys every custom source/layer this file builds.
+            // Toggled by visibility (ChartModes "Satellite" row).
+            if (!map.getSource('satellite-base')) {
+                map.addSource('satellite-base', {
+                    type: 'raster',
+                    tiles: [
+                        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                    ],
+                    tileSize: 256,
+                    maxzoom: 19,
+                    attribution: 'Esri, Maxar, Earthstar Geographics',
+                });
+                map.addLayer({
+                    id: 'satellite-base-layer',
+                    type: 'raster',
+                    source: 'satellite-base',
+                    layout: {
+                        // usePersistedState JSON-serialises — the stored value is 'true'.
+                        visibility: localStorage.getItem('thalassa_satellite_base') === 'true' ? 'visible' : 'none',
+                    },
+                    paint: { 'raster-opacity': 1 },
+                });
+            }
+
             // ── MapTiler Ocean Bathymetry Overlay ──
             // Adds high-res bathymetry contours from MapTiler Ocean tiles as a raster overlay.
             // Uses raster XYZ endpoint (plain HTTPS) which works with mapbox-gl v2+.

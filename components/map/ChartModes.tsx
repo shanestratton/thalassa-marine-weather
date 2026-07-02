@@ -142,6 +142,10 @@ interface ChartModesProps {
     mpaVisible?: boolean;
     setMpaVisible?: (v: boolean) => void;
 
+    /** Satellite BASE imagery under everything (routes/marks stay on top). */
+    satelliteVisible?: boolean;
+    setSatelliteVisible?: (v: boolean) => void;
+
     /**
      * If provided, renders a "Plan ENC Route" action row between the
      * Charts Only and Clear All preset rows in the dropdown. The callback
@@ -485,6 +489,50 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 {encLastResult ?? 'Newport → Rivergate demo'}
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && props.setSatelliteVisible && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            props.setSatelliteVisible?.(!props.satelliteVisible);
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.satelliteVisible
+                                                ? 'rgba(52, 211, 153, 0.18)'
+                                                : 'rgba(52, 211, 153, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(52, 211, 153, 0.25)',
+                                        }}
+                                        aria-label="Toggle satellite base imagery"
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#34d399' }}
+                                        >
+                                            <MapIcon className="w-[18px] h-[18px]" />
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#34d399', fontSize: 13 }}
+                                            >
+                                                Satellite {props.satelliteVisible ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                real imagery under your route, marks &amp; weather
                                             </span>
                                         </span>
                                     </button>
