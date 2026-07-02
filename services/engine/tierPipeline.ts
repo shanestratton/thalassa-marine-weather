@@ -719,6 +719,65 @@ function nearestOnLeadingLines(
 }
 
 /**
+ * Cut polylines wherever they cross a low-clearance bar (a fixed bridge this
+ * vessel's air draft cannot make, injected as `_class:'low-clearance'` OBSTRN).
+ * The canal follower / egress splice / assembled-route snap all ride these
+ * lines OFF-GRID — an unsevered centre-line would splice the route under the
+ * bridge no matter what the grid blocks. Segments are sampled every ~8 m so a
+ * long straight canal segment can't step across a ~20 m bar unseen.
+ */
+function severLinesAtClearanceBars<T extends ReadonlyArray<ReadonlyArray<readonly [number, number]>>>(
+    lines: T,
+    layers: InshoreLayers,
+): T {
+    const bars = (layers.OBSTRN?.features ?? []).filter(
+        (f) =>
+            (f.properties as { _class?: string } | null)?._class === 'low-clearance' &&
+            (f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon'),
+    );
+    if (bars.length === 0) return lines as T;
+    const barGeoms = bars.map((f) => {
+        const geom = f.geometry as Polygon | MultiPolygon;
+        return { geom, bbox: geometryBbox(geom) };
+    });
+    const inBar = (lon: number, lat: number): boolean =>
+        barGeoms.some(
+            (b) =>
+                lon >= b.bbox[0] &&
+                lon <= b.bbox[2] &&
+                lat >= b.bbox[1] &&
+                lat <= b.bbox[3] &&
+                pointInGeometry(lon, lat, b.geom),
+        );
+    const segCrossesBar = (a: readonly number[], b: readonly number[]): boolean => {
+        const lenM = haversineM(a[1], a[0], b[1], b[0]);
+        const steps = Math.max(1, Math.ceil(lenM / 8));
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            if (inBar(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)) return true;
+        }
+        return false;
+    };
+    const out: [number, number][][] = [];
+    let cuts = 0;
+    for (const line of lines) {
+        let cur: [number, number][] = [];
+        for (let i = 0; i < line.length; i++) {
+            const p = line[i];
+            if (i > 0 && segCrossesBar(line[i - 1], p)) {
+                if (cur.length >= 2) out.push(cur);
+                cur = [];
+                cuts++;
+            }
+            if (!inBar(p[0], p[1])) cur.push([p[0], p[1]]);
+        }
+        if (cur.length >= 2) out.push(cur);
+    }
+    if (cuts > 0) engineLog.warn(`[airDraft] canal centre-lines severed at ${cuts} low-clearance crossing(s)`);
+    return out as unknown as T;
+}
+
+/**
  * Four-tier contract path — segment the REAL A*
  * route into ordered tier spans, route each by tier, glue with the concat-only
  * Gluer. Tier-1/2 spans re-home onto the canal/channel followers WITHOUT the
@@ -853,7 +912,15 @@ export function applyThreeTier(
     const leadingLines = parseLeadingLines((layers.NAVLINE?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
     // OSM canal centre-lines (layers.CANAL) — the dead-centre route through a canal
     // estate, drawn down the middle of every canal. tier-1 follows these FIRST.
-    const canalLines = parseCanalLines((layers.CANAL?.features ?? []) as Parameters<typeof parseCanalLines>[0]);
+    // SEVERED at low-clearance bars (a fixed bridge this vessel's air draft can't
+    // make, injected as `_class:'low-clearance'` OBSTRN): the canal-follower's
+    // Dijkstra graph, the egress splice and the assembled-route snap all ride
+    // these lines OFF-GRID, so a centreline that still crossed the bridge would
+    // happily splice the route under it no matter what the grid says.
+    const canalLines = severLinesAtClearanceBars(
+        parseCanalLines((layers.CANAL?.features ?? []) as Parameters<typeof parseCanalLines>[0]),
+        layers,
+    );
 
     // ── RECTRC: snap onto the OFFICIAL recommended track FIRST ──
     // Where the chart carries a hydrographer-drawn recommended track, that IS

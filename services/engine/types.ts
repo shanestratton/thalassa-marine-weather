@@ -154,6 +154,10 @@ export interface RouteDebug {
     destinationWaterSnap?: boolean;
     /** True when the final snapped-water arrival leg was re-routed to avoid a hard-land chord. */
     destinationLandBridgeRepaired?: boolean;
+    /** Metres of overland tail trimmed because the destination pin sits on
+     *  charted dry land (suburb-centroid class) — the route ends at the
+     *  water's edge instead of crawling up the bank. */
+    destinationInlandTrimM?: number;
     /** True when the marina-centerline pipeline refined a clean-water route
      *  (mid-channel keel-safe straight legs) instead of plain A*+smoothPath. */
     marinaCenterline?: boolean;
@@ -273,6 +277,9 @@ export interface RouteResult {
      * to the tide-window annotation. Absent on cloud/legacy results.
      */
     shallowRuns?: ShallowRunInfo[];
+    /** Metres of overland tail trimmed off an inland destination pin —
+     *  present only when the trim fired (route ends at the water's edge). */
+    destinationInlandTrimM?: number;
     debug?: RouteDebug;
     /**
      * Per-phase timing in ms. Useful for finding the bottleneck during
@@ -347,10 +354,18 @@ export interface NavGrid {
      * shallow-for-draft DEPARE claimed in Pass 1 — the depth the CAUTION
      * sentinel in `cells` erases. NaN where no shallow DEPARE touched the cell.
      * Routing never reads it; it exists so the tide-window annotation can
-     * compute requiredRiseM = draft + tideSafety − depth per red run
+     * compute requiredRiseM = draft + tideSafety − depth per run
      * (display-only, masterplan Phase 7). Optional for cached-grid back-compat.
      */
     shallowDepthM?: Float32Array;
+    /**
+     * Per-cell low-clearance flag (1 = under a fixed structure — a bridge —
+     * this vessel's air draft cannot make). Impassable ABSOLUTELY: rescue,
+     * relax, and carve passes must never re-open these cells; the component
+     * bridge carve and endpoint carve refuse to tunnel them. Optional for
+     * cached-grid back-compat.
+     */
+    clearanceBarred?: Uint8Array;
     /**
      * Per-cell "INJECTED canal/marina channel water" flag: 1 = the cell was
      * claimed by the nearshore Mapbox vector-water fill we INJECTED for routing

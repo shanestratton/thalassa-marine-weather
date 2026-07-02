@@ -444,6 +444,7 @@ function routeInshoreOnce(
                 const cellLon = grid.minLon + (x + 0.5) * grid.dLon;
                 if (haversineM(cellLat, cellLon, lat, lon) > radiusM) continue;
                 const idx = y * grid.width + x;
+                if (grid.clearanceBarred?.[idx] === 1) continue; // never carve through a low bridge
                 grid.cells[idx] = carveDepth;
                 grid.preferred[idx] = 1; // attract A* to enter via the bubble
             }
@@ -555,22 +556,47 @@ function routeInshoreOnce(
                 const asCaution = bestGap > MAX_BRIDGE_CELLS;
                 const carveDepth = Math.max((req.draftM ?? 1.5) + 1.0, 5.0);
                 const carveValue = asCaution ? CAUTION : carveDepth;
-                for (const c of bresenhamCells(bestSmall.x, bestSmall.y, bestLarge.x, bestLarge.y)) {
-                    if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
-                    const idx = c.y * grid.width + c.x;
-                    // Only fill blocked/unknown/caution cells — never
-                    // downgrade real charted water along the corridor.
-                    if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0 || grid.cells[idx] === UNKNOWN_OPEN) {
-                        grid.cells[idx] = carveValue;
+                // A gap that IS a low-clearance bar (a fixed bridge this
+                // vessel can't make) must never be tunnelled — the carve was
+                // built for thin land slivers, and a blocked bridge line is
+                // exactly the "≤500 m gap" it would otherwise punch through.
+                let crossesClearanceBar = false;
+                // MATERIALISED — bresenhamCells is a generator; iterating it once
+                // for the barred pre-scan would leave the fill loop empty.
+                const carvePath = [...bresenhamCells(bestSmall.x, bestSmall.y, bestLarge.x, bestLarge.y)];
+                if (grid.clearanceBarred) {
+                    for (const c of carvePath) {
+                        if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
+                        if (grid.clearanceBarred[c.y * grid.width + c.x] === 1) {
+                            crossesClearanceBar = true;
+                            break;
+                        }
                     }
                 }
-                if (ENGINE_DEBUG)
+                if (crossesClearanceBar) {
                     engineLog.warn(
-                        `BRIDGE: carved comp ${small}(${smallSize} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m as ${asCaution ? 'CAUTION(red)' : 'navigable'}`,
+                        `[airDraft] component carve REFUSED — the ${Math.round(bestGap * resolutionM)}m gap is a low-clearance structure this vessel cannot pass`,
                     );
-                const relabeled = labelConnectedComponents(grid);
-                labels = relabeled.labels;
-                sizes = relabeled.sizes;
+                    // No carve: the pocket stays its own component and the
+                    // shared-component snap resolves the route honestly.
+                } else {
+                    for (const c of carvePath) {
+                        if (c.x < 0 || c.y < 0 || c.x >= grid.width || c.y >= grid.height) continue;
+                        const idx = c.y * grid.width + c.x;
+                        // Only fill blocked/unknown/caution cells — never
+                        // downgrade real charted water along the corridor.
+                        if (Number.isNaN(grid.cells[idx]) || grid.cells[idx] < 0 || grid.cells[idx] === UNKNOWN_OPEN) {
+                            grid.cells[idx] = carveValue;
+                        }
+                    }
+                    if (ENGINE_DEBUG)
+                        engineLog.warn(
+                            `BRIDGE: carved comp ${small}(${smallSize} cells) → ${large}(${sizes.get(large)} cells) across ${Math.round(bestGap * resolutionM)}m as ${asCaution ? 'CAUTION(red)' : 'navigable'}`,
+                        );
+                    const relabeled = labelConnectedComponents(grid);
+                    labels = relabeled.labels;
+                    sizes = relabeled.sizes;
+                }
             } else {
                 if (ENGINE_DEBUG)
                     engineLog.warn(
@@ -1236,6 +1262,62 @@ function routeInshoreOnce(
         }
     }
 
+    // ── Inland-tail trim: a route may never TERMINATE on charted dry land ──
+    // The relax/carve machinery deliberately makes an inland pin (a suburb
+    // centroid like "Pinkenba") reachable — LNDARE inside a relax zone becomes
+    // 500×-cost CAUTION and drying foreshore rides as red — so the tail crawls
+    // up the bank and the tide chips price a land crossing (+5.1 m, nonsense).
+    // GATED on the destination TAP being on hard land (inside chart LNDARE /
+    // land-blocked): a drying BERTH keeps its tail + tide window because its
+    // pin sits on the drying grid, not on land. When gated in, walk back from
+    // the end dropping every vertex that is not GENUINELY WET:
+    //   wet = carved/injected canal-marina water | marked-channel preferred |
+    //         real charted depth ≥ 0 | charted shallow WATER (DRVAL1 > 0).
+    //   dry = relax-carved LNDARE, drying banks (DRVAL1 ≤ 0), no-evidence cells.
+    // landBlocked can't be the key (relax-carved cells skip it); origin side is
+    // deliberately untouched (berth-start departures ride a visible carve by
+    // design). A trim that would eat >5 km is a data problem to surface, not
+    // geometry to silently chop — left alone.
+    if (destinationTapOnHardLand) {
+        const sd = grid.shallowDepthM;
+        const isWetVertex = (p: readonly [number, number]): boolean => {
+            const { x, y } = latLonToGrid(grid, p[1], p[0]);
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return false;
+            const idx = y * grid.width + x;
+            if (grid.injectedCanal?.[idx] === 1) return true; // carved marina/canal water
+            if (grid.preferred[idx] === 1) return true; // marked channel / fairway
+            const d = grid.cells[idx];
+            if (!Number.isNaN(d) && d >= 0) return true; // real charted depth
+            const s = sd ? sd[idx] : NaN;
+            if (!Number.isNaN(s) && s > 0) return true; // charted shallow WATER (not drying)
+            return false;
+        };
+        let lastWet = finalPolyline.length - 1;
+        while (lastWet > 1 && !isWetVertex(finalPolyline[lastWet])) lastWet--;
+        const dropped = finalPolyline.length - 1 - lastWet;
+        if (dropped > 0) {
+            let trimmedM = 0;
+            for (let i = lastWet; i < finalPolyline.length - 1; i++) {
+                trimmedM += tupleDistM(finalPolyline[i], finalPolyline[i + 1]);
+            }
+            if (trimmedM < 5000) {
+                finalPolyline = finalPolyline.slice(0, lastWet + 1);
+                finalCaution = finalCaution.slice(0, lastWet);
+                finalCanalMask = finalCanalMask.slice(0, lastWet);
+                finalChannelMask = finalChannelMask.slice(0, lastWet);
+                finalOffshoreMask = finalOffshoreMask.slice(0, lastWet);
+                debug.destinationInlandTrimM = Math.round(trimmedM);
+                engineLog.warn(
+                    `[inlandTrim] destination is on charted land — trimmed ${Math.round(trimmedM)} m overland tail (${dropped} vtx); route now ends at the water's edge`,
+                );
+            } else {
+                engineLog.warn(
+                    `[inlandTrim] SKIPPED — overland tail is ${Math.round(trimmedM)} m (>5 km); leaving geometry for diagnosis`,
+                );
+            }
+        }
+    }
+
     // Compute total length in NM along the final polyline.
     let distM = 0;
     for (let i = 1; i < finalPolyline.length; i++) {
@@ -1434,6 +1516,7 @@ function routeInshoreOnce(
         tier4Mask: finalChannelMask,
         offshoreMask: finalOffshoreMask,
         shallowRuns,
+        ...(debug.destinationInlandTrimM ? { destinationInlandTrimM: debug.destinationInlandTrimM } : {}),
         distanceNM: distM / 1852,
         gridSize: { width: grid.width, height: grid.height },
         bbox,

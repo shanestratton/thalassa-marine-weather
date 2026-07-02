@@ -11,7 +11,7 @@ import { withTimeout } from '../utils/deadline';
 import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
-import { vesselDraftMetres } from '../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres } from '../services/units';
 
 export const LOADING_PHASES = [
     'Reading the charts…',
@@ -469,7 +469,12 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
                         // into the existing failure branch → amber
                         // "Inshore Routing Skipped" accordion.
                         const inshoreRes = await withTimeout(
-                            tryInshoreRoute(result.originCoordinates, result.destinationCoordinates, draftMeters),
+                            tryInshoreRoute(
+                                result.originCoordinates,
+                                result.destinationCoordinates,
+                                draftMeters,
+                                vesselAirDraftMetres(vessel),
+                            ),
                             {
                                 error: 'Inshore routing timed out — a chart-data download may have stalled on this connection.',
                                 code: 'timeout',

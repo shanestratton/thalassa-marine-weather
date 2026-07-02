@@ -19,6 +19,9 @@
 import { useEffect, useRef, type MutableRefObject } from 'react';
 import mapboxgl from 'mapbox-gl';
 import { loadLocalNotices, type LocalNotice } from '../../services/localNotices';
+import { loadLowBridges, type LowBridge } from '../../services/lowBridges';
+import { vesselAirDraftMetres } from '../../services/units';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { NoticeToMarinersService, type Notice } from '../../services/NoticeToMarinersService';
 import { createLogger } from '../../utils/createLogger';
 
@@ -59,6 +62,39 @@ function localPopupHtml(n: LocalNotice): string {
         <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">${esc(n.summary)}</div>
         <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">${esc(n.detail)}</div>
         ${src ? `<div style="font-size:11px;">${src}</div>` : ''}
+      </div>`;
+}
+
+function bridgeEl(passable: boolean): HTMLDivElement {
+    const el = document.createElement('div');
+    el.textContent = '🌉';
+    Object.assign(el.style, {
+        fontSize: '14px',
+        lineHeight: '1',
+        padding: '2px 4px',
+        background: 'rgba(15, 23, 42, 0.85)',
+        border: `1px solid ${passable ? 'rgba(148, 163, 184, 0.4)' : 'rgba(239, 68, 68, 0.6)'}`,
+        borderRadius: '6px',
+        cursor: 'pointer',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.45)',
+    } satisfies Partial<CSSStyleDeclaration>);
+    return el;
+}
+
+function bridgePopupHtml(b: LowBridge, airDraftM: number | null): string {
+    const blocked = airDraftM !== null && airDraftM > b.clearanceM;
+    const verdict =
+        airDraftM === null
+            ? '<span style="color:#94a3b8;">Set your air draft in Vessel settings for clearance checks.</span>'
+            : blocked
+              ? `<span style="color:#f87171;font-weight:700;">IMPASSABLE for your ${airDraftM.toFixed(1)} m air draft — routes are blocked here.</span>`
+              : `<span style="color:#4ade80;">Clears your ${airDraftM.toFixed(1)} m air draft.</span>`;
+    return `
+      <div style="font-family:inherit;color:#e2e8f0;max-width:240px;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#94a3b8;margin-bottom:2px;">🌉 FIXED BRIDGE</div>
+        <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(b.name)}</div>
+        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">Vertical clearance ${b.clearanceM.toFixed(1)} m${b.estimated ? ' (estimated — verify locally)' : ''}</div>
+        <div style="font-size:11px;">${verdict}</div>
       </div>`;
 }
 
@@ -108,6 +144,24 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
                 );
             }
             if (notices.length > 0) log.warn(`[ntm-local] ${notices.length} chart icon(s) placed`);
+        });
+
+        // ── Curated low bridges — 🌉 with clearance-vs-air-draft verdict ──
+        void loadLowBridges().then((bridges) => {
+            if (disposed) return;
+            const airDraftM = vesselAirDraftMetres(useSettingsStore.getState().settings.vessel);
+            for (const b of bridges) {
+                const mid = b.span[Math.floor(b.span.length / 2)];
+                const passable = airDraftM === null || airDraftM <= b.clearanceM;
+                const el = bridgeEl(passable);
+                el.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    popupAt(mid[0], mid[1], bridgePopupHtml(b, airDraftM));
+                });
+                localMarkersRef.current.push(
+                    new mapboxgl.Marker({ element: el, anchor: 'center' }).setLngLat([mid[0], mid[1]]).addTo(map),
+                );
+            }
         });
 
         // ── Broadcast warnings — viewport-scoped, cached-first ──
