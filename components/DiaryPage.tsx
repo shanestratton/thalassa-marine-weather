@@ -213,7 +213,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         },
         [updateSettings],
     );
-    const deletedIdRef = useRef<string | null>(null);
+    // Ids whose delete hasn't been committed to DiaryService yet (undo window
+    // open, or commit in flight). A Set because a second swipe-delete can start
+    // while the first is still pending — both must be guarded from the poll.
+    const pendingDeleteIdsRef = useRef<Set<string>>(new Set());
     const menuRef = useRef<HTMLDivElement>(null);
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
@@ -269,17 +272,25 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
     // ── Load entries ───────────────────────────────────────────
     const refreshEntries = useCallback(() => {
         DiaryService.getEntries(100).then((data) => {
-            // Filter out the entry pending soft-delete (undo window still open)
-            const pendingId = deletedIdRef.current;
-            const fresh = pendingId ? data.filter((e) => e.id !== pendingId) : data;
+            // Filter out entries pending soft-delete (undo window still open)
+            const pendingIds = pendingDeleteIdsRef.current;
+            const fresh = pendingIds.size > 0 ? data.filter((e) => !pendingIds.has(e.id)) : data;
             // MERGE with existing state instead of replacing.
             // Any offline-created entries already in React state are preserved
             // even if getEntries() doesn't return them (e.g. localStorage quota
             // overflow prevented them from being saved to the pending queue).
             setEntries((prev) => {
                 const freshIds = new Set(fresh.map((e) => e.id));
-                // Keep entries from prev that are offline-created and NOT in the fresh data
-                const preservedFromPrev = prev.filter((e) => e.id.startsWith('offline-') && !freshIds.has(e.id));
+                // Keep entries from prev that are offline-created and NOT in the
+                // fresh data — unless they already synced and the fresh data has
+                // them under their server id (a stale offline copy shadowing its
+                // twin would render as a duplicate and swipe-delete the wrong id).
+                const preservedFromPrev = prev.filter(
+                    (e) =>
+                        e.id.startsWith('offline-') &&
+                        !freshIds.has(e.id) &&
+                        !freshIds.has(DiaryService.resolveServerId(e.id) ?? ''),
+                );
                 // Merge: fresh data + preserved offline entries, sorted by date
                 return [...fresh, ...preservedFromPrev].sort(
                     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
@@ -604,53 +615,75 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
         // and cause entries to vanish when offline or on slow connections.
     };
     // ── Delete (soft-delete with undo) ─────────────────────────
+    // Commits the delete to DiaryService once the undo window closes.
+    // deleteEntry commits locally (tombstone) and always returns true — even
+    // offline. No restore-on-failure here: a throw would be pathological, and
+    // resurrecting the item in React state would only create a ghost that the
+    // (already-committed) tombstone filters out on the next poll.
+    const commitDelete = useCallback(async (item: DiaryEntry) => {
+        try {
+            await DiaryService.deleteEntry(item.id);
+        } catch (e) {
+            log.warn('delete failed:', e);
+        }
+        // Clear pending-delete guard once the commit settles
+        pendingDeleteIdsRef.current.delete(item.id);
+    }, []);
     const handleDelete = (id: string) => {
         const item = entries.find((e) => e.id === id);
         if (!item) return;
         triggerHaptic('medium');
+        // A second delete while the first's undo window is open: commit the
+        // first immediately so it isn't orphaned when deletedItem is replaced.
+        if (deletedItem && deletedItem.id !== id) void commitDelete(deletedItem);
         // Track pending-delete so refreshEntries won't bring it back
-        deletedIdRef.current = id;
+        pendingDeleteIdsRef.current.add(id);
         // Remove from UI immediately
         setEntries((prev) => prev.filter((e) => e.id !== id));
         setSelectedEntry(null);
         setDeletedItem(item);
     };
-    // Called by UndoToast after 5s — performs the actual API delete
+    // Called by UndoToast after 5s — performs the actual delete
     const handleDismissDelete = async () => {
         if (!deletedItem) return;
         const item = deletedItem;
         setDeletedItem(null);
-        try {
-            const ok = await DiaryService.deleteEntry(item.id);
-            if (!ok) {
-                // Delete returned false (e.g. Supabase not ready) — retry once
-                log.warn('Delete returned false, retrying...');
-                const retry = await DiaryService.deleteEntry(item.id);
-                if (!retry) {
-                    log.warn('Delete retry failed, restoring entry');
-                    toast.error('Failed to delete — try again');
-                    setEntries((prev) => [...prev, item]);
-                    deletedIdRef.current = null;
-                    return;
-                }
-            }
-        } catch (e) {
-            log.warn(' delete failed:', e);
-            toast.error('Failed to delete entry');
-            // Restore on failure
-            setEntries((prev) => [...prev, item]);
-        }
-        // Clear pending-delete ref after successful delete
-        deletedIdRef.current = null;
+        await commitDelete(item);
     };
     const handleUndoDelete = () => {
         if (deletedItem) {
             setEntries((prev) => [...prev, deletedItem]);
             toast.success('Entry restored');
+            pendingDeleteIdsRef.current.delete(deletedItem.id);
         }
         setDeletedItem(null);
-        deletedIdRef.current = null;
     };
+    // The undo toast's 5s timer dies if the page unmounts or the app is
+    // backgrounded (WKWebView suspends timers) — the delete would silently
+    // never be issued and the entry would resurrect on the next poll. Flush
+    // any pending delete the moment we lose the foreground.
+    const deletedItemRef = useRef<DiaryEntry | null>(null);
+    deletedItemRef.current = deletedItem;
+    useEffect(() => {
+        const flush = () => {
+            const item = deletedItemRef.current;
+            if (!item) return;
+            deletedItemRef.current = null;
+            setDeletedItem(null);
+            void commitDelete(item);
+        };
+        const onVisibility = () => {
+            if (document.hidden) flush();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        window.addEventListener('pagehide', flush);
+        return () => {
+            document.removeEventListener('visibilitychange', onVisibility);
+            window.removeEventListener('pagehide', flush);
+            flush(); // unmount — e.g. user navigated to another page mid-window
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [commitDelete]);
     // ── Grouped entries ────────────────────────────────────────
     const grouped = useMemo(() => groupByDate(entries), [entries]);
     // ── PDF Export ───────────────────────────────────────────────
@@ -953,6 +986,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
             </div>
             {/* Undo toast (timeline view) */}
             <UndoToast
+                // Keyed by the item so a second delete during the first's undo
+                // window remounts the toast — fresh 5s timer + progress bar
+                // instead of inheriting the first delete's leftover countdown.
+                key={deletedItem?.id ?? 'closed'}
                 isOpen={!!deletedItem}
                 message={`"${deletedItem?.title}" deleted`}
                 onUndo={handleUndoDelete}

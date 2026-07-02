@@ -75,12 +75,42 @@ const PHOTO_BUCKET = 'diary-photos';
 const AUDIO_BUCKET = 'diary-audio';
 const CACHE_KEY = 'thalassa_diary_entries_v2';
 const PENDING_KEY = 'thalassa_diary_pending_v2';
+const DELETED_KEY = 'thalassa_diary_deleted_v1';
+const IDMAP_KEY = 'thalassa_diary_idmap_v1';
+const IDMAP_MAX = 300;
 const MAX_PHOTO_SIZE = 1200;
+// Tombstones older than this are abandoned — long enough for any realistic
+// offline stretch, short enough that a failed server delete can't haunt the
+// store forever.
+const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// After a tombstone drains, keep filtering its id from reads for a grace
+// window: a server refresh that was already in flight when the drain landed
+// carries a pre-delete payload, and the tombstone that would have filtered
+// it is gone by the time that payload is merged.
+const RECENT_DRAIN_GRACE_MS = 5 * 60 * 1000;
+
+/**
+ * A locally-committed delete awaiting server confirmation. `photos`/`audio`
+ * snapshot the entry's storage URLs at delete time so the drain can clean
+ * the buckets even after the entry is gone from every local cache.
+ */
+interface DiaryTombstone {
+    id: string;
+    photos: string[];
+    audio?: string | null;
+    deletedAt: number;
+}
 
 // ── Service ────────────────────────────────────────────────────
 
 class DiaryServiceClass {
     private _syncInProgress = false;
+    private _drainInProgress = false;
+    // Quota-fallback tombstones: when localStorage rejects the write, the
+    // delete is still honoured for this session (and drainable) via memory.
+    private _memTombstones: DiaryTombstone[] = [];
+    // Ids whose tombstone drained recently — see RECENT_DRAIN_GRACE_MS.
+    private _recentlyDrained = new Map<string, number>();
     // In-flight sync promise — lets callers (e.g. setEntryPublished) await an
     // already-running sync instead of racing past it.
     private _syncPromise: Promise<void> | null = null;
@@ -99,14 +129,21 @@ class DiaryServiceClass {
     constructor() {
         // Auto-sync when connectivity resumes
         if (typeof window !== 'undefined') {
-            window.addEventListener('online', () => this.syncPending());
+            window.addEventListener('online', () => {
+                this.syncPending();
+                this.drainDeletedTombstones();
+            });
             // Attempt sync on init
-            setTimeout(() => this.syncPending(), 5000);
-            // Periodic retry every 30s — catches stuck pending entries
-            // (navigator.onLine is unreliable on iOS/Capacitor)
+            setTimeout(() => {
+                this.syncPending();
+                this.drainDeletedTombstones();
+            }, 5000);
+            // Periodic retry every 30s — catches stuck pending entries and
+            // undrained deletes (navigator.onLine is unreliable on iOS/Capacitor)
             setInterval(() => {
-                // Only probe network if there are actually pending entries
+                // Only probe network if there is actually work queued
                 if (this._getPendingEntries().length > 0) this.syncPending();
+                if (this._getTombstones().length > 0) this.drainDeletedTombstones();
             }, 30_000);
         }
     }
@@ -126,11 +163,14 @@ class DiaryServiceClass {
         // Combine: pending first, then recently-synced, then cached (deduped)
         // This closes the gap where an entry has exited pending (sync succeeded)
         // but hasn't yet appeared in the cache (server refresh pending).
+        // Tombstoned ids are locally-committed deletes awaiting server drain —
+        // they must never surface, whichever source still holds a copy.
+        const deletedIds = this._tombstonedIdSet();
         const seenIds = new Set<string>();
         const allSources = [...pending, ...recentlySyncedEntries, ...cached];
         const deduped: DiaryEntry[] = [];
         for (const e of allSources) {
-            if (!seenIds.has(e.id)) {
+            if (!seenIds.has(e.id) && !deletedIds.has(e.id) && !this._isRecentlyDrained(e.id)) {
                 seenIds.add(e.id);
                 deduped.push(e);
             }
@@ -151,6 +191,9 @@ class DiaryServiceClass {
     }
 
     async getEntry(id: string): Promise<DiaryEntry | null> {
+        // Deleted locally — gone, even if the server row still exists.
+        if (this._tombstonedIdSet().has(id) || this._isRecentlyDrained(id)) return null;
+
         // Check pending first
         const pending = this._getPendingEntries();
         const pendingMatch = pending.find((e) => e.id === id);
@@ -310,10 +353,17 @@ class DiaryServiceClass {
         return !error;
     }
 
-    // ── Delete ─────────────────────────────────────────────────
+    // ── Delete (offline-first) ─────────────────────────────────
+    //
+    // Deletes commit LOCALLY first — tombstone written, every local source
+    // scrubbed — and return true immediately. The server delete is pushed
+    // best-effort now and drained by drainDeletedTombstones() on the online
+    // event / 30s timer when it fails. Creates have been offline-first since
+    // day one; deletes used to hard-require the network, which made entries
+    // undeletable (and self-resurrecting) on the water.
 
     async deleteEntry(id: string): Promise<boolean> {
-        // Delete from pending if offline entry
+        // Offline-created entry — remove from the pending queue before it syncs.
         if (id.startsWith('offline-')) {
             const pending = this._getPendingEntries();
             const entry = pending.find((e) => e.id === id);
@@ -331,23 +381,118 @@ class DiaryServiceClass {
                 }
             }
             this._savePending(pending.filter((e) => e.id !== id));
+
+            // Tombstone the offline id too: an in-flight syncPending() may have
+            // snapshotted the queue BEFORE the filter above, in which case it
+            // will still insert this entry. The post-insert tombstone check in
+            // syncPending catches that and deletes the fresh server row.
+            this._addTombstone(id, []);
+
+            // Already synced? Then the pending filter was a no-op and the entry
+            // lives on the server under a real id — commit a delete for that too.
+            const synced = this._recentlySynced.find((r) => r.offlineId === id);
+            if (synced) {
+                this._recentlySynced = this._recentlySynced.filter((r) => r.offlineId !== id);
+                return this._commitLocalDelete(synced.entry.id, synced.entry.photos ?? [], synced.entry.audio_url);
+            }
+            // Synced longer ago (the 120s buffer purged, or the app relaunched):
+            // the durable id-map still knows the server twin.
+            const mappedId = this.resolveServerId(id);
+            if (mappedId) {
+                const twin = this._getCachedEntries().find((e) => e.id === mappedId) ?? null;
+                return this._commitLocalDelete(mappedId, twin?.photos ?? [], twin?.audio_url);
+            }
             return true;
         }
 
-        if (!supabase) return false;
+        // Server entry — snapshot storage URLs from local sources only (never
+        // the network: the whole point is that this must succeed offline).
+        const local =
+            this._getCachedEntries().find((e) => e.id === id) ??
+            this._recentlySynced.find((r) => r.entry.id === id)?.entry ??
+            null;
+        return this._commitLocalDelete(id, local?.photos ?? [], local?.audio_url);
+    }
 
-        // Delete photos from storage
-        const entry = await this.getEntry(id);
-        if (entry?.photos?.length) {
-            for (const url of entry.photos) {
-                const path = this._extractStoragePath(url);
-                if (path) await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+    /** Tombstone + scrub local caches, then push to the server best-effort. */
+    private _commitLocalDelete(id: string, photos: string[], audio?: string | null): boolean {
+        this._addTombstone(id, photos, audio);
+        this._saveCachedEntries(this._getCachedEntries().filter((e) => e.id !== id));
+        this._recentlySynced = this._recentlySynced.filter((r) => r.entry.id !== id);
+        void this.drainDeletedTombstones();
+        return true;
+    }
+
+    /**
+     * Push locally-committed deletes to the server. Serialised; safe to call
+     * opportunistically (init, online event, 30s timer, after each delete).
+     */
+    async drainDeletedTombstones(): Promise<void> {
+        if (this._drainInProgress) return;
+        if (!supabase) return;
+        const tombs = this._getTombstones();
+        if (tombs.length === 0) return;
+        this._drainInProgress = true;
+        let drained = 0;
+        try {
+            for (const t of tombs) {
+                // offline- tombstones never reached the server under that id;
+                // their only job is the mid-flight check in syncPending. They
+                // expire via TTL.
+                if (t.id.startsWith('offline-')) continue;
+                const ok = await this._deleteOnServer(t.id, t.photos, t.audio);
+                if (ok) {
+                    this._removeTombstone(t.id);
+                    // Grace filter: a pre-delete server payload may still be in
+                    // flight, and the tombstone that would have caught it is gone.
+                    this._recentlyDrained.set(t.id, Date.now());
+                    drained++;
+                }
             }
+        } finally {
+            this._drainInProgress = false;
         }
+        if (drained > 0) this._refreshFromServer(50);
+    }
 
-        const { error } = await supabase.from(TABLE).delete().eq('id', id);
-        if (!error) this._refreshFromServer(50);
-        return !error;
+    /** Server-side row + storage removal. False = retry on next drain. */
+    private async _deleteOnServer(id: string, photos: string[], audio?: string | null): Promise<boolean> {
+        if (!supabase) return false;
+        try {
+            let photoUrls = photos;
+            let audioUrl = audio ?? null;
+            if (photoUrls.length === 0 && !audioUrl) {
+                // Delete committed without a local snapshot — ask the server
+                // BEFORE the row goes, so bucket objects don't orphan.
+                const { data } = await supabase.from(TABLE).select('photos, audio_url').eq('id', id).maybeSingle();
+                photoUrls = (data?.photos as string[] | null) ?? [];
+                audioUrl = (data?.audio_url as string | null) ?? null;
+            }
+            // Row FIRST: if this fails, nothing has been destroyed and the
+            // whole tombstone retries. (Storage-first + a persistently-failing
+            // row delete + TTL expiry would resurrect the entry with dead
+            // photo URLs.)
+            const { error } = await supabase.from(TABLE).delete().eq('id', id);
+            if (error) {
+                log.warn('Server delete failed — will retry on next drain:', error.message);
+                return false;
+            }
+            // Row is gone — storage cleanup is best-effort from here.
+            try {
+                for (const url of photoUrls) {
+                    const path = this._extractStoragePath(url, PHOTO_BUCKET);
+                    if (path) await supabase.storage.from(PHOTO_BUCKET).remove([path]);
+                }
+                const audioPath = audioUrl ? this._extractStoragePath(audioUrl, AUDIO_BUCKET) : null;
+                if (audioPath) await supabase.storage.from(AUDIO_BUCKET).remove([audioPath]);
+            } catch (e) {
+                log.warn('Storage cleanup after delete failed (objects orphaned):', e);
+            }
+            return true;
+        } catch (e) {
+            log.warn('Server delete failed — will retry on next drain:', e);
+            return false;
+        }
     }
 
     // ── Photos ─────────────────────────────────────────────────
@@ -663,6 +808,24 @@ class DiaryServiceClass {
                         // Remove this entry from pending immediately (crash-safe)
                         const remaining = this._getPendingEntries().filter((e) => e.id !== entry.id);
                         this._savePending(remaining);
+
+                        // Durable offline→server mapping: lets a much-later
+                        // delete aimed at the stale offline- id still find the
+                        // server row (the _recentlySynced buffer only lives 120s).
+                        this._recordIdMapping(entry.id, (data as DiaryEntry).id);
+
+                        // Deleted while this sync was in flight? The user killed
+                        // it after we snapshotted the queue — honour the delete
+                        // instead of resurrecting it under its new server id.
+                        if (this._tombstonedIdSet().has(entry.id)) {
+                            const serverRow = data as DiaryEntry;
+                            this._addTombstone(serverRow.id, serverRow.photos ?? [], serverRow.audio_url);
+                            this._removeTombstone(entry.id);
+                            this._recentlyDrained.set(entry.id, Date.now());
+                            void this.drainDeletedTombstones();
+                            continue;
+                        }
+
                         // Keep the server-returned entry in a short-lived buffer so it
                         // survives the gap between pending removal and server cache refresh
                         this._recentlySynced.push({
@@ -745,6 +908,123 @@ class DiaryServiceClass {
             localStorage.setItem(CACHE_KEY, JSON.stringify(entries));
         } catch (e) {
             log.warn('Cache write failed:', e);
+        }
+    }
+
+    // ── Tombstone store ────────────────────────────────────────
+
+    private _getTombstones(): DiaryTombstone[] {
+        const now = Date.now();
+        const persisted: DiaryTombstone[] = [];
+        try {
+            const raw = localStorage.getItem(DELETED_KEY);
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            if (Array.isArray(parsed)) {
+                for (const t of parsed) {
+                    if (!t || typeof t !== 'object') continue;
+                    const rec = t as Partial<DiaryTombstone>;
+                    if (typeof rec.id !== 'string') continue;
+                    const deletedAt = typeof rec.deletedAt === 'number' ? rec.deletedAt : 0;
+                    if (now - deletedAt >= TOMBSTONE_TTL_MS) continue;
+                    persisted.push({
+                        id: rec.id,
+                        photos: Array.isArray(rec.photos) ? rec.photos.filter((p) => typeof p === 'string') : [],
+                        audio: typeof rec.audio === 'string' ? rec.audio : null,
+                        deletedAt,
+                    });
+                }
+                if (persisted.length !== parsed.length) this._saveTombstones(persisted);
+            }
+        } catch (e) {
+            log.warn('Tombstone read failed:', e);
+        }
+        // Merge quota-fallback tombstones that never made it to disk.
+        this._memTombstones = this._memTombstones.filter((t) => now - t.deletedAt < TOMBSTONE_TTL_MS);
+        if (this._memTombstones.length === 0) return persisted;
+        const persistedIds = new Set(persisted.map((t) => t.id));
+        return [...persisted, ...this._memTombstones.filter((t) => !persistedIds.has(t.id))];
+    }
+
+    /** True if the write actually landed — quota failures return false. */
+    private _saveTombstones(tombs: DiaryTombstone[]): boolean {
+        try {
+            localStorage.setItem(DELETED_KEY, JSON.stringify(tombs));
+            return true;
+        } catch (e) {
+            log.warn('Tombstone write failed:', e);
+            return false;
+        }
+    }
+
+    private _addTombstone(id: string, photos: string[], audio?: string | null): void {
+        const tomb: DiaryTombstone = { id, photos, audio: audio ?? null, deletedAt: Date.now() };
+        const all = this._getTombstones().filter((t) => t.id !== id);
+        all.push(tomb);
+        if (this._saveTombstones(all)) {
+            // Everything (including any earlier quota-fallback records merged
+            // in by _getTombstones) is on disk now.
+            this._memTombstones = [];
+        } else {
+            // Quota-degraded: the delete stays honoured for this session, and
+            // drainable, via memory. Lost on relaunch — best effort.
+            this._memTombstones = this._memTombstones.filter((t) => t.id !== id);
+            this._memTombstones.push(tomb);
+        }
+    }
+
+    private _removeTombstone(id: string): void {
+        this._memTombstones = this._memTombstones.filter((t) => t.id !== id);
+        this._saveTombstones(this._getTombstones().filter((t) => t.id !== id));
+    }
+
+    private _tombstonedIdSet(): Set<string> {
+        return new Set(this._getTombstones().map((t) => t.id));
+    }
+
+    /** Drained-tombstone grace filter — see RECENT_DRAIN_GRACE_MS. */
+    private _isRecentlyDrained(id: string): boolean {
+        const at = this._recentlyDrained.get(id);
+        if (at === undefined) return false;
+        if (Date.now() - at > RECENT_DRAIN_GRACE_MS) {
+            this._recentlyDrained.delete(id);
+            return false;
+        }
+        return true;
+    }
+
+    // ── Offline→server id map ──────────────────────────────────
+    // Written at sync time; lets a delete aimed at a STALE offline- id (the
+    // 120s _recentlySynced buffer long gone, or the app relaunched) still
+    // find and kill the entry's real server row.
+
+    private _recordIdMapping(offlineId: string, serverId: string): void {
+        try {
+            const raw = localStorage.getItem(IDMAP_KEY);
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            const list = Array.isArray(parsed)
+                ? (parsed.filter((p) => Array.isArray(p) && typeof p[0] === 'string' && typeof p[1] === 'string') as [
+                      string,
+                      string,
+                  ][])
+                : [];
+            const next = list.filter(([o]) => o !== offlineId);
+            next.push([offlineId, serverId]);
+            localStorage.setItem(IDMAP_KEY, JSON.stringify(next.slice(-IDMAP_MAX)));
+        } catch (e) {
+            log.warn('Id-map write failed:', e);
+        }
+    }
+
+    /** Server id an offline- entry synced as, if known. Public: DiaryPage uses it to spot shadowed offline copies. */
+    resolveServerId(offlineId: string): string | null {
+        try {
+            const raw = localStorage.getItem(IDMAP_KEY);
+            const parsed: unknown = raw ? JSON.parse(raw) : [];
+            if (!Array.isArray(parsed)) return null;
+            const hit = parsed.find((p) => Array.isArray(p) && p[0] === offlineId);
+            return hit && typeof hit[1] === 'string' ? hit[1] : null;
+        } catch {
+            return null;
         }
     }
 
@@ -913,9 +1193,13 @@ class DiaryServiceClass {
                 const pendingNotOnServer = pending.filter((e) => !serverIds.has(e.id));
                 const recentNotOnServer = this._recentlySynced.map((r) => r.entry).filter((e) => !serverIds.has(e.id));
 
-                const merged = [...pendingNotOnServer, ...recentNotOnServer, ...(data as DiaryEntry[])].sort(
-                    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-                );
+                // Locally-deleted entries whose server delete hasn't drained yet
+                // still come back in the server payload — keep them out of the
+                // cache or the delete appears to "undo" itself.
+                const deletedIds = this._tombstonedIdSet();
+                const merged = [...pendingNotOnServer, ...recentNotOnServer, ...(data as DiaryEntry[])]
+                    .filter((e) => !deletedIds.has(e.id) && !this._isRecentlyDrained(e.id))
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
                 this._saveCachedEntries(merged);
             }
         } catch (e) {
@@ -950,9 +1234,9 @@ class DiaryServiceClass {
         });
     }
 
-    private _extractStoragePath(url: string): string | null {
+    private _extractStoragePath(url: string, bucket: string): string | null {
         try {
-            const match = url.match(/diary-photos\/(.+)$/);
+            const match = url.match(new RegExp(`${bucket}/(.+)$`));
             return match ? match[1] : null;
         } catch (e) {
             log.warn('Storage path extraction failed:', e);
