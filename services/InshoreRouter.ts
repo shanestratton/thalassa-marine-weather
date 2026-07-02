@@ -323,6 +323,10 @@ export async function tryInshoreRoute(
      *  clearance gating. Callers convert via vesselAirDraftMetres() —
      *  vessel.airDraft is stored in FEET. */
     airDraftM: number | null = null,
+    /** Route profile — 'tideAssist' is the EXPLICIT shortest-with-the-tide
+     *  option (recoverable ≤1.8 m-rise caution at 10×, windows chipped);
+     *  'safest' (default) never lets tide change preference. */
+    routeProfile: 'safest' | 'tideAssist' = 'safest',
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
@@ -334,7 +338,7 @@ export async function tryInshoreRoute(
 
     // Dedupe check — quantise to 4 decimal places (~11 m precision)
     // so tiny float jitter between callers still hits the same key.
-    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}`;
+    const dedupeKey = `${origin.lat.toFixed(4)}_${origin.lon.toFixed(4)}_${destination.lat.toFixed(4)}_${destination.lon.toFixed(4)}_${draftM}_${airDraftM ?? 'na'}_${routeProfile}`;
     const inflight = inflightRouteRequests.get(dedupeKey);
     if (inflight) {
         log.warn(`DEDUPE: another call for the same route is already running — returning its promise`);
@@ -350,7 +354,7 @@ export async function tryInshoreRoute(
     // returns a skipper-readable failure instead of an opaque throw.
     const INSHORE_WATCHDOG_MS = 85_000;
     const promise = withDeadline(
-        tryInshoreRouteInner(origin, destination, draftM, airDraftM),
+        tryInshoreRouteInner(origin, destination, draftM, airDraftM, routeProfile),
         INSHORE_WATCHDOG_MS,
         'inshore route',
     )
@@ -398,6 +402,7 @@ async function tryInshoreRouteInner(
     destination: InshoreOrigin,
     draftM: number,
     airDraftM: number | null = null,
+    routeProfile: 'safest' | 'tideAssist' = 'safest',
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {
@@ -1308,6 +1313,10 @@ async function tryInshoreRouteInner(
         // with 'uncharted-corridor' (reply 16 structural fix; the engine
         // default stays permissive for fixtures/harbour-corridor callers).
         unchartedPolicy: 'strict',
+        // 'tideAssist' = the user's EXPLICIT shortest option (PassageBanner
+        // chip): recoverable caution (wet at LAT, rise ≤ 1.8 m) prices 10×
+        // and ships with tide-window chips. Part of the grid cache key.
+        routeProfile,
     } as const;
 
     // ── Cloud-first: try Pi-cache before falling back to on-device ──
