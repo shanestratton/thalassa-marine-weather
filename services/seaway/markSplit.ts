@@ -31,12 +31,14 @@ export function splitMarkFeatures(features: PointFeatureLike[]): {
         const [lon, lat] = g.coordinates;
         const props = f.properties ?? {};
         const cat = props.CATLAM;
-        if (cat !== 1 && cat !== 2) continue;
+        // 1/2 = plain laterals; 3/4 = preferred-channel modified laterals, folded onto
+        // their treat-as side (3 → port-hand, 4 → stbd-hand; identical in IALA A and B).
+        if (cat !== 1 && cat !== 2 && cat !== 3 && cat !== 4) continue;
         const name = typeof props.OBJNAM === 'string' ? props.OBJNAM : '';
         if (NUMBERED.test(name)) {
             chartFeatures.push(f); // tier 1 — sequence-adjacency pairing
         } else {
-            unnumberedMarks.push({ lat, lon, side: cat === 1 ? 'port' : 'stbd' }); // tier 3
+            unnumberedMarks.push({ lat, lon, side: cat === 1 || cat === 3 ? 'port' : 'stbd' }); // tier 3
         }
     }
     return { chartFeatures, unnumberedMarks };

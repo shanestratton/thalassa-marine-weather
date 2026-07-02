@@ -39,15 +39,20 @@ export interface CardinalDisc {
 }
 
 /**
- * A solo IALA-A lateral mark fed to the same clamp. Side is from CATLAM (1 = port/red,
- * 2 = stbd/green). Unlike a cardinal, a lateral's safe side is TRAVEL-relative (it depends on the
- * direction of buoyage), so its safe vector is resolved from the route's local tangent at the
- * closest approach — see `applyDetour`.
+ * A solo lateral mark fed to the same clamp. Side is the CATLAM treat-as side (port-hand /
+ * stbd-hand — identical semantics in IALA regions A and B). A lateral's safe side depends on the
+ * direction of buoyage: when the caller can derive that direction (the IALA numbering convention —
+ * seq ascends FROM seaward — gives it through the mark's channel neighbours), it passes the
+ * ABSOLUTE safe vector in `safeVec`, which holds for both inbound AND outbound legs. Without it,
+ * the clamp falls back to the route's local travel tangent at the closest approach — correct only
+ * when the boat runs WITH the buoyage direction (see `applyDetour`).
  */
 export interface LateralClampMark {
     lat: number;
     lon: number;
     side: 'port' | 'stbd';
+    /** Absolute safe-side unit vector (east, north), from the derived direction of buoyage. */
+    safeVec?: readonly [number, number];
 }
 
 // Safe-side unit vectors in (east, north) metres. Mirrors SAFE_ANGLE in InshoreRouter.ts.
@@ -230,7 +235,7 @@ export function clampRouteToCardinalSafeSide(
         );
     const lateralMarks: MarkSafe[] = laterals
         .filter(isSolo)
-        .map((m) => ({ lat: m.lat, lon: m.lon, kind: 'lateral', safeVec: null, side: m.side }));
+        .map((m) => ({ lat: m.lat, lon: m.lon, kind: 'lateral', safeVec: m.safeVec ?? null, side: m.side }));
     const marks: MarkSafe[] = [...cardinalMarks, ...lateralMarks];
     // GUARD 1 — byte-identical no-op when there are no marks at all.
     if (marks.length === 0) {
@@ -313,12 +318,14 @@ export function clampRouteToCardinalSafeSide(
         }
         const band = isLateral ? LATERAL_BAND_M : CLAMP_BAND_M;
         if (best > band) return 'safe'; // route doesn't come near this mark
-        // Safe-side unit vector. Cardinal: fixed quadrant. Lateral: TRAVEL-relative — the safe side
-        // is RIGHT of travel for a red (port-hand) mark and LEFT for a green (stbd) mark, the IALA-A
-        // rule when the boat runs WITH the direction of buoyage (inbound / upstream — the documented
-        // scope). The tangent is taken from the closest-approach segment of the CURRENT route.
+        // Safe-side unit vector. Cardinal: fixed quadrant. Lateral with a derived direction of
+        // buoyage: ABSOLUTE (orientation-invariant — an outbound leg no longer mirrors the rule
+        // onto the hazard side). Lateral without one: TRAVEL-relative fallback — safe is RIGHT of
+        // travel for a port-hand mark and LEFT for a stbd-hand mark, correct when the boat runs
+        // WITH the buoyage direction (inbound / upstream — the documented fallback scope). The
+        // tangent is taken from the closest-approach segment of the CURRENT route.
         let safe: readonly [number, number];
-        if (!isLateral) {
+        if (!isLateral || m.safeVec) {
             safe = m.safeVec as readonly [number, number];
         } else {
             let te = (pts[bk + 1][0] - pts[bk][0]) * mPerLon;

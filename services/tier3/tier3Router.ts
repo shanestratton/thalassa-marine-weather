@@ -88,13 +88,14 @@ const bearingDeg = (a: LL, b: LL): number => {
  *  Endpoints are pinned. Mirrors fairlead.dropSpikes without importing it (that
  *  symbol isn't exported). Exported so the tier-2 marked-channel leg shares the
  *  identical de-spike backstop instead of duplicating it. */
-export function deSpike(pts: LL[], maxTurnDeg: number): LL[] {
+export function deSpike(pts: LL[], maxTurnDeg: number, protect?: (p: LL) => boolean): LL[] {
     if (pts.length < 3) return pts;
     const out = pts.slice();
     let changed = true;
     while (changed && out.length >= 3) {
         changed = false;
         for (let i = 1; i < out.length - 1; i++) {
+            if (protect?.(out[i])) continue; // a gate/chain midpoint dog-leg is deliberate, never a spike
             const turn = angularDiff(bearingDeg(out[i - 1], out[i]), bearingDeg(out[i], out[i + 1]));
             if (turn > maxTurnDeg) {
                 out.splice(i, 1);
@@ -167,6 +168,7 @@ export function followChannelGates(
     marks: readonly LateralMark[],
     grid: NavGrid,
     onDecline?: (reason: string) => void,
+    onMids?: (mids: readonly LL[]) => void,
 ): LL[] | null {
     const decline = (r: string): null => {
         onDecline?.(r);
@@ -178,19 +180,32 @@ export function followChannelGates(
     const stbd = near.filter((m) => m.side === 'stbd');
     if (port.length < 2 || stbd.length < 2) return decline(`near${port.length}p${stbd.length}s`);
 
-    const gates: { along: number; mid: LL }[] = [];
-    for (const p of port) {
+    // MUTUAL-BEST pairing with a consumed-starboard set. The bare nearest-stbd rule
+    // could pair a port diagonally with the NEXT station's starboard (its true partner
+    // missing or farther), fabricating a between-gates midpoint that sits near the route
+    // axis on a straight channel — sailing straight past the GATE_MID_PERP_M filter. A
+    // gate now forms only when each mark is the other's nearest (the regional pipeline's
+    // guard, applied to this in-leg re-pairing) and a starboard anchors at most one gate.
+    const nearestOf = (from: LateralMark, pool: readonly LateralMark[]): LateralMark | null => {
         let best: LateralMark | null = null;
         let bd = MAX_GATE_M;
-        for (const s of stbd) {
-            const d = distM(p.lat, p.lon, s.lat, s.lon);
+        for (const c of pool) {
+            const d = distM(from.lat, from.lon, c.lat, c.lon);
             if (d < bd) {
                 bd = d;
-                best = s;
+                best = c;
             }
         }
-        if (!best) continue;
-        const mid: LL = { lat: (p.lat + best.lat) / 2, lon: (p.lon + best.lon) / 2 };
+        return best;
+    };
+    const gates: { along: number; mid: LL }[] = [];
+    const usedStbd = new Set<LateralMark>();
+    for (const p of port) {
+        const s = nearestOf(p, stbd);
+        if (!s || usedStbd.has(s)) continue;
+        if (nearestOf(s, port) !== p) continue; // diagonal claim — not mutual
+        usedStbd.add(s);
+        const mid: LL = { lat: (p.lat + s.lat) / 2, lon: (p.lon + s.lon) / 2 };
         const proj = projectToPoly(mid, sub);
         // Reject a CROSS-PAIRED gate whose midpoint lands far off the route (out on
         // the mudflat between two lumped parallel channels) — only gates the boat
@@ -257,6 +272,7 @@ export function followChannelGates(
                 return decline(i === 0 ? 'entry-land' : i === centre.length - 2 ? 'exit-land' : 'body-land');
         }
     }
+    onMids?.(mids); // exact gate midpoints — the caller pins these against de-spike/smoothing
     return centre;
 }
 

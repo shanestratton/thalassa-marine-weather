@@ -25,6 +25,8 @@ import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tie
 import { clampRouteToCardinalSafeSide, parseCardinalDiscs } from '../tier3/cardinalClamp';
 import { stitchLegs } from '../glue/gluer';
 import { isRefusal, freezeLeg, type Leg, type LegResult } from '../routing/legContract';
+import { validateAgainstCrossLines } from '../seaway/crossLine';
+import type { GateNode } from '../seaway/types';
 
 /** Shane-confirmed rising-tide bar margin (docs/THREE_TIER_ROUTING.md §1.5).
  *  Feeds the marks-free inshore depth gate (→ 5 m all-tide for a 2.4 m draft). */
@@ -38,10 +40,53 @@ export const TIER_TIDE_SAFETY_M = 0.5;
  * Endpoints pinned to the span's shared-seam BoundaryNodes; caution + depth
  * recomputed per-vertex from the grid.
  */
-export function passthroughLeg(span: TierSpan, polyline: readonly [number, number][], grid: NavGrid): Leg {
-    const sub = polyline.slice(span.fromIdx, span.toIdx + 1).map(([lon, lat]) => [lon, lat] as [number, number]);
+export function passthroughLeg(
+    span: TierSpan,
+    polyline: readonly [number, number][],
+    grid: NavGrid,
+    recommendedTracks: readonly LeadingLine[] = [],
+): Leg {
+    let sub = polyline.slice(span.fromIdx, span.toIdx + 1).map(([lon, lat]) => [lon, lat] as [number, number]);
     sub[0] = span.entry.at as [number, number];
     sub[sub.length - 1] = span.exit.at as [number, number];
+
+    // A tier-3 bay leg that MEETS a marked channel rides the RECTRC too, so it arrives at the tier-2
+    // junction ALONG the channel centreline instead of hugging the bank right up to it (Shane's
+    // Pinkenba: the yellow leg rode centre + the seam snapped, but the teal APPROACH still kinked to
+    // the wall). No-op away from a RECTRC — the snap corridor gates it, so the open-bay crossing is
+    // untouched. tier-4 (offshore) never rides (gated on tier===3).
+    if (span.tier === 3 && recommendedTracks.length > 0 && sub.length >= 3) {
+        // Per-vertex projection onto the RECTRC (NOT the run-based snap, whose minRun gate the short
+        // junction legs fail): each interior vertex within the corridor rides the channel centreline;
+        // endpoints stay pinned (the seam-snap above already put the boundary nodes on the RECTRC).
+        // Three guards keep the projection honest: (1) the local route direction must run WITH the
+        // track (mod 180, ≤45°), so a track the leg merely crosses — or a parallel channel's — can't
+        // grab it; (2) a candidate landing on land or sub-keel-margin water is refused per-vertex
+        // (the grid outranks the projection); (3) the emitted sub-segments are land-swept
+        // endpoint-inclusive — any hit rolls the whole leg back to the A* geometry.
+        let moved = 0;
+        const projected = sub.map(([lon, lat], i): [number, number] => {
+            if (i === 0 || i === sub.length - 1) return [lon, lat];
+            const localBrg = tupleBearingDeg(sub[i - 1], sub[i + 1]);
+            const p = nearestOnLeadingLines(lat, lon, recommendedTracks, SEAM_RECTRC_CORRIDOR_M, localBrg);
+            if (!p) return [lon, lat];
+            const c = gridCellAt(grid, p);
+            if (c !== null && (Number.isNaN(c) || c < 0)) return [lon, lat];
+            moved++;
+            return p;
+        });
+        if (moved > 0) {
+            let crossesLand = false;
+            for (let k = 0; k + 1 < projected.length && !crossesLand; k++) {
+                crossesLand = tupleLineCrossesHardLand(grid, projected[k], projected[k + 1], 20);
+            }
+            if (!crossesLand) {
+                sub = projected;
+                engineLog.warn(`[channelRide] tier3 approach projected onto RECTRC +${moved}`);
+            }
+        }
+    }
+
     let controlling = Infinity;
     const cautionMask = sub.map(([lon, lat]) => {
         const { x, y } = latLonToGrid(grid, lat, lon);
@@ -127,6 +172,7 @@ export function buildGateCentreTracks(
     marks: readonly LateralMark[],
     polyline: readonly [number, number][],
     referenceTracks: readonly LeadingLine[],
+    onPairs?: (pairs: ReadonlyArray<{ port: LatLon; stbd: LatLon }>) => void,
 ): EgressTrack[] {
     if (marks.length < 4 || polyline.length < 2) return [];
 
@@ -184,12 +230,18 @@ export function buildGateCentreTracks(
     const usedPorts = new Set<number>();
     const usedStbds = new Set<number>();
     const centres: Array<{ lat: number; lon: number; originM: number }> = [];
+    const acceptedPairs: Array<{ port: LatLon; stbd: LatLon }> = [];
     for (const c of usable) {
         if (usedPorts.has(c.portIdx) || usedStbds.has(c.stbdIdx)) continue;
         usedPorts.add(c.portIdx);
         usedStbds.add(c.stbdIdx);
         centres.push({ lat: c.lat, lon: c.lon, originM: c.endpointM });
+        acceptedPairs.push({
+            port: { lat: marks[c.portIdx].lat, lon: marks[c.portIdx].lon },
+            stbd: { lat: marks[c.stbdIdx].lat, lon: marks[c.stbdIdx].lon },
+        });
     }
+    onPairs?.(acceptedPairs);
     if (centres.length < 2) return [];
 
     centres.sort((a, b) => a.originM - b.originM);
@@ -594,6 +646,78 @@ export function recentreCanalRedOnEnc(
     return { polyline: outP, redMask: outRed };
 }
 
+const SEAM_RECTRC_CORRIDOR_M = 200; // pull a tier-2/3 channel seam onto the RECTRC if within this
+const RECTRC_ALIGN_MAX_DEG = 45; // route-vs-track alignment gate — a crossing/parallel-channel track can't grab the route
+const SEAM_SNAP_MAX_TURN_DEG = 100; // reject a seam move that folds the route back on itself
+
+/** Bearing (deg, metre-scaled equirectangular) from tuple a to tuple b ([lon,lat]). */
+function tupleBearingDeg(a: readonly [number, number], b: readonly [number, number]): number {
+    const mLon = mPerDegLon((a[1] + b[1]) / 2);
+    return (Math.atan2((b[0] - a[0]) * mLon, (b[1] - a[1]) * M_PER_DEG_LAT) * 180) / Math.PI;
+}
+
+/** Angular difference of two LINE directions (mod 180 — a track is valid sailed either way). */
+function lineAngleDiffDeg(aDeg: number, bDeg: number): number {
+    const d = Math.abs((((aDeg - bDeg) % 180) + 180) % 180);
+    return Math.min(d, 180 - d);
+}
+
+/** Full-circle angular difference (for the seam turn/kink check). */
+function headingDiffDeg(aDeg: number, bDeg: number): number {
+    const d = Math.abs((((aDeg - bDeg) % 360) + 360) % 360);
+    return Math.min(d, 360 - d);
+}
+
+/** Grid cell value at [lon,lat] — NaN = land, <0 = below keel margin, null = off-grid. */
+function gridCellAt(grid: NavGrid, p: readonly [number, number]): number | null {
+    const { x, y } = latLonToGrid(grid, p[1], p[0]);
+    if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) return null;
+    return grid.cells[y * grid.width + x];
+}
+
+/**
+ * Nearest point on any recommended-track line to (lat,lon) within maxM — else null. Returns [lon,lat].
+ * When routeBearingDeg is given, only track segments running WITH the route (mod 180, ≤ RECTRC_ALIGN_MAX_DEG)
+ * are candidates — the guard snapToLeadingLines gets from maxAngleDeg, kept here so a charted track the
+ * route merely CROSSES (or a parallel channel's track) can never grab a vertex sideways.
+ */
+function nearestOnLeadingLines(
+    lat: number,
+    lon: number,
+    lines: ReadonlyArray<{ pts: ReadonlyArray<{ lat: number; lon: number }> }>,
+    maxM: number,
+    routeBearingDeg: number | null = null,
+): [number, number] | null {
+    const mLon = mPerDegLon(lat);
+    let best: [number, number] | null = null;
+    let bestD = maxM;
+    for (const line of lines) {
+        const pts = line.pts;
+        for (let k = 0; k + 1 < pts.length; k++) {
+            const ax = (pts[k].lon - lon) * mLon;
+            const ay = (pts[k].lat - lat) * M_PER_DEG_LAT;
+            const bx = (pts[k + 1].lon - lon) * mLon;
+            const by = (pts[k + 1].lat - lat) * M_PER_DEG_LAT;
+            const dx = bx - ax;
+            const dy = by - ay;
+            if (routeBearingDeg !== null) {
+                const segBrg = (Math.atan2(dx, dy) * 180) / Math.PI;
+                if (lineAngleDiffDeg(segBrg, routeBearingDeg) > RECTRC_ALIGN_MAX_DEG) continue;
+            }
+            const l2 = dx * dx + dy * dy;
+            const t = l2 < 1e-9 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / l2));
+            const px = ax + t * dx;
+            const py = ay + t * dy;
+            const d = Math.hypot(px, py);
+            if (d < bestD) {
+                bestD = d;
+                best = [lon + px / mLon, lat + py / M_PER_DEG_LAT];
+            }
+        }
+    }
+    return best;
+}
+
 /**
  * Four-tier contract path — segment the REAL A*
  * route into ordered tier spans, route each by tier, glue with the concat-only
@@ -759,7 +883,10 @@ export function applyThreeTier(
         }
     }
 
-    const gateCentreTracks = buildGateCentreTracks(marks, route, [...leadingLines, ...rectrcLines]);
+    let gatePairs: ReadonlyArray<{ port: LatLon; stbd: LatLon }> = [];
+    const gateCentreTracks = buildGateCentreTracks(marks, route, [...leadingLines, ...rectrcLines], (p) => {
+        gatePairs = p;
+    });
     const egressTracks: EgressTrack[] = [...gateCentreTracks, ...channelChains, ...leadingLines, ...rectrcLines];
     const canalEgress = spliceCanalEgressChannel(route, egressTracks, canalLines, grid);
     if (canalEgress.spliced) {
@@ -825,12 +952,78 @@ export function applyThreeTier(
         egressMask: canalEgress.forceTier2,
         preferChannelChains: canalEgress.spliced,
     };
-    const results: LegResult[] = spans.map((span) =>
+    // Pull each tier-2↔tier-3 SEAM — the shared boundary vertex where the bay (tier-3) leg hands off
+    // to the marked-channel (tier-2) leg — onto the RECTRC. The seam sits on the raw A* route, which
+    // hugs the bank at a river entrance, so the route kinks to the wall right where teal meets yellow
+    // even though the channel leg itself rides centre (Shane's Pinkenba seam). Snapping the shared
+    // node onto the recommended track lands BOTH adjacent legs' seam segments on the channel centre.
+    let routedSpans = spans;
+    if (rectrcLines.length > 0 && spans.length > 1) {
+        const seamAt = new Map<number, [number, number]>(); // shared seam idx → RECTRC point [lon,lat]
+        for (let i = 0; i + 1 < spans.length; i++) {
+            const a = spans[i];
+            const b = spans[i + 1];
+            // Any boundary in the channel/inshore region (both sides tier-2 or tier-3) — this covers
+            // the string of SHORT tier-3 legs the channel breaks into at a river bend, whose
+            // tier-3↔tier-3 seams also sit on the wall between the yellow legs.
+            const channelSeam = (a.tier === 2 || a.tier === 3) && (b.tier === 2 || b.tier === 3);
+            if (!channelSeam) continue;
+            const prev = route[Math.max(a.toIdx - 1, 0)];
+            const next = route[Math.min(a.toIdx + 1, route.length - 1)];
+            // The seam may only move ALONG its own channel (route-aligned track segment), onto
+            // navigable water, and the two seam-adjacent segments it creates must be land-clean
+            // and not fold the route back on itself. Any failure keeps the raw A* seam.
+            const snapped = nearestOnLeadingLines(
+                a.exit.at[1],
+                a.exit.at[0],
+                rectrcLines,
+                SEAM_RECTRC_CORRIDOR_M,
+                tupleBearingDeg(prev, next),
+            );
+            if (!snapped) continue;
+            const c = gridCellAt(grid, snapped);
+            if (c !== null && (Number.isNaN(c) || c < 0)) continue; // land / below keel margin
+            if (tupleLineCrossesHardLand(grid, prev, snapped, 20) || tupleLineCrossesHardLand(grid, snapped, next, 20))
+                continue;
+            if (headingDiffDeg(tupleBearingDeg(prev, snapped), tupleBearingDeg(snapped, next)) > SEAM_SNAP_MAX_TURN_DEG)
+                continue;
+            seamAt.set(a.toIdx, snapped);
+        }
+        if (seamAt.size > 0) {
+            const depthOrNull = (c: number | null): number | null => (c === null || Number.isNaN(c) ? null : c);
+            routedSpans = spans.map((span) => {
+                const e = seamAt.get(span.fromIdx);
+                const x = seamAt.get(span.toIdx);
+                if (!e && !x) return span;
+                // A moved node gets its through-heading + depth recomputed from the MOVED geometry,
+                // so the Gluer's double-back clause judges the real seam, not the pre-snap one.
+                const entry = e
+                    ? {
+                          ...span.entry,
+                          at: e,
+                          headingDeg: tupleBearingDeg(e, route[Math.min(span.fromIdx + 1, route.length - 1)]),
+                          depthM: depthOrNull(gridCellAt(grid, e)),
+                      }
+                    : span.entry;
+                const exit = x
+                    ? {
+                          ...span.exit,
+                          at: x,
+                          headingDeg: tupleBearingDeg(route[Math.max(span.toIdx - 1, 0)], x),
+                          depthM: depthOrNull(gridCellAt(grid, x)),
+                      }
+                    : span.exit;
+                return { ...span, entry, exit };
+            });
+            engineLog.warn(`[seamSnap] tier2/3 channel seams onto RECTRC: ${seamAt.size}`);
+        }
+    }
+    const results: LegResult[] = routedSpans.map((span) =>
         span.tier === 2
             ? routeTier4(span, route, ctx4)
             : span.tier === 1
               ? routeTier3(span, route, ctx3)
-              : passthroughLeg(span, route, grid),
+              : passthroughLeg(span, route, grid, rectrcLines),
     );
     const glued = stitchLegs(
         results,
@@ -871,10 +1064,10 @@ export function applyThreeTier(
     // marina canals: medial axis ≈ the OSM line, so no visible change there.)
     const finegridPre: boolean[] = new Array(glued.polyline.length).fill(false);
     const channelSegKeys = new Set<string>();
-    // TRUE lateral-pair gates only (chain / fairlead) — segments where the route threads dead
-    // centre between a port/starboard pair. The cardinal clamp pins THESE (a buoyed gate outranks
-    // a single cardinal's quadrant) but NOT a tier2 rectrc/gate-astar recommended track, which a
-    // cardinal should be able to pull onto its safe side.
+    // TRUE lateral-pair gates only (chain / fairlead / gate-follower) — segments where the route
+    // threads dead centre between a port/starboard pair. The cardinal clamp pins THESE (a buoyed
+    // gate outranks a single cardinal's quadrant) but NOT a tier2 rectrc/gate-astar recommended
+    // track, which a cardinal should be able to pull onto its safe side.
     const gateSegKeys = new Set<string>();
     const segKey = (a: readonly [number, number], b: readonly [number, number]): string =>
         `${a[0]}|${a[1]}→${b[0]}|${b[1]}`;
@@ -886,7 +1079,11 @@ export function applyThreeTier(
         if (leg.tierId === 2) {
             for (let v = 0; v < len; v++) channelPre[gi + v] = true;
             for (let v = 0; v < len - 1; v++) channelSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
-            if (leg.provenance.includes('chain') || leg.provenance.includes('fairlead')) {
+            if (
+                leg.provenance.includes('chain') ||
+                leg.provenance.includes('fairlead') ||
+                leg.provenance.includes('gates')
+            ) {
                 for (let v = 0; v < len - 1; v++) gateSegKeys.add(segKey(leg.polyline[v], leg.polyline[v + 1]));
             }
         }
@@ -957,7 +1154,31 @@ export function applyThreeTier(
     // port/stbd pair is a gate the chain/fairlead/egress routing already threads dead-centre) and
     // refuses a detour on a chain/fairlead gate or canal-RED vertex (gateSegKeys + the red mask) —
     // so it only ever rounds a SOLO mark the route passes on the wrong side (e.g. VQR), never a gate.
-    const lateralClampMarks = marks.map((m) => ({ lat: m.lat, lon: m.lon, side: m.side }));
+    // Each mark carries an ABSOLUTE safe vector where the direction of buoyage is derivable from
+    // the IALA numbering convention (seq ascends FROM seaward, so low-seq → high-seq through the
+    // mark's channel-key neighbours points harbourward). Without it the clamp falls back to the
+    // travel tangent — correct inbound only, the outbound-mirror bug.
+    const lateralClampMarks = marks.map((m) => {
+        let safeVec: readonly [number, number] | undefined;
+        const bySeq = marks.filter((o) => o.key === m.key).sort((a, b) => a.seq - b.seq);
+        if (bySeq.length >= 2) {
+            const i = bySeq.indexOf(m);
+            const lo = bySeq[Math.max(0, i - 1)];
+            const hi = bySeq[Math.min(bySeq.length - 1, i + 1)];
+            const mLon = mPerDegLon(m.lat);
+            let te = (hi.lon - lo.lon) * mLon;
+            let tn = (hi.lat - lo.lat) * M_PER_DEG_LAT;
+            const tl = Math.hypot(te, tn);
+            if (tl > 1) {
+                te /= tl;
+                tn /= tl;
+                // Running WITH buoyage: a port-hand mark's safe water is RIGHT of the
+                // buoyage direction, a stbd-hand mark's is LEFT.
+                safeVec = m.side === 'port' ? [tn, -te] : [-tn, te];
+            }
+        }
+        return { lat: m.lat, lon: m.lon, side: m.side, ...(safeVec ? { safeVec } : {}) };
+    });
     const {
         polyline: clampedPoly,
         redMask: clampedRed,
@@ -974,6 +1195,28 @@ export function applyThreeTier(
         .slice(0, -1)
         .map((p, i) => channelSegKeys.has(segKey(p, clampedPoly[i + 1])) && !clampedRed[i] && !clampedRed[i + 1]);
     const offshoreVtx = clampedPoly.map(([lon, lat]) => offshoreKeys.has(`${lon}|${lat}`));
+
+    // FINAL gate-discipline audit — the engine path's only whole-route cross-line check
+    // (the seaway shadow measures its own candidate, never the shipped engine route).
+    // The post-assembly passes (canal snap, red re-centre, cardinal clamp) mutate
+    // geometry AFTER the legs threaded their gates, so the finished polyline is
+    // re-checked against every accepted pair and any wrong-side pass is named in the
+    // device log. Log-only: enforcement stays with the pass-level pins/rollbacks above.
+    if (gatePairs.length > 0) {
+        const gates = gatePairs.map(
+            (g, i) => ({ id: `gate${i}`, portMark: g.port, stbdMark: g.stbd }) as unknown as GateNode,
+        );
+        const audit = validateAgainstCrossLines(
+            clampedPoly.map(([lon, lat]) => ({ lat, lon })),
+            gates,
+        );
+        if (!audit.ok)
+            engineLog.warn(
+                `[gateAudit] wrongSidePasses=${audit.violations.length} — ${audit.violations
+                    .map((v) => `${v.gateId}:${v.side}@seg${v.segIndex}`)
+                    .join(' ')}`,
+            );
+    }
 
     return {
         polyline: clampedPoly,

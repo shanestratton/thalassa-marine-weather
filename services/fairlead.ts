@@ -30,8 +30,14 @@ export interface LatLon {
 }
 
 export interface LateralMark extends LatLon {
-    /** IALA-A side, from CATLAM (1 = port, 2 = starboard). */
+    /** Treat-as side, from CATLAM: 1 = port, 2 = starboard, and the preferred-channel
+     *  (modified lateral) marks 3/4 fold onto the side they are TREATED as when
+     *  following the preferred channel — 3 (preferred channel to stbd) handles as a
+     *  port-hand mark, 4 (preferred to port) as starboard-hand. CATLAM semantics are
+     *  identical in IALA regions A and B (only the paint flips), so this is region-safe. */
     side: 'port' | 'stbd';
+    /** True for CATLAM 3/4 — a bifurcation (preferred-channel) mark, not a plain lateral. */
+    preferredChannel?: boolean;
     /** Channel key — the non-numeric part of OBJNAM (e.g. 'BC', 'F', 'NUM'). */
     key: string;
     /** Sequence number along the channel, from OBJNAM. */
@@ -57,10 +63,12 @@ export function distM(a: LatLon, b: LatLon): number {
 
 /**
  * Parse BOYLAT/BCNLAT point features into lateral marks. A mark is kept only
- * if it has a CATLAM of 1 (port) or 2 (starboard) AND an OBJNAM that starts
- * with an optional letter prefix + a number (e.g. "BC7, Coffee Pot West",
- * "12", "5F"). The channel key is the letters around the number (uppercased,
- * 'NUM' when purely numeric); the sequence is the number.
+ * if it has a CATLAM of 1 (port), 2 (starboard), or a preferred-channel
+ * modified lateral 3/4 (folded onto its treat-as side: 3 → port-hand,
+ * 4 → starboard-hand), AND an OBJNAM that starts with an optional letter
+ * prefix + a number (e.g. "BC7, Coffee Pot West", "12", "5F"). The channel
+ * key is the letters around the number (uppercased, 'NUM' when purely
+ * numeric); the sequence is the number.
  */
 export function parseLateralMarks(features: PointFeatureLike[]): LateralMark[] {
     const out: LateralMark[] = [];
@@ -69,7 +77,7 @@ export function parseLateralMarks(features: PointFeatureLike[]): LateralMark[] {
         if (!g || g.type !== 'Point' || !Array.isArray(g.coordinates)) continue;
         const props = f.properties ?? {};
         const cat = props.CATLAM;
-        const side = cat === 1 ? 'port' : cat === 2 ? 'stbd' : null;
+        const side = cat === 1 || cat === 3 ? 'port' : cat === 2 || cat === 4 ? 'stbd' : null;
         if (!side) continue;
         const name = typeof props.OBJNAM === 'string' ? props.OBJNAM : '';
         const m = /^([A-Za-z]*)(\d+)([A-Za-z]*)/.exec(name);
@@ -82,6 +90,7 @@ export function parseLateralMarks(features: PointFeatureLike[]): LateralMark[] {
             key: (m[1] + m[3]).toUpperCase() || 'NUM',
             seq: parseInt(m[2], 10),
             name,
+            ...(cat === 3 || cat === 4 ? { preferredChannel: true } : {}),
         });
     }
     return out;

@@ -46,23 +46,31 @@ const BC1 = { lat: -27.30965, lon: 153.20804 };
 const BC21 = { lat: -27.3636, lon: 153.17057 };
 
 describe('parseLateralMarks', () => {
-    it('keeps port/starboard by CATLAM, parses key+seq from OBJNAM, drops the rest', () => {
+    it('keeps port/starboard by CATLAM (1/2 plain, 3/4 preferred-channel treat-as), parses key+seq, drops the rest', () => {
         const feats = [
             { geometry: { type: 'Point', coordinates: [153.2, -27.32] }, properties: { CATLAM: 1, OBJNAM: 'BC4' } },
             {
                 geometry: { type: 'Point', coordinates: [153.19, -27.33] },
                 properties: { CATLAM: 2, OBJNAM: 'BC7, Coffee Pot West' },
             },
-            { geometry: { type: 'Point', coordinates: [153.1, -27.3] }, properties: { CATLAM: 3, OBJNAM: '99' } }, // CATLAM 3 → dropped
+            // CATLAM 3 (preferred channel to stbd) → kept, handled as PORT-hand + flagged
+            { geometry: { type: 'Point', coordinates: [153.1, -27.3] }, properties: { CATLAM: 3, OBJNAM: '99' } },
+            // CATLAM 4 (preferred channel to port) → kept, handled as STBD-hand + flagged
+            { geometry: { type: 'Point', coordinates: [153.11, -27.31] }, properties: { CATLAM: 4, OBJNAM: '98' } },
+            // CATLAM 5 (out of scope) → dropped
+            { geometry: { type: 'Point', coordinates: [153.12, -27.3] }, properties: { CATLAM: 5, OBJNAM: '97' } },
             {
                 geometry: { type: 'Point', coordinates: [153.1, -27.3] },
                 properties: { CATLAM: 1, OBJNAM: 'no-number' },
             }, // no seq → dropped
         ];
         const marks = parseLateralMarks(feats);
-        expect(marks).toHaveLength(2);
+        expect(marks).toHaveLength(4);
         expect(marks[0]).toMatchObject({ side: 'port', key: 'BC', seq: 4 });
+        expect(marks[0].preferredChannel).toBeUndefined();
         expect(marks[1]).toMatchObject({ side: 'stbd', key: 'BC', seq: 7 });
+        expect(marks[2]).toMatchObject({ side: 'port', key: 'NUM', seq: 99, preferredChannel: true });
+        expect(marks[3]).toMatchObject({ side: 'stbd', key: 'NUM', seq: 98, preferredChannel: true });
     });
 });
 

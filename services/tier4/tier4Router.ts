@@ -246,6 +246,10 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             corridorM: 180,
             minRunM: 60,
             maxAngleDeg: 35,
+            // A chain's interior vertices ARE the pair midpoints — ride them through a
+            // bend rather than chording across it (a chord misses every mid-chain gate
+            // by the sagitta of the bend).
+            followInteriorVertices: true,
         });
         if (ch.snapped > 0) {
             poly = ch.polyline;
@@ -261,10 +265,31 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
         else snapChannelChain();
     }
 
-    // 1. RECTRC spine — snap onto the recommended track where charted. The whole
-    //    route is already RECTRC-snapped before segmentation, so this is usually a
-    //    no-op confirmation; it catches a span the global pass didn't cover. Tight
-    //    corridor; `protect` undefined because tier-2 IS the protected track.
+    // 1. CHANNEL-MIDPOINT CHAIN — the vetted red/green pair midpoints outrank the charted
+    //    RECTRC (the contract: yellow passes through the MIDDLE of every pair; a recommended
+    //    track is often deliberately offset to the deep side, so track-first shipped the
+    //    offset line THROUGH a gated reach). A buoyed chain IS the channel: isBlocked is
+    //    OMITTED (no land veto) and there is no gate-pairing, so this one snap sidesteps
+    //    ALL THREE gate declines (near<2/side, gates0, body-land) that otherwise leave the
+    //    leg a stepped A* staircase. Generous corridor captures the de-spiked A* slice a
+    //    few 50 m cells off-centre; low minRun lets the short Newport exit snap.
+    //    snapToLeadingLines pins origin/dest + rejects a perpendicular brush-by
+    //    (maxAngleDeg), so it can't grab the PARALLEL channel ~1.1 km away. Needs ≥4
+    //    vertices; on no-snap, falls through to the RECTRC spine.
+    if (prov.length === 0) {
+        const explicitGates = forceExplicitChainGeometry(
+            [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])],
+            true,
+        );
+        if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
+        else snapChannelChain();
+    }
+
+    // 1b. RECTRC spine — where no vetted pair chain covers the leg, snap onto the
+    //    recommended track. The whole route is already RECTRC-snapped before
+    //    segmentation, so this is usually a no-op confirmation; it catches a span the
+    //    global pass didn't cover. Tight corridor; `protect` undefined because tier-2
+    //    IS the protected track.
     if (prov.length === 0 && ctx.recommendedTracks.length > 0) {
         const ll = snapToLeadingLines(poly, poly.map(isCaution), [...ctx.recommendedTracks], {
             isBlocked: isLand,
@@ -279,24 +304,6 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
             poly = ll.polyline;
             prov.push(`rectrc×${ll.snapped}`);
         }
-    }
-
-    // 1b. CHANNEL-MIDPOINT CHAIN — where no RECTRC covers the marks, snap onto the OSM
-    //     midpoint centreline (Shane's "7-5-3-1") BEFORE the gate-follower. A buoyed chain
-    //     IS the channel: isBlocked is OMITTED (no land veto) and there is no gate-pairing,
-    //     so this one snap sidesteps ALL THREE gate declines (near<2/side, gates0,
-    //     body-land) that otherwise leave the leg a stepped A* staircase. Generous corridor
-    //     captures the de-spiked A* slice a few 50 m cells off-centre; low minRun lets the
-    //     short Newport exit snap. snapToLeadingLines pins origin/dest + rejects a
-    //     perpendicular brush-by (maxAngleDeg), so it can't grab the PARALLEL channel
-    //     ~1.1 km away. Needs ≥4 vertices; on no-snap, falls through to the gate-follower.
-    if (prov.length === 0) {
-        const explicitGates = forceExplicitChainGeometry(
-            [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])],
-            true,
-        );
-        if (explicitGates >= 2) prov.push(`chain×${explicitGates}`);
-        else snapChannelChain();
     }
 
     // 1c. Fairlead — preserve the proven lateral-mark follower for charted
@@ -322,10 +329,17 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     // entry-land / body-land / exit-land), folded into provenance below — without it the
     // device cannot say why a tier-2 leg renders the stepped A* slice instead of straight.
     let gateDecline = ctx.marks.length < 3 ? `marks${ctx.marks.length}` : '';
+    const gateMids: LL[] = []; // exact pair midpoints the follower threaded — pinned against de-spike
     if (prov.length === 0 && ctx.marks.length >= 3) {
-        const followed = followChannelGates(poly, [...ctx.marks], ctx.grid, (r) => {
-            gateDecline = r;
-        });
+        const followed = followChannelGates(
+            poly,
+            [...ctx.marks],
+            ctx.grid,
+            (r) => {
+                gateDecline = r;
+            },
+            (mids) => gateMids.push(...mids),
+        );
         if (followed) {
             poly = followed;
             prov.push('gates');
@@ -342,9 +356,19 @@ export function routeTier4(span: TierSpan, fullPolyline: readonly LatLon[], ctx:
     // 3. De-spike backstop — no >120° reversal survives the leg body. The
     // exception is a deliberate canal-egress chain: Newport→Pinkenba must sail
     // out through the outer gate before turning back toward the bay route, and
-    // the Gluer has an explicit allow-list for that seam.
+    // the Gluer has an explicit allow-list for that seam. Vertices sitting ON a
+    // pair midpoint or chain vertex are pinned — a sharp dog-leg BETWEEN gates
+    // is deliberate pilotage, never a spike.
     if (!(isEgressSpan && prov.some((p) => p.startsWith('chain×')))) {
-        poly = deSpike(poly, TIER3_DESPIKE_DEG);
+        const protectPts: LL[] = [...gateMids];
+        if (prov.some((p) => p.startsWith('chain×'))) {
+            for (const t of [...(ctx.channelChains ?? []), ...(ctx.egressTracks ?? [])]) {
+                for (const q of t.pts) protectPts.push({ lat: q.lat, lon: q.lon });
+            }
+        }
+        const protectMid =
+            protectPts.length > 0 ? (p: LL): boolean => protectPts.some((g) => distM(g, p) < 5) : undefined;
+        poly = deSpike(poly, TIER3_DESPIKE_DEG, protectMid);
     }
     if (poly.length < 2) return { refused: true, reason: 'disconnected-grid' };
 
