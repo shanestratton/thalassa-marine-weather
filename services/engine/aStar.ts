@@ -169,7 +169,7 @@ export const CENTRE_NORM_CELLS = 6;
  * A* will detour up to 50 cells through marked-deep water before
  * accepting a single unmarked cell.
  */
-export function cellCostMultiplier(depth: number, preferred: boolean, drying = false): number {
+export function cellCostMultiplier(depth: number, preferred: boolean, drying = false, tideAssist = false): number {
     // Cells inside a marked fairway / dredged area always get the
     // baseline cost regardless of depth band — that's how we get
     // A* to follow the channel instead of cutting across deeper
@@ -272,7 +272,18 @@ export function cellCostMultiplier(depth: number, preferred: boolean, drying = f
     // above — a mark-vouched channel over a charted drying band still routes.
     // NOT the reverted depth-grading of d55ea29f: that graded PREFERRED water;
     // this grades only the red. Fixture: tests/engine/dryingCaution.test.ts.
-    if (depth < 0) return drying ? 120.0 : 40.0;
+    //
+    // TIDE-ASSIST tier (the EXPLICIT 'shortest' route profile, never the
+    // default — doctrine: tide must not silently change preference): a caution
+    // cell whose REAL charted depth is recoverable on a normal tide (wet at
+    // LAT, requiredRise ≤ TIDE_ASSIST_MAX_RISE_M) costs 10× instead of 40×,
+    // so the short way across the Gilligans Island bank (2.0 m charted, +0.9 m
+    // above LAT for a 2.4 m keel) becomes routable — and ships with its tide
+    // window attached via shallowRuns. Drying cells are excluded by
+    // construction (the assist mask requires charted depth > 0), so no tide
+    // profile ever prices a drying bank as passable water.
+    // Fixture: tests/engine/tideAssist.test.ts.
+    if (depth < 0) return tideAssist ? 10.0 : drying ? 120.0 : 40.0;
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
     // smaller (100× → 200×), still decisive.
@@ -475,9 +486,12 @@ export function aStar(
             const exitPenalty = curPreferred && !cellPreferred ? EXIT_PENALTY_M : 0;
             // NaN ≤ 0 is false, so absent shallowDepthM ⇒ never drying.
             const cellDrying = cellDepth < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[nIdx] <= 0;
+            const cellAssist = cellDepth < 0 && grid.tideAssist !== undefined && grid.tideAssist[nIdx] === 1;
             const tentativeG =
                 curG +
-                stepLengthsM[n] * cellCostMultiplier(cellDepth, cellPreferred, cellDrying) * centreFactor[nIdx] +
+                stepLengthsM[n] *
+                    cellCostMultiplier(cellDepth, cellPreferred, cellDrying, cellAssist) *
+                    centreFactor[nIdx] +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
                 cameFrom[nIdx] = idx;
@@ -500,7 +514,8 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     // aStar did (centred). Absent on cached/test grids ⇒ 1 (prior behaviour).
     const centre = grid.centreFactor ? grid.centreFactor[idx] : 1;
     const drying = grid.cells[idx] < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[idx] <= 0;
-    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1, drying) * centre;
+    const assist = grid.cells[idx] < 0 && grid.tideAssist !== undefined && grid.tideAssist[idx] === 1;
+    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1, drying, assist) * centre;
 }
 
 export function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {
