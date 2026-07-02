@@ -1,12 +1,14 @@
 {
-    "version": 1,
+    "version": 2,
     "updated": "2026-07-02",
+    "datumNote": "clearanceM values are metres above HAT per MSQ Beacon to Beacon convention — actual clearance at any tide below HAT is greater, so gating airDraft > clearanceM is conservative-safe",
     "bridges": [
         {
             "id": "au-qld-newport-griffith-rd",
-            "name": "Griffith Road bridge (Newport canal)",
-            "clearanceM": 3.0,
-            "estimated": true,
+            "name": "Kay Cottee Bridge — Griffith Rd (Newport canal)",
+            "clearanceM": 5.5,
+            "estimated": false,
+            "source": "MSQ Beacon to Beacon Moreton Bay, map MB-6 + Newport Marina enlargement (5.5 m above HAT)",
             "span": [
                 [153.0940954, -27.2123043],
                 [153.0947812, -27.2118978]
@@ -17,6 +19,7 @@
             "name": "Klingner Road bridge (Newport canal)",
             "clearanceM": 2.7,
             "estimated": true,
+            "source": "no published clearance found (B2B enlargement stops at Griffith Rd; Stockland lake is non-tidal behind its lock) — estimate retained",
             "span": [
                 [153.0935879, -27.2203846],
                 [153.0934272, -27.2204036]
@@ -27,9 +30,65 @@
             "name": "Dalton Street bridge (Newport canal)",
             "clearanceM": 2.4,
             "estimated": true,
+            "source": "no published clearance found — estimate retained",
             "span": [
                 [153.0926304, -27.2242615],
                 [153.0928412, -27.2242898]
+            ]
+        },
+        {
+            "id": "au-qld-mooloolaba-mayes-brisbane-rd",
+            "name": "Brisbane Road bridge — Mayes Canal mouth (Mooloolaba)",
+            "clearanceM": 2.1,
+            "estimated": false,
+            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.1 m above HAT); span from OSM Brisbane Road bridge way",
+            "span": [
+                [153.1167179, -26.6856358],
+                [153.1168473, -26.6853572]
+            ]
+        },
+        {
+            "id": "au-qld-mooloolaba-tuckers-creek",
+            "name": "Brisbane Road crossing — Tuckers Creek (Mooloolaba)",
+            "clearanceM": 0.7,
+            "estimated": false,
+            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (0.7 m above HAT); span from adjacent OSM cycleway bridge",
+            "span": [
+                [153.1153076, -26.6880094],
+                [153.115245, -26.6882107]
+            ]
+        },
+        {
+            "id": "au-qld-mooloolaba-mckenzie-bridge",
+            "name": "McKenzie Bridge — Nicklin Way over old Mooloolah channel",
+            "clearanceM": 2.3,
+            "estimated": false,
+            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.3 m above HAT); span from OSM bridge way",
+            "span": [
+                [153.1162249, -26.6963592],
+                [153.1156238, -26.6952564]
+            ]
+        },
+        {
+            "id": "au-qld-mooloolaba-old-channel-west",
+            "name": "Old Mooloolah channel crossing W of McKenzie Bridge",
+            "clearanceM": 2.7,
+            "estimated": false,
+            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.7 m above HAT); SPAN APPROXIMATE (no OSM bridge way — 60 m N-S bar at the published position)",
+            "span": [
+                [153.114, -26.69723],
+                [153.114, -26.69777]
+            ]
+        },
+        {
+            "id": "au-qld-kawana-parrearra-footbridge",
+            "name": "Parrearra Channel footbridge (N of Parrearra Lock & Weir)",
+            "clearanceM": 3.6,
+            "estimated": false,
+            "source": "MSQ Beacon to Beacon Sunshine Coast, maps SC-5/SC-6 (3.6 m above HAT); SPAN APPROXIMATE (60 m E-W bar at the published position); note the adjacent Lock & Weir gates all access to the Kawana Waters system regardless",
+            "span": [
+                [153.12215, -26.706],
+                [153.12285, -26.706]
             ]
         }
     ]
