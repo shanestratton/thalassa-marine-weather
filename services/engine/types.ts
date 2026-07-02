@@ -129,6 +129,17 @@ export interface RouteRequest {
      *     — uncharted ≠ open, structurally, not as a cost knob.
      */
     unchartedPolicy?: 'permissive' | 'strict';
+    /**
+     * Route profile. 'safest' (default) treats all sub-margin water at the
+     * full 40×/120× caution costs — tide never silently changes preference.
+     * 'tideAssist' is the EXPLICIT "shortest" option: caution cells whose real
+     * charted depth is wet at LAT and recoverable on a normal tide
+     * (requiredRise ≤ 1.8 m) cost 10×, so a bank crossing like the southern
+     * Bribie 2.0 m patch becomes routable — and ships with its tide window
+     * (shallowRuns → "cross only with ≥ +0.9 m above LAT, clears HH:MM–HH:MM").
+     * Part of the grid cache key.
+     */
+    routeProfile?: 'safest' | 'tideAssist';
 }
 
 /**
@@ -366,6 +377,16 @@ export interface NavGrid {
      * cached-grid back-compat.
      */
     clearanceBarred?: Uint8Array;
+    /**
+     * Per-cell tide-assist flag (1 = caution cell whose REAL charted depth is
+     * wet at LAT and recoverable on a normal tide: requiredRise ≤ 1.8 m).
+     * Populated ONLY when the request asked for routeProfile 'tideAssist' —
+     * the profile is part of the grid cache key. aStar/cellCostAt price these
+     * at 10× instead of 40× so the explicit "shortest" profile can take a
+     * bank crossing that ships with its tide window. Never set on drying
+     * cells. Optional for cached-grid back-compat.
+     */
+    tideAssist?: Uint8Array;
     /**
      * Per-cell "INJECTED canal/marina channel water" flag: 1 = the cell was
      * claimed by the nearshore Mapbox vector-water fill we INJECTED for routing

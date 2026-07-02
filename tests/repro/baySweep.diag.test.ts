@@ -163,6 +163,159 @@ function assembleLayers(passage: PassageDef, installed: CellMeta[]): { layers: I
     return { layers: merged, cells: used };
 }
 
+// ── DEVICE-FAITHFUL enrichment (v2): Pi OSM overlay + SE-QLD regional markers ──
+// Mirrors InshoreRouter's live merge so the sweep measures what the DEVICE
+// routes on — the v1 chart-only run read the Brisbane River as land (91%
+// "hard land" on Rivergate→Manly) purely because the LNDARE-bleed rescue
+// lives in this enrichment, not in the chart.
+
+type AnyFeature = Feature & { properties?: Record<string, unknown> | null };
+
+function fetchOsmOverlay(bbox: [number, number, number, number]): Record<string, FeatureCollection> | null {
+    // Retry ×3 and refuse an all-empty payload: the Pi answered the Bribie
+    // corridor with rich data on a direct probe (water 286, canal 48) after the
+    // sweep had silently accepted an empty response — a transient hiccup must
+    // read as UNAVAILABLE, never as "no OSM data here".
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            const out = execFileSync(
+                'curl',
+                ['-s', '-f', '-m', '30', `http://calypso.local:3001/api/osm/overlay?bbox=${bbox.join(',')}`],
+                { maxBuffer: 128 * 1024 * 1024 },
+            ).toString();
+            const parsed = JSON.parse(out) as Record<string, FeatureCollection>;
+            const total = ['water', 'coastline', 'canalLines'].reduce(
+                (n, k) => n + (parsed[k]?.features?.length ?? 0),
+                0,
+            );
+            if (total > 0) return parsed;
+        } catch {
+            /* retry */
+        }
+    }
+    return null;
+}
+
+/** Crude min-dimension width test standing in for the device's polygon probe. */
+function bboxMinDimM(f: AnyFeature): number {
+    let minLon = Infinity,
+        minLat = Infinity,
+        maxLon = -Infinity,
+        maxLat = -Infinity;
+    const visit = (c: unknown): void => {
+        if (!Array.isArray(c)) return;
+        if (typeof c[0] === 'number' && typeof c[1] === 'number') {
+            minLon = Math.min(minLon, c[0] as number);
+            maxLon = Math.max(maxLon, c[0] as number);
+            minLat = Math.min(minLat, c[1] as number);
+            maxLat = Math.max(maxLat, c[1] as number);
+            return;
+        }
+        for (const x of c) visit(x);
+    };
+    visit((f.geometry as { coordinates?: unknown } | null)?.coordinates);
+    if (!Number.isFinite(minLon)) return 0;
+    const midLat = (minLat + maxLat) / 2;
+    return Math.min((maxLon - minLon) * mPerLon(midLat), (maxLat - minLat) * M_PER_LAT);
+}
+
+async function applyDeviceEnrichment(
+    merged: InshoreLayers,
+    passage: PassageDef,
+): Promise<{ osmWater: AnyFeature[]; tags: string[] }> {
+    const tags: string[] = [];
+    const bbox = corridorBbox(passage);
+    const overlay = fetchOsmOverlay(bbox);
+    let osmWater: AnyFeature[] = [];
+    if (overlay) {
+        const push = (layer: keyof InshoreLayers, feats: unknown[]) =>
+            (merged[layer]!.features as unknown[]).push(...feats);
+        const water = (overlay.water?.features ?? []) as AnyFeature[];
+        osmWater = water;
+        // water → DEPARE (synthetic 10 m) + wide river/harbour promotion → FAIRWY.
+        push(
+            'DEPARE',
+            water.map((f) => ({ ...f, properties: { ...(f.properties ?? {}), DRVAL1: 10.0, DRVAL2: 10.0 } })),
+        );
+        const promoted = water.filter((f) => {
+            const p = (f.properties ?? {}) as Record<string, unknown>;
+            const tagged =
+                p['water'] === 'river' ||
+                p['water'] === 'harbour' ||
+                p['waterway'] === 'river' ||
+                p['waterway'] === 'riverbank' ||
+                p['harbour'] === 'yes';
+            return tagged && bboxMinDimM(f) >= 200;
+        });
+        push(
+            'FAIRWY',
+            promoted.map((f) => ({
+                ...f,
+                properties: { ...(f.properties ?? {}), _promotePreferred: true, _source: 'osm-water-promoted' },
+            })),
+        );
+        push(
+            'DEPARE',
+            ((overlay.marina?.features ?? []) as AnyFeature[]).map((f) => ({
+                ...f,
+                properties: { ...(f.properties ?? {}), DRVAL1: 5.0, DRVAL2: 5.0 },
+            })),
+        );
+        push(
+            'OBSTRN',
+            ((overlay.reef?.features ?? []) as AnyFeature[]).map((f) => ({
+                ...f,
+                properties: { ...(f.properties ?? {}), _class: 'osm-reef' },
+            })),
+        );
+        for (const f of (overlay.breakwater?.features ?? []) as AnyFeature[]) {
+            const t = f.geometry?.type;
+            if (t === 'Polygon' || t === 'MultiPolygon') push('LNDARE', [f]);
+            else if (t === 'LineString' || t === 'MultiLineString') push('COASTLINE', [f]);
+        }
+        push(
+            'OBSTRN',
+            ((overlay.aeroway?.features ?? []) as AnyFeature[])
+                .filter((f) => f.geometry?.type === 'Polygon' || f.geometry?.type === 'MultiPolygon')
+                .map((f) => ({ ...f, properties: { ...(f.properties ?? {}), _class: 'osm-aeroway' } })),
+        );
+        push('COASTLINE', (overlay.coastline?.features ?? []) as unknown[]);
+        push('CANAL', (overlay.canalLines?.features ?? []) as unknown[]);
+        push('NAVLINE', (overlay.navLines?.features ?? []) as unknown[]);
+        tags.push(
+            `osm(w${water.length},prom${promoted.length},canal${overlay.canalLines?.features?.length ?? 0},nav${overlay.navLines?.features?.length ?? 0})`,
+        );
+    } else {
+        tags.push('osm-overlay-UNAVAILABLE');
+    }
+
+    // SE-QLD regional markers (midpoints/segments/hazards/wings) — device path.
+    const SEQ: [number, number, number, number] = [152.0, -28.5, 154.5, -26.0];
+    const inSeq = (pnt: [number, number]) =>
+        pnt[0] >= SEQ[0] && pnt[0] <= SEQ[2] && pnt[1] >= SEQ[1] && pnt[1] <= SEQ[3];
+    if (inSeq(passage.from) && inSeq(passage.to)) {
+        try {
+            const { fetchRegionalMarkers, orientHazardsTowardLand } = await import('../../services/InshoreRouter');
+            const url =
+                'https://pcisdplnodrphauixcau.supabase.co/storage/v1/object/public/regions/australia_se_qld/nav_markers.geojson';
+            const { midpoints, segments, hazards, wings } = await fetchRegionalMarkers(
+                url,
+                (merged.LNDARE?.features ?? []) as never,
+                osmWater as never,
+                [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])] as never,
+            );
+            (merged.BOYLAT!.features as unknown[]).push(...midpoints);
+            (merged.FAIRWY!.features as unknown[]).push(...segments);
+            const oriented = orientHazardsTowardLand(hazards as never, (merged.LNDARE?.features ?? []) as never);
+            (merged.OBSTRN!.features as unknown[]).push(...(oriented as unknown[]), ...wings);
+            tags.push(`markers(mid${midpoints.length},seg${segments.length},haz${hazards.length})`);
+        } catch (err) {
+            tags.push(`markers-FAILED(${err instanceof Error ? err.message.slice(0, 40) : 'err'})`);
+        }
+    }
+    return { osmWater, tags };
+}
+
 // ── Metrics ──────────────────────────────────────────────────────────
 const M_PER_LAT = 110_540;
 const mPerLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
@@ -205,7 +358,7 @@ const polysOf = (fc: FeatureCollection | undefined): (Polygon | MultiPolygon)[] 
         .filter((g): g is Polygon | MultiPolygon => !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'));
 
 describe('BAY SWEEP — classic passages vs real cells', () => {
-    it('routes every passage and prints the scorecard', () => {
+    it('routes every passage and prints the scorecard', async () => {
         if (!PI_UP) {
             console.log('SKIP — Pi unreachable');
             return;
@@ -218,8 +371,20 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
             let row = `\n### ${p.name}`;
             try {
                 const { layers, cells } = assembleLayers(p, installed);
+                const { osmWater, tags } = await applyDeviceEnrichment(layers, p);
+                row += `  {${tags.join(' ')}}`;
                 const lnd = polysOf(layers.LNDARE);
-                const wet = [...polysOf(layers.DEPARE), ...polysOf(layers.DRGARE), ...polysOf(layers.FAIRWY)];
+                const wet = [
+                    ...polysOf(layers.DEPARE),
+                    ...polysOf(layers.DRGARE),
+                    ...polysOf(layers.FAIRWY),
+                    ...(osmWater
+                        .map((f) => f.geometry)
+                        .filter(
+                            (g): g is Polygon | MultiPolygon =>
+                                !!g && (g.type === 'Polygon' || g.type === 'MultiPolygon'),
+                        ) ?? []),
+                ];
                 const r = routeInshore(layers, {
                     fromLat: p.from[1],
                     fromLon: p.from[0],

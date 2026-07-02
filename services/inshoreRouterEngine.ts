@@ -386,6 +386,7 @@ function routeInshoreOnce(
         obstructionBufferM,
         relaxedLndare,
         relaxZones,
+        req.routeProfile ?? 'safest',
     );
     tPhase = mark(gridCacheHit ? 'buildNavGridCacheHit' : 'buildNavGrid', tPhase);
     if (grid.width === 0 || grid.height === 0) {
