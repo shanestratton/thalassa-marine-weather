@@ -610,6 +610,30 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                             markers: tideChipMarkersRef.current,
                         });
                     }
+                    // ── Notices to Mariners crossed by this route (advisory only —
+                    // never touches geometry). Curated standing notices (the MSQ
+                    // Mooloolah-bar class) checked against the polyline; a hit
+                    // surfaces in the banner and the 📄 chart icon carries the text.
+                    void (async () => {
+                        try {
+                            const { loadLocalNotices, localNoticesNearPolyline } =
+                                await import('../../services/localNotices');
+                            const hits = localNoticesNearPolyline(await loadLocalNotices(), inshoreRes.polyline, 500);
+                            if (hits.length === 0 || gen !== computeGenRef.current) return;
+                            log.warn(
+                                `[ntm] route crosses ${hits.length} notice area(s): ${hits.map((n) => n.id).join(',')}`,
+                            );
+                            dispatchPassageNotice({
+                                severity: 'warn',
+                                title: `Notice to Mariners on this route`,
+                                message:
+                                    hits.map((n) => n.title).join(' · ') +
+                                    ' — tap the 📄 icon on the chart to read it.',
+                            });
+                        } catch (err) {
+                            log.warn(`[ntm] route check failed: ${err instanceof Error ? err.message : String(err)}`);
+                        }
+                    })();
                     return; // skip the rest of the deep-water compute
                 } // end land-backstop else (rejected routes fall through to deep-water compute)
             } else if (inshoreRes && 'error' in inshoreRes) {

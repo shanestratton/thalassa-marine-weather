@@ -1,0 +1,19 @@
+{
+    "version": 1,
+    "updated": "2026-07-02",
+    "notices": [
+        {
+            "id": "au-qld-mooloolah-bar",
+            "title": "Mooloolah River Bar — standing notices",
+            "category": "bar",
+            "permanent": true,
+            "lat": -26.6862,
+            "lon": 153.134,
+            "radiusM": 900,
+            "summary": "Coastal bar subject to continual shoaling and periodic dredging. Maritime Safety Queensland issues recurring Notices to Mariners for this bar (e.g. NtM 501 of 2025 and predecessors).",
+            "detail": "Plan your crossing with careful consideration of prevailing conditions, the state of tide, and your vessel's draught. Coastal bars are dynamic — depths change constantly and can differ significantly from charted values. Lifejackets must be worn when crossing designated coastal bars in open boats / open areas of boats (QLD requirement). A dredge may be on station maintaining the entrance and keeps a listening watch on VHF 16/82. Always check the CURRENT notice before crossing.",
+            "sourceUrl": "https://www.qld.gov.au/transport/boating/notices",
+            "sourceName": "MSQ Notices to Mariners"
+        }
+    ]
+}
