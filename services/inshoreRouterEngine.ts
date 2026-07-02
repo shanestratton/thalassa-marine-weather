@@ -1276,6 +1276,29 @@ function routeInshoreOnce(
         }
     }
 
+    // CHARTED-shallow companion to the uncharted sweep above: the keel margin
+    // (draft + safetyM) is preference-weighted in A* (40×) but never refused, so a
+    // route squeezed through sub-margin water ships with only red shading. Name the
+    // longest such run in the device log — the skipper-visible number behind the red.
+    {
+        let shallowRunM = 0;
+        let shallowMaxM = 0;
+        for (let i = 1; i < finalCaution.length; i++) {
+            if (finalCaution[i]) {
+                const [lonA, latA] = finalPolyline[i - 1];
+                const [lonB, latB] = finalPolyline[i];
+                shallowRunM += haversineM(latA, lonA, latB, lonB);
+                if (shallowRunM > shallowMaxM) shallowMaxM = shallowRunM;
+            } else {
+                shallowRunM = 0;
+            }
+        }
+        if (shallowMaxM > 500)
+            engineLog.warn(
+                `[keelMargin] longest sub-margin/caution run ${(shallowMaxM / 1852).toFixed(2)} NM — route ships red there (draft+${safetyM} m floor)`,
+            );
+    }
+
     return {
         polyline: finalPolyline,
         cautionMask: finalCaution,

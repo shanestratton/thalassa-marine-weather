@@ -127,6 +127,13 @@ export interface SeawayShadowRoute {
     maxLegDetour: number;
     entryNodeId: string;
     exitNodeId: string;
+    /** Per-SEGMENT (polyline.length-1): true where the segment rides a graph
+     *  channel edge — the render-YELLOW mask; false = connector/hop (TEAL). */
+    channelSegMask: boolean[];
+    /** Per-SEGMENT: true where the grid reads land/uncharted/below-keel-margin
+     *  along the segment — the promoted route's honest red shading (the engine's
+     *  caution recompute never sees a promoted polyline). */
+    cautionSegMask: boolean[];
 }
 
 export type ShadowFailReason =
@@ -506,10 +513,18 @@ export function shadowCompare(
         const entryNode = nodes[nodePath[1]];
         const exitNode = nodes[nodePath[nodePath.length - 2]];
         const line: SeawayLatLon[] = [];
-        const push = (pts: SeawayLatLon[]): void => {
+        // Per-SEGMENT provenance, built during composition: a segment appended while
+        // pushing a channel edge's polyline renders YELLOW; connector/hop segments
+        // stay TEAL. A leg-boundary segment (its first point deduped) takes the
+        // incoming leg's kind — a one-segment blur at worst.
+        const segIsChannel: boolean[] = [];
+        const push = (pts: SeawayLatLon[], isChannel = false): void => {
             for (const p of pts) {
                 const last = line[line.length - 1];
-                if (!last || gateDistM(last, p) > 1) line.push(p);
+                if (!last || gateDistM(last, p) > 1) {
+                    if (line.length > 0) segIsChannel.push(isChannel);
+                    line.push(p);
+                }
             }
         };
         const edgesUsed: string[] = [];
@@ -532,7 +547,7 @@ export function shadowCompare(
             const link = prevLink[nodePath[i]];
             if (!link) continue;
             maxLegDetour = Math.max(maxLegDetour, legDetour(link.polyline));
-            push(link.polyline);
+            push(link.polyline, Boolean(link.edgeId));
             if (link.edgeId) {
                 edgesUsed.push(link.edgeId);
                 onGraphM += link.weightM;
@@ -591,6 +606,29 @@ export function shadowCompare(
         const gatesCorrect = new Set(cl.crossings.map((c) => c.gateId).filter((id) => !gatesViolated.has(id)));
         const interactions = gatesCorrect.size + gatesViolated.size;
 
+        // Honest red for the promoted path: the engine's caution recompute never sees a
+        // promoted polyline, so sample each segment against the grid here (25 m step,
+        // endpoints inclusive) — land/uncharted/below-keel-margin cells flag the segment.
+        const cautionSegMask: boolean[] = [];
+        for (let i = 0; i + 1 < line.length; i++) {
+            const a = line[i];
+            const b = line[i + 1];
+            const steps = Math.max(1, Math.ceil(gateDistM(a, b) / 25));
+            let red = false;
+            for (let s = 0; s <= steps && !red; s++) {
+                const t = s / steps;
+                const x = Math.floor((a.lon + (b.lon - a.lon) * t - grid.minLon) / grid.dLon);
+                const y = Math.floor((a.lat + (b.lat - a.lat) * t - grid.minLat) / grid.dLat);
+                if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+                const d = grid.cells[y * grid.width + x];
+                red = Number.isNaN(d) || d < 0;
+            }
+            cautionSegMask.push(red);
+        }
+        // segIsChannel accrues one entry per appended vertex after the first —
+        // exactly line.length-1 by construction; assert-by-pad against drift.
+        while (segIsChannel.length < line.length - 1) segIsChannel.push(false);
+
         return {
             graph: {
                 polyline: line.map((p): [number, number] => [p.lon, p.lat]),
@@ -607,6 +645,8 @@ export function shadowCompare(
                 maxLegDetour,
                 entryNodeId: entryNode.id,
                 exitNodeId: exitNode.id,
+                channelSegMask: segIsChannel.slice(0, Math.max(0, line.length - 1)),
+                cautionSegMask,
             },
             portalCount,
             ...base,

@@ -2,7 +2,7 @@
   "rows": [
     {
       "name": "newport-rivergate",
-      "directNM": 22.3,
+      "directNM": 22.29,
       "shadow": {
         "kind": "no-marks"
       }
@@ -16,7 +16,7 @@
     },
     {
       "name": "newport-rivergate-marks",
-      "directNM": 18.43,
+      "directNM": 18.39,
       "shadow": {
         "kind": "fail",
         "reason": "no-compliant-path"
@@ -24,11 +24,11 @@
     },
     {
       "name": "dog-leg-channel",
-      "directNM": 2.57,
+      "directNM": 2.58,
       "shadow": {
         "kind": "graph",
         "graphNM": 3.39,
-        "detourRatio": 1.319,
+        "detourRatio": 1.314,
         "pctOnGraph": 0.605,
         "gateCount": 8,
         "channelGatesTotal": 8,

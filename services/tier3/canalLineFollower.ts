@@ -27,6 +27,46 @@ const M_PER_LAT = 110_540;
 const mPerLon = (lat: number): number => 111_320 * Math.cos((lat * Math.PI) / 180);
 const distM = (a: LL, b: LL): number => Math.hypot((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_LAT);
 
+/** Perpendicular distance (m) from point p to the SEGMENT a→b, local planar frame. */
+function pointToSegM(p: LL, a: readonly [number, number], b: readonly [number, number]): number {
+    const refLat = (a[1] + b[1]) / 2;
+    const mx = mPerLon(refLat);
+    const ax = a[0] * mx;
+    const ay = a[1] * M_PER_LAT;
+    const bx = b[0] * mx;
+    const by = b[1] * M_PER_LAT;
+    const px = p.lon * mx;
+    const py = p.lat * M_PER_LAT;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+/**
+ * Min distance (m) from p to the nearest canal-line SEGMENT (not vertex).
+ *
+ * Why segments, not graph vertices: real canal centre-lines have long straight
+ * runs (Newport: 447 m / 297 m / 261 m segments). A point exactly on a long
+ * segment can sit hundreds of metres from either endpoint vertex — so a nearest-
+ * VERTEX test wrongly flags an on-centre route point (fine grid ≈12 m spacing) as
+ * off-canal, shattering the snap run and leaving the bend's corner-cut unrepaired
+ * (docs/AI_COLLAB.md 2026-06-24; fix landed in 6493f9d2, lost with the reverted
+ * base in cc4e2840, restored here). Segment distance is the same metric the
+ * render path uses (pointToTupleLinesM), so detection and rendering agree.
+ */
+function distToCanalSegmentsM(p: LL, lines: readonly (readonly LatLon[])[]): number {
+    let best = Infinity;
+    for (const line of lines) {
+        for (let i = 0; i + 1 < line.length; i++) {
+            const d = pointToSegM(p, line[i], line[i + 1]);
+            if (d < best) best = d;
+        }
+    }
+    return best;
+}
+
 /** A point farther than this from the canal-line network is not on a charted
  *  canal. A wall-hugging route point in a ~40 m canal still sits ≤ ~25 m from the
  *  centre-line, so this comfortably catches a hug without grabbing open water. */
@@ -213,10 +253,13 @@ export function snapRouteToCanalLines(
     const pts: LL[] = polyline.map(([lon, lat]) => ({ lat, lon }));
     const n = pts.length;
     const protectedVertices = opts.protectedVertices ?? [];
+    // Detect on-canal by point-to-SEGMENT distance, NOT nearest graph vertex: a
+    // point on a long straight canal segment is on-centre yet far from any vertex
+    // (see distToCanalSegmentsM). Routing below still uses the node graph (bends
+    // sit on nodes, so the Dijkstra path follows them).
     const onCanal = pts.map((p, i) => {
         if (protectedVertices[i]) return false;
-        const near = g.nearest(p);
-        return near !== null && near.d <= ON_CANAL_M;
+        return distToCanalSegmentsM(p, canalLines) <= ON_CANAL_M;
     });
 
     const out: LL[] = [];
