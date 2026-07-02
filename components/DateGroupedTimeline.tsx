@@ -171,9 +171,13 @@ export const DateGroupedTimeline: React.FC<DateGroupedTimelineProps> = ({
                             </div>
                         </button>
 
-                        {/* Entries - Animated */}
+                        {/* Entries — animated collapse; SCROLLS when open. The old
+                            overflow-hidden + max-h-[2000px] silently amputated a
+                            full-day passage's timeline at ~38 of ~5,000+ rows
+                            (audit 2026-07-03) — everything below the clip was
+                            unreachable. Open = bounded scroll region. */}
                         <div
-                            className={`transition-all duration-200 ease-out overflow-hidden ${isExpanded ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'}`}
+                            className={`transition-all duration-200 ease-out ${isExpanded ? 'max-h-[2000px] opacity-100 overflow-y-auto' : 'max-h-0 opacity-0 overflow-hidden'}`}
                         >
                             <div className="p-1.5 space-y-1">
                                 {group.entries.map((entry) => (

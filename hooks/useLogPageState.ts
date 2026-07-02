@@ -872,7 +872,13 @@ export function useLogPageState() {
             // Timeout the (paginated, un-cancellable) fetch so a cold
             // view on bad comms shows what we have instead of hanging.
             // Generous budget when a cached track is already painted.
-            const timeoutMs = haveCache ? 30_000 : 8_000;
+            // 8 s → 45 s cold budget (audit 2026-07-03): a full-retention
+            // one-day passage is many 1000-row pages; on boat comms the old
+            // 8 s race expired mid-pagination EVERY time for a big voyage,
+            // so an uncached track could never be opened at anchor. The
+            // fetch still resolves partial-page-by-page server-side; the
+            // budget only bounds how long the spinner can live.
+            const timeoutMs = haveCache ? 30_000 : 45_000;
             const voyageEntries = await Promise.race([
                 ShipLogService.getVoyageEntries(voyageId),
                 new Promise<ShipLogEntry[]>((_, reject) =>
