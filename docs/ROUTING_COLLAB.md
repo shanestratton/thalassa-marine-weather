@@ -3372,3 +3372,30 @@ Four ships in the Shane feedback loop today (post-reply-70):
   (NGA/AMSA/UKHO/LINZ, was browse-page-only) viewport-scoped at zoom ≥ 6. Inshore route crossing a
   curated notice area raises the PassageBanner warn band. Advisory only — never touches routing.
   Phase 2: Supabase curated feed + MSQ scrape, offshore-path check, per-gate binding.
+
+## ★ reply 72 (2026-07-02) — SHIPPED: air-draft bridge blocking + inland-tail trim (911cc971)
+
+Shane confirmed gate-centre threading fixed on-device, then asked for bridges + the Pinkenba
+overland tail. Both landed:
+
+- **Bridges**: `vessel.airDraft` (existing profile field, FEET) now reaches the router via
+  `vesselAirDraftMetres()` → `tryInshoreRoute(…, airDraftM)`. Curated spans (OSM-sourced:
+  Newport's Griffith Rd / Klingner Rd / Dalton St, clearances ESTIMATED) in
+  `public/notices/bridges-au.json` + `services/lowBridges.ts`; blocked spans inject as
+  `_class:'low-clearance'` OBSTRN bars ≥60 m wide (cell-centre rasterisation drops a 20 m bar
+  entirely — real trap). Enforcement at EVERY tunnel: grid hard-block + `grid.clearanceBarred`;
+  FAIRWY/DRGARE keys-back refused; component carve REFUSES barred paths (it would otherwise punch
+  the ≤500 m "gap" that IS the bridge); endpoint carve skips; canal centre-lines SEVERED at bars
+  (the follower/egress/snap ride them off-grid). 🌉 chart icons with clearance-vs-air-draft
+  verdicts. Locks: `tests/engine/lowClearance.test.ts`. Found + fixed en route: carve pre-scan was
+  consuming the `bresenhamCells` GENERATOR, emptying the fill loop (broke 8 tests until
+  materialised). Phase 2: S-57 BRIDGE/VERCLR extraction, OSM maxheight via Pi Overpass.
+- **Inland-tail trim**: gated on the destination TAP being on hard land; walks back dropping
+  non-wet vertices (drying banks INCLUDED when the pin is on land; drying BERTHS untouched —
+  their pin is on the drying grid). `RouteResult.destinationInlandTrimM` + "Destination is
+  inland" banner. Locks: `tests/engine/inlandTrim.test.ts` (2.5 km pin → 2497 m trimmed).
+  Watch on-device: `[airDraft] N low bridge(s) BLOCKED…`, `[airDraft] canal centre-lines severed…`,
+  `[inlandTrim] trimmed N m overland tail`.
+
+165 routing tests green (22 files), tsc clean. NOTE for Shane: the Newport bridge clearances are
+ESTIMATES from OSM geometry — verify/adjust in bridges-au.json when known.
