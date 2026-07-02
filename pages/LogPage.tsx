@@ -27,6 +27,7 @@ import { CommunityTrackBrowser } from '../components/CommunityTrackBrowser';
 
 import { UndoToast } from '../components/ui/UndoToast';
 import { EmptyTrackRemovedModal } from '../components/ui/EmptyTrackRemovedModal';
+import { GpsAcquiringOverlay } from '../components/ui/GpsAcquiringOverlay';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { PageHeader } from '../components/ui/PageHeader';
 import { useLogPageState } from '../hooks/useLogPageState';
@@ -182,6 +183,18 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             ),
         [state.entries, state.currentVoyageId],
     );
+
+    // Full-screen "Acquiring GPS fix…" takeover (Shane 2026-07-03: the tiny
+    // header badge is invisible in sunlight — the first minutes of a track
+    // silently don't record while the skipper thinks they do). Shows while
+    // tracking with no trustworthy recorded fix; clears ITSELF on first fix;
+    // manual dismiss drops back to the header badge for this voyage only.
+    const [gpsOverlayDismissedFor, setGpsOverlayDismissedFor] = useState<string | null>(null);
+    const gpsOverlayOpen =
+        state.isTracking &&
+        !hasRecordedFix &&
+        !!state.currentVoyageId &&
+        gpsOverlayDismissedFor !== state.currentVoyageId;
 
     // Engine on/off — user-declared while tracking, stamped onto track
     // points for the sail/motor split. Mirrors ShipLogService's sticky
@@ -1386,6 +1399,10 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
             {/* Empty-track tidy announcement — big friendly modal with a
                 5 s countdown ring, replaces the plain toast. */}
             <EmptyTrackRemovedModal count={emptyPruneNotice} onClose={clearEmptyPruneNotice} />
+            <GpsAcquiringOverlay
+                open={gpsOverlayOpen}
+                onDismiss={() => setGpsOverlayDismissedFor(state.currentVoyageId ?? null)}
+            />
 
             {/* Toast Notifications */}
             <toast.ToastContainer />

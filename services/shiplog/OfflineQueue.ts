@@ -199,6 +199,60 @@ export function normalizeLatestPositions(queue: Partial<ShipLogEntry>[]): Partia
     });
 }
 
+// ── Voyage tombstones ────────────────────────────────────────────────
+// deleteVoyage races the stop-tracking upload: syncOfflineQueue snapshots
+// the queue BEFORE the empty-voyage auto-prune deletes it, then faithfully
+// re-uploads the deleted entries — the "tidied away" voyage resurrects
+// from the cloud on the next load (Shane 2026-07-03: "if you click on
+// 'got it', it does not delete"). A deleted voyageId is tombstoned for
+// TOMBSTONE_TTL_MS: sync purges tombstoned entries from the queue before
+// snapshotting, and re-deletes any tombstoned voyage its in-flight
+// snapshot managed to upload anyway.
+const TOMBSTONE_KEY = 'ship_log_deleted_voyages';
+const TOMBSTONE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+let tombstones: Record<string, number> | null = null;
+
+async function loadTombstones(): Promise<Record<string, number>> {
+    if (tombstones) return tombstones;
+    try {
+        const { value } = await Preferences.get({ key: TOMBSTONE_KEY });
+        const parsed = value ? (JSON.parse(value) as unknown) : {};
+        tombstones =
+            parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, number>) : {};
+    } catch {
+        tombstones = {};
+    }
+    // Expire old stones so the set can't grow forever.
+    const cutoff = Date.now() - TOMBSTONE_TTL_MS;
+    let changed = false;
+    for (const [vid, ts] of Object.entries(tombstones)) {
+        if (ts < cutoff) {
+            delete tombstones[vid];
+            changed = true;
+        }
+    }
+    if (changed) void Preferences.set({ key: TOMBSTONE_KEY, value: JSON.stringify(tombstones) });
+    return tombstones;
+}
+
+/** Mark a voyage as deleted — sync will never (re-)upload its entries. */
+export async function addVoyageTombstone(voyageId: string): Promise<void> {
+    if (!voyageId) return;
+    const stones = await loadTombstones();
+    stones[voyageId] = Date.now();
+    try {
+        await Preferences.set({ key: TOMBSTONE_KEY, value: JSON.stringify(stones) });
+    } catch {
+        /* in-memory stone still guards this session */
+    }
+}
+
+function isTombstoned(stones: Record<string, number>, e: Partial<ShipLogEntry>): boolean {
+    const vid = e.voyageId || 'default_voyage';
+    return stones[vid] !== undefined;
+}
+
 /** Insert batch size — matches the GPX importer's chunking. */
 const SYNC_CHUNK_SIZE = 500;
 
@@ -242,10 +296,24 @@ export async function syncOfflineQueue(): Promise<number> {
 
     isSyncing = true;
     try {
+        // Purge tombstoned (deleted-voyage) entries from the live queue
+        // BEFORE snapshotting — a voyage the user just binned must never
+        // upload (see the tombstone header above).
+        const stones = await loadTombstones();
+        const live = await loadQueue();
+        if (Object.keys(stones).length > 0) {
+            const kept = live.filter((e) => !isTombstoned(stones, e));
+            if (kept.length !== live.length) {
+                log.warn(`syncOfflineQueue: purged ${live.length - kept.length} entries from deleted voyage(s)`);
+                live.length = 0;
+                live.push(...kept);
+                await persistNow();
+            }
+        }
         // Snapshot the LIVE in-memory queue (hydrating from disk if this is a
         // fresh session). slice() pins the upload set; appends during the
         // upload land in memQueue and survive via commitProgress below.
-        const queue = (await loadQueue()).slice();
+        const queue = live.slice();
         if (queue.length === 0) return 0;
 
         const user = await getCurrentUser();
@@ -281,6 +349,24 @@ export async function syncOfflineQueue(): Promise<number> {
         }
 
         await commitProgress(synced);
+        // A voyage deleted WHILE this upload was in flight (its tombstone
+        // landed after our snapshot) may have just been re-inserted — issue
+        // the cloud delete again so the bin sticks.
+        const stonesAfter = await loadTombstones();
+        const resurrected = new Set(
+            queue.filter((e) => isTombstoned(stonesAfter, e)).map((e) => e.voyageId || 'default_voyage'),
+        );
+        for (const vid of resurrected) {
+            try {
+                const del = supabase.from(SHIP_LOGS_TABLE).delete().eq('user_id', user.id);
+                const { error } = await (vid === 'default_voyage'
+                    ? del.or('voyage_id.is.null,voyage_id.eq.')
+                    : del.eq('voyage_id', vid));
+                if (!error) log.warn(`syncOfflineQueue: re-deleted mid-flight-binned voyage ${vid}`);
+            } catch (e) {
+                log.warn(`syncOfflineQueue: re-delete of ${vid} failed (next sync retries)`, e);
+            }
+        }
         if (synced > 0) log.warn(`syncOfflineQueue: uploaded ${synced} entries`);
         return synced;
     } catch (error) {
@@ -331,6 +417,9 @@ export async function getOfflineEntries(): Promise<ShipLogEntry[]> {
  */
 export async function deleteVoyageFromOfflineQueue(voyageId: string): Promise<boolean> {
     try {
+        // Tombstone FIRST — even if nothing is queued locally, an in-flight
+        // sync snapshot may still hold this voyage's entries.
+        await addVoyageTombstone(voyageId);
         const queue = await loadQueue();
         const originalLength = queue.length;
 
