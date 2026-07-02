@@ -653,7 +653,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
         const GATE_BEARINGS = 12; // Every 30° = full 360° coverage
         const GATE_DISTANCES = [15, 25, 35, 45, 55]; // NM — skip <15 NM (harbour channels)
 
-        const findSeaBuoyGate = async (from: { lat: number; lon: number }): Promise<{ lat: number; lon: number }> => {
+        // Initial great-circle bearing from → towards (deg true). The GEBCO-failure
+        // fallback projects the gate along the PASSAGE, not a hemisphere guess — the
+        // old `lon > 140 ? 90 : lon < 125 ? 270 : 180` heuristic was AU-only and put a
+        // Miami or Mediterranean gate 25 NM INLAND, seeding the isochrones from land.
+        const gcBearing = (from: { lat: number; lon: number }, towards: { lat: number; lon: number }): number => {
+            const toRad = (d: number) => (d * Math.PI) / 180;
+            const φ1 = toRad(from.lat);
+            const φ2 = toRad(towards.lat);
+            const Δλ = toRad(towards.lon - from.lon);
+            const y = Math.sin(Δλ) * Math.cos(φ2);
+            const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+            return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+        };
+
+        const findSeaBuoyGate = async (
+            from: { lat: number; lon: number },
+            towards: { lat: number; lon: number },
+        ): Promise<{ lat: number; lon: number }> => {
             // Build search grid: 12 bearings × 5 distances = 60 points
             const bearings: number[] = [];
             for (let b = 0; b < 360; b += 360 / GATE_BEARINGS) {
@@ -681,10 +698,13 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                     allPoints.map((p) => ({ lat: p.lat, lon: p.lon })),
                 );
 
-                // Scan nearest ring first → finds closest 50m water
+                // Scan nearest ring first → finds closest 50m water. Track the deepest
+                // WATER point seen as the degraded answer when nothing makes 50 m.
+                let deepest: { pt: (typeof allPoints)[number]; d: number } | null = null;
                 for (let i = 0; i < allPoints.length; i++) {
                     const d = allDepths[i]?.depth_m;
-                    if (d !== null && d !== undefined && d <= SAFE_WATER_DEPTH_M) {
+                    if (d === null || d === undefined) continue;
+                    if (d <= SAFE_WATER_DEPTH_M) {
                         const pt = allPoints[i];
                         log.info(
                             `[SeaBuoy] ✓ Gate at ${pt.lat.toFixed(3)}, ${pt.lon.toFixed(3)} ` +
@@ -695,18 +715,24 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                         );
                         return { lat: pt.lat, lon: pt.lon };
                     }
+                    if (d < 0 && (!deepest || d < deepest.d)) deepest = { pt: allPoints[i], d };
+                }
+                if (deepest) {
+                    console.warn(
+                        `[SeaBuoy] No 50 m water in range — deepest found ${Math.round(deepest.d)}m at ${deepest.pt.distNM} NM / ${Math.round(deepest.pt.brg)}°`,
+                    );
+                    return { lat: deepest.pt.lat, lon: deepest.pt.lon };
                 }
             } catch (err) {
                 log.warn(`[SeaBuoy] Depth query failed:`, err);
             }
 
-            // Fallback: project 25 NM toward nearest ocean based on longitude
-            // East coast AU (lon > 140) → go east (90°)
-            // West coast AU (lon < 125) → go west (270°)
-            // South coast → go south (180°)
-            const oceanBrg = from.lon > 140 ? 90 : from.lon < 125 ? 270 : 180;
-            log.warn(`[SeaBuoy] No 50m gate found — fallback ${oceanBrg}° (ocean side)`);
-            console.warn(`[SeaBuoy] Fallback: 25 NM at ${oceanBrg}°`);
+            // Total GEBCO failure: project 25 NM along the passage great-circle —
+            // location-agnostic (never points a US/Med gate inland like the old
+            // AU-longitude heuristic).
+            const oceanBrg = gcBearing(from, towards);
+            log.warn(`[SeaBuoy] No GEBCO answer — fallback ${Math.round(oceanBrg)}° (along passage)`);
+            console.warn(`[SeaBuoy] Fallback: 25 NM at ${Math.round(oceanBrg)}°`);
             return _project(from.lat, from.lon, oceanBrg, 25);
         };
 
@@ -719,15 +745,15 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             arrGate = { lat: arrival.lat, lon: arrival.lon };
             log.info(`[Passage] Short route — skipping sea buoy gates`);
         } else {
-            // Find deep water gates — 30s timeout with ocean-side fallback
-            const oceanFallback = (from: { lat: number; lon: number }) => {
-                const brg = from.lon > 140 ? 90 : from.lon < 125 ? 270 : 180;
-                log.warn(`[SeaBuoy] Timeout — fallback ${brg}° at 25 NM`);
+            // Find deep water gates — 30s timeout with along-passage fallback
+            const oceanFallback = (from: { lat: number; lon: number }, towards: { lat: number; lon: number }) => {
+                const brg = gcBearing(from, towards);
+                log.warn(`[SeaBuoy] Timeout — fallback ${Math.round(brg)}° at 25 NM (along passage)`);
                 return _project(from.lat, from.lon, brg, 25);
             };
             [depGate, arrGate] = await Promise.all([
-                withTimeout(findSeaBuoyGate(departure), oceanFallback(departure), 30_000),
-                withTimeout(findSeaBuoyGate(arrival), oceanFallback(arrival), 30_000),
+                withTimeout(findSeaBuoyGate(departure, arrival), oceanFallback(departure, arrival), 30_000),
+                withTimeout(findSeaBuoyGate(arrival, departure), oceanFallback(arrival, departure), 30_000),
             ]);
         }
 
@@ -978,10 +1004,12 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
                 // Arrival harbour leg (dashed): arrGate → arrival
                 features.push(makeLandLeg([arrGateCoord, arrCoord]));
 
-                // Ocean portion: the passage coords (gate-to-gate)
+                // Ocean portion: the passage coords (gate-to-gate) — tier-4 water, so it
+                // renders the tier scheme's DARK BLUE (#1e40af), matching the inshore
+                // engine's offshoreMask instead of the legacy GREEN 'safe'.
                 features.push({
                     type: 'Feature',
-                    properties: { safety: 'safe' },
+                    properties: { safety: 'offshore' },
                     geometry: { type: 'LineString', coordinates: passageCoords },
                 });
             } else if (passageCoords.length >= 4) {
