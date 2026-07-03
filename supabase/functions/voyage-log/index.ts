@@ -138,8 +138,13 @@ Deno.serve(async (req: Request) => {
             scope === 'combined' && combinedAuthors ? Array.from(combinedAuthors.keys()) : [ownerId];
 
         // ── Fetch vessel info, entries, track ──────────────────────
-        // Track keyed by boat_id when present; falls back to user_id for
-        // pre-migration rows where boat_id isn't backfilled yet.
+        // TABLE FIX (2026-07-04): the app has always uploaded voyages to
+        // `ship_logs` (plural — services/shiplog/helpers.ts SHIP_LOGS_TABLE);
+        // this function was reading the abandoned original `ship_log` table
+        // from the 20260201 migration, so the public track was permanently
+        // empty. ship_logs is keyed by user_id only (no boat_id column) and
+        // carries the app's weather-snapshot columns, not the aspirational
+        // NMEA set (heading/depth/apparent-true wind) the old select named.
         //
         // PAGINATED: PostgREST clamps ANY single request to its max-rows
         // setting (default 1000) regardless of .limit() — the old
@@ -148,27 +153,73 @@ Deno.serve(async (req: Request) => {
         // 2026-07-03). Page ascending in 1000-row steps up to the
         // declared envelope.
         const TRACK_SELECT =
-            'latitude, longitude, timestamp, speed_kts, course_deg, heading_deg, pressure, ' +
-            'wind_speed_apparent, wind_angle_apparent, wind_speed_true, wind_direction_true, ' +
-            'depth_m, air_temp, water_temp, wave_height';
+            'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
+            'wind_speed, wind_gust, wind_direction, ' +
+            'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes';
         const fetchTrack = async (): Promise<{ data: Record<string, unknown>[]; error: unknown }> => {
             const rows: Record<string, unknown>[] = [];
             const PAGE = 1000;
             while (rows.length < MAX_TRACK_POINTS) {
-                let q = supabase
-                    .from('ship_log')
+                const { data, error } = await supabase
+                    .from('ship_logs')
                     .select(TRACK_SELECT)
+                    .eq('user_id', ownerId)
+                    .neq('entry_type', 'manual')
                     .gte('timestamp', trackSince)
                     .order('timestamp', { ascending: true })
                     .range(rows.length, rows.length + PAGE - 1);
-                q = boatId ? q.eq('boat_id', boatId) : q.eq('user_id', ownerId);
-                const { data, error } = await q;
                 if (error) return { data: rows, error };
                 const page = (data ?? []) as Record<string, unknown>[];
                 rows.push(...page);
                 if (page.length < PAGE) break;
             }
-            return { data: rows, error: null };
+            // Trackworthy filter, mirroring the app's isTrackworthyEntry():
+            // manual entries excluded above (their fix can be a cached
+            // position up to 60 s behind the boat); COG turn pins are
+            // course-change annotations, not track geometry; and implausible
+            // (0,0)-ish fixes never render.
+            const trackworthy = rows.filter((p) => {
+                const lat = p.latitude as number | null;
+                const lon = p.longitude as number | null;
+                if (typeof lat !== 'number' || typeof lon !== 'number') return false;
+                if (!(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180)) return false;
+                if (Math.abs(lat) < 0.001 && Math.abs(lon) < 0.001) return false; // null island
+                const name = (p.waypoint_name as string | null) ?? '';
+                const notes = (p.notes as string | null) ?? '';
+                if (name.startsWith('COG ') || notes.startsWith('Auto: COG')) return false;
+                return true;
+            });
+            return { data: trackworthy, error: null };
+        };
+
+        // Live tail — points the device trickled into `live_track` while a
+        // voyage is STILL RECORDING (the durable track only lands in
+        // ship_logs when the voyage stops). Fetched after the durable track
+        // so only rows NEWER than the last durable point are appended: once
+        // the at-stop upload arrives, it supersedes the trickle by
+        // construction. Capped generously — a multi-day trickle at the
+        // device's 30 s decimation floor is ~3k rows/day.
+        const fetchLiveTail = async (afterTs: string): Promise<Record<string, unknown>[]> => {
+            const rows: Record<string, unknown>[] = [];
+            const PAGE = 1000;
+            const LIVE_CAP = 10_000;
+            while (rows.length < LIVE_CAP) {
+                const { data, error } = await supabase
+                    .from('live_track')
+                    .select('latitude, longitude, timestamp, speed_kts, course_deg, source')
+                    .eq('user_id', ownerId)
+                    .gt('timestamp', afterTs)
+                    .order('timestamp', { ascending: true })
+                    .range(rows.length, rows.length + PAGE - 1);
+                if (error) {
+                    console.warn('voyage-log: live_track fetch failed:', (error as { message?: string }).message);
+                    return rows;
+                }
+                const page = (data ?? []) as Record<string, unknown>[];
+                rows.push(...page);
+                if (page.length < PAGE) break;
+            }
+            return rows;
         };
 
         const [vesselRes, entriesRes, trackRes] = await Promise.all([
@@ -242,23 +293,57 @@ Deno.serve(async (req: Request) => {
                     : null,
         }));
 
-        const track = (trackRes.data || []).map((p) => ({
+        const durableTrack = (trackRes.data || []).map((p) => ({
             lat: p.latitude,
             lon: p.longitude,
             timestamp: p.timestamp,
             speed_kts: p.speed_kts,
             course_deg: p.course_deg,
-            heading_deg: p.heading_deg ?? null,
+            heading_deg: null,
             pressure: p.pressure,
-            wind_speed_apparent: p.wind_speed_apparent ?? null,
-            wind_angle_apparent: p.wind_angle_apparent ?? null,
-            wind_speed_true: p.wind_speed_true ?? null,
-            wind_direction_true: p.wind_direction_true ?? null,
-            depth_m: p.depth_m ?? null,
+            // ship_logs carries a weather-snapshot wind (numeric speed/gust +
+            // compass-rose direction string), not an instrument apparent/true
+            // split. Expose it under both the legacy *_true keys (page
+            // compat) and its own names.
+            wind_speed_apparent: null,
+            wind_angle_apparent: null,
+            wind_speed_true: p.wind_speed ?? null,
+            wind_direction_true: p.wind_direction ?? null,
+            wind_speed: p.wind_speed ?? null,
+            wind_gust: p.wind_gust ?? null,
+            wind_direction: p.wind_direction ?? null,
+            depth_m: null,
             air_temp: p.air_temp ?? null,
             water_temp: p.water_temp ?? null,
             wave_height: p.wave_height ?? null,
+            live: false,
         }));
+
+        // Append the live trickle tail (recording voyage, not yet uploaded).
+        const lastDurableTs = (durableTrack[durableTrack.length - 1]?.timestamp as string | undefined) ?? trackSince;
+        const liveRows = await fetchLiveTail(lastDurableTs);
+        const liveTail = liveRows.map((p) => ({
+            lat: p.latitude,
+            lon: p.longitude,
+            timestamp: p.timestamp,
+            speed_kts: p.speed_kts ?? null,
+            course_deg: p.course_deg ?? null,
+            heading_deg: null,
+            pressure: null,
+            wind_speed_apparent: null,
+            wind_angle_apparent: null,
+            wind_speed_true: null,
+            wind_direction_true: null,
+            wind_speed: null,
+            wind_gust: null,
+            wind_direction: null,
+            depth_m: null,
+            air_temp: null,
+            water_temp: null,
+            wave_height: null,
+            live: true,
+        }));
+        const track = [...durableTrack, ...liveTail];
 
         // ── Nearby AIS contacts (200 nm around the latest fix) ─────
         // Uses the same `vessels_nearby` RPC the iOS app calls. 200 nm is

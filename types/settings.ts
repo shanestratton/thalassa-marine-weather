@@ -185,6 +185,14 @@ export interface UserSettings {
     polarBoatModel?: string;
     polarSource_type?: 'database' | 'file_import' | 'manual';
 
+    // ── Public Voyage Log ──
+    /**
+     * Trickle live positions to the public Voyage Log page while a voyage is
+     * recording (1 decimated point every ~2 min via the `live_track` table).
+     * Off by default — sharing your live position is an explicit choice.
+     */
+    liveTrackShare?: boolean;
+
     // ── Pi Cache ──
     /** Enable routing data requests through a local Raspberry Pi cache server */
     piCacheEnabled?: boolean;

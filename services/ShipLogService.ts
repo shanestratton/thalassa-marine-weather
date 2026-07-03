@@ -53,6 +53,7 @@ import {
 } from './shiplog/CapturePipeline';
 import { getGpsStatus as _getGpsStatus, getGpsNavData as _getGpsNavData } from './shiplog/PositionResolver';
 import { setCaptureLocalOnly } from './shiplog/EntrySave';
+import { startLiveTrickle, stopLiveTrickle } from './shiplog/LiveTrickle';
 import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
@@ -440,6 +441,11 @@ class ShipLogServiceClass {
         // capture path. The whole voyage uploads in the background at stop.
         setCaptureLocalOnly(true);
 
+        // Live position sharing (public Voyage Log "live tail") — a
+        // read-only shadow of the offline queue, gated on
+        // settings.liveTrackShare. Never touches the capture path.
+        startLiveTrickle(this.trackingState.currentVoyageId ?? null);
+
         this.notifyTrackingChanged();
 
         // COLD-START FAST-LOCK (new voyages only). distanceFilter:0 emits
@@ -719,6 +725,11 @@ class ShipLogServiceClass {
                 log.warn('empty-voyage check / track cache snapshot failed:', e);
             }
         }
+
+        // Live trickle: final flush so the public tail is complete while the
+        // whole-voyage upload below is still in flight, then disarm.
+        // Fire-and-forget — stopping the voyage must never wait on network.
+        void stopLiveTrickle(true).catch((e) => log.warn('[ShipLog] live-trickle final flush failed:', e));
 
         // Voyage complete → exit local-only capture and upload the whole
         // recorded voyage to Supabase in the background. Fire-and-forget:

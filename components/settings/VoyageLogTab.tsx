@@ -41,7 +41,7 @@ const slugify = (s: string) =>
 
 const publicUrlForHandle = (handle: string) => `https://${handle}.thalassawx.app`;
 
-export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
+export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) => {
     const [config, setConfig] = useState<VoyageLogConfig | null>(null);
     const [loading, setLoading] = useState(true);
     const [busy, setBusy] = useState(false);
@@ -459,6 +459,26 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = () => {
                         label="Public voyage log on/off"
                     />
                 </Row>
+                {config.enabled && (
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-sm text-white font-bold">Share position live</div>
+                            <div className="text-xs text-gray-400 mt-1">
+                                While a voyage is recording, send a position to your public page every couple of minutes
+                                (when there&apos;s signal — gaps fill in as coverage returns). The full track still
+                                uploads when the voyage ends.
+                            </div>
+                        </div>
+                        <Toggle
+                            checked={settings.liveTrackShare === true}
+                            onChange={(v) => {
+                                triggerHaptic('light');
+                                onSave({ liveTrackShare: v });
+                            }}
+                            label="Live position sharing on/off"
+                        />
+                    </Row>
+                )}
             </Section>
 
             <Section title="Your public page">
