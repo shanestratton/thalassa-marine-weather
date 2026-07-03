@@ -60,6 +60,7 @@ export function isOnlineAndNotSatellite(): boolean {
 // here for the existing callers.
 export { setCaptureLocalOnly, isCaptureLocalOnly } from './OfflineQueue';
 import { isCaptureLocalOnly as captureIsLocalOnly } from './OfflineQueue';
+import { noteLiveTrickleHeartbeat } from './LiveTrickle';
 
 /**
  * Save-or-Queue Pipeline.
@@ -77,6 +78,11 @@ export async function saveEntryOnlineOrOffline(
     // syncs as one batch when tracking stops.
     if (captureIsLocalOnly()) {
         await queueOfflineEntry(entry);
+        // Live-trickle heartbeat rides the capture callback: in the
+        // background JS timers are suspended but native GPS callbacks keep
+        // arriving, so this is what keeps the public "live tail" moving on
+        // passage. Throttled + read-only inside; no-op unless sharing is on.
+        noteLiveTrickleHeartbeat();
         return { saved: null, entryId: null, wasOffline: true };
     }
 
