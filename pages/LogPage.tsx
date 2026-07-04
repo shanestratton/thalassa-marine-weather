@@ -42,6 +42,7 @@ import { ShipLogService } from '../services/ShipLogService';
 import { fetchRoutesAndTracks, type RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
 import { suggestPlanForDeparture } from '../services/shiplog/planMatcher';
 import { VoyageLogService } from '../services/VoyageLogService';
+import { useSettingsStore } from '../stores/settingsStore';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -247,6 +248,44 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         if (ok) toast.success(`Linked — your page now tracks ${plan.label}`);
         else toast.error(VoyageLogService.lastError ?? 'Link failed — try from Settings later');
     }, [planPrompt, toast]);
+
+    // ── "Share this voyage live?" prompt ─────────────────────────
+    // The live-share toggle lives deep in Settings, so offer it right at
+    // departure (owner ask 2026-07-04). Fires once per new voyage, only
+    // when the public log is on AND live-share is currently off (no nag
+    // once they've opted in). Yes flips the global toggle + fresh-starts
+    // the trickle so nothing before consent is published.
+    const liveTrackShare = useSettingsStore((s) => s.settings.liveTrackShare);
+    const updateSettings = useSettingsStore((s) => s.updateSettings);
+    const [sharePrompt, setSharePrompt] = useState<string | null>(null); // voyageId
+    const sharePromptCheckedFor = useRef<string | null>(null);
+    useEffect(() => {
+        if (!state.isTracking || !state.currentVoyageId) return;
+        if (sharePromptCheckedFor.current === state.currentVoyageId) return;
+        sharePromptCheckedFor.current = state.currentVoyageId;
+        if (liveTrackShare === true) return; // already sharing — don't ask
+        const voyageId = state.currentVoyageId;
+        void (async () => {
+            try {
+                const cfg = await VoyageLogService.getConfig();
+                if (cfg?.enabled) setSharePrompt(voyageId);
+            } catch {
+                /* offline / no public log — the Settings toggle still works */
+            }
+        })();
+    }, [state.isTracking, state.currentVoyageId, liveTrackShare]);
+
+    const enableLiveShare = useCallback(async () => {
+        setSharePrompt(null);
+        void updateSettings({ liveTrackShare: true });
+        try {
+            const { markLiveTrickleFreshStart } = await import('../services/shiplog/LiveTrickle');
+            await markLiveTrickleFreshStart();
+        } catch {
+            /* trickle module lazy-load failed — the toggle still took effect */
+        }
+        toast.success('Sharing live — your track will build on your public page');
+    }, [updateSettings, toast]);
 
     // Engine on/off — user-declared while tracking, stamped onto track
     // points for the sail/motor split. Mirrors ShipLogService's sticky
@@ -1456,9 +1495,48 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 onDismiss={() => setGpsOverlayDismissedFor(state.currentVoyageId ?? null)}
             />
 
+            {/* "Share this voyage live?" — surfaced at departure so the
+                deep-menu toggle isn't the only way to opt in. */}
+            {sharePrompt && sharePrompt === state.currentVoyageId && (
+                <div
+                    className="fixed left-4 right-4 z-[9991] animate-slide-up"
+                    style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
+                >
+                    <div className="bg-slate-800 border border-emerald-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
+                        <div className="text-sm font-bold text-white">Share this voyage live?</div>
+                        <div className="text-xs text-gray-400 mt-1">
+                            Your track will build on your public page as you sail, so friends and family can follow
+                            along. You can turn it off any time.
+                        </div>
+                        <div className="flex gap-2 mt-3">
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('medium');
+                                    void enableLiveShare();
+                                }}
+                                className="flex-1 py-2 bg-emerald-500/20 text-emerald-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                            >
+                                Share live
+                            </button>
+                            <button
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    setSharePrompt(null);
+                                }}
+                                className="flex-1 py-2 bg-white/5 text-gray-400 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                            >
+                                Keep private
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Passage-plan link prompt — one tap ties this voyage to a saved
-                plan so the public page shows destination + live progress. */}
-            {planPrompt &&
+                plan so the public page shows destination + live progress.
+                Held back while the share prompt is up — one question at a time. */}
+            {!sharePrompt &&
+                planPrompt &&
                 planPrompt.voyageId === state.currentVoyageId &&
                 planPromptDismissedFor !== planPrompt.voyageId && (
                     <div
