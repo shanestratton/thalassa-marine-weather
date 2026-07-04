@@ -173,7 +173,23 @@ Deno.serve(async (req: Request) => {
         const TRACK_SELECT =
             'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
             'wind_speed, wind_gust, wind_direction, ' +
-            'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes';
+            'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes, voyage_id';
+
+        // Owner's per-voyage exclusion list — voyages hidden from the public
+        // page (the app's "Public tracks" list). Filters BOTH the durable
+        // track and the live tail. Fail-open on error: a transient read
+        // failure shouldn't blank a page the owner expects to be live.
+        const hiddenVoyageIds = new Set<string>();
+        {
+            const { data: hiddenRows, error: hiddenErr } = await supabase
+                .from('voyage_log_hidden_voyages')
+                .select('voyage_id')
+                .eq('user_id', ownerId);
+            if (hiddenErr) console.warn('voyage-log: hidden-voyages read failed:', hiddenErr.message);
+            for (const r of hiddenRows ?? []) {
+                if (typeof r.voyage_id === 'string') hiddenVoyageIds.add(r.voyage_id);
+            }
+        }
         const fetchTrack = async (): Promise<{ data: Record<string, unknown>[]; error: unknown }> => {
             const rows: Record<string, unknown>[] = [];
             const PAGE = 1000;
@@ -201,6 +217,7 @@ Deno.serve(async (req: Request) => {
             // course-change annotations, not track geometry; and implausible
             // (0,0)-ish fixes never render.
             const trackworthy = rows.filter((p) => {
+                if (hiddenVoyageIds.has((p.voyage_id as string | null) ?? '')) return false;
                 const lat = p.latitude as number | null;
                 const lon = p.longitude as number | null;
                 if (typeof lat !== 'number' || typeof lon !== 'number') return false;
@@ -225,20 +242,25 @@ Deno.serve(async (req: Request) => {
             const rows: Record<string, unknown>[] = [];
             const PAGE = 1000;
             const LIVE_CAP = 10_000;
-            while (rows.length < LIVE_CAP) {
+            // Pagination offset must count FETCHED rows, not kept rows — the
+            // hidden-voyage filter shrinks the kept set and would otherwise
+            // make successive .range() windows overlap.
+            let fetched = 0;
+            while (fetched < LIVE_CAP) {
                 const { data, error } = await supabase
                     .from('live_track')
-                    .select('latitude, longitude, timestamp, speed_kts, course_deg, source')
+                    .select('latitude, longitude, timestamp, speed_kts, course_deg, source, voyage_id')
                     .eq('user_id', ownerId)
                     .gt('timestamp', afterTs)
                     .order('timestamp', { ascending: true })
-                    .range(rows.length, rows.length + PAGE - 1);
+                    .range(fetched, fetched + PAGE - 1);
                 if (error) {
                     console.warn('voyage-log: live_track fetch failed:', (error as { message?: string }).message);
                     return rows;
                 }
                 const page = (data ?? []) as Record<string, unknown>[];
-                rows.push(...page);
+                fetched += page.length;
+                rows.push(...page.filter((p) => !hiddenVoyageIds.has((p.voyage_id as string | null) ?? '')));
                 if (page.length < PAGE) break;
             }
             return rows;

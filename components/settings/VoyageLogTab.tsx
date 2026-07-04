@@ -21,6 +21,8 @@ import { supabase } from '../../services/supabase';
 import { toast } from '../Toast';
 import { triggerHaptic } from '../../utils/system';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
+import { ShipLogService } from '../../services/ShipLogService';
+import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
 
 // Crew-on-someone-else's-boat surface: each entry represents a boat the
 // current user is crew on (NOT the owner), plus their personal voyage-log
@@ -50,6 +52,11 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     const [crewBoats, setCrewBoats] = useState<CrewBoatLog[]>([]);
     const [crewBusyBoatId, setCrewBusyBoatId] = useState<string | null>(null);
     const [setupError, setSetupError] = useState<string | null>(null);
+    // Public-tracks management: every uploaded voyage + which are hidden
+    // from the public page (voyage_log_hidden_voyages exclusion list).
+    const [publicTracks, setPublicTracks] = useState<VoyageSummary[]>([]);
+    const [hiddenVoyageIds, setHiddenVoyageIds] = useState<Set<string>>(new Set());
+    const [trackBusyId, setTrackBusyId] = useState<string | null>(null);
 
     // Ref for the hero URL element — used by the auto-fit effect below
     // to grow/shrink the font so the whole link fits on one line. Must
@@ -117,6 +124,47 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
             cancelled = true;
         };
     }, [loadCrewBoats]);
+
+    // Load the public-tracks list once the log is confirmed enabled. Server
+    // summaries only — those are exactly the voyages the public page can draw.
+    useEffect(() => {
+        if (!config?.enabled) return;
+        let cancelled = false;
+        void Promise.all([ShipLogService.getVoyageSummaries(), VoyageLogService.getHiddenVoyageIds()]).then(
+            ([summaries, hidden]) => {
+                if (cancelled) return;
+                const sorted = [...summaries].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, 50);
+                setPublicTracks(sorted);
+                setHiddenVoyageIds(hidden);
+            },
+        );
+        return () => {
+            cancelled = true;
+        };
+    }, [config?.enabled]);
+
+    const handleTrackVisibility = useCallback(async (voyageId: string, hidden: boolean) => {
+        setTrackBusyId(voyageId);
+        triggerHaptic('light');
+        // Optimistic — revert on failure.
+        setHiddenVoyageIds((prev) => {
+            const next = new Set(prev);
+            if (hidden) next.add(voyageId);
+            else next.delete(voyageId);
+            return next;
+        });
+        const ok = await VoyageLogService.setVoyageHidden(voyageId, hidden);
+        if (!ok) {
+            setHiddenVoyageIds((prev) => {
+                const next = new Set(prev);
+                if (hidden) next.delete(voyageId);
+                else next.add(voyageId);
+                return next;
+            });
+            toast.error(VoyageLogService.lastError ?? 'Could not update — check signal');
+        }
+        setTrackBusyId(null);
+    }, []);
 
     // Auto-fit the public URL hero text to its container — start at
     // 22px and shrink one px at a time until the whole link fits on
@@ -506,6 +554,52 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                     </div>
                 </Row>
             </Section>
+
+            {config.enabled && publicTracks.length > 0 && (
+                <Section title="Public tracks">
+                    <Row>
+                        <div className="flex-1">
+                            <div className="text-xs text-gray-400">
+                                Choose which voyages draw on your public page. Hiding a track only affects the page —
+                                your own log keeps it. Use the Log page&apos;s bin to actually delete a voyage.
+                            </div>
+                        </div>
+                    </Row>
+                    {publicTracks.map((v) => {
+                        const hidden = hiddenVoyageIds.has(v.voyageId);
+                        const started = new Date(v.startedAt);
+                        const label = started.toLocaleDateString('en-AU', {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                        });
+                        const kind = v.isPlannedRoute ? ' · planned route' : v.isImported ? ' · imported' : '';
+                        return (
+                            <Row key={v.voyageId}>
+                                <div className="flex-1 min-w-0">
+                                    <div className={`text-sm font-bold ${hidden ? 'text-gray-500' : 'text-white'}`}>
+                                        {label}
+                                    </div>
+                                    <div className="text-xs text-gray-400 mt-0.5">
+                                        {v.totalDistanceNM.toFixed(1)} NM · {v.entryCount.toLocaleString()} points
+                                        {kind}
+                                        {hidden ? ' · hidden from page' : ''}
+                                    </div>
+                                </div>
+                                <Toggle
+                                    checked={!hidden}
+                                    onChange={(show) => {
+                                        if (trackBusyId) return;
+                                        void handleTrackVisibility(v.voyageId, !show);
+                                    }}
+                                    label={`Show voyage ${label} on public page`}
+                                />
+                            </Row>
+                        );
+                    })}
+                </Section>
+            )}
 
             <Section title="API access">
                 <Row>
