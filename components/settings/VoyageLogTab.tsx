@@ -146,7 +146,14 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
             setPublicTracks(sorted);
             setHiddenVoyageIds(hidden);
             setPlanLinks(links);
-            setPlanRoutes([...routesAndTracks.routes].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10));
+            // Local-only plans can't drive the public page (not on the server
+            // yet) — keep them out of the link picker.
+            setPlanRoutes(
+                routesAndTracks.routes
+                    .filter((r) => !r.isLocal)
+                    .sort((a, b) => b.timestamp - a.timestamp)
+                    .slice(0, 10),
+            );
         });
         return () => {
             cancelled = true;
