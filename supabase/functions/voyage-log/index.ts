@@ -306,17 +306,13 @@ Deno.serve(async (req: Request) => {
             model: (vData?.model as string) ?? null,
         };
 
-        // Destination — static config fallback; OVERRIDDEN below by the
-        // linked passage plan whenever a fresh linked voyage is underway.
-        // Drives the public progress HUD (DTG / ETA / Newport → here → there).
-        let destination =
-            config.destination_lat != null && config.destination_lon != null
-                ? {
-                      name: (config.destination_name as string | null) ?? null,
-                      lat: config.destination_lat as number,
-                      lon: config.destination_lon as number,
-                  }
-                : null;
+        // Destination — FULLY DYNAMIC (owner call 2026-07-04: "we will make
+        // it all dynamic"). Set below ONLY when a fresh voyage is linked to a
+        // passage plan; otherwise null and the page shows no passage HUD.
+        // The static voyage_log_configs destination_* columns are deliberately
+        // ignored — the old always-on "Newport to Nouméa" header was a stale
+        // set-once value, not a real passage.
+        let destination: { name: string | null; lat: number; lon: number } | null = null;
 
         // Hiding a voyage hides its diary entries (and their photos) too —
         // the whole passage disappears from the page as one unit. Entries
