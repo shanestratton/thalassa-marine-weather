@@ -113,7 +113,7 @@ export default function ThalassaDashboard() {
     }
 
     // ── Ready ─────────────────────────────────────────────────────
-    const { vessel, destination, entries, track, telemetry, nearby_vessels: nearbyVessels } = state.data;
+    const { vessel, destination, entries, track, waypoints, telemetry, nearby_vessels: nearbyVessels } = state.data;
 
     return (
         // Desktop (md+): locked app-shell — full-height map + internally-
@@ -130,6 +130,7 @@ export default function ThalassaDashboard() {
                     <MapContainer
                         track={track}
                         entries={entries}
+                        waypoints={waypoints ?? []}
                         nearbyVessels={nearbyVessels ?? []}
                         onEntryClick={handleSelect}
                         selectedEntryId={selectedEntry?.id}

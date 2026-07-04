@@ -395,6 +395,34 @@ Deno.serve(async (req: Request) => {
         }));
         const track = [...durableTrack, ...liveTail];
 
+        // Named waypoints — the marks the skipper deliberately dropped and
+        // named under way (entry_type 'waypoint'), as distinct from the auto
+        // breadcrumb fixes. The public map shows JUST these as labelled pins
+        // (owner ask 2026-07-04: "just the markers that we interact with").
+        // rawDurable is already the trackworthy set (hidden voyages, manual
+        // entries and COG turn-pins filtered out in fetchTrack).
+        //
+        // 'Latest Position' is the app's rolling live-marker bookkeeping (it
+        // promotes the newest fix to a waypoint each tick and demotes the
+        // prior one — demotion doesn't always fire offline, so several leak
+        // through). It's never a mark the skipper interacted with — drop it.
+        // Voyage Start/End and any custom names stay.
+        const SYSTEM_WAYPOINT_NAMES = new Set(['Latest Position']);
+        const waypoints = ((trackRes.data || []) as Record<string, unknown>[])
+            .filter(
+                (p) =>
+                    p.entry_type === 'waypoint' &&
+                    typeof p.waypoint_name === 'string' &&
+                    (p.waypoint_name as string).trim().length > 0 &&
+                    !SYSTEM_WAYPOINT_NAMES.has((p.waypoint_name as string).trim()),
+            )
+            .map((p) => ({
+                lat: p.latitude as number,
+                lon: p.longitude as number,
+                name: p.waypoint_name as string,
+                timestamp: p.timestamp as string,
+            }));
+
         // ── Passage: linked plan → dynamic destination + progress ──
         // The newest track point's voyage, when FRESH (<48 h) and linked to
         // a saved passage plan (voyage_plan_links), overrides the static
@@ -595,6 +623,7 @@ Deno.serve(async (req: Request) => {
                 passage,
                 entries,
                 track,
+                waypoints,
                 telemetry,
                 nearby_vessels: nearbyVessels,
                 generated_at: new Date().toISOString(),
