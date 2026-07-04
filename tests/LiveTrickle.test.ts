@@ -55,7 +55,13 @@ vi.mock('@capacitor/preferences', () => ({
     },
 }));
 
-import { startLiveTrickle, stopLiveTrickle, noteLiveTrickleHeartbeat } from '../services/shiplog/LiveTrickle';
+import {
+    startLiveTrickle,
+    stopLiveTrickle,
+    noteLiveTrickleHeartbeat,
+    purgeLiveTrack,
+    markLiveTrickleFreshStart,
+} from '../services/shiplog/LiveTrickle';
 
 // ── Helpers ─────────────────────────────────────────────────────────
 const T0 = Date.parse('2026-07-04T00:00:00.000Z');
@@ -88,12 +94,21 @@ function installSupabase() {
                 calls.push({ rows, opts });
                 return { error: null };
             },
+            // Lazy-ish delete chain: records ONLY when awaited (.then) or
+            // when the .lt prune leg is awaited — mirrors supabase-js's lazy
+            // builder so a discarded chain records nothing (the bug the
+            // adversarial review caught in the original prune).
             delete: () => ({
                 eq: () => ({
                     lt: async (_c: string, cutoff: string) => {
-                        deletes.push(`${table}<${cutoff}`);
+                        deletes.push(`prune<${cutoff}`);
                         return { error: null };
                     },
+                    then: (resolve: (v: { error: null }) => unknown) =>
+                        Promise.resolve({ error: null as null }).then((r) => {
+                            deletes.push(`purge:${table}`);
+                            return resolve(r);
+                        }),
                 }),
             }),
         }),
@@ -132,7 +147,7 @@ describe('LiveTrickle', () => {
     });
 
     it('publishes decimated points and advances the mark', async () => {
-        const { calls } = installSupabase();
+        const { calls, deletes } = installSupabase();
         // 0s, 10s, 20s, 40s, 70s → 30s decimation keeps 0, 40, 70
         mockState.queue = [point(0), point(10), point(20), point(40), point(70)];
         startLiveTrickle('voyage-1');
@@ -140,6 +155,13 @@ describe('LiveTrickle', () => {
         await flush(() => calls.length >= 1 && mockState.prefs.has('live_trickle_mark_v1'));
 
         expect(calls).toHaveLength(1);
+        // First successful tick of the session also fires the 7-day prune —
+        // and it must ACTUALLY be issued: supabase-js builders are lazy, a
+        // discarded `void builder` never sends the DELETE (regression from
+        // the adversarial review; the mock's delete chain records only when
+        // awaited, mirroring the real laziness).
+        await flush(() => deletes.length >= 1);
+        expect(deletes.some((d) => d.startsWith('prune<'))).toBe(true);
         const rows = calls[0].rows;
         expect(rows.map((r) => r.timestamp)).toEqual([iso(0), iso(40), iso(70)]);
         expect(rows[0]).toMatchObject({
@@ -205,6 +227,56 @@ describe('LiveTrickle', () => {
         await flush();
         await new Promise((r) => setTimeout(r, 20));
         expect(calls).toHaveLength(0);
+    });
+
+    it('drains a long catch-up oldest-first in chunks — nothing dropped, newest always fresh', async () => {
+        const { calls } = installSupabase();
+        // 205 points at the 30 s decimation floor — one chunk (200) won't cover it.
+        mockState.queue = Array.from({ length: 205 }, (_, i) => point(i * 30));
+        startLiveTrickle('voyage-1');
+        noteLiveTrickleHeartbeat();
+        await flush(() => calls.length >= 1);
+
+        // First pass: the OLDEST 200 + the newest point appended out-of-band.
+        expect(calls[0].rows).toHaveLength(201);
+        expect(calls[0].rows[0].timestamp).toBe(iso(0));
+        expect(calls[0].rows[199].timestamp).toBe(iso(199 * 30));
+        expect(calls[0].rows[200].timestamp).toBe(iso(204 * 30));
+        // Mark sits at the end of the CONTIGUOUS chunk, not the newest.
+        expect(mockState.prefs.get('live_trickle_mark_v1')).toBe(iso(199 * 30));
+
+        // Final flush drains the remainder — no point permanently orphaned.
+        await stopLiveTrickle(true);
+        expect(calls).toHaveLength(2);
+        expect(calls[1].rows.map((r) => r.timestamp)).toEqual([200, 201, 202, 203, 204].map((i) => iso(i * 30)));
+        expect(mockState.prefs.get('live_trickle_mark_v1')).toBe(iso(204 * 30));
+    });
+
+    it('purgeLiveTrack deletes every own row (immediate opt-out)', async () => {
+        const { deletes } = installSupabase();
+        const ok = await purgeLiveTrack();
+        expect(ok).toBe(true);
+        expect(deletes).toContain('purge:live_track');
+    });
+
+    it('markLiveTrickleFreshStart makes sharing forward-only (no pre-consent backlog)', async () => {
+        const { calls } = installSupabase();
+        // Backlog captured before consent — anchored to REAL wall-clock past
+        // (the shared T0 fixture can be in the future depending on timezone).
+        const pastIso = (secAgo: number) => new Date(Date.now() - secAgo * 1000).toISOString();
+        mockState.queue = [
+            { ...point(0), timestamp: pastIso(3600) },
+            { ...point(0), id: 'p2', timestamp: pastIso(3560) },
+            { ...point(0), id: 'p3', timestamp: pastIso(3520) },
+        ];
+        await markLiveTrickleFreshStart();
+        // …then a post-consent point arrives.
+        const nowIso = new Date(Date.now() + 1000).toISOString();
+        mockState.queue.push({ ...point(0), id: 'fresh', timestamp: nowIso });
+        startLiveTrickle('voyage-1');
+        noteLiveTrickleHeartbeat();
+        await flush(() => calls.length >= 1);
+        expect(calls[0].rows.map((r) => r.timestamp)).toEqual([nowIso]);
     });
 
     it('filters manual entries and COG turn pins', async () => {
