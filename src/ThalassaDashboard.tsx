@@ -116,12 +116,17 @@ export default function ThalassaDashboard() {
     const { vessel, destination, entries, track, telemetry, nearby_vessels: nearbyVessels } = state.data;
 
     return (
-        <div className="flex flex-col h-screen bg-slate-900 text-slate-100 overflow-hidden font-sans">
+        // Desktop (md+): locked app-shell — full-height map + internally-
+        // scrolling sidebar. Mobile: NATURAL PAGE SCROLL — the shell's
+        // h-screen/overflow-hidden clipped everything below the fold and the
+        // diary + photos were unreachable (Shane 2026-07-04). The map gets a
+        // fixed 45dvh window; the diary flows below at full length.
+        <div className="flex flex-col min-h-[100dvh] md:h-screen md:overflow-hidden bg-slate-900 text-slate-100 font-sans">
             <TopNav vessel={vessel} telemetry={telemetry} entryCount={entries.length} />
             <VoyageProgressBar track={track} destination={destination} />
 
-            <div className="flex flex-1 overflow-hidden relative flex-col md:flex-row">
-                <main className="flex-1 bg-slate-950 relative min-h-[45vh]">
+            <div className="relative flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
+                <main className="shrink-0 h-[45dvh] min-h-[280px] md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative">
                     <MapContainer
                         track={track}
                         entries={entries}
