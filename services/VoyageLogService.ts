@@ -251,6 +251,64 @@ class VoyageLogServiceClass {
         }
         return data as VoyageLogConfig;
     }
+
+    // ── Per-voyage public visibility ───────────────────────────
+    // The owner's exclusion list (voyage_log_hidden_voyages): hidden voyages
+    // are filtered out of the public track + live tail by the edge function,
+    // while the in-app log keeps them untouched. Keeps the public page from
+    // turning into spaghetti when day-sails overlap.
+
+    /** Voyage ids currently hidden from the public page. */
+    async getHiddenVoyageIds(): Promise<Set<string>> {
+        if (!supabase) return new Set();
+        try {
+            const { data, error } = await supabase.from('voyage_log_hidden_voyages').select('voyage_id');
+            if (error) {
+                log.warn('getHiddenVoyageIds failed:', error.message);
+                return new Set();
+            }
+            return new Set((data ?? []).map((r) => r.voyage_id as string));
+        } catch (e) {
+            log.warn('getHiddenVoyageIds failed:', e);
+            return new Set();
+        }
+    }
+
+    /** Hide (true) or show (false) one voyage on the public page. */
+    async setVoyageHidden(voyageId: string, hidden: boolean): Promise<boolean> {
+        this.lastError = null;
+        if (!supabase) {
+            this.lastError = 'Offline — Supabase client unavailable.';
+            return false;
+        }
+        try {
+            const { data: userData } = await supabase.auth.getUser();
+            const userId = userData.user?.id;
+            if (!userId) {
+                this.lastError = 'You need to sign in first.';
+                return false;
+            }
+            const { error } = hidden
+                ? await supabase
+                      .from('voyage_log_hidden_voyages')
+                      .upsert({ user_id: userId, voyage_id: voyageId }, { onConflict: 'user_id,voyage_id' })
+                : await supabase
+                      .from('voyage_log_hidden_voyages')
+                      .delete()
+                      .eq('user_id', userId)
+                      .eq('voyage_id', voyageId);
+            if (error) {
+                log.warn('setVoyageHidden failed:', error.message);
+                this.lastError = `Couldn't update track visibility: ${error.message}`;
+                return false;
+            }
+            return true;
+        } catch (e) {
+            log.warn('setVoyageHidden failed:', e);
+            this.lastError = 'Track visibility update failed — check signal.';
+            return false;
+        }
+    }
 }
 
 export const VoyageLogService = new VoyageLogServiceClass();
