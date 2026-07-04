@@ -3,8 +3,11 @@ import type { VoyageLogTelemetry } from '../voyageLogApi';
 import { ArcDial, CompassDial, WindDial } from './dials';
 
 interface TelemetryPanelProps {
-    telemetry: VoyageLogTelemetry;
+    telemetry: VoyageLogTelemetry | null;
 }
+
+/** Instruments older than this aren't "live" — the boat's not under way. */
+const LIVE_WINDOW_MS = 3 * 3600_000;
 
 const trendArrow = (t: VoyageLogTelemetry['baro_trend']): string =>
     t === 'rising' ? '↑' : t === 'falling' ? '↓' : '→';
@@ -25,8 +28,33 @@ const Stat: React.FC<{ label: string; value: string; tone: string }> = ({ label,
     </div>
 );
 
-/** Live instrument cluster — dials + readouts, pinned atop the sidebar. */
+/** Ashore card — what shows when the instruments have gone quiet. */
+const ChampagneCard: React.FC<{ lastSeen: string | null }> = ({ lastSeen }) => (
+    <div className="shrink-0 border-b border-slate-700 bg-slate-900/40 px-4 py-4">
+        <div className="flex items-center gap-3">
+            <span className="text-3xl" role="img" aria-label="champagne">
+                🥂
+            </span>
+            <div className="min-w-0">
+                <div className="text-sm font-bold text-amber-200">Champagne &amp; good times</div>
+                <div className="text-xs text-slate-400 mt-0.5 leading-relaxed">
+                    The instruments are quiet — the crew must be living it up.
+                    {lastSeen ? ` Last under way ${lastSeen}.` : ''}
+                </div>
+            </div>
+        </div>
+    </div>
+);
+
+/** Live instrument cluster — dials + readouts, pinned atop the sidebar.
+ *  When the feed is stale (> LIVE_WINDOW_MS) or absent, the boat isn't
+ *  sailing — swap the dead dials for the champagne card (owner ask
+ *  2026-07-04: "we must be living it up"). Also stops the pulsing LIVE
+ *  badge from fibbing over hours-old data. */
 export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) => {
+    const fresh = !!t && Date.now() - new Date(t.updated_at).getTime() < LIVE_WINDOW_MS;
+    if (!t || !fresh) return <ChampagneCard lastSeen={t ? relativeTime(t.updated_at) : null} />;
+
     // Secondary readouts — everything the three dials don't already show.
     const stats: { label: string; value: string; tone: string }[] = [];
     const stat = (label: string, value: number | null, format: (v: number) => string, tone: string): void => {
@@ -43,7 +71,7 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) 
     stat('Sea', t.water_temp, (v) => `${Math.round(v)}°C`, 'text-sky-200');
 
     const hasDialData = t.sog != null || t.cog != null || t.aws != null || t.awa != null;
-    if (!hasDialData && stats.length === 0) return null;
+    if (!hasDialData && stats.length === 0) return <ChampagneCard lastSeen={relativeTime(t.updated_at)} />;
 
     return (
         <div className="shrink-0 border-b border-slate-700 bg-slate-900/40">
