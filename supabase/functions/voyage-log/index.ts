@@ -344,6 +344,10 @@ Deno.serve(async (req: Request) => {
             lat: p.latitude,
             lon: p.longitude,
             timestamp: p.timestamp,
+            // Which voyage this fix belongs to — the page splits the track
+            // per voyage so separate passages never join up with a stray
+            // line across the map.
+            voyage_id: (p.voyage_id as string | null) ?? null,
             speed_kts: p.speed_kts,
             course_deg: p.course_deg,
             heading_deg: null,
@@ -376,6 +380,7 @@ Deno.serve(async (req: Request) => {
             lat: p.latitude,
             lon: p.longitude,
             timestamp: p.timestamp,
+            voyage_id: (p.voyage_id as string | null) ?? null,
             speed_kts: p.speed_kts ?? null,
             course_deg: p.course_deg ?? null,
             heading_deg: null,

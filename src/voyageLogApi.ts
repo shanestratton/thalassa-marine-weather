@@ -60,6 +60,9 @@ export interface VoyageLogTrackPoint {
     lat: number;
     lon: number;
     timestamp: string;
+    /** Which voyage this fix belongs to — the map splits the drawn line
+     *  per voyage so separate passages don't join up. */
+    voyage_id?: string | null;
     speed_kts: number | null;
     course_deg: number | null;
     heading_deg: number | null;

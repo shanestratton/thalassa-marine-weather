@@ -122,32 +122,49 @@ export default function MapContainer({
         [nightFeature],
     );
 
-    const trackCoords = useMemo<[number, number][]>(
-        () => simplifyTrack(track.map((p) => [p.lon, p.lat] as [number, number])),
-        [track],
-    );
+    // Split the track into per-voyage segments so separate passages never
+    // join up: the point list is time-ordered and a voyage's fixes are
+    // contiguous, so a new segment starts whenever voyage_id changes (a
+    // legacy null run stays its own segment). Each segment is simplified
+    // independently — no line is ever drawn across a voyage boundary.
+    const trackSegments = useMemo<[number, number][][]>(() => {
+        const segs: [number, number][][] = [];
+        let cur: [number, number][] = [];
+        let curVoyage: string | null | undefined = undefined;
+        for (const p of track) {
+            const vid = p.voyage_id ?? null;
+            if (vid !== curVoyage) {
+                if (cur.length) segs.push(cur);
+                cur = [];
+                curVoyage = vid;
+            }
+            cur.push([p.lon, p.lat]);
+        }
+        if (cur.length) segs.push(cur);
+        return segs.map(simplifyTrack).filter((s) => s.length >= 2);
+    }, [track]);
+
+    const trackCoords = useMemo<[number, number][]>(() => trackSegments.flat(), [trackSegments]);
     const pinnedEntries = useMemo(() => entries.filter(hasCoords), [entries]);
     const allCoords = useMemo<[number, number][]>(
         () => [...trackCoords, ...pinnedEntries.map((e) => [e.longitude, e.latitude] as [number, number])],
         [trackCoords, pinnedEntries],
     );
 
-    // Track line.
+    // One LineString feature per voyage segment.
     const trackGeojson = useMemo<FeatureCollection<LineString>>(
         () => ({
             type: 'FeatureCollection',
-            features:
-                trackCoords.length >= 2
-                    ? [
-                          {
-                              type: 'Feature',
-                              properties: {},
-                              geometry: { type: 'LineString', coordinates: trackCoords },
-                          } satisfies Feature<LineString>,
-                      ]
-                    : [],
+            features: trackSegments.map(
+                (coords) =>
+                    ({
+                        type: 'Feature',
+                        properties: {},
+                        geometry: { type: 'LineString', coordinates: coords },
+                    }) satisfies Feature<LineString>,
+            ),
         }),
-        [trackCoords],
+        [trackSegments],
     );
 
     // Initial camera — fit the whole voyage, else a globe view.
