@@ -13,9 +13,11 @@ import {
     type VoyageLogEntry,
 } from './voyageLogApi';
 
-// Re-fetch every 5 minutes so followers-at-home see new entries / position
-// without reloading. The API caches for 60s, so this is cheap.
-const REFRESH_MS = 5 * 60 * 1000;
+// Re-fetch so followers-at-home see the live track crawl along without
+// reloading. Matched to the device's ~2-minute live-trickle cadence so a
+// moving boat updates about as fast as points are produced. The API caches
+// for 60s, so the in-between polls are cheap cache hits.
+const REFRESH_MS = 2 * 60 * 1000;
 
 type LoadState =
     | { status: 'loading' }

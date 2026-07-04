@@ -553,11 +553,11 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                 {config.enabled && (
                     <Row>
                         <div className="flex-1">
-                            <div className="text-sm text-white font-bold">Share position live</div>
+                            <div className="text-sm text-white font-bold">Show my current track</div>
                             <div className="text-xs text-gray-400 mt-1">
-                                While a voyage is recording, send a position to your public page every couple of minutes
-                                (when there&apos;s signal — gaps fill in as coverage returns). The full track still
-                                uploads when the voyage ends.
+                                Draw your voyage on the public page as it happens — the track grows every couple of
+                                minutes while you sail (when there&apos;s signal; gaps fill in as coverage returns).
+                                Off, and nothing appears until you end the track and it uploads.
                             </div>
                         </div>
                         <Toggle
@@ -581,7 +581,7 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                                     },
                                 );
                             }}
-                            label="Live position sharing on/off"
+                            label="Show my current track on/off"
                         />
                     </Row>
                 )}
