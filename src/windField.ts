@@ -1,96 +1,56 @@
 /**
- * Wind field for the public map — a grid the WebGL particle engine
- * (WindGLEngine, shared with the app's charts page) advects to draw the
- * flowing wind animation.
+ * Wind field for the public map — a coarse grid of barbs around the boat.
  *
- * Source: Open-Meteo's FREE endpoint (no key, already CSP-allowed on the
- * logs page). Fetched client-side from the viewer's browser, so it costs us
- * nothing server-side. Returns the exact WindGrid shape the engine expects
- * — same row order (south→north) and u/v convention as the app's own
- * services/weather/windField.ts, so the render matches the charts page.
+ * Source: Open-Meteo (free, no API key, and already allow-listed in the
+ * logs page CSP). Fetched client-side from the viewer's browser, so it
+ * costs us nothing server-side. One request covers the whole grid —
+ * Open-Meteo accepts comma-separated latitude/longitude lists and returns
+ * an array of forecasts aligned to them.
  */
 
-import type { WindGrid } from '../services/weather/windGridEncoding';
+export interface WindSample {
+    lat: number;
+    lon: number;
+    speedKt: number;
+    /** Direction the wind blows FROM, degrees true (meteorological). */
+    dirDeg: number;
+}
 
-const MAX_AXIS = 18; // grid points per axis (GPU bilinear-interpolates between)
-const MIN_STEP = 0.2; // degrees — don't oversample a tiny view
+const GRID_N = 6; // GRID_N × GRID_N barbs
+const SPAN_DEG = 3; // total lat/lon span of the grid (~180 nm)
 
-export async function fetchWindGridForBounds(
-    north: number,
-    south: number,
-    west: number,
-    east: number,
-): Promise<WindGrid | null> {
-    // Build a regular lat/lon grid over the view.
-    const latSpan = Math.max(0.001, north - south);
-    const lonSpan = Math.max(0.001, east - west);
-    const latStep = Math.max(MIN_STEP, latSpan / (MAX_AXIS - 1));
-    const lonStep = Math.max(MIN_STEP, lonSpan / (MAX_AXIS - 1));
-
+export async function fetchWindGrid(centerLat: number, centerLon: number): Promise<WindSample[]> {
+    const step = SPAN_DEG / (GRID_N - 1);
     const lats: number[] = [];
-    for (let lat = south; lat <= north + 1e-6; lat += latStep) lats.push(+lat.toFixed(3));
     const lons: number[] = [];
-    for (let lon = west; lon <= east + 1e-6; lon += lonStep) lons.push(+lon.toFixed(3));
-    if (lats.length < 3 || lons.length < 3) return null;
-
-    const rows = lats.length;
-    const cols = lons.length;
-
-    // Row-major point list (row = lat south→north, col = lon west→east) so the
-    // response array aligns to idx = r*cols + c.
-    const ptLats: number[] = [];
-    const ptLons: number[] = [];
-    for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
-            ptLats.push(lats[r]);
-            ptLons.push(lons[c]);
+    for (let i = 0; i < GRID_N; i++) {
+        for (let j = 0; j < GRID_N; j++) {
+            lats.push(+(centerLat - SPAN_DEG / 2 + i * step).toFixed(4));
+            lons.push(+(centerLon - SPAN_DEG / 2 + j * step).toFixed(4));
         }
     }
-
     const url =
-        `https://api.open-meteo.com/v1/forecast?latitude=${ptLats.join(',')}` +
-        `&longitude=${ptLons.join(',')}` +
-        `&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=ms`;
+        `https://api.open-meteo.com/v1/forecast?latitude=${lats.join(',')}` +
+        `&longitude=${lons.join(',')}` +
+        `&current=wind_speed_10m,wind_direction_10m&wind_speed_unit=kn`;
 
-    let results: Record<string, unknown>[];
-    try {
-        const res = await fetch(url);
-        if (!res.ok) return null;
-        const data: unknown = await res.json();
-        results = (Array.isArray(data) ? data : [data]) as Record<string, unknown>[];
-    } catch {
-        return null;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`wind fetch failed: ${res.status}`);
+    const data: unknown = await res.json();
+    // Multi-location responses come back as an array; a single location
+    // would be one object — normalise to an array either way.
+    const arr = Array.isArray(data) ? data : [data];
+
+    const out: WindSample[] = [];
+    for (const f of arr as Record<string, unknown>[]) {
+        const lat = f.latitude;
+        const lon = f.longitude;
+        const cur = f.current as Record<string, unknown> | undefined;
+        const spd = cur?.wind_speed_10m;
+        const dir = cur?.wind_direction_10m;
+        if (typeof lat === 'number' && typeof lon === 'number' && typeof spd === 'number' && typeof dir === 'number') {
+            out.push({ lat, lon, speedKt: spd, dirDeg: dir });
+        }
     }
-
-    const size = rows * cols;
-    const uArr = new Float32Array(size);
-    const vArr = new Float32Array(size);
-    const sArr = new Float32Array(size);
-
-    for (let i = 0; i < size; i++) {
-        const cur = results[i]?.current as Record<string, unknown> | undefined;
-        const speedMs = typeof cur?.wind_speed_10m === 'number' ? (cur.wind_speed_10m as number) : 0;
-        const dirDeg = typeof cur?.wind_direction_10m === 'number' ? (cur.wind_direction_10m as number) : 0;
-        const dirRad = (dirDeg * Math.PI) / 180;
-        // Meteorological: direction is where wind blows FROM. u=+east, v=+north
-        // of the vector the wind blows TO.
-        uArr[i] = -speedMs * Math.sin(dirRad);
-        vArr[i] = -speedMs * Math.cos(dirRad);
-        sArr[i] = speedMs;
-    }
-
-    return {
-        u: [uArr],
-        v: [vArr],
-        speed: [sArr],
-        width: cols,
-        height: rows,
-        lats,
-        lons,
-        north: lats[rows - 1],
-        south: lats[0],
-        west: lons[0],
-        east: lons[cols - 1],
-        totalHours: 1,
-    };
+    return out;
 }
