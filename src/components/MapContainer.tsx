@@ -2,13 +2,22 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
-import { MAPBOX_TOKEN, MOOD, type NearbyVessel, type VoyageLogEntry, type VoyageLogTrackPoint } from '../voyageLogApi';
+import {
+    MAPBOX_TOKEN,
+    MOOD,
+    type NearbyVessel,
+    type VoyageLogEntry,
+    type VoyageLogTrackPoint,
+    type VoyageLogWaypoint,
+} from '../voyageLogApi';
 import { nightPolygon } from '../geo';
 import { CompassRose } from './CompassRose';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
     entries: VoyageLogEntry[];
+    /** Named waypoints dropped under way — labelled pins on the track. */
+    waypoints: VoyageLogWaypoint[];
     /** Nearby AIS contacts to plot. */
     nearbyVessels: NearbyVessel[];
     /** A map marker was tapped. */
@@ -90,6 +99,7 @@ function simplifyTrack(coords: [number, number][]): [number, number][] {
 export default function MapContainer({
     track,
     entries,
+    waypoints,
     nearbyVessels,
     onEntryClick,
     selectedEntryId,
@@ -210,6 +220,20 @@ export default function MapContainer({
                         paint={{ 'line-color': '#7dd3fc', 'line-width': 2.5, 'line-opacity': 0.95 }}
                     />
                 </Source>
+
+                {/* Named waypoints — the marks the skipper dropped under way.
+                    A small diamond with the name label; the auto breadcrumb
+                    dots are intentionally gone (owner ask 2026-07-04). */}
+                {waypoints.map((w, i) => (
+                    <Marker key={`wp-${i}`} longitude={w.lon} latitude={w.lat} anchor="center">
+                        <div className="flex flex-col items-center pointer-events-none select-none">
+                            <span className="w-2.5 h-2.5 rotate-45 bg-amber-300 border border-amber-100 shadow-[0_0_6px_rgba(251,191,36,0.7)]" />
+                            <span className="mt-0.5 px-1 rounded bg-slate-900/80 text-amber-200 text-[9px] font-bold leading-tight whitespace-nowrap">
+                                {w.name}
+                            </span>
+                        </div>
+                    </Marker>
+                ))}
 
                 {/* Latest known position — pulsing */}
                 {lastFix && (

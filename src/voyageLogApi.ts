@@ -124,9 +124,18 @@ export interface VoyageLogData {
     destination: VoyageLogDestination | null;
     entries: VoyageLogEntry[];
     track: VoyageLogTrackPoint[];
+    /** Named waypoints dropped under way — shown as labelled pins. */
+    waypoints?: VoyageLogWaypoint[];
     telemetry: VoyageLogTelemetry | null;
     nearby_vessels: NearbyVessel[];
     generated_at: string;
+}
+
+export interface VoyageLogWaypoint {
+    lat: number;
+    lon: number;
+    name: string;
+    timestamp: string;
 }
 
 export class VoyageLogError extends Error {
