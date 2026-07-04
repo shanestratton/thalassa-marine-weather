@@ -299,14 +299,17 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
     render(gl: WebGLRenderingContext, matrix: number[]) {
         if (!this.grid) return;
 
-        // PERF: Throttle to ~15fps — skip frames closer than 66ms apart.
-        // Wind particles don't need 60fps; this cuts GPU load by ~75%.
+        // PERF: throttle the SIMULATION to ~15fps — advancing particles +
+        // fading the trail more often than that is wasted GPU. But the
+        // composite (blitting the trail onto the map) must run on EVERY
+        // mapbox frame: mapbox redraws the base map each repaint, so a frame
+        // that skips the composite shows no wind at all. Skipping it on the
+        // throttled frames is what made the layer flash (WKWebView on the app
+        // coalesces repaints and hid it; desktop browsers clear eagerly and
+        // exposed the blank frames).
         const now = performance.now();
-        if (now - this._lastRenderTime < 66) {
-            if (!document.hidden) this.map.triggerRepaint();
-            return;
-        }
-        this._lastRenderTime = now;
+        const doSim = now - this._lastRenderTime >= 66;
+        if (doSim) this._lastRenderTime = now;
 
         // Resize trail textures if canvas size changed
         const canvas = gl.canvas as HTMLCanvasElement;
@@ -343,14 +346,16 @@ export class WindGLEngine implements mapboxgl.CustomLayerInterface {
             gl.disable(gl.DEPTH_TEST); // Mapbox leaves depth on — kills 2D particles
             gl.depthMask(false);
 
-            // 1. Update particle positions (pass map bearing for wind rotation)
-            const bearingRad = (this.map.getBearing() * Math.PI) / 180;
-            this.stepUpdate(bearingRad, adaptiveSpeed);
+            // 1+2. Advance the simulation (throttled): update particle
+            // positions, then fade the trail + draw new particles.
+            if (doSim) {
+                const bearingRad = (this.map.getBearing() * Math.PI) / 180;
+                this.stepUpdate(bearingRad, adaptiveSpeed);
+                this.stepTrail(matrix, adaptiveFade);
+            }
 
-            // 2. Fade trail + draw new particles (using MVP matrix)
-            this.stepTrail(matrix, adaptiveFade);
-
-            // 3. Composite trail to map's framebuffer
+            // 3. Composite the current trail to the map framebuffer — EVERY
+            // frame, so the wind never blanks between simulation steps.
             this.stepComposite(prevFbo, adaptiveOpacity);
 
             // Restore Mapbox GL state
