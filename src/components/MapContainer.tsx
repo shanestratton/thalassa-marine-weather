@@ -360,19 +360,34 @@ export default function MapContainer({
                         onClose={() => setSelectedVessel(null)}
                         className="voyage-log-ais-popup"
                     >
-                        <div className="min-w-[180px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-slate-100 shadow-2xl">
+                        <div className="min-w-[190px] max-w-[240px] bg-slate-900 border border-white/10 rounded-xl px-3 py-2.5 text-slate-100 shadow-2xl">
                             <div className="flex items-center gap-2 mb-1.5">
-                                <span
-                                    className="w-2 h-2 rounded-full shrink-0"
-                                    style={{ backgroundColor: vesselColor(selectedVessel.ship_type) }}
-                                />
+                                {selectedVessel.thumbnail_url ? (
+                                    <img
+                                        src={selectedVessel.thumbnail_url}
+                                        alt=""
+                                        className="w-8 h-8 rounded object-cover shrink-0 border border-white/10"
+                                    />
+                                ) : (
+                                    <span
+                                        className="w-2 h-2 rounded-full shrink-0"
+                                        style={{ backgroundColor: vesselColor(selectedVessel.ship_type) }}
+                                    />
+                                )}
                                 <p className="text-sm font-bold truncate">
+                                    {selectedVessel.flag_emoji ? `${selectedVessel.flag_emoji} ` : ''}
                                     {selectedVessel.name || `MMSI ${selectedVessel.mmsi}`}
                                 </p>
                             </div>
-                            {selectedVessel.ship_type && (
-                                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5">
-                                    {selectedVessel.ship_type}
+                            {(selectedVessel.ship_type || selectedVessel.loa || selectedVessel.flag_country) && (
+                                <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5 truncate">
+                                    {[
+                                        selectedVessel.ship_type,
+                                        selectedVessel.loa ? `${Math.round(selectedVessel.loa)} m` : null,
+                                        selectedVessel.flag_country,
+                                    ]
+                                        .filter(Boolean)
+                                        .join(' · ')}
                                 </p>
                             )}
                             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px] font-mono">

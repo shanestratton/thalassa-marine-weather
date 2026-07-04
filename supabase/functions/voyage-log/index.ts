@@ -593,7 +593,44 @@ Deno.serve(async (req: Request) => {
                     destination: (v as { destination?: string | null }).destination ?? null,
                     nav_status: (v as { nav_status?: string | null }).nav_status ?? null,
                     updated_at: (v as { updated_at?: string | null }).updated_at ?? null,
+                    flag_emoji: null as string | null,
+                    flag_country: null as string | null,
+                    loa: null as number | null,
+                    thumbnail_url: null as string | null,
                 }));
+
+                // Enrich with our vessel registry (vessel_metadata, keyed by
+                // MMSI): AIS position reports rarely carry the name — the
+                // static report that does is infrequent, so most live targets
+                // arrive as bare MMSIs. Backfill name / type / call-sign where
+                // the feed left them null, and add flag + length + thumbnail.
+                const mmsiList = (nearbyVessels as { mmsi: string }[])
+                    .map((v) => Number(v.mmsi))
+                    .filter((n) => Number.isFinite(n) && n > 0);
+                if (mmsiList.length > 0) {
+                    const { data: meta, error: metaErr } = await supabase.rpc('lookup_vessel_metadata', {
+                        mmsi_list: mmsiList,
+                    });
+                    if (metaErr) {
+                        console.warn('voyage-log: vessel_metadata lookup failed:', metaErr.message);
+                    } else if (Array.isArray(meta)) {
+                        const byMmsi = new Map(meta.map((m) => [String((m as { mmsi: unknown }).mmsi), m]));
+                        nearbyVessels = (nearbyVessels as Record<string, unknown>[]).map((v) => {
+                            const m = byMmsi.get(v.mmsi as string) as Record<string, unknown> | undefined;
+                            if (!m) return v;
+                            return {
+                                ...v,
+                                name: v.name ?? (m.vessel_name as string | null) ?? null,
+                                ship_type: v.ship_type ?? (m.vessel_type as string | null) ?? null,
+                                call_sign: v.call_sign ?? (m.call_sign as string | null) ?? null,
+                                flag_emoji: (m.flag_emoji as string | null) ?? null,
+                                flag_country: (m.flag_country as string | null) ?? null,
+                                loa: (m.loa as number | null) ?? null,
+                                thumbnail_url: (m.thumbnail_url as string | null) ?? null,
+                            };
+                        });
+                    }
+                }
             }
         }
 

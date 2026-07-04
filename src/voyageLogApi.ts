@@ -118,6 +118,12 @@ export interface NearbyVessel {
     destination: string | null;
     nav_status: string | null;
     updated_at: string | null;
+    /** Registry enrichment (vessel_metadata) — filled by MMSI when the live
+     *  AIS feed doesn't carry the name/details itself. */
+    flag_emoji?: string | null;
+    flag_country?: string | null;
+    loa?: number | null;
+    thumbnail_url?: string | null;
 }
 
 export interface VoyageLogData {
