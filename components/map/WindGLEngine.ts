@@ -16,7 +16,7 @@ import type mapboxgl from 'mapbox-gl';
 import { createLogger } from '../../utils/createLogger';
 
 const log = createLogger('WindGLEngine');
-import { WindGrid, MAX_SPEED, encodeWindTexture } from '../../services/weather/windField';
+import { type WindGrid, MAX_SPEED, encodeWindTexture } from '../../services/weather/windGridEncoding';
 
 // ── Constants ─────────────────────────────────────────────────────
 // Device-tiered: 80×80=6400 on high-end, ~67×67=4500 on mid, ~50×50=2560

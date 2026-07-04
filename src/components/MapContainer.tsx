@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import Map, { Source, Layer, Marker, NavigationControl, Popup, type MapRef } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
 import {
@@ -12,8 +12,8 @@ import {
 } from '../voyageLogApi';
 import { nightPolygon } from '../geo';
 import { CompassRose } from './CompassRose';
-import { WindBarb, windBarbColor } from './WindBarb';
-import { fetchWindGrid, type WindSample } from '../windField';
+import { fetchWindGridForBounds } from '../windField';
+import { WindGLEngine } from '../../components/map/WindGLEngine';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
@@ -111,8 +111,12 @@ export default function MapContainer({
     // Wind-barb overlay — off by default; fetched from Open-Meteo around the
     // boat the first time it's switched on.
     const [windOn, setWindOn] = useState(false);
-    const [windData, setWindData] = useState<WindSample[]>([]);
     const [windLoading, setWindLoading] = useState(false);
+    const [mapReady, setMapReady] = useState(false);
+    const mapRef = useRef<MapRef | null>(null);
+    const windEngineRef = useRef<WindGLEngine | null>(null);
+    // Bumped on moveend so the wind field refetches for the new view.
+    const [windRefetchKey, setWindRefetchKey] = useState(0);
 
     // Tick once a minute so the day/night terminator drifts in real time.
     const [now, setNow] = useState<Date>(() => new Date());
@@ -204,21 +208,52 @@ export default function MapContainer({
 
     const lastFix = trackCoords[trackCoords.length - 1];
 
-    // Fetch the wind grid around the boat the first time the overlay is
-    // switched on (and if the boat's position moves materially). Client-side
-    // Open-Meteo — no server cost, no key.
-    const windCenter = lastFix ?? (pinnedEntries[0] ? [pinnedEntries[0].longitude, pinnedEntries[0].latitude] : null);
-    const windCenterKey = windCenter ? `${windCenter[1].toFixed(1)},${windCenter[0].toFixed(1)}` : '';
+    // Refetch the wind field when the view settles, while the overlay is on.
     useEffect(() => {
-        if (!windOn || !windCenter) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const onMoveEnd = () => {
+            if (windOn) setWindRefetchKey((k) => k + 1);
+        };
+        map.on('moveend', onMoveEnd);
+        return () => {
+            map.off('moveend', onMoveEnd);
+        };
+    }, [mapReady, windOn]);
+
+    // Add/feed/remove the WebGL wind-particle engine (WindGLEngine — the same
+    // renderer as the app's charts page). Fetches the wind grid for the current
+    // view from Open-Meteo (client-side, free, no key). Removing the layer on
+    // toggle-off tears the animation down cleanly.
+    useEffect(() => {
+        const map = mapRef.current?.getMap();
+        if (!map || !mapReady) return;
+
+        if (!windOn) {
+            if (windEngineRef.current && map.getLayer('voyage-wind')) map.removeLayer('voyage-wind');
+            windEngineRef.current = null;
+            return;
+        }
+
+        const b = map.getBounds();
+        if (!b) return;
         let cancelled = false;
         setWindLoading(true);
-        fetchWindGrid(windCenter[1], windCenter[0])
-            .then((d) => {
-                if (!cancelled) setWindData(d);
+        fetchWindGridForBounds(b.getNorth(), b.getSouth(), b.getWest(), b.getEast())
+            .then((grid) => {
+                if (cancelled || !grid) return;
+                const m = mapRef.current?.getMap();
+                if (!m) return;
+                let engine = windEngineRef.current;
+                if (!engine || !m.getLayer('voyage-wind')) {
+                    engine = new WindGLEngine('voyage-wind');
+                    windEngineRef.current = engine;
+                    m.addLayer(engine);
+                }
+                engine.setGrid(grid, 0);
             })
             .catch(() => {
-                /* offshore / API hiccup — leave the toggle on, try again on next center change */
+                /* offshore / API hiccup — leave the toggle on, retry on next move */
             })
             .finally(() => {
                 if (!cancelled) setWindLoading(false);
@@ -226,8 +261,7 @@ export default function MapContainer({
         return () => {
             cancelled = true;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [windOn, windCenterKey]);
+    }, [windOn, windRefetchKey, mapReady]);
 
     if (!MAPBOX_TOKEN) {
         return (
@@ -242,10 +276,13 @@ export default function MapContainer({
             className={`w-full h-full relative bg-slate-900 ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
         >
             <Map
+                ref={mapRef}
+                onLoad={() => setMapReady(true)}
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
                 projection="globe"
+                attributionControl={false}
             >
                 <NavigationControl position="top-left" showCompass={false} />
 
@@ -270,24 +307,8 @@ export default function MapContainer({
                     />
                 </Source>
 
-                {/* Wind barbs — Open-Meteo grid around the boat, toggleable.
-                    Rendered under the boat/AIS markers (earlier in DOM). The
-                    marker rotates by the wind-FROM bearing; the barb is drawn
-                    pointing up (= from north). */}
-                {windOn &&
-                    windData.map((w, i) => (
-                        <Marker
-                            key={`wind-${i}`}
-                            longitude={w.lon}
-                            latitude={w.lat}
-                            anchor="center"
-                            rotation={w.dirDeg}
-                        >
-                            <div className="pointer-events-none opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-                                <WindBarb speedKt={w.speedKt} color={windBarbColor(w.speedKt)} />
-                            </div>
-                        </Marker>
-                    ))}
+                {/* Wind particles render via WindGLEngine, a Mapbox custom
+                    layer added imperatively in the effect above — no JSX. */}
 
                 {/* Named waypoints — the marks the skipper dropped under way.
                     A small diamond with the name label; the auto breadcrumb

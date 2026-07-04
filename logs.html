@@ -27,6 +27,13 @@
             .voyage-log-sat-bright .mapboxgl-canvas {
                 filter: brightness(1.18) saturate(1.12) contrast(1.02);
             }
+            /* Clean public canvas — hide the Mapbox logo + attribution bar
+               (owner ask 2026-07-05). attributionControl is also off on the
+               map; this covers the always-present logo. */
+            .mapboxgl-ctrl-logo,
+            .mapboxgl-ctrl-attrib {
+                display: none !important;
+            }
         </style>
     </head>
     <body class="bg-slate-900">

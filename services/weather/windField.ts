@@ -13,53 +13,14 @@
 import { getOpenMeteoKey } from './keys';
 import { piCache } from '../PiCacheService';
 import { withDeadline } from '../../utils/deadline';
+// The WindGrid shape + texture encoding live in a dependency-free module so
+// the WebGL renderer can be reused off-app (public voyage-log page) without
+// this file's fetch stack. Re-exported here so existing importers are
+// unaffected.
+import { MAX_SPEED, encodeWindTexture, type WindGrid } from './windGridEncoding';
+export { MAX_SPEED, encodeWindTexture, type WindGrid } from './windGridEncoding';
 
 const WIND_FIELD_HOURS = 48;
-const MAX_SPEED = 60.0; // m/s — clamp range for texture encoding
-
-export interface WindGrid {
-    /** U component (m/s, +east) per hour: [hour][row][col] */
-    u: Float32Array[];
-    /** V component (m/s, +north) per hour: [hour][row][col] */
-    v: Float32Array[];
-    /** Scalar speed (m/s) per hour: [hour][row][col] */
-    speed: Float32Array[];
-    /** Optional scalar wind-GUST magnitude (m/s) per hour: [hour][row][col].
-     *  Populated by the Open-Meteo gridded fetcher (wind_gusts_10m); absent on
-     *  GFS-GRIB-edge grids and CMEMS binary grids. The chart's "gust" field mode
-     *  needs this — applyGustField() degrades to a no-op when it's missing. */
-    gust?: Float32Array[];
-    /** Grid coordinates */
-    width: number; // columns
-    height: number; // rows
-    lats: number[];
-    lons: number[];
-    /** Bounds */
-    north: number;
-    south: number;
-    west: number;
-    east: number;
-    totalHours: number;
-    /** GFS model run reference time (ISO string), if available */
-    refTime?: string;
-    /** Optional u8[width*height] land mask: 1=land, 0=ocean. Currently
-     *  populated only by the CMEMS currents pipeline (binary v2+) — wind
-     *  grids from Open-Meteo don't include it (over-ocean wind is fine to
-     *  spawn particles on land for, since wind doesn't care). */
-    landMask?: Uint8Array;
-    /** Actual forecast-hour offset per step-index (0-based). For
-     *  hourly-cadence sources (currents, wind) this is [0,1,2,…]; for
-     *  3-hourly (waves) this is [0,3,6,…]. UI scrubber uses this to
-     *  render "T+Xh" labels instead of step indices. */
-    hourOffsets?: number[];
-    /** Forecast-hour offset of each time step (length === totalHours),
-     *  authoritative for temporal SAMPLING (vs hourOffsets, which only
-     *  drives UI labels). GFS GRIB deliveries are non-uniform
-     *  ([0,3,6,9,12,18,24,36,48,72], possibly with gaps when NOAA drops
-     *  an hour), so the step index must not be treated as an hour.
-     *  Absent ⇒ steps are genuinely hourly (Open-Meteo producers). */
-    stepHours?: number[];
-}
 
 /**
  * Fetch wind grid from Open-Meteo for the given bounds.
@@ -204,27 +165,6 @@ export async function fetchWindGrid(
  *   v = texel.g * 2.0 * MAX_SPEED - MAX_SPEED
  *   speed = texel.b * MAX_SPEED
  */
-export function encodeWindTexture(grid: WindGrid, hour: number): Uint8Array {
-    const h = Math.min(hour, grid.totalHours - 1);
-    const uData = grid.u[h];
-    const vData = grid.v[h];
-    const sData = grid.speed[h];
-    const size = grid.width * grid.height;
-    const rgba = new Uint8Array(size * 4);
-
-    for (let i = 0; i < size; i++) {
-        const u = uData[i];
-        const v = vData[i];
-        const s = sData[i];
-
-        rgba[i * 4 + 0] = Math.round(Math.max(0, Math.min(255, ((u + MAX_SPEED) / (2 * MAX_SPEED)) * 255)));
-        rgba[i * 4 + 1] = Math.round(Math.max(0, Math.min(255, ((v + MAX_SPEED) / (2 * MAX_SPEED)) * 255)));
-        rgba[i * 4 + 2] = Math.round(Math.max(0, Math.min(255, (s / MAX_SPEED) * 255)));
-        rgba[i * 4 + 3] = 255;
-    }
-
-    return rgba;
-}
 
 // ── Global Wind Grid ──────────────────────────────────────────────
 
@@ -433,4 +373,4 @@ async function _doFetchGlobalOpenMeteo(): Promise<WindGrid | null> {
     }
 }
 
-export { MAX_SPEED, WIND_FIELD_HOURS, GLOBAL_GRID_HOURS };
+export { WIND_FIELD_HOURS, GLOBAL_GRID_HOURS };
