@@ -12,6 +12,8 @@ import {
 } from '../voyageLogApi';
 import { nightPolygon } from '../geo';
 import { CompassRose } from './CompassRose';
+import { WindBarb, windBarbColor } from './WindBarb';
+import { fetchWindGrid, type WindSample } from '../windField';
 
 interface MapContainerProps {
     track: VoyageLogTrackPoint[];
@@ -106,6 +108,11 @@ export default function MapContainer({
 }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
     const [selectedVessel, setSelectedVessel] = useState<NearbyVessel | null>(null);
+    // Wind-barb overlay — off by default; fetched from Open-Meteo around the
+    // boat the first time it's switched on.
+    const [windOn, setWindOn] = useState(false);
+    const [windData, setWindData] = useState<WindSample[]>([]);
+    const [windLoading, setWindLoading] = useState(false);
 
     // Tick once a minute so the day/night terminator drifts in real time.
     const [now, setNow] = useState<Date>(() => new Date());
@@ -197,6 +204,31 @@ export default function MapContainer({
 
     const lastFix = trackCoords[trackCoords.length - 1];
 
+    // Fetch the wind grid around the boat the first time the overlay is
+    // switched on (and if the boat's position moves materially). Client-side
+    // Open-Meteo — no server cost, no key.
+    const windCenter = lastFix ?? (pinnedEntries[0] ? [pinnedEntries[0].longitude, pinnedEntries[0].latitude] : null);
+    const windCenterKey = windCenter ? `${windCenter[1].toFixed(1)},${windCenter[0].toFixed(1)}` : '';
+    useEffect(() => {
+        if (!windOn || !windCenter) return;
+        let cancelled = false;
+        setWindLoading(true);
+        fetchWindGrid(windCenter[1], windCenter[0])
+            .then((d) => {
+                if (!cancelled) setWindData(d);
+            })
+            .catch(() => {
+                /* offshore / API hiccup — leave the toggle on, try again on next center change */
+            })
+            .finally(() => {
+                if (!cancelled) setWindLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [windOn, windCenterKey]);
+
     if (!MAPBOX_TOKEN) {
         return (
             <div className="w-full h-full flex items-center justify-center bg-slate-900 text-slate-500 text-sm">
@@ -237,6 +269,25 @@ export default function MapContainer({
                         paint={{ 'line-color': '#7dd3fc', 'line-width': 2.5, 'line-opacity': 0.95 }}
                     />
                 </Source>
+
+                {/* Wind barbs — Open-Meteo grid around the boat, toggleable.
+                    Rendered under the boat/AIS markers (earlier in DOM). The
+                    marker rotates by the wind-FROM bearing; the barb is drawn
+                    pointing up (= from north). */}
+                {windOn &&
+                    windData.map((w, i) => (
+                        <Marker
+                            key={`wind-${i}`}
+                            longitude={w.lon}
+                            latitude={w.lat}
+                            anchor="center"
+                            rotation={w.dirDeg}
+                        >
+                            <div className="pointer-events-none opacity-90 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+                                <WindBarb speedKt={w.speedKt} color={windBarbColor(w.speedKt)} />
+                            </div>
+                        </Marker>
+                    ))}
 
                 {/* Named waypoints — the marks the skipper dropped under way.
                     A small diamond with the name label; the auto breadcrumb
@@ -442,6 +493,22 @@ export default function MapContainer({
                     </button>
                 ))}
             </div>
+
+            {/* Wind-barb toggle */}
+            <button
+                onClick={() => setWindOn((v) => !v)}
+                aria-label="Toggle wind barbs"
+                className={`absolute top-14 right-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 backdrop-blur-md shadow-lg text-[11px] font-bold uppercase tracking-wider transition-colors ${
+                    windOn ? 'bg-sky-600 text-white' : 'bg-slate-900/80 text-slate-300 hover:bg-white/10'
+                }`}
+            >
+                {windLoading ? (
+                    <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                    <span aria-hidden>🌬️</span>
+                )}
+                Wind
+            </button>
 
             {/* Compass rose — chart-style decoration, bottom-left */}
             <div className="absolute bottom-4 left-4 z-10">
