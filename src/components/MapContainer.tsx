@@ -281,7 +281,10 @@ export default function MapContainer({
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
-                projection="globe"
+                // Mercator (not globe): the wind-particle engine is built for
+                // mercator (as the charts page uses) — under globe its trail
+                // accumulation flickers instead of flowing.
+                projection="mercator"
                 attributionControl={false}
             >
                 <NavigationControl position="top-left" showCompass={false} />
