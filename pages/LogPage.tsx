@@ -225,10 +225,13 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                     VoyageLogService.getPlanLinks(),
                 ]);
                 if (links.has(voyageId)) return; // already linked
-                const plan = suggestPlanForDeparture(routes, Date.now(), {
-                    lat: fix.latitude,
-                    lon: fix.longitude,
-                });
+                // Local-only plans can't drive the public page (their entries
+                // aren't on the server yet) — never suggest them.
+                const plan = suggestPlanForDeparture(
+                    routes.filter((r) => !r.isLocal),
+                    Date.now(),
+                    { lat: fix.latitude, lon: fix.longitude },
+                );
                 if (plan) setPlanPrompt({ voyageId, plan });
             } catch {
                 /* offline at the dock — retro-link from settings instead */

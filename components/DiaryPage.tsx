@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createLogger } from '../utils/createLogger';
 const log = createLogger('DiaryPage');
 import { DiaryService, DiaryEntry, DiaryMood, DiaryWeatherData } from '../services/DiaryService';
+import { ShipLogService } from '../services/ShipLogService';
 import { triggerHaptic } from '../utils/system';
 import { Capacitor } from '@capacitor/core';
 import { SlideToAction } from './ui/SlideToAction';
@@ -601,6 +602,10 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 weather_summary: weatherSummary,
                 weather_data: state.weatherDataObj,
                 tags: [],
+                // Stamp the recording voyage so the public page's per-voyage
+                // hide toggle takes this entry (and its photos) with it.
+                // Null when written at rest — those never hide.
+                voyage_id: ShipLogService.getCurrentVoyageId(),
             });
             if (entry) {
                 setEntries((prev) => [entry, ...prev]);
