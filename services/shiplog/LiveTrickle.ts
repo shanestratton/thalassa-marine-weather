@@ -50,7 +50,10 @@ const PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 let running = false;
 let voyageId: string | null = null;
 let lastAttemptMs = 0;
-let tickInFlight = false;
+// In-flight tick promise — the final flush at voyage stop must WAIT for a
+// heartbeat tick that's mid-upsert and then run its own pass, not silently
+// skip (a skipped flush strands the tail until the next voyage arms).
+let tickPromise: Promise<void> | null = null;
 let prunedThisSession = false;
 let intervalHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -99,9 +102,7 @@ function decimate(entries: Partial<ShipLogEntry>[]): Partial<ShipLogEntry>[] {
     return kept;
 }
 
-async function tick(): Promise<void> {
-    if (tickInFlight) return;
-    tickInFlight = true;
+async function doTick(): Promise<void> {
     try {
         if (!supabase) return;
         if (!(await isEnabled())) return;
@@ -122,7 +123,18 @@ async function tick(): Promise<void> {
             .sort((a, b) => (a.timestamp < b.timestamp ? -1 : 1));
         if (fresh.length === 0) return;
 
-        const batch = decimate(fresh).slice(-MAX_BATCH);
+        // Catch-up chunking: OLDEST first, mark advanced only to the end of
+        // the contiguous chunk actually sent — a long signal gap drains in
+        // MAX_BATCH slices over successive ticks with nothing ever dropped.
+        // (slice(-MAX_BATCH) + mark→newest permanently orphaned the older
+        // points — adversarial review 2026-07-04.) The single NEWEST point is
+        // appended out-of-band so the boat's current position is always fresh
+        // on the page; it re-sends harmlessly (upsert) until the mark catches
+        // up to it.
+        const decimated = decimate(fresh);
+        const chunk = decimated.slice(0, MAX_BATCH);
+        const newest = decimated[decimated.length - 1];
+        const batch = chunk[chunk.length - 1] === newest ? chunk : [...chunk, newest];
         const rows = batch.map((e) => ({
             user_id: user.id,
             voyage_id: e.voyageId ?? voyageId,
@@ -143,20 +155,36 @@ async function tick(): Promise<void> {
             log.info('trickle upsert failed (will retry):', error.message);
             return;
         }
-        await writeMark(rows[rows.length - 1].timestamp as string);
+        await writeMark(chunk[chunk.length - 1].timestamp as string);
         log.info(`trickled ${rows.length} live point(s)`);
 
-        // Opportunistic own-row hygiene, once per session.
+        // Opportunistic own-row hygiene, once per session. AWAITED inside an
+        // async wrapper: supabase-js builders are lazy — the request only
+        // fires on then/await, so a bare `void builder` never sends the
+        // DELETE at all (adversarial review 2026-07-04).
         if (!prunedThisSession) {
             prunedThisSession = true;
             const cutoff = new Date(Date.now() - PRUNE_AFTER_MS).toISOString();
-            void supabase.from(LIVE_TRACK_TABLE).delete().eq('user_id', user.id).lt('timestamp', cutoff);
+            void (async () => {
+                try {
+                    await supabase.from(LIVE_TRACK_TABLE).delete().eq('user_id', user.id).lt('timestamp', cutoff);
+                } catch (e) {
+                    log.info('live_track prune failed (retries next session):', e);
+                }
+            })();
         }
     } catch (e) {
         log.warn('trickle tick failed:', e);
-    } finally {
-        tickInFlight = false;
     }
+}
+
+/** Serialised tick — concurrent callers join the in-flight pass. */
+function tick(): Promise<void> {
+    if (tickPromise) return tickPromise;
+    tickPromise = doTick().finally(() => {
+        tickPromise = null;
+    });
+    return tickPromise;
 }
 
 /**
@@ -196,9 +224,47 @@ export async function stopLiveTrickle(finalFlush = true): Promise<void> {
         intervalHandle = null;
     }
     if (finalFlush) {
+        // A heartbeat tick may be mid-upsert with a queue snapshot that
+        // predates the last points — wait it out, then run our OWN pass so
+        // the flush is never silently skipped by the join semantics.
+        if (tickPromise) await tickPromise.catch(() => {});
         lastAttemptMs = 0;
         await tick();
     }
     voyageId = null;
     log.info('live trickle stopped');
+}
+
+/**
+ * Delete every live_track row this user owns. Called when the user turns
+ * live sharing OFF (opt-out must be immediate — already-trickled positions
+ * must not keep serving as the public tail for up to 7 days) and when an
+ * empty voyage is discarded (its dock points would otherwise linger as a
+ * stale "live" tail nothing ever supersedes).
+ */
+export async function purgeLiveTrack(): Promise<boolean> {
+    if (!supabase) return false;
+    try {
+        const user = await getCurrentUser();
+        if (!user) return false;
+        const { error } = await supabase.from(LIVE_TRACK_TABLE).delete().eq('user_id', user.id);
+        if (error) {
+            log.warn('live_track purge failed:', error.message);
+            return false;
+        }
+        log.info('live_track purged');
+        return true;
+    } catch (e) {
+        log.warn('live_track purge failed:', e);
+        return false;
+    }
+}
+
+/**
+ * Forward-only consent: called when sharing flips OFF→ON so the first tick
+ * publishes only points captured FROM NOW — never the pre-consent backlog
+ * sitting in the offline queue (which can span a whole unfinished voyage).
+ */
+export async function markLiveTrickleFreshStart(): Promise<void> {
+    await writeMark(new Date().toISOString());
 }

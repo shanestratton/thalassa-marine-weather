@@ -53,7 +53,7 @@ import {
 } from './shiplog/CapturePipeline';
 import { getGpsStatus as _getGpsStatus, getGpsNavData as _getGpsNavData } from './shiplog/PositionResolver';
 import { setCaptureLocalOnly } from './shiplog/EntrySave';
-import { startLiveTrickle, stopLiveTrickle } from './shiplog/LiveTrickle';
+import { startLiveTrickle, stopLiveTrickle, purgeLiveTrack } from './shiplog/LiveTrickle';
 import {
     syncOfflineQueue as _syncOfflineQueue,
     getOfflineQueueCount as _getOfflineQueueCount,
@@ -714,6 +714,13 @@ class ShipLogServiceClass {
 
                 if (voyageWasEmpty) {
                     await _deleteVoyageFromOfflineQueue(previousVoyageId);
+                    // A discarded voyage never uploads to ship_logs, so any
+                    // dock points it trickled to live_track would linger as a
+                    // stale public "live" tail that nothing supersedes — pull
+                    // them too. (Fire-and-forget; prune is the backstop.)
+                    void purgeLiveTrack().catch(() => {
+                        /* best effort */
+                    });
                     log.warn(`[ShipLog] empty voyage discarded at stop (${maxCumNM.toFixed(3)} NM) — not uploaded`);
                 } else {
                     // Cache the real track so viewing it is instant/offline.

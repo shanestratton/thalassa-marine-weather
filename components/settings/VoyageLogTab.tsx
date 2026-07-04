@@ -474,6 +474,21 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             onChange={(v) => {
                                 triggerHaptic('light');
                                 onSave({ liveTrackShare: v });
+                                void import('../../services/shiplog/LiveTrickle').then(
+                                    ({ purgeLiveTrack, markLiveTrickleFreshStart }) => {
+                                        if (v) {
+                                            // Forward-only consent: never publish
+                                            // the pre-toggle backlog in the queue.
+                                            void markLiveTrickleFreshStart();
+                                        } else {
+                                            // Opt-out is immediate: pull every
+                                            // already-shared position off the page.
+                                            void purgeLiveTrack().then((ok) => {
+                                                if (!ok) toast.error('Could not clear shared positions — check signal');
+                                            });
+                                        }
+                                    },
+                                );
                             }}
                             label="Live position sharing on/off"
                         />

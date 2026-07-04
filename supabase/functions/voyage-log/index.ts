@@ -15,7 +15,10 @@
  *   • scope = 'personal'  → entries from the config's owner only.
  *   • scope = 'combined'  → entries from every member of the boat,
  *                           each tagged with author { user_id, display_name }.
- * Track + telemetry are always per-boat (one boat → one track).
+ * Track + telemetry are keyed by the CONFIG OWNER's user_id — ship_logs
+ * has no boat_id column, so per-boat tracks (one shared track for a crewed
+ * boat) need a boat_id backfill first. For a crew member's personal log,
+ * the track is their own recordings, which is the honest reading anyway.
  *
  * Response 200:
  *   {
@@ -63,11 +66,26 @@ function publicPhotos(photos: unknown): string[] {
     return photos.filter((p): p is string => typeof p === 'string' && /^https?:\/\//i.test(p));
 }
 
-/** rising / falling / steady from the last ~hour of barometric pressure. */
-function baroTrend(track: { pressure: number | null }[]): 'rising' | 'falling' | 'steady' {
-    const readings = track.filter((t) => typeof t.pressure === 'number').slice(-5);
+/**
+ * rising / falling / steady from the last hour of barometric pressure.
+ * Time-windowed, not sample-count-windowed: underway capture runs every
+ * 30-60 s, so "last 5 samples" spanned 2.5-5 minutes — inside a single
+ * forecast-cache hour the delta was always 0 and the trend read as a
+ * permanent 'steady'.
+ */
+function baroTrend(track: { pressure: number | null; timestamp?: unknown }[]): 'rising' | 'falling' | 'steady' {
+    const readings = track.filter((t) => typeof t.pressure === 'number');
     if (readings.length < 2) return 'steady';
-    const delta = (readings[readings.length - 1].pressure as number) - (readings[0].pressure as number);
+    const lastTs = Date.parse(String(readings[readings.length - 1].timestamp ?? ''));
+    const hourAgo = Number.isFinite(lastTs) ? lastTs - 3600_000 : NaN;
+    const windowed = Number.isFinite(hourAgo)
+        ? readings.filter((t) => {
+              const ts = Date.parse(String(t.timestamp ?? ''));
+              return Number.isFinite(ts) && ts >= hourAgo;
+          })
+        : readings.slice(-5);
+    if (windowed.length < 2) return 'steady';
+    const delta = (windowed[windowed.length - 1].pressure as number) - (windowed[0].pressure as number);
     if (delta > 1) return 'rising';
     if (delta < -1) return 'falling';
     return 'steady';
@@ -165,6 +183,10 @@ Deno.serve(async (req: Request) => {
                     .select(TRACK_SELECT)
                     .eq('user_id', ownerId)
                     .neq('entry_type', 'manual')
+                    // Binned voyages are soft-archived (archived=true) and
+                    // hidden from every in-app read — the public page must
+                    // hide them too.
+                    .or('archived.is.null,archived.eq.false')
                     .gte('timestamp', trackSince)
                     .order('timestamp', { ascending: true })
                     .range(rows.length, rows.length + PAGE - 1);
@@ -302,13 +324,16 @@ Deno.serve(async (req: Request) => {
             heading_deg: null,
             pressure: p.pressure,
             // ship_logs carries a weather-snapshot wind (numeric speed/gust +
-            // compass-rose direction string), not an instrument apparent/true
-            // split. Expose it under both the legacy *_true keys (page
-            // compat) and its own names.
+            // compass-rose direction STRING like 'NE'), not an instrument
+            // apparent/true split. Speed maps to the legacy *_true key
+            // (numeric, compatible); direction does NOT — wind_direction_true
+            // is contracted as integer degrees and the snapshot only has the
+            // cardinal string, so it ships under its own key instead of
+            // corrupting the typed one.
             wind_speed_apparent: null,
             wind_angle_apparent: null,
             wind_speed_true: p.wind_speed ?? null,
-            wind_direction_true: p.wind_direction ?? null,
+            wind_direction_true: null,
             wind_speed: p.wind_speed ?? null,
             wind_gust: p.wind_gust ?? null,
             wind_direction: p.wind_direction ?? null,
@@ -394,6 +419,7 @@ Deno.serve(async (req: Request) => {
                   awa: last.wind_angle_apparent,
                   tws: last.wind_speed_true,
                   twd: last.wind_direction_true,
+                  wind_direction: (last as { wind_direction?: string | null }).wind_direction ?? null,
                   depth: last.depth_m,
                   air_temp: last.air_temp,
                   water_temp: last.water_temp,
