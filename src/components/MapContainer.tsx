@@ -40,6 +40,53 @@ type StyleMode = keyof typeof STYLES;
 const hasCoords = (e: VoyageLogEntry): e is VoyageLogEntry & { latitude: number; longitude: number } =>
     e.latitude != null && e.longitude != null;
 
+/**
+ * Douglas-Peucker simplification, ~20 m tolerance. GPS capture runs at
+ * seconds-cadence, so the raw line carries thousands of points and every
+ * fix's jitter — the drawn track looked hairy. This keeps the real shape
+ * (bends, channels, tacks) and drops the noise. Longitude is scaled by
+ * cos(lat) so tolerance means the same distance in both axes.
+ */
+function simplifyTrack(coords: [number, number][]): [number, number][] {
+    if (coords.length <= 2) return coords;
+    const TOL_DEG = 0.00018; // ≈ 20 m of latitude
+    const latScale = Math.cos((coords[0][1] * Math.PI) / 180);
+    const keep = new Uint8Array(coords.length);
+    keep[0] = 1;
+    keep[coords.length - 1] = 1;
+    const stack: [number, number][] = [[0, coords.length - 1]];
+    while (stack.length > 0) {
+        const [a, b] = stack.pop()!;
+        if (b - a < 2) continue;
+        const ax = coords[a][0] * latScale;
+        const ay = coords[a][1];
+        const bx = coords[b][0] * latScale;
+        const by = coords[b][1];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const len2 = dx * dx + dy * dy;
+        let maxD = -1;
+        let maxI = -1;
+        for (let i = a + 1; i < b; i++) {
+            const px = coords[i][0] * latScale;
+            const py = coords[i][1];
+            const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2));
+            const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+            if (d > maxD) {
+                maxD = d;
+                maxI = i;
+            }
+        }
+        if (maxD > TOL_DEG) {
+            keep[maxI] = 1;
+            stack.push([a, maxI], [maxI, b]);
+        }
+    }
+    const out: [number, number][] = [];
+    for (let i = 0; i < coords.length; i++) if (keep[i] === 1) out.push(coords[i]);
+    return out;
+}
+
 export default function MapContainer({
     track,
     entries,
@@ -66,7 +113,7 @@ export default function MapContainer({
     );
 
     const trackCoords = useMemo<[number, number][]>(
-        () => track.map((p) => [p.lon, p.lat] as [number, number]),
+        () => simplifyTrack(track.map((p) => [p.lon, p.lat] as [number, number])),
         [track],
     );
     const pinnedEntries = useMemo(() => entries.filter(hasCoords), [entries]);
@@ -89,22 +136,6 @@ export default function MapContainer({
                           } satisfies Feature<LineString>,
                       ]
                     : [],
-        }),
-        [trackCoords],
-    );
-
-    // One dot per track point — the literal hourly-positioning breadcrumb.
-    const trackPointsGeojson = useMemo<FeatureCollection<Point>>(
-        () => ({
-            type: 'FeatureCollection',
-            features: trackCoords.map(
-                (c) =>
-                    ({
-                        type: 'Feature',
-                        properties: {},
-                        geometry: { type: 'Point', coordinates: c },
-                    }) satisfies Feature<Point>,
-            ),
         }),
         [trackCoords],
     );
@@ -177,21 +208,6 @@ export default function MapContainer({
                         type="line"
                         layout={{ 'line-cap': 'round', 'line-join': 'round' }}
                         paint={{ 'line-color': '#7dd3fc', 'line-width': 2.5, 'line-opacity': 0.95 }}
-                    />
-                </Source>
-
-                {/* Hourly position dots */}
-                <Source id="voyage-track-points" type="geojson" data={trackPointsGeojson}>
-                    <Layer
-                        id="track-points"
-                        type="circle"
-                        paint={{
-                            'circle-radius': 3,
-                            'circle-color': '#bae6fd',
-                            'circle-stroke-color': '#0c4a6e',
-                            'circle-stroke-width': 1,
-                            'circle-opacity': 0.9,
-                        }}
                     />
                 </Source>
 
