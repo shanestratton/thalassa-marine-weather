@@ -70,8 +70,16 @@ export const TelemetryPanel: React.FC<TelemetryPanelProps> = ({ telemetry: t }) 
     stat('Air', t.air_temp, (v) => `${Math.round(v)}°C`, 'text-slate-100');
     stat('Sea', t.water_temp, (v) => `${Math.round(v)}°C`, 'text-sky-200');
 
-    const hasDialData = t.sog != null || t.cog != null || t.aws != null || t.awa != null;
-    if (!hasDialData && stats.length === 0) return <ChampagneCard lastSeen={relativeTime(t.updated_at)} />;
+    // "Sailing" needs more than a GPS heartbeat. A live-trickle point carries
+    // SOG/COG but no instrument feed, so at the dock it reports sog=0 + a cog
+    // — which used to render empty dials instead of the champagne card. Show
+    // the dials only when the boat is actually making way, OR there's a real
+    // wind reading, OR any secondary instrument value is present.
+    const makingWay = t.sog != null && t.sog >= 0.5;
+    const hasWindDial = t.aws != null || t.awa != null;
+    if (!makingWay && !hasWindDial && stats.length === 0) {
+        return <ChampagneCard lastSeen={relativeTime(t.updated_at)} />;
+    }
 
     return (
         <div className="shrink-0 border-b border-slate-700 bg-slate-900/40">
