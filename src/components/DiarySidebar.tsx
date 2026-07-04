@@ -210,7 +210,9 @@ export default function DiarySidebar({
 }: DiarySidebarProps) {
     return (
         <div className="flex flex-col h-full bg-slate-800">
-            {telemetry && <TelemetryPanel telemetry={telemetry} />}
+            {/* Always rendered — the panel itself decides dials vs the
+                champagne-and-good-times card when the feed's gone quiet. */}
+            <TelemetryPanel telemetry={telemetry} />
             {selectedEntry ? (
                 <EntryDetail entry={selectedEntry} onBack={onClearSelection} onPhotoClick={onPhotoClick} />
             ) : (
