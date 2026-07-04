@@ -23,6 +23,7 @@ import { triggerHaptic } from '../../utils/system';
 import { Row, Section, Toggle, type SettingsTabProps } from './SettingsPrimitives';
 import { ShipLogService } from '../../services/ShipLogService';
 import type { VoyageSummary } from '../../services/shiplog/VoyageSummary';
+import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 
 // Crew-on-someone-else's-boat surface: each entry represents a boat the
 // current user is crew on (NOT the owner), plus their personal voyage-log
@@ -57,6 +58,10 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     const [publicTracks, setPublicTracks] = useState<VoyageSummary[]>([]);
     const [hiddenVoyageIds, setHiddenVoyageIds] = useState<Set<string>>(new Set());
     const [trackBusyId, setTrackBusyId] = useState<string | null>(null);
+    // Voyage ↔ passage-plan links (drives the page's dynamic destination).
+    const [planRoutes, setPlanRoutes] = useState<RouteOrTrack[]>([]);
+    const [planLinks, setPlanLinks] = useState<Map<string, string>>(new Map());
+    const [linkPickerFor, setLinkPickerFor] = useState<string | null>(null);
 
     // Ref for the hero URL element — used by the auto-fit effect below
     // to grow/shrink the font so the whole link fits on one line. Must
@@ -130,14 +135,19 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
     useEffect(() => {
         if (!config?.enabled) return;
         let cancelled = false;
-        void Promise.all([ShipLogService.getVoyageSummaries(), VoyageLogService.getHiddenVoyageIds()]).then(
-            ([summaries, hidden]) => {
-                if (cancelled) return;
-                const sorted = [...summaries].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, 50);
-                setPublicTracks(sorted);
-                setHiddenVoyageIds(hidden);
-            },
-        );
+        void Promise.all([
+            ShipLogService.getVoyageSummaries(),
+            VoyageLogService.getHiddenVoyageIds(),
+            VoyageLogService.getPlanLinks(),
+            fetchRoutesAndTracks().catch(() => ({ routes: [] as RouteOrTrack[], tracks: [] as RouteOrTrack[] })),
+        ]).then(([summaries, hidden, links, routesAndTracks]) => {
+            if (cancelled) return;
+            const sorted = [...summaries].sort((a, b) => (a.startedAt < b.startedAt ? 1 : -1)).slice(0, 50);
+            setPublicTracks(sorted);
+            setHiddenVoyageIds(hidden);
+            setPlanLinks(links);
+            setPlanRoutes([...routesAndTracks.routes].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10));
+        });
         return () => {
             cancelled = true;
         };
@@ -165,6 +175,32 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
         }
         setTrackBusyId(null);
     }, []);
+
+    const handlePlanLink = useCallback(async (voyageId: string, planId: string | null) => {
+        setLinkPickerFor(null);
+        triggerHaptic('light');
+        const prev = planLinksRef.current.get(voyageId) ?? null;
+        setPlanLinks((m) => {
+            const next = new Map(m);
+            if (planId) next.set(voyageId, planId);
+            else next.delete(voyageId);
+            return next;
+        });
+        const ok = await VoyageLogService.setVoyagePlanLink(voyageId, planId);
+        if (!ok) {
+            setPlanLinks((m) => {
+                const next = new Map(m);
+                if (prev) next.set(voyageId, prev);
+                else next.delete(voyageId);
+                return next;
+            });
+            toast.error(VoyageLogService.lastError ?? 'Could not update the link — check signal');
+        }
+    }, []);
+    // Ref mirror so handlePlanLink's revert reads the latest map without
+    // re-creating the callback per change.
+    const planLinksRef = useRef<Map<string, string>>(new Map());
+    planLinksRef.current = planLinks;
 
     // Auto-fit the public URL hero text to its container — start at
     // 22px and shrink one px at a time until the whole link fits on
@@ -575,27 +611,69 @@ export const VoyageLogTab: React.FC<SettingsTabProps> = ({ settings, onSave }) =
                             year: 'numeric',
                         });
                         const kind = v.isPlannedRoute ? ' · planned route' : v.isImported ? ' · imported' : '';
+                        const linkedPlanId = planLinks.get(v.voyageId) ?? null;
+                        const linkedPlan = linkedPlanId ? planRoutes.find((r) => r.id === linkedPlanId) : null;
+                        const canLink = !v.isPlannedRoute && !v.isImported && planRoutes.length > 0;
                         return (
-                            <Row key={v.voyageId}>
-                                <div className="flex-1 min-w-0">
-                                    <div className={`text-sm font-bold ${hidden ? 'text-gray-500' : 'text-white'}`}>
-                                        {label}
+                            <React.Fragment key={v.voyageId}>
+                                <Row>
+                                    <div className="flex-1 min-w-0">
+                                        <div className={`text-sm font-bold ${hidden ? 'text-gray-500' : 'text-white'}`}>
+                                            {label}
+                                        </div>
+                                        <div className="text-xs text-gray-400 mt-0.5">
+                                            {v.totalDistanceNM.toFixed(1)} NM · {v.entryCount.toLocaleString()} points
+                                            {kind}
+                                            {hidden ? ' · hidden from page' : ''}
+                                        </div>
+                                        {canLink && (
+                                            <button
+                                                onClick={() =>
+                                                    setLinkPickerFor(linkPickerFor === v.voyageId ? null : v.voyageId)
+                                                }
+                                                className="text-xs text-sky-400 mt-1 text-left"
+                                            >
+                                                Passage: {linkedPlan?.label ?? (linkedPlanId ? 'linked plan' : 'none')}{' '}
+                                                ▸
+                                            </button>
+                                        )}
                                     </div>
-                                    <div className="text-xs text-gray-400 mt-0.5">
-                                        {v.totalDistanceNM.toFixed(1)} NM · {v.entryCount.toLocaleString()} points
-                                        {kind}
-                                        {hidden ? ' · hidden from page' : ''}
-                                    </div>
-                                </div>
-                                <Toggle
-                                    checked={!hidden}
-                                    onChange={(show) => {
-                                        if (trackBusyId) return;
-                                        void handleTrackVisibility(v.voyageId, !show);
-                                    }}
-                                    label={`Show voyage ${label} on public page`}
-                                />
-                            </Row>
+                                    <Toggle
+                                        checked={!hidden}
+                                        onChange={(show) => {
+                                            if (trackBusyId) return;
+                                            void handleTrackVisibility(v.voyageId, !show);
+                                        }}
+                                        label={`Show voyage ${label} on public page`}
+                                    />
+                                </Row>
+                                {linkPickerFor === v.voyageId && (
+                                    <Row>
+                                        <div className="flex-1 flex flex-col gap-1">
+                                            {planRoutes.map((r) => (
+                                                <button
+                                                    key={r.id}
+                                                    onClick={() => void handlePlanLink(v.voyageId, r.id)}
+                                                    className={`text-left text-xs py-1.5 px-2 rounded-lg ${
+                                                        linkedPlanId === r.id
+                                                            ? 'bg-sky-500/20 text-sky-300'
+                                                            : 'bg-white/5 text-gray-300'
+                                                    }`}
+                                                >
+                                                    {r.label}
+                                                    <span className="text-gray-500"> · {r.sublabel}</span>
+                                                </button>
+                                            ))}
+                                            <button
+                                                onClick={() => void handlePlanLink(v.voyageId, null)}
+                                                className="text-left text-xs py-1.5 px-2 rounded-lg bg-white/5 text-gray-400"
+                                            >
+                                                No linked passage
+                                            </button>
+                                        </div>
+                                    </Row>
+                                )}
+                            </React.Fragment>
                         );
                     })}
                 </Section>

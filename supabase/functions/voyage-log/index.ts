@@ -173,7 +173,8 @@ Deno.serve(async (req: Request) => {
         const TRACK_SELECT =
             'latitude, longitude, timestamp, speed_kts, course_deg, pressure, ' +
             'wind_speed, wind_gust, wind_direction, ' +
-            'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes, voyage_id';
+            'air_temp, water_temp, wave_height, entry_type, waypoint_name, notes, voyage_id, ' +
+            'cumulative_distance_nm';
 
         // Owner's per-voyage exclusion list — voyages hidden from the public
         // page (the app's "Public tracks" list). Filters BOTH the durable
@@ -278,7 +279,7 @@ Deno.serve(async (req: Request) => {
                 .from('diary_entries')
                 .select(
                     'id, user_id, title, body, mood, photos, location_name, latitude, longitude, ' +
-                        'weather_summary, weather_data, tags, created_at',
+                        'weather_summary, weather_data, tags, created_at, voyage_id',
                 )
                 .in('user_id', entryUserIds)
                 .eq('is_public', true)
@@ -305,9 +306,10 @@ Deno.serve(async (req: Request) => {
             model: (vData?.model as string) ?? null,
         };
 
-        // Destination — null if the skipper hasn't set one. Drives the
-        // public progress HUD (DTG / ETA / Newport → here → there).
-        const destination =
+        // Destination — static config fallback; OVERRIDDEN below by the
+        // linked passage plan whenever a fresh linked voyage is underway.
+        // Drives the public progress HUD (DTG / ETA / Newport → here → there).
+        let destination =
             config.destination_lat != null && config.destination_lon != null
                 ? {
                       name: (config.destination_name as string | null) ?? null,
@@ -316,26 +318,31 @@ Deno.serve(async (req: Request) => {
                   }
                 : null;
 
-        const entries = (entriesRes.data || []).map((e) => ({
-            id: e.id,
-            title: e.title,
-            body: e.body,
-            mood: e.mood,
-            photos: publicPhotos(e.photos),
-            location_name: e.location_name,
-            latitude: e.latitude,
-            longitude: e.longitude,
-            weather_summary: e.weather_summary,
-            weather_data: e.weather_data ?? null,
-            tags: Array.isArray(e.tags) ? e.tags : [],
-            created_at: e.created_at,
-            // Byline only in combined scope. Personal scope omits it
-            // (renderer hides the chip — single voice, no need to attribute).
-            author:
-                combinedAuthors && combinedAuthors.has(e.user_id as string)
-                    ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
-                    : null,
-        }));
+        // Hiding a voyage hides its diary entries (and their photos) too —
+        // the whole passage disappears from the page as one unit. Entries
+        // with no voyage_id (dockside musings) are unaffected.
+        const entries = (entriesRes.data || [])
+            .filter((e) => !hiddenVoyageIds.has((e.voyage_id as string | null) ?? ''))
+            .map((e) => ({
+                id: e.id,
+                title: e.title,
+                body: e.body,
+                mood: e.mood,
+                photos: publicPhotos(e.photos),
+                location_name: e.location_name,
+                latitude: e.latitude,
+                longitude: e.longitude,
+                weather_summary: e.weather_summary,
+                weather_data: e.weather_data ?? null,
+                tags: Array.isArray(e.tags) ? e.tags : [],
+                created_at: e.created_at,
+                // Byline only in combined scope. Personal scope omits it
+                // (renderer hides the chip — single voice, no need to attribute).
+                author:
+                    combinedAuthors && combinedAuthors.has(e.user_id as string)
+                        ? { user_id: e.user_id, display_name: combinedAuthors.get(e.user_id as string) }
+                        : null,
+            }));
 
         const durableTrack = (trackRes.data || []).map((p) => ({
             lat: p.latitude,
@@ -391,6 +398,138 @@ Deno.serve(async (req: Request) => {
             live: true,
         }));
         const track = [...durableTrack, ...liveTail];
+
+        // ── Passage: linked plan → dynamic destination + progress ──
+        // The newest track point's voyage, when FRESH (<48 h) and linked to
+        // a saved passage plan (voyage_plan_links), overrides the static
+        // destination with the plan's endpoint and adds a `passage` object:
+        // planned vs done distance, percent, ETA at recent average SOG, and
+        // a decimated plan line the page can draw under the actual track.
+        const NM_PER_M = 1 / 1852;
+        const havNM = (lat1: number, lon1: number, lat2: number, lon2: number): number => {
+            const R = 6_371_000;
+            const dLat = ((lat2 - lat1) * Math.PI) / 180;
+            const dLon = ((lon2 - lon1) * Math.PI) / 180;
+            const a =
+                Math.sin(dLat / 2) ** 2 +
+                Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+            return 2 * R * Math.asin(Math.sqrt(a)) * NM_PER_M;
+        };
+
+        let passage: Record<string, unknown> | null = null;
+        const rawDurable = (trackRes.data || []) as Record<string, unknown>[];
+        const lastRaw = liveRows[liveRows.length - 1] ?? rawDurable[rawDurable.length - 1] ?? null;
+        const lastRawTs = lastRaw ? Date.parse(String(lastRaw.timestamp)) : NaN;
+        const voyageFresh = Number.isFinite(lastRawTs) && Date.now() - lastRawTs < 48 * 3600_000;
+        const currentVoyageId = (lastRaw?.voyage_id as string | null) ?? null;
+        if (voyageFresh && currentVoyageId) {
+            const { data: linkRow } = await supabase
+                .from('voyage_plan_links')
+                .select('plan_voyage_id')
+                .eq('user_id', ownerId)
+                .eq('voyage_id', currentVoyageId)
+                .maybeSingle();
+            const planId = (linkRow?.plan_voyage_id as string | undefined) ?? null;
+            if (planId) {
+                const { data: planRows } = await supabase
+                    .from('ship_logs')
+                    .select('latitude, longitude, cumulative_distance_nm, waypoint_name, notes, timestamp')
+                    .eq('user_id', ownerId)
+                    .eq('voyage_id', planId)
+                    .order('timestamp', { ascending: true })
+                    .limit(1000);
+                const plan = (planRows ?? []) as Record<string, unknown>[];
+                if (plan.length >= 2) {
+                    // Name from the first entry's "Planned: X → Y" line (it
+                    // may sit below an embedded route-geometry JSON line).
+                    let passageName: string | null = null;
+                    const firstNotes = String(plan[0].notes ?? '');
+                    const m = firstNotes.match(/^Planned:\s*(.+)$/m);
+                    if (m) passageName = m[1].trim();
+                    const destName = passageName?.split('→').pop()?.trim() ?? null;
+
+                    const plannedNM = Math.max(
+                        0,
+                        ...plan.map((p) =>
+                            typeof p.cumulative_distance_nm === 'number' ? (p.cumulative_distance_nm as number) : 0,
+                        ),
+                    );
+                    const planEnd = plan[plan.length - 1];
+
+                    // Done = the voyage's own cumulative log (durable rows),
+                    // plus live-tail geometry captured since the last upload.
+                    const voyageDurable = rawDurable.filter((p) => p.voyage_id === currentVoyageId);
+                    let doneNM = Math.max(
+                        0,
+                        ...voyageDurable.map((p) =>
+                            typeof p.cumulative_distance_nm === 'number' ? (p.cumulative_distance_nm as number) : 0,
+                        ),
+                    );
+                    const liveOfVoyage = liveRows.filter((p) => (p.voyage_id ?? currentVoyageId) === currentVoyageId);
+                    let prev = voyageDurable[voyageDurable.length - 1] ?? null;
+                    for (const p of liveOfVoyage) {
+                        if (prev) {
+                            doneNM += havNM(
+                                prev.latitude as number,
+                                prev.longitude as number,
+                                p.latitude as number,
+                                p.longitude as number,
+                            );
+                        }
+                        prev = p;
+                    }
+
+                    // Recent average SOG (last 2 h of this voyage's points,
+                    // segment-summed) → ETA. Null when drifting/anchored.
+                    const voyagePts = [...voyageDurable, ...liveOfVoyage];
+                    const windowStart = lastRawTs - 2 * 3600_000;
+                    const recent = voyagePts.filter((p) => Date.parse(String(p.timestamp)) >= windowStart);
+                    let recentNM = 0;
+                    for (let i = 1; i < recent.length; i++) {
+                        recentNM += havNM(
+                            recent[i - 1].latitude as number,
+                            recent[i - 1].longitude as number,
+                            recent[i].latitude as number,
+                            recent[i].longitude as number,
+                        );
+                    }
+                    const recentHours =
+                        recent.length >= 2
+                            ? (Date.parse(String(recent[recent.length - 1].timestamp)) -
+                                  Date.parse(String(recent[0].timestamp))) /
+                              3600_000
+                            : 0;
+                    const avgSog = recentHours > 0.1 ? recentNM / recentHours : 0;
+                    const remainingNM = Math.max(0, plannedNM - doneNM);
+                    const etaIso =
+                        avgSog > 0.5 && plannedNM > 0
+                            ? new Date(lastRawTs + (remainingNM / avgSog) * 3600_000).toISOString()
+                            : null;
+
+                    // Decimate the plan line for the page (≤200 points).
+                    const step = Math.max(1, Math.ceil(plan.length / 200));
+                    const planLine = plan
+                        .filter((_, i) => i % step === 0 || i === plan.length - 1)
+                        .map((p) => [p.longitude, p.latitude]);
+
+                    destination = {
+                        name: destName,
+                        lat: planEnd.latitude as number,
+                        lon: planEnd.longitude as number,
+                    };
+                    passage = {
+                        plan_id: planId,
+                        name: passageName,
+                        planned_nm: Math.round(plannedNM * 10) / 10,
+                        done_nm: Math.round(doneNM * 10) / 10,
+                        pct: plannedNM > 0 ? Math.min(100, Math.round((doneNM / plannedNM) * 1000) / 10) : null,
+                        avg_sog_kts: Math.round(avgSog * 10) / 10,
+                        eta: etaIso,
+                        plan_line: planLine,
+                    };
+                }
+            }
+        }
 
         // ── Nearby AIS contacts (200 nm around the latest fix) ─────
         // Uses the same `vessels_nearby` RPC the iOS app calls. 200 nm is
@@ -457,6 +596,7 @@ Deno.serve(async (req: Request) => {
                 vessel,
                 scope,
                 destination,
+                passage,
                 entries,
                 track,
                 telemetry,
