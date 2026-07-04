@@ -39,6 +39,9 @@ import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
+import { fetchRoutesAndTracks, type RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
+import { suggestPlanForDeparture } from '../services/shiplog/planMatcher';
+import { VoyageLogService } from '../services/VoyageLogService';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -195,6 +198,52 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         !hasRecordedFix &&
         !!state.currentVoyageId &&
         gpsOverlayDismissedFor !== state.currentVoyageId;
+
+    // ── Passage-plan link prompt ─────────────────────────────────
+    // Once the departing voyage has its first real fix, suggest the most
+    // plausible saved plan (departure date ±7 d, start within 10 NM) for a
+    // one-tap link — the public page then swaps its static destination for
+    // the plan's endpoint and shows live progress. NEVER links silently;
+    // dismissal is remembered per voyage, and a missed prompt can be fixed
+    // later from Settings → Voyage Log → Public tracks.
+    const [planPrompt, setPlanPrompt] = useState<{ voyageId: string; plan: RouteOrTrack } | null>(null);
+    const [planPromptDismissedFor, setPlanPromptDismissedFor] = useState<string | null>(null);
+    const planPromptCheckedFor = useRef<string | null>(null);
+    useEffect(() => {
+        if (!state.isTracking || !hasRecordedFix || !state.currentVoyageId) return;
+        if (planPromptCheckedFor.current === state.currentVoyageId) return;
+        planPromptCheckedFor.current = state.currentVoyageId;
+        const voyageId = state.currentVoyageId;
+        const fix = state.entries.find(
+            (e) => e.voyageId === voyageId && !!e.latitude && !!e.longitude && !(e.latitude === 0 && e.longitude === 0),
+        );
+        if (!fix) return;
+        void (async () => {
+            try {
+                const [{ routes }, links] = await Promise.all([
+                    fetchRoutesAndTracks(),
+                    VoyageLogService.getPlanLinks(),
+                ]);
+                if (links.has(voyageId)) return; // already linked
+                const plan = suggestPlanForDeparture(routes, Date.now(), {
+                    lat: fix.latitude,
+                    lon: fix.longitude,
+                });
+                if (plan) setPlanPrompt({ voyageId, plan });
+            } catch {
+                /* offline at the dock — retro-link from settings instead */
+            }
+        })();
+    }, [state.isTracking, hasRecordedFix, state.currentVoyageId, state.entries]);
+
+    const linkPromptedPlan = useCallback(async () => {
+        if (!planPrompt) return;
+        const { voyageId, plan } = planPrompt;
+        setPlanPrompt(null);
+        const ok = await VoyageLogService.setVoyagePlanLink(voyageId, plan.id);
+        if (ok) toast.success(`Linked — your page now tracks ${plan.label}`);
+        else toast.error(VoyageLogService.lastError ?? 'Link failed — try from Settings later');
+    }, [planPrompt, toast]);
 
     // Engine on/off — user-declared while tracking, stamped onto track
     // points for the sail/motor split. Mirrors ShipLogService's sticky
@@ -1403,6 +1452,46 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 open={gpsOverlayOpen}
                 onDismiss={() => setGpsOverlayDismissedFor(state.currentVoyageId ?? null)}
             />
+
+            {/* Passage-plan link prompt — one tap ties this voyage to a saved
+                plan so the public page shows destination + live progress. */}
+            {planPrompt &&
+                planPrompt.voyageId === state.currentVoyageId &&
+                planPromptDismissedFor !== planPrompt.voyageId && (
+                    <div
+                        className="fixed left-4 right-4 z-[9990] animate-slide-up"
+                        style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
+                    >
+                        <div className="bg-slate-800 border border-sky-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
+                            <div className="text-sm font-bold text-white">Sailing {planPrompt.plan.label}?</div>
+                            <div className="text-xs text-gray-400 mt-1">
+                                Link this voyage and your public page will show the destination and live passage
+                                progress.
+                            </div>
+                            <div className="flex gap-2 mt-3">
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('medium');
+                                        void linkPromptedPlan();
+                                    }}
+                                    className="flex-1 py-2 bg-sky-500/20 text-sky-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                                >
+                                    Link passage
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setPlanPromptDismissedFor(planPrompt.voyageId);
+                                        setPlanPrompt(null);
+                                    }}
+                                    className="flex-1 py-2 bg-white/5 text-gray-400 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
+                                >
+                                    Not this trip
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
             {/* Toast Notifications */}
             <toast.ToastContainer />

@@ -274,6 +274,62 @@ class VoyageLogServiceClass {
         }
     }
 
+    // ── Voyage ↔ passage-plan links ────────────────────────────
+    // A linked voyage drives the public page's DYNAMIC destination +
+    // progress (the edge fn overrides the static config destination with
+    // the linked plan's endpoint while the voyage is fresh).
+
+    /** voyage_id → plan_voyage_id for every linked voyage. */
+    async getPlanLinks(): Promise<Map<string, string>> {
+        if (!supabase) return new Map();
+        try {
+            const { data, error } = await supabase.from('voyage_plan_links').select('voyage_id, plan_voyage_id');
+            if (error) {
+                log.warn('getPlanLinks failed:', error.message);
+                return new Map();
+            }
+            return new Map((data ?? []).map((r) => [r.voyage_id as string, r.plan_voyage_id as string]));
+        } catch (e) {
+            log.warn('getPlanLinks failed:', e);
+            return new Map();
+        }
+    }
+
+    /** Link a voyage to a plan (planId null = unlink). */
+    async setVoyagePlanLink(voyageId: string, planId: string | null): Promise<boolean> {
+        this.lastError = null;
+        if (!supabase) {
+            this.lastError = 'Offline — Supabase client unavailable.';
+            return false;
+        }
+        try {
+            const { data: userData } = await supabase.auth.getUser();
+            const userId = userData.user?.id;
+            if (!userId) {
+                this.lastError = 'You need to sign in first.';
+                return false;
+            }
+            const { error } = planId
+                ? await supabase
+                      .from('voyage_plan_links')
+                      .upsert(
+                          { user_id: userId, voyage_id: voyageId, plan_voyage_id: planId },
+                          { onConflict: 'user_id,voyage_id' },
+                      )
+                : await supabase.from('voyage_plan_links').delete().eq('user_id', userId).eq('voyage_id', voyageId);
+            if (error) {
+                log.warn('setVoyagePlanLink failed:', error.message);
+                this.lastError = `Couldn't update the passage link: ${error.message}`;
+                return false;
+            }
+            return true;
+        } catch (e) {
+            log.warn('setVoyagePlanLink failed:', e);
+            this.lastError = 'Passage link update failed — check signal.';
+            return false;
+        }
+    }
+
     /** Hide (true) or show (false) one voyage on the public page. */
     async setVoyageHidden(voyageId: string, hidden: boolean): Promise<boolean> {
         this.lastError = null;
