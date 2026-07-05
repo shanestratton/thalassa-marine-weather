@@ -34,7 +34,11 @@ const OVERPASS_TIMEOUT_MS = 45_000;
 //   v3 — adds canalLines (marina exit channels as navigable corridors)
 //   v4 — adds navLines (charted leading/transit navigation lines →
 //        preferred dredged-channel corridors, e.g. Brisbane River bar)
-const CACHE_SCHEMA_VERSION = 'v4';
+//   v5 — adds berths (man_made=pier/pontoon, floating=yes — the finger
+//        pontoons inside a marina; the router carves them out of the basin
+//        at fine resolution so the line follows the fairway between berth
+//        rows instead of driving over the pens, Mooloolaba 2026-07-05)
+const CACHE_SCHEMA_VERSION = 'v5';
 
 export interface OsmRouteOverlay {
     /** natural=water polygons (rivers, lakes, harbours, basins). Used as
@@ -82,6 +86,17 @@ export interface OsmRouteOverlay {
      *  the dredged channel isn't in chart FAIRWY and the lateral markers
      *  are too sparse to stitch — but OSM has it as navigation lines. */
     navLines: FeatureCollection;
+    /** man_made=pier/pontoon + floating=yes structures — the finger
+     *  pontoons / berth rows inside a marina (LineStrings mostly; some
+     *  closed polygons). The router hard-blocks these at FINE resolution
+     *  only, overriding the marina-authoritative water, so the marina leg
+     *  rides the fairway lanes between berth rows instead of the geometric
+     *  centre of the whole basin (which cut across the pens). The coarse
+     *  grid ignores them, so a marina still reads as one navigable blob for
+     *  the approach — no disconnection. Added 2026-07-05 (Mooloolaba: the
+     *  route drove over the marina). Pi schema v5+; older Pi returns [] →
+     *  router degrades to today's basin-centre line. */
+    berths: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -94,6 +109,7 @@ function emptyOverlay(): OsmRouteOverlay {
         aeroway: { type: 'FeatureCollection', features: [] },
         canalLines: { type: 'FeatureCollection', features: [] },
         navLines: { type: 'FeatureCollection', features: [] },
+        berths: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -151,6 +167,8 @@ function buildQuery(bbox: [number, number, number, number]): string {
           way["aeroway"~"^(aerodrome|runway|taxiway|apron)$"](${s},${w},${n},${e});
           relation["aeroway"~"^(aerodrome|runway|taxiway|apron)$"](${s},${w},${n},${e});
           way["seamark:type"="navigation_line"](${s},${w},${n},${e});
+          way["man_made"~"^(pier|pontoon)$"](${s},${w},${n},${e});
+          way["floating"="yes"](${s},${w},${n},${e});
         );
         out geom;
     `.trim();
@@ -331,6 +349,13 @@ function assembleOverlay(osm: OverpassResponse): OsmRouteOverlay {
             } else if (tags.man_made === 'breakwater') {
                 if (closed) overlay.breakwater.features.push(polyFeature());
                 else overlay.breakwater.features.push(lineFeature() as unknown as Feature<Polygon>);
+            } else if (tags.man_made === 'pier' || tags.man_made === 'pontoon' || tags.floating === 'yes') {
+                // Marina finger pontoons / berth rows. Mostly LineStrings
+                // (the pontoon centreline); some closed polygons. Router
+                // hard-blocks these at FINE res only, so the marina leg
+                // follows the fairway between rows instead of the pens.
+                if (closed) overlay.berths.features.push(polyFeature());
+                else overlay.berths.features.push(lineFeature() as unknown as Feature<Polygon>);
             } else if (
                 (tags.waterway === 'canal' ||
                     tags.waterway === 'fairway' ||

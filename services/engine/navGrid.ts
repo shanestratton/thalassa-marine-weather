@@ -702,6 +702,57 @@ export function buildNavGrid(
     }
     markPass('pass2b-coastline', tPassCoast, coastline.length);
 
+    // ── Pass 2c: OSM marina berth rows (finger pontoons) — hard-block ─
+    // man_made=pier/pontoon + floating=yes (layers.BERTH). Unlike Pass 2/2b
+    // these IGNORE the protectedCells guard: a pontoon is a physical
+    // structure even inside marina-authoritative water, and carving it is the
+    // whole point — the marina leg then rides the fairway between berth rows
+    // instead of the geometric centre of the basin (which drove over the
+    // pens, Mooloolaba 2026-07-05).
+    //
+    // FINE RESOLUTION ONLY. At the coarse 50 m grid the finger rows (~15-30 m
+    // apart) collapse into one solid block that would SEAL the basin and
+    // disconnect the route; so the coarse grid keeps reading the marina as a
+    // single navigable blob for the approach, and only the fine marina grid
+    // (routeMarina, ~12 m) carves the lanes. If a too-aggressive carve ever
+    // disconnects the fine leg, routeMarina returns null → the span falls back
+    // to today's coarse slice, so this can only improve a marina, never break
+    // a route.
+    const cellSizeM = dLat * M_PER_DEG_LAT;
+    const berthFeatures = layers.BERTH?.features ?? [];
+    const tPassBerth = Date.now();
+    let berthCellsBlocked = 0;
+    if (cellSizeM < 20 && berthFeatures.length > 0) {
+        const blockBerthCell = (x: number, y: number): void => {
+            if (x < 0 || y < 0 || x >= width || y >= height) return;
+            const idx = y * width + x;
+            cells[idx] = BLOCKED;
+            hardBlocked[idx] = 1;
+            landBlocked[idx] = 1;
+            berthCellsBlocked++;
+        };
+        for (const f of berthFeatures) {
+            const g = f.geometry;
+            if (!g) continue;
+            if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
+                rasterizePolygonCells(grid, g, (x, y) => blockBerthCell(x, y));
+            } else if (g.type === 'LineString' || g.type === 'MultiLineString') {
+                const lineRings: Position[][] =
+                    g.type === 'LineString' ? [(g as LineString).coordinates] : (g as MultiLineString).coordinates;
+                for (const coords of lineRings) {
+                    for (let i = 0; i < coords.length - 1; i++) {
+                        const gx0 = Math.floor((coords[i][0] - minLon) / dLon);
+                        const gy0 = Math.floor((coords[i][1] - minLat) / dLat);
+                        const gx1 = Math.floor((coords[i + 1][0] - minLon) / dLon);
+                        const gy1 = Math.floor((coords[i + 1][1] - minLat) / dLat);
+                        for (const c of bresenhamCells(gx0, gy0, gx1, gy1)) blockBerthCell(c.x, c.y);
+                    }
+                }
+            }
+        }
+    }
+    markPass('pass2c-berth', tPassBerth, berthCellsBlocked);
+
     // ── Pass 3: point obstructions — block radius around each ──────
     // obstnBlocked marks every cell a hazard (OBSTRN/WRECKS/UWTROC) claimed,
     // INDEPENDENTLY of landBlocked — the land-conflict reopens (NTM survey

@@ -698,6 +698,14 @@ async function tryInshoreRouteInner(
             }
             merged.DEPARE = depare;
         }
+        // OSM marina berth rows (finger pontoons) → BERTH. The nav grid
+        // hard-blocks these at FINE resolution only (overriding the
+        // marina-authoritative water just injected above), so the marina leg
+        // rides the fairway between berth rows instead of over the pens. No
+        // buffer, coarse grid unaffected → no marina disconnection.
+        if (osmOverlay.berths.features.length > 0) {
+            merged.BERTH = osmOverlay.berths as unknown as FeatureCollection;
+        }
         if (fairwy.features.length > 0) merged.FAIRWY = fairwy;
         // OSM reef polygons → OBSTRN. Pass 3 rasterises polygon OBSTRN as
         // BLOCKED cells over the whole polygon, so the boat detours the
