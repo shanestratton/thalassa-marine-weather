@@ -485,6 +485,246 @@ export function spliceCanalEgressChannelFromOrigin(
 }
 
 /**
+ * Ride the promulgated NtM bar transit as a FINAL, origin-scoped post-pass.
+ *
+ * `barLines` is the acked, still-current REF-mark alternative track (an MSQ
+ * bar-survey notice's pack.trackline, injected by InshoreRouter as the
+ * DEDICATED layers.NTMBAR — never NAVLINE). When a route END sits at that
+ * bar, this replaces the mouth-crossing portion of the assembled route with
+ * origin → REF chain → rejoin, so the YELLOW marked-channel line passes
+ * dead-on through the REF marks the skipper acknowledged.
+ *
+ * WHY A FINAL POST-PASS (Shane 2026-07-05: "we put the markers there but we
+ * are not adhering to them"): the origin egress splice needs an OSM canal
+ * line to approach, which a bar mouth has none of — the exact reason the old
+ * global injection never rode the marks. Routing it through
+ * segmentRoute/tier3/tier4 also risked a refiner re-deriving the span off the
+ * transit. Running LAST, on the assembled geometry + masks, guarantees the
+ * ride survives; gating on a route END within BAR_NEAR_M of a chain END means
+ * it can only ever reshape the bar leg and never a distant approach (the 40 NM
+ * regression that got the global injection removed 2026-07-03). Geometry only:
+ * surveyed depth stays the NTMZONE pass's job, so a sub-floor cell on the
+ * ridden transit still renders CAUTION with tide-window chips. Every ridden
+ * chain segment is hard-land-vetoed and both connectors bridge on navigable
+ * water only; any failure returns the route untouched.
+ */
+export function spliceNtmBarTransit(
+    polyline: readonly [number, number][],
+    canalMask: readonly boolean[], // per-vertex tier-1 RED
+    channelSeg: readonly boolean[], // per-segment tier-2 YELLOW (len N-1)
+    offshoreVtx: readonly boolean[], // per-vertex tier-4 offshore
+    barLines: readonly LeadingLine[],
+    grid: NavGrid,
+): {
+    polyline: [number, number][];
+    canalMask: boolean[];
+    channelSeg: boolean[];
+    offshoreVtx: boolean[];
+    spliced: boolean;
+} {
+    const pass = {
+        polyline: polyline.map((p) => [p[0], p[1]] as [number, number]),
+        canalMask: [...canalMask],
+        channelSeg: [...channelSeg],
+        offshoreVtx: [...offshoreVtx],
+        spliced: false,
+    };
+    if (polyline.length < 2 || barLines.length === 0) return pass;
+
+    // A route END must sit within this of a chain END to be "at the bar" —
+    // a few km, so it fires at the mouth but NEVER at a distant passage end.
+    const BAR_NEAR_M = 3000;
+    // Rejoin search stays within this path-length of the near route end, so
+    // the transit only ever absorbs the LOCAL mouth crossing.
+    const REJOIN_SEARCH_M = 6000;
+    // If the route already threads both chain ends this tight, leave it.
+    const ALREADY_ON_M = 25;
+
+    for (const line of barLines) {
+        if (line.pts.length < 2) continue;
+        // Ride shallow bar water, but NEVER draw the transit across hard land.
+        if (chainCrossesHardLand(grid, line.pts)) continue;
+
+        const ends = [line.pts[0], line.pts[line.pts.length - 1]];
+        const start: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
+        const end: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
+
+        // Which ROUTE END is at the bar? Splice at whichever route end is
+        // closer to a chain end.
+        const dStart = Math.min(llDistM(start, ends[0]), llDistM(start, ends[1]));
+        const dEnd = Math.min(llDistM(end, ends[0]), llDistM(end, ends[1]));
+        const atStart = dStart <= dEnd;
+        if (Math.min(dStart, dEnd) > BAR_NEAR_M) continue;
+
+        // ORIENTATION by TRAVEL DIRECTION, not nearest-end: the promulgated
+        // line is not monotonic in distance-from-origin (a curved entrance can
+        // put its seaward end closer to the berth than its mouth end), and raw
+        // splice length can prefer a doubled-back ride. Ride the chain the way
+        // the route is PROGRESSING — max dot(chain direction, bar-end→far-end).
+        const barEnd = atStart ? start : end;
+        const farEnd = atStart ? end : start;
+        const progLon = (farEnd.lon - barEnd.lon) * mPerDegLon(barEnd.lat);
+        const progLat = (farEnd.lat - barEnd.lat) * M_PER_DEG_LAT;
+        const alignment = (chain: readonly LatLon[]): number => {
+            const a = chain[0];
+            const b = chain[chain.length - 1];
+            return (b.lon - a.lon) * mPerDegLon(a.lat) * progLon + (b.lat - a.lat) * M_PER_DEG_LAT * progLat;
+        };
+        const asDefined = line.pts.slice();
+        const reversed = line.pts.slice().reverse();
+        // Preferred orientation first; fall back to the other only if the
+        // aligned one can't bridge on navigable water.
+        const orientations =
+            alignment(asDefined) >= alignment(reversed) ? [asDefined, reversed] : [reversed, asDefined];
+        for (const chain of orientations) {
+            const r = atStart
+                ? spliceBarHead(
+                      pass.polyline,
+                      pass.canalMask,
+                      pass.channelSeg,
+                      pass.offshoreVtx,
+                      chain,
+                      grid,
+                      REJOIN_SEARCH_M,
+                      ALREADY_ON_M,
+                  )
+                : spliceBarReversed(
+                      pass.polyline,
+                      pass.canalMask,
+                      pass.channelSeg,
+                      pass.offshoreVtx,
+                      chain,
+                      grid,
+                      REJOIN_SEARCH_M,
+                      ALREADY_ON_M,
+                  );
+            if (r) return { ...r, spliced: true };
+        }
+    }
+    return pass;
+}
+
+function chainCrossesHardLand(grid: NavGrid, pts: readonly LatLon[]): boolean {
+    for (let i = 1; i < pts.length; i++) {
+        if (tupleLineCrossesHardLand(grid, [pts[i - 1].lon, pts[i - 1].lat], [pts[i].lon, pts[i].lat], 15)) return true;
+    }
+    return false;
+}
+
+function spliceBarReversed(
+    poly: readonly [number, number][],
+    canal: readonly boolean[],
+    channel: readonly boolean[],
+    offshore: readonly boolean[],
+    chain: readonly LatLon[],
+    grid: NavGrid,
+    rejoinSearchM: number,
+    alreadyOnM: number,
+): { polyline: [number, number][]; canalMask: boolean[]; channelSeg: boolean[]; offshoreVtx: boolean[] } | null {
+    // Dest-at-the-bar: reverse everything (per-segment mask reverses cleanly),
+    // splice at the head, then flip back.
+    const r = spliceBarHead(
+        [...poly].reverse(),
+        [...canal].reverse(),
+        [...channel].reverse(),
+        [...offshore].reverse(),
+        chain,
+        grid,
+        rejoinSearchM,
+        alreadyOnM,
+    );
+    if (!r) return null;
+    return {
+        polyline: [...r.polyline].reverse(),
+        canalMask: [...r.canalMask].reverse(),
+        channelSeg: [...r.channelSeg].reverse(),
+        offshoreVtx: [...r.offshoreVtx].reverse(),
+    };
+}
+
+/**
+ * Splice the oriented bar chain (chain[0] adjacent to poly[0]) into the head of
+ * the route: origin → navigable approach → REF chain → navigable bridge →
+ * original tail. Spliced vertices are YELLOW (marked channel); the tail keeps
+ * its original per-vertex/per-segment classes. Returns null if it can't bridge
+ * on navigable water or the route already rides the chain.
+ */
+function spliceBarHead(
+    poly: readonly [number, number][],
+    canal: readonly boolean[],
+    channel: readonly boolean[],
+    offshore: readonly boolean[],
+    chain: readonly LatLon[],
+    grid: NavGrid,
+    rejoinSearchM: number,
+    alreadyOnM: number,
+): { polyline: [number, number][]; canalMask: boolean[]; channelSeg: boolean[]; offshoreVtx: boolean[] } | null {
+    const origin: LatLon = { lat: poly[0][1], lon: poly[0][0] };
+    const chainInner = chain[0];
+    const chainOuter = chain[chain.length - 1];
+
+    // Already threads both ends? Leave it — nothing to fix.
+    let nearInner = Infinity;
+    let nearOuter = Infinity;
+    for (const [lon, lat] of poly) {
+        nearInner = Math.min(nearInner, llDistM({ lat, lon }, chainInner));
+        nearOuter = Math.min(nearOuter, llDistM({ lat, lon }, chainOuter));
+    }
+    if (nearInner < alreadyOnM && nearOuter < alreadyOnM) return null;
+
+    // Rejoin = nearest route vertex to the chain's OUTER end, searched only
+    // within rejoinSearchM of path length from the origin (keeps it local).
+    let rejoinIdx = -1;
+    let bestD = Infinity;
+    let cum = 0;
+    for (let i = 0; i < poly.length; i++) {
+        if (i > 0) cum += haversineM(poly[i - 1][1], poly[i - 1][0], poly[i][1], poly[i][0]);
+        if (cum > rejoinSearchM) break;
+        const d = llDistM(chainOuter, { lat: poly[i][1], lon: poly[i][0] });
+        if (d < bestD) {
+            bestD = d;
+            rejoinIdx = i;
+        }
+    }
+    if (rejoinIdx < 0) return null;
+
+    const approach = gridBridgePolyline(grid, origin, chainInner);
+    if (!approach) return null;
+    const rejoin: LatLon = { lat: poly[rejoinIdx][1], lon: poly[rejoinIdx][0] };
+    const bridge = gridBridgePolyline(grid, chainOuter, rejoin);
+    if (!bridge) return null;
+
+    const pts: [number, number][] = [];
+    const red: boolean[] = [];
+    const off: boolean[] = [];
+    const yseg: boolean[] = []; // yseg[k] = YELLOW between pts[k] and pts[k+1]
+    const push = (p: [number, number], isRed: boolean, isOff: boolean, yellowWithPrev: boolean): void => {
+        const last = pts[pts.length - 1];
+        if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) {
+            if (yellowWithPrev && yseg.length) yseg[yseg.length - 1] = true;
+            return;
+        }
+        if (pts.length > 0) yseg.push(yellowWithPrev);
+        pts.push(p);
+        red.push(isRed);
+        off.push(isOff);
+    };
+
+    // Approach + REF chain + rejoin bridge — all marked channel (YELLOW).
+    for (const p of approach) push([p[0], p[1]], false, false, true);
+    for (const p of chain) push([p.lon, p.lat], false, false, true);
+    for (const p of bridge) push([p[0], p[1]], false, false, true);
+    // Original tail from AFTER the rejoin vertex; the join segment keeps the
+    // original tier-2 class of segment (rejoinIdx → rejoinIdx+1).
+    for (let i = rejoinIdx + 1; i < poly.length; i++) {
+        push(poly[i], canal[i] ?? false, offshore[i] ?? false, channel[i - 1] ?? false);
+    }
+
+    if (pts.length < 2) return null;
+    return { polyline: pts, canalMask: red, channelSeg: yseg, offshoreVtx: off };
+}
+
+/**
  * Pull the canal RED off the OSM canal line onto the ENC channel medial axis.
  *
  * The canal red is snapped to the OSM canal centre-lines (frame 0 m), but the
@@ -1316,18 +1556,32 @@ export function applyThreeTier(
         );
     }
 
+    // ── FINAL: ride the promulgated NtM bar transit ──
+    // LAST pass, on the fully-assembled geometry + masks, so nothing
+    // downstream can re-route it off the REF marks. Origin-scoped inside
+    // spliceNtmBarTransit — inert unless a route END is at this bar, so it
+    // cannot perturb a distant approach. No-op when layers.NTMBAR is absent
+    // (no acked/current bar pack in scope).
+    const barLines = parseLeadingLines((layers.NTMBAR?.features ?? []) as Parameters<typeof parseLeadingLines>[0]);
+    const barRide = spliceNtmBarTransit(clampedPoly, clampedRed, channelSeg, offshoreVtx, barLines, grid);
+    if (barRide.spliced) {
+        engineLog.warn(`[ntm-bar] rode promulgated REF transit (+${barRide.polyline.length - clampedPoly.length} vtx)`);
+    }
+
     return {
-        polyline: clampedPoly,
-        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}${cardinalClampTag}`,
+        polyline: barRide.polyline,
+        provenance: `${rectrcTag}${glued.legs.map((l) => l.provenance).join(' | ')}${canalSnapTag}${cardinalClampTag}${
+            barRide.spliced ? ' +ntmbar' : ''
+        }`,
         spanCount: spans.length,
         // Per-vertex tier-1 flag (parallel to polyline) for canal/marina RED.
-        canalMask: clampedRed,
+        canalMask: barRide.canalMask,
         // Per-segment tier-2 flag for the YELLOW marked-channel.
-        channelMask: channelSeg,
+        channelMask: barRide.channelSeg,
         // Deprecated alias for callers that still use the old marked-channel name.
-        tier4Mask: channelSeg,
+        tier4Mask: barRide.channelSeg,
         // Per-vertex offshore (tier-4) flag for the DARK BLUE offshore leg.
-        offshoreMask: offshoreVtx,
+        offshoreMask: barRide.offshoreVtx,
     };
 }
 
