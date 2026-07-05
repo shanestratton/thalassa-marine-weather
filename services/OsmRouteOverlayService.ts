@@ -64,6 +64,14 @@ export interface OsmRouteOverlay {
      *  [] → router degrades to chart-only (route reverts to cutting the
      *  red CAUTION diagonal across the bar, which is at least honest). */
     navLines: FeatureCollection;
+    /** man_made=pier/pontoon + floating=yes — marina finger pontoons /
+     *  berth rows. Injected into the engine as layers.BERTH and hard-blocked
+     *  at FINE resolution only, overriding the marina-authoritative water, so
+     *  the marina leg rides the fairway lanes between berth rows instead of
+     *  cutting across the pens (Mooloolaba 2026-07-05). Pi must be on cache
+     *  schema v5+; older Pi returns [] → router keeps today's basin-centre
+     *  line (no regression). */
+    berths: FeatureCollection;
 }
 
 function emptyOverlay(): OsmRouteOverlay {
@@ -76,6 +84,7 @@ function emptyOverlay(): OsmRouteOverlay {
         aeroway: { type: 'FeatureCollection', features: [] },
         canalLines: { type: 'FeatureCollection', features: [] },
         navLines: { type: 'FeatureCollection', features: [] },
+        berths: { type: 'FeatureCollection', features: [] },
     };
 }
 
@@ -147,8 +156,9 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
             aeroway: raw.aeroway ?? { type: 'FeatureCollection', features: [] },
             canalLines: raw.canalLines ?? { type: 'FeatureCollection', features: [] },
             navLines: raw.navLines ?? { type: 'FeatureCollection', features: [] },
+            berths: raw.berths ?? { type: 'FeatureCollection', features: [] },
         };
-        const counts = `water=${data.water.features.length} reef=${data.reef.features.length} coast=${data.coastline.features.length} marina=${data.marina.features.length} bw=${data.breakwater.features.length} aeroway=${data.aeroway.features.length} canalLines=${data.canalLines.features.length} navLines=${data.navLines.features.length}`;
+        const counts = `water=${data.water.features.length} reef=${data.reef.features.length} coast=${data.coastline.features.length} marina=${data.marina.features.length} bw=${data.breakwater.features.length} aeroway=${data.aeroway.features.length} canalLines=${data.canalLines.features.length} navLines=${data.navLines.features.length} berths=${data.berths.features.length}`;
         log.warn(`OSM overlay fetched in ${Date.now() - t0}ms — ${counts}`);
         memCache.set(key, { ts: Date.now(), data });
         void writeOverlayToDisk(key, data); // fire-and-forget — next offline launch has it
@@ -209,6 +219,7 @@ async function readOverlayFromDisk(key: string): Promise<OsmRouteOverlay | null>
             aeroway: parsed.aeroway ?? { type: 'FeatureCollection', features: [] },
             canalLines: parsed.canalLines ?? { type: 'FeatureCollection', features: [] },
             navLines: parsed.navLines ?? { type: 'FeatureCollection', features: [] },
+            berths: parsed.berths ?? { type: 'FeatureCollection', features: [] },
         };
     } catch {
         return null; // no disk copy for this bbox yet

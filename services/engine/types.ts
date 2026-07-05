@@ -114,6 +114,17 @@ export interface InshoreLayers {
      * CAUTION with tide-window chips.
      */
     NTMBAR?: FeatureCollection;
+    /**
+     * Marina finger pontoons / berth rows (OSM man_made=pier/pontoon,
+     * floating=yes — LineStrings mostly, some closed polygons). Hard-blocked
+     * by buildNavGrid's berth pass ONLY at fine resolution (cell < ~20 m),
+     * overriding the marina-authoritative DEPARE, so the marina leg follows
+     * the fairway lanes between berth rows instead of the geometric centre of
+     * the basin (which drove over the pens). The coarse grid ignores them, so
+     * a marina still reads as one navigable blob for the approach — no
+     * disconnection. Added 2026-07-05 (Mooloolaba drove over the marina).
+     */
+    BERTH?: FeatureCollection;
 }
 
 export interface RouteRequest {
