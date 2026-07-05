@@ -101,6 +101,19 @@ export interface InshoreLayers {
      * preferred, never a depth rescue above the survey.
      */
     NTMZONE?: FeatureCollection;
+    /**
+     * Notice-to-Mariners PROMULGATED BAR TRANSIT — the ordered REF-mark
+     * alternative track from an acked, still-current bar-survey notice
+     * (services/ntmRouting.ts pack.trackline). A single LineString the route
+     * must RIDE across the bar when its origin (or destination) sits at that
+     * bar. Deliberately its OWN layer, never NAVLINE: as a global leading
+     * line it perturbed tier ordering 40 NM away (removed 2026-07-03). The
+     * tier pipeline splices it as a FINAL, origin-scoped post-pass so it can
+     * only ever reshape the bar-crossing leg. Geometry only — surveyed depth
+     * stays NTMZONE's job, so a sub-floor cell on the transit still renders
+     * CAUTION with tide-window chips.
+     */
+    NTMBAR?: FeatureCollection;
 }
 
 export interface RouteRequest {

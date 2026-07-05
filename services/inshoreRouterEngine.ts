@@ -1662,4 +1662,4 @@ export {
 } from './engine/aStar';
 export { douglasPeucker } from './engine/geometry';
 export { fairPath } from './engine/pathShaping';
-export { spliceCanalEgressChannel } from './engine/tierPipeline';
+export { spliceCanalEgressChannel, spliceNtmBarTransit } from './engine/tierPipeline';
