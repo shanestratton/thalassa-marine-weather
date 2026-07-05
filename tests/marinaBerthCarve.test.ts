@@ -80,12 +80,14 @@ describe('marina berth carve (fine-res only)', () => {
         expect(isLand(grid, IN_LANE.lon, IN_LANE.lat)).toBe(false); // lane stays navigable
     });
 
-    it('does NOT block the marina at coarse resolution — basin stays one navigable blob (no disconnection)', () => {
+    it('carves the pontoon rows at coarse resolution too — the tier-2 fairlead reach', () => {
         const grid = buildNavGrid(layers(true), BBOX, 50, 2.4, 0.5, 60);
-        // At 50 m the finger rows would collapse into a sealing block, so the
-        // berth pass is skipped: the whole basin remains authoritative water.
-        expect(isLand(grid, ON_BERTH.lon, ON_BERTH.lat)).toBe(false);
-        expect(isLand(grid, IN_LANE.lon, IN_LANE.lat)).toBe(false);
+        // A riverside marina reach is routed by tier-2 fairlead on the COARSE
+        // grid, which validates its lateral-mark path against the land mask — so
+        // the pontoons must block HERE too, else the route drives over the pens
+        // (Mooloolaba 2026-07-06). Endpoint snapToNavigable keeps a berth-start
+        // reachable even where a tight basin collapses at 50 m.
+        expect(isLand(grid, ON_BERTH.lon, ON_BERTH.lat)).toBe(true);
     });
 
     it('no berths ⇒ the pontoon cells stay open (today’s behaviour, no regression)', () => {
