@@ -24,7 +24,15 @@ import { createLogger } from '../utils/createLogger';
 const log = createLogger('OsmRouteOverlay');
 
 const MEM_CACHE_TTL_MS = 30 * 60 * 1000; // 30 min in-process
-const FETCH_TIMEOUT_MS = 8_000; // a route attempt shouldn't wait more than seconds on a Pi that just went out of range — fail fast to chart-only
+// A COLD Overpass fetch over a whole passage bbox (Mooloolaba→Newport =
+// ~990 pier/berth ways) measured 13 s Pi-side — 8 s silently timed out and
+// served the stale disk copy WITHOUT berths, so the marina-carve had nothing
+// to carve (Shane 2026-07-06 "that change did not land"). 20 s clears it. This
+// only ever blocks that long when the Pi is REACHABLE but computing a cold
+// query — `piCache.isAvailable()` short-circuits an out-of-range Pi straight
+// to the disk fallback below, so a Pi that's gone still fails fast. Once the
+// Pi caches the tile (7-day TTL) the fetch is <1 s again.
+const FETCH_TIMEOUT_MS = 20_000;
 // Disk copies never expire for FALLBACK use — a months-old OSM canal
 // polygon beats "the marina is land". A fresh Pi fetch still replaces
 // the disk copy whenever the Pi is reachable.
