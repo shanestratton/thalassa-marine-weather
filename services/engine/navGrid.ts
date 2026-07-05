@@ -710,19 +710,21 @@ export function buildNavGrid(
     // instead of the geometric centre of the basin (which drove over the
     // pens, Mooloolaba 2026-07-05).
     //
-    // FINE RESOLUTION ONLY. At the coarse 50 m grid the finger rows (~15-30 m
-    // apart) collapse into one solid block that would SEAL the basin and
-    // disconnect the route; so the coarse grid keeps reading the marina as a
-    // single navigable blob for the approach, and only the fine marina grid
-    // (routeMarina, ~12 m) carves the lanes. If a too-aggressive carve ever
-    // disconnects the fine leg, routeMarina returns null → the span falls back
-    // to today's coarse slice, so this can only improve a marina, never break
-    // a route.
-    const cellSizeM = dLat * M_PER_DEG_LAT;
+    // Carve at EVERY resolution. The Mooloolaba over-drive is a RIVERSIDE
+    // marina reach routed by tier-2 fairlead on the COARSE grid — fairlead
+    // validates its lateral-mark path against the grid land mask, so blocking
+    // the berth cells there makes it decline over the pens and A* takes the open
+    // channel. A fine-res-only carve never touched it. Endpoint reachability is
+    // preserved by snapToNavigable (searches ~8 cells / a few hundred metres),
+    // so a berth-start/berth-end still snaps out to the channel even if a tight
+    // basin collapses to a solid block at 50 m. Where a carve would truly
+    // disconnect a fine marina leg, routeMarina returns null → the span falls
+    // back to its coarse slice, so this can only improve a marina, never break a
+    // route.
     const berthFeatures = layers.BERTH?.features ?? [];
     const tPassBerth = Date.now();
     let berthCellsBlocked = 0;
-    if (cellSizeM < 20 && berthFeatures.length > 0) {
+    if (berthFeatures.length > 0) {
         const blockBerthCell = (x: number, y: number): void => {
             if (x < 0 || y < 0 || x >= width || y >= height) return;
             const idx = y * width + x;

@@ -146,6 +146,7 @@ async function assemble(from: [number, number], to: [number, number]): Promise<I
         NAVLINE: { type: 'FeatureCollection', features: [] },
         CANAL: { type: 'FeatureCollection', features: [] },
         COASTLINE: { type: 'FeatureCollection', features: [] },
+        BERTH: { type: 'FeatureCollection', features: [] },
     };
     for (const c of candidates) {
         const raw = fetchCell(c.cellId);
@@ -195,6 +196,10 @@ async function assemble(from: [number, number], to: [number, number]): Promise<I
         (merged.COASTLINE!.features as unknown[]).push(...((overlay.coastline?.features ?? []) as unknown[]));
         (merged.CANAL!.features as unknown[]).push(...((overlay.canalLines?.features ?? []) as unknown[]));
         (merged.NAVLINE!.features as unknown[]).push(...((overlay.navLines?.features ?? []) as unknown[]));
+        // Marina finger pontoons → BERTH (device parity with InshoreRouter).
+        (merged.BERTH!.features as unknown[]).push(
+            ...(((overlay as { berths?: FeatureCollection }).berths?.features ?? []) as unknown[]),
+        );
     }
     try {
         const { fetchRegionalMarkers, orientHazardsTowardLand, encLateralsFromFeatures } =
