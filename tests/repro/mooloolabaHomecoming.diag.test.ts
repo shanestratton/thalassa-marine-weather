@@ -332,18 +332,17 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
                       ]
                     : []
             ) as Feature[];
-            // ZONES ONLY — device parity with tryInshoreRoute. The trackline
-            // injection (NAVLINE and a RECTRC copy) was TRIED 2026-07-03 and
-            // REMOVED: neither closed the REF 1 gap (275 m vs 268 m bare) and
-            // both perturbed global tier/egress ordering — the NAVLINE form
-            // replaced the clean Newport approach with a 1.59 NM drying
-            // crossing 40 NM from the transit. Task #26's origin-side splice
-            // inside tierPipeline is the real fix; trackFeatures kept here
-            // (unused) as the ready-made input for that work.
-            void trackFeatures;
+            // DEVICE PARITY (2026-07-06): tryInshoreRoute injects the surveyed
+            // zones as NTMZONE AND the promulgated REF track as the dedicated
+            // NTMBAR layer, which spliceNtmBarTransit WEAVES the route through
+            // (mouth → REF2 → REF1) as a final post-pass. The earlier NAVLINE/
+            // RECTRC injection was removed 2026-07-03 (it perturbed tier ordering
+            // 40 NM away); NTMBAR is bar-local and can't. The pilotage audit
+            // below (REF2/REF1 minDist) is the adherence regression guard.
             const ntmLayers = {
                 ...layers,
                 NTMZONE: { type: 'FeatureCollection' as const, features: ntmFeatures },
+                NTMBAR: { type: 'FeatureCollection' as const, features: trackFeatures },
             };
             const withNtm = routeInshore(ntmLayers, req);
             if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
