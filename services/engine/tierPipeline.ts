@@ -485,28 +485,29 @@ export function spliceCanalEgressChannelFromOrigin(
 }
 
 /**
- * Ride the promulgated NtM bar transit as a FINAL, origin-scoped post-pass.
+ * Ride the promulgated NtM bar marks as a FINAL post-pass — by WEAVING the
+ * route through them, not splicing a corridor.
  *
  * `barLines` is the acked, still-current REF-mark alternative track (an MSQ
  * bar-survey notice's pack.trackline, injected by InshoreRouter as the
- * DEDICATED layers.NTMBAR — never NAVLINE). When a route END sits at that
- * bar, this replaces the mouth-crossing portion of the assembled route with
- * origin → REF chain → rejoin, so the YELLOW marked-channel line passes
- * dead-on through the REF marks the skipper acknowledged.
+ * DEDICATED layers.NTMBAR — never NAVLINE). The route already crosses the bar
+ * close to these marks; this pulls its nearest vertices ONTO them so the YELLOW
+ * marked-channel line passes dead-on through the marks the skipper acknowledged.
  *
- * WHY A FINAL POST-PASS (Shane 2026-07-05: "we put the markers there but we
- * are not adhering to them"): the origin egress splice needs an OSM canal
- * line to approach, which a bar mouth has none of — the exact reason the old
- * global injection never rode the marks. Routing it through
- * segmentRoute/tier3/tier4 also risked a refiner re-deriving the span off the
- * transit. Running LAST, on the assembled geometry + masks, guarantees the
- * ride survives; gating on a route END within BAR_NEAR_M of a chain END means
- * it can only ever reshape the bar leg and never a distant approach (the 40 NM
- * regression that got the global injection removed 2026-07-03). Geometry only:
- * surveyed depth stays the NTMZONE pass's job, so a sub-floor cell on the
- * ridden transit still renders CAUTION with tide-window chips. Every ridden
- * chain segment is hard-land-vetoed and both connectors bridge on navigable
- * water only; any failure returns the route untouched.
+ * WHY A WEAVE, NOT A CORRIDOR SPLICE (Shane 2026-07-05 "we put the markers
+ * there but we are not adhering to them", then 2026-07-06 "that route has a few
+ * issues still" — a triangular loop): the MSQ marks branch off the natural
+ * crossing (SW of the mouth) while the exit runs NE to clear Point Cartwright,
+ * so any rigid approach→corridor→exit splice drew a dog-leg OUT to the marks
+ * and back = the loop. Weaving instead inserts each nearby mark at the point the
+ * route is closest to it — a small local bulge, no loop, exit untouched. Runs
+ * LAST on the assembled geometry + masks so nothing re-routes it, and it only
+ * moves a vertex that already sits within MAX_WEAVE_M of a mark, so a distant
+ * approach can never be perturbed (the 40 NM regression that got the global
+ * injection removed 2026-07-03 cannot recur). Geometry only: surveyed depth
+ * stays the NTMZONE pass's job, so a sub-floor cell on the woven line still
+ * renders CAUTION with tide-window chips. Every inserted segment is
+ * hard-land-vetoed; any failure returns the route untouched.
  */
 export function spliceNtmBarTransit(
     polyline: readonly [number, number][],
@@ -531,197 +532,129 @@ export function spliceNtmBarTransit(
     };
     if (polyline.length < 2 || barLines.length === 0) return pass;
 
-    // A route END must sit within this of a chain END to be "at the bar" —
-    // a few km, so it fires at the mouth but NEVER at a distant passage end.
-    const BAR_NEAR_M = 3000;
-    // Rejoin search stays within this path-length of the near route end, so
-    // the transit only ever absorbs the LOCAL mouth crossing.
-    const REJOIN_SEARCH_M = 6000;
-    // If the route already threads both chain ends this tight, leave it.
-    const ALREADY_ON_M = 25;
-
+    // Only WEAVE a mark the route already passes within this. A mark far from
+    // the route would need a dog-leg to reach — the loop Shane saw when a full
+    // corridor was spliced (the marks branch off the natural crossing, so a
+    // rigid corridor drew out-and-back to the mouth). This keeps the pass
+    // inherently local: nothing moves unless a route vertex sits right by a
+    // mark, so a distant approach can never be perturbed (the 2026-07-03 40 NM
+    // regression cannot recur by construction).
+    const MAX_WEAVE_M = 400;
     for (const line of barLines) {
-        if (line.pts.length < 2) continue;
-        // Ride shallow bar water, but NEVER draw the transit across hard land.
-        if (chainCrossesHardLand(grid, line.pts)) continue;
-
-        const ends = [line.pts[0], line.pts[line.pts.length - 1]];
-        const start: LatLon = { lat: polyline[0][1], lon: polyline[0][0] };
-        const end: LatLon = { lat: polyline[polyline.length - 1][1], lon: polyline[polyline.length - 1][0] };
-
-        // Which ROUTE END is at the bar? Splice at whichever route end is
-        // closer to a chain end.
-        const dStart = Math.min(llDistM(start, ends[0]), llDistM(start, ends[1]));
-        const dEnd = Math.min(llDistM(end, ends[0]), llDistM(end, ends[1]));
-        const atStart = dStart <= dEnd;
-        if (Math.min(dStart, dEnd) > BAR_NEAR_M) continue;
-
-        // ORIENTATION by TRAVEL DIRECTION, not nearest-end: the promulgated
-        // line is not monotonic in distance-from-origin (a curved entrance can
-        // put its seaward end closer to the berth than its mouth end), and raw
-        // splice length can prefer a doubled-back ride. Ride the chain the way
-        // the route is PROGRESSING — max dot(chain direction, bar-end→far-end).
-        const barEnd = atStart ? start : end;
-        const farEnd = atStart ? end : start;
-        const progLon = (farEnd.lon - barEnd.lon) * mPerDegLon(barEnd.lat);
-        const progLat = (farEnd.lat - barEnd.lat) * M_PER_DEG_LAT;
-        const alignment = (chain: readonly LatLon[]): number => {
-            const a = chain[0];
-            const b = chain[chain.length - 1];
-            return (b.lon - a.lon) * mPerDegLon(a.lat) * progLon + (b.lat - a.lat) * M_PER_DEG_LAT * progLat;
-        };
-        const asDefined = line.pts.slice();
-        const reversed = line.pts.slice().reverse();
-        // Preferred orientation first; fall back to the other only if the
-        // aligned one can't bridge on navigable water.
-        const orientations =
-            alignment(asDefined) >= alignment(reversed) ? [asDefined, reversed] : [reversed, asDefined];
-        for (const chain of orientations) {
-            const r = atStart
-                ? spliceBarHead(
-                      pass.polyline,
-                      pass.canalMask,
-                      pass.channelSeg,
-                      pass.offshoreVtx,
-                      chain,
-                      grid,
-                      REJOIN_SEARCH_M,
-                      ALREADY_ON_M,
-                  )
-                : spliceBarReversed(
-                      pass.polyline,
-                      pass.canalMask,
-                      pass.channelSeg,
-                      pass.offshoreVtx,
-                      chain,
-                      grid,
-                      REJOIN_SEARCH_M,
-                      ALREADY_ON_M,
-                  );
-            if (r) return { ...r, spliced: true };
-        }
+        const woven = weaveMarksIntoRoute(pass, line.pts, grid, MAX_WEAVE_M);
+        if (woven) return { ...woven, spliced: true };
     }
     return pass;
 }
 
-function chainCrossesHardLand(grid: NavGrid, pts: readonly LatLon[]): boolean {
-    for (let i = 1; i < pts.length; i++) {
-        if (tupleLineCrossesHardLand(grid, [pts[i - 1].lon, pts[i - 1].lat], [pts[i].lon, pts[i].lat], 15)) return true;
-    }
-    return false;
-}
-
-function spliceBarReversed(
-    poly: readonly [number, number][],
-    canal: readonly boolean[],
-    channel: readonly boolean[],
-    offshore: readonly boolean[],
-    chain: readonly LatLon[],
-    grid: NavGrid,
-    rejoinSearchM: number,
-    alreadyOnM: number,
-): { polyline: [number, number][]; canalMask: boolean[]; channelSeg: boolean[]; offshoreVtx: boolean[] } | null {
-    // Dest-at-the-bar: reverse everything (per-segment mask reverses cleanly),
-    // splice at the head, then flip back.
-    const r = spliceBarHead(
-        [...poly].reverse(),
-        [...canal].reverse(),
-        [...channel].reverse(),
-        [...offshore].reverse(),
-        chain,
-        grid,
-        rejoinSearchM,
-        alreadyOnM,
-    );
-    if (!r) return null;
-    return {
-        polyline: [...r.polyline].reverse(),
-        canalMask: [...r.canalMask].reverse(),
-        channelSeg: [...r.channelSeg].reverse(),
-        offshoreVtx: [...r.offshoreVtx].reverse(),
-    };
+/** Closest point on segment a→b to p, in a local metre projection. */
+function closestOnSegment(
+    p: LatLon,
+    a: readonly [number, number],
+    b: readonly [number, number],
+): { t: number; distM: number } {
+    const mLon = mPerDegLon(p.lat);
+    const ax = a[0] * mLon;
+    const ay = a[1] * M_PER_DEG_LAT;
+    const bx = b[0] * mLon;
+    const by = b[1] * M_PER_DEG_LAT;
+    const px = p.lon * mLon;
+    const py = p.lat * M_PER_DEG_LAT;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / len2 : 0;
+    t = Math.max(0, Math.min(1, t));
+    return { t, distM: Math.hypot(px - (ax + t * dx), py - (ay + t * dy)) };
 }
 
 /**
- * Splice the oriented bar chain (chain[0] adjacent to poly[0]) into the head of
- * the route: origin → navigable approach → REF chain → navigable bridge →
- * original tail. Spliced vertices are YELLOW (marked channel); the tail keeps
- * its original per-vertex/per-segment classes. Returns null if it can't bridge
- * on navigable water or the route already rides the chain.
+ * Weave the promulgated bar marks into the route by pulling its nearest
+ * vertices onto them.
+ *
+ * The route already passes CLOSE to the REF marks — the MSQ alternative
+ * corridor branches only tens–to-a-few-hundred metres off the natural
+ * crossing. So instead of splicing a whole approach→corridor→exit (which drew a
+ * dog-leg OUT to the marks and back — the loop Shane saw, because the marks sit
+ * SW while the exit runs NE to clear Point Cartwright), we just INSERT each mark
+ * at the point the route is nearest it. The line then passes dead-on through the
+ * marks with a small local bulge, never a loop, and its overall shape (and
+ * destination-bound exit) is untouched.
+ *
+ * Marks beyond `maxWeaveM` of the route are skipped (reaching them would need a
+ * dog-leg). Marks the route already hits (< 3 m) need no insert. Every inserted
+ * segment is hard-land-vetoed; a single bad one aborts the whole weave (route
+ * returned untouched). Woven vertices render YELLOW (marked channel).
  */
-function spliceBarHead(
-    poly: readonly [number, number][],
-    canal: readonly boolean[],
-    channel: readonly boolean[],
-    offshore: readonly boolean[],
-    chain: readonly LatLon[],
+function weaveMarksIntoRoute(
+    src: { polyline: [number, number][]; canalMask: boolean[]; channelSeg: boolean[]; offshoreVtx: boolean[] },
+    marks: readonly LatLon[],
     grid: NavGrid,
-    rejoinSearchM: number,
-    alreadyOnM: number,
+    maxWeaveM: number,
 ): { polyline: [number, number][]; canalMask: boolean[]; channelSeg: boolean[]; offshoreVtx: boolean[] } | null {
-    const origin: LatLon = { lat: poly[0][1], lon: poly[0][0] };
-    const chainInner = chain[0];
-    const chainOuter = chain[chain.length - 1];
+    const poly = src.polyline;
+    if (poly.length < 2 || marks.length === 0) return null;
 
-    // Already threads both ends? Leave it — nothing to fix.
-    let nearInner = Infinity;
-    let nearOuter = Infinity;
-    for (const [lon, lat] of poly) {
-        nearInner = Math.min(nearInner, llDistM({ lat, lon }, chainInner));
-        nearOuter = Math.min(nearOuter, llDistM({ lat, lon }, chainOuter));
-    }
-    if (nearInner < alreadyOnM && nearOuter < alreadyOnM) return null;
-
-    // Rejoin = nearest route vertex to the chain's OUTER end, searched only
-    // within rejoinSearchM of path length from the origin (keeps it local).
-    let rejoinIdx = -1;
-    let bestD = Infinity;
-    let cum = 0;
-    for (let i = 0; i < poly.length; i++) {
-        if (i > 0) cum += haversineM(poly[i - 1][1], poly[i - 1][0], poly[i][1], poly[i][0]);
-        if (cum > rejoinSearchM) break;
-        const d = llDistM(chainOuter, { lat: poly[i][1], lon: poly[i][0] });
-        if (d < bestD) {
-            bestD = d;
-            rejoinIdx = i;
+    // Near marks IN TRACKLINE ORDER (mouth → REF2 → REF1 → …), each with the
+    // route position (segIdx + t) it's closest to. We insert them CONTIGUOUSLY
+    // in this order at one anchor — NOT each at its own nearest segment, which
+    // interleaves a near mark and a far one into a zig-zag.
+    const near: { mark: LatLon; pos: number }[] = [];
+    for (const m of marks) {
+        let best: { pos: number; distM: number } | null = null;
+        for (let i = 0; i + 1 < poly.length; i++) {
+            const c = closestOnSegment(m, poly[i], poly[i + 1]);
+            if (!best || c.distM < best.distM) best = { pos: i + c.t, distM: c.distM };
         }
+        if (best && best.distM <= maxWeaveM && best.distM > 3) near.push({ mark: m, pos: best.pos });
     }
-    if (rejoinIdx < 0) return null;
+    if (near.length === 0) return null;
 
-    const approach = gridBridgePolyline(grid, origin, chainInner);
-    if (!approach) return null;
-    const rejoin: LatLon = { lat: poly[rejoinIdx][1], lon: poly[rejoinIdx][0] };
-    const bridge = gridBridgePolyline(grid, chainOuter, rejoin);
-    if (!bridge) return null;
+    // Weave order = trackline order if the route travels that way, else reversed
+    // (inbound). Anchor after the EARLIEST route vertex any near mark sits by.
+    const forward = near[near.length - 1].pos >= near[0].pos;
+    const ordered = forward ? near.map((n) => n.mark) : near.map((n) => n.mark).reverse();
+    const anchorSeg = Math.floor(Math.min(...near.map((n) => n.pos)));
 
-    const pts: [number, number][] = [];
-    const red: boolean[] = [];
-    const off: boolean[] = [];
-    const yseg: boolean[] = []; // yseg[k] = YELLOW between pts[k] and pts[k+1]
-    const push = (p: [number, number], isRed: boolean, isOff: boolean, yellowWithPrev: boolean): void => {
-        const last = pts[pts.length - 1];
-        if (last && haversineM(last[1], last[0], p[1], p[0]) < 1) {
-            if (yellowWithPrev && yseg.length) yseg[yseg.length - 1] = true;
-            return;
-        }
-        if (pts.length > 0) yseg.push(yellowWithPrev);
-        pts.push(p);
-        red.push(isRed);
-        off.push(isOff);
+    type Item = { lon: number; lat: number; red: boolean; off: boolean; yellowIn: boolean };
+    const items: Item[] = [];
+    let pendingYellow = false; // the segment LEAVING a woven mark is yellow too
+    const pushItem = (lon: number, lat: number, red: boolean, off: boolean, yellowIn: boolean): void => {
+        items.push({ lon, lat, red, off, yellowIn: yellowIn || pendingYellow });
+        pendingYellow = false;
     };
+    const isHardLand = (a: [number, number], b: [number, number]): boolean => tupleLineCrossesHardLand(grid, a, b, 15);
 
-    // Approach + REF chain + rejoin bridge — all marked channel (YELLOW).
-    for (const p of approach) push([p[0], p[1]], false, false, true);
-    for (const p of chain) push([p.lon, p.lat], false, false, true);
-    for (const p of bridge) push([p[0], p[1]], false, false, true);
-    // Original tail from AFTER the rejoin vertex; the join segment keeps the
-    // original tier-2 class of segment (rejoinIdx → rejoinIdx+1).
-    for (let i = rejoinIdx + 1; i < poly.length; i++) {
-        push(poly[i], canal[i] ?? false, offshore[i] ?? false, channel[i - 1] ?? false);
+    for (let i = 0; i < poly.length; i++) {
+        pushItem(
+            poly[i][0],
+            poly[i][1],
+            src.canalMask[i] ?? false,
+            src.offshoreVtx[i] ?? false,
+            i > 0 ? (src.channelSeg[i - 1] ?? false) : false,
+        );
+        if (i !== anchorSeg) continue;
+        // Insert the whole ordered mark run here, validating each new leg.
+        let prev: [number, number] = [poly[i][0], poly[i][1]];
+        for (const mk of ordered) {
+            const mkT: [number, number] = [mk.lon, mk.lat];
+            if (isHardLand(prev, mkT)) return null;
+            pushItem(mk.lon, mk.lat, false, false, true); // segment INTO the mark = yellow
+            pendingYellow = true; // segment OUT of the mark = yellow
+            prev = mkT;
+        }
+        // Closing leg back to the next original vertex.
+        if (i + 1 < poly.length && isHardLand(prev, [poly[i + 1][0], poly[i + 1][1]])) return null;
     }
 
-    if (pts.length < 2) return null;
-    return { polyline: pts, canalMask: red, channelSeg: yseg, offshoreVtx: off };
+    const polylineOut = items.map((it) => [it.lon, it.lat] as [number, number]);
+    const canalOut = items.map((it) => it.red);
+    const offOut = items.map((it) => it.off);
+    const channelOut: boolean[] = []; // per-segment: channelOut[k] = between item k and k+1
+    for (let k = 1; k < items.length; k++) channelOut.push(items[k].yellowIn);
+
+    if (polylineOut.length < 2) return null;
+    return { polyline: polylineOut, canalMask: canalOut, channelSeg: channelOut, offshoreVtx: offOut };
 }
 
 /**
