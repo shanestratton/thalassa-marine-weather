@@ -1186,6 +1186,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         if (passage.showPassage && !prevShowPassageRef.current) {
             weather.setActiveLayer('none');
+            // Show the route on the clean satellite base, not the busy ENC
+            // chart (owner ask 2026-07-05). ENC data still drives the engine;
+            // this is display only. Persisted, so it stays on after — the
+            // skipper can flip back to the chart from the Satellite toggle.
+            setSatelliteVisible(true);
             // Force-remove Follow Route layers — the hook's useEffect cleanup
             // has a timing gap when mapReady transitions while routeCoords changes
             const map = mapRef.current;
