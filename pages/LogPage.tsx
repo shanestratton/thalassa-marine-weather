@@ -39,10 +39,6 @@ import { reverseGeocodeContext } from '../services/weather/api/geocoding';
 import { computePersonalRecords, matchPlannedRouteByCoords } from '../services/shiplog/VoyageSummary';
 import { evaluatePropulsionConflict } from '../services/shiplog/propulsion';
 import { ShipLogService } from '../services/ShipLogService';
-import { fetchRoutesAndTracks, type RouteOrTrack } from '../services/shiplog/RoutesAndTracks';
-import { suggestPlanForDeparture } from '../services/shiplog/planMatcher';
-import { VoyageLogService } from '../services/VoyageLogService';
-import { useSettingsStore } from '../stores/settingsStore';
 import { VoyageCard, StatBox, MenuBtn } from './log/LogSubComponents';
 import { VoyageChoiceDialog, StopVoyageDialog } from './log/VoyageDialogs';
 import { ExportSheet } from './log/ExportSheet';
@@ -200,92 +196,12 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
         !!state.currentVoyageId &&
         gpsOverlayDismissedFor !== state.currentVoyageId;
 
-    // ── Passage-plan link prompt ─────────────────────────────────
-    // Once the departing voyage has its first real fix, suggest the most
-    // plausible saved plan (departure date ±7 d, start within 10 NM) for a
-    // one-tap link — the public page then swaps its static destination for
-    // the plan's endpoint and shows live progress. NEVER links silently;
-    // dismissal is remembered per voyage, and a missed prompt can be fixed
-    // later from Settings → Voyage Log → Public tracks.
-    const [planPrompt, setPlanPrompt] = useState<{ voyageId: string; plan: RouteOrTrack } | null>(null);
-    const [planPromptDismissedFor, setPlanPromptDismissedFor] = useState<string | null>(null);
-    const planPromptCheckedFor = useRef<string | null>(null);
-    useEffect(() => {
-        if (!state.isTracking || !hasRecordedFix || !state.currentVoyageId) return;
-        if (planPromptCheckedFor.current === state.currentVoyageId) return;
-        planPromptCheckedFor.current = state.currentVoyageId;
-        const voyageId = state.currentVoyageId;
-        const fix = state.entries.find(
-            (e) => e.voyageId === voyageId && !!e.latitude && !!e.longitude && !(e.latitude === 0 && e.longitude === 0),
-        );
-        if (!fix) return;
-        void (async () => {
-            try {
-                const [{ routes }, links] = await Promise.all([
-                    fetchRoutesAndTracks(),
-                    VoyageLogService.getPlanLinks(),
-                ]);
-                if (links.has(voyageId)) return; // already linked
-                // Local-only plans can't drive the public page (their entries
-                // aren't on the server yet) — never suggest them.
-                const plan = suggestPlanForDeparture(
-                    routes.filter((r) => !r.isLocal),
-                    Date.now(),
-                    { lat: fix.latitude, lon: fix.longitude },
-                );
-                if (plan) setPlanPrompt({ voyageId, plan });
-            } catch {
-                /* offline at the dock — retro-link from settings instead */
-            }
-        })();
-    }, [state.isTracking, hasRecordedFix, state.currentVoyageId, state.entries]);
-
-    const linkPromptedPlan = useCallback(async () => {
-        if (!planPrompt) return;
-        const { voyageId, plan } = planPrompt;
-        setPlanPrompt(null);
-        const ok = await VoyageLogService.setVoyagePlanLink(voyageId, plan.id);
-        if (ok) toast.success(`Linked — your page now tracks ${plan.label}`);
-        else toast.error(VoyageLogService.lastError ?? 'Link failed — try from Settings later');
-    }, [planPrompt, toast]);
-
-    // ── "Share this voyage live?" prompt ─────────────────────────
-    // The live-share toggle lives deep in Settings, so offer it right at
-    // departure (owner ask 2026-07-04). Fires once per new voyage, only
-    // when the public log is on AND live-share is currently off (no nag
-    // once they've opted in). Yes flips the global toggle + fresh-starts
-    // the trickle so nothing before consent is published.
-    const liveTrackShare = useSettingsStore((s) => s.settings.liveTrackShare);
-    const updateSettings = useSettingsStore((s) => s.updateSettings);
-    const [sharePrompt, setSharePrompt] = useState<string | null>(null); // voyageId
-    const sharePromptCheckedFor = useRef<string | null>(null);
-    useEffect(() => {
-        if (!state.isTracking || !state.currentVoyageId) return;
-        if (sharePromptCheckedFor.current === state.currentVoyageId) return;
-        sharePromptCheckedFor.current = state.currentVoyageId;
-        if (liveTrackShare === true) return; // already sharing — don't ask
-        const voyageId = state.currentVoyageId;
-        void (async () => {
-            try {
-                const cfg = await VoyageLogService.getConfig();
-                if (cfg?.enabled) setSharePrompt(voyageId);
-            } catch {
-                /* offline / no public log — the Settings toggle still works */
-            }
-        })();
-    }, [state.isTracking, state.currentVoyageId, liveTrackShare]);
-
-    const enableLiveShare = useCallback(async () => {
-        setSharePrompt(null);
-        void updateSettings({ liveTrackShare: true });
-        try {
-            const { markLiveTrickleFreshStart } = await import('../services/shiplog/LiveTrickle');
-            await markLiveTrickleFreshStart();
-        } catch {
-            /* trickle module lazy-load failed — the toggle still took effect */
-        }
-        toast.success('Sharing live — your track will build on your public page');
-    }, [updateSettings, toast]);
+    // ── Departure prompts (share-live? / link-a-plan?) MOVED OUT ─────
+    // These two "at departure" nudges now live in a global, always-mounted
+    // <DeparturePrompts/> (App.tsx), driven by ShipLogService's tracking
+    // listener. They used to be here, but the app mounts one view at a time
+    // and a voyage is cast off from the helm — so LogPage wasn't mounted and
+    // neither prompt ever fired (Shane 2026-07-05). See DeparturePrompts.tsx.
 
     // Engine on/off — user-declared while tracking, stamped onto track
     // points for the sail/motor split. Mirrors ShipLogService's sticky
@@ -1495,84 +1411,9 @@ export const LogPage: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
                 onDismiss={() => setGpsOverlayDismissedFor(state.currentVoyageId ?? null)}
             />
 
-            {/* "Share this voyage live?" — surfaced at departure so the
-                deep-menu toggle isn't the only way to opt in. */}
-            {sharePrompt && sharePrompt === state.currentVoyageId && (
-                <div
-                    className="fixed left-4 right-4 z-[9991] animate-slide-up"
-                    style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
-                >
-                    <div className="bg-slate-800 border border-emerald-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
-                        <div className="text-sm font-bold text-white">Share this voyage live?</div>
-                        <div className="text-xs text-gray-400 mt-1">
-                            Your track will build on your public page as you sail, so friends and family can follow
-                            along. You can turn it off any time.
-                        </div>
-                        <div className="flex gap-2 mt-3">
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('medium');
-                                    void enableLiveShare();
-                                }}
-                                className="flex-1 py-2 bg-emerald-500/20 text-emerald-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-                            >
-                                Share live
-                            </button>
-                            <button
-                                onClick={() => {
-                                    triggerHaptic('light');
-                                    setSharePrompt(null);
-                                }}
-                                className="flex-1 py-2 bg-white/5 text-gray-400 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-                            >
-                                Keep private
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Passage-plan link prompt — one tap ties this voyage to a saved
-                plan so the public page shows destination + live progress.
-                Held back while the share prompt is up — one question at a time. */}
-            {!sharePrompt &&
-                planPrompt &&
-                planPrompt.voyageId === state.currentVoyageId &&
-                planPromptDismissedFor !== planPrompt.voyageId && (
-                    <div
-                        className="fixed left-4 right-4 z-[9990] animate-slide-up"
-                        style={{ bottom: 'calc(9rem + env(safe-area-inset-bottom))' }}
-                    >
-                        <div className="bg-slate-800 border border-sky-500/30 rounded-2xl px-4 py-3 shadow-2xl shadow-black/50">
-                            <div className="text-sm font-bold text-white">Sailing {planPrompt.plan.label}?</div>
-                            <div className="text-xs text-gray-400 mt-1">
-                                Link this voyage and your public page will show the destination and live passage
-                                progress.
-                            </div>
-                            <div className="flex gap-2 mt-3">
-                                <button
-                                    onClick={() => {
-                                        triggerHaptic('medium');
-                                        void linkPromptedPlan();
-                                    }}
-                                    className="flex-1 py-2 bg-sky-500/20 text-sky-300 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-                                >
-                                    Link passage
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        triggerHaptic('light');
-                                        setPlanPromptDismissedFor(planPrompt.voyageId);
-                                        setPlanPrompt(null);
-                                    }}
-                                    className="flex-1 py-2 bg-white/5 text-gray-400 rounded-xl text-xs font-black uppercase tracking-widest active:scale-95 transition-all"
-                                >
-                                    Not this trip
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
+            {/* Departure prompts (share-live? / link-a-plan?) now render
+                globally from <DeparturePrompts/> in App.tsx — see the note
+                where their effects used to live. */}
 
             {/* Toast Notifications */}
             <toast.ToastContainer />
