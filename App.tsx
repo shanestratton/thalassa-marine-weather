@@ -62,6 +62,14 @@ const OnboardingOverlay = lazyRetry(
     () => import('./components/ui/OnboardingOverlay').then((m) => ({ default: m.OnboardingOverlay })),
     'OnboardingOverlay',
 );
+// Departure prompts (share-live? / link-a-plan?) — mounted globally so
+// they fire the moment a voyage is cast off from ANY screen (the prompts
+// used to live in LogPage, which isn't mounted when you cast off from the
+// helm — Shane 2026-07-05). Driven by ShipLogService's tracking listener.
+const DeparturePrompts = lazyRetry(
+    () => import('./components/vessel/DeparturePrompts').then((m) => ({ default: m.DeparturePrompts })),
+    'DeparturePrompts',
+);
 // SignInScreen is no longer lazy-imported here — it's rendered by
 // the save-point sheets and the Settings → Account entry in their
 // own modules where each can lazy-load it on demand.
@@ -433,6 +441,11 @@ const App: React.FC = () => {
 
                 {/* GLOBAL TOAST PORTAL */}
                 <ToastPortal />
+
+                {/* Departure prompts — fire on cast-off from any view. */}
+                <Suspense fallback={null}>
+                    <DeparturePrompts />
+                </Suspense>
 
                 {/* Bosun voice console is now the 'voice' registered view —
                     selected via setPage('voice') from the mic button. No
