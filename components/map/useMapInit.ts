@@ -462,14 +462,18 @@ export function useMapInit(opts: UseMapInitOptions) {
             // swap destroys every custom source/layer this file builds.
             // Toggled by visibility (ChartModes "Satellite" row).
             if (!map.getSource('satellite-base')) {
+                // Mapbox satellite imagery — the SAME tiles the public voyage
+                // page (satellite-streets-v12) renders, so a route planned in
+                // the app looks identical to the public map (owner ask
+                // 2026-07-05: "exact same satellite layout as our public page").
                 map.addSource('satellite-base', {
                     type: 'raster',
                     tiles: [
-                        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                        `https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token=${mapboxToken}`,
                     ],
-                    tileSize: 256,
-                    maxzoom: 19,
-                    attribution: 'Esri, Maxar, Earthstar Geographics',
+                    tileSize: 512,
+                    maxzoom: 22,
+                    attribution: '© Mapbox © Maxar',
                 });
                 map.addLayer({
                     id: 'satellite-base-layer',
@@ -479,7 +483,10 @@ export function useMapInit(opts: UseMapInitOptions) {
                         // usePersistedState JSON-serialises — the stored value is 'true'.
                         visibility: localStorage.getItem('thalassa_satellite_base') === 'true' ? 'visible' : 'none',
                     },
-                    paint: { 'raster-opacity': 1 },
+                    // Match the public page's brightness pop (voyage-log-sat-bright
+                    // filter) with raster paint props — saturation + a touch of
+                    // contrast so the imagery doesn't read flat under the chart.
+                    paint: { 'raster-opacity': 1, 'raster-saturation': 0.15, 'raster-contrast': 0.05 },
                 });
             }
 
