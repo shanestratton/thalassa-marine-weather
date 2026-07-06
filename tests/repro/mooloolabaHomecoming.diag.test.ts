@@ -34,7 +34,7 @@ const PI_UP = piReachable();
 const CACHE_DIR = '/tmp/baySweepCells';
 
 // ── Endpoints + via ──────────────────────────────────────────────────
-const MOOLOOLABA_WHARF: [number, number] = [153.1239, -26.6832]; // in the Mooloolah River
+const MOOLOOLABA_WHARF: [number, number] = [153.1203, -26.6839]; // Shane's actual marina berth start (inside the marina, among the pens)
 const NEWPORT_CHANNEL: [number, number] = [153.0952, -27.2088]; // home channel mouth
 // Pearl Channel spine probed from the real cells: lon ≈153.22 carries 5-10 m
 // continuously from -27.02 to -27.14 (transects in __bribieProbe). Enter from
@@ -350,6 +350,30 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
                 NTMBAR: { type: 'FeatureCollection' as const, features: trackFeatures },
             };
             const withNtm = routeInshore(ntmLayers, req);
+            // KNOWN ISSUE baseline (task #23 wharf-start): from Shane's actual
+            // berth the marina reach is drawn by tier-2 FAIRLEAD, which rides
+            // the lateral marks and ignores the grid — so the BERTH carve
+            // doesn't move it and the line passes ~20 m from the pens. This
+            // logs the clearance so a real fix (fine-res marina routing / a
+            // berth-aware fairlead) has a regression baseline.
+            if (!('error' in withNtm)) {
+                const berthPts: Position[] = [];
+                for (const f of ntmLayers.BERTH?.features ?? []) {
+                    const g = f.geometry;
+                    if (g?.type === 'LineString') berthPts.push(...(g.coordinates as Position[]));
+                    else if (g?.type === 'Polygon') berthPts.push(...(g.coordinates[0] as Position[]));
+                }
+                const near = berthPts.filter(
+                    (p) => p[1] > -26.69 && p[1] < -26.678 && p[0] > 153.115 && p[0] < 153.135,
+                );
+                let minToRoute = Infinity;
+                for (const rv of (withNtm.polyline as Position[]).filter((p) => p[1] > -26.69 && p[1] < -26.678)) {
+                    for (const bp of near) minToRoute = Math.min(minToRoute, distM(rv, bp));
+                }
+                console.log(
+                    `[wharf-start] marina reach clears the nearest berth by ${Math.round(minToRoute)} m (target: >30 m)`,
+                );
+            }
             if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
             else {
                 describeRoute('A+NTM · SAFEST with NtM 364(T) surveyed zones applied', withNtm);
