@@ -20,6 +20,7 @@ import {
 } from '../leadingLine';
 import { segmentRoute, type TierSpan } from '../routing/segmentRoute';
 import { routeTier3, type Tier3Context } from '../tier3/tier3Router';
+import { spanNearBerths } from '../tier3/fineCanalGrid';
 import { routeTier4, type Tier4Context } from '../tier4/tier4Router';
 import { followCanalLines, parseCanalLines, snapRouteToCanalLines } from '../tier3/canalLineFollower';
 import { clampRouteToCardinalSafeSide, parseCardinalDiscs } from '../tier3/cardinalClamp';
@@ -1291,7 +1292,11 @@ export function applyThreeTier(
     const results: LegResult[] = routedSpans.map((span) =>
         span.tier === 2
             ? routeTier4(span, route, ctx4)
-            : span.tier === 1
+            : // tier 1 (canal/marina) always gets the fine logic; a tier-3 (bay) span
+              // that runs through a marina's pontoons (wharf start) also does, so its
+              // exit rides the fairway between the pens instead of the coarse A* slice
+              // over them. Ordinary open-bay tier-3 spans stay passthrough.
+              span.tier === 1 || (span.tier === 3 && spanNearBerths(grid, route, span))
               ? routeTier3(span, route, ctx3)
               : passthroughLeg(span, route, grid, rectrcLines),
     );

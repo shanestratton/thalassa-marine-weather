@@ -445,6 +445,39 @@ export function spanIsInjectedCanal(coarseGrid: NavGrid, fullPolyline: readonly 
     return false;
 }
 
+/**
+ * Does the span run through a marina's finger pontoons? True when any span
+ * vertex sits within a couple of coarse cells of a berth-carved cell
+ * (grid.berthBlocked, set by navGrid Pass 2c). A RADIUS test, not on-cell: the
+ * coarse A* threads ~1 cell BESIDE a pontoon (right over the pens), so an
+ * on-cell test would miss it. Like spanIsInjectedCanal this forces the fine
+ * centreline pass even where the coarse narrowness probe says the basin is
+ * wide — the fine grid carves the pontoons, so routeMarina's medial axis rides
+ * the fairway between the rows (wharf-start 2026-07-07). False when the grid
+ * omits the mask (no berths / cached grids) — exact back-compat.
+ */
+export function spanNearBerths(coarseGrid: NavGrid, fullPolyline: readonly LatLon[], span: TierSpan): boolean {
+    const bb = coarseGrid.berthBlocked;
+    if (!bb) return false;
+    const w = coarseGrid.width;
+    const h = coarseGrid.height;
+    const R = 2; // coarse cells
+    for (let i = span.fromIdx; i <= span.toIdx && i < fullPolyline.length; i++) {
+        const [lon, lat] = fullPolyline[i];
+        const x = Math.floor((lon - coarseGrid.minLon) / coarseGrid.dLon);
+        const y = Math.floor((lat - coarseGrid.minLat) / coarseGrid.dLat);
+        for (let dy = -R; dy <= R; dy++) {
+            for (let dx = -R; dx <= R; dx++) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+                if (bb[ny * w + nx] === 1) return true;
+            }
+        }
+    }
+    return false;
+}
+
 /** Along-span length in metres (the span's polyline slice). */
 function spanMetres(fullPolyline: readonly LatLon[], span: TierSpan): number {
     let m = 0;
@@ -460,6 +493,16 @@ function spanMetres(fullPolyline: readonly LatLon[], span: TierSpan): number {
  *  (10–15 m); 12 m keeps a tight crop bounded (~28k cells at 2 km²) and
  *  resolves a ~1-cell-at-50 m canal into ~8 cells wide. */
 export const FINE_CANAL_RES_M = 12;
+
+/** Even finer resolution for a BERTH-dense marina reach (the wharf start). The
+ *  fairway between finger pontoons is ~15–30 m, so at 12 m the carved pontoons
+ *  seal it (routeMarina returns disconnected). 6 m resolves a 15 m fairway into
+ *  ~2.5 cells — enough for the medial axis to thread it. Only used on a short
+ *  marina span, so the fine grid stays bounded. */
+export const BERTH_FINE_RES_M = 6;
+/** Max span length (m) for the 6 m berth grid — beyond this the crop's cell
+ *  count balloons; a longer berth run drops back to the 12 m grid. */
+export const MAX_BERTH_FINE_SPAN_M = 2500;
 
 /** Max metres the corridor bridge may carry a leg across charted land before the
  *  fine pass DECLINES (keeps the coarse A* slice). A thin LNDARE bleed / wall is
@@ -667,16 +710,23 @@ export function tryFineCanalLeg(
     // length cap so a long injected span can't build a giant fine grid. A wide,
     // non-injected span (open bay / wide channel) still keeps the coarse A* slice.
     const injectedSpan = spanIsInjectedCanal(coarseGrid, fullPolyline, span);
+    // A berth-dense span (a marina reach, e.g. the wharf start) also forces the
+    // fine pass: the coarse basin reads 'notnarrow', but the fine grid carves
+    // the pontoons so the centreline rides the fairway instead of the pens.
+    const berthSpan = spanNearBerths(coarseGrid, fullPolyline, span);
     let resM = FINE_CANAL_RES_M; // 12 m for narrow / short spans
     if (!isCanalNarrow(coarseGrid, fullPolyline, span)) {
-        // Wide span: only INJECTED channel water (a bounded corridor) qualifies — a
-        // wide NON-injected span (open bay) keeps the coarse A* slice. A long injected
-        // span (the river run) drops to the coarse grid so the build stays bounded; the
-        // canalHalfWidthCells clamp keeps it from detouring into any wide-open stretch.
-        if (!injectedSpan) return { leg: null, diag: 'notnarrow' };
+        // Wide span: only INJECTED channel water or a BERTH-dense marina reach (a
+        // bounded corridor) qualifies — a wide, mark-free open bay keeps the coarse
+        // A* slice. A long injected span (the river run) drops to the coarse grid so
+        // the build stays bounded; the canalHalfWidthCells clamp keeps it from
+        // detouring into any wide-open stretch.
+        if (!injectedSpan && !berthSpan) return { leg: null, diag: 'notnarrow' };
         const spanM = spanMetres(fullPolyline, span);
         if (spanM > MAX_INJECTED_FINE_SPAN_WIDE_M) return { leg: null, diag: 'wide+long' };
-        if (spanM > MAX_INJECTED_FINE_SPAN_M) resM = WIDE_CANAL_RES_M; // 24 m for the long river run
+        if (berthSpan && spanM <= MAX_BERTH_FINE_SPAN_M)
+            resM = BERTH_FINE_RES_M; // 6 m — resolve the fairway between the pens
+        else if (spanM > MAX_INJECTED_FINE_SPAN_M) resM = WIDE_CANAL_RES_M; // 24 m for the long river run
     }
     const bbox = spanCropBbox(fullPolyline, span, FINE_CANAL_APRON_DEG);
     const fineGrid = buildFineGrid(bbox, resM);

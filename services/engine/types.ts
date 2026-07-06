@@ -394,6 +394,16 @@ export interface NavGrid {
      */
     landBlocked?: Uint8Array;
     /**
+     * Per-cell MARINA-BERTH flag (1 = the cell was blocked by the Pass 2c
+     * berth carve — an OSM man_made=pier/pontoon footprint). Distinct from
+     * landBlocked so the fine-canal gate can tell "this span runs through a
+     * marina's finger pontoons" apart from ordinary land: a berth-dense span
+     * is FORCED onto the fine grid + marina-centreline solver so it rides the
+     * fairway between the pens instead of the coarse A* slice that cuts over
+     * them (wharf-start, 2026-07-07). Only allocated when berths are present.
+     */
+    berthBlocked?: Uint8Array;
+    /**
      * Per-cell NO-WATER-EVIDENCE flag (1 = at the end of the grid build the
      * cell was still UNKNOWN_OPEN with no DEPARE verdict, no FAIRWY/DRGARE
      * preference, no OSM water and no protection — nothing in any source
