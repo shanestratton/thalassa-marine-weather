@@ -21,6 +21,7 @@ import { shadowingCells, featureIsShadowed } from '../../services/enc/scaleShado
 import { computeTidalWindows } from '../../services/routing/tidalWindow';
 import { fetchTideCurve } from '../../services/TideHeightService';
 import { tideFieldFromCurve } from '../../services/routing/env/EnvFields';
+import { curatedFairwayCanalFeatures } from '../../services/curatedFairways';
 
 function piReachable(): boolean {
     try {
@@ -195,6 +196,8 @@ async function assemble(from: [number, number], to: [number, number]): Promise<I
         );
         (merged.COASTLINE!.features as unknown[]).push(...((overlay.coastline?.features ?? []) as unknown[]));
         (merged.CANAL!.features as unknown[]).push(...((overlay.canalLines?.features ?? []) as unknown[]));
+        // Curated marina fairways (device parity with InshoreRouter).
+        (merged.CANAL!.features as unknown[]).push(...curatedFairwayCanalFeatures(bbox));
         (merged.NAVLINE!.features as unknown[]).push(...((overlay.navLines?.features ?? []) as unknown[]));
         // Marina finger pontoons → BERTH (device parity with InshoreRouter).
         (merged.BERTH!.features as unknown[]).push(
@@ -350,12 +353,13 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
                 NTMBAR: { type: 'FeatureCollection' as const, features: trackFeatures },
             };
             const withNtm = routeInshore(ntmLayers, req);
-            // KNOWN ISSUE baseline (task #23 wharf-start): from Shane's actual
-            // berth the marina reach is drawn by tier-2 FAIRLEAD, which rides
-            // the lateral marks and ignores the grid — so the BERTH carve
-            // doesn't move it and the line passes ~20 m from the pens. This
-            // logs the clearance so a real fix (fine-res marina routing / a
-            // berth-aware fairlead) has a regression baseline.
+            // WHARF-START GUARD (task #23, fixed 2026-07-07): from Shane's real
+            // berth the route must ride the curated Mooloolaba fairway (north of
+            // the pontoons) out to the channel, NOT cut over the pens. The
+            // marina reach used to clear the nearest berth by only ~20 m (line
+            // over the pens); the curated fairway lifts it clear. The 31 m floor
+            // is the berth start itself (the boat begins AT its pontoon); the
+            // fairway proper is 250 m+ clear.
             if (!('error' in withNtm)) {
                 const berthPts: Position[] = [];
                 for (const f of ntmLayers.BERTH?.features ?? []) {
@@ -370,9 +374,8 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
                 for (const rv of (withNtm.polyline as Position[]).filter((p) => p[1] > -26.69 && p[1] < -26.678)) {
                     for (const bp of near) minToRoute = Math.min(minToRoute, distM(rv, bp));
                 }
-                console.log(
-                    `[wharf-start] marina reach clears the nearest berth by ${Math.round(minToRoute)} m (target: >30 m)`,
-                );
+                console.log(`[wharf-start] marina reach clears the nearest berth by ${Math.round(minToRoute)} m`);
+                expect(minToRoute).toBeGreaterThan(28); // was ~20 m over the pens; curated fairway lifts it clear
             }
             if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
             else {
