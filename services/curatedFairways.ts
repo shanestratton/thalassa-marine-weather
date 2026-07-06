@@ -27,14 +27,17 @@ interface CuratedFairway {
 // pontoon ends) then EAST to the entrance, joining the Mooloolah bar approach.
 const MOOLOOLABA: CuratedFairway = {
     id: 'mooloolaba-marina',
-    bbox: [153.116, -26.686, 153.135, -26.679],
+    bbox: [153.116, -26.69, 153.135, -26.679],
+    // SE/E DOWN THE RIVER (not north over the spit — the 2026-07-07 v1 bug).
+    // Berth → SE into the river → E along the channel (in the OSM water polygon,
+    // clear of the pontoons) → NE to the bar REF seaward handoff (-26.682).
     line: [
         [153.1203, -26.6839],
-        [153.1206, -26.6827],
-        [153.1235, -26.6819],
-        [153.127, -26.6812],
-        [153.13, -26.6804],
-        [153.1322, -26.6798],
+        [153.1228, -26.6851],
+        [153.1258, -26.6856],
+        [153.1285, -26.685],
+        [153.13, -26.6835],
+        [153.131, -26.6815],
     ],
 };
 

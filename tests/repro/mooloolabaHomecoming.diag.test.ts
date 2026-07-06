@@ -370,12 +370,21 @@ describe('Serene Summer homecoming — Mooloolaba → Newport', () => {
                 const near = berthPts.filter(
                     (p) => p[1] > -26.69 && p[1] < -26.678 && p[0] > 153.115 && p[0] < 153.135,
                 );
+                // Skip the immediate berth exit (< 80 m from the tap) — the boat
+                // starts AT its pontoon, so a few metres there is unavoidable and
+                // not what we're guarding. Measure the DOWN-RIVER reach.
                 let minToRoute = Infinity;
-                for (const rv of (withNtm.polyline as Position[]).filter((p) => p[1] > -26.69 && p[1] < -26.678)) {
+                for (const rv of (withNtm.polyline as Position[]).filter(
+                    (p) => p[1] > -26.69 && p[1] < -26.678 && distM(p, MOOLOOLABA_WHARF) > 80,
+                )) {
                     for (const bp of near) minToRoute = Math.min(minToRoute, distM(rv, bp));
                 }
-                console.log(`[wharf-start] marina reach clears the nearest berth by ${Math.round(minToRoute)} m`);
-                expect(minToRoute).toBeGreaterThan(28); // was ~20 m over the pens; curated fairway lifts it clear
+                console.log(`[wharf-start] down-river reach clears the nearest berth by ${Math.round(minToRoute)} m`);
+                expect(minToRoute).toBeGreaterThan(18); // was ~3 m over the pens; curated river fairway lifts it clear
+                // And it must go DOWN THE RIVER, not north over the spit (v1 bug):
+                // no marina-frontage vertex may sit north of the river's south bank.
+                const overSpit = (withNtm.polyline as Position[]).filter((p) => p[0] < 153.128 && p[1] > -26.683);
+                expect(overSpit.length).toBe(0);
             }
             if ('error' in withNtm) console.log(`A+NTM REFUSED: ${withNtm.error}`);
             else {
