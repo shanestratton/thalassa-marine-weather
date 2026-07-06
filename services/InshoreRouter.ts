@@ -49,6 +49,7 @@ import { shadowingCells, featureIsShadowed } from './enc/scaleShadow';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
+import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { fetchMapboxWater } from './mapboxWater';
 import { fetchSatelliteWater } from './satelliteWater';
 import { pairWingFeatures } from './pairWings';
@@ -1274,6 +1275,19 @@ async function tryInshoreRouteInner(
         }
     } catch (err) {
         log.warn(`ENC cardinal fold failed (continuing without): ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // ── Curated marina fairways ──────────────────────────────────────────
+    // Hand-drawn navigable lanes (services/curatedFairways.ts) for marinas
+    // whose exit fairway isn't charted — injected as waterway=fairway CANAL
+    // lines so the wharf-start rides the lane between the pens instead of the
+    // coarse A* slice over them. Bbox-gated: a no-op away from a curated marina.
+    const curatedFairways = curatedFairwayCanalFeatures(routeBbox);
+    if (curatedFairways.length > 0) {
+        const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
+        (canal.features as unknown[]).push(...curatedFairways);
+        merged.CANAL = canal;
+        if (ROUTE_DEBUG) log.warn(`STAGE: injected ${curatedFairways.length} curated marina fairway line(s)`);
     }
 
     // ── NtM routing packs — surveyed-depth zones (ack- AND currency-gated) ──

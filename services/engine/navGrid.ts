@@ -525,6 +525,11 @@ export function buildNavGrid(
     const canalFeatures = layers.CANAL?.features ?? [];
     const tPassCanal = Date.now();
     const canalDepth = Math.max(draftM + safetyM, 5.0);
+    // Cells a canal LINE carved (distinct from osmWaterCells, which also covers
+    // water POLYGONS). The berth carve (Pass 2c) keeps a corridor around these
+    // open so a curated marina fairway / canal exit is never re-blocked by a
+    // pontoon that sits a cell away (wharf-start 2026-07-07).
+    const canalLineCarved = new Uint8Array(width * height);
     for (const f of canalFeatures) {
         const g = f.geometry;
         if (!g) continue;
@@ -550,6 +555,7 @@ export function buildNavGrid(
                     }
                     protectedCells[idx] = 1;
                     osmWaterCells[idx] = 1; // OSM canal carve — keep clean under LNDARE
+                    canalLineCarved[idx] = 1; // protect this corridor from the berth carve
                     // NB: deliberately NOT flagged injectedCanal. The OSM carve is a
                     // thin 1-cell centreline that already routes fine and is baked
                     // into the Newport + seaway corpus baselines; only the
@@ -729,8 +735,23 @@ export function buildNavGrid(
     // pass on a berth-dense span). Allocated only when berths exist.
     const berthBlocked = berthFeatures.length > 0 ? new Uint8Array(width * height) : undefined;
     if (berthFeatures.length > 0 && berthBlocked) {
+        // Keep a corridor (the cell + its 8 neighbours) around any canal LINE
+        // open — a curated marina fairway / canal exit must never be re-blocked
+        // by a pontoon that rasterises a cell away.
+        const nearCanalLine = (x: number, y: number): boolean => {
+            for (let dy = -1; dy <= 1; dy++) {
+                for (let dx = -1; dx <= 1; dx++) {
+                    const nx = x + dx;
+                    const ny = y + dy;
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+                    if (canalLineCarved[ny * width + nx] === 1) return true;
+                }
+            }
+            return false;
+        };
         const blockBerthCell = (x: number, y: number): void => {
             if (x < 0 || y < 0 || x >= width || y >= height) return;
+            if (nearCanalLine(x, y)) return; // never wall off a fairway/canal corridor
             const idx = y * width + x;
             cells[idx] = BLOCKED;
             hardBlocked[idx] = 1;
