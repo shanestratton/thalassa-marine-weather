@@ -724,13 +724,18 @@ export function buildNavGrid(
     const berthFeatures = layers.BERTH?.features ?? [];
     const tPassBerth = Date.now();
     let berthCellsBlocked = 0;
-    if (berthFeatures.length > 0) {
+    // Marked distinctly from landBlocked so the fine-canal gate can tell a
+    // marina's finger-pontoon run apart from ordinary land (forces the fine
+    // pass on a berth-dense span). Allocated only when berths exist.
+    const berthBlocked = berthFeatures.length > 0 ? new Uint8Array(width * height) : undefined;
+    if (berthFeatures.length > 0 && berthBlocked) {
         const blockBerthCell = (x: number, y: number): void => {
             if (x < 0 || y < 0 || x >= width || y >= height) return;
             const idx = y * width + x;
             cells[idx] = BLOCKED;
             hardBlocked[idx] = 1;
             landBlocked[idx] = 1;
+            berthBlocked[idx] = 1;
             berthCellsBlocked++;
         };
         for (const f of berthFeatures) {
@@ -754,6 +759,7 @@ export function buildNavGrid(
         }
     }
     markPass('pass2c-berth', tPassBerth, berthCellsBlocked);
+    if (berthBlocked) grid.berthBlocked = berthBlocked;
 
     // ── Pass 3: point obstructions — block radius around each ──────
     // obstnBlocked marks every cell a hazard (OBSTRN/WRECKS/UWTROC) claimed,
