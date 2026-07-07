@@ -679,6 +679,27 @@ export const MapHub: React.FC<MapHubProps> = ({
             flashTraceFeedback('Clipboard not available');
         }
     }, [flashTraceFeedback]);
+    // Share sheet (Phase 4 lite): the same coord payload Copy produces, out
+    // through the native share sheet — "follow my line in" over Messages.
+    const shareTrace = useCallback(async () => {
+        if (capturedCoords.length < 2) return;
+        const label = traceName.trim() || 'My route';
+        const text =
+            `${label} — traced with Thalassa (${capturedCoords.length} pins).\n` +
+            `Open Thalassa → 🧭 Trace route → 📥 Paste coords:\n` +
+            capturedCoords.map((c) => `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`).join('\n');
+        triggerHaptic('medium');
+        try {
+            if (navigator.share) {
+                await navigator.share({ title: label, text });
+            } else {
+                await navigator.clipboard.writeText(text);
+                flashTraceFeedback('Copied — paste it to your mate');
+            }
+        } catch {
+            /* punter cancelled the sheet — no drama */
+        }
+    }, [capturedCoords, traceName, flashTraceFeedback]);
     // Current map zoom level — surfaced in a small FAB top-left so
     // the skipper has at-a-glance idea of detail vs overview. Mirror
     // position of the mic FAB in App.tsx (top: 56px, right: 16px).
@@ -3135,6 +3156,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     >
                                         📥 Paste coords from a mate
                                     </button>
+                                    {capturedCoords.length >= 2 && (
+                                        <button
+                                            onClick={() => void shareTrace()}
+                                            className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
+                                        >
+                                            📤 Share this route with a mate
+                                        </button>
+                                    )}
                                     {savedTraces.length > 0 && (
                                         <button
                                             onClick={() => setShowSavedTraces((s) => !s)}
