@@ -30,6 +30,7 @@ import { buildNavGrid } from './engine/navGrid';
 import { CAUTION, UNKNOWN_OPEN, M_PER_DEG_LAT } from './engine/constants';
 import type { NavGrid } from './engine/types';
 import { assembleTracerLayers } from './InshoreRouter';
+import { curatedFairwayCanalFeatures } from './curatedFairways';
 import { parseLateralMarks, distM, type LatLon, type LateralMark } from './fairlead';
 import { parseCardinalDiscs, type CardinalDisc } from './tier3/cardinalClamp';
 import { parseLeadingLines, projectToLine, type LeadingLine } from './leadingLine';
@@ -795,13 +796,22 @@ export function traceAsCuratedFairwaySnippet(name: string, points: readonly Trac
 }
 
 /** Minimal VoyagePlan so a trace can be followed like any planned passage. */
-export function traceAsVoyagePlan(name: string, points: readonly TracePoint[]): VoyagePlan {
+export function traceAsVoyagePlan(
+    name: string,
+    points: readonly TracePoint[],
+    /** Per-leg grades (length = points-1) — carried on routeGeoJSON.properties
+     *  so follow mode renders the validated colours, not a plain blue line. */
+    legGrades?: readonly TraceGrade[],
+): VoyagePlan {
     let nm = 0;
     for (let i = 1; i < points.length; i++) nm += distM(points[i - 1], points[i]) / 1852;
     const hours = Math.max(0.25, nm / 5.5); // conservative 5.5 kn passage speed
     const geo: Feature<LineString> = {
         type: 'Feature',
-        properties: { _source: 'route-tracer' },
+        properties: {
+            _source: 'route-tracer',
+            ...(legGrades && legGrades.length === points.length - 1 ? { legGrades: [...legGrades] } : {}),
+        },
         geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
     };
     // Unnamed traces get a time-stamped label — the logbook duplicate check
@@ -828,4 +838,282 @@ export function traceAsVoyagePlan(name: string, points: readonly TracePoint[]): 
             .map((p, i) => ({ name: `Pin ${i + 2}`, coordinates: { lat: p.lat, lon: p.lon } })),
         routeGeoJSON: geo,
     };
+}
+
+// ── Guided Builder core (masterplan Phase 2) ───────────────────────────────
+
+/**
+ * Ramer–Douglas–Peucker on trace points (perpendicular tolerance in metres).
+ * The "⚡ Auto to destination" chip runs the four-tier router and drops its
+ * polyline back as PINS — a 60-vertex engine line would be marker soup, so
+ * it decimates to the bends first. Also the track→trace path (Phase 4).
+ */
+export function rdpTracePoints(points: readonly TracePoint[], epsilonM: number): TracePoint[] {
+    if (points.length <= 2) return [...points];
+    const keep = new Uint8Array(points.length);
+    keep[0] = 1;
+    keep[points.length - 1] = 1;
+    const stack: Array<[number, number]> = [[0, points.length - 1]];
+    while (stack.length > 0) {
+        const [s, e] = stack.pop()!;
+        let maxD = 0;
+        let maxI = -1;
+        for (let i = s + 1; i < e; i++) {
+            const d = closestOnLeg(points[i], points[s], points[e]).distM;
+            if (d > maxD) {
+                maxD = d;
+                maxI = i;
+            }
+        }
+        if (maxD > epsilonM && maxI > 0) {
+            keep[maxI] = 1;
+            stack.push([s, maxI], [maxI, e]);
+        }
+    }
+    return points.filter((_, i) => keep[i] === 1);
+}
+
+/** True bearing a→b in degrees [0, 360). */
+export function bearingDegBetween(a: TracePoint, b: TracePoint): number {
+    const brg = (Math.atan2((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_DEG_LAT) * 180) / Math.PI;
+    return (brg + 360) % 360;
+}
+
+/** Octant arrow for a course chip — "↘ head 168°". */
+export function courseArrow(deg: number): string {
+    const arrows = ['↑', '↗', '→', '↘', '↓', '↙', '←', '↖'] as const;
+    return arrows[Math.round((((deg % 360) + 360) % 360) / 45) % 8];
+}
+
+/** A proven (curated) lane near the punter, offered as a tap-to-accept ghost. */
+export interface GhostLane {
+    id: string;
+    points: TracePoint[];
+}
+
+/** Curated fairway lanes whose bbox overlaps the given area — rendered as a
+ *  dotted ghost while tracing; accepting one splices its points as pins. */
+export function curatedLanesNear(bbox: [number, number, number, number]): GhostLane[] {
+    return curatedFairwayCanalFeatures(bbox)
+        .filter((f) => f.geometry.type === 'LineString')
+        .map((f) => ({
+            id: String((f.properties as Record<string, unknown> | null)?._id ?? 'lane'),
+            points: (f.geometry as LineString).coordinates.map(([lon, lat]) => ({ lat, lon })),
+        }));
+}
+
+// ── Fix-this-leg (masterplan Phase 3.2) ────────────────────────────────────
+
+/** A*-cell traversal cost. Mirrors the engine's pricing philosophy: clear
+ *  water 1×, thin water 4×, sub-keel caution 40× (passable — the skipper may
+ *  accept a tide gate — but strongly avoided), uncharted 6×. */
+function cellCost(grid: NavGrid, idx: number, keelM: number): number | null {
+    const v = grid.cells[idx];
+    if (Number.isNaN(v)) return null; // blocked
+    if (v === CAUTION) return 40;
+    if (v === UNKNOWN_OPEN) return 6;
+    if (v >= keelM + THIN_MARGIN_M) return 1;
+    if (v >= keelM) return 4;
+    return 40;
+}
+
+/**
+ * One-tap "Fix this leg": A* between the leg's two pins on the ALREADY-BUILT
+ * tracer grid, searched inside a corridor around the leg (bounded work — the
+ * grid can be 2M cells but a fix is local). Returns the detour as sparse
+ * pins (RDP 20 m) INCLUDING both endpoints, or null when no clean path
+ * exists — the modal then offers Acknowledge instead. Never fabricates.
+ */
+export function fixLegOnGrid(ctx: TracerContext, a: TracePoint, b: TracePoint): TracePoint[] | null {
+    const grid = ctx.grid;
+    if (!grid) return null;
+    const keelM = ctx.draftM + DEFAULT_TIDE_SAFETY_M;
+    const legM = distM(a, b);
+    // Corridor: the leg's bbox padded by max(400 m, half the leg) each side.
+    const padM = Math.max(400, legM * 0.5);
+    const padLat = padM / M_PER_DEG_LAT;
+    const padLon = padM / mPerLon(a.lat);
+    const minX = Math.max(0, Math.floor((Math.min(a.lon, b.lon) - padLon - grid.minLon) / grid.dLon));
+    const maxX = Math.min(grid.width - 1, Math.floor((Math.max(a.lon, b.lon) + padLon - grid.minLon) / grid.dLon));
+    const minY = Math.max(0, Math.floor((Math.min(a.lat, b.lat) - padLat - grid.minLat) / grid.dLat));
+    const maxY = Math.min(grid.height - 1, Math.floor((Math.max(a.lat, b.lat) + padLat - grid.minLat) / grid.dLat));
+    const W = maxX - minX + 1;
+    const H = maxY - minY + 1;
+    if (W <= 0 || H <= 0 || W * H > 600_000) return null; // corridor too big — don't freeze the UI
+
+    const toLocal = (p: TracePoint): { x: number; y: number } | null => {
+        const x = Math.floor((p.lon - grid.minLon) / grid.dLon) - minX;
+        const y = Math.floor((p.lat - grid.minLat) / grid.dLat) - minY;
+        return x >= 0 && y >= 0 && x < W && y < H ? { x, y } : null;
+    };
+    // Snap a blocked endpoint to its nearest navigable neighbour (a pin ON
+    // the flagged shallow is common — the fix must still be findable).
+    const snapLocal = (p: TracePoint): { x: number; y: number } | null => {
+        const l = toLocal(p);
+        if (!l) return null;
+        if (cellCost(grid, (l.y + minY) * grid.width + (l.x + minX), keelM) !== null) return l;
+        for (let r = 1; r <= 4; r++) {
+            for (let dy = -r; dy <= r; dy++) {
+                for (let dx = -r; dx <= r; dx++) {
+                    const x = l.x + dx;
+                    const y = l.y + dy;
+                    if (x < 0 || y < 0 || x >= W || y >= H) continue;
+                    if (cellCost(grid, (y + minY) * grid.width + (x + minX), keelM) !== null) return { x, y };
+                }
+            }
+        }
+        return null;
+    };
+    const start = snapLocal(a);
+    const goal = snapLocal(b);
+    if (!start || !goal) return null;
+
+    const gScore = new Float64Array(W * H).fill(Infinity);
+    const cameFrom = new Int32Array(W * H).fill(-1);
+    const startIdx = start.y * W + start.x;
+    const goalIdx = goal.y * W + goal.x;
+    gScore[startIdx] = 0;
+    // Binary heap of [f, idx].
+    const heap: Array<[number, number]> = [[0, startIdx]];
+    const pop = (): [number, number] | undefined => {
+        if (heap.length === 0) return undefined;
+        const top = heap[0];
+        const last = heap.pop()!;
+        if (heap.length > 0) {
+            heap[0] = last;
+            let i = 0;
+            for (;;) {
+                const l = 2 * i + 1;
+                const r = l + 1;
+                let m = i;
+                if (l < heap.length && heap[l][0] < heap[m][0]) m = l;
+                if (r < heap.length && heap[r][0] < heap[m][0]) m = r;
+                if (m === i) break;
+                [heap[i], heap[m]] = [heap[m], heap[i]];
+                i = m;
+            }
+        }
+        return top;
+    };
+    const push = (f: number, idx: number): void => {
+        heap.push([f, idx]);
+        let i = heap.length - 1;
+        while (i > 0) {
+            const p = (i - 1) >> 1;
+            if (heap[p][0] <= heap[i][0]) break;
+            [heap[i], heap[p]] = [heap[p], heap[i]];
+            i = p;
+        }
+    };
+    const h = (idx: number): number => {
+        const x = idx % W;
+        const y = (idx / W) | 0;
+        return Math.hypot(x - goal.x, y - goal.y);
+    };
+    const DIRS = [
+        [1, 0, 1],
+        [-1, 0, 1],
+        [0, 1, 1],
+        [0, -1, 1],
+        [1, 1, Math.SQRT2],
+        [1, -1, Math.SQRT2],
+        [-1, 1, Math.SQRT2],
+        [-1, -1, Math.SQRT2],
+    ] as const;
+    let found = false;
+    let expansions = 0;
+    while (heap.length > 0 && expansions < 400_000) {
+        const cur = pop()!;
+        const idx = cur[1];
+        if (idx === goalIdx) {
+            found = true;
+            break;
+        }
+        if (cur[0] > gScore[idx] + h(idx) + 1e-9) continue; // stale heap entry
+        expansions++;
+        const x = idx % W;
+        const y = (idx / W) | 0;
+        for (const [dx, dy, mul] of DIRS) {
+            const nx = x + dx;
+            const ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+            const nIdx = ny * W + nx;
+            const cost = cellCost(grid, (ny + minY) * grid.width + (nx + minX), keelM);
+            if (cost === null) continue;
+            const g = gScore[idx] + cost * mul;
+            if (g < gScore[nIdx]) {
+                gScore[nIdx] = g;
+                cameFrom[nIdx] = idx;
+                push(g + h(nIdx), nIdx);
+            }
+        }
+    }
+    if (!found) return null;
+
+    // Reconstruct → lat/lon → decimate to editable pins.
+    const cells: TracePoint[] = [];
+    for (let idx = goalIdx; idx !== -1; idx = cameFrom[idx]) {
+        const x = (idx % W) + minX;
+        const y = ((idx / W) | 0) + minY;
+        cells.push({ lat: grid.minLat + (y + 0.5) * grid.dLat, lon: grid.minLon + (x + 0.5) * grid.dLon });
+        if (idx === startIdx) break;
+    }
+    cells.reverse();
+    const path = [a, ...cells.slice(1, -1), b];
+    return rdpTracePoints(path, Math.max(15, ctx.resM * 1.5));
+}
+
+// ── THE departure window (masterplan Phase 3.4) ────────────────────────────
+
+function intersectWindows(
+    xs: Array<{ o: number; c: number }>,
+    ys: Array<{ o: number; c: number }>,
+): Array<{ o: number; c: number }> {
+    const out: Array<{ o: number; c: number }> = [];
+    for (const x of xs) {
+        for (const y of ys) {
+            const o = Math.max(x.o, y.o);
+            const c = Math.min(x.c, y.c);
+            if (c > o) out.push({ o, c });
+        }
+    }
+    return out.sort((p, q) => p.o - q.o);
+}
+
+/**
+ * The report-modal headline: intersect every tide-gated leg's windows into
+ * ONE departure call — "leave 09:10–13:30 today and every tide gate clears".
+ * Returns null when no leg needs tide (nothing to say) or tide data is
+ * unavailable (never guess). NOTE v1 checks the gates against the same clock
+ * (no transit-time offset) — honest for day-hop traces where gates sit within
+ * a few hours of departure; the label says "gates checked for today's tide".
+ */
+export async function commonDepartureWindowLabel(
+    verdicts: readonly TraceLegVerdict[],
+    draftM: number,
+): Promise<string | null> {
+    const gated = verdicts.filter((v) => v.needsTide && v.minDepthM !== null && v.minAt);
+    if (gated.length === 0) return null;
+    const fromMs = Date.now();
+    const untilMs = fromMs + 24 * 3600_000;
+    let common: Array<{ o: number; c: number }> | null = null;
+    for (const v of gated) {
+        const curve = await fetchTideCurve(v.minAt!.lat, v.minAt!.lon, fromMs, untilMs);
+        if (!curve) return null; // offline — the per-leg red rows still stand
+        const res = computeTidalWindows({
+            minDepthM: v.minDepthM!,
+            draftM,
+            tide: tideFieldFromCurve(curve),
+            fromMs,
+            untilMs,
+        });
+        if (res.alwaysOpen) continue;
+        const wins = res.windows.map((w) => ({ o: w.openMs, c: w.closeMs }));
+        if (wins.length === 0) return 'no tide window clears every gate in 24 h — wait or re-route';
+        common = common === null ? wins : intersectWindows(common, wins);
+        if (common.length === 0) return 'no COMMON window clears every gate in 24 h — split the passage';
+    }
+    if (!common || common.length === 0) return null;
+    const w = common[0];
+    return `leave ${fmtHm(w.o)}–${fmtHm(w.c)} ${dayWord(w.o)} and every tide gate clears (checked at today's tide)`;
 }

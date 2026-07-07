@@ -96,14 +96,38 @@ export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map
                 if (map) removeFollowRouteLayers(map);
             };
 
-        // Build GeoJSON for the active route
-        const activeGeoJSON: GeoJSON.Feature = {
-            type: 'Feature',
-            properties: {},
-            geometry: {
-                type: 'LineString',
-                coordinates: routeCoords.map((c) => [c.lon, c.lat]),
-            },
+        // Build GeoJSON for the active route. TRACED routes carry per-leg
+        // grades on routeGeoJSON.properties — render THOSE colours so the
+        // validation survives into follow mode instead of evaporating into
+        // a plain blue line (masterplan Phase 3.5). Everything else stays
+        // the classic single sky-blue dashed line.
+        const legGrades = (voyagePlan?.routeGeoJSON?.properties as Record<string, unknown> | null | undefined)
+            ?.legGrades as string[] | undefined;
+        const graded = Array.isArray(legGrades) && legGrades.length === routeCoords.length - 1;
+        const activeGeoJSON: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: graded
+                ? routeCoords.slice(1).map((c, i) => ({
+                      type: 'Feature' as const,
+                      properties: { grade: legGrades![i] },
+                      geometry: {
+                          type: 'LineString' as const,
+                          coordinates: [
+                              [routeCoords[i].lon, routeCoords[i].lat],
+                              [c.lon, c.lat],
+                          ],
+                      },
+                  }))
+                : [
+                      {
+                          type: 'Feature' as const,
+                          properties: {},
+                          geometry: {
+                              type: 'LineString' as const,
+                              coordinates: routeCoords.map((c) => [c.lon, c.lat]),
+                          },
+                      },
+                  ],
         };
 
         map.addSource(SOURCE_ACTIVE, { type: 'geojson', data: activeGeoJSON });
@@ -113,7 +137,17 @@ export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map
             source: SOURCE_ACTIVE,
             layout: { 'line-cap': 'round', 'line-join': 'round' },
             paint: {
-                'line-color': '#38bdf8',
+                'line-color': [
+                    'match',
+                    ['get', 'grade'],
+                    'clear',
+                    '#00e676',
+                    'caution',
+                    '#ffb300',
+                    'danger',
+                    '#ff1744',
+                    '#38bdf8',
+                ],
                 'line-width': 3.5,
                 'line-opacity': 0.85,
                 'line-dasharray': [2, 1.5],
