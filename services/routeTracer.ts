@@ -75,17 +75,37 @@ export interface GatePair {
 }
 
 export interface TracerContext {
-    grid: NavGrid;
+    /** Depth grid — null on marks-only contexts (trace too long for the cell
+     *  budget): depth/land checks are SKIPPED and every leg carries an honest
+     *  "depth unchecked" caution instead of a guess. */
+    grid: NavGrid | null;
     /** Real ENC lateral marks (CATLAM 1–4) NOT part of an accepted gate pair. */
     soloLaterals: LateralMark[];
     cardinals: CardinalDisc[];
     gatePairs: GatePair[];
     leads: LeadingLine[];
+    /** CANAL centrelines (curated fairways + OSM canal/fairway lines). A
+     *  land-reading sample within the LANE half-width of one is lane water,
+     *  not land: the carve means "navigable lane", and it is one cell wide —
+     *  50 m on the engine's grid but only ~10 m on the tracer's fine grid, so
+     *  without this a route riding the lane dead-centre-adjacent reads as
+     *  crossing the chart's LNDARE bleed (router-consistency golden). */
+    canalLanes: LeadingLine[];
     draftM: number;
+    /** True when the vessel profile has no usable draft and verdicts were
+     *  graded against the 2.5 m fallback — clear legs downgrade to caution. */
+    draftAssumed: boolean;
     /** Grid coverage bbox [W,S,E,N] — pins outside need a context rebuild. */
     bbox: [number, number, number, number];
     resM: number;
 }
+
+/** buildTracerContext outcome — statuses drive the panel strip. */
+export type TracerBuildResult =
+    | { status: 'ready'; ctx: TracerContext }
+    | { status: 'marksonly'; ctx: TracerContext }
+    | { status: 'toolarge' }
+    | { status: 'nochart' };
 
 // ── Tunables ───────────────────────────────────────────────────────────────
 
@@ -106,6 +126,19 @@ const LEAD_OFF_CAUTION_M = 40;
 export const TRACER_BBOX_PAD_DEG = 0.02;
 /** Grid cell budget — resolution adapts so width×height stays under this. */
 const MAX_GRID_CELLS = 2_000_000;
+/** Above this bbox span the depth grid is skipped (marks-only verdicts) —
+ *  an unbounded grid over a long trace was an ~800 MB jetsam kill. */
+const MAX_DEPTH_GRID_SPAN_M = 40_000;
+/** Above this we refuse the context outright — even feature loading (every
+ *  intersecting ENC cell + the OSM overlay) is unbounded at that scale. */
+const MAX_TRACE_SPAN_M = 80_000;
+/** Half-width of a carved canal/fairway LANE. Matches the engine's effective
+ *  corridor: one 50 m coarse cell around the centreline PLUS post-pass
+ *  polyline simplification slop (the consistency golden measured the live
+ *  engine 51 m off Shane's traced centreline at the Mooloolah entrance).
+ *  Kept tight enough that a genuinely-over-the-spit line (the v1/v2 curated-
+ *  fairway bugs ran 100+ m off) still reads as crossing land. */
+const CANAL_LANE_HALF_WIDTH_M = 60;
 
 // ── Context assembly ───────────────────────────────────────────────────────
 
@@ -136,30 +169,52 @@ export function pointInBbox(p: TracePoint, bbox: [number, number, number, number
     );
 }
 
+/** Bbox spans in metres (lon-span, lat-span) at the bbox mid-latitude. */
+function bboxSpansM(bbox: [number, number, number, number]): { spanLonM: number; spanLatM: number } {
+    const midLat = (bbox[1] + bbox[3]) / 2;
+    return {
+        spanLonM: (bbox[2] - bbox[0]) * 111_320 * Math.cos((midLat * Math.PI) / 180),
+        spanLatM: (bbox[3] - bbox[1]) * M_PER_DEG_LAT,
+    };
+}
+
 /**
- * Build the validation context for a trace session: assemble the router's
- * layer blob for the bbox, build the depth grid (fine resolution on small
- * traces so the berth carve is live), and parse marks/gates/leads.
- * Returns null when no installed ENC cells cover the area.
+ * Padded bbox for the pins with a SPAN-PROPORTIONAL pad (min 0.02°, up to
+ * 25% of the larger span) — a fixed 2.2 km pad made coast-following traces
+ * rebuild the whole context roughly every second pin (quadratic total cost).
  */
-export async function buildTracerContext(
+export function traceBboxPadded(points: readonly TracePoint[]): [number, number, number, number] {
+    const tight = traceBbox(points, 0);
+    const pad = Math.max(TRACER_BBOX_PAD_DEG, 0.25 * Math.max(tight[2] - tight[0], tight[3] - tight[1]));
+    return [tight[0] - pad, tight[1] - pad, tight[2] + pad, tight[3] + pad];
+}
+
+/** Grid resolution for a bbox: as fine as the cell budget allows, floor 6 m.
+ *  NO coarseness ceiling — the old Math.min(60,…) INVERTED the budget (a
+ *  300 NM bbox pinned at 60 m allocated ~42M cells ≈ 800 MB → jetsam kill).
+ *  Span caps above bound how coarse this can get instead. Exported for tests. */
+export function tracerResolutionM(bbox: [number, number, number, number]): number {
+    const { spanLonM, spanLatM } = bboxSpansM(bbox);
+    return Math.max(6, Math.ceil(Math.sqrt((spanLonM * spanLatM) / MAX_GRID_CELLS)));
+}
+
+/**
+ * Pure context assembly from an already-merged layer blob — the testable
+ * core of buildTracerContext, also used by the router-consistency golden
+ * (grade the LIVE engine's route through the tracer on the SAME layers).
+ */
+export function tracerContextFromLayers(
+    merged: import('./inshoreRouterEngine').InshoreLayers,
+    gatePairs: GatePair[],
     bbox: [number, number, number, number],
     draftM: number,
-): Promise<TracerContext | null> {
-    const t0 = Date.now();
-    const bundle = await assembleTracerLayers(bbox);
-    if (!bundle) return null;
-    const { merged, gatePairs } = bundle;
-
-    // Adaptive resolution: as fine as the cell budget allows. A marina-scale
-    // trace (~3 km) lands well under 20 m → navGrid's Pass 2c berth carve is
-    // ACTIVE and legs over pontoon rows read blocked, exactly like the fine
-    // routing grid. Bay-scale traces coarsen gracefully.
-    const midLat = (bbox[1] + bbox[3]) / 2;
-    const spanLonM = (bbox[2] - bbox[0]) * 111_320 * Math.cos((midLat * Math.PI) / 180);
-    const spanLatM = (bbox[3] - bbox[1]) * M_PER_DEG_LAT;
-    const resM = Math.min(60, Math.max(6, Math.ceil(Math.sqrt((spanLonM * spanLatM) / MAX_GRID_CELLS))));
-    const grid = buildNavGrid(merged, bbox, resM, draftM, DEFAULT_TIDE_SAFETY_M, 60);
+    opts: { draftAssumed?: boolean; skipGrid?: boolean } = {},
+): TracerContext {
+    const resM = tracerResolutionM(bbox);
+    // Marina-scale traces (~3 km) land well under 20 m → navGrid's Pass 2c
+    // berth carve is ACTIVE and legs over pontoon rows read blocked, exactly
+    // like the fine routing grid. Bay-scale traces coarsen gracefully.
+    const grid = opts.skipGrid ? null : buildNavGrid(merged, bbox, resM, draftM, DEFAULT_TIDE_SAFETY_M, 60);
 
     // Marks: real ENC laterals; those inside an accepted pair are gate-checked,
     // the rest get the solo "verify the side" advisory.
@@ -174,11 +229,51 @@ export async function buildTracerContext(
         ...((merged.RECTRC?.features ?? []) as never[]),
         ...((merged.NAVLINE?.features ?? []) as never[]),
     ]);
+    const canalLanes = parseLeadingLines((merged.CANAL?.features ?? []) as never[]);
 
+    return {
+        grid,
+        soloLaterals,
+        cardinals,
+        gatePairs,
+        leads,
+        canalLanes,
+        draftM,
+        draftAssumed: opts.draftAssumed ?? false,
+        bbox,
+        resM,
+    };
+}
+
+/**
+ * Build the validation context for a trace session: assemble the router's
+ * layer blob for the bbox, build the depth grid, parse marks/gates/leads.
+ * Span-capped for honesty AND survival: beyond ~40 km the depth grid is
+ * skipped (marks-only, every leg carries "depth unchecked"); beyond ~80 km
+ * we refuse outright — split the trace.
+ */
+export async function buildTracerContext(
+    bbox: [number, number, number, number],
+    draftM: number,
+    opts: { draftAssumed?: boolean } = {},
+): Promise<TracerBuildResult> {
+    const { spanLonM, spanLatM } = bboxSpansM(bbox);
+    const spanM = Math.max(spanLonM, spanLatM);
+    if (spanM > MAX_TRACE_SPAN_M) return { status: 'toolarge' };
+
+    const t0 = Date.now();
+    const bundle = await assembleTracerLayers(bbox);
+    if (!bundle) return { status: 'nochart' };
+
+    const skipGrid = spanM > MAX_DEPTH_GRID_SPAN_M;
+    const ctx = tracerContextFromLayers(bundle.merged, bundle.gatePairs, bbox, draftM, {
+        draftAssumed: opts.draftAssumed,
+        skipGrid,
+    });
     log.warn(
-        `context ready in ${Date.now() - t0}ms — res=${resM}m grid=${grid.width}×${grid.height} gates=${gatePairs.length} solo=${soloLaterals.length} cardinals=${cardinals.length} leads=${leads.length}`,
+        `context ready in ${Date.now() - t0}ms — res=${ctx.resM}m grid=${ctx.grid ? `${ctx.grid.width}×${ctx.grid.height}` : 'SKIPPED (marks-only)'} gates=${ctx.gatePairs.length} solo=${ctx.soloLaterals.length} cardinals=${ctx.cardinals.length} leads=${ctx.leads.length}`,
     );
-    return { grid, soloLaterals, cardinals, gatePairs, leads, draftM, bbox, resM };
+    return { status: skipGrid ? 'marksonly' : 'ready', ctx };
 }
 
 // ── Geometry helpers (local equirectangular, channel scale) ────────────────
@@ -260,6 +355,25 @@ function readCell(grid: NavGrid, p: TracePoint): CellRead {
     return { kind: 'depth', depthM: v };
 }
 
+/** Any non-blocked cell within `cells` of the point? Distinguishes a sample
+ *  ON the land/water boundary (chart bleed, tap imprecision, coarse-vs-fine
+ *  grid disagreement — "hugs the bank", caution) from one deep inside charted
+ *  land (a real crossing — danger). */
+function waterNearby(grid: NavGrid, p: TracePoint, cells: number): boolean {
+    const x0 = Math.floor((p.lon - grid.minLon) / grid.dLon);
+    const y0 = Math.floor((p.lat - grid.minLat) / grid.dLat);
+    for (let dy = -cells; dy <= cells; dy++) {
+        for (let dx = -cells; dx <= cells; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            const x = x0 + dx;
+            const y = y0 + dy;
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+            if (!Number.isNaN(grid.cells[y * grid.width + x])) return true;
+        }
+    }
+    return false;
+}
+
 // ── The leg validator (pure, sync) ─────────────────────────────────────────
 
 export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContext): TraceLegVerdict {
@@ -268,32 +382,52 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
     const { grid, draftM } = ctx;
     const keelM = draftM + DEFAULT_TIDE_SAFETY_M;
 
-    // 1 — sample charted depth along the leg.
+    // 1 — sample charted depth along the leg (skipped on marks-only contexts:
+    // the trace outgrew the depth-grid budget, so say "unchecked", never guess).
     const stepM = Math.max(5, ctx.resM * 0.6);
     const steps = Math.max(1, Math.ceil(legM / stepM));
     let minDepthM: number | null = null;
     let minAt: TracePoint | null = null;
     let blockedAt: TracePoint | null = null;
     let blockedSub: 'land' | 'berth' | 'hazard' | null = null;
+    let bankShaveAt: TracePoint | null = null;
     let uncharted = 0;
     let conflict = 0;
-    for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const p = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
-        const r = readCell(grid, p);
-        if (r.kind === 'blocked' && !blockedAt) {
-            blockedAt = p;
-            blockedSub = r.sub;
-        } else if (r.kind === 'depth') {
-            if (minDepthM === null || r.depthM < minDepthM) {
-                minDepthM = r.depthM;
-                minAt = p;
+    const inCanalLane = (p: TracePoint): boolean =>
+        ctx.canalLanes.some((l) => l.pts.length >= 2 && projectToLine(p, l.pts).dist <= CANAL_LANE_HALF_WIDTH_M);
+    // Boundary tolerance ≈ 25 m (at least 2 cells) — the live engine's 50 m
+    // grid legitimately puts a route within one coarse cell of the charted
+    // bank; deep-inside-land stays a hard crossing.
+    const edgeCells = Math.max(2, Math.ceil(25 / ctx.resM));
+    if (grid) {
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const p = { lat: a.lat + (b.lat - a.lat) * t, lon: a.lon + (b.lon - a.lon) * t };
+            const r = readCell(grid, p);
+            if (r.kind === 'blocked' && r.sub === 'land' && inCanalLane(p)) {
+                // Chart-LNDARE bleed inside a carved canal/fairway lane — the
+                // lane is navigable (that's what the carve asserts), but it
+                // carries no depth claim, so count it as uncharted.
+                uncharted++;
+            } else if (r.kind === 'blocked' && r.sub === 'land' && waterNearby(grid, p, edgeCells)) {
+                // On the land/water boundary — bank hug, not a crossing.
+                if (!bankShaveAt) bankShaveAt = p;
+            } else if (r.kind === 'blocked' && !blockedAt) {
+                blockedAt = p;
+                blockedSub = r.sub;
+            } else if (r.kind === 'depth') {
+                if (minDepthM === null || r.depthM < minDepthM) {
+                    minDepthM = r.depthM;
+                    minAt = p;
+                }
+            } else if (r.kind === 'uncharted' || r.kind === 'offgrid') {
+                uncharted++;
+            } else if (r.kind === 'caution-uncharted') {
+                conflict++;
             }
-        } else if (r.kind === 'uncharted' || r.kind === 'offgrid') {
-            uncharted++;
-        } else if (r.kind === 'caution-uncharted') {
-            conflict++;
         }
+    } else {
+        issues.push({ severity: 'caution', message: 'depth unchecked — trace too long, split it' });
     }
 
     let needsTide = false;
@@ -305,6 +439,8 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
                   ? 'crosses moored berth rows'
                   : 'crosses a charted hazard';
         issues.push({ severity: 'danger', message: msg, at: blockedAt });
+    } else if (bankShaveAt) {
+        issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });
     }
     if (minDepthM !== null && minAt) {
         if (minDepthM < keelM) {
@@ -368,9 +504,12 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
             const halfM = distM(g.port, g.stbd) / 2;
             // Crossing point distance from gate midpoint along the gate line —
             // beyond ~2 gate half-widths is an unrelated channel arm, skip.
+            // (Was Math.max(halfM*2, GATE_BAND_M), which defeated the cutoff
+            // for every real pair narrower than 300 m half-width — false reds
+            // 250 m outside a 60 m club channel in honest deep water.)
             const cross = closestOnLeg(mid, a, b).point;
             const offM = distM(mid, cross);
-            if (offM <= Math.max(halfM * 2, GATE_BAND_M)) {
+            if (offM <= Math.max(halfM * 2, 60)) {
                 const outsidePort = distM(cross, g.port) < distM(cross, g.stbd);
                 issues.push({
                     severity: 'danger',
@@ -431,7 +570,7 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
 
     // 6 — deeper-water nudge for thin/sub-keel legs (advisory only).
     let nudge: string | null = null;
-    if (minAt && minDepthM !== null && minDepthM < keelM + THIN_MARGIN_M) {
+    if (grid && minAt && minDepthM !== null && minDepthM < keelM + THIN_MARGIN_M) {
         // Perpendicular unit vector (east, north): leg dir is (sin brg, cos brg),
         // rotated 90° clockwise = starboard side of travel.
         const perpE = Math.cos(legBrgRad);
@@ -450,6 +589,12 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
                 }
             }
         }
+    }
+
+    // Draft honesty: a "clear" graded against the 2.5 m FALLBACK draft is not
+    // a clear — downgrade with an explicit reason until a real draft exists.
+    if (ctx.draftAssumed && issues.length === 0) {
+        issues.push({ severity: 'caution', message: 'checked against a default 2.5 m draft — set your vessel' });
     }
 
     const grade: TraceGrade = issues.some((i) => i.severity === 'danger')
@@ -547,7 +692,9 @@ export function loadSavedTraces(): SavedTrace[] {
     }
 }
 
-export function saveTrace(name: string, points: readonly TracePoint[]): SavedTrace {
+/** persisted=false means storage refused (quota) — tell the skipper, don't
+ *  flash "Saved ✓" over a trace that won't exist next session. */
+export function saveTrace(name: string, points: readonly TracePoint[]): { trace: SavedTrace; persisted: boolean } {
     const trace: SavedTrace = {
         id: `trace-${Date.now().toString(36)}`,
         name: name.trim() || `Trace ${new Date().toLocaleDateString('en-AU')}`,
@@ -555,12 +702,14 @@ export function saveTrace(name: string, points: readonly TracePoint[]): SavedTra
         points: points.map((p) => ({ lat: p.lat, lon: p.lon })),
     };
     const all = [trace, ...loadSavedTraces()].slice(0, 50);
+    let persisted = false;
     try {
         localStorage.setItem(TRACES_KEY, JSON.stringify(all));
+        persisted = loadSavedTraces().some((t) => t.id === trace.id);
     } catch {
-        /* quota — trace still returned for this session */
+        /* quota — persisted stays false */
     }
-    return trace;
+    return { trace, persisted };
 }
 
 export function deleteTrace(id: string): void {
@@ -603,7 +752,11 @@ export function traceAsVoyagePlan(name: string, points: readonly TracePoint[]): 
         properties: { _source: 'route-tracer' },
         geometry: { type: 'LineString', coordinates: points.map((p) => [p.lon, p.lat]) },
     };
-    const label = name.trim() || 'Traced route';
+    // Unnamed traces get a time-stamped label — the logbook duplicate check
+    // keys on label + calendar day, so two unnamed traces on the same day
+    // used to collide (the second silently lost its logbook entry).
+    const stamp = new Date().toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const label = name.trim() || `Traced route ${stamp} (${points.length} pins)`;
     return {
         origin: `${label} — start`,
         destination: `${label} — end`,
@@ -611,9 +764,16 @@ export function traceAsVoyagePlan(name: string, points: readonly TracePoint[]): 
         originCoordinates: { lat: points[0].lat, lon: points[0].lon },
         destinationCoordinates: { lat: points[points.length - 1].lat, lon: points[points.length - 1].lon },
         distanceApprox: `${nm.toFixed(1)} NM`,
-        durationApprox: hours >= 1 ? `${Math.round(hours)} hours` : `${Math.round(hours * 60)} minutes`,
+        // Fractional hours — every existing parser handles "0.5 hours";
+        // "NN minutes" parsed to NULL and defaulted to a 12-hour spread.
+        durationApprox: `${hours.toFixed(1)} hours`,
         overview: `Hand-traced route (${points.length} pins), graded leg-by-leg by the Route Tracer.`,
-        waypoints: points.map((p, i) => ({ name: `Pin ${i + 1}`, coordinates: { lat: p.lat, lon: p.lon } })),
+        // Interior pins only — origin/destinationCoordinates already carry the
+        // endpoints; duplicating them made 32 log rows for 30 pins with two
+        // zero-length legs.
+        waypoints: points
+            .slice(1, -1)
+            .map((p, i) => ({ name: `Pin ${i + 2}`, coordinates: { lat: p.lat, lon: p.lon } })),
         routeGeoJSON: geo,
     };
 }

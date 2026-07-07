@@ -101,6 +101,11 @@ function parseDurationToHours(s: string | undefined | null): number | null {
     // "X hours" / "X h"
     const h = trimmed.match(/^(\d+(?:\.\d+)?)\s*h(?:ours?)?\s*$/);
     if (h) return parseFloat(h[1]);
+    // "X minutes" / "X min" / "X m" — short traces emit these; unparsed they
+    // fell through to the 12-hour default and a 30-min trace saved log
+    // entries spread across half a day (Route Tracer audit, 2026-07-08).
+    const m = trimmed.match(/^(\d+(?:\.\d+)?)\s*m(?:in(?:ute)?s?)?\s*$/);
+    if (m) return parseFloat(m[1]) / 60;
     // Bare number — assume hours (back-compat)
     const bare = trimmed.match(/^(\d+(?:\.\d+)?)\s*$/);
     if (bare) return parseFloat(bare[1]);

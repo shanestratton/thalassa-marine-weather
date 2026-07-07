@@ -87,7 +87,7 @@ import {
     buildTracerContext,
     validateTrace,
     traceHealth,
-    traceBbox,
+    traceBboxPadded,
     pointInBbox,
     tideWindowLabelFor,
     loadSavedTraces,
@@ -217,7 +217,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // guard drops stale builds when pins outrun a slow fetch.
     const [legVerdicts, setLegVerdicts] = useState<TraceLegVerdict[]>([]);
     const [tideLabels, setTideLabels] = useState<Record<number, string>>({});
-    const [tracerStatus, setTracerStatus] = useState<'idle' | 'loading' | 'ready' | 'nochart'>('idle');
+    const [tracerStatus, setTracerStatus] = useState<
+        'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart'
+    >('idle');
     const tracerCtxRef = useRef<TracerContext | null>(null);
     const tracerSeqRef = useRef(0);
     const tideReqRef = useRef<Set<string>>(new Set());
@@ -225,6 +227,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [traceName, setTraceName] = useState('');
     const [showSavedTraces, setShowSavedTraces] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
+    /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
+     *  "Sail anyway?" and only the second tap sails. Never a hard block. */
+    const [sailArmed, setSailArmed] = useState(false);
+    const sailBusyRef = useRef(false);
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
         if (coordCaptureMode) setSavedTraces(loadSavedTraces());
@@ -271,6 +277,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                         },
                     });
                 }
+            }
+            // Direction chevrons — "head south when you exit the bar, not
+            // north" (Shane 2026-07-08). Auto-rotated along each leg; white
+            // with a dark halo so they read over every grade colour.
+            if (!map.getLayer('trace-line-arrows')) {
+                map.addLayer({
+                    id: 'trace-line-arrows',
+                    type: 'symbol',
+                    source: 'trace-line',
+                    layout: {
+                        'symbol-placement': 'line',
+                        'symbol-spacing': 90,
+                        'text-field': '›',
+                        'text-size': 18,
+                        'text-keep-upright': false,
+                        'text-allow-overlap': true,
+                        'text-rotation-alignment': 'map',
+                    },
+                    paint: {
+                        'text-color': '#ffffff',
+                        'text-halo-color': '#0f172a',
+                        'text-halo-width': 1.5,
+                    },
+                });
             }
             const feats: Array<{
                 type: 'Feature';
@@ -347,10 +377,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
         triggerHaptic('medium');
-        saveTrace(traceName, capturedCoords);
+        const { persisted } = saveTrace(traceName, capturedCoords);
         setSavedTraces(loadSavedTraces());
-        setTraceName('');
-        flashTraceFeedback('Saved ✓');
+        if (persisted) {
+            setTraceName('');
+            flashTraceFeedback('Saved ✓');
+        } else {
+            // Quota refused the write — saying "Saved ✓" over a route that
+            // won't exist next session is exactly the lie we don't tell.
+            flashTraceFeedback('Could not save — storage full');
+        }
     }, [capturedCoords, traceName, flashTraceFeedback]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
@@ -363,25 +399,53 @@ export const MapHub: React.FC<MapHubProps> = ({
         triggerHaptic('medium');
     }, [capturedCoords, traceName, flashTraceFeedback]);
     const sailTrace = useCallback(async () => {
-        if (capturedCoords.length < 2) return;
+        if (capturedCoords.length < 2 || sailBusyRef.current) return;
+        sailBusyRef.current = true;
         triggerHaptic('medium');
         const plan = traceAsVoyagePlan(traceName, capturedCoords);
-        let voyageId = '';
-        try {
-            const { savePassagePlanToLogbook } = await import('../../services/shiplog/PassagePlanSave');
-            voyageId = (await savePassagePlanToLogbook(plan)) ?? '';
-        } catch (err) {
-            // Duplicate / offline / signed-out — still follow the line.
-            log.warn(`trace log save skipped: ${err instanceof Error ? err.message : String(err)}`);
-        }
+        // FOLLOW FIRST — it's synchronous/local and it's the thing the skipper
+        // actually needs. The logbook save used to run ahead of it: four
+        // sequential network awaits with no visible feedback, and CapacitorHttp
+        // AbortSignals are no-ops on device, so a marginal anchorage left the
+        // Sail tap dead for minutes (adversarial audit, 2026-07-08).
         try {
             const { useFollowRouteStore } = await import('../../stores/followRouteStore');
-            useFollowRouteStore.getState().startFollowing(plan, voyageId);
+            useFollowRouteStore.getState().startFollowing(plan, '');
             flashTraceFeedback('Following your trace ✓');
         } catch (err) {
             log.warn(`trace follow failed: ${err instanceof Error ? err.message : String(err)}`);
             flashTraceFeedback('Could not start following');
+            sailBusyRef.current = false;
+            return;
         }
+        // Logbook save in the BACKGROUND under a JS deadline; patch the
+        // voyageId into the follow store when it lands.
+        void (async () => {
+            try {
+                const [{ savePassagePlanToLogbook }, { withDeadline }] = await Promise.all([
+                    import('../../services/shiplog/PassagePlanSave'),
+                    import('../../utils/deadline'),
+                ]);
+                const voyageId = await withDeadline(savePassagePlanToLogbook(plan), 25_000, 'trace logbook save');
+                if (voyageId) {
+                    const { useFollowRouteStore } = await import('../../stores/followRouteStore');
+                    const st = useFollowRouteStore.getState();
+                    if (st.isFollowing && st.voyagePlan?.origin === plan.origin) {
+                        useFollowRouteStore.setState({ voyageId });
+                    }
+                }
+            } catch (err) {
+                const { DUPLICATE_PASSAGE_PLAN_ERROR } = await import('../../services/shiplog/PassagePlanSave');
+                if (err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR) {
+                    // Same label already saved today — surface it, don't lie.
+                    flashTraceFeedback('Already in the logbook today — following without a new entry');
+                } else {
+                    log.warn(`trace log save skipped: ${err instanceof Error ? err.message : String(err)}`);
+                }
+            } finally {
+                sailBusyRef.current = false;
+            }
+        })();
     }, [capturedCoords, traceName, flashTraceFeedback]);
     // Current map zoom level — surfaced in a small FAB top-left so
     // the skipper has at-a-glance idea of detail vs overview. Mirror
@@ -402,26 +466,43 @@ export const MapHub: React.FC<MapHubProps> = ({
     const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
     // ── Route Tracer validation (lives below the settings declaration —
     // the dep arrays read settings.vessel at render time) ──
-    // Build/refresh the tracer context, then grade every leg. Rebuilds only
-    // when a pin lands outside the current grid's padded bbox.
+    // Build/refresh the tracer context, then grade every leg. Rebuilds when a
+    // pin lands outside the current grid's padded bbox OR the vessel draft
+    // changed (a ctx keeps grading against the keel it was BUILT with —
+    // adversarial-audit critical #1: edit draft 1.9→2.6 m and a green bar
+    // crossing stayed green).
     useEffect(() => {
-        if (!coordCaptureMode || capturedCoords.length === 0) return;
+        setSailArmed(false); // a changed line always re-earns its "Sail anyway"
+        if (!coordCaptureMode || capturedCoords.length === 0) {
+            if (capturedCoords.length === 0) setLegVerdicts([]);
+            return;
+        }
         setTideLabels({});
         tideReqRef.current.clear();
+        const draftNow = vesselDraftMetres(settings.vessel);
+        const draftAssumed = !(Number(settings.vessel?.draft) > 0);
         const ctx = tracerCtxRef.current;
-        const needsBuild = !ctx || capturedCoords.some((p) => !pointInBbox(p, ctx.bbox));
+        const needsBuild =
+            !ctx ||
+            ctx.draftM !== draftNow ||
+            ctx.draftAssumed !== draftAssumed ||
+            capturedCoords.some((p) => !pointInBbox(p, ctx.bbox));
         if (!needsBuild && ctx) {
             setLegVerdicts(validateTrace(capturedCoords, ctx));
             return;
         }
+        // Rebuild: clear verdicts FIRST so new pins render grey "pending" —
+        // never the previous area's greens (audit major: stale verdicts drawn
+        // on a loaded/cleared trace while the slow rebuild ran).
+        setLegVerdicts([]);
         const seq = ++tracerSeqRef.current;
         setTracerStatus('loading');
-        void buildTracerContext(traceBbox(capturedCoords), vesselDraftMetres(settings.vessel))
+        void buildTracerContext(traceBboxPadded(capturedCoords), draftNow, { draftAssumed })
             .then((built) => {
                 if (seq !== tracerSeqRef.current) return; // stale build — a newer pin superseded it
-                tracerCtxRef.current = built;
-                setTracerStatus(built ? 'ready' : 'nochart');
-                setLegVerdicts(built ? validateTrace(capturedCoords, built) : []);
+                tracerCtxRef.current = built.status === 'ready' || built.status === 'marksonly' ? built.ctx : null;
+                setTracerStatus(built.status);
+                setLegVerdicts(tracerCtxRef.current ? validateTrace(capturedCoords, tracerCtxRef.current) : []);
             })
             .catch((err) => {
                 if (seq !== tracerSeqRef.current) return;
@@ -2337,12 +2418,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     onClick={() => {
                                         triggerHaptic('light');
                                         setCoordCaptureMode(false);
+                                        // Free the grid (10–30 MB) and force a fresh
+                                        // rebuild on reopen — a ctx held across
+                                        // sessions is how stale-draft grading lived.
+                                        tracerCtxRef.current = null;
+                                        setTracerStatus('idle');
+                                        setLegVerdicts([]);
                                     }}
                                     className="text-xs font-bold text-gray-400"
                                 >
                                     Done
                                 </button>
                             </div>
+                            {/* Draft honesty — ALWAYS say what keel the verdicts
+                                checked; amber when it's the 2.5 m fallback. */}
+                            {!(Number(settings.vessel?.draft) > 0) ? (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                    ⚠ Default 2.5 m draft — set your vessel for real depth checks.
+                                </div>
+                            ) : (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] text-gray-400">
+                                    Checking {vesselDraftMetres(settings.vessel).toFixed(1)} m keel +{' '}
+                                    {DEFAULT_TIDE_SAFETY_M} m margin at low tide
+                                </div>
+                            )}
                             {tracerStatus === 'loading' && (
                                 <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-sky-300">
                                     Reading charts for this area…
@@ -2351,6 +2450,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                             {tracerStatus === 'nochart' && (
                                 <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
                                     No ENC charts here — legs can't be depth-checked.
+                                </div>
+                            )}
+                            {tracerStatus === 'toolarge' && (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                    Trace too long to check — split it into shorter routes.
+                                </div>
+                            )}
+                            {tracerStatus === 'marksonly' && (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                    Long trace — marks checked, depth NOT. Split it for depth checks.
                                 </div>
                             )}
                             {traceFeedback && (
@@ -2464,13 +2573,36 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     >
                                         Fairway
                                     </button>
-                                    <button
-                                        onClick={() => void sailTrace()}
-                                        disabled={capturedCoords.length < 2}
-                                        className="flex-1 rounded-lg bg-emerald-500/20 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
-                                    >
-                                        Sail it
-                                    </button>
+                                    {(() => {
+                                        // No-go acknowledgment: with danger legs the
+                                        // first tap arms a red "Sail anyway?" — the
+                                        // skipper owns the line, but the green button
+                                        // must not endorse a route this same screen
+                                        // graded as crossing land. Never hard-blocks.
+                                        const hasDanger = traceHealth(legVerdicts).danger > 0;
+                                        const needsArm = hasDanger && !sailArmed;
+                                        return (
+                                            <button
+                                                onClick={() => {
+                                                    if (needsArm) {
+                                                        triggerHaptic('heavy');
+                                                        setSailArmed(true);
+                                                        return;
+                                                    }
+                                                    setSailArmed(false);
+                                                    void sailTrace();
+                                                }}
+                                                disabled={capturedCoords.length < 2}
+                                                className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
+                                                    hasDanger
+                                                        ? 'bg-red-500/25 text-red-300'
+                                                        : 'bg-emerald-500/20 text-emerald-300'
+                                                }`}
+                                            >
+                                                {needsArm ? 'Sail it' : hasDanger ? 'Sail anyway?' : 'Sail it'}
+                                            </button>
+                                        );
+                                    })()}
                                 </div>
                                 {savedTraces.length > 0 && (
                                     <button

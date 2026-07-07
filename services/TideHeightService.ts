@@ -216,6 +216,19 @@ export async function fetchTideCurve(
         return hit.curve;
     }
 
+    // In-flight dedupe: the Route Tracer can fire several same-bucket lookups
+    // in one render burst (one per sub-keel leg) — share one upstream fetch
+    // instead of racing the rate-limited WorldTides proxy.
+    const pending = inflight.get(key);
+    if (pending) return pending;
+    const p = fetchTideCurveUpstream(lat, lon, key, endMs).finally(() => inflight.delete(key));
+    inflight.set(key, p);
+    return p;
+}
+
+const inflight = new Map<string, Promise<TideCurve | null>>();
+
+async function fetchTideCurveUpstream(lat: number, lon: number, key: string, endMs: number): Promise<TideCurve | null> {
     // The proxy anchors the WorldTides window at yesterday 00:00, so
     // coverage must be measured from *now*, not from startMs — a
     // passage departing in 3 days needs 3 + duration days of window,
