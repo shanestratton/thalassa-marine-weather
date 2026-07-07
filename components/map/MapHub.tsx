@@ -83,6 +83,22 @@ import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
+import {
+    buildTracerContext,
+    validateTrace,
+    traceHealth,
+    traceBbox,
+    pointInBbox,
+    tideWindowLabelFor,
+    loadSavedTraces,
+    saveTrace,
+    deleteTrace,
+    traceAsCuratedFairwaySnippet,
+    traceAsVoyagePlan,
+    type TraceLegVerdict,
+    type TracerContext,
+    type SavedTrace,
+} from '../../services/routeTracer';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
@@ -182,18 +198,113 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [showOfflineArea, setShowOfflineArea] = useState(false);
     const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
     const [weatherInspectMode, setWeatherInspectMode] = useState(false);
-    // ── Coordinate capture — tap the chart to collect full-precision GPS
-    // fixes into a copyable list (Shane 2026-07-07: for handing exact
-    // channel/fairway waypoints back). A ref mirrors the flag so the map
-    // tap closure never reads a stale value.
+    // ── Route Tracer — grew out of coordinate capture (Shane 2026-07-07 →
+    // promoted 2026-07-08 "let people make their own routes"). Tap pins
+    // along your own line; every leg is graded LIVE against the router's
+    // own data (depth vs keel, land/berth crossings, cardinal safe sides,
+    // gate threading, leads) and drawn green/amber/red. Save it, sail it,
+    // or export it as a curated-fairway candidate — the human-in-the-loop
+    // router while the auto-router earns trust, and the flywheel that
+    // turned Shane's 29 Mooloolaba taps into the shipped fairway. A ref
+    // mirrors the flag so the map tap closure never reads a stale value.
     const [coordCaptureMode, setCoordCaptureMode] = useState(false);
     const [capturedCoords, setCapturedCoords] = useState<Array<{ lat: number; lon: number }>>([]);
     const [coordsCopied, setCoordsCopied] = useState(false);
     const coordCaptureRef = useRef(false);
     const captureMarkersRef = useRef<mapboxgl.Marker[]>([]);
+    // Tracer verdicts + context. The context (ENC cells + OSM overlay +
+    // depth grid over the trace bbox) builds async once per area; a seq
+    // guard drops stale builds when pins outrun a slow fetch.
+    const [legVerdicts, setLegVerdicts] = useState<TraceLegVerdict[]>([]);
+    const [tideLabels, setTideLabels] = useState<Record<number, string>>({});
+    const [tracerStatus, setTracerStatus] = useState<'idle' | 'loading' | 'ready' | 'nochart'>('idle');
+    const tracerCtxRef = useRef<TracerContext | null>(null);
+    const tracerSeqRef = useRef(0);
+    const tideReqRef = useRef<Set<string>>(new Set());
+    const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
+    const [traceName, setTraceName] = useState('');
+    const [showSavedTraces, setShowSavedTraces] = useState(false);
+    const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
+        if (coordCaptureMode) setSavedTraces(loadSavedTraces());
     }, [coordCaptureMode]);
+    // Draw the graded legs on a dedicated source ('route-line' belongs to the
+    // passage planner). Idempotent ensure() re-adds after a basemap style
+    // switch drops custom layers; styledata re-syncs.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        const sync = (): void => {
+            if (!map.isStyleLoaded()) return; // styledata retries
+            if (!map.getSource('trace-line')) {
+                map.addSource('trace-line', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+            }
+            for (const [id, width, blur, opacity] of [
+                ['trace-line-glow', 10, 8, 0.5],
+                ['trace-line-core', 3.5, 0, 0.95],
+            ] as const) {
+                if (!map.getLayer(id)) {
+                    map.addLayer({
+                        id,
+                        type: 'line',
+                        source: 'trace-line',
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: {
+                            'line-color': [
+                                'match',
+                                ['get', 'grade'],
+                                'clear',
+                                '#00e676',
+                                'caution',
+                                '#ffb300',
+                                'danger',
+                                '#ff1744',
+                                '#94a3b8', // pending — verdict still computing
+                            ],
+                            'line-width': width,
+                            'line-blur': blur,
+                            'line-opacity': opacity,
+                        },
+                    });
+                }
+            }
+            const feats: Array<{
+                type: 'Feature';
+                properties: { grade: string };
+                geometry: { type: 'LineString'; coordinates: [number, number][] };
+            }> = [];
+            if (coordCaptureMode) {
+                for (let i = 1; i < capturedCoords.length; i++) {
+                    const a = capturedCoords[i - 1];
+                    const b = capturedCoords[i];
+                    feats.push({
+                        type: 'Feature',
+                        properties: { grade: legVerdicts[i - 1]?.grade ?? 'pending' },
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: [
+                                [a.lon, a.lat],
+                                [b.lon, b.lat],
+                            ],
+                        },
+                    });
+                }
+            }
+            (map.getSource('trace-line') as mapboxgl.GeoJSONSource).setData({
+                type: 'FeatureCollection',
+                features: feats as never,
+            });
+        };
+        sync();
+        map.on('styledata', sync);
+        return () => {
+            map.off('styledata', sync);
+        };
+    }, [capturedCoords, legVerdicts, coordCaptureMode]);
     const copyCapturedCoords = useCallback(async () => {
         const text = capturedCoords.map((c) => `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`).join('\n');
         try {
@@ -206,7 +317,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         triggerHaptic('medium');
     }, [capturedCoords]);
     // Drop / refresh a numbered pin per captured coord so the skipper can see
-    // exactly where each tap landed.
+    // exactly where each tap landed. Pins are DRAGGABLE — nudge one and the
+    // adjoining legs re-grade live.
     useEffect(() => {
         const map = mapRef.current;
         if (!map) return;
@@ -218,9 +330,59 @@ export const MapHub: React.FC<MapHubProps> = ({
             el.textContent = String(i + 1);
             el.style.cssText =
                 'background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.5);';
-            captureMarkersRef.current.push(new mapboxgl.Marker({ element: el }).setLngLat([c.lon, c.lat]).addTo(map));
+            const marker = new mapboxgl.Marker({ element: el, draggable: true }).setLngLat([c.lon, c.lat]).addTo(map);
+            marker.on('dragend', () => {
+                const ll = marker.getLngLat();
+                triggerHaptic('light');
+                setCapturedCoords((prev) => prev.map((p, j) => (j === i ? { lat: ll.lat, lon: ll.lng } : p)));
+            });
+            captureMarkersRef.current.push(marker);
         });
     }, [capturedCoords, coordCaptureMode]);
+    // ── Tracer actions: save / export-as-fairway / sail ──
+    const flashTraceFeedback = useCallback((msg: string) => {
+        setTraceFeedback(msg);
+        setTimeout(() => setTraceFeedback(null), 1800);
+    }, []);
+    const saveCurrentTrace = useCallback(() => {
+        if (capturedCoords.length < 2) return;
+        triggerHaptic('medium');
+        saveTrace(traceName, capturedCoords);
+        setSavedTraces(loadSavedTraces());
+        setTraceName('');
+        flashTraceFeedback('Saved ✓');
+    }, [capturedCoords, traceName, flashTraceFeedback]);
+    const copyFairwaySnippet = useCallback(async () => {
+        if (capturedCoords.length < 2) return;
+        try {
+            await navigator.clipboard.writeText(traceAsCuratedFairwaySnippet(traceName, capturedCoords));
+            flashTraceFeedback('Fairway JSON copied ✓');
+        } catch {
+            flashTraceFeedback('Clipboard blocked');
+        }
+        triggerHaptic('medium');
+    }, [capturedCoords, traceName, flashTraceFeedback]);
+    const sailTrace = useCallback(async () => {
+        if (capturedCoords.length < 2) return;
+        triggerHaptic('medium');
+        const plan = traceAsVoyagePlan(traceName, capturedCoords);
+        let voyageId = '';
+        try {
+            const { savePassagePlanToLogbook } = await import('../../services/shiplog/PassagePlanSave');
+            voyageId = (await savePassagePlanToLogbook(plan)) ?? '';
+        } catch (err) {
+            // Duplicate / offline / signed-out — still follow the line.
+            log.warn(`trace log save skipped: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        try {
+            const { useFollowRouteStore } = await import('../../stores/followRouteStore');
+            useFollowRouteStore.getState().startFollowing(plan, voyageId);
+            flashTraceFeedback('Following your trace ✓');
+        } catch (err) {
+            log.warn(`trace follow failed: ${err instanceof Error ? err.message : String(err)}`);
+            flashTraceFeedback('Could not start following');
+        }
+    }, [capturedCoords, traceName, flashTraceFeedback]);
     // Current map zoom level — surfaced in a small FAB top-left so
     // the skipper has at-a-glance idea of detail vs overview. Mirror
     // position of the mic FAB in App.tsx (top: 56px, right: 16px).
@@ -238,6 +400,51 @@ export const MapHub: React.FC<MapHubProps> = ({
     // tide margin. A grounding-risk line drawn against a fake draft is worse
     // than none, so this is the LIVE value, recomputed when the profile edits.
     const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
+    // ── Route Tracer validation (lives below the settings declaration —
+    // the dep arrays read settings.vessel at render time) ──
+    // Build/refresh the tracer context, then grade every leg. Rebuilds only
+    // when a pin lands outside the current grid's padded bbox.
+    useEffect(() => {
+        if (!coordCaptureMode || capturedCoords.length === 0) return;
+        setTideLabels({});
+        tideReqRef.current.clear();
+        const ctx = tracerCtxRef.current;
+        const needsBuild = !ctx || capturedCoords.some((p) => !pointInBbox(p, ctx.bbox));
+        if (!needsBuild && ctx) {
+            setLegVerdicts(validateTrace(capturedCoords, ctx));
+            return;
+        }
+        const seq = ++tracerSeqRef.current;
+        setTracerStatus('loading');
+        void buildTracerContext(traceBbox(capturedCoords), vesselDraftMetres(settings.vessel))
+            .then((built) => {
+                if (seq !== tracerSeqRef.current) return; // stale build — a newer pin superseded it
+                tracerCtxRef.current = built;
+                setTracerStatus(built ? 'ready' : 'nochart');
+                setLegVerdicts(built ? validateTrace(capturedCoords, built) : []);
+            })
+            .catch((err) => {
+                if (seq !== tracerSeqRef.current) return;
+                log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
+                setTracerStatus('nochart');
+                setLegVerdicts([]);
+            });
+    }, [capturedCoords, coordCaptureMode, settings.vessel]);
+    // Tide windows for sub-keel legs — async per shallow spot, patched in as
+    // they land. Keyed by leg index + spot so re-grades invalidate cleanly.
+    useEffect(() => {
+        if (!coordCaptureMode) return;
+        const draftM = vesselDraftMetres(settings.vessel);
+        legVerdicts.forEach((v, i) => {
+            if (!v.needsTide || v.minDepthM === null || !v.minAt) return;
+            const key = `${i}|${v.minAt.lat.toFixed(5)}|${v.minAt.lon.toFixed(5)}`;
+            if (tideReqRef.current.has(key)) return;
+            tideReqRef.current.add(key);
+            void tideWindowLabelFor(v.minDepthM, draftM, v.minAt).then((label) => {
+                if (label && tideReqRef.current.has(key)) setTideLabels((prev) => ({ ...prev, [i]: label }));
+            });
+        });
+    }, [legVerdicts, coordCaptureMode, settings.vessel]);
 
     const [isoProgress, setIsoProgress] = useState<{
         step: number;
@@ -2086,10 +2293,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
-                {/* ═══ COORDINATE CAPTURE ═══
-                    Tap the chart to collect full-precision GPS fixes into a
-                    copyable list (Shane 2026-07-07 — hand exact channel/fairway
-                    waypoints back for a curated fairway). */}
+                {/* ═══ ROUTE TRACER ═══
+                    Tap pins along your own line — every leg grades live
+                    (depth vs keel, land/berths, cardinals, gates, leads) and
+                    draws green/amber/red. Save, sail, or export the trace as
+                    a curated-fairway candidate (Shane 2026-07-08). */}
                 <div
                     className="absolute left-3 z-[9995]"
                     style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
@@ -2103,14 +2311,28 @@ export const MapHub: React.FC<MapHubProps> = ({
                             }}
                             className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/90 px-3 py-2 text-xs font-bold text-amber-300 shadow-lg active:scale-95"
                         >
-                            📍 Grab coords
+                            🧭 Trace route
                         </button>
                     ) : (
-                        <div className="w-52 overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
+                        <div className="w-72 overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
                             <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
                                 <span className="text-xs font-black uppercase tracking-widest text-amber-300">
-                                    ● Tapping ({capturedCoords.length})
+                                    ● Tracer ({capturedCoords.length})
                                 </span>
+                                {(() => {
+                                    const h = traceHealth(legVerdicts);
+                                    const tone =
+                                        h.tone === 'danger'
+                                            ? 'text-red-400'
+                                            : h.tone === 'caution'
+                                              ? 'text-amber-300'
+                                              : 'text-emerald-300';
+                                    return (
+                                        <span className={`text-[10px] font-black uppercase tracking-wide ${tone}`}>
+                                            {capturedCoords.length >= 2 ? h.label : ''}
+                                        </span>
+                                    );
+                                })()}
                                 <button
                                     onClick={() => {
                                         triggerHaptic('light');
@@ -2121,25 +2343,91 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     Done
                                 </button>
                             </div>
-                            {capturedCoords.length === 0 ? (
-                                <div className="px-3 py-3 text-[11px] leading-snug text-gray-400">
-                                    Tap the chart along the channel — each spot is recorded here (lat, lon).
-                                </div>
-                            ) : (
-                                <div className="max-h-40 space-y-0.5 overflow-y-auto px-3 py-2">
-                                    {capturedCoords.map((c, i) => (
-                                        <div key={i} className="font-mono text-[11px] text-gray-200">
-                                            <span className="text-amber-400">{i + 1}.</span> {c.lat.toFixed(5)},{' '}
-                                            {c.lon.toFixed(5)}
-                                        </div>
-                                    ))}
+                            {tracerStatus === 'loading' && (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-sky-300">
+                                    Reading charts for this area…
                                 </div>
                             )}
-                            <div className="flex gap-2 border-t border-white/10 px-3 py-2">
+                            {tracerStatus === 'nochart' && (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                    No ENC charts here — legs can't be depth-checked.
+                                </div>
+                            )}
+                            {traceFeedback && (
+                                <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-black text-emerald-300">
+                                    {traceFeedback}
+                                </div>
+                            )}
+                            {capturedCoords.length === 0 ? (
+                                <div className="px-3 py-3 text-[11px] leading-snug text-gray-400">
+                                    Tap the chart along your intended track — each leg is checked for depth, markers and
+                                    land as you go. Drag a pin to nudge it.
+                                </div>
+                            ) : (
+                                <div className="max-h-48 space-y-1 overflow-y-auto px-3 py-2">
+                                    {capturedCoords.map((c, i) => {
+                                        if (i === 0)
+                                            return (
+                                                <div key="p0" className="font-mono text-[10px] text-gray-500">
+                                                    <span className="text-amber-400">1.</span> {c.lat.toFixed(5)},{' '}
+                                                    {c.lon.toFixed(5)}
+                                                </div>
+                                            );
+                                        const v = legVerdicts[i - 1];
+                                        const dot = !v
+                                            ? 'text-gray-500'
+                                            : v.grade === 'danger'
+                                              ? 'text-red-400'
+                                              : v.grade === 'caution'
+                                                ? 'text-amber-300'
+                                                : 'text-emerald-300';
+                                        const msg = !v
+                                            ? 'checking…'
+                                            : v.grade === 'clear'
+                                              ? v.minDepthM !== null
+                                                  ? `clear — ${v.minDepthM.toFixed(1)} m least`
+                                                  : 'clear'
+                                              : (v.issues[0]?.message ?? v.grade);
+                                        return (
+                                            <div key={i}>
+                                                <div className="flex items-start gap-1.5 text-[11px] leading-tight">
+                                                    <span className={`${dot} font-black`}>●</span>
+                                                    <span className="text-gray-200">
+                                                        <span className="font-mono text-gray-400">
+                                                            {i}→{i + 1}
+                                                        </span>{' '}
+                                                        {msg}
+                                                    </span>
+                                                </div>
+                                                {v && (tideLabels[i - 1] || v.nudge || v.issues.length > 1) && (
+                                                    <div className="pl-4 text-[10px] leading-tight text-gray-400">
+                                                        {v.issues.slice(1).map((iss, k) => (
+                                                            <div key={k}>· {iss.message}</div>
+                                                        ))}
+                                                        {tideLabels[i - 1] && <div>🌊 {tideLabels[i - 1]}</div>}
+                                                        {v.nudge && <div>💡 {v.nudge}</div>}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                            <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setCapturedCoords((prev) => prev.slice(0, -1));
+                                    }}
+                                    disabled={capturedCoords.length === 0}
+                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
+                                >
+                                    Undo
+                                </button>
                                 <button
                                     onClick={() => void copyCapturedCoords()}
                                     disabled={capturedCoords.length === 0}
-                                    className="flex-1 rounded-lg bg-amber-500/20 py-1.5 text-xs font-black uppercase tracking-wide text-amber-300 active:scale-95 disabled:opacity-40"
+                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-300 active:scale-95 disabled:opacity-40"
                                 >
                                     {coordsCopied ? 'Copied ✓' : 'Copy'}
                                 </button>
@@ -2149,10 +2437,74 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         setCapturedCoords([]);
                                     }}
                                     disabled={capturedCoords.length === 0}
-                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-xs font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
+                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
                                 >
                                     Clear
                                 </button>
+                            </div>
+                            <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
+                                <input
+                                    value={traceName}
+                                    onChange={(e) => setTraceName(e.target.value)}
+                                    placeholder="Name this route…"
+                                    className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-amber-500/50 focus:outline-none"
+                                />
+                                <div className="flex gap-1.5">
+                                    <button
+                                        onClick={saveCurrentTrace}
+                                        disabled={capturedCoords.length < 2}
+                                        className="flex-1 rounded-lg bg-amber-500/20 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-300 active:scale-95 disabled:opacity-40"
+                                    >
+                                        Save
+                                    </button>
+                                    <button
+                                        onClick={() => void copyFairwaySnippet()}
+                                        disabled={capturedCoords.length < 2}
+                                        className="flex-1 rounded-lg bg-sky-500/15 py-1.5 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
+                                    >
+                                        Fairway
+                                    </button>
+                                    <button
+                                        onClick={() => void sailTrace()}
+                                        disabled={capturedCoords.length < 2}
+                                        className="flex-1 rounded-lg bg-emerald-500/20 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
+                                    >
+                                        Sail it
+                                    </button>
+                                </div>
+                                {savedTraces.length > 0 && (
+                                    <button
+                                        onClick={() => setShowSavedTraces((s) => !s)}
+                                        className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400"
+                                    >
+                                        {showSavedTraces ? '▾' : '▸'} Saved routes ({savedTraces.length})
+                                    </button>
+                                )}
+                                {showSavedTraces &&
+                                    savedTraces.map((t) => (
+                                        <div key={t.id} className="flex items-center gap-1.5 text-[11px]">
+                                            <button
+                                                onClick={() => {
+                                                    triggerHaptic('light');
+                                                    setCapturedCoords(t.points);
+                                                    setTraceName(t.name);
+                                                    setShowSavedTraces(false);
+                                                }}
+                                                className="flex-1 truncate text-left text-gray-200 active:opacity-70"
+                                            >
+                                                {t.name} <span className="text-gray-500">({t.points.length} pins)</span>
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    deleteTrace(t.id);
+                                                    setSavedTraces(loadSavedTraces());
+                                                }}
+                                                className="px-1 text-gray-500 active:text-red-400"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
                             </div>
                         </div>
                     )}

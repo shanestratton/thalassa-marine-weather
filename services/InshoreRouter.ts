@@ -3384,3 +3384,273 @@ export async function fetchRegionalMarkers(
         return { midpoints, segments, hazards, wings, acceptedPairs, diag: pairDiag };
     })();
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Route-Tracer layer assembly (2026-07-08, Shane's "trace your own route")
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Everything the Route Tracer needs to grade a hand-drawn leg. */
+export interface TracerLayerBundle {
+    merged: InshoreLayers;
+    cellsUsed: string[];
+    /** Accepted port/stbd gate pairs (regional file + folded ENC laterals) —
+     *  the tracer checks each traced leg THREADS these, not passes outside. */
+    gatePairs: Array<{ port: { lat: number; lon: number }; stbd: { lat: number; lon: number } }>;
+}
+
+/**
+ * Assemble the SAME layer blob the live router feeds the engine, for an
+ * arbitrary bbox — so the Route Tracer's per-leg verdicts (depth, land,
+ * berths, cardinals, NtM surveyed depths) agree with what a real route
+ * through the same water would say.
+ *
+ * DELIBERATELY a parallel implementation of the assembly inside
+ * tryInshoreRouteInner (cells → scale-shadow → OSM overlay → regional
+ * markers → ENC cardinal fold → curated fairways → NtM), NOT a refactor of
+ * it: the live path is device-critical and on-water-verified, so the tracer
+ * takes the duplication risk instead of the regression risk. If you change
+ * an injection recipe there, mirror it here (both sites are marked).
+ * Differences by design:
+ *   • no regional MIDPOINT/FAIRWY-segment/pair-wing injection — those bias
+ *     A* toward channels; the tracer grades the skipper's own line instead
+ *     (wings would double-flag legs its explicit gate check already grades).
+ *   • gate pairs are RETURNED for the explicit thread-the-gate check.
+ * Returns null when no installed ENC cells intersect the bbox.
+ */
+export async function assembleTracerLayers(bbox: [number, number, number, number]): Promise<TracerLayerBundle | null> {
+    const [minLon, minLat, maxLon, maxLat] = bbox;
+    const candidateCells = cellsForBBox(bbox);
+    if (candidateCells.length === 0) return null;
+
+    const merged: InshoreLayers = {
+        LNDARE: { type: 'FeatureCollection', features: [] },
+        DEPARE: { type: 'FeatureCollection', features: [] },
+        OBSTRN: { type: 'FeatureCollection', features: [] },
+        WRECKS: { type: 'FeatureCollection', features: [] },
+        UWTROC: { type: 'FeatureCollection', features: [] },
+        FAIRWY: { type: 'FeatureCollection', features: [] },
+        DRGARE: { type: 'FeatureCollection', features: [] },
+        BOYLAT: { type: 'FeatureCollection', features: [] },
+        BCNLAT: { type: 'FeatureCollection', features: [] },
+        RECTRC: { type: 'FeatureCollection', features: [] },
+        NAVLINE: { type: 'FeatureCollection', features: [] },
+    };
+    const cellsUsed: string[] = [];
+    const encCardinalSrc: {
+        geometry?: { type?: string; coordinates?: [number, number] } | null;
+        properties?: Record<string, unknown> | null;
+    }[] = [];
+    const cellExtents = candidateCells.map((c) => ({ id: c.id, bbox: c.bbox }));
+    for (const cell of candidateCells) {
+        const blob = await loadCellGeoJSON(cell.id);
+        if (!blob) continue;
+        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents);
+        for (const layer of [
+            'LNDARE',
+            'DEPARE',
+            'OBSTRN',
+            'WRECKS',
+            'UWTROC',
+            'FAIRWY',
+            'DRGARE',
+            'BOYLAT',
+            'BCNLAT',
+            'RECTRC',
+        ] as const) {
+            const fc = blob.layers?.[layer];
+            const target = merged[layer];
+            if (fc?.features && Array.isArray(fc.features) && target) {
+                if ((layer === 'LNDARE' || layer === 'DEPARE') && shadows.length > 0) {
+                    const kept = (fc.features as GeoJSON.Feature[]).filter((f) => !featureIsShadowed(f, shadows));
+                    (target.features as unknown[]).push(...kept);
+                } else {
+                    (target.features as unknown[]).push(...fc.features);
+                }
+            }
+        }
+        const navlne = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.NAVLNE;
+        if (navlne?.features && Array.isArray(navlne.features)) {
+            (merged.NAVLINE!.features as unknown[]).push(...navlne.features);
+        }
+        for (const cl of ['BOYCAR', 'BCNCAR'] as const) {
+            const fc = (blob.layers as Record<string, FeatureCollection | undefined> | undefined)?.[cl];
+            if (fc?.features && Array.isArray(fc.features)) {
+                encCardinalSrc.push(...(fc.features as unknown as typeof encCardinalSrc));
+            }
+        }
+        cellsUsed.push(cell.id);
+    }
+    if (cellsUsed.length === 0) return null;
+
+    // ── OSM overlay → same injection recipe as the live router ──
+    let osmOverlay: OsmRouteOverlay | null = null;
+    try {
+        osmOverlay = await getOsmRouteOverlay([minLon - 0.05, minLat - 0.05, maxLon + 0.05, maxLat + 0.05]);
+        const fairwy = merged.FAIRWY ?? { type: 'FeatureCollection' as const, features: [] };
+        if (osmOverlay.water.features.length > 0) {
+            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.water.features) {
+                (depare.features as unknown[]).push({
+                    ...f,
+                    properties: { ...(f.properties ?? {}), DRVAL1: 10.0, DRVAL2: 10.0 },
+                });
+                const props = (f.properties ?? {}) as Record<string, unknown>;
+                const promoted =
+                    props['water'] === 'river' ||
+                    props['water'] === 'harbour' ||
+                    props['waterway'] === 'river' ||
+                    props['waterway'] === 'riverbank' ||
+                    props['harbour'] === 'yes';
+                if (promoted && isPolygonWideEnough(f, 200)) {
+                    (fairwy.features as unknown[]).push({
+                        ...f,
+                        properties: { ...(f.properties ?? {}), _promotePreferred: true, _source: 'osm-water-promoted' },
+                    });
+                }
+            }
+            merged.DEPARE = depare;
+        }
+        if (osmOverlay.marina.features.length > 0) {
+            const depare = merged.DEPARE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.marina.features) {
+                (depare.features as unknown[]).push({
+                    ...f,
+                    properties: { ...(f.properties ?? {}), DRVAL1: 5.0, DRVAL2: 5.0 },
+                });
+            }
+            merged.DEPARE = depare;
+        }
+        if (osmOverlay.berths.features.length > 0) {
+            merged.BERTH = osmOverlay.berths as unknown as FeatureCollection;
+        }
+        if (fairwy.features.length > 0) merged.FAIRWY = fairwy;
+        if (osmOverlay.reef.features.length > 0) {
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.reef.features) {
+                (obstrn.features as unknown[]).push({
+                    ...f,
+                    properties: { ...(f.properties ?? {}), _class: 'osm-reef' },
+                });
+            }
+            merged.OBSTRN = obstrn;
+        }
+        if (osmOverlay.breakwater.features.length > 0) {
+            const lndare = merged.LNDARE ?? { type: 'FeatureCollection' as const, features: [] };
+            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.breakwater.features) {
+                if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
+                    (lndare.features as unknown[]).push(f);
+                } else if (f.geometry.type === 'LineString' || f.geometry.type === 'MultiLineString') {
+                    (coast.features as unknown[]).push(f);
+                }
+            }
+            merged.LNDARE = lndare;
+            merged.COASTLINE = coast;
+        }
+        if (osmOverlay.aeroway.features.length > 0) {
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.aeroway.features) {
+                if (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon') continue;
+                (obstrn.features as unknown[]).push({
+                    ...f,
+                    properties: { ...(f.properties ?? {}), _class: 'osm-aeroway' },
+                });
+            }
+            merged.OBSTRN = obstrn;
+        }
+        if (osmOverlay.coastline.features.length > 0) {
+            const coast = merged.COASTLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.coastline.features) (coast.features as unknown[]).push(f);
+            merged.COASTLINE = coast;
+        }
+        if (osmOverlay.canalLines.features.length > 0) {
+            const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.canalLines.features) (canal.features as unknown[]).push(f);
+            merged.CANAL = canal;
+        }
+        if (osmOverlay.navLines.features.length > 0) {
+            const navline = merged.NAVLINE ?? { type: 'FeatureCollection' as const, features: [] };
+            for (const f of osmOverlay.navLines.features) (navline.features as unknown[]).push(f);
+            merged.NAVLINE = navline;
+        }
+    } catch (err) {
+        log.warn(
+            `[tracer] OSM overlay failed (chart-only verdicts): ${err instanceof Error ? err.message : String(err)}`,
+        );
+    }
+
+    // ── Regional markers + folded ENC laterals → gate pairs (returned, not injected) ──
+    let gatePairs: TracerLayerBundle['gatePairs'] = [];
+    const swCorner = { lat: minLat, lon: minLon };
+    const neCorner = { lat: maxLat, lon: maxLon };
+    const regionalMarkersUrl = await pickRegionalMarkersUrl(swCorner, neCorner);
+    const encLaterals = encLateralsFromFeatures([
+        ...(merged.BCNLAT?.features ?? []),
+        ...(merged.BOYLAT?.features ?? []),
+    ]);
+    let osmRegionalHazards: { geometry?: { coordinates?: [number, number] } }[] = [];
+    if (regionalMarkersUrl || encLaterals.length > 0) {
+        try {
+            const osmWaterForPairing = osmOverlay ? [...osmOverlay.water.features, ...osmOverlay.marina.features] : [];
+            const { hazards, acceptedPairs } = await fetchRegionalMarkers(
+                regionalMarkersUrl,
+                merged.LNDARE?.features ?? [],
+                osmWaterForPairing,
+                [...(merged.DEPARE?.features ?? []), ...(merged.DRGARE?.features ?? [])],
+                encLaterals,
+            );
+            gatePairs = acceptedPairs;
+            osmRegionalHazards = hazards as { geometry?: { coordinates?: [number, number] } }[];
+        } catch (err) {
+            log.warn(
+                `[tracer] regional markers failed (no gate checks): ${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
+    }
+
+    // ── ENC cardinal fold → oriented half-disc hazards (mirror of the live path) ──
+    try {
+        const encCardinalHazards = encCardinalsToHazards(encCardinalSrc, new Set());
+        const encCardinalKeys = new Set<string>(
+            encCardinalHazards.map((h) => {
+                const [lon, lat] = h.geometry.coordinates;
+                return `${lat.toFixed(4)}|${lon.toFixed(4)}`;
+            }),
+        );
+        const filteredOsmHazards = osmRegionalHazards.filter((hh) => {
+            const c = hh.geometry?.coordinates;
+            return c ? !encCardinalKeys.has(`${c[1].toFixed(4)}|${c[0].toFixed(4)}`) : true;
+        });
+        const allHazards = [...(filteredOsmHazards as unknown[]), ...encCardinalHazards];
+        if (allHazards.length > 0) {
+            const orientedHazards = orientHazardsTowardLand(
+                allHazards as { geometry: { type: 'Point'; coordinates: [number, number] }; properties?: unknown }[],
+                merged.LNDARE?.features ?? [],
+            );
+            const obstrn = merged.OBSTRN ?? { type: 'FeatureCollection' as const, features: [] };
+            (obstrn.features as unknown[]).push(...orientedHazards);
+            merged.OBSTRN = obstrn;
+        }
+    } catch (err) {
+        log.warn(`[tracer] ENC cardinal fold failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // ── Curated fairways + NtM surveyed-depth zones (same gates as live) ──
+    const curatedFairways = curatedFairwayCanalFeatures(bbox);
+    if (curatedFairways.length > 0) {
+        const canal = merged.CANAL ?? { type: 'FeatureCollection' as const, features: [] };
+        (canal.features as unknown[]).push(...curatedFairways);
+        merged.CANAL = canal;
+    }
+    try {
+        const { activeNtmZonesFor } = await import('./ntmRouting');
+        const ntmPad = Math.max(Math.max(maxLat - minLat, maxLon - minLon) * 0.5, 0.08);
+        const ntm = await activeNtmZonesFor([minLon - ntmPad, minLat - ntmPad, maxLon + ntmPad, maxLat + ntmPad]);
+        if (ntm.features.length > 0) merged.NTMZONE = { type: 'FeatureCollection', features: ntm.features };
+        if (ntm.tracklines.length > 0) merged.NTMBAR = { type: 'FeatureCollection', features: ntm.tracklines };
+    } catch (err) {
+        log.warn(`[tracer] NtM zone injection failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    return { merged, cellsUsed, gatePairs };
+}
