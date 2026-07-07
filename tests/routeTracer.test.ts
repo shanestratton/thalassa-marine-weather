@@ -145,7 +145,7 @@ describe('routeTracer — marker discipline (P2)', () => {
         // ~150 m past the midpoint of a 200 m gate — inside 2× half-width.
         const outside = validateTraceLeg({ lat: -27.007, lon: 153.0065 }, { lat: -27.003, lon: 153.0065 }, ctx);
         expect(outside.grade).toBe('danger');
-        expect(outside.issues[0].message).toContain('passes outside the starboard mark');
+        expect(outside.issues[0].message).toContain('green (starboard) mark');
     });
 
     it('crossing the gate line WELL beyond the marks is an unrelated arm — no false red', () => {

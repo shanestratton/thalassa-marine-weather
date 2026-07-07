@@ -223,7 +223,13 @@ describe.skipIf(!PI_UP)('router ↔ tracer consistency — Mooloolaba', () => {
                 : Infinity;
         const all = verdicts.flatMap((v, i) =>
             v.issues
-                .filter((iss) => iss.severity === 'danger' && iss.message.startsWith('crosses'))
+                .filter(
+                    (iss) =>
+                        iss.severity === 'danger' &&
+                        ['crosses charted land', 'cuts through marina berths', 'crosses a charted hazard'].includes(
+                            iss.message,
+                        ),
+                )
                 .map((iss) => ({
                     label: `leg ${i}: ${iss.message} @ ${iss.at?.lat.toFixed(5)},${iss.at?.lon.toFixed(5)}`,
                     known: distToKnownM(iss.at) < 250,
