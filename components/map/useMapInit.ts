@@ -82,6 +82,9 @@ interface UseMapInitOptions {
     onMapTap?: (lat: number, lon: number) => void;
     /** When true, long-press pin drop is suppressed (Weather Here takes priority) */
     weatherInspect?: boolean;
+    /** When true, a chart tap fires onMapTap even while a passage/route is shown
+     *  (coordinate-capture mode needs taps to land with the route on screen). */
+    coordCapture?: boolean;
 }
 
 /**
@@ -123,6 +126,10 @@ export function useMapInit(opts: UseMapInitOptions) {
     const onMapTapRef = useRef(opts.onMapTap);
     // Ref for weather inspect mode — suppresses long-press pin drop
     const weatherInspectRef = useRef(opts.weatherInspect ?? false);
+    // Ref for coordinate-capture mode — lets a chart tap through even with a
+    // passage/route on screen.
+    const coordCaptureRef = useRef(opts.coordCapture ?? false);
+    coordCaptureRef.current = opts.coordCapture ?? false;
 
     // ── Pin Drop Logic ──
     const dropPin = useCallback(
@@ -1144,7 +1151,8 @@ export function useMapInit(opts: UseMapInitOptions) {
             // Don't fire while long-press timer is still running (pin drop takes priority)
             if (longPressTimer.current) return;
             if (opts.pickerMode || opts.embedded) return;
-            if (opts.settingPoint || opts.showPassage) return;
+            // Coordinate capture needs taps to land even with a route shown.
+            if (!coordCaptureRef.current && (opts.settingPoint || opts.showPassage)) return;
             // Don't fire weather popup if user tapped an AIS vessel
             const aisHits = map.queryRenderedFeatures(e.point, { layers: ['ais-targets-circle'] });
             if (aisHits.length > 0) return;

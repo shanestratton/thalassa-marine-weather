@@ -182,6 +182,45 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [showOfflineArea, setShowOfflineArea] = useState(false);
     const [offlineCardDismissed, setOfflineCardDismissed] = useState(false);
     const [weatherInspectMode, setWeatherInspectMode] = useState(false);
+    // ── Coordinate capture — tap the chart to collect full-precision GPS
+    // fixes into a copyable list (Shane 2026-07-07: for handing exact
+    // channel/fairway waypoints back). A ref mirrors the flag so the map
+    // tap closure never reads a stale value.
+    const [coordCaptureMode, setCoordCaptureMode] = useState(false);
+    const [capturedCoords, setCapturedCoords] = useState<Array<{ lat: number; lon: number }>>([]);
+    const [coordsCopied, setCoordsCopied] = useState(false);
+    const coordCaptureRef = useRef(false);
+    const captureMarkersRef = useRef<mapboxgl.Marker[]>([]);
+    useEffect(() => {
+        coordCaptureRef.current = coordCaptureMode;
+    }, [coordCaptureMode]);
+    const copyCapturedCoords = useCallback(async () => {
+        const text = capturedCoords.map((c) => `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`).join('\n');
+        try {
+            await navigator.clipboard.writeText(text);
+            setCoordsCopied(true);
+            setTimeout(() => setCoordsCopied(false), 1500);
+        } catch {
+            /* clipboard blocked — the on-screen list is still copyable by hand */
+        }
+        triggerHaptic('medium');
+    }, [capturedCoords]);
+    // Drop / refresh a numbered pin per captured coord so the skipper can see
+    // exactly where each tap landed.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+        captureMarkersRef.current.forEach((m) => m.remove());
+        captureMarkersRef.current = [];
+        if (!coordCaptureMode) return;
+        capturedCoords.forEach((c, i) => {
+            const el = document.createElement('div');
+            el.textContent = String(i + 1);
+            el.style.cssText =
+                'background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.5);';
+            captureMarkersRef.current.push(new mapboxgl.Marker({ element: el }).setLngLat([c.lon, c.lat]).addTo(map));
+        });
+    }, [capturedCoords, coordCaptureMode]);
     // Current map zoom level — surfaced in a small FAB top-left so
     // the skipper has at-a-glance idea of detail vs overview. Mirror
     // position of the mic FAB in App.tsx (top: 56px, right: 16px).
@@ -936,9 +975,18 @@ export const MapHub: React.FC<MapHubProps> = ({
         setArrival: passage.setArrival,
         setSettingPoint: passage.setSettingPoint,
         weatherInspect: weatherInspectMode,
+        coordCapture: coordCaptureMode,
         onMapTap: (lat: number, lon: number) => {
             const map = mapRef.current;
             if (!map) return;
+
+            // Coordinate capture owns the tap when active — record the exact
+            // fix and stop (no weather popup).
+            if (coordCaptureRef.current) {
+                setCapturedCoords((prev) => [...prev, { lat, lon }]);
+                triggerHaptic('light');
+                return;
+            }
 
             // Only show weather popup if the user explicitly enabled inspect mode
             if (!weatherInspectMode) return;
@@ -2037,6 +2085,78 @@ export const MapHub: React.FC<MapHubProps> = ({
                         onFlyToLocalChart={localCharts.flyToChart}
                     />
                 )}
+
+                {/* ═══ COORDINATE CAPTURE ═══
+                    Tap the chart to collect full-precision GPS fixes into a
+                    copyable list (Shane 2026-07-07 — hand exact channel/fairway
+                    waypoints back for a curated fairway). */}
+                <div
+                    className="absolute left-3 z-[9995]"
+                    style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
+                >
+                    {!coordCaptureMode ? (
+                        <button
+                            onClick={() => {
+                                triggerHaptic('light');
+                                setWeatherInspectMode(false);
+                                setCoordCaptureMode(true);
+                            }}
+                            className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/90 px-3 py-2 text-xs font-bold text-amber-300 shadow-lg active:scale-95"
+                        >
+                            📍 Grab coords
+                        </button>
+                    ) : (
+                        <div className="w-52 overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
+                            <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                                <span className="text-xs font-black uppercase tracking-widest text-amber-300">
+                                    ● Tapping ({capturedCoords.length})
+                                </span>
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setCoordCaptureMode(false);
+                                    }}
+                                    className="text-xs font-bold text-gray-400"
+                                >
+                                    Done
+                                </button>
+                            </div>
+                            {capturedCoords.length === 0 ? (
+                                <div className="px-3 py-3 text-[11px] leading-snug text-gray-400">
+                                    Tap the chart along the channel — each spot is recorded here (lat, lon).
+                                </div>
+                            ) : (
+                                <div className="max-h-40 space-y-0.5 overflow-y-auto px-3 py-2">
+                                    {capturedCoords.map((c, i) => (
+                                        <div key={i} className="font-mono text-[11px] text-gray-200">
+                                            <span className="text-amber-400">{i + 1}.</span> {c.lat.toFixed(5)},{' '}
+                                            {c.lon.toFixed(5)}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <div className="flex gap-2 border-t border-white/10 px-3 py-2">
+                                <button
+                                    onClick={() => void copyCapturedCoords()}
+                                    disabled={capturedCoords.length === 0}
+                                    className="flex-1 rounded-lg bg-amber-500/20 py-1.5 text-xs font-black uppercase tracking-wide text-amber-300 active:scale-95 disabled:opacity-40"
+                                >
+                                    {coordsCopied ? 'Copied ✓' : 'Copy'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setCapturedCoords([]);
+                                    }}
+                                    disabled={capturedCoords.length === 0}
+                                    className="flex-1 rounded-lg bg-white/5 py-1.5 text-xs font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 {/* Lightning legend pill — rendered OUTSIDE the AisLegend
                     Suspense block. The eager-imported BlitzortungAttribution
