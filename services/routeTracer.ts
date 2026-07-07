@@ -436,7 +436,7 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
             blockedSub === 'land'
                 ? 'crosses charted land'
                 : blockedSub === 'berth'
-                  ? 'crosses moored berth rows'
+                  ? 'cuts through marina berths'
                   : 'crosses a charted hazard';
         issues.push({ severity: 'danger', message: msg, at: blockedAt });
     } else if (bankShaveAt) {
@@ -454,13 +454,13 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
         } else if (minDepthM < keelM + THIN_MARGIN_M) {
             issues.push({
                 severity: 'caution',
-                message: `thin water — ${minDepthM.toFixed(1)} m charted at LAT`,
+                message: `thin water — ${minDepthM.toFixed(1)} m charted at low tide (LAT)`,
                 at: minAt,
             });
         }
     }
     if (conflict > 0) {
-        issues.push({ severity: 'caution', message: 'chart layers disagree here — verify depth' });
+        issues.push({ severity: 'caution', message: 'depth data conflicts here — treat as unproven' });
     }
     if (uncharted / (steps + 1) > 0.3) {
         issues.push({ severity: 'caution', message: 'no charted depth for part of this leg' });
@@ -513,7 +513,7 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
                 const outsidePort = distM(cross, g.port) < distM(cross, g.stbd);
                 issues.push({
                     severity: 'danger',
-                    message: `passes outside the ${outsidePort ? 'port' : 'starboard'} mark — thread the gate`,
+                    message: `wrong side of the ${outsidePort ? 'red (port)' : 'green (starboard)'} mark — pass between the pair`,
                     at: cross,
                 });
             }
@@ -617,11 +617,21 @@ export function validateTrace(points: readonly TracePoint[], ctx: TracerContext)
 const fmtHm = (ms: number): string =>
     new Date(ms).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
 
+/** "today" / "tonight" / "tomorrow" for a window opening — a bare "08:45"
+ *  read tonight was tomorrow's window to the punter (windows shift ~50 min/
+ *  day, so acting on the wrong day is a real grounding vector). */
+function dayWord(ms: number): string {
+    const now = new Date();
+    const then = new Date(ms);
+    if (then.getDate() !== now.getDate() || then.getMonth() !== now.getMonth()) return 'tomorrow';
+    return then.getHours() >= 18 ? 'tonight' : 'today';
+}
+
 /**
- * "clears 08:45–14:30" (≈ when from interpolated extremes) for a shallow
- * spot over the next 24 h, or "needs +X.X m — no tide window in 24 h".
- * Null when tide data is unavailable (offline) — the leg stays red with
- * its depth message; never guess a window.
+ * "clears 08:45–14:30 today" ("(approx)" from interpolated extremes) for a
+ * shallow spot over the next 24 h, or "needs +X.X m — no tide window in
+ * 24 h". Null when tide data is unavailable (offline) — the leg stays red
+ * with its depth message; never guess a window.
  */
 export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: TracePoint): Promise<string | null> {
     try {
@@ -633,11 +643,53 @@ export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: 
         if (res.alwaysOpen) return null;
         if (res.windows.length === 0) return `needs +${res.requiredRiseM.toFixed(1)} m — no tide window in 24 h`;
         const w = res.windows[0];
-        return `clears ${fmtHm(w.openMs)}–${fmtHm(w.closeMs)}${w.approx ? ' ≈' : ''}`;
+        return `clears ${fmtHm(w.openMs)}–${fmtHm(w.closeMs)} ${dayWord(w.openMs)}${w.approx ? ' (approx)' : ''}`;
     } catch (err) {
         log.warn(`tide window failed: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
+}
+
+// ── Pin helpers (P2 punter-proofing) ───────────────────────────────────────
+
+/** Is this exact spot blocked in the tracer grid (and why)? Drives the
+ *  pin-level diagnosis: "pin 4 is on charted land — drag it seaward". */
+export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'berth' | 'hazard' | null {
+    if (!ctx.grid) return null;
+    const r = readCell(ctx.grid, p);
+    return r.kind === 'blocked' ? r.sub : null;
+}
+
+/**
+ * Snap a fat-fingered tap on the breakwater/bank to the nearest navigable
+ * cell (spiral search, ≤ maxM). Returns null when the spot is fine as-is or
+ * nothing navigable is close — the tap then lands verbatim and the pin-level
+ * diagnosis explains it. Never snaps ACROSS more than maxM: a deliberate
+ * inland tap stays where the skipper put it.
+ */
+export function snapTraceTapToWater(ctx: TracerContext, p: TracePoint, maxM = 60): TracePoint | null {
+    const grid = ctx.grid;
+    if (!grid) return null;
+    if (tracePinBlocked(ctx, p) === null) return null; // already navigable
+    const maxCells = Math.max(1, Math.ceil(maxM / ctx.resM));
+    const x0 = Math.floor((p.lon - grid.minLon) / grid.dLon);
+    const y0 = Math.floor((p.lat - grid.minLat) / grid.dLat);
+    let best: { x: number; y: number; d2: number } | null = null;
+    for (let dy = -maxCells; dy <= maxCells; dy++) {
+        for (let dx = -maxCells; dx <= maxCells; dx++) {
+            const x = x0 + dx;
+            const y = y0 + dy;
+            if (x < 0 || y < 0 || x >= grid.width || y >= grid.height) continue;
+            if (Number.isNaN(grid.cells[y * grid.width + x])) continue;
+            const d2 = dx * dx + dy * dy;
+            if (!best || d2 < best.d2) best = { x, y, d2 };
+        }
+    }
+    if (!best) return null;
+    return {
+        lat: grid.minLat + (best.y + 0.5) * grid.dLat,
+        lon: grid.minLon + (best.x + 0.5) * grid.dLon,
+    };
 }
 
 // ── Route health summary ───────────────────────────────────────────────────
