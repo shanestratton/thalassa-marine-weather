@@ -21,11 +21,12 @@ const SOURCE_ACTIVE = 'follow-route-active';
 const SOURCE_PREVIOUS = 'follow-route-previous';
 const SOURCE_MARKERS = 'follow-route-markers';
 const LAYER_ACTIVE = 'follow-route-active-line';
+const LAYER_ACTIVE_ARROWS = 'follow-route-active-arrows';
 const LAYER_PREVIOUS = 'follow-route-previous-line';
 const LAYER_MARKERS = 'follow-route-markers-circle';
 const LAYER_MARKER_LABELS = 'follow-route-markers-labels';
 
-const ALL_LAYERS = [LAYER_MARKER_LABELS, LAYER_MARKERS, LAYER_ACTIVE, LAYER_PREVIOUS];
+const ALL_LAYERS = [LAYER_MARKER_LABELS, LAYER_MARKERS, LAYER_ACTIVE_ARROWS, LAYER_ACTIVE, LAYER_PREVIOUS];
 const ALL_SOURCES = [SOURCE_ACTIVE, SOURCE_PREVIOUS, SOURCE_MARKERS];
 
 /** Remove all Follow Route layers and sources from the map */
@@ -116,6 +117,28 @@ export const useFollowRouteMapbox = (mapRef: React.MutableRefObject<mapboxgl.Map
                 'line-width': 3.5,
                 'line-opacity': 0.85,
                 'line-dasharray': [2, 1.5],
+            },
+        });
+        // Direction chevrons — the followed line had NO direction indication
+        // at all: a skipper joining mid-route couldn't tell which way along
+        // it to go (Shane 2026-07-08, "head south when they exit the bar").
+        map.addLayer({
+            id: LAYER_ACTIVE_ARROWS,
+            type: 'symbol',
+            source: SOURCE_ACTIVE,
+            layout: {
+                'symbol-placement': 'line',
+                'symbol-spacing': 110,
+                'text-field': '›',
+                'text-size': 18,
+                'text-keep-upright': false,
+                'text-allow-overlap': true,
+                'text-rotation-alignment': 'map',
+            },
+            paint: {
+                'text-color': '#ffffff',
+                'text-halo-color': '#0c4a6e',
+                'text-halo-width': 1.5,
             },
         });
 

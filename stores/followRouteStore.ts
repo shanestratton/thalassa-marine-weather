@@ -64,7 +64,24 @@ function haversineKm(a: { lat: number; lon: number }, b: { lat: number; lon: num
     return R * 2 * Math.atan2(Math.sqrt(s), Math.sqrt(1 - s));
 }
 
+/** A plan whose geometry came from the Route Tracer — the skipper validated
+ *  the exact line, so it is locked against any downstream re-routing. */
+function isTracedPlan(plan: VoyagePlan): boolean {
+    return (plan.routeGeoJSON?.properties as Record<string, unknown> | null | undefined)?._source === 'route-tracer';
+}
+
 function computeRouteFromPlan(plan: VoyagePlan): { lat: number; lon: number }[] {
+    // TRACED routes: the routeGeoJSON geometry is AUTHORITATIVE — the line
+    // the skipper validated leg-by-leg must be followed exactly, never
+    // re-derived from waypoints (Route Tracer prime directive #3: "the line
+    // you validated is the line you sail"). Scoped to traced plans because
+    // mergeWeatherRoute rewrites WAYPOINTS without touching routeGeoJSON —
+    // preferring it unconditionally would show weather-refreshed planned
+    // passages their STALE pre-optimisation line.
+    const geo = plan.routeGeoJSON?.geometry?.coordinates;
+    if (isTracedPlan(plan) && Array.isArray(geo) && geo.length >= 2) {
+        return (geo as [number, number][]).map(([lon, lat]) => ({ lat, lon }));
+    }
     const waypoints: { lat: number; lon: number }[] = [];
     if (plan.originCoordinates) waypoints.push(plan.originCoordinates);
     if (plan.waypoints && Array.isArray(plan.waypoints)) {
@@ -181,6 +198,18 @@ export const useFollowRouteStore = create<FollowRouteState & FollowRouteActions>
     refreshRoute: async () => {
         const s = get();
         if (!s.isFollowing || !s.voyagePlan) return;
+
+        // TRACED routes are GEOMETRY-LOCKED: the skipper validated that exact
+        // line leg-by-leg, and the weather optimiser is allowed to move points
+        // up to 30 NM off the centreline — running it here silently replaced a
+        // validated trace with an unvalidated one (adversarial audit,
+        // 2026-07-08). Weather refresh for traces is a timestamp-only no-op.
+        if (isTracedPlan(s.voyagePlan)) {
+            const newState: FollowRouteState = { ...get(), lastRefresh: new Date().toISOString(), isRefreshing: false };
+            set(newState);
+            saveToStorage(newState);
+            return;
+        }
         set({ isRefreshing: true });
 
         try {
