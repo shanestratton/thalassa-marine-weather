@@ -73,8 +73,9 @@ function projectToSegment(p: LatLon, a: LatLon, b: LatLon): { point: LatLon; dis
     return { point, dist: distM(p, point), t };
 }
 
-/** Nearest point on a (multi-segment) line to p. */
-function projectToLine(p: LatLon, line: LatLon[]): { point: LatLon; dist: number } {
+/** Nearest point on a (multi-segment) line to p. Exported for the Route
+ *  Tracer's off-the-lead check (services/routeTracer.ts). */
+export function projectToLine(p: LatLon, line: LatLon[]): { point: LatLon; dist: number } {
     let best = { point: line[0], dist: Infinity };
     for (let i = 0; i < line.length - 1; i++) {
         const pr = projectToSegment(p, line[i], line[i + 1]);
