@@ -10,6 +10,11 @@ import type { FeatureCollection } from 'geojson';
 import { buildNavGrid } from '../services/engine/navGrid';
 import type { InshoreLayers } from '../services/inshoreRouterEngine';
 import {
+    rdpTracePoints,
+    bearingDegBetween,
+    courseArrow,
+    fixLegOnGrid,
+    curatedLanesNear,
     validateTraceLeg,
     validateTrace,
     traceHealth,
@@ -370,5 +375,61 @@ describe('routeTracer — Phase 1 hardening', () => {
         expect(bigRes).toBeGreaterThan(60);
         const spanM = 2 * 110_540;
         expect((spanM / bigRes) * ((2 * 111_320 * Math.cos((-28 * Math.PI) / 180)) / bigRes)).toBeLessThan(2_100_000);
+    });
+});
+
+describe('routeTracer — guided builder (Phase 2/3)', () => {
+    it('rdpTracePoints keeps bends, drops colinear filler', () => {
+        const line = [
+            { lat: -27.005, lon: 153.002 },
+            { lat: -27.005, lon: 153.004 }, // colinear
+            { lat: -27.005, lon: 153.006 }, // colinear
+            { lat: -27.005, lon: 153.008 },
+            { lat: -27.008, lon: 153.008 }, // hard bend
+            { lat: -27.008, lon: 153.012 },
+        ];
+        const sparse = rdpTracePoints(line, 40);
+        expect(sparse.length).toBeLessThan(line.length);
+        expect(sparse[0]).toEqual(line[0]);
+        expect(sparse[sparse.length - 1]).toEqual(line[line.length - 1]);
+        // the bend at index 4 must survive
+        expect(sparse.some((p) => p.lat === -27.008 && p.lon === 153.008)).toBe(true);
+    });
+
+    it('bearings + course arrows read like a helm order', () => {
+        expect(Math.round(bearingDegBetween({ lat: -27, lon: 153 }, { lat: -27, lon: 153.01 }))).toBe(90);
+        expect(Math.round(bearingDegBetween({ lat: -27, lon: 153 }, { lat: -27.01, lon: 153 }))).toBe(180);
+        expect(courseArrow(0)).toBe('↑');
+        expect(courseArrow(168)).toBe('↓');
+        expect(courseArrow(90)).toBe('→');
+    });
+
+    it('curatedLanesNear surfaces the Mooloolaba lane inside its bbox, nothing elsewhere', () => {
+        const lanes = curatedLanesNear([153.11, -26.7, 153.15, -26.67]);
+        expect(lanes.length).toBeGreaterThanOrEqual(1);
+        expect(lanes[0].points.length).toBeGreaterThan(10);
+        expect(curatedLanesNear([150.0, -30.0, 150.1, -29.9])).toHaveLength(0);
+    });
+
+    it('fixLegOnGrid detours the island and the detour re-grades clean', () => {
+        const a = { lat: -27.01, lon: 153.018 };
+        const b = { lat: -27.01, lon: 153.024 };
+        // Sanity: the direct leg is a land crossing.
+        expect(validateTraceLeg(a, b, baseCtx).grade).toBe('danger');
+        const detour = fixLegOnGrid(baseCtx, a, b);
+        expect(detour).not.toBeNull();
+        expect(detour!.length).toBeGreaterThanOrEqual(3); // needs at least one interior bend
+        // The spliced route must carry NO land crossing and end where it started.
+        expect(detour![0]).toEqual(a);
+        expect(detour![detour!.length - 1]).toEqual(b);
+        const verdicts = validateTrace(detour!, baseCtx);
+        expect(verdicts.some((v) => v.issues.some((i) => i.message === 'crosses charted land'))).toBe(false);
+    });
+
+    it('fixLegOnGrid refuses honestly when there is no way through', () => {
+        // marks-only ctx (no grid) → no fabricated fixes
+        expect(
+            fixLegOnGrid({ ...baseCtx, grid: null }, { lat: -27.01, lon: 153.018 }, { lat: -27.01, lon: 153.024 }),
+        ).toBeNull();
     });
 });

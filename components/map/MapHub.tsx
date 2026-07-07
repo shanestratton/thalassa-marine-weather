@@ -80,6 +80,7 @@ import {
 } from './EncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
+import { TraceReportModal } from './TraceReportModal';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
@@ -95,6 +96,13 @@ import {
     deleteTrace,
     tracePinBlocked,
     snapTraceTapToWater,
+    rdpTracePoints,
+    bearingDegBetween,
+    courseArrow,
+    curatedLanesNear,
+    fixLegOnGrid,
+    commonDepartureWindowLabel,
+    type GhostLane,
     traceAsCuratedFairwaySnippet,
     traceAsVoyagePlan,
     type TraceLegVerdict,
@@ -240,6 +248,39 @@ export const MapHub: React.FC<MapHubProps> = ({
     const insertAfterRef = useRef<number | null>(null);
     /** Saved-route delete confirm: first ✕ arms, second deletes. */
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+    /** Guided builder: "⚡ Auto to destination" run state + the course chip
+     *  ("↘ head 168° — Newport 32 NM") shown after the router takes the
+     *  open water. */
+    const [autoBusy, setAutoBusy] = useState(false);
+    const [courseChip, setCourseChip] = useState<string | null>(null);
+    /** Route report (Phase 3): review → Fix/Acknowledge → sail. */
+    const [showReport, setShowReport] = useState(false);
+    const [ackedLegs, setAckedLegs] = useState<Set<number>>(new Set());
+    const [fixBusyLeg, setFixBusyLeg] = useState<number | null>(null);
+    /** null = computing, '' = nothing tide-gated on the route. */
+    const [departureLabel, setDepartureLabel] = useState<string | null>('');
+    /** Proven-lane ghosts: curated fairways near the trace area, drawn dotted
+     *  grey; accepting one loads its pins ("trace out of the marina" solved
+     *  in two taps where a lane exists). */
+    const [ghostLanes, setGhostLanes] = useState<GhostLane[]>([]);
+    useEffect(() => {
+        if (!coordCaptureMode) {
+            setGhostLanes([]);
+            return;
+        }
+        const map = mapRef.current;
+        const centre =
+            capturedCoords.length > 0
+                ? capturedCoords[capturedCoords.length - 1]
+                : map
+                  ? { lat: map.getCenter().lat, lon: map.getCenter().lng }
+                  : null;
+        if (!centre) {
+            setGhostLanes([]);
+            return;
+        }
+        setGhostLanes(curatedLanesNear([centre.lon - 0.05, centre.lat - 0.05, centre.lon + 0.05, centre.lat + 0.05]));
+    }, [coordCaptureMode, capturedCoords]);
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
         if (coordCaptureMode) setSavedTraces(loadSavedTraces());
@@ -311,6 +352,29 @@ export const MapHub: React.FC<MapHubProps> = ({
                     },
                 });
             }
+            // Proven-lane ghost (guided builder): dotted grey preview of a
+            // curated fairway near the punter — accept it in the panel and
+            // its points become pins.
+            if (!map.getSource('trace-ghost')) {
+                map.addSource('trace-ghost', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+            }
+            if (!map.getLayer('trace-ghost-line')) {
+                map.addLayer({
+                    id: 'trace-ghost-line',
+                    type: 'line',
+                    source: 'trace-ghost',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: {
+                        'line-color': '#94a3b8',
+                        'line-width': 3,
+                        'line-opacity': 0.7,
+                        'line-dasharray': [1.5, 2],
+                    },
+                });
+            }
             // Problem spots ON the chart (P2): a ⚠ at every issue position —
             // the verdict computed the exact lat/lon all along; the panel row
             // alone left the punter guessing WHERE on a 2 NM leg the 2.1 m
@@ -379,13 +443,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                 type: 'FeatureCollection',
                 features: issueFeats as never,
             });
+            (map.getSource('trace-ghost') as mapboxgl.GeoJSONSource).setData({
+                type: 'FeatureCollection',
+                features: (coordCaptureMode && capturedCoords.length <= 1
+                    ? ghostLanes.map((l) => ({
+                          type: 'Feature' as const,
+                          properties: { id: l.id },
+                          geometry: {
+                              type: 'LineString' as const,
+                              coordinates: l.points.map((p) => [p.lon, p.lat]),
+                          },
+                      }))
+                    : []) as never,
+            });
         };
         sync();
         map.on('styledata', sync);
         return () => {
             map.off('styledata', sync);
         };
-    }, [capturedCoords, legVerdicts, coordCaptureMode]);
+    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes]);
     const copyCapturedCoords = useCallback(async () => {
         const text = capturedCoords.map((c) => `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`).join('\n');
         try {
@@ -476,7 +553,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (capturedCoords.length < 2 || sailBusyRef.current) return;
         sailBusyRef.current = true;
         triggerHaptic('medium');
-        const plan = traceAsVoyagePlan(traceName, capturedCoords);
+        const plan = traceAsVoyagePlan(
+            traceName,
+            capturedCoords,
+            legVerdicts.length === capturedCoords.length - 1 ? legVerdicts.map((v) => v.grade) : undefined,
+        );
         // FOLLOW FIRST — it's synchronous/local and it's the thing the skipper
         // actually needs. The logbook save used to run ahead of it: four
         // sequential network awaits with no visible feedback, and CapacitorHttp
@@ -520,7 +601,84 @@ export const MapHub: React.FC<MapHubProps> = ({
                 sailBusyRef.current = false;
             }
         })();
-    }, [capturedCoords, traceName, flashTraceFeedback]);
+    }, [capturedCoords, traceName, legVerdicts, flashTraceFeedback]);
+    // ── Route report: Fix-this-leg + Acknowledge (Phase 3) ──
+    // Splice micro-A* detours for the given DANGER legs. Processed last-to-
+    // first so earlier indices stay valid, on ONE local pin array so a
+    // multi-fix doesn't chase stale state. Returns how many actually fixed.
+    const applyFixes = useCallback(
+        (legIdxs: number[]): number => {
+            const ctx = tracerCtxRef.current;
+            if (!ctx?.grid) return 0;
+            let pins = [...capturedCoords];
+            let fixed = 0;
+            for (const i of [...legIdxs].sort((x, y) => y - x)) {
+                if (i < 0 || i + 1 >= pins.length) continue;
+                const detour = fixLegOnGrid(ctx, pins[i], pins[i + 1]);
+                if (detour && detour.length >= 2) {
+                    pins = [...pins.slice(0, i + 1), ...detour.slice(1, -1), ...pins.slice(i + 1)];
+                    fixed++;
+                }
+            }
+            if (fixed > 0) setCapturedCoords(pins);
+            return fixed;
+        },
+        [capturedCoords],
+    );
+    const onFixLeg = useCallback(
+        (i: number) => {
+            setFixBusyLeg(i);
+            // Yield a frame so the "Fixing…" state paints before the sync A*.
+            setTimeout(() => {
+                const n = applyFixes([i]);
+                flashTraceFeedback(n > 0 ? 'Leg fixed — re-checked' : 'No clean detour here — acknowledge or re-trace');
+                setFixBusyLeg(null);
+            }, 30);
+        },
+        [applyFixes, flashTraceFeedback],
+    );
+    const onFixAll = useCallback(() => {
+        const dangers = legVerdicts
+            .map((v, i) => (v.grade === 'danger' && !ackedLegs.has(i) ? i : -1))
+            .filter((i) => i >= 0);
+        if (dangers.length === 0) return;
+        setFixBusyLeg(-1);
+        setTimeout(() => {
+            const n = applyFixes(dangers);
+            flashTraceFeedback(
+                n === dangers.length
+                    ? `All ${n} no-go legs fixed — re-checked`
+                    : `${n}/${dangers.length} fixed — the rest need an acknowledge or a re-trace`,
+            );
+            setFixBusyLeg(null);
+        }, 30);
+    }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
+    // Paste-import (Phase 4 lite): consume the exact format Copy produces —
+    // mate-sharing over Messages with zero backend.
+    const pasteTrace = useCallback(async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            const pins: Array<{ lat: number; lon: number }> = [];
+            for (const line of text.split(/\n+/)) {
+                const m = line.match(/(-?\d{1,3}\.\d+)[,\s]+(-?\d{1,3}\.\d+)/);
+                if (!m) continue;
+                const lat = parseFloat(m[1]);
+                const lon = parseFloat(m[2]);
+                if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) pins.push({ lat, lon });
+            }
+            if (pins.length >= 2) {
+                triggerHaptic('medium');
+                setCapturedCoords(pins);
+                const mid = pins[Math.floor(pins.length / 2)];
+                mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 12.5, duration: 1000 });
+                flashTraceFeedback(`${pins.length} pins pasted — checking them now`);
+            } else {
+                flashTraceFeedback('Nothing on the clipboard that reads like "lat, lon" lines');
+            }
+        } catch {
+            flashTraceFeedback('Clipboard not available');
+        }
+    }, [flashTraceFeedback]);
     // Current map zoom level — surfaced in a small FAB top-left so
     // the skipper has at-a-glance idea of detail vs overview. Mirror
     // position of the mic FAB in App.tsx (top: 56px, right: 16px).
@@ -538,6 +696,19 @@ export const MapHub: React.FC<MapHubProps> = ({
     // tide margin. A grounding-risk line drawn against a fake draft is worse
     // than none, so this is the LIVE value, recomputed when the profile edits.
     const encSafetyDepthM = vesselDraftMetres(settings.vessel) + DEFAULT_TIDE_SAFETY_M;
+    // THE departure window — computed when the report opens. (Below the
+    // settings declaration: the dep array reads settings.vessel at render.)
+    useEffect(() => {
+        if (!showReport) return;
+        setDepartureLabel(null);
+        let stale = false;
+        void commonDepartureWindowLabel(legVerdicts, vesselDraftMetres(settings.vessel)).then((label) => {
+            if (!stale) setDepartureLabel(label ?? '');
+        });
+        return () => {
+            stale = true;
+        };
+    }, [showReport, legVerdicts, settings.vessel]);
     // ── Route Tracer validation (lives below the settings declaration —
     // the dep arrays read settings.vessel at render time) ──
     // Build/refresh the tracer context, then grade every leg. Rebuilds when a
@@ -547,6 +718,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     // crossing stayed green).
     useEffect(() => {
         setSailArmed(false); // a changed line always re-earns its "Sail anyway"
+        setAckedLegs(new Set()); // ack indices die with the old leg list
         if (!coordCaptureMode || capturedCoords.length === 0) {
             if (capturedCoords.length === 0) setLegVerdicts([]);
             return;
@@ -1144,6 +1316,64 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
+
+    // ── Guided builder: "⚡ Auto to destination" ──
+    // The punter traces the fiddly bits (marina, bar, river — where local
+    // knowledge beats the algorithm); one tap hands the OPEN WATER to the
+    // four-tier router (where it's proven). The engine polyline comes back
+    // as PINS (RDP-decimated to the bends) so the whole route stays ONE
+    // editable, re-gradable trace — drag/insert/delete the arrival end like
+    // any pin. An OFFER, never a takeover (masterplan prime directive).
+    const autoCompleteTrace = useCallback(async () => {
+        if (autoBusy || capturedCoords.length === 0) return;
+        const dest = passage.arrival;
+        if (!dest) {
+            flashTraceFeedback('Set an arrival in the passage planner first');
+            return;
+        }
+        setAutoBusy(true);
+        triggerHaptic('medium');
+        flashTraceFeedback('Routing the open water…');
+        try {
+            const last = capturedCoords[capturedCoords.length - 1];
+            const res = await tryInshoreRoute(
+                { lat: last.lat, lon: last.lon },
+                { lat: dest.lat, lon: dest.lon },
+                vesselDraftMetres(settings.vessel),
+            );
+            if (res && 'polyline' in res) {
+                const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
+                // 40 m tolerance keeps every bend the engine chose while a
+                // 60-vertex line becomes ~15-25 editable pins, not pin soup.
+                const sparse = rdpTracePoints(pts, 40);
+                const add = sparse.slice(1); // sparse[0] == the last pin
+                if (add.length > 0) {
+                    setCapturedCoords((prev) => [...prev, ...add]);
+                    const brg = bearingDegBetween(last, add[0]);
+                    setCourseChip(
+                        `${courseArrow(brg)} head ${String(Math.round(brg)).padStart(3, '0')}° — ${
+                            dest.name || 'destination'
+                        } ${res.distanceNM.toFixed(res.distanceNM >= 10 ? 0 : 1)} NM`,
+                    );
+                    // Fly to the ARRIVAL end for "take her in" review — most
+                    // routes end in a marina and that end needs eyes on it.
+                    mapRef.current?.flyTo({ center: [dest.lon, dest.lat], zoom: 13.5, duration: 1400 });
+                    flashTraceFeedback('Auto-routed — check the arrival end, drag pins to adjust');
+                } else {
+                    flashTraceFeedback('Already at the destination');
+                }
+            } else if (res && 'error' in res) {
+                flashTraceFeedback(`Router: ${res.error.slice(0, 70)}`);
+            } else {
+                flashTraceFeedback('No auto route from here (too far or no charts) — keep tracing');
+            }
+        } catch (err) {
+            log.warn(`auto-complete failed: ${err instanceof Error ? err.message : String(err)}`);
+            flashTraceFeedback('Auto-route failed — keep tracing');
+        } finally {
+            setAutoBusy(false);
+        }
+    }, [autoBusy, capturedCoords, passage.arrival, settings.vessel, flashTraceFeedback]);
 
     // Follow Route overlay — renders the followed planned route on the map
     // Suppressed during passage planning to avoid visual conflict
@@ -2488,6 +2718,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     triggerHaptic('light');
                                     setWeatherInspectMode(false);
                                     setCoordCaptureMode(true);
+                                    // Guided start: fresh trace + a planned
+                                    // departure → fly to the berth at close
+                                    // zoom, ready to trace out of the marina.
+                                    if (capturedCoords.length === 0 && passage.departure) {
+                                        const d = passage.departure;
+                                        mapRef.current?.flyTo({
+                                            center: [d.lon, d.lat],
+                                            zoom: 14.5,
+                                            duration: 1200,
+                                        });
+                                        flashTraceFeedback(
+                                            `Trace out of ${d.name || 'the marina'} — I'll take the open water`,
+                                        );
+                                    }
                                 }}
                                 className="flex items-center gap-1.5 rounded-full border border-white/10 bg-slate-800/90 px-3 py-2 text-xs font-bold text-amber-300 shadow-lg active:scale-95"
                             >
@@ -2565,6 +2809,44 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 {traceFeedback && (
                                     <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-black text-emerald-300">
                                         {traceFeedback}
+                                    </div>
+                                )}
+                                {/* Guided builder: hand the open water to the
+                                four-tier router — an OFFER, never a grab. */}
+                                {capturedCoords.length > 0 && passage.arrival && (
+                                    <div className="border-b border-white/10 px-3 py-1.5">
+                                        <button
+                                            onClick={() => void autoCompleteTrace()}
+                                            disabled={autoBusy}
+                                            className="w-full rounded-lg bg-violet-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
+                                        >
+                                            {autoBusy
+                                                ? '⏳ Routing the open water…'
+                                                : `⚡ Auto to ${passage.arrival.name || 'destination'}`}
+                                        </button>
+                                    </div>
+                                )}
+                                {courseChip && (
+                                    <div className="border-b border-white/10 px-3 py-1.5 text-[11px] font-black text-sky-300">
+                                        {courseChip}
+                                    </div>
+                                )}
+                                {/* Proven-lane ghost accept — the flywheel
+                                paying out: someone's validated lane, two taps. */}
+                                {capturedCoords.length <= 1 && ghostLanes.length > 0 && (
+                                    <div className="border-b border-white/10 px-3 py-1.5">
+                                        <button
+                                            onClick={() => {
+                                                triggerHaptic('medium');
+                                                setCapturedCoords(ghostLanes[0].points);
+                                                flashTraceFeedback(
+                                                    'Proven lane loaded — check it, then ⚡ Auto or keep tracing',
+                                                );
+                                            }}
+                                            className="w-full rounded-lg bg-emerald-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95"
+                                        >
+                                            ⭐ Use the proven lane here
+                                        </button>
                                     </div>
                                 )}
                                 {/* Colour key — green/amber/red were never defined
@@ -2774,6 +3056,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         Clear
                                     </button>
                                 </div>
+                                {capturedCoords.length >= 2 && (
+                                    <div className="border-t border-white/10 px-3 py-2">
+                                        <button
+                                            onClick={() => {
+                                                triggerHaptic('light');
+                                                setShowReport(true);
+                                            }}
+                                            className="w-full rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-100 active:scale-95"
+                                        >
+                                            📋 Route report
+                                        </button>
+                                    </div>
+                                )}
                                 <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
                                     <input
                                         value={traceName}
@@ -2834,6 +3129,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             );
                                         })()}
                                     </div>
+                                    <button
+                                        onClick={() => void pasteTrace()}
+                                        className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
+                                    >
+                                        📥 Paste coords from a mate
+                                    </button>
                                     {savedTraces.length > 0 && (
                                         <button
                                             onClick={() => setShowSavedTraces((s) => !s)}
@@ -2881,6 +3182,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                         )}
                     </div>
                 )}
+                <TraceReportModal
+                    open={showReport}
+                    onClose={() => setShowReport(false)}
+                    pins={capturedCoords}
+                    verdicts={legVerdicts}
+                    tideLabels={tideLabels}
+                    departureLabel={departureLabel}
+                    ackedLegs={ackedLegs}
+                    fixBusy={fixBusyLeg}
+                    onFlyTo={(pt) => {
+                        setShowReport(false);
+                        mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: 15, duration: 800 });
+                    }}
+                    onFixLeg={onFixLeg}
+                    onFixAll={onFixAll}
+                    onAckLeg={(i) => {
+                        triggerHaptic('light');
+                        setAckedLegs((prev) => new Set(prev).add(i));
+                    }}
+                />
 
                 {/* Lightning legend pill — rendered OUTSIDE the AisLegend
                     Suspense block. The eager-imported BlitzortungAttribution
