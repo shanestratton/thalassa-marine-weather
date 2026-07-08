@@ -48,6 +48,7 @@ import { Preferences } from '@capacitor/preferences';
 import type { ComfortParams } from '../../types/settings';
 import { generateComfortZoneOverlay, hasActiveComfortLimits } from '../../services/ComfortZoneEngine';
 import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
+import { peekPassageRequest, clearPassageRequest } from '../../services/passageHandoff';
 
 export interface PassageState {
     departure: { lat: number; lon: number; name: string } | null;
@@ -230,6 +231,17 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
             setRouteAnalysis(null);
         };
         window.addEventListener('thalassa:passage-mode', handlePassageMode);
+        // Consume any pending passage request (services/passageHandoff).
+        // The dispatch above only reaches ALREADY-mounted listeners; on a
+        // first-ever chart open the RoutePlanner's event fires while this
+        // hook's chunk is still loading and the passage was silently lost
+        // ("Tap the map to set departure and arrival points" forever).
+        // The request is sticky, so a remounted/revisited MapHub restores
+        // the passage too; the X button (clearRoute) dismisses it.
+        const pending = peekPassageRequest();
+        if (pending) {
+            handlePassageMode(new CustomEvent('thalassa:passage-mode', { detail: pending }));
+        }
         return () => window.removeEventListener('thalassa:passage-mode', handlePassageMode);
     }, []);
 
@@ -2347,6 +2359,7 @@ export function usePassagePlanner(mapRef: MutableRefObject<mapboxgl.Map | null>,
 
     // Clear route
     const clearRoute = useCallback(() => {
+        clearPassageRequest(); // don't resurrect a dismissed passage on the next MapHub mount
         setDeparture(null);
         setArrival(null);
         setRouteAnalysis(null);
