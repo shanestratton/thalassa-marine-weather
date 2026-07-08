@@ -44,6 +44,11 @@ interface DiaryEntryViewProps {
     onTranscribe: (url: string) => void;
     onUndo: () => void;
     onDismissDelete: () => void;
+    /** Delete this entry (standard undo-toast flow). The full entry view had
+     *  NO delete affordance at all — the only delete in the Diary was the
+     *  hidden swipe-left on the list card (Shane 2026-07-08: "I can still
+     *  not delete a diary"). */
+    onDelete: (id: string) => void;
     /** Entry's public/private state changed — parent updates its lists. */
     onPublishedChange?: (id: string, isPublic: boolean) => void;
 }
@@ -61,6 +66,7 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
         onTranscribe,
         onUndo,
         onDismissDelete,
+        onDelete,
         onPublishedChange,
     }) => {
         const moodCfg = MOOD_CONFIG[e.mood] || MOOD_CONFIG.neutral;
@@ -120,6 +126,25 @@ export const DiaryEntryView: React.FC<DiaryEntryViewProps> = React.memo(
                                     strokeLinecap="round"
                                     strokeLinejoin="round"
                                     d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10"
+                                />
+                            </svg>
+                        </button>
+                        <button
+                            aria-label="Delete entry"
+                            onClick={() => onDelete(e.id)}
+                            className="p-2 rounded-xl bg-white/5 hover:bg-red-500/15 transition-colors"
+                        >
+                            <svg
+                                className="w-5 h-5 text-red-400"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={1.5}
+                            >
+                                <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                                 />
                             </svg>
                         </button>

@@ -743,6 +743,7 @@ export const DiaryPage: React.FC<DiaryPageProps> = React.memo(({ onBack }) => {
                 onTranscribe={handleTranscribe}
                 onUndo={handleUndoDelete}
                 onDismissDelete={handleDismissDelete}
+                onDelete={handleDelete}
                 onPublishedChange={(id, isPublic) => {
                     setEntries((prev) => prev.map((en) => (en.id === id ? { ...en, is_public: isPublic } : en)));
                     setSelectedEntry(selectedEntry ? { ...selectedEntry, is_public: isPublic } : null);

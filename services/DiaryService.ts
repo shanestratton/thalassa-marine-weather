@@ -472,10 +472,26 @@ class DiaryServiceClass {
             // whole tombstone retries. (Storage-first + a persistently-failing
             // row delete + TTL expiry would resurrect the entry with dead
             // photo URLs.)
-            const { error } = await supabase.from(TABLE).delete().eq('id', id);
+            // .select('id') so an RLS-BLOCKED delete is detectable: Supabase
+            // returns NO error and zero rows when the policy filters the row
+            // out — counting that as success dropped the tombstone and the
+            // next refresh resurrected the entry.
+            const { data: deleted, error } = await supabase.from(TABLE).delete().eq('id', id).select('id');
             if (error) {
                 log.warn('Server delete failed — will retry on next drain:', error.message);
                 return false;
+            }
+            if (!deleted || deleted.length === 0) {
+                // Zero rows: either already gone (fine) or RLS hid it. Probe —
+                // still readable means blocked, keep the tombstone so the entry
+                // at least stays hidden locally and the drain retries.
+                const { data: still } = await supabase.from(TABLE).select('id').eq('id', id).maybeSingle();
+                if (still) {
+                    log.warn(
+                        `Server delete BLOCKED for ${id} — row visible but not deletable (ownership?). Keeping tombstone.`,
+                    );
+                    return false;
+                }
             }
             // Row is gone — storage cleanup is best-effort from here.
             try {
