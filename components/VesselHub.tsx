@@ -669,75 +669,11 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                             </button>
                         </div>
 
-                        {/* Weather Window Check — prominent passage go/no-go tool */}
-                        <button
-                            aria-label="Open Weather Window Check"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('weatherWindow');
-                            }}
-                            style={{
-                                ...GLASS.card,
-                                background:
-                                    'linear-gradient(135deg, rgba(16,185,129,0.16) 0%, rgba(20,25,35,0.6) 100%)',
-                                borderColor: 'rgba(16,185,129,0.32)',
-                            }}
-                            className="mt-3 w-full p-4 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.16)' }}>
-                                    <ChartIcon color="#34d399" />
-                                </div>
-                                <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">Weather Window</h4>
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-emerald-400 mt-0.5">
-                                        Go / No-Go Score
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
-
-                        {/* Skipper's Reference — marine-weather reference cards (GRIB / synoptic / forecast / squalls) */}
-                        <button
-                            aria-label="Open Skipper's Reference"
-                            onClick={() => {
-                                triggerHaptic('light');
-                                onNavigate('skipperReference');
-                            }}
-                            style={{
-                                ...GLASS.card,
-                                background:
-                                    'linear-gradient(135deg, rgba(56,189,248,0.16) 0%, rgba(20,25,35,0.6) 100%)',
-                                borderColor: 'rgba(56,189,248,0.32)',
-                            }}
-                            className="mt-3 w-full p-4 text-left hover:brightness-110 transition-all active:scale-[0.98] card-lift"
-                        >
-                            <div className="flex items-center gap-3">
-                                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(56,189,248,0.16)' }}>
-                                    <svg
-                                        className="w-5 h-5"
-                                        fill="none"
-                                        viewBox="0 0 24 24"
-                                        stroke="#38bdf8"
-                                        strokeWidth={2}
-                                    >
-                                        <path
-                                            strokeLinecap="round"
-                                            strokeLinejoin="round"
-                                            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
-                                        />
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h4 className="text-[13px] font-black text-white tracking-wide">
-                                        Skipper's Reference
-                                    </h4>
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-sky-400 mt-0.5">
-                                        GRIB · Synoptic · Forecast · Squalls
-                                    </p>
-                                </div>
-                            </div>
-                        </button>
+                        {/* Weather Window + Skipper's Reference moved to the
+                            Boat Binder's Reference group (Shane 2026-07-08:
+                            "hidden a bit deeper — keep the important things
+                            front and centre"). Watch Status is now purely the
+                            daily-ops safety tiles: Anchor, Guardian, MOB, Radio. */}
                     </CollapsibleContent>
                 </div>
 
@@ -961,6 +897,30 @@ export const VesselHub: React.FC<VesselHubProps> = React.memo(({ onNavigate, set
                                 onClick={() => {
                                     triggerHaptic('light');
                                     onNavigate('checklists');
+                                }}
+                            />
+                            <ListDivider />
+                            {/* Relocated from Watch Status (Shane 2026-07-08) —
+                                planning/reference tools, not daily ops. */}
+                            <OfficeRow
+                                icon={<ChartIcon color="#34d399" />}
+                                label="Weather Window"
+                                status="Go / No-Go Score"
+                                statusColor="#34d399"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('weatherWindow');
+                                }}
+                            />
+                            <ListDivider />
+                            <OfficeRow
+                                icon={<BookIcon color="#38bdf8" />}
+                                label="Skipper's Reference"
+                                status="GRIB · Synoptic · Squalls"
+                                statusColor="#38bdf8"
+                                onClick={() => {
+                                    triggerHaptic('light');
+                                    onNavigate('skipperReference');
                                 }}
                             />
                             <ListDivider />
@@ -1593,6 +1553,90 @@ const NavStationHero: React.FC<{
         setSignInOpen(true);
     };
 
+    // Environmental metric chips — hoisted so BOTH renders share them:
+    // the slim at-rest strip and the full underway/anchor card.
+    const metricChips = (
+        [
+            showWind
+                ? {
+                      key: 'wind',
+                      icon: <WindIcon />,
+                      value: String(windKt),
+                      unit: 'kt',
+                      suffix: windDir || undefined,
+                  }
+                : null,
+            waveHeight !== null
+                ? { key: 'wave', icon: <WaveIcon />, value: waveHeight.toFixed(1), unit: waveUnit }
+                : null,
+            airTemp !== null
+                ? { key: 'air', icon: <ThermometerIcon />, value: `${Math.round(airTemp)}`, unit: '°' }
+                : null,
+            seaTemp !== null ? { key: 'sea', icon: <DropletIcon />, value: `${Math.round(seaTemp)}`, unit: '°' } : null,
+            visibility !== null
+                ? {
+                      key: 'vis',
+                      icon: <EyeIcon />,
+                      // weatherData.current.visibility is already
+                      // in KILOMETRES — openmeteo.ts converts
+                      // metres → km at fetch time. To display
+                      // NM we divide by 1.852 (km per NM), NOT
+                      // 1852 (m per NM). The previous code
+                      // assumed metres and divided by 1852, so
+                      // a real 10 km visibility came out as
+                      // 0.0054 → "0.0 NM" — the bug the user
+                      // saw on the hero card. Cap at ">10" so
+                      // a clear 50 km horizon doesn't read
+                      // bigger than any handheld sensor can
+                      // actually measure.
+                      value: visibility / 1.852 >= 10 ? '>10' : (visibility / 1.852).toFixed(1),
+                      unit: 'NM',
+                  }
+                : null,
+            presInd
+                ? {
+                      key: 'bar',
+                      label: 'BAR',
+                      value: presInd.arrow,
+                      color: presInd.color,
+                      ariaLabel: `Barometer ${presInd.label}`,
+                  }
+                : null,
+            tideInd
+                ? {
+                      key: 'tide',
+                      label: 'TIDE',
+                      value: tideInd.arrow,
+                      color: tideInd.color,
+                      ariaLabel: `Tide ${tideInd.label}`,
+                  }
+                : null,
+        ] as (MetricChipData | null)[]
+    ).filter((c): c is MetricChipData => c !== null);
+
+    // SLIM AT-REST MODE (Shane 2026-07-08: "I don't need that At Rest box —
+    // maybe just the bottom line, right at the very top"). At the dock the
+    // big card is dead space; the useful line is the live conditions strip.
+    // The FULL card still renders whenever it earns its keep: underway
+    // (route/progress/SOG), at anchor (swing arc), drag alarm (safety),
+    // or a fresh install (the set-up-your-vessel CTA lives in the card).
+    const atRestSlim = state.label === 'At Rest' && !showSwing && vesselNameSet;
+    if (atRestSlim) {
+        if (metricChips.length === 0) return null;
+        return (
+            <div
+                className="mb-3 overflow-hidden"
+                style={{
+                    ...GLASS.card,
+                    background: 'linear-gradient(135deg, rgba(20,25,35,0.7) 0%, rgba(14,165,233,0.05) 100%)',
+                    borderColor: 'rgba(255,255,255,0.10)',
+                }}
+            >
+                <MetricChipStrip showTopBorder={false} chips={metricChips} />
+            </div>
+        );
+    }
+
     return (
         <div
             className={`mb-4 overflow-hidden ${anchorStatus === 'alarm' ? 'nav-hero-alarm' : ''}`}
@@ -1825,69 +1869,7 @@ const NavStationHero: React.FC<{
                 font-mono for tabular alignment. Each chip only renders
                 when its source data is present, so an at-dock vessel
                 with no fetched weather won't display empty rails. */}
-            <MetricChipStrip
-                showTopBorder={!showSog}
-                chips={(
-                    [
-                        showWind
-                            ? {
-                                  key: 'wind',
-                                  icon: <WindIcon />,
-                                  value: String(windKt),
-                                  unit: 'kt',
-                                  suffix: windDir || undefined,
-                              }
-                            : null,
-                        waveHeight !== null
-                            ? { key: 'wave', icon: <WaveIcon />, value: waveHeight.toFixed(1), unit: waveUnit }
-                            : null,
-                        airTemp !== null
-                            ? { key: 'air', icon: <ThermometerIcon />, value: `${Math.round(airTemp)}`, unit: '°' }
-                            : null,
-                        seaTemp !== null
-                            ? { key: 'sea', icon: <DropletIcon />, value: `${Math.round(seaTemp)}`, unit: '°' }
-                            : null,
-                        visibility !== null
-                            ? {
-                                  key: 'vis',
-                                  icon: <EyeIcon />,
-                                  // weatherData.current.visibility is already
-                                  // in KILOMETRES — openmeteo.ts converts
-                                  // metres → km at fetch time. To display
-                                  // NM we divide by 1.852 (km per NM), NOT
-                                  // 1852 (m per NM). The previous code
-                                  // assumed metres and divided by 1852, so
-                                  // a real 10 km visibility came out as
-                                  // 0.0054 → "0.0 NM" — the bug the user
-                                  // saw on the hero card. Cap at ">10" so
-                                  // a clear 50 km horizon doesn't read
-                                  // bigger than any handheld sensor can
-                                  // actually measure.
-                                  value: visibility / 1.852 >= 10 ? '>10' : (visibility / 1.852).toFixed(1),
-                                  unit: 'NM',
-                              }
-                            : null,
-                        presInd
-                            ? {
-                                  key: 'bar',
-                                  label: 'BAR',
-                                  value: presInd.arrow,
-                                  color: presInd.color,
-                                  ariaLabel: `Barometer ${presInd.label}`,
-                              }
-                            : null,
-                        tideInd
-                            ? {
-                                  key: 'tide',
-                                  label: 'TIDE',
-                                  value: tideInd.arrow,
-                                  color: tideInd.color,
-                                  ariaLabel: `Tide ${tideInd.label}`,
-                              }
-                            : null,
-                    ] as (MetricChipData | null)[]
-                ).filter((c): c is MetricChipData => c !== null)}
-            />
+            <MetricChipStrip showTopBorder={!showSog} chips={metricChips} />
 
             {/* Canonical sign-in surface — opens from the "Already
                 have a Thalassa account? Sign in →" link above when
@@ -2019,9 +2001,17 @@ const SignalIcon: React.FC<{ color?: string }> = ({ color = 'currentColor' }) =>
     </svg>
 );
 
-// BookIcon removed 2026-05-17 — only used by the Log Book tile in
-// Quick Actions, which was deleted as part of the duplicate-with-
-// bottom-nav-Log-tab cleanup.
+// BookIcon removed 2026-05-17 (Log Book tile cleanup) — reinstated
+// 2026-07-08 for the Skipper's Reference row in the Boat Binder.
+const BookIcon: React.FC<{ color: string }> = ({ color }) => (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
+        <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25"
+        />
+    </svg>
+);
 
 const MobIcon: React.FC<{ color: string }> = ({ color }) => (
     <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke={color} strokeWidth={1.5}>
