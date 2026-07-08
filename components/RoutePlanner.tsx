@@ -262,6 +262,7 @@ export const RoutePlanner: React.FC<{
                         <div className="relative flex-1">
                             <MapHub
                                 mapboxToken={mapboxToken}
+                                hideTracer
                                 pickerMode={!!mapSelectionTarget}
                                 pickerLabel={
                                     mapSelectionTarget

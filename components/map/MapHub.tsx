@@ -200,6 +200,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     embedded = false,
     center,
     pickerMode = false,
+    hideTracer = false,
 }) => {
     // ── Pin View Mode (from chat pin tap) ──
 
@@ -2728,7 +2729,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     a curated-fairway candidate (Shane 2026-07-08). Gated out
                     of embedded/pin/picker surfaces like its neighbours —
                     ungated it swallowed picker taps (audit minor). */}
-                {!embedded && !isPinView && !pickerMode && (
+                {!embedded && !isPinView && !pickerMode && !hideTracer && (
                     <div
                         className="absolute left-3 z-[9995]"
                         style={{ bottom: 'calc(6rem + env(safe-area-inset-bottom))' }}
