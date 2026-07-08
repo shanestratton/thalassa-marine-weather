@@ -82,9 +82,11 @@ export async function saveCellGeoJSON(cellId: string, blob: EncConversionResult)
 
 /**
  * Load and parse the GeoJSON for a cell. Returns null if the file
- * is missing or malformed.
+ * is missing or malformed. A missing blob falls back to the CLOUD
+ * bucket once (desktop builder, Phase 5 — the browser can't reach
+ * the Pi, so registered-but-not-downloaded cells hydrate on demand).
  */
-export async function loadCellGeoJSON(cellId: string): Promise<EncConversionResult | null> {
+export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Promise<EncConversionResult | null> {
     try {
         const path = relPath(cellId);
         const result = await Filesystem.readFile({
@@ -101,7 +103,13 @@ export async function loadCellGeoJSON(cellId: string): Promise<EncConversionResu
         return parsed;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (/not exist|ENOENT|File does not exist/i.test(msg)) return null;
+        if (/not exist|ENOENT|File does not exist/i.test(msg)) {
+            if (cloudFallback) {
+                const { downloadCloudCell } = await import('./cloudCellSync');
+                if (await downloadCloudCell(cellId)) return loadCellGeoJSON(cellId, false);
+            }
+            return null;
+        }
         log.warn(`loadCellGeoJSON ${cellId} failed`, err);
         return null;
     }
