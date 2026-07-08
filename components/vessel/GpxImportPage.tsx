@@ -23,6 +23,7 @@ import { ShipLogService } from '../../services/ShipLogService';
 import type { ShipLogEntry } from '../../types';
 import { triggerHaptic } from '../../utils/system';
 import { useUI } from '../../context/UIContext';
+import { requestPassageMode, type PassageHandoffDetail } from '../../services/passageHandoff';
 import { PageHeader } from '../ui/PageHeader';
 
 interface GpxImportPageProps {
@@ -215,7 +216,7 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
         triggerHaptic('medium');
 
         // Build the passage-mode event detail
-        const detail: Record<string, unknown> = {
+        const detail: PassageHandoffDetail = {
             departure: {
                 lat: routeData.origin.lat,
                 lon: routeData.origin.lon,
@@ -243,10 +244,11 @@ export const GpxImportPage: React.FC<GpxImportPageProps> = ({ onBack }) => {
                 `${routeData.waypoints.length > 2 ? ` via ${routeData.waypoints.length - 2} waypoints` : ''}`,
         );
 
-        // Navigate to map and dispatch passage event
+        // Navigate to map and hand off the passage. Sticky request —
+        // survives the map view's lazy mount (services/passageHandoff).
         setPage('map');
         setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
+            requestPassageMode(detail);
         }, 300);
     }, [routeData, setPage]);
 

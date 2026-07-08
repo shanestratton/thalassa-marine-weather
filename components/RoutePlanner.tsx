@@ -26,6 +26,7 @@ import { LegPickerDropdown } from './passage/LegPickerDropdown';
 import { SavedLocationsPicker } from './passage/SavedLocationsPicker';
 import { useVoyageForm, LOADING_PHASES } from '../hooks/useVoyageForm';
 import { useUI } from '../context/UIContext';
+import { requestPassageMode, type PassageHandoffDetail } from '../services/passageHandoff';
 import { scrollInputAboveKeyboard } from '../utils/keyboardScroll';
 import { PageHeader } from './ui/PageHeader';
 import { RouteEnhancementChip } from './passage/RouteEnhancementChip';
@@ -212,7 +213,7 @@ export const RoutePlanner: React.FC<{
     useEffect(() => {
         // Only fire when voyagePlan transitions from null → populated
         if (voyagePlan && !prevVoyagePlanRef.current) {
-            const detail: Record<string, unknown> = {};
+            const detail: PassageHandoffDetail = {};
             // Prefer voyagePlan.origin (preserved verbatim from the
             // user's typed input — see useVoyageForm.handleCalculate)
             // over the form state `origin`, because voyagePlan is the
@@ -238,8 +239,14 @@ export const RoutePlanner: React.FC<{
             }
             log.info('[AutoNav] Route calculated, switching to main map', { departureName, arrivalName });
             setPage('map');
+            // requestPassageMode records a STICKY pending request as well as
+            // dispatching the event — a MapHub whose lazy chunk is still
+            // loading when the timer fires consumes it on mount instead of
+            // losing the passage (the "nothing on the plan screen" bug,
+            // 2026-07-09). The 300 ms delay stays for already-mounted maps
+            // so the page transition starts before the compute kicks off.
             setTimeout(() => {
-                window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
+                requestPassageMode(detail);
             }, 300);
         }
         prevVoyagePlanRef.current = voyagePlan;
@@ -615,7 +622,7 @@ export const RoutePlanner: React.FC<{
                                 {/* View on main map */}
                                 <button
                                     onClick={() => {
-                                        const detail: Record<string, unknown> = {};
+                                        const detail: PassageHandoffDetail = {};
                                         // Prefer voyagePlan.origin/destination (preserved
                                         // from the user's typed input via my override in
                                         // useVoyageForm.handleCalculate) over form state.
@@ -643,8 +650,10 @@ export const RoutePlanner: React.FC<{
                                         }
                                         log.info('[ViewOnMap] Passing coords:', JSON.stringify(detail));
                                         setPage('map');
+                                        // Sticky request — survives the map view's lazy mount
+                                        // (see AutoNav above / services/passageHandoff).
                                         setTimeout(() => {
-                                            window.dispatchEvent(new CustomEvent('thalassa:passage-mode', { detail }));
+                                            requestPassageMode(detail);
                                         }, 200);
                                     }}
                                     className="ml-auto p-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 transition-all"
