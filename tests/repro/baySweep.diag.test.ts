@@ -439,5 +439,8 @@ describe('BAY SWEEP — classic passages vs real cells', () => {
         }
         console.log('\n=== SWEEP COMPLETE ===');
         expect(rows.length).toBe(PASSAGES.length);
-    });
+        // 300s cap like the sibling long diags (mooloolabaHomecoming,
+        // tangaloomaLeads) — the 12-passage sweep runs ~110s with the Pi
+        // up, and the suite-wide 20s default was failing it on time alone.
+    }, 300_000);
 });

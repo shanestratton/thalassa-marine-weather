@@ -10,6 +10,7 @@ import {
     getOfflineEntries,
     deleteEntryFromOfflineQueue,
     deleteVoyageFromOfflineQueue,
+    __resetOfflineQueueForTests,
 } from '../services/shiplog/OfflineQueue';
 
 // ---- Mock @capacitor/preferences as in-memory store ----
@@ -51,6 +52,9 @@ beforeEach(() => {
     for (const key of Object.keys(store)) {
         delete store[key];
     }
+    // The queue lives in a module-level cache since c516385f — clearing
+    // the mocked Preferences store alone no longer resets it.
+    __resetOfflineQueueForTests();
 });
 
 describe('queueOfflineEntry', () => {
