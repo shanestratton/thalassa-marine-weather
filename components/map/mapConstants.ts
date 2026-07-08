@@ -16,6 +16,10 @@ export interface MapHubProps {
     minimalLabels?: boolean;
     /** Embedded mode: no overlays, no interactions, static centered view */
     embedded?: boolean;
+    /** Hide the Route Tracer button/panel — for host pages with their own
+     *  bottom CTA (the Plan page's "Slide to Calculate Route" sat exactly
+     *  under the tracer button, Shane 2026-07-08). */
+    hideTracer?: boolean;
     /** Override center coordinates (for embedded mode) */
     center?: { lat: number; lon: number };
     lat?: number;
