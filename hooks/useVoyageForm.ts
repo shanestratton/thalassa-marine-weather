@@ -4,6 +4,7 @@ import { useWeather } from '../context/WeatherContext';
 // geminiService dynamically imported at call sites
 import { reverseGeocode } from '../services/weatherService';
 import { formatLocationInput } from '../utils';
+import { parseCoordinateString } from '../utils/coordParse';
 import { DeepAnalysisReport } from '../types';
 import { LocationStore } from '../stores/LocationStore';
 import { getErrorMessage } from '../utils/createLogger';
@@ -304,10 +305,14 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // above always returns a value (user's configured profile, or
         // DEFAULT_VESSEL as fallback). See utils/defaultVessel.
 
-        // Auto-Format inputs before submission
-        const fmtOrigin = formatLocationInput(effOrigin);
-        const fmtDest = formatLocationInput(effDest);
-        const fmtVia = effVia ? formatLocationInput(effVia) : '';
+        // Auto-Format inputs before submission — except typed GPS
+        // coordinates, which are a position, not prose. Title-casing
+        // them mangles hemisphere letters ("27.4698'S" → "'s") and the
+        // string must reach parseLocation verbatim.
+        const fmtLoc = (s: string) => (parseCoordinateString(s) ? s.trim() : formatLocationInput(s));
+        const fmtOrigin = fmtLoc(effOrigin);
+        const fmtDest = fmtLoc(effDest);
+        const fmtVia = effVia ? fmtLoc(effVia) : '';
 
         setOrigin(fmtOrigin);
         setDestination(fmtDest);
@@ -814,8 +819,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // No `!vessel` guard — DEFAULT_VESSEL is used when the user
         // hasn't configured a personal vessel yet.
 
-        const fmtOrigin = formatLocationInput(origin);
-        const fmtDest = formatLocationInput(destination);
+        // Same coord-verbatim rule as handleCalculate — a typed GPS
+        // position must not be title-cased on its way to parseLocation.
+        const fmtOrigin = parseCoordinateString(origin) ? origin.trim() : formatLocationInput(origin);
+        const fmtDest = parseCoordinateString(destination) ? destination.trim() : formatLocationInput(destination);
 
         setShowWindowSheet(true);
         setPlanningWindow(true);

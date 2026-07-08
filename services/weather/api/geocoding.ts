@@ -5,6 +5,8 @@ import { abbreviate } from '../transformers';
 import { piCache } from '../../PiCacheService';
 
 import { createLogger } from '../../../utils/createLogger';
+import { parseCoordinateString } from '../../../utils/coordParse';
+import { extractCoords } from '../../../utils/savedLocations';
 
 const log = createLogger('geocoding');
 // geminiService dynamically imported to avoid bundling @google/generative-ai in main chunk
@@ -541,12 +543,26 @@ export const parseLocation = async (
         throw new Error("Location string 'Current' is invalid. Please provide coordinates or city name.");
     }
 
-    // 3. Check for Coordinate String
-    const coordMatch = location.match(/([+-]?\d+(\.\d+)?)[,\s]+([+-]?\d+(\.\d+)?)/);
+    // 3. Check for Coordinate String.
+    //    parseCoordinateString handles what a sailor actually types —
+    //    signed decimal, hemisphere-suffixed decimal, DMM, DMS — and is
+    //    whole-string anchored so "Berth 2, 153 Marina" can't false-
+    //    positive into an open-ocean pin (the old inline regex here did
+    //    exactly that). extractCoords covers the planner's canonical
+    //    "Name (lat, lon)" strings from map picks and saved locations.
+    const typedCoords = parseCoordinateString(location);
+    const embeddedCoords = typedCoords ? null : extractCoords(location);
 
-    if (coordMatch) {
-        lat = parseFloat(coordMatch[1]);
-        lon = parseFloat(coordMatch[3]);
+    if (typedCoords) {
+        // A hand-typed position IS the answer — no port-name override,
+        // no geocoder. Keep the raw string as the name so WeatherContext
+        // sees it as coordinates and reverse-geocodes a friendly label.
+        lat = typedCoords.lat;
+        lon = typedCoords.lon;
+        name = location.trim();
+    } else if (embeddedCoords) {
+        lat = embeddedCoords.lat;
+        lon = embeddedCoords.lon;
 
         // ── Name-prefix override (stale-saved-location fix) ────────
         // RoutePlanner stores destinations as "Name (lat.dddd,

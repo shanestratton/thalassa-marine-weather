@@ -746,8 +746,13 @@ export function loadSavedTraces(): SavedTrace[] {
 }
 
 /** persisted=false means storage refused (quota) — tell the skipper, don't
- *  flash "Saved ✓" over a trace that won't exist next session. */
-export function saveTrace(name: string, points: readonly TracePoint[]): { trace: SavedTrace; persisted: boolean } {
+ *  flash "Saved ✓" over a trace that won't exist next session. `cloud`
+ *  resolves with the account-push outcome so the UI can be equally honest
+ *  about the desktop→phone hop ('signedout' = never left this browser). */
+export function saveTrace(
+    name: string,
+    points: readonly TracePoint[],
+): { trace: SavedTrace; persisted: boolean; cloud: Promise<import('./savedRoutesSync').PushResult> } {
     const trace: SavedTrace = {
         id: `trace-${Date.now().toString(36)}`,
         name: name.trim() || `Trace ${new Date().toLocaleDateString('en-AU')}`,
@@ -764,8 +769,10 @@ export function saveTrace(name: string, points: readonly TracePoint[]): { trace:
     }
     // Account sync (Phase 5.3): best-effort push so the route follows the
     // punter across devices — build on the desktop, sail on the phone.
-    void import('./savedRoutesSync').then(({ pushSavedRoute }) => pushSavedRoute(trace)).catch(() => {});
-    return { trace, persisted };
+    const cloud = import('./savedRoutesSync')
+        .then(({ pushSavedRoute }) => pushSavedRoute(trace))
+        .catch(() => 'error' as const);
+    return { trace, persisted, cloud };
 }
 
 export function deleteTrace(id: string): void {

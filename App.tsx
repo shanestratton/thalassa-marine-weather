@@ -34,6 +34,8 @@ import { ToastPortal, toast } from './components/Toast';
 import { PushToast } from './components/PushToast';
 import { PageTransition } from './components/ui/PageTransition';
 import { checkDisclaimerAccepted } from './modules/LegalGuard';
+import { BuilderDeepLink } from './components/BuilderDeepLink';
+import { useAuthStore } from './stores/authStore';
 import { DisclaimerOverlay } from './modules/DisclaimerOverlay';
 import { lazyRetry } from './utils/lazyRetry';
 import { VIEW_REGISTRY, VESSEL_VIEWS, PULL_REFRESH_DISABLED_VIEWS, type ViewContext } from './viewRegistry';
@@ -198,6 +200,27 @@ const App: React.FC = () => {
         };
     }, []);
 
+    // One-shot saved-routes pull-merge (desktop builder Phase 5.3+).
+    // Without this the phone only learned about desktop-built tracer
+    // routes when the tracer panel opened — now they're already local
+    // by the time the skipper looks. Runs once per app session, as soon
+    // as a Supabase session is available (boot probe or later sign-in).
+    // getState/subscribe, not a hook — App.tsx stays out of auth-driven
+    // re-renders per the deferred-auth note below.
+    useEffect(() => {
+        let synced = false;
+        const run = () => {
+            if (synced) return;
+            synced = true;
+            void import('./services/savedRoutesSync').then(({ syncSavedRoutes }) => syncSavedRoutes()).catch(() => {});
+        };
+        if (useAuthStore.getState().user) run();
+        const unsub = useAuthStore.subscribe((s) => {
+            if (s.user) run();
+        });
+        return unsub;
+    }, []);
+
     // One-shot anchor-watch share restore. A device that joined a shared
     // anchor watch persists the session; restoring it here on app startup
     // means a backgrounded/closed FOLLOWER auto-reconnects to the host
@@ -338,6 +361,10 @@ const App: React.FC = () => {
             className={`relative h-screen supports-[height:100dvh]:h-[100dvh] w-full overflow-hidden font-sans transition-colors duration-500 ${containerClasses} ${isLight ? 'display-light' : ''} flex flex-col`}
         >
             {/* MODALS & OVERLAYS */}
+            {/* Desktop-builder front door: only ever visible when the
+                session started on thalassawx.app/plan (see the
+                component header). Renders null on native. */}
+            <BuilderDeepLink />
             <Suspense fallback={null}>
                 {showOnboarding && <OnboardingWizard onComplete={handleOnboardingComplete} />}
                 <UpgradeModal

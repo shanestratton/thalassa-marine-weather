@@ -34,9 +34,21 @@ async function signedIn(): Promise<boolean> {
     }
 }
 
+/** Outcome of a push — surfaced in the tracer's save flash so a route
+ *  that only landed on THIS device never silently poses as synced. */
+export type PushResult = 'ok' | 'signedout' | 'toolarge' | 'error';
+
 /** Push one trace to the account. Fire-and-forget from saveTrace. */
-export async function pushSavedRoute(trace: SavedTrace): Promise<void> {
-    if (!(await signedIn())) return;
+export async function pushSavedRoute(trace: SavedTrace): Promise<PushResult> {
+    if (!(await signedIn())) return 'signedout';
+    // The saved_routes points column carries a 2..200-element check
+    // constraint; an over-long trace would fail server-side with only a
+    // log.warn to show for it. Truncating a route is a safety lie, so
+    // refuse loudly instead.
+    if (trace.points.length > 200) {
+        log.warn(`push skipped for ${trace.id}: ${trace.points.length} points exceeds the 200-point sync cap`);
+        return 'toolarge';
+    }
     const { error } = await supabase!.from('saved_routes').upsert({
         id: trace.id,
         name: trace.name,
@@ -45,7 +57,11 @@ export async function pushSavedRoute(trace: SavedTrace): Promise<void> {
         updated_at: new Date().toISOString(),
         deleted: false,
     });
-    if (error) log.warn(`push failed for ${trace.id}: ${error.message}`);
+    if (error) {
+        log.warn(`push failed for ${trace.id}: ${error.message}`);
+        return 'error';
+    }
+    return 'ok';
 }
 
 /** Tombstone a deleted trace on the account. Fire-and-forget. */

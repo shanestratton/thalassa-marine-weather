@@ -7,6 +7,7 @@
 
 import { create } from 'zustand';
 import type { TransitionDirection } from '../components/ui/PageTransition';
+import { initialViewFromUrl } from '../services/deepLink';
 
 const TAB_PAGES = new Set(['dashboard', 'map', 'chat', 'vessel']);
 const VESSEL_CHILDREN = new Set([
@@ -33,9 +34,14 @@ interface UIState {
     addDebugLog: (msg: string) => void;
 }
 
+// Deep links (thalassawx.app/plan → the desktop passage builder) seed
+// the boot view directly so there's no dashboard flash before the
+// map mounts. Native serves from '/', which resolves to the default.
+const bootView = initialViewFromUrl() ?? 'dashboard';
+
 export const useUIStore = create<UIState>()((set, get) => ({
-    currentView: 'dashboard',
-    previousView: 'dashboard',
+    currentView: bootView,
+    previousView: bootView,
     transitionDirection: 'tab' as TransitionDirection,
     isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false,
     debugLogs: [],
