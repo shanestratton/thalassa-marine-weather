@@ -81,6 +81,14 @@ import {
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { TraceReportModal } from './TraceReportModal';
+import {
+    submitTracedRoute,
+    communityLanesNear,
+    listPendingRoutes,
+    reviewRoute,
+    type PendingRoute,
+} from '../../services/communityRoutes';
+import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
@@ -120,7 +128,6 @@ import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { useDestinationFlag } from './useDestinationFlag';
 import { useRouteTrackLayer } from './useRouteTrackLayer';
 import { RouteTrackPicker } from './RouteTrackPicker';
-import type { RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
 import { MapboxVelocityOverlay } from './MapboxVelocityOverlay';
 import { LayerFABMenu } from './MapHubOverlays';
 import { RadialHelmMenu } from './RadialHelmMenu';
@@ -260,6 +267,13 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [fixBusyLeg, setFixBusyLeg] = useState<number | null>(null);
     /** null = computing, '' = nothing tide-gated on the route. */
     const [departureLabel, setDepartureLabel] = useState<string | null>('');
+    /** Community flywheel (#38): consent-armed share, harbourmaster queue,
+     *  and the track→trace voyage picker. */
+    const [shareArmed, setShareArmed] = useState(false);
+    const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
+    const [showQueue, setShowQueue] = useState(false);
+    const [voyageTracks, setVoyageTracks] = useState<RouteOrTrack[]>([]);
+    const [showVoyagePicker, setShowVoyagePicker] = useState(false);
     /** Proven-lane ghosts: curated fairways near the trace area, drawn dotted
      *  grey; accepting one loads its pins ("trace out of the marina" solved
      *  in two taps where a lane exists). */
@@ -280,7 +294,27 @@ export const MapHub: React.FC<MapHubProps> = ({
             setGhostLanes([]);
             return;
         }
-        setGhostLanes(curatedLanesNear([centre.lon - 0.05, centre.lat - 0.05, centre.lon + 0.05, centre.lat + 0.05]));
+        const bbox: [number, number, number, number] = [
+            centre.lon - 0.05,
+            centre.lat - 0.05,
+            centre.lon + 0.05,
+            centre.lat + 0.05,
+        ];
+        // Curated lanes land instantly; approved community lanes merge in as
+        // the RPC returns (10-min cached). Stale-guarded — a pin drop mid-
+        // fetch supersedes this run.
+        let stale = false;
+        setGhostLanes(curatedLanesNear(bbox));
+        void communityLanesNear(bbox).then((community) => {
+            if (stale || community.length === 0) return;
+            setGhostLanes((prev) => {
+                const seen = new Set(prev.map((l) => l.id));
+                return [...prev, ...community.filter((l) => !seen.has(l.id))];
+            });
+        });
+        return () => {
+            stale = true;
+        };
     }, [coordCaptureMode, capturedCoords]);
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
@@ -731,6 +765,65 @@ export const MapHub: React.FC<MapHubProps> = ({
             stale = true;
         };
     }, [showReport, legVerdicts, settings.vessel]);
+    // ── Community flywheel handlers (#38) ──
+    // Consent share: first tap ARMS with the plain-english consent copy;
+    // second tap submits. Explicit every time — never a background upload.
+    const submitShare = useCallback(async () => {
+        if (capturedCoords.length < 2) return;
+        triggerHaptic('medium');
+        const draftAssumed = !(Number(settings.vessel?.draft) > 0);
+        const res = await submitTracedRoute(
+            traceName,
+            capturedCoords,
+            draftAssumed ? null : vesselDraftMetres(settings.vessel),
+        );
+        setShareArmed(false);
+        flashTraceFeedback(res.message);
+    }, [capturedCoords, traceName, settings.vessel, flashTraceFeedback]);
+    // Harbourmaster queue — RLS means non-owner accounts just see [].
+    const refreshQueue = useCallback(async () => {
+        setPendingRoutes(await listPendingRoutes());
+    }, []);
+    const handleReview = useCallback(
+        async (id: string, verdict: 'approved' | 'rejected') => {
+            triggerHaptic('medium');
+            const ok = await reviewRoute(id, verdict);
+            flashTraceFeedback(
+                ok ? (verdict === 'approved' ? 'Published as a proven lane ✓' : 'Rejected') : 'Review failed — signal?',
+            );
+            if (ok) setPendingRoutes((prev) => prev.filter((r) => r.id !== id));
+        },
+        [flashTraceFeedback],
+    );
+    // Track→trace: a sailed voyage, decimated to editable pins and re-graded.
+    // "Sail it once, save it forever."
+    const openVoyagePicker = useCallback(async () => {
+        triggerHaptic('light');
+        setShowVoyagePicker((v) => !v);
+        if (voyageTracks.length === 0) {
+            const { tracks } = await fetchRoutesAndTracks();
+            setVoyageTracks(tracks.filter((t) => t.points.length >= 2).slice(0, 6));
+        }
+    }, [voyageTracks.length]);
+    const loadVoyageAsTrace = useCallback(
+        (t: RouteOrTrack) => {
+            triggerHaptic('medium');
+            let pins = rdpTracePoints(t.points, 30);
+            // Cap at 80 pins — a 12-hour track at trawl speed can survive RDP
+            // with hundreds of vertices; coarsen until it's editable.
+            let eps = 30;
+            while (pins.length > 80 && eps < 500) {
+                eps *= 2;
+                pins = rdpTracePoints(t.points, eps);
+            }
+            setShowVoyagePicker(false);
+            setCapturedCoords(pins);
+            const mid = pins[Math.floor(pins.length / 2)];
+            mapRef.current?.flyTo({ center: [mid.lon, mid.lat], zoom: 11.5, duration: 1000 });
+            flashTraceFeedback(`${t.label} loaded as ${pins.length} pins — re-checking it now`);
+        },
+        [flashTraceFeedback],
+    );
     // ── Route Tracer validation (lives below the settings declaration —
     // the dep arrays read settings.vessel at render time) ──
     // Build/refresh the tracer context, then grade every leg. Rebuilds when a
@@ -741,6 +834,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         setSailArmed(false); // a changed line always re-earns its "Sail anyway"
         setAckedLegs(new Set()); // ack indices die with the old leg list
+        setShareArmed(false); // consent never outlives the line it was given for
         if (!coordCaptureMode || capturedCoords.length === 0) {
             if (capturedCoords.length === 0) setLegVerdicts([]);
             return;
@@ -2860,9 +2954,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         <button
                                             onClick={() => {
                                                 triggerHaptic('medium');
-                                                setCapturedCoords(ghostLanes[0].points);
+                                                const lane = ghostLanes[0] as (typeof ghostLanes)[number] & {
+                                                    draftM?: number | null;
+                                                };
+                                                setCapturedCoords(lane.points);
+                                                // Draft-relative honesty: a shared lane was proven
+                                                // by SOMEONE'S keel — the re-grade against YOURS
+                                                // happens automatically as the pins load.
+                                                const mine = vesselDraftMetres(settings.vessel);
                                                 flashTraceFeedback(
-                                                    'Proven lane loaded — check it, then ⚡ Auto or keep tracing',
+                                                    lane.draftM
+                                                        ? `Proven at ${lane.draftM.toFixed(1)} m draft — re-checking for your ${mine.toFixed(1)} m keel`
+                                                        : 'Proven lane loaded — check it, then ⚡ Auto or keep tracing',
                                                 );
                                             }}
                                             className="w-full rounded-lg bg-emerald-500/15 py-2 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95"
@@ -3165,6 +3268,99 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             📤 Share this route with a mate
                                         </button>
                                     )}
+                                    {capturedCoords.length >= 2 && (
+                                        <button
+                                            onClick={() => {
+                                                if (shareArmed) {
+                                                    void submitShare();
+                                                } else {
+                                                    triggerHaptic('light');
+                                                    setShareArmed(true);
+                                                }
+                                            }}
+                                            className={`w-full text-left text-[10px] font-bold uppercase tracking-wide active:text-gray-200 ${shareArmed ? 'text-emerald-300' : 'text-gray-400'}`}
+                                        >
+                                            {shareArmed
+                                                ? '✓ Confirm: submits for review, name not shown — tap again'
+                                                : '🌐 Share with all skippers'}
+                                        </button>
+                                    )}
+                                    <button
+                                        onClick={() => void openVoyagePicker()}
+                                        className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-gray-400 active:text-gray-200"
+                                    >
+                                        {showVoyagePicker ? '▾' : '▸'} 🛥 From a past voyage
+                                    </button>
+                                    {showVoyagePicker &&
+                                        (voyageTracks.length === 0 ? (
+                                            <div className="pl-4 text-[10px] text-gray-500">
+                                                No sailed tracks yet — finish a voyage first.
+                                            </div>
+                                        ) : (
+                                            voyageTracks.map((t) => (
+                                                <button
+                                                    key={t.id}
+                                                    onClick={() => loadVoyageAsTrace(t)}
+                                                    className="block w-full truncate pl-4 text-left text-[11px] text-gray-200 active:opacity-70"
+                                                >
+                                                    {t.label}{' '}
+                                                    <span className="text-gray-500">{t.distanceNm.toFixed(0)} NM</span>
+                                                </button>
+                                            ))
+                                        ))}
+                                    {seawayDebugVisible && (
+                                        <button
+                                            onClick={() => {
+                                                triggerHaptic('light');
+                                                setShowQueue((q) => !q);
+                                                if (!showQueue) void refreshQueue();
+                                            }}
+                                            className="w-full text-left text-[10px] font-bold uppercase tracking-wide text-amber-400 active:text-amber-200"
+                                        >
+                                            {showQueue ? '▾' : '▸'} ⚓ Harbourmaster queue
+                                        </button>
+                                    )}
+                                    {seawayDebugVisible &&
+                                        showQueue &&
+                                        (pendingRoutes.length === 0 ? (
+                                            <div className="pl-4 text-[10px] text-gray-500">Queue's empty.</div>
+                                        ) : (
+                                            pendingRoutes.map((r) => (
+                                                <div key={r.id} className="flex items-center gap-1.5 pl-4 text-[11px]">
+                                                    <button
+                                                        onClick={() => {
+                                                            triggerHaptic('light');
+                                                            setCapturedCoords(r.points);
+                                                            const mid = r.points[Math.floor(r.points.length / 2)];
+                                                            mapRef.current?.flyTo({
+                                                                center: [mid.lon, mid.lat],
+                                                                zoom: 12.5,
+                                                                duration: 900,
+                                                            });
+                                                        }}
+                                                        className="flex-1 truncate text-left text-gray-200 active:opacity-70"
+                                                    >
+                                                        {r.name}{' '}
+                                                        <span className="text-gray-500">
+                                                            ({r.points.length} pins
+                                                            {r.draftM ? ` · ${r.draftM.toFixed(1)} m` : ''})
+                                                        </span>
+                                                    </button>
+                                                    <button
+                                                        onClick={() => void handleReview(r.id, 'approved')}
+                                                        className="px-1 font-black text-emerald-300 active:scale-95"
+                                                    >
+                                                        ✓
+                                                    </button>
+                                                    <button
+                                                        onClick={() => void handleReview(r.id, 'rejected')}
+                                                        className="px-1 font-black text-red-400 active:scale-95"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                </div>
+                                            ))
+                                        ))}
                                     {savedTraces.length > 0 && (
                                         <button
                                             onClick={() => setShowSavedTraces((s) => !s)}
