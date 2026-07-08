@@ -123,17 +123,24 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
 
     if (!piCache.isAvailable()) {
         // The overlay is the ONLY water source for OSM-charted canal estates
-        // (the ENC paints them land) — returning empty here turned the whole
-        // Mooloolaba canal system into LAND on every app relaunch away from
-        // the Pi (Shane, 2026-07-03, at the marina pre-departure). Serve the
-        // last good DISK copy at any age before surrendering to chart-only.
+        // (the ENC paints them land). Fallback ladder away from the Pi:
+        // CLOUD edge function (fresh, powers the desktop builder where the
+        // Pi is unreachable by definition) → last good DISK copy (any age)
+        // → empty (router degrades to chart-only).
+        const cloud = await fetchOverlayFromCloud(bbox);
+        if (cloud) {
+            log.warn(`Pi not reachable — CLOUD overlay for bbox ${key}`);
+            memCache.set(key, { ts: Date.now(), data: cloud });
+            void writeOverlayToDisk(key, cloud);
+            return cloud;
+        }
         const disk = await readOverlayFromDisk(key);
         if (disk) {
             log.warn(`Pi not reachable — serving DISK overlay for bbox ${key}`);
             memCache.set(key, { ts: Date.now(), data: disk });
             return disk;
         }
-        log.warn('Pi not reachable, no disk copy — OSM overlay empty (router will fall back to chart-only)');
+        log.warn('Pi not reachable, no cloud/disk copy — OSM overlay empty (router will fall back to chart-only)');
         return emptyOverlay();
     }
 
@@ -175,8 +182,14 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
         log.warn(
             `OSM overlay fetch failed (${Date.now() - t0}ms): ${err instanceof Error ? err.message : String(err)}`,
         );
-        // Same disk fallback as the Pi-unreachable path — a mid-fetch dropout
-        // must not degrade an area we have served before.
+        // Same cloud→disk ladder as the Pi-unreachable path — a mid-fetch
+        // dropout must not degrade an area we have served before.
+        const cloud = await fetchOverlayFromCloud(bbox);
+        if (cloud) {
+            memCache.set(key, { ts: Date.now(), data: cloud });
+            void writeOverlayToDisk(key, cloud);
+            return cloud;
+        }
         const disk = await readOverlayFromDisk(key);
         if (disk) {
             log.warn(`fetch failed — serving DISK overlay for bbox ${key}`);
@@ -186,6 +199,38 @@ export async function getOsmRouteOverlay(bbox: [number, number, number, number])
         return emptyOverlay();
     } finally {
         clearTimeout(timer);
+    }
+}
+
+// ── Cloud fallback (osm-overlay edge function, desktop builder) ─────
+// Same recipe as the pi-cache (ported verbatim, v5 schema incl. berths),
+// cached server-side in osm_overlay_cache. Signed-in only (the function
+// verifies the JWT) — a signed-out browser degrades to disk/empty.
+
+async function fetchOverlayFromCloud(bbox: [number, number, number, number]): Promise<OsmRouteOverlay | null> {
+    try {
+        const { supabase, isSupabaseConfigured } = await import('./supabase');
+        if (!isSupabaseConfigured() || !supabase) return null;
+        const { data, error } = await supabase.functions.invoke('osm-overlay', {
+            body: { bbox: bbox.join(',') },
+        });
+        if (error || !data || typeof data !== 'object') return null;
+        const raw = data as Partial<OsmRouteOverlay>;
+        if (!raw.water || !Array.isArray(raw.water.features)) return null;
+        return {
+            water: raw.water,
+            reef: raw.reef ?? { type: 'FeatureCollection', features: [] },
+            coastline: raw.coastline ?? { type: 'FeatureCollection', features: [] },
+            marina: raw.marina ?? { type: 'FeatureCollection', features: [] },
+            breakwater: raw.breakwater ?? { type: 'FeatureCollection', features: [] },
+            aeroway: raw.aeroway ?? { type: 'FeatureCollection', features: [] },
+            canalLines: raw.canalLines ?? { type: 'FeatureCollection', features: [] },
+            navLines: raw.navLines ?? { type: 'FeatureCollection', features: [] },
+            berths: raw.berths ?? { type: 'FeatureCollection', features: [] },
+        };
+    } catch (err) {
+        log.warn(`cloud overlay failed: ${err instanceof Error ? err.message : String(err)}`);
+        return null;
     }
 }
 

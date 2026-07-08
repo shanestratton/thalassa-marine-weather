@@ -762,6 +762,9 @@ export function saveTrace(name: string, points: readonly TracePoint[]): { trace:
     } catch {
         /* quota — persisted stays false */
     }
+    // Account sync (Phase 5.3): best-effort push so the route follows the
+    // punter across devices — build on the desktop, sail on the phone.
+    void import('./savedRoutesSync').then(({ pushSavedRoute }) => pushSavedRoute(trace)).catch(() => {});
     return { trace, persisted };
 }
 
@@ -771,6 +774,8 @@ export function deleteTrace(id: string): void {
     } catch {
         /* ignore */
     }
+    // Tombstone on the account so the delete syncs across devices too.
+    void import('./savedRoutesSync').then(({ pushSavedRouteDelete }) => pushSavedRouteDelete(id)).catch(() => {});
 }
 
 /**

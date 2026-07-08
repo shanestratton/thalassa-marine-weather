@@ -1,0 +1,108 @@
+/**
+ * Saved-route account sync — build on the desktop, sail on the phone
+ * (masterplan Phase 5.3, table `saved_routes`).
+ *
+ * localStorage stays the source of truth for the UI (offline-first, exactly
+ * like the diary): saves and deletes land locally first and push to the
+ * account best-effort; `syncSavedRoutes()` pull-merges the account set when
+ * the tracer opens. Merge is by id — client-generated `trace-*` ids are
+ * unique per save, so union + server tombstones is sufficient (no
+ * conflicting edits exist: traces are immutable once saved).
+ */
+import { supabase, isSupabaseConfigured } from './supabase';
+import { loadSavedTraces, type SavedTrace, type TracePoint } from './routeTracer';
+import { createLogger } from '../utils/createLogger';
+
+const log = createLogger('savedRoutesSync');
+
+const TRACES_KEY = 'thalassa_traced_routes_v1';
+
+function writeLocal(all: SavedTrace[]): void {
+    try {
+        localStorage.setItem(TRACES_KEY, JSON.stringify(all.slice(0, 50)));
+    } catch {
+        /* quota — local set unchanged */
+    }
+}
+
+async function signedIn(): Promise<boolean> {
+    if (!isSupabaseConfigured() || !supabase) return false;
+    try {
+        return !!(await supabase.auth.getUser()).data.user;
+    } catch {
+        return false;
+    }
+}
+
+/** Push one trace to the account. Fire-and-forget from saveTrace. */
+export async function pushSavedRoute(trace: SavedTrace): Promise<void> {
+    if (!(await signedIn())) return;
+    const { error } = await supabase!.from('saved_routes').upsert({
+        id: trace.id,
+        name: trace.name,
+        points: trace.points.map((p) => [p.lat, p.lon]),
+        created_at: trace.createdAt,
+        updated_at: new Date().toISOString(),
+        deleted: false,
+    });
+    if (error) log.warn(`push failed for ${trace.id}: ${error.message}`);
+}
+
+/** Tombstone a deleted trace on the account. Fire-and-forget. */
+export async function pushSavedRouteDelete(id: string): Promise<void> {
+    if (!(await signedIn())) return;
+    const { error } = await supabase!.from('saved_routes').upsert({
+        id,
+        name: '(deleted)',
+        points: [
+            [0, 0],
+            [0, 0],
+        ],
+        deleted: true,
+        updated_at: new Date().toISOString(),
+    });
+    if (error) log.warn(`delete push failed for ${id}: ${error.message}`);
+}
+
+/**
+ * Pull the account set and merge into localStorage. Account tombstones
+ * remove local copies; local-only traces push up (a device that saved
+ * offline catches the account up). Returns the merged list.
+ */
+export async function syncSavedRoutes(): Promise<SavedTrace[]> {
+    const local = loadSavedTraces();
+    if (!(await signedIn())) return local;
+    try {
+        const { data, error } = await supabase!
+            .from('saved_routes')
+            .select('id, name, points, created_at, deleted')
+            .order('updated_at', { ascending: false })
+            .limit(100);
+        if (error) throw new Error(error.message);
+        const rows = data ?? [];
+        const deletedIds = new Set(rows.filter((r) => r.deleted).map((r) => r.id as string));
+        const remote: SavedTrace[] = rows
+            .filter((r) => !r.deleted && Array.isArray(r.points))
+            .map((r) => ({
+                id: r.id as string,
+                name: r.name as string,
+                createdAt: (r.created_at as string) ?? new Date().toISOString(),
+                points: (r.points as [number, number][])
+                    .filter((p) => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]))
+                    .map(([lat, lon]) => ({ lat, lon }) as TracePoint),
+            }))
+            .filter((t) => t.points.length >= 2);
+        const remoteIds = new Set(remote.map((t) => t.id));
+        const localOnly = local.filter((t) => !remoteIds.has(t.id) && !deletedIds.has(t.id));
+        // Catch the account up with offline saves, best-effort.
+        for (const t of localOnly) void pushSavedRoute(t);
+        const merged = [...localOnly, ...remote].sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+        writeLocal(merged);
+        return merged;
+    } catch (err) {
+        log.warn(`sync failed: ${err instanceof Error ? err.message : String(err)}`);
+        return local;
+    }
+}

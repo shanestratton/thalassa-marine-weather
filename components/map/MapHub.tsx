@@ -318,7 +318,19 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [coordCaptureMode, capturedCoords]);
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
-        if (coordCaptureMode) setSavedTraces(loadSavedTraces());
+        if (coordCaptureMode) {
+            setSavedTraces(loadSavedTraces());
+            // Desktop builder (Phase 5): register cloud ENC cells (idempotent,
+            // signed-in only — a browser can't reach the Pi) and pull the
+            // account's saved routes; refresh the list when the merge lands.
+            void import('../../services/enc/cloudCellSync')
+                .then(({ registerCloudCells }) => registerCloudCells())
+                .catch(() => {});
+            void import('../../services/savedRoutesSync')
+                .then(({ syncSavedRoutes }) => syncSavedRoutes())
+                .then((merged) => setSavedTraces(merged))
+                .catch(() => {});
+        }
     }, [coordCaptureMode]);
     // Draw the graded legs on a dedicated source ('route-line' belongs to the
     // passage planner). Idempotent ensure() re-adds after a basemap style
