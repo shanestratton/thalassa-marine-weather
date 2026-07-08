@@ -143,11 +143,11 @@ web contexts (the app reads ENC/OSM from device/Pi) — serve the pi-cache
 overlay + installed-cell extracts through Supabase storage or an edge proxy.
 Sequenced AFTER Phase 4 because consent + the routes table are prerequisites.
 
-| #   | Feature                                                                                           |
-| --- | ------------------------------------------------------------------------------------------------- |
-| 5.1 | Auth-gated /plan web page (thalassawx.app), plan-page look, mouse-precision tracing               |
-| 5.2 | Cloud layer source: ENC extracts + OSM overlay served from Supabase/edge (web can't reach the Pi) |
-| 5.3 | Account-synced routes: build on desktop → sail on the phone (Phase-4 routes table)                |
+| #   | Feature                                                                                                                                                                                                                                                                     |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 5.1 | ✅ Auth-gated /plan web page: deep link boots the map + opens the tracer behind a web sign-in (email OTP primary on web), linked from the public voyage-log "⚓ Skipper" door (2026-07-09). Dedicated wide-screen layout still open — desktop currently gets the tablet UI. |
+| 5.2 | ✅ Cloud layer source: ENC extracts + OSM overlay served from Supabase/edge (8fd3cabb)                                                                                                                                                                                      |
+| 5.3 | ✅ Account-synced routes: build on desktop → sail on the phone; pull-merge now also runs at app start, not just tracer-open (8fd3cabb + 2026-07-09)                                                                                                                         |
 
 ## Non-goals / deliberate stances
 

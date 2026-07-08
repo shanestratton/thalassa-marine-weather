@@ -117,6 +117,7 @@ import {
     type TracerContext,
     type SavedTrace,
 } from '../../services/routeTracer';
+import { consumeTracerOpenRequest } from '../../services/deepLink';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
 import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
@@ -316,6 +317,23 @@ export const MapHub: React.FC<MapHubProps> = ({
             stale = true;
         };
     }, [coordCaptureMode, capturedCoords]);
+    // Deep-link door (Phase 5.1): thalassawx.app/plan boots the map with
+    // a pending tracer-open request — consume it on mount, or via the
+    // 'thalassa:trace-mode' window event when the map is already up
+    // (BuilderDeepLink fires it after the sign-in step). Gated exactly
+    // like the Trace-route FAB: embedded/picker/pin surfaces never
+    // respond, so the RoutePlanner's hideTracer embed can't hijack it.
+    useEffect(() => {
+        if (embedded || pickerMode || hideTracer || isPinView) return;
+        const open = () => {
+            consumeTracerOpenRequest();
+            setWeatherInspectMode(false);
+            setCoordCaptureMode(true);
+        };
+        if (consumeTracerOpenRequest()) open();
+        window.addEventListener('thalassa:trace-mode', open);
+        return () => window.removeEventListener('thalassa:trace-mode', open);
+    }, [embedded, pickerMode, hideTracer, isPinView]);
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
         if (coordCaptureMode) {
@@ -575,11 +593,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
         triggerHaptic('medium');
-        const { persisted } = saveTrace(traceName, capturedCoords);
+        const { persisted, cloud } = saveTrace(traceName, capturedCoords);
         setSavedTraces(loadSavedTraces());
         if (persisted) {
             setTraceName('');
             flashTraceFeedback('Saved ✓');
+            // Cross-device honesty: "Saved ✓" is true of THIS device either
+            // way, but build-on-desktop→sail-on-phone needs the account
+            // push — when it didn't happen, say so instead of letting the
+            // route silently live in one browser's localStorage.
+            void cloud.then((result) => {
+                if (result === 'signedout') flashTraceFeedback('Saved here — sign in to sync across devices');
+                else if (result === 'toolarge') flashTraceFeedback('Saved here — over 200 pins, too long to sync');
+                else if (result === 'error') flashTraceFeedback('Saved here — cloud sync will retry later');
+            });
         } else {
             // Quota refused the write — saying "Saved ✓" over a route that
             // won't exist next session is exactly the lie we don't tell.
@@ -3390,6 +3417,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         setCapturedCoords(t.points);
                                                         setTraceName(t.name);
                                                         setShowSavedTraces(false);
+                                                        // A route built on the desktop is usually
+                                                        // for somewhere else — without the flyTo its
+                                                        // pins land off-screen and the tap looks
+                                                        // like a no-op (the queue loader above
+                                                        // already does this).
+                                                        const mid = t.points[Math.floor(t.points.length / 2)];
+                                                        mapRef.current?.flyTo({
+                                                            center: [mid.lon, mid.lat],
+                                                            zoom: 12.5,
+                                                            duration: 900,
+                                                        });
                                                     }}
                                                     className="flex-1 truncate text-left text-gray-200 active:opacity-70"
                                                 >

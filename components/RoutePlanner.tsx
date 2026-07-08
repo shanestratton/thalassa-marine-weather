@@ -406,7 +406,7 @@ export const RoutePlanner: React.FC<{
                             onFocus={handleInputFocus}
                             readOnly={originLocked}
                             aria-readonly={originLocked || undefined}
-                            placeholder={originLocked ? '' : 'Type departure port or tap map…'}
+                            placeholder={originLocked ? '' : 'Type port, GPS coords, or tap map…'}
                             aria-label="Departure port or location"
                             title={originLocked ? 'Auto-set from the previous leg — change Leg 1 to alter' : undefined}
                             className={`w-full h-12 border rounded-xl pl-12 pr-32 text-sm font-medium placeholder-gray-500 outline-none transition-all shadow-inner ${
@@ -460,7 +460,7 @@ export const RoutePlanner: React.FC<{
                             value={destination}
                             onChange={(e) => setDestination(e.target.value)}
                             onFocus={handleInputFocus}
-                            placeholder="Type destination or tap map…"
+                            placeholder="Type destination, coords, or tap map…"
                             aria-label="Destination port or location"
                             className="w-full h-12 bg-slate-900/50 border border-white/10 focus:border-sky-500/50 rounded-xl pl-12 pr-24 text-sm text-white font-medium placeholder-gray-500 outline-none transition-all shadow-inner"
                         />
