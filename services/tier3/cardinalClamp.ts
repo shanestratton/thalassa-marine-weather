@@ -350,27 +350,68 @@ export function clampRouteToCardinalSafeSide(
         // Apex: the closest-approach point pushed onto the safe side by `clearance`.
         const push = Math.min(MAX_PUSH_M, clearTarget - sideP);
         const A: [number, number] = [P[0] + (safe[0] * push) / mPerLon, P[1] + (safe[1] * push) / M_PER_DEG_LAT];
-        // Entry/exit vertices ±rampM along-track from the closest approach.
-        let eIdx = bk;
-        let accE = haversineM(P[1], P[0], pts[bk][1], pts[bk][0]);
-        while (eIdx > 0 && accE < rampM) {
-            accE += haversineM(pts[eIdx][1], pts[eIdx][0], pts[eIdx - 1][1], pts[eIdx - 1][0]);
-            eIdx--;
-        }
-        let xIdx = bk + 1;
-        let accX = haversineM(P[1], P[0], pts[bk + 1][1], pts[bk + 1][0]);
-        while (xIdx < pts.length - 1 && accX < rampM) {
-            accX += haversineM(pts[xIdx][1], pts[xIdx][0], pts[xIdx + 1][1], pts[xIdx + 1][0]);
-            xIdx++;
-        }
+        // Entry/exit anchors at EXACTLY ±rampM along-track from the closest
+        // approach. The previous version walked whole VERTICES only, so on a
+        // sparse span (a single 3.4 km A* leg near the mark) E and X became
+        // far endpoints, the apex-at-midpoint bezier overshot the exit and
+        // folded into a ~193° hairpin — the Newport golden's 180°/163° kinks
+        // (double-back audit, 2026-07-09). Where the ramp lands inside a long
+        // segment we CUT a new anchor vertex into it instead.
+        type Anchor = { coord: [number, number]; idx: number; cut: boolean };
+        // Walk from P (step -1 = backward toward index 0, +1 = forward)
+        // accumulating along-track metres. cut=true anchors carry the index
+        // of their segment-START vertex; cut=false means the route ended
+        // inside the ramp and the anchor is that endpoint vertex.
+        const findAnchor = (step: -1 | 1): Anchor => {
+            const first = step === -1 ? bk : bk + 1; // first vertex out from P
+            let acc = haversineM(P[1], P[0], pts[first][1], pts[first][0]);
+            if (acc >= rampM) {
+                // Ramp ends between P and the first vertex — the cut lies on
+                // the closest-approach segment (bk, bk+1) itself.
+                const t = rampM / acc;
+                return {
+                    coord: [P[0] + (pts[first][0] - P[0]) * t, P[1] + (pts[first][1] - P[1]) * t],
+                    idx: bk,
+                    cut: true,
+                };
+            }
+            let idx = first;
+            while (step === -1 ? idx > 0 : idx < pts.length - 1) {
+                const next = idx + step;
+                const segLen = haversineM(pts[idx][1], pts[idx][0], pts[next][1], pts[next][0]);
+                if (acc + segLen >= rampM) {
+                    const t = (rampM - acc) / segLen;
+                    return {
+                        coord: [
+                            pts[idx][0] + (pts[next][0] - pts[idx][0]) * t,
+                            pts[idx][1] + (pts[next][1] - pts[idx][1]) * t,
+                        ],
+                        idx: Math.min(idx, next),
+                        cut: true,
+                    };
+                }
+                acc += segLen;
+                idx = next;
+            }
+            return { coord: [pts[idx][0], pts[idx][1]], idx, cut: false };
+        };
+        const entry = findAnchor(-1);
+        const exit = findAnchor(1);
+        const E = entry.coord;
+        const X = exit.coord;
+        // Original vertices consumed by the detour (inclusive range). Both
+        // anchor styles keep their reference vertex: a vertex-anchor stays
+        // itself; a cut-anchor keeps its segment-start vertex outside the
+        // splice and inserts the cut alongside the bezier interior.
+        const removeStart = entry.idx + 1;
+        const removeEnd = exit.cut ? exit.idx : exit.idx - 1;
         // Never move a gate / canal vertex, and don't fight an opposed cardinal already committed here.
-        for (let i = eIdx; i <= xIdx; i++) {
+        const checkHi = exit.cut ? exit.idx + 1 : exit.idx;
+        for (let i = entry.idx; i <= checkHi; i++) {
             if (prot[i]) return 'prot';
             const ca = committedAxis[i];
             if (ca && ca[0] * safe[0] + ca[1] * safe[1] < 0) return 'prot';
         }
-        const E = pts[eIdx];
-        const X = pts[xIdx];
         // Quadratic bezier whose control point puts the curve through the apex A at its midpoint.
         const P1: [number, number] = [2 * A[0] - (E[0] + X[0]) / 2, 2 * A[1] - (E[1] + X[1]) / 2];
         const ctrlLen = haversineM(E[1], E[0], P1[1], P1[0]) + haversineM(P1[1], P1[0], X[1], X[0]);
@@ -384,20 +425,42 @@ export function clampRouteToCardinalSafeSide(
                 u * u * E[1] + 2 * u * t * P1[1] + t * t * X[1],
             ]);
         }
-        // Land-validate the whole detour; if any part would cross land, leave the route alone here.
         const full: [number, number][] = [E, ...interior, X];
+        // A detour may never violate the engine's own de-spike contract: if
+        // the bezier still turns harder than 100° anywhere (degenerate
+        // geometry the ramp cut can't fix), leave the route alone — a missed
+        // clamp is a caution, a hairpin is a route that doubles back.
+        let worstTurn = 0;
+        for (let i = 1; i + 1 < full.length; i++) {
+            const e1 = (full[i][0] - full[i - 1][0]) * mPerLon;
+            const n1 = (full[i][1] - full[i - 1][1]) * M_PER_DEG_LAT;
+            const e2 = (full[i + 1][0] - full[i][0]) * mPerLon;
+            const n2 = (full[i + 1][1] - full[i][1]) * M_PER_DEG_LAT;
+            const l1 = Math.hypot(e1, n1);
+            const l2 = Math.hypot(e2, n2);
+            if (l1 < 1e-6 || l2 < 1e-6) continue;
+            const cos = Math.max(-1, Math.min(1, (e1 * e2 + n1 * n2) / (l1 * l2)));
+            worstTurn = Math.max(worstTurn, (Math.acos(cos) * 180) / Math.PI);
+        }
+        if (worstTurn > 100) return 'safe';
+        // Land-validate the whole detour; if any part would cross land, leave the route alone here.
         for (let i = 0; i < full.length - 1; i++) {
             if (segCrossesLand(grid, full[i], full[i + 1])) return 'land';
         }
-        // Splice the bezier interior in place of the original interior (E and X are kept as anchors).
-        const removeCount = xIdx - eIdx - 1;
-        const fillFalse = interior.map(() => false);
-        pts.splice(eIdx + 1, removeCount, ...interior);
-        red.splice(eIdx + 1, removeCount, ...fillFalse);
-        prot.splice(eIdx + 1, removeCount, ...fillFalse);
-        committedAxis.splice(eIdx + 1, removeCount, ...interior.map(() => safe));
-        const newX = eIdx + 1 + interior.length;
-        for (let i = eIdx; i <= newX; i++) committedAxis[i] = safe;
+        // Splice: cut anchors are INSERTED with the interior; vertex anchors
+        // stay in place flanking it.
+        const inserted: [number, number][] = [...(entry.cut ? [E] : []), ...interior, ...(exit.cut ? [X] : [])];
+        const removeCount = Math.max(0, removeEnd - removeStart + 1);
+        const fillFalse = inserted.map(() => false);
+        pts.splice(removeStart, removeCount, ...inserted);
+        red.splice(removeStart, removeCount, ...fillFalse);
+        prot.splice(removeStart, removeCount, ...fillFalse);
+        committedAxis.splice(removeStart, removeCount, ...inserted.map(() => safe));
+        // Commit the axis on the kept vertices flanking the splice too, so an
+        // opposed mark can't drag the anchors (mirrors the old E..X commit).
+        const lo = Math.max(0, removeStart - 1);
+        const hi = Math.min(pts.length - 1, removeStart + inserted.length);
+        for (let i = lo; i <= hi; i++) committedAxis[i] = safe;
         return 'moved';
     };
 

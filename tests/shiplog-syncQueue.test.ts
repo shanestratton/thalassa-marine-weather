@@ -52,6 +52,7 @@ import {
     normalizeLatestPositions,
     demoteLatestPositionInQueue,
     getOfflineEntries,
+    __resetOfflineQueueForTests,
 } from '../services/shiplog/OfflineQueue';
 import type { ShipLogEntry } from '../types';
 
@@ -66,6 +67,9 @@ const entry = (o: Partial<ShipLogEntry> = {}): Partial<ShipLogEntry> => ({
 
 beforeEach(() => {
     for (const k of Object.keys(store)) delete store[k];
+    // Module-level queue cache (c516385f) — must drop it so tests that
+    // seed the mocked Preferences store directly are actually re-read.
+    __resetOfflineQueueForTests();
     insertCalls.length = 0;
     failOnInsertCall = -1;
     mockUser = { id: 'user-1' };

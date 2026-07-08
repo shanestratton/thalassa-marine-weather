@@ -88,7 +88,10 @@ describe('Tier-2 real-chart fixture — Moreton Bay open-bay crossing', () => {
         const leg = routeTier2(span(ENTRY, EXIT), ctx);
         expect(isRefusal(leg), `routeTier2 refused: ${isRefusal(leg) ? leg.reason : ''}`).toBe(false);
         if (isRefusal(leg)) return;
-        expect(leg.tierId).toBe(2);
+        // routeTier2 emits tierId 3 under the four-tier contract (7574df84):
+        // the marks-free deep bay crossing IS tier 3; "tier 2" is now the
+        // marked channel. The function keeps its legacy name.
+        expect(leg.tierId).toBe(3);
         expect(leg.controllingDepthM ?? 0).toBeGreaterThanOrEqual(5); // genuine ≥5 m crossing
         expect(leg.polyline.length).toBeGreaterThanOrEqual(2);
         expect(leg.cautionMask.every((c) => c === false)).toBe(true); // open deep water, no caution

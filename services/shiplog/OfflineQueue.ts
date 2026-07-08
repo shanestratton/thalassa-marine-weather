@@ -107,6 +107,28 @@ export async function flushOfflineQueueToDisk(): Promise<void> {
     await persistNow();
 }
 
+/**
+ * TEST-ONLY: drop all module-level state (in-memory queue cache, tombstone
+ * cache, debounce timer, capture/sync latches) so each test starts pristine.
+ * Never call from product code — mid-voyage, memQueue IS the live queue and
+ * dropping it outside tests loses unflushed points.
+ */
+export function __resetOfflineQueueForTests(): void {
+    // Timer first — a leaked debounce firing after the reset would persist
+    // a stale snapshot into the next test's store.
+    if (persistTimer) {
+        clearTimeout(persistTimer);
+        persistTimer = null;
+    }
+    memQueue = null;
+    hydrating = null;
+    persisting = null;
+    appendsSincePersist = 0;
+    tombstones = null;
+    captureLocalOnly = false;
+    isSyncing = false;
+}
+
 // ── LOCAL-ONLY CAPTURE MODE ─────────────────────────────────────────
 // While a voyage is actively recording, every captured point is written
 // to the DEVICE only (this queue) — zero network on the capture path.

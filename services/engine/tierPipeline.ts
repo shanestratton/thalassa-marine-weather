@@ -333,20 +333,39 @@ export function pruneBridgeEndpointGridCenters(grid: NavGrid, bridge: readonly [
     const cellM = grid.dLat * M_PER_DEG_LAT;
     const endpointCellCenterM = Math.max(75, cellM * 1.8);
     const stepM = Math.max(10, cellM / 3);
-    if (
-        out.length >= 3 &&
-        tupleDistM(out[0], out[1]) <= endpointCellCenterM &&
-        !tupleLineCrossesHardLand(grid, out[0], out[2], stepM)
-    ) {
-        out.splice(1, 1);
+    // A grid-cell centre that DOUBLES BACK from its anchor (the walk
+    // a→centre→next reverses direction, dot < 0) is always prunable: the
+    // pruned segment a→next is a subset of the corridor the A* already
+    // swept, so the hard-land test — which is guaranteed to hit near a
+    // land-bridge anchor, that's why the bridge fired — must not veto it.
+    // Left in, that centre was the exact-180° reversal at the Newport
+    // golden's destination (double-back audit, 2026-07-09).
+    const doublesBack = (
+        a: readonly [number, number],
+        b: readonly [number, number],
+        c: readonly [number, number],
+    ): boolean => {
+        const mPerLon = M_PER_DEG_LAT * Math.cos((b[1] * Math.PI) / 180);
+        return (
+            (b[0] - a[0]) * (c[0] - b[0]) * mPerLon * mPerLon +
+                (b[1] - a[1]) * (c[1] - b[1]) * M_PER_DEG_LAT * M_PER_DEG_LAT <
+            0
+        );
+    };
+    if (out.length >= 3 && tupleDistM(out[0], out[1]) <= endpointCellCenterM) {
+        if (doublesBack(out[0], out[1], out[2]) || !tupleLineCrossesHardLand(grid, out[0], out[2], stepM)) {
+            out.splice(1, 1);
+        }
     }
     if (out.length >= 3) {
         const i = out.length - 2;
-        if (
-            tupleDistM(out[i], out[i + 1]) <= endpointCellCenterM &&
-            !tupleLineCrossesHardLand(grid, out[i - 1], out[i + 1], stepM)
-        ) {
-            out.splice(i, 1);
+        if (tupleDistM(out[i], out[i + 1]) <= endpointCellCenterM) {
+            if (
+                doublesBack(out[i - 1], out[i], out[i + 1]) ||
+                !tupleLineCrossesHardLand(grid, out[i - 1], out[i + 1], stepM)
+            ) {
+                out.splice(i, 1);
+            }
         }
     }
     return out;
