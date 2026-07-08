@@ -134,10 +134,12 @@ describe('drainDeletedTombstones', () => {
                     eq: () => ({ maybeSingle: async () => ({ data: null }) }),
                 }),
                 delete: () => ({
-                    eq: async (_col: string, id: string) => {
-                        deletedIds.push(id);
-                        return { error: null };
-                    },
+                    eq: (_col: string, id: string) => ({
+                        select: async () => {
+                            deletedIds.push(id);
+                            return { data: [{ id }], error: null };
+                        },
+                    }),
                 }),
             }),
             auth: { getUser: async () => ({ data: { user: null } }) },
@@ -159,7 +161,7 @@ describe('drainDeletedTombstones', () => {
                     eq: () => ({ maybeSingle: async () => ({ data: null }) }),
                 }),
                 delete: () => ({
-                    eq: async () => ({ error: { message: 'network sadness' } }),
+                    eq: () => ({ select: async () => ({ data: null, error: { message: 'network sadness' } }) }),
                 }),
             }),
             auth: { getUser: async () => ({ data: { user: null } }) },
@@ -180,10 +182,12 @@ describe('drainDeletedTombstones', () => {
                     eq: () => ({ maybeSingle: async () => ({ data: null }) }),
                 }),
                 delete: () => ({
-                    eq: async (_col: string, id: string) => {
-                        deletedIds.push(id);
-                        return { error: null };
-                    },
+                    eq: (_col: string, id: string) => ({
+                        select: async () => {
+                            deletedIds.push(id);
+                            return { data: [{ id }], error: null };
+                        },
+                    }),
                 }),
             }),
             auth: { getUser: async () => ({ data: { user: null } }) },
@@ -229,7 +233,9 @@ describe('drain/refresh race (grace window)', () => {
         mockSupabase.current = {
             from: () => ({
                 select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
-                delete: () => ({ eq: async () => ({ error: null }) }),
+                delete: () => ({
+                    eq: (_c: string, id: string) => ({ select: async () => ({ data: [{ id }], error: null }) }),
+                }),
             }),
             auth: { getUser: async () => ({ data: { user: null } }) },
         };
@@ -275,10 +281,12 @@ describe('quota-degraded tombstone writes', () => {
             from: () => ({
                 select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
                 delete: () => ({
-                    eq: async (_col: string, id: string) => {
-                        deletedIds.push(id);
-                        return { error: null };
-                    },
+                    eq: (_col: string, id: string) => ({
+                        select: async () => {
+                            deletedIds.push(id);
+                            return { data: [{ id }], error: null };
+                        },
+                    }),
                 }),
             }),
             auth: { getUser: async () => ({ data: { user: null } }) },
@@ -300,7 +308,9 @@ describe('server-side deletion order and storage cleanup', () => {
         mockSupabase.current = {
             from: () => ({
                 select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
-                delete: () => ({ eq: async () => ({ error: { message: 'rls denied' } }) }),
+                delete: () => ({
+                    eq: () => ({ select: async () => ({ data: null, error: { message: 'rls denied' } }) }),
+                }),
             }),
             storage: {
                 from: (bucket: string) => ({
@@ -332,10 +342,12 @@ describe('server-side deletion order and storage cleanup', () => {
             from: () => ({
                 select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
                 delete: () => ({
-                    eq: async (_col: string, id: string) => {
-                        ops.push(`row:${id}`);
-                        return { error: null };
-                    },
+                    eq: (_col: string, id: string) => ({
+                        select: async () => {
+                            ops.push(`row:${id}`);
+                            return { data: [{ id }], error: null };
+                        },
+                    }),
                 }),
             }),
             storage: {
@@ -354,5 +366,43 @@ describe('server-side deletion order and storage cleanup', () => {
         expect(ops).toContain('storage:diary-photos:u1/pic.jpg');
         expect(ops).toContain('storage:diary-audio:u1/memo.webm');
         expect(readTombstones().map((t) => t.id)).not.toContain('srv-media');
+    });
+});
+
+describe('silent RLS no-op (0 rows, no error)', () => {
+    it('keeps the tombstone when the delete affects nothing but the row is still readable', async () => {
+        localStorage.setItem(CACHE_KEY, JSON.stringify([makeEntry('srv-blocked')]));
+        await DiaryService.deleteEntry('srv-blocked');
+
+        mockSupabase.current = {
+            from: () => ({
+                // Probe SELECT still sees the row → delete was BLOCKED, not done.
+                select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { id: 'srv-blocked' } }) }) }),
+                // Supabase returns NO error and zero rows when RLS filters the
+                // target out — the old code counted this as success, dropped
+                // the tombstone, and the next refresh resurrected the entry.
+                delete: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }),
+            }),
+            auth: { getUser: async () => ({ data: { user: null } }) },
+        };
+
+        await DiaryService.drainDeletedTombstones();
+        expect(readTombstones().map((t) => t.id)).toContain('srv-blocked');
+    });
+
+    it('treats 0 rows + row no longer readable as already-deleted (tombstone cleared)', async () => {
+        localStorage.setItem(CACHE_KEY, JSON.stringify([makeEntry('srv-gone')]));
+        await DiaryService.deleteEntry('srv-gone');
+
+        mockSupabase.current = {
+            from: () => ({
+                select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null }) }) }),
+                delete: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }),
+            }),
+            auth: { getUser: async () => ({ data: { user: null } }) },
+        };
+
+        await DiaryService.drainDeletedTombstones();
+        expect(readTombstones().map((t) => t.id)).not.toContain('srv-gone');
     });
 });

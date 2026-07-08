@@ -130,9 +130,12 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
         return (
             <div className="relative overflow-hidden rounded-2xl">
                 {/* Delete button (revealed on swipe) */}
-                <div
+                <button
+                    type="button"
+                    aria-label="Delete entry"
                     className={`absolute right-0 top-0 bottom-0 w-20 bg-red-600 flex items-center justify-center rounded-r-2xl transition-opacity ${swipeOffset > 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                    onClick={() => {
+                    onClick={(ev) => {
+                        ev.stopPropagation();
                         resetSwipe();
                         onDelete();
                     }}
@@ -148,7 +151,7 @@ export const SwipeableDiaryCard: React.FC<SwipeableDiaryCardProps> = React.memo(
                         </svg>
                         <span className="text-[11px] font-bold">Delete</span>
                     </div>
-                </div>
+                </button>
 
                 {/* Main card (slides on swipe) */}
                 <div
