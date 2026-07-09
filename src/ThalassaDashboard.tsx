@@ -53,6 +53,12 @@ export default function ThalassaDashboard() {
     const [selectedEntry, setSelectedEntry] = useState<VoyageLogEntry | null>(null);
     // Open photo lightbox, if any.
     const [lightbox, setLightbox] = useState<LightboxState | null>(null);
+    // Diary folded away (Shane 2026-07-09: "hide the log entries with an
+    // arrow"). Desktop: the sidebar collapses to a slim rail and the map
+    // takes the full width. Mobile: the diary drops to a single reopen bar
+    // and the map window grows. Survives the 2-min background refresh
+    // because that setState never remounts this component.
+    const [diaryHidden, setDiaryHidden] = useState(false);
 
     const load = useCallback(async (showSpinner: boolean) => {
         const { handle } = parseVoyageLogParams();
@@ -128,7 +134,11 @@ export default function ThalassaDashboard() {
             <VoyageProgressBar track={track} destination={destination} />
 
             <div className="relative flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
-                <main className="shrink-0 h-[45dvh] min-h-[280px] md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative">
+                <main
+                    className={`shrink-0 ${
+                        diaryHidden ? 'h-[78dvh]' : 'h-[45dvh]'
+                    } min-h-[280px] md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative transition-[height] duration-300`}
+                >
                     <MapContainer
                         track={track}
                         entries={entries}
@@ -139,15 +149,48 @@ export default function ThalassaDashboard() {
                     />
                 </main>
 
-                <aside className="w-full md:w-96 bg-slate-800 border-t md:border-t-0 md:border-l border-slate-700 flex flex-col z-10 shadow-xl">
-                    <DiarySidebar
-                        entries={entries}
-                        telemetry={telemetry}
-                        selectedEntry={selectedEntry}
-                        onSelectEntry={handleSelect}
-                        onClearSelection={handleClear}
-                        onPhotoClick={handlePhoto}
-                    />
+                {/* Diary column: [toggle strip][diary]. The strip is a
+                    horizontal bar on mobile (sits between map and diary)
+                    and a slim full-height rail on desktop (sits on the
+                    sidebar's map-side edge). Collapsing unmounts the diary
+                    so the map keeps the whole row; the strip remains as
+                    the reopen affordance. */}
+                <aside className="w-full md:w-auto bg-slate-800 border-t md:border-t-0 md:border-l border-slate-700 flex flex-col md:flex-row z-10 shadow-xl">
+                    <button
+                        type="button"
+                        onClick={() => setDiaryHidden((v) => !v)}
+                        aria-expanded={!diaryHidden}
+                        aria-label={diaryHidden ? 'Show log entries' : 'Hide log entries'}
+                        title={diaryHidden ? 'Show log entries' : 'Hide log entries'}
+                        className="shrink-0 flex items-center justify-center gap-2 w-full h-10 md:w-7 md:h-auto bg-slate-800 hover:bg-slate-700/70 active:bg-slate-700 md:border-r border-slate-700 text-slate-400 hover:text-sky-300 transition-colors"
+                    >
+                        <svg
+                            className={`w-4 h-4 transition-transform duration-300 ${
+                                diaryHidden ? 'md:rotate-90' : 'rotate-180 md:-rotate-90'
+                            }`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                            strokeWidth={2.5}
+                        >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                        <span className="text-[10px] font-bold uppercase tracking-widest md:hidden">
+                            {diaryHidden ? `Show log entries (${entries.length})` : 'Hide log entries'}
+                        </span>
+                    </button>
+                    {!diaryHidden && (
+                        <div className="w-full md:w-96 flex flex-col min-h-0 md:h-full">
+                            <DiarySidebar
+                                entries={entries}
+                                telemetry={telemetry}
+                                selectedEntry={selectedEntry}
+                                onSelectEntry={handleSelect}
+                                onClearSelection={handleClear}
+                                onPhotoClick={handlePhoto}
+                            />
+                        </div>
+                    )}
                 </aside>
             </div>
 

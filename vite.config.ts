@@ -147,6 +147,19 @@ export default defineConfig(({ mode }) => {
             },
         },
         plugins: [
+            // Dev-only mirror of the Vercel rewrite /logs/<handle> → logs.html
+            // (vercel.json + middleware.ts own this in prod). Without it the
+            // public Voyage Log page can't be exercised locally at all —
+            // /logs/serene-summer 404s and logs.html parses an empty handle.
+            {
+                name: 'logs-html-rewrite',
+                configureServer(server: any) {
+                    server.middlewares.use((req: http.IncomingMessage, _res: http.ServerResponse, next: () => void) => {
+                        if (req.url?.startsWith('/logs/')) req.url = '/logs.html';
+                        next();
+                    });
+                },
+            },
             // Dynamic CORS proxy for AvNav/SignalK chart servers on LAN
             // Handles: /__chart-proxy/{host}/{port}/path → http://{host}:{port}/path
             {
