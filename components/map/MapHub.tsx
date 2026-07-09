@@ -1838,30 +1838,35 @@ export const MapHub: React.FC<MapHubProps> = ({
 
     // Follow Route overlay — renders the followed planned route on the map
     // Suppressed during passage planning to avoid visual conflict
-    // (both use dashed sky-blue lines, causing confusion)
-    useFollowRouteMapbox(mapRef, mapReady && !passage.showPassage);
+    // (both use dashed sky-blue lines, causing confusion), and while the
+    // TRACER is open (Shane 2026-07-09 "remove all of the spaghetti":
+    // saved routes, sailed tracks, follow-route and dest flag were all
+    // painting over the marks he was trying to thread — the tracer's
+    // chart is for the trace and the marks, nothing else).
+    useFollowRouteMapbox(mapRef, mapReady && !passage.showPassage && !coordCaptureMode);
 
     // Destination flag — pulsing green flag at the active voyage's
     // destination, with a live distance + bearing chip from the user's
     // current GPS. Hidden when no voyage is active. Sits on top of the
     // follow-route line so the user gets the full "I am here, going
     // there" picture from one glance at the chart.
-    useDestinationFlag(mapRef, mapReady && !passage.showPassage);
+    useDestinationFlag(mapRef, mapReady && !passage.showPassage && !coordCaptureMode);
 
     // Routes (planned) and Tracks (sailed) chart layers. Both come
     // from the user's ship-log entries — Routes are voyageIds prefixed
     // `planned_*`, Tracks are everything else. Each is its own layer
     // so the user can have one of each visible simultaneously, with
-    // distinct colours so they read clearly when overlapped.
+    // distinct colours so they read clearly when overlapped. Hidden
+    // while tracing — same declutter rule as above.
     useRouteTrackLayer({
         mapRef,
-        mapReady: mapReady && !passage.showPassage,
+        mapReady: mapReady && !passage.showPassage && !coordCaptureMode,
         variant: 'route',
         selected: activeChartRoute,
     });
     useRouteTrackLayer({
         mapRef,
-        mapReady: mapReady && !passage.showPassage,
+        mapReady: mapReady && !passage.showPassage && !coordCaptureMode,
         variant: 'track',
         selected: activeChartTrack,
     });
@@ -2674,7 +2679,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             // before.
             try {
                 if (map.getLayer('harbour-seamarks-circle')) {
-                    map.setLayerZoomRange('harbour-seamarks-circle', 0, hide ? 14 : 24);
+                    // 13.5, not 14: the Moreton-corridor beacons clear their
+                    // SCAMIN at ~13.6, so a 14 cap left a band where dots AND
+                    // triangles both rendered (Shane's entrance screenshot).
+                    map.setLayerZoomRange('harbour-seamarks-circle', 0, hide ? 13.5 : 24);
                 }
                 if (map.getLayer('harbour-seamarks-label')) {
                     map.setLayerZoomRange('harbour-seamarks-label', hide ? 24 : 14, 24);
