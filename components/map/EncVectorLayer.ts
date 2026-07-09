@@ -56,6 +56,7 @@ export const ENC_VEC_SRC = {
     COALNE: 'enc-vec-coalne',
     POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged
     NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOY*/BCN* merged
+    RECTRC: 'enc-vec-rectrc', // recommended tracks / leading lines
 } as const;
 
 // NOTE: layer-id stability is load-bearing. Click handlers, the
@@ -80,6 +81,8 @@ export const ENC_VEC_LAYERS = {
     BOYSPP: 'enc-vec-boyspp-symbol',
     BCNSPP: 'enc-vec-bcnspp-symbol',
     LIGHTS: 'enc-vec-lights-symbol',
+    RECTRC: 'enc-vec-rectrc-line',
+    RECTRC_LABEL: 'enc-vec-rectrc-label',
     NAVAIDS_LABEL: 'enc-vec-navaids-label',
     POINTS_LABEL: 'enc-vec-points-label',
 } as const;
@@ -96,6 +99,7 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
+    ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.BOYLAT,
     ENC_VEC_LAYERS.BCNLAT,
     ENC_VEC_LAYERS.BOYCAR,
@@ -106,15 +110,22 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.WRECKS,
     ENC_VEC_LAYERS.UWTROC,
     ENC_VEC_LAYERS.LIGHTS,
+    ENC_VEC_LAYERS.RECTRC_LABEL,
     ENC_VEC_LAYERS.NAVAIDS_LABEL, // labels topmost
     ENC_VEC_LAYERS.POINTS_LABEL,
 ];
 
 // Layers that take click handlers. Excludes the text-only label
 // layers — a tap on a label should fall through to the symbol or
-// polygon underneath, not open a generic popup.
+// polygon underneath, not open a generic popup. RECTRC is excluded
+// too: a thin lead line under a tracer tap must never swallow the
+// pin drop with a popup.
 const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
-    (id) => id !== ENC_VEC_LAYERS.NAVAIDS_LABEL && id !== ENC_VEC_LAYERS.POINTS_LABEL,
+    (id) =>
+        id !== ENC_VEC_LAYERS.NAVAIDS_LABEL &&
+        id !== ENC_VEC_LAYERS.POINTS_LABEL &&
+        id !== ENC_VEC_LAYERS.RECTRC &&
+        id !== ENC_VEC_LAYERS.RECTRC_LABEL,
 );
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
@@ -411,6 +422,7 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.COALNE, data.COALNE);
     ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
+    ensureSource(ENC_VEC_SRC.RECTRC, data.RECTRC);
 
     const anchor = findInsertionAnchor(map);
 
@@ -688,6 +700,56 @@ export function mountEncVectorLayer(
     navaidSymbolLayer(ENC_VEC_LAYERS.BOYSPP, 'BOYSPP');
     navaidSymbolLayer(ENC_VEC_LAYERS.BCNSPP, 'BCNSPP');
 
+    // ── RECTRC (recommended tracks / leading lines) ───────────────
+    // The lead the tracer grades "off-lead by 40 m" against was
+    // invisible until now — a punter can't ride a line he can't see
+    // (Shane 2026-07-09). Amber dash reads on both the pale day
+    // chart and dark satellite, and stays visually distinct from
+    // every route colour (tier teal/yellow/red, trace green/amber
+    // uses solid). z10-gated: leads are harbour-approach furniture.
+    if (!map.getLayer(ENC_VEC_LAYERS.RECTRC)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.RECTRC,
+                type: 'line',
+                source: ENC_VEC_SRC.RECTRC,
+                minzoom: 10,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': '#f59e0b',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.2, 14, 2.2],
+                    'line-opacity': 0.9,
+                    'line-dasharray': [4, 2.5],
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.RECTRC),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.RECTRC_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.RECTRC_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.RECTRC,
+                minzoom: 12,
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 400,
+                    'text-field': ['coalesce', ['get', 'OBJNAM'], 'LEAD'],
+                    'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                    'text-size': 10,
+                    'text-allow-overlap': false,
+                },
+                paint: {
+                    'text-color': '#f59e0b',
+                    'text-halo-color': 'rgba(0, 0, 0, 0.85)',
+                    'text-halo-width': 1.3,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.RECTRC_LABEL),
+        );
+    }
+
     // ── LIGHTS (lighthouses + lit aids) ───────────────────────────
     // Symbol layer with a star char so it stays sharp at any zoom —
     // the cheap path; an SDF flare icon is the phase-2 pretty path.
@@ -805,6 +867,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     setData(ENC_VEC_SRC.COALNE, data.COALNE);
     setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
+    setData(ENC_VEC_SRC.RECTRC, data.RECTRC);
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the

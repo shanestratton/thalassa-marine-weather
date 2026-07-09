@@ -482,19 +482,31 @@ export function useMapInit(opts: UseMapInitOptions) {
                     maxzoom: 22,
                     attribution: '© Mapbox © Maxar',
                 });
-                map.addLayer({
-                    id: 'satellite-base-layer',
-                    type: 'raster',
-                    source: 'satellite-base',
-                    layout: {
-                        // usePersistedState JSON-serialises — the stored value is 'true'.
-                        visibility: localStorage.getItem('thalassa_satellite_base') === 'true' ? 'visible' : 'none',
+                // "Added FIRST so everything renders above it" only holds on
+                // the very first pass — a chart-mode swap re-runs this block
+                // AFTER EncVectorLayer has mounted, and an un-anchored
+                // addLayer APPENDS: the raster landed on TOP of every mark,
+                // light and lead (Shane 2026-07-09 "show markers, leads,
+                // laterals and cardinals" — they were rendering, underneath).
+                // Anchor below the bottom-most ENC layer when one exists;
+                // MapHub's styledata loop re-asserts the order after that.
+                const encBottom = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
+                map.addLayer(
+                    {
+                        id: 'satellite-base-layer',
+                        type: 'raster',
+                        source: 'satellite-base',
+                        layout: {
+                            // usePersistedState JSON-serialises — the stored value is 'true'.
+                            visibility: localStorage.getItem('thalassa_satellite_base') === 'true' ? 'visible' : 'none',
+                        },
+                        // Match the public page's brightness pop (voyage-log-sat-bright
+                        // filter) with raster paint props — saturation + a touch of
+                        // contrast so the imagery doesn't read flat under the chart.
+                        paint: { 'raster-opacity': 1, 'raster-saturation': 0.15, 'raster-contrast': 0.05 },
                     },
-                    // Match the public page's brightness pop (voyage-log-sat-bright
-                    // filter) with raster paint props — saturation + a touch of
-                    // contrast so the imagery doesn't read flat under the chart.
-                    paint: { 'raster-opacity': 1, 'raster-saturation': 0.15, 'raster-contrast': 0.05 },
-                });
+                    encBottom,
+                );
             }
 
             // ── MapTiler Ocean Bathymetry Overlay ──
@@ -1163,6 +1175,13 @@ export function useMapInit(opts: UseMapInitOptions) {
         });
 
         mapRef.current = map;
+
+        // Dev-only escape hatch: layer/source forensics from the browser
+        // console ("why isn't X painting") without prop-drilling a debug
+        // surface. Stripped from production by the DEV guard.
+        if (import.meta.env.DEV) {
+            (window as unknown as Record<string, unknown>).__thalassaMap = map;
+        }
 
         // Recenter listener — always centres on user's location, zoom never wider than Aus+NZ
         const handleRecenter = (e: Event) => {
