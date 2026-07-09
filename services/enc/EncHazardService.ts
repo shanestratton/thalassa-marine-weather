@@ -456,6 +456,13 @@ export interface EncMergedVectorData {
      *  it is what lets a punter STEER by the lead (Shane 2026-07-09
      *  "show markers, leads, laterals and cardinals"). */
     RECTRC: FeatureCollection;
+    /** Spot soundings, EXPLODED to one Point per measurement with a
+     *  minimal `{_d, _minZoom?}` property bag (Shane 2026-07-09 "more
+     *  depth measurements in close"). Source cells carry them as
+     *  MultiPoint clouds (SENC: 2-D coords + `depths` array; ogr2ogr:
+     *  25D coords) — kept compact on disk, exploded here because a
+     *  Mapbox symbol layer can only label per-FEATURE, not per-vertex. */
+    SOUNDG: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -501,6 +508,7 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         BOYSPP: { type: 'FeatureCollection', features: [] },
         BCNSPP: { type: 'FeatureCollection', features: [] },
         RECTRC: { type: 'FeatureCollection', features: [] },
+        SOUNDG: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -618,6 +626,40 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         tagAndPush('BOYSPP', blob.layers.BOYSPP);
         tagAndPush('BCNSPP', blob.layers.BCNSPP);
         tagAndPush('RECTRC', blob.layers.RECTRC);
+
+        // Soundings: explode each MultiPoint cloud into labelled points.
+        // DELIBERATELY skips tagAndPush — no provenance/_cellId decoration:
+        // a harbour cell carries thousands of soundings and the minimal
+        // {_d, _minZoom?} bag is what keeps the merged heap sane. Depth
+        // comes from the SENC `depths` array, the 25D Z, or VALSOU —
+        // whichever the extraction path supplied.
+        for (const feat of blob.layers.SOUNDG?.features ?? []) {
+            const g = feat?.geometry;
+            if (!g) continue;
+            const featProps = (feat.properties ?? {}) as Record<string, unknown>;
+            const minZoom = typeof featProps._minZoom === 'number' ? featProps._minZoom : undefined;
+            const depthsArr = Array.isArray(featProps.depths) ? (featProps.depths as unknown[]) : null;
+            const coords: number[][] =
+                g.type === 'MultiPoint'
+                    ? (g.coordinates as number[][])
+                    : g.type === 'Point'
+                      ? [g.coordinates as number[]]
+                      : [];
+            for (let i = 0; i < coords.length; i++) {
+                const c = coords[i];
+                if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+                const raw = depthsArr?.[i] ?? c[2] ?? featProps.VALSOU ?? featProps.DEPTH;
+                const d = typeof raw === 'number' ? raw : Number(raw);
+                if (!Number.isFinite(d)) continue;
+                const props: Record<string, unknown> = { _d: Math.round(d * 10) / 10 };
+                if (minZoom !== undefined) props._minZoom = minZoom;
+                merged.SOUNDG.features.push({
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: [c[0], c[1]] },
+                    properties: props,
+                });
+            }
+        }
     }
 
     mergedCache = { version: currentVersion, data: merged };
@@ -630,7 +672,8 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
             `lat (BOY+BCN)=${merged.BOYLAT.features.length + merged.BCNLAT.features.length}, ` +
             `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}, ` +
             `spp (BOY+BCN)=${merged.BOYSPP.features.length + merged.BCNSPP.features.length}, ` +
-            `leads (RECTRC)=${merged.RECTRC.features.length}`,
+            `leads (RECTRC)=${merged.RECTRC.features.length}, ` +
+            `soundings=${merged.SOUNDG.features.length}`,
     );
     return merged;
 }

@@ -531,6 +531,10 @@ export interface EncConversionResult {
         DRGARE?: GeoJSON.FeatureCollection;
         /** Recommended tracks (line features). Display + future routing. */
         RECTRC?: GeoJSON.FeatureCollection;
+        /** Spot soundings. SENC path: MultiPoint + `depths` property array;
+         *  ogr2ogr path: MultiPoint25D (depth in the Z coordinate). Display
+         *  only — exploded into labelled points at merge time. */
+        SOUNDG?: GeoJSON.FeatureCollection;
     };
 }
 

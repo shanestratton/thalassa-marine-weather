@@ -99,11 +99,17 @@ export const ROUTING_CLASSES = new Set([
     // layer. Parity with the ogr2ogr path, which already emitted it; the
     // SENC path didn't, so SENC-extracted cells previously showed no CATZOC.
     'M_QUAL',
+    // Spot soundings (Shane 2026-07-09 "more depth measurements in close").
+    // Emitted as MultiPoint + a `depths` array (see geojsonEmitter);
+    // EncHazardService explodes them into labelled points at merge time
+    // and EncVectorLayer draws the numbers, so the renderer-consumes rule
+    // below is satisfied.
+    'SOUNDG',
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here AND
     // in pi-cache ENC_LAYERS in lock-step the moment EncVectorLayer draws
-    // them. Next visual batch: SOUNDG (sounding clouds), TOPMAR/DAYMAR
+    // them. Next visual batch: TOPMAR/DAYMAR
     // (topmark glyphs), PONTON/SLCONS/BRIDGE/MORFAC/HRBFAC (harbour
     // structures), SEAARE/LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
     // (anchorages), RESARE/CBLARE/CBLSUB/PIPSOL/DMPGRD (caution areas). ──

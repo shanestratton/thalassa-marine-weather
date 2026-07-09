@@ -2440,6 +2440,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             ENC_VEC_LAYERS.LIGHTS,
             ENC_VEC_LAYERS.RECTRC,
             ENC_VEC_LAYERS.RECTRC_LABEL,
+            ENC_VEC_LAYERS.SOUNDG,
             ENC_VEC_LAYERS.NAVAIDS_LABEL,
         ];
         const apply = (): void => {

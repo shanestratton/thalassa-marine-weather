@@ -57,6 +57,7 @@ export const ENC_VEC_SRC = {
     POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged
     NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOY*/BCN* merged
     RECTRC: 'enc-vec-rectrc', // recommended tracks / leading lines
+    SOUNDG: 'enc-vec-soundg', // exploded spot soundings
 } as const;
 
 // NOTE: layer-id stability is load-bearing. Click handlers, the
@@ -83,6 +84,7 @@ export const ENC_VEC_LAYERS = {
     LIGHTS: 'enc-vec-lights-symbol',
     RECTRC: 'enc-vec-rectrc-line',
     RECTRC_LABEL: 'enc-vec-rectrc-label',
+    SOUNDG: 'enc-vec-soundg-label',
     NAVAIDS_LABEL: 'enc-vec-navaids-label',
     POINTS_LABEL: 'enc-vec-points-label',
 } as const;
@@ -99,6 +101,7 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
+    ENC_VEC_LAYERS.SOUNDG, // depth numbers under everything interactive
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.BOYLAT,
     ENC_VEC_LAYERS.BCNLAT,
@@ -125,7 +128,8 @@ const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.NAVAIDS_LABEL &&
         id !== ENC_VEC_LAYERS.POINTS_LABEL &&
         id !== ENC_VEC_LAYERS.RECTRC &&
-        id !== ENC_VEC_LAYERS.RECTRC_LABEL,
+        id !== ENC_VEC_LAYERS.RECTRC_LABEL &&
+        id !== ENC_VEC_LAYERS.SOUNDG,
 );
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
@@ -423,6 +427,7 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
     ensureSource(ENC_VEC_SRC.RECTRC, data.RECTRC);
+    ensureSource(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
 
     const anchor = findInsertionAnchor(map);
 
@@ -700,6 +705,47 @@ export function mountEncVectorLayer(
     navaidSymbolLayer(ENC_VEC_LAYERS.BOYSPP, 'BOYSPP');
     navaidSymbolLayer(ENC_VEC_LAYERS.BCNSPP, 'BCNSPP');
 
+    // ── SOUNDG (spot soundings — the chartplotter depth numbers) ──
+    // Shane 2026-07-09: "more depth measurements in close." Text-only
+    // layer: sub-10 m depths keep one decimal ("3.2"), deeper rounds
+    // whole ("12"). z12 floor + per-feature SCAMIN keep the open water
+    // clean; text-allow-overlap false lets Mapbox auto-decimate dense
+    // survey clouds instead of painting soup. Shallow reads slightly
+    // brighter than deep so the eye finds the skinny water first.
+    if (!map.getLayer(ENC_VEC_LAYERS.SOUNDG)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.SOUNDG,
+                type: 'symbol',
+                source: ENC_VEC_SRC.SOUNDG,
+                minzoom: 12,
+                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'text-field': [
+                        'case',
+                        ['<', ['get', '_d'], 10],
+                        ['to-string', ['get', '_d']],
+                        ['to-string', ['round', ['get', '_d']]],
+                    ],
+                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9, 16, 12],
+                    'text-allow-overlap': false,
+                    'text-padding': 6,
+                    // Shallowest wins collision placement — those are the
+                    // numbers a keel actually cares about.
+                    'symbol-sort-key': ['get', '_d'],
+                },
+                paint: {
+                    'text-color': ['case', ['<', ['get', '_d'], 5], '#dbeafe', '#93b3c8'],
+                    'text-halo-color': 'rgba(10, 25, 41, 0.85)',
+                    'text-halo-width': 1.2,
+                    'text-opacity': opacity,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.SOUNDG),
+        );
+    }
+
     // ── RECTRC (recommended tracks / leading lines) ───────────────
     // The lead the tracer grades "off-lead by 40 m" against was
     // invisible until now — a punter can't ride a line he can't see
@@ -868,6 +914,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
     setData(ENC_VEC_SRC.RECTRC, data.RECTRC);
+    setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the
