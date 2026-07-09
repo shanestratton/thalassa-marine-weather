@@ -162,13 +162,17 @@ const ENC_LAYERS = [
     'DRGARE',
     // Chartplotter visual pass (2026-06): depth contours + special-purpose
     // buoys/beacons — the RENDERED set, mirroring ROUTING_CLASSES. The wider
-    // phase-2 batch (soundings, harbour structures, topmarks/daymarks, named
-    // areas, anchorages, caution areas) is deferred until its renderers land
+    // phase-2 batch (harbour structures, topmarks/daymarks, named areas,
+    // anchorages, caution areas) is deferred until its renderers land
     // and is kept OUT here in lock-step — see the ROUTING_CLASSES "Deferred"
     // note for the full list to re-add together.
     'DEPCNT',
     'BOYSPP',
     'BCNSPP',
+    // Spot soundings (2026-07-09) — EncVectorLayer draws the numbers now.
+    // ogr2ogr emits MultiPoint25D (depth in the Z); the SENC path emits
+    // MultiPoint + a `depths` property array — the app's merge handles both.
+    'SOUNDG',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');
