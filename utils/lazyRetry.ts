@@ -9,6 +9,20 @@
  */
 import React from 'react';
 
+/**
+ * Global reload throttle. The per-module keys alone allowed a reload
+ * PING-PONG (field bug 2026-07-09, "page refreshes every 10 seconds"):
+ * module A fails → reload (keyA set) → A fails again (keyA cleared,
+ * thrown) but module B fails → reload (keyB set) → A fails → reload
+ * (keyA re-set)… — with a service worker serving a stale chunk
+ * manifest, two failing modules re-armed each other forever and the
+ * punter lost his trace every cycle. One reload per minute across ALL
+ * modules; anything faster falls through to the ErrorBoundary, which
+ * at least leaves the rest of the app standing.
+ */
+const GLOBAL_COOLDOWN_KEY = 'lazyRetry_lastReloadAt';
+const RELOAD_COOLDOWN_MS = 60_000;
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function lazyRetry<T extends React.ComponentType<any>>(
     factory: () => Promise<{ default: T }>,
@@ -18,16 +32,18 @@ export function lazyRetry<T extends React.ComponentType<any>>(
         factory().catch((err: Error) => {
             // Use a module-specific key so one failed module doesn't block others
             const key = `lazyRetry_${moduleName ?? 'default'}`;
-            if (!sessionStorage.getItem(key)) {
+            const lastReloadAt = Number(sessionStorage.getItem(GLOBAL_COOLDOWN_KEY) ?? 0);
+            const cooledDown = Date.now() - lastReloadAt > RELOAD_COOLDOWN_MS;
+            if (!sessionStorage.getItem(key) && cooledDown) {
                 sessionStorage.setItem(key, '1');
-                // Clear ALL stale retry keys that are older than this session
-                // (in case user had a previous failed session)
+                sessionStorage.setItem(GLOBAL_COOLDOWN_KEY, String(Date.now()));
                 window.location.reload();
                 // Return a never-resolving promise to stop React rendering during reload
                 return new Promise<{ default: T }>(() => {});
             }
-            // If we already retried this module, clear the key and re-throw
-            // so ErrorBoundary catches it instead of infinite reload loops
+            // Already retried this module (or a reload fired within the
+            // cooldown): clear the key and re-throw so ErrorBoundary
+            // catches it instead of an infinite reload loop.
             sessionStorage.removeItem(key);
             throw err;
         }),
