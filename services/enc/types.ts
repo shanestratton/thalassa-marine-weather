@@ -104,9 +104,13 @@ const IALA_B_PREFIXES: ReadonlySet<string> = new Set([
 ]);
 
 export function ialaRegionForSourceHO(sourceHO: string | undefined): IalaRegion {
-    if (!sourceHO || sourceHO.length < 2) return 'A';
-    const prefix = sourceHO.slice(0, 2).toUpperCase();
-    return IALA_B_PREFIXES.has(prefix) ? 'B' : 'A';
+    // HO codes are EXACTLY two letters. Prefix-matching longer strings
+    // is how 'cloud' (the desktop builder's registry placeholder) became
+    // 'CL' = Chile = IALA B — and every red/green in Mooloolaba swapped
+    // (Shane 2026-07-09: "VQG under the Red and QR under the Green").
+    // Unknown/sentinel sources default to region A.
+    if (!sourceHO || sourceHO.length !== 2) return 'A';
+    return IALA_B_PREFIXES.has(sourceHO.toUpperCase()) ? 'B' : 'A';
 }
 
 /**

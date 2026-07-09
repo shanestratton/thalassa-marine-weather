@@ -100,6 +100,20 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
             if (!cell || !('layers' in cell) || !cell.layers) return false;
             const { saveCellGeoJSON } = await import('./EncCellStore');
             await saveCellGeoJSON(cellId, cell as never);
+            // The registry entry was seeded from the manifest with the
+            // 'cloud' placeholder — now the blob is in hand, patch the REAL
+            // provenance in. sourceHO drives IALA region (red/green sides);
+            // the placeholder must never linger once truth is available.
+            const real = cell as { sourceHO?: string; edition?: number; issued?: string };
+            const existing = listCells().find((c) => c.id === cellId);
+            if (existing && typeof real.sourceHO === 'string' && real.sourceHO.length === 2) {
+                putCell({
+                    ...existing,
+                    sourceHO: real.sourceHO,
+                    edition: typeof real.edition === 'number' ? real.edition : existing.edition,
+                    issued: typeof real.issued === 'string' ? real.issued : existing.issued,
+                });
+            }
             log.warn(`cloud cell ${cellId} downloaded (${(text.length / 1024 / 1024).toFixed(1)} MB)`);
             return true;
         } catch (err) {
