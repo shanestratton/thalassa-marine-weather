@@ -2535,10 +2535,22 @@ export const MapHub: React.FC<MapHubProps> = ({
         const map = mapRef.current;
         if (!map || !mapReady) return;
         const hide = chartsActive || encActive;
-        setOpenSeaMapRasterVisibility(map, {
-            overlay: !hide,
-            permanent: !hide && weather.activeLayers.has('sea'),
-        });
+        const apply = (): void => {
+            setOpenSeaMapRasterVisibility(map, {
+                overlay: !hide,
+                permanent: !hide && weather.activeLayers.has('sea'),
+            });
+        };
+        apply();
+        // Re-assert on styledata: 'openseamap-overlay' is BAKED INTO the
+        // basemap style, so every chart-mode/basemap switch resurrects it
+        // without any React dep changing — the doubled icon Shane caught at
+        // Mooloolaba beacon 5 (2026-07-09: OSM's red-outlined-triangle+star
+        // raster icon stamped over our correct green IALA glyph).
+        map.on('styledata', apply);
+        return () => {
+            map.off('styledata', apply);
+        };
     }, [mapRef, mapReady, chartsActive, encActive, weather.activeLayers]);
 
     // ── Pin View: Drop a visual-only pin marker (no navigation side-effects) ──
