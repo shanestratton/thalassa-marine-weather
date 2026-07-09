@@ -199,6 +199,27 @@ app.use('/api/charts', createChartRoutes());
 app.use('/api/enc', createEncRoutes());
 app.use('/api/osm', createOsmRoutes());
 
+// ── Boat-LAN app hosting (Shane 2026-07-09: "if the Pi serves charts
+// to the device, how come it can't serve the computer?") ──
+// It can — the blocker was never the network, it's browser mixed-content
+// policy: a page from https://thalassawx.app may not fetch plain-HTTP
+// LAN origins, so the DEPLOYED builder can't reach calypso.local. A page
+// served FROM the Pi has no such problem: same-origin HTTP, ENC cells
+// (licensed extracts included) flow to any browser on the boat network —
+// LAN reachability IS the gate, exactly like the phone. Deploy drops the
+// built web bundle into app-dist/ next to the server (see redeploy.sh);
+// missing dir = feature off, the Pi stays a pure cache.
+const APP_DIST = process.env.THALASSA_APP_DIST || path.join(process.cwd(), 'app-dist');
+if (fs.existsSync(path.join(APP_DIST, 'index.html'))) {
+    app.use(express.static(APP_DIST));
+    // SPA fallback: any dotless non-API path boots the app (mirrors the
+    // Vercel catch-all so /plan works here too).
+    app.get(/^\/(?!api\/)[^.]*$/, (_req, res) => {
+        res.sendFile(path.join(APP_DIST, 'index.html'));
+    });
+    console.log(`🖥  Serving Thalassa web app from ${APP_DIST}`);
+}
+
 // ── Start ──
 
 const server = app.listen(PORT, '0.0.0.0', () => {

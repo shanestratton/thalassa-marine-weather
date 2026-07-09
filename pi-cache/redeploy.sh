@@ -75,6 +75,7 @@ sudo rsync -a --delete \
     --exclude=.env \
     --exclude=cache \
     --exclude=enc-charts \
+    --exclude=app-dist \
     --exclude=.git \
     "$SOURCE_DIR/" "$INSTALL_DIR/"
 
