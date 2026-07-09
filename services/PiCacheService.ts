@@ -216,16 +216,37 @@ class PiCacheServiceImpl {
      * without needing the PiCacheTab UI to be mounted.
      */
     boot(settings: { piCacheEnabled?: boolean; piCacheHost?: string; piCachePort?: number }): void {
-        const enabled =
+        let enabled =
             settings.piCacheEnabled ??
             (typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_enabled') === 'true');
-        const host =
+        let host =
             settings.piCacheHost ||
             (typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_host')) ||
             '';
-        const port =
+        let port =
             settings.piCachePort ||
             parseInt((typeof localStorage !== 'undefined' && localStorage.getItem('thalassa_pi_cache_port')) || '3001');
+
+        // If the Pi is your ORIGIN, the Pi is your cache. pi-cache serves
+        // the whole web app to browsers on the boat LAN
+        // (http://calypso.local:3001 — pi-cache/src/server.ts app-dist
+        // hosting), and a fresh browser profile there has no settings: the
+        // page served BY the Pi couldn't find the Pi and fell back to the
+        // bootstrap demo cells. Origin beats persisted config — the user is
+        // literally looking at the Pi.
+        try {
+            if (
+                typeof window !== 'undefined' &&
+                window.location.protocol === 'http:' &&
+                window.location.port === '3001'
+            ) {
+                enabled = true;
+                host = window.location.hostname;
+                port = 3001;
+            }
+        } catch {
+            /* exotic environment — persisted config stands */
+        }
 
         if (enabled) {
             this.configure({ enabled: true, host, port });
