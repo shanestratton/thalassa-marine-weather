@@ -228,7 +228,30 @@ export const MapHub: React.FC<MapHubProps> = ({
     // turned Shane's 29 Mooloolaba taps into the shipped fairway. A ref
     // mirrors the flag so the map tap closure never reads a stale value.
     const [coordCaptureMode, setCoordCaptureMode] = useState(false);
-    const [capturedCoords, setCapturedCoords] = useState<Array<{ lat: number; lon: number }>>([]);
+    // Work-in-progress pins survive a page reload (Shane 2026-07-09: a
+    // service-worker reload storm ate his half-traced route — the storm
+    // is fixed, but a mid-trace deploy or crash must never cost the work
+    // again). sessionStorage = per-tab, dies with the tab: exactly the
+    // lifetime of "work in progress". Restored lazily on mount; the
+    // persist effect below keeps it current (CLEAR writes [] naturally).
+    const [capturedCoords, setCapturedCoords] = useState<Array<{ lat: number; lon: number }>>(() => {
+        try {
+            const raw = sessionStorage.getItem('thalassa_trace_wip_pins');
+            const parsed = raw ? (JSON.parse(raw) as Array<{ lat: number; lon: number }>) : [];
+            return Array.isArray(parsed)
+                ? parsed.filter((p) => Number.isFinite(p?.lat) && Number.isFinite(p?.lon))
+                : [];
+        } catch {
+            return [];
+        }
+    });
+    useEffect(() => {
+        try {
+            sessionStorage.setItem('thalassa_trace_wip_pins', JSON.stringify(capturedCoords));
+        } catch {
+            /* quota/private-mode — the trace just doesn't survive reloads */
+        }
+    }, [capturedCoords]);
     const [coordsCopied, setCoordsCopied] = useState(false);
     const coordCaptureRef = useRef(false);
     const captureMarkersRef = useRef<mapboxgl.Marker[]>([]);
@@ -268,8 +291,31 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  Origin = fly-to + hollow START ring; destination arms ⚡ Auto, draws
      *  the 🏁 ghost and the dashed bearing hint from the trace's live end.
      *  Both are GHOSTS, never trace pins — the punter's line stays his. */
-    const [traceOrigin, setTraceOrigin] = useState<{ lat: number; lon: number; name: string } | null>(null);
-    const [traceDest, setTraceDest] = useState<{ lat: number; lon: number; name: string } | null>(null);
+    // Frame survives reloads alongside the WIP pins (same rationale).
+    const [traceOrigin, setTraceOrigin] = useState<{ lat: number; lon: number; name: string } | null>(() => {
+        try {
+            const p = JSON.parse(sessionStorage.getItem('thalassa_trace_wip_origin') ?? 'null');
+            return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null;
+        } catch {
+            return null;
+        }
+    });
+    const [traceDest, setTraceDest] = useState<{ lat: number; lon: number; name: string } | null>(() => {
+        try {
+            const p = JSON.parse(sessionStorage.getItem('thalassa_trace_wip_dest') ?? 'null');
+            return p && Number.isFinite(p.lat) && Number.isFinite(p.lon) ? p : null;
+        } catch {
+            return null;
+        }
+    });
+    useEffect(() => {
+        try {
+            sessionStorage.setItem('thalassa_trace_wip_origin', JSON.stringify(traceOrigin));
+            sessionStorage.setItem('thalassa_trace_wip_dest', JSON.stringify(traceDest));
+        } catch {
+            /* quota/private-mode */
+        }
+    }, [traceOrigin, traceDest]);
     const [fromQuery, setFromQuery] = useState('');
     const [toQuery, setToQuery] = useState('');
     const [frameBusy, setFrameBusy] = useState(false);
