@@ -4075,6 +4075,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                     encCellCount={encCellCount}
                     seawayDebugVisible={seawayDebugVisible}
                     onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}
+                    onClearRouteInk={() => {
+                        // Route ink that outlives layer toggles: the follow-
+                        // route persists in localStorage by design (SAIL IT
+                        // survives restarts), and the chart route/track picks
+                        // live in session state. "Clear All" kills the lot.
+                        void import('../../stores/followRouteStore').then(({ useFollowRouteStore }) =>
+                            useFollowRouteStore.getState().stopFollowing(),
+                        );
+                        setActiveChartRoute(null);
+                        setActiveChartTrack(null);
+                    }}
                     onPlanEncRoute={async () => {
                         // Demo waypoints — hardcoded Newport → Rivergate
                         // until the full two-tap workflow lands. Tayana 55

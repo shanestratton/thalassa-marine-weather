@@ -161,6 +161,13 @@ interface ChartModesProps {
      *  Shown beside the ENC route row, gated the same way. */
     seawayDebugVisible?: boolean;
     onToggleSeawayDebug?: () => void;
+
+    /** Invoked by the "Clear All" preset — clears route INK that outlives
+     *  layer toggles: the persisted follow-route (SAIL IT survives app
+     *  restarts by design) and the chart route/track selections. Without
+     *  this, Clear All left old test-route spaghetti on the chart with no
+     *  obvious kill (Shane 2026-07-09 "still got the blue spaghetti"). */
+    onClearRouteInk?: () => void;
 }
 
 const STORAGE_KEY = 'thalassa_chart_mode';
@@ -276,6 +283,10 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
     const applyMode = useCallback(
         (spec: ModeSpec) => {
             triggerHaptic('medium');
+
+            // "Clear All" means ALL: route ink too (persisted follow-route,
+            // chart route/track selections), not just weather toggles.
+            if (spec.id === 'clear') props.onClearRouteInk?.();
 
             // Sky: clear everything not in spec, enable everything in spec.
             const wantSky = new Set(spec.sky ?? []);
