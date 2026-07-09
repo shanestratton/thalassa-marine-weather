@@ -250,6 +250,29 @@ export default function MapContainer({
             >
                 <NavigationControl position="top-left" showCompass={false} />
 
+                {/* Bathymetry tint over the satellite imagery (Shane
+                    2026-07-09) — same MapTiler Ocean raster the app uses,
+                    translucent so depth contours read through the water
+                    while the imagery stays photographic. FIRST child so
+                    the track/markers mount above it; always mounted with
+                    visibility toggled (a conditional mount after the
+                    track would append the raster on top of it). Chart
+                    mode hides it — that style shades water itself. */}
+                <Source
+                    id="bathy-ocean"
+                    type="raster"
+                    tiles={['https://api.maptiler.com/maps/ocean/{z}/{x}/{y}.png?key=3misfI2jeOYbJqgl5a6e']}
+                    tileSize={512}
+                    maxzoom={16}
+                >
+                    <Layer
+                        id="bathy-ocean-layer"
+                        type="raster"
+                        layout={{ visibility: styleMode === 'satellite' ? 'visible' : 'none' }}
+                        paint={{ 'raster-opacity': 0.45, 'raster-fade-duration': 0 }}
+                    />
+                </Source>
+
                 {/* Day/night terminator — translucent shadow over the night side */}
                 <Source id="night-side" type="geojson" data={nightGeojson}>
                     <Layer id="night-fill" type="fill" paint={{ 'fill-color': '#000814', 'fill-opacity': 0.32 }} />
