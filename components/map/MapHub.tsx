@@ -2642,6 +2642,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                 overlay: !hide,
                 permanent: !hide && weather.activeLayers.has('sea'),
             });
+            // Circles yield to triangles (Shane 2026-07-09: "when the
+            // triangles come into zoom, remove the circles — busy"). The
+            // OSM seamark circles are the wide-zoom read; the ENC IALA
+            // glyphs arrive around z13-14 (per-mark SCAMIN). While a real
+            // chart source is active, the circles bow out at z14 and their
+            // labels retire entirely (the ENC labels carry names + light
+            // characters). No chart source = circles at every zoom, as
+            // before.
+            try {
+                if (map.getLayer('harbour-seamarks-circle')) {
+                    map.setLayerZoomRange('harbour-seamarks-circle', 0, hide ? 14 : 24);
+                }
+                if (map.getLayer('harbour-seamarks-label')) {
+                    map.setLayerZoomRange('harbour-seamarks-label', hide ? 24 : 14, 24);
+                }
+            } catch {
+                /* style mid-swap — styledata re-applies */
+            }
         };
         apply();
         // Re-assert on styledata: 'openseamap-overlay' is BAKED INTO the
