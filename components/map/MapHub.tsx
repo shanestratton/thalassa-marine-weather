@@ -262,6 +262,17 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  open water. */
     const [autoBusy, setAutoBusy] = useState(false);
     const [courseChip, setCourseChip] = useState<string | null>(null);
+    /** Course frame (guided front door, Shane 2026-07-09 "dumb this down"):
+     *  the tracer owns its own From/To — no trip through the old planner.
+     *  Origin = fly-to + hollow START ring; destination arms ⚡ Auto, draws
+     *  the 🏁 ghost and the dashed bearing hint from the trace's live end.
+     *  Both are GHOSTS, never trace pins — the punter's line stays his. */
+    const [traceOrigin, setTraceOrigin] = useState<{ lat: number; lon: number; name: string } | null>(null);
+    const [traceDest, setTraceDest] = useState<{ lat: number; lon: number; name: string } | null>(null);
+    const [fromQuery, setFromQuery] = useState('');
+    const [toQuery, setToQuery] = useState('');
+    const [frameBusy, setFrameBusy] = useState(false);
+    const frameMarkersRef = useRef<mapboxgl.Marker[]>([]);
     /** Route report (Phase 3): review → Fix/Acknowledge → sail. */
     const [showReport, setShowReport] = useState(false);
     const [ackedLegs, setAckedLegs] = useState<Set<number>>(new Set());
@@ -521,13 +532,95 @@ export const MapHub: React.FC<MapHubProps> = ({
                       }))
                     : []) as never,
             });
+            // Course-frame bearing hint — thin dashed sky line from the
+            // trace's live end (or the origin, pre-first-pin) to the 🏁
+            // destination ghost. Pure orientation ("which way is
+            // Mooloolaba"), never a route: it re-anchors as pins land.
+            if (!map.getSource('trace-dest-hint')) {
+                map.addSource('trace-dest-hint', {
+                    type: 'geojson',
+                    data: { type: 'FeatureCollection', features: [] },
+                });
+            }
+            if (!map.getLayer('trace-dest-hint-line')) {
+                map.addLayer({
+                    id: 'trace-dest-hint-line',
+                    type: 'line',
+                    source: 'trace-dest-hint',
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: {
+                        'line-color': '#38bdf8',
+                        'line-width': 1.5,
+                        'line-opacity': 0.45,
+                        'line-dasharray': [1, 3],
+                    },
+                });
+            }
+            const hintFrom = capturedCoords[capturedCoords.length - 1] ?? traceOrigin;
+            (map.getSource('trace-dest-hint') as mapboxgl.GeoJSONSource).setData({
+                type: 'FeatureCollection',
+                features: (coordCaptureMode && traceDest && hintFrom
+                    ? [
+                          {
+                              type: 'Feature' as const,
+                              properties: {},
+                              geometry: {
+                                  type: 'LineString' as const,
+                                  coordinates: [
+                                      [hintFrom.lon, hintFrom.lat],
+                                      [traceDest.lon, traceDest.lat],
+                                  ],
+                              },
+                          },
+                      ]
+                    : []) as never,
+            });
         };
         sync();
         map.on('styledata', sync);
         return () => {
             map.off('styledata', sync);
         };
-    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes]);
+    }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest]);
+    // START / 🏁 ghost markers for the course frame — DOM markers (they
+    // survive basemap style switches), hollow rings so they can never be
+    // mistaken for trace pins. Rebuilt whole on any frame change.
+    useEffect(() => {
+        frameMarkersRef.current.forEach((m) => m.remove());
+        frameMarkersRef.current = [];
+        const map = mapRef.current;
+        if (!map || !coordCaptureMode) return;
+        const mk = (p: { lat: number; lon: number; name: string }, kind: 'start' | 'finish'): mapboxgl.Marker => {
+            const colour = kind === 'start' ? '#34d399' : '#f87171';
+            const el = document.createElement('div');
+            el.style.cssText = 'display:flex;flex-direction:column;align-items:center;pointer-events:none;';
+            const ring = document.createElement('div');
+            ring.style.cssText = `width:16px;height:16px;border-radius:50%;border:3px solid ${colour};background:rgba(15,23,42,0.5);box-shadow:0 0 6px rgba(0,0,0,0.7);`;
+            const label = document.createElement('div');
+            label.style.cssText = `margin-top:2px;max-width:96px;font:800 9px/1.15 system-ui;letter-spacing:0.04em;text-align:center;color:${colour};text-shadow:0 1px 3px #000;`;
+            label.textContent = kind === 'start' ? 'START' : `🏁 ${p.name}`;
+            el.append(ring, label);
+            return new mapboxgl.Marker({ element: el, anchor: 'top' }).setLngLat([p.lon, p.lat]).addTo(map);
+        };
+        if (traceOrigin) frameMarkersRef.current.push(mk(traceOrigin, 'start'));
+        if (traceDest) frameMarkersRef.current.push(mk(traceDest, 'finish'));
+        return () => {
+            frameMarkersRef.current.forEach((m) => m.remove());
+            frameMarkersRef.current = [];
+        };
+    }, [traceOrigin, traceDest, coordCaptureMode]);
+    // Arrival nudge — the punter's latest pin landed on the doorstep of
+    // the framed destination: close the loop, point at Save.
+    useEffect(() => {
+        if (!traceDest || capturedCoords.length < 2) return;
+        const last = capturedCoords[capturedCoords.length - 1];
+        const dLat = (last.lat - traceDest.lat) * 111_320;
+        const dLon = (last.lon - traceDest.lon) * 111_320 * Math.cos((traceDest.lat * Math.PI) / 180);
+        if (Math.hypot(dLat, dLon) < 150) {
+            flashTraceFeedback(`That's ${traceDest.name} — name the route and save it`);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [capturedCoords]);
     const copyCapturedCoords = useCallback(async () => {
         const text = capturedCoords.map((c) => `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)}`).join('\n');
         try {
@@ -1472,6 +1565,58 @@ export const MapHub: React.FC<MapHubProps> = ({
     // ── Passage Planner ──
     const passage = usePassagePlanner(mapRef, mapReady);
 
+    // ── Course frame: resolve From/To typed in the tracer panel ──
+    // parseLocation handles ports, buoys, and hand-typed GPS coords (the
+    // full planner chain), biased to the current chart view so "Newport"
+    // means the one on screen. Success flies to the origin at marina zoom
+    // — the punter starts plotting where his boat actually is.
+    const setCourseFrame = useCallback(async () => {
+        const from = fromQuery.trim();
+        const to = toQuery.trim();
+        if (frameBusy || !from || !to) return;
+        setFrameBusy(true);
+        triggerHaptic('light');
+        try {
+            const { parseLocation } = await import('../../services/weather/api/geocoding');
+            const map = mapRef.current;
+            const near = map ? { lat: map.getCenter().lat, lon: map.getCenter().lng } : undefined;
+            const o = await parseLocation(from, near);
+            const d = await parseLocation(to, { lat: o.lat, lon: o.lon });
+            setTraceOrigin({ lat: o.lat, lon: o.lon, name: o.name });
+            setTraceDest({ lat: d.lat, lon: d.lon, name: d.name });
+            mapRef.current?.flyTo({ center: [o.lon, o.lat], zoom: 14.5, duration: 1400 });
+            // Geocoder sanity flash — "Mooloolaba Marina" once matched
+            // Marina del Rey, California (proximity bias lost to the word
+            // "Marina"). Don't block a genuine ocean passage; just make a
+            // wrong-hemisphere match impossible to miss.
+            const toRad = (x: number): number => (x * Math.PI) / 180;
+            const dLat = toRad(d.lat - o.lat);
+            const dLon = toRad(d.lon - o.lon);
+            const a =
+                Math.sin(dLat / 2) ** 2 + Math.cos(toRad(o.lat)) * Math.cos(toRad(d.lat)) * Math.sin(dLon / 2) ** 2;
+            const nmApart = 3440.065 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            flashTraceFeedback(
+                nmApart > 1500
+                    ? `Heads up — "${d.name}" is ${Math.round(nmApart).toLocaleString()} NM away. Wrong match? ✕ the course and retype.`
+                    : `Plot your way out of ${o.name} — ⚡ Auto takes the open water any time`,
+            );
+        } catch (err) {
+            flashTraceFeedback(
+                `Couldn't find that — try "27.4698S 153.0251E" (${err instanceof Error ? err.message.slice(0, 40) : 'lookup failed'})`,
+            );
+        } finally {
+            setFrameBusy(false);
+        }
+    }, [fromQuery, toQuery, frameBusy, flashTraceFeedback]);
+
+    const clearCourseFrame = useCallback(() => {
+        setTraceOrigin(null);
+        setTraceDest(null);
+        setFromQuery('');
+        setToQuery('');
+        setCourseChip(null);
+    }, []);
+
     // ── Guided builder: "⚡ Auto to destination" ──
     // The punter traces the fiddly bits (marina, bar, river — where local
     // knowledge beats the algorithm); one tap hands the OPEN WATER to the
@@ -1479,20 +1624,23 @@ export const MapHub: React.FC<MapHubProps> = ({
     // as PINS (RDP-decimated to the bends) so the whole route stays ONE
     // editable, re-gradable trace — drag/insert/delete the arrival end like
     // any pin. An OFFER, never a takeover (masterplan prime directive).
+    // The tracer's own course frame outranks the old planner's arrival;
+    // with a frame set and NO pins yet, ⚡ routes the lot from the origin
+    // ("he can run the entire route without our help" — and the inverse).
     const autoCompleteTrace = useCallback(async () => {
-        if (autoBusy || capturedCoords.length === 0) return;
-        const dest = passage.arrival;
+        const start = capturedCoords[capturedCoords.length - 1] ?? traceOrigin;
+        if (autoBusy || !start) return;
+        const dest = traceDest ?? passage.arrival;
         if (!dest) {
-            flashTraceFeedback('Set an arrival in the passage planner first');
+            flashTraceFeedback('Type a destination up top first');
             return;
         }
         setAutoBusy(true);
         triggerHaptic('medium');
         flashTraceFeedback('Routing the open water…');
         try {
-            const last = capturedCoords[capturedCoords.length - 1];
             const res = await tryInshoreRoute(
-                { lat: last.lat, lon: last.lon },
+                { lat: start.lat, lon: start.lon },
                 { lat: dest.lat, lon: dest.lon },
                 vesselDraftMetres(settings.vessel),
             );
@@ -1501,10 +1649,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // 40 m tolerance keeps every bend the engine chose while a
                 // 60-vertex line becomes ~15-25 editable pins, not pin soup.
                 const sparse = rdpTracePoints(pts, 40);
-                const add = sparse.slice(1); // sparse[0] == the last pin
+                // With pins down, sparse[0] duplicates the last pin — drop
+                // it. Frame-only (zero pins) keeps the origin as pin #1.
+                const add = capturedCoords.length > 0 ? sparse.slice(1) : sparse;
                 if (add.length > 0) {
                     setCapturedCoords((prev) => [...prev, ...add]);
-                    const brg = bearingDegBetween(last, add[0]);
+                    // First-leg heading off the polyline itself — correct in
+                    // both modes (pins: last pin → first new; frame-only:
+                    // origin → first bend).
+                    const brg = bearingDegBetween(sparse[0], sparse[1] ?? dest);
                     setCourseChip(
                         `${courseArrow(brg)} head ${String(Math.round(brg)).padStart(3, '0')}° — ${
                             dest.name || 'destination'
@@ -1528,7 +1681,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         } finally {
             setAutoBusy(false);
         }
-    }, [autoBusy, capturedCoords, passage.arrival, settings.vessel, flashTraceFeedback]);
+    }, [autoBusy, capturedCoords, traceOrigin, traceDest, passage.arrival, settings.vessel, flashTraceFeedback]);
 
     // Follow Route overlay — renders the followed planned route on the map
     // Suppressed during passage planning to avoid visual conflict
@@ -2941,6 +3094,57 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         {DEFAULT_TIDE_SAFETY_M} m margin at low tide
                                     </div>
                                 )}
+                                {/* Course frame (guided front door): From/To lives
+                                HERE, not in the old planner. Optional — the
+                                punter can ignore it and just tap the chart. */}
+                                {!traceDest && capturedCoords.length === 0 && (
+                                    <div className="space-y-1.5 border-b border-white/10 px-3 py-2">
+                                        <input
+                                            value={fromQuery}
+                                            onChange={(e) => setFromQuery(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void setCourseFrame();
+                                            }}
+                                            placeholder="From — port or GPS coords"
+                                            aria-label="Passage origin"
+                                            className="h-8 w-full rounded-lg border border-white/10 bg-slate-800/80 px-2 text-[11px] font-medium text-white placeholder-gray-500 outline-none focus:border-sky-500/50"
+                                        />
+                                        <input
+                                            value={toQuery}
+                                            onChange={(e) => setToQuery(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void setCourseFrame();
+                                            }}
+                                            placeholder="To — destination"
+                                            aria-label="Passage destination"
+                                            className="h-8 w-full rounded-lg border border-white/10 bg-slate-800/80 px-2 text-[11px] font-medium text-white placeholder-gray-500 outline-none focus:border-sky-500/50"
+                                        />
+                                        <button
+                                            onClick={() => void setCourseFrame()}
+                                            disabled={frameBusy || !fromQuery.trim() || !toQuery.trim()}
+                                            className="w-full rounded-lg bg-sky-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-sky-300 active:scale-95 disabled:opacity-40"
+                                        >
+                                            {frameBusy ? '⏳ Finding…' : '🧭 Set course'}
+                                        </button>
+                                        <p className="text-[9px] leading-snug text-gray-500">
+                                            Or just tap the chart to start plotting.
+                                        </p>
+                                    </div>
+                                )}
+                                {traceDest && (
+                                    <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
+                                        <span className="truncate text-[10px] font-black text-sky-300">
+                                            {traceOrigin?.name ?? 'Here'} → {traceDest.name}
+                                        </span>
+                                        <button
+                                            onClick={clearCourseFrame}
+                                            aria-label="Clear the course frame"
+                                            className="ml-2 shrink-0 text-[10px] font-bold text-gray-500"
+                                        >
+                                            ✕
+                                        </button>
+                                    </div>
+                                )}
                                 {tracerStatus === 'loading' && (
                                     <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-sky-300">
                                         Reading charts for this area…
@@ -2967,8 +3171,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     </div>
                                 )}
                                 {/* Guided builder: hand the open water to the
-                                four-tier router — an OFFER, never a grab. */}
-                                {capturedCoords.length > 0 && passage.arrival && (
+                                four-tier router — an OFFER, never a grab. The
+                                course frame arms it with zero pins too ("do
+                                the whole thing for me" is a legitimate ask). */}
+                                {(capturedCoords.length > 0 || traceOrigin) && (traceDest || passage.arrival) && (
                                     <div className="border-b border-white/10 px-3 py-1.5">
                                         <button
                                             onClick={() => void autoCompleteTrace()}
@@ -2977,7 +3183,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         >
                                             {autoBusy
                                                 ? '⏳ Routing the open water…'
-                                                : `⚡ Auto to ${passage.arrival.name || 'destination'}`}
+                                                : `⚡ Auto to ${(traceDest ?? passage.arrival)?.name || 'destination'}`}
                                         </button>
                                     </div>
                                 )}
