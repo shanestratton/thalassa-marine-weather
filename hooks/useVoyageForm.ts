@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSettings } from '../context/SettingsContext';
 import { useWeather } from '../context/WeatherContext';
 // geminiService dynamically imported at call sites
@@ -13,6 +13,29 @@ import { generateSeaRoute } from '../utils/seaRoute';
 import { GpsService } from '../services/GpsService';
 import { resolveEffectiveVessel } from '../utils/defaultVessel';
 import { vesselDraftMetres, vesselAirDraftMetres } from '../services/units';
+
+/**
+ * Voyage-plan session counter — MODULE-scoped on purpose.
+ *
+ * The enhancement pipeline outlives the RoutePlanner that spawned it
+ * (that's the point: it keeps refining the route while the user watches
+ * MapHub). Its progressive saveVoyagePlan() writes are gated on this
+ * counter still matching the value captured at Calculate-time.
+ *
+ * This used to be a useRef inside the hook, and that was the remount-
+ * churn bug (2026-07-09): a ref dies with its hook instance, so when
+ * the user hopped back to the PLAN tab, the NEW RoutePlanner's mount-
+ * reset bumped a fresh ref the old pipeline never reads. The zombie
+ * pipeline's next save then slipped past the guard, flipped voyagePlan
+ * null→populated, and AutoNav yanked the user to the map — once per
+ * remaining pipeline stage (~17 s and ~50 s after calculate), each yank
+ * remounting MapHub and re-running its sticky-passage compute.
+ *
+ * Module scope means clearVoyagePlan() (every planner mount) stales
+ * EVERY in-flight pipeline, whichever hook instance started it. Only
+ * one planner exists at a time, so a shared counter is safe.
+ */
+let voyagePlanSession = 0;
 
 export const LOADING_PHASES = [
     'Reading the charts…',
@@ -79,13 +102,9 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
     const [checklistState, setChecklistState] = useState<Record<string, boolean>>({});
     const [activeChecklistTab, setActiveChecklistTab] = useState('safety');
 
-    // Session ID — bumped on each new calculate or explicit reset. The
-    // background enhancement pipeline captures this at start and only
-    // commits its progressive saveVoyagePlan() calls if the session is
-    // still current. This is what stops a previous route's enhancements
-    // from re-populating WeatherContext.voyagePlan after the user has
-    // returned to RoutePlanner expecting a clean form.
-    const sessionIdRef = useRef(0);
+    // Session guard lives at module scope (voyagePlanSession above) —
+    // a per-instance ref couldn't invalidate pipelines started by a
+    // previous, now-unmounted planner instance.
 
     // Reset Deep Report on param change
     useEffect(() => {
@@ -321,10 +340,10 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
         // Bump session: this is a NEW route plan. Any pending enhancement
         // pipeline writes from a previous calculate are now stale and
         // will be dropped by saveIfActive below.
-        sessionIdRef.current += 1;
-        const mySession = sessionIdRef.current;
+        voyagePlanSession += 1;
+        const mySession = voyagePlanSession;
         const saveIfActive = (plan: import('../types').VoyagePlan) => {
-            if (sessionIdRef.current !== mySession) return; // stale — user reset / re-calculated
+            if (voyagePlanSession !== mySession) return; // stale — user reset / re-calculated / remounted planner
             saveVoyagePlan(plan);
         };
 
@@ -1077,7 +1096,7 @@ export const useVoyageForm = (onTriggerUpgrade: () => void) => {
      * grinding away in the background.
      */
     const clearVoyagePlan = useCallback(() => {
-        sessionIdRef.current += 1;
+        voyagePlanSession += 1;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         saveVoyagePlan(null as any);
         setOrigin('');
