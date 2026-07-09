@@ -2034,6 +2034,39 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setInsertAfter(null);
                     setSelectedPin(null);
                     setCapturedCoords((prev) => [...prev.slice(0, after + 1), pt, ...prev.slice(after + 1)]);
+                    triggerHaptic('light');
+                    return;
+                }
+                // Tap ON the line → insert into that leg (Shane 2026-07-09:
+                // "we need to be able to insert a waypoint along the track").
+                // Screen-space distance so it feels identical at every zoom;
+                // 16 px ≈ the edge of a fingertip. The middle 80% of the leg
+                // only — taps near an endpoint belong to the pin's own
+                // tap/drag affordance (40 px hit-slop), not a mid-leg splice.
+                // The leg test uses the RAW tap position; the inserted pin is
+                // the water-snapped one.
+                let insertLeg = -1;
+                {
+                    const tapPx = map.project([lon, lat]);
+                    let bestD = 16;
+                    for (let i = 1; i < capturedCoords.length; i++) {
+                        const a = map.project([capturedCoords[i - 1].lon, capturedCoords[i - 1].lat]);
+                        const b = map.project([capturedCoords[i].lon, capturedCoords[i].lat]);
+                        const dx = b.x - a.x;
+                        const dy = b.y - a.y;
+                        const len2 = dx * dx + dy * dy;
+                        const t = len2 > 0 ? ((tapPx.x - a.x) * dx + (tapPx.y - a.y) * dy) / len2 : 0;
+                        if (t < 0.1 || t > 0.9) continue;
+                        const d = Math.hypot(a.x + t * dx - tapPx.x, a.y + t * dy - tapPx.y);
+                        if (d < bestD) {
+                            bestD = d;
+                            insertLeg = i;
+                        }
+                    }
+                }
+                if (insertLeg > 0) {
+                    setCapturedCoords((prev) => [...prev.slice(0, insertLeg), pt, ...prev.slice(insertLeg)]);
+                    flashTraceFeedback(`Inserted between ${insertLeg} and ${insertLeg + 1} — drag to fine-tune`);
                 } else {
                     setCapturedCoords((prev) => [...prev, pt]);
                 }
@@ -3270,10 +3303,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     </button>
                                 </div>
                                 {/* Draft honesty — ALWAYS say what keel the verdicts
-                                checked; amber when it's the 2.5 m fallback. */}
+                                checked; amber when it's the 2.5 m fallback, LOUD
+                                when the number reads like a units mix-up (field
+                                bug 2026-07-09: a 12.0 m keel turned every leg
+                                into "needs +12.5 m tide" in deep water — draft
+                                had been saved through the wrong unit toggle). */}
                                 {!(Number(settings.vessel?.draft) > 0) ? (
                                     <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
                                         ⚠ Default 2.5 m draft — set your vessel for real depth checks.
+                                    </div>
+                                ) : vesselDraftMetres(settings.vessel) > 6 ? (
+                                    <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
+                                        ⚠ Checking a {vesselDraftMetres(settings.vessel).toFixed(1)} m keel — that reads
+                                        like a units mix-up. Check Draft in Settings → Vessel.
                                     </div>
                                 ) : (
                                     <div className="border-b border-white/10 px-3 py-1.5 text-[10px] text-gray-400">
