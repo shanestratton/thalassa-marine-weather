@@ -95,7 +95,7 @@ import { vesselDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import {
     buildTracerContext,
-    validateTrace,
+    validateTraceLeg,
     traceHealth,
     traceBboxPadded,
     pointInBbox,
@@ -200,6 +200,36 @@ const getWeatherInspectPopup = async () => {
 
 // ── Component ──────────────────────────────────────────────────
 
+/** Cache key for one trace leg — endpoint coords pin the verdict. */
+const legCacheKey = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): string =>
+    `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}`;
+
+/**
+ * validateTrace with a per-leg memo: unchanged legs reuse their verdict,
+ * so appending pin N only grades leg N-1→N and a nudge only re-grades
+ * the two legs touching the moved pin. The cache is pruned to exactly
+ * the current trace each pass (bounded memory) and must be CLEARED by
+ * the caller whenever the TracerContext is rebuilt — every cached
+ * verdict was graded against the old context's grid/draft.
+ */
+function validateTraceCached(
+    points: ReadonlyArray<{ lat: number; lon: number }>,
+    ctx: TracerContext,
+    cache: Map<string, TraceLegVerdict>,
+): TraceLegVerdict[] {
+    const out: TraceLegVerdict[] = [];
+    const fresh = new Map<string, TraceLegVerdict>();
+    for (let i = 1; i < points.length; i++) {
+        const key = legCacheKey(points[i - 1], points[i]);
+        const verdict = fresh.get(key) ?? cache.get(key) ?? validateTraceLeg(points[i - 1], points[i], ctx);
+        fresh.set(key, verdict);
+        out.push(verdict);
+    }
+    cache.clear();
+    for (const [k, v] of fresh) cache.set(k, v);
+    return out;
+}
+
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
     onLocationSelect,
@@ -266,6 +296,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     const tracerCtxRef = useRef<TracerContext | null>(null);
     const tracerSeqRef = useRef(0);
     const tideReqRef = useRef<Set<string>>(new Set());
+    /** Incremental grading (Shane 2026-07-09: "each new waypoint rechecks
+     *  all of the previous waypoints — not necessary unless we nudged").
+     *  Verdicts cache per LEG, keyed by its endpoints: a fresh pin only
+     *  misses on its own leg, a nudged pin on its two adjacent legs, and
+     *  every untouched leg is a hit. Cleared when the CONTEXT rebuilds
+     *  (new area / draft change) — those invalidate every cached verdict. */
+    const legCacheRef = useRef<Map<string, TraceLegVerdict>>(new Map());
+    /** Tide-window labels cached by SPOT (leg indices shift on insert/
+     *  delete; the shallow patch itself doesn't move). */
+    const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
     const [traceName, setTraceName] = useState('');
     const [showSavedTraces, setShowSavedTraces] = useState(false);
@@ -1015,11 +1055,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAckedLegs(new Set()); // ack indices die with the old leg list
         setShareArmed(false); // consent never outlives the line it was given for
         if (!coordCaptureMode || capturedCoords.length === 0) {
-            if (capturedCoords.length === 0) setLegVerdicts([]);
+            if (capturedCoords.length === 0) {
+                setLegVerdicts([]);
+                legCacheRef.current.clear();
+            }
             return;
         }
-        setTideLabels({});
-        tideReqRef.current.clear();
         const draftNow = vesselDraftMetres(settings.vessel);
         const draftAssumed = !(Number(settings.vessel?.draft) > 0);
         const ctx = tracerCtxRef.current;
@@ -1029,13 +1070,22 @@ export const MapHub: React.FC<MapHubProps> = ({
             ctx.draftAssumed !== draftAssumed ||
             capturedCoords.some((p) => !pointInBbox(p, ctx.bbox));
         if (!needsBuild && ctx) {
-            setLegVerdicts(validateTrace(capturedCoords, ctx));
+            // Incremental: untouched legs reuse cached verdicts (and their
+            // already-fetched tide labels via the spot cache) — only the
+            // new/nudged legs actually grade.
+            setLegVerdicts(validateTraceCached(capturedCoords, ctx, legCacheRef.current));
             return;
         }
         // Rebuild: clear verdicts FIRST so new pins render grey "pending" —
         // never the previous area's greens (audit major: stale verdicts drawn
-        // on a loaded/cleared trace while the slow rebuild ran).
+        // on a loaded/cleared trace while the slow rebuild ran). Caches die
+        // with the context: verdicts AND tide labels were graded against the
+        // old grid/draft.
         setLegVerdicts([]);
+        legCacheRef.current.clear();
+        tideSpotCacheRef.current.clear();
+        setTideLabels({});
+        tideReqRef.current.clear();
         const seq = ++tracerSeqRef.current;
         setTracerStatus('loading');
         void buildTracerContext(traceBboxPadded(capturedCoords), draftNow, { draftAssumed })
@@ -1043,7 +1093,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                 if (seq !== tracerSeqRef.current) return; // stale build — a newer pin superseded it
                 tracerCtxRef.current = built.status === 'ready' || built.status === 'marksonly' ? built.ctx : null;
                 setTracerStatus(built.status);
-                setLegVerdicts(tracerCtxRef.current ? validateTrace(capturedCoords, tracerCtxRef.current) : []);
+                setLegVerdicts(
+                    tracerCtxRef.current
+                        ? validateTraceCached(capturedCoords, tracerCtxRef.current, legCacheRef.current)
+                        : [],
+                );
             })
             .catch((err) => {
                 if (seq !== tracerSeqRef.current) return;
@@ -1052,20 +1106,35 @@ export const MapHub: React.FC<MapHubProps> = ({
                 setLegVerdicts([]);
             });
     }, [capturedCoords, coordCaptureMode, settings.vessel]);
-    // Tide windows for sub-keel legs — async per shallow spot, patched in as
-    // they land. Keyed by leg index + spot so re-grades invalidate cleanly.
+    // Tide windows for sub-keel legs — async per shallow SPOT, cached by the
+    // spot's position+depth (never by leg index: indices shift on insert/
+    // delete, but the shallow patch itself doesn't move). Cached labels
+    // re-attach synchronously after every re-grade, so a 30-pin trace
+    // gaining pin 31 keeps its tide chips without a single WorldTides call;
+    // the spot cache dies with the tracer context (draft/area change).
     useEffect(() => {
         if (!coordCaptureMode) return;
         const draftM = vesselDraftMetres(settings.vessel);
+        const next: Record<number, string> = {};
         legVerdicts.forEach((v, i) => {
             if (!v.needsTide || v.minDepthM === null || !v.minAt) return;
-            const key = `${i}|${v.minAt.lat.toFixed(5)}|${v.minAt.lon.toFixed(5)}`;
-            if (tideReqRef.current.has(key)) return;
-            tideReqRef.current.add(key);
+            const spot = `${v.minAt.lat.toFixed(5)}|${v.minAt.lon.toFixed(5)}|${v.minDepthM}`;
+            const cached = tideSpotCacheRef.current.get(spot);
+            if (cached) {
+                next[i] = cached;
+                return;
+            }
+            if (tideReqRef.current.has(spot)) return;
+            tideReqRef.current.add(spot);
             void tideWindowLabelFor(v.minDepthM, draftM, v.minAt).then((label) => {
-                if (label && tideReqRef.current.has(key)) setTideLabels((prev) => ({ ...prev, [i]: label }));
+                if (!label || !tideReqRef.current.has(spot)) return;
+                tideSpotCacheRef.current.set(spot, label);
+                // Index is valid for the verdicts THIS run saw; if the legs
+                // shifted mid-fetch, the next re-grade re-syncs from cache.
+                setTideLabels((prev) => ({ ...prev, [i]: label }));
             });
         });
+        setTideLabels(next);
     }, [legVerdicts, coordCaptureMode, settings.vessel]);
 
     const [isoProgress, setIsoProgress] = useState<{
