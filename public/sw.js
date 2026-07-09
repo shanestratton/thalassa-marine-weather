@@ -10,10 +10,17 @@
 // across rebuilds — the bypass in index.tsx now also unregisters the
 // SW on native, but bumping CACHE_NAME ensures any WEB-side stale
 // caches get purged on next visit.
-const CACHE_NAME = 'thalassa-v55-core';
-const TILE_CACHE = 'thalassa-v55-tiles';
-const DATA_CACHE = 'thalassa-v55-data';
-const LAN_TILE_CACHE = 'thalassa-v55-lan-tiles';
+// v56: Navigations are NETWORK-FIRST now (Shane 2026-07-09: "every 10
+// seconds the page refreshes and I lose all my work"). Stale-while-
+// revalidate on the DOCUMENT meant every deploy day became a reload
+// storm: the SW served yesterday's index.html, its hashed chunks
+// 404'd, lazyRetry reloaded, and the background revalidation died
+// with the page before it could freshen the cache — stale HTML
+// survived every reload. Bump purges the poisoned core caches.
+const CACHE_NAME = 'thalassa-v56-core';
+const TILE_CACHE = 'thalassa-v56-tiles';
+const DATA_CACHE = 'thalassa-v56-data';
+const LAN_TILE_CACHE = 'thalassa-v56-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
 
@@ -167,17 +174,43 @@ self.addEventListener('fetch', (event) => {
         return;
     }
 
-    // 3. APP SHELL - Stale While Revalidate
-    // Fast load from cache, then update in background
+    // 3a. NAVIGATIONS (the HTML document) - NETWORK FIRST, cache only
+    // as the offline fallback. The document carries the hashed-chunk
+    // manifest: serving it stale after a deploy hands the app a map of
+    // chunks Vercel has already purged → 404s → lazyRetry reload loop
+    // (the "page refreshes every 10 seconds" field bug, 2026-07-09).
+    // The document is ~15 KB from Vercel's edge — the SWR latency win
+    // was never worth the poisoned manifest.
+    if (event.request.mode === 'navigate' || event.request.destination === 'document') {
+        event.respondWith(
+            fetch(event.request)
+                .then((networkResponse) => {
+                    if (networkResponse.ok) {
+                        const responseToCache = networkResponse.clone();
+                        event.waitUntil(
+                            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache)),
+                        );
+                    }
+                    return networkResponse;
+                })
+                .catch(() => caches.match(event.request).then((c) => c || caches.match('/index.html'))),
+        );
+        return;
+    }
+
+    // 3b. APP SHELL ASSETS - Stale While Revalidate
+    // Safe here: /assets/* filenames are content-hashed (immutable per
+    // hash), so a cache hit is correct by construction. waitUntil keeps
+    // the background revalidation alive past page teardown.
     event.respondWith(
         caches.match(event.request).then((cachedResponse) => {
             const fetchPromise = fetch(event.request)
                 .then((networkResponse) => {
                     if (networkResponse.ok) {
                         const responseToCache = networkResponse.clone();
-                        caches.open(CACHE_NAME).then((cache) => {
-                            cache.put(event.request, responseToCache);
-                        });
+                        event.waitUntil(
+                            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache)),
+                        );
                     }
                     return networkResponse;
                 })
