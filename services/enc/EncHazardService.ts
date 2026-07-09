@@ -451,6 +451,11 @@ export interface EncMergedVectorData {
     BOYSPP: FeatureCollection;
     /** Special-purpose beacons — yellow X (display only). */
     BCNSPP: FeatureCollection;
+    /** Recommended tracks / leading lines (RECTRC line features).
+     *  The same geometry the tracer grades leads against — drawing
+     *  it is what lets a punter STEER by the lead (Shane 2026-07-09
+     *  "show markers, leads, laterals and cardinals"). */
+    RECTRC: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -495,6 +500,7 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         BCNCAR: { type: 'FeatureCollection', features: [] },
         BOYSPP: { type: 'FeatureCollection', features: [] },
         BCNSPP: { type: 'FeatureCollection', features: [] },
+        RECTRC: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -611,6 +617,7 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         tagAndPush('BCNCAR', blob.layers.BCNCAR);
         tagAndPush('BOYSPP', blob.layers.BOYSPP);
         tagAndPush('BCNSPP', blob.layers.BCNSPP);
+        tagAndPush('RECTRC', blob.layers.RECTRC);
     }
 
     mergedCache = { version: currentVersion, data: merged };
@@ -622,7 +629,8 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
             `LIGHTS=${merged.LIGHTS.features.length}, ` +
             `lat (BOY+BCN)=${merged.BOYLAT.features.length + merged.BCNLAT.features.length}, ` +
             `card (BOY+BCN)=${merged.BOYCAR.features.length + merged.BCNCAR.features.length}, ` +
-            `spp (BOY+BCN)=${merged.BOYSPP.features.length + merged.BCNSPP.features.length}`,
+            `spp (BOY+BCN)=${merged.BOYSPP.features.length + merged.BCNSPP.features.length}, ` +
+            `leads (RECTRC)=${merged.RECTRC.features.length}`,
     );
     return merged;
 }

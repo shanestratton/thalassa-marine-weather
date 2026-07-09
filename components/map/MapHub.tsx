@@ -77,6 +77,7 @@ import { useEncVectorLayer } from './useEncVectorLayer';
 import {
     setEncVectorVisibility as encApplyLayerVisibility,
     setEncChartDetail as encApplyChartDetailLayers,
+    ENC_VEC_LAYERS,
 } from './EncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
@@ -1286,6 +1287,15 @@ export const MapHub: React.FC<MapHubProps> = ({
             try {
                 if (map.getLayer('satellite-base-layer')) {
                     map.setLayoutProperty('satellite-base-layer', 'visibility', satelliteVisible ? 'visible' : 'none');
+                    // Self-healing z-order: whatever race added the raster
+                    // ABOVE the ENC stack (chart-mode swap vs async cell
+                    // mount), push it back underneath — marks, lights and
+                    // leads must always paint over the imagery.
+                    const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                    const encBottom = order.find((id) => id.startsWith('enc-vec-'));
+                    if (encBottom && order.indexOf('satellite-base-layer') > order.indexOf(encBottom)) {
+                        map.moveLayer('satellite-base-layer', encBottom);
+                    }
                 }
                 // The opaque ENC area fills + the ocean-bathymetry raster sit
                 // ABOVE the satellite base and blanket the whole viewport in
@@ -2358,6 +2368,49 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the user can read shoals at a glance. Mounts at zoom 7+
     // (lower zooms get the dashed coverage overlay above).
     useEncVectorLayer(mapRef, mapReady, encVisible, encChartDetail, encSafetyDepthM);
+    // Tracer WYSIWYG (Shane 2026-07-09 "show markers, leads, laterals
+    // and cardinals"): while tracing, every mark the grader checks
+    // must be ON SCREEN — laterals, cardinals, specials, lights and
+    // the RECTRC leads — even if the punter has flipped the ENC
+    // master toggle off or a mode hid them. styledata re-asserts
+    // because cell loads re-add layers asynchronously; on exit,
+    // visibility goes back to the master toggle + chart-detail owners.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady || !coordCaptureMode) return;
+        const MARK_LAYERS = [
+            ENC_VEC_LAYERS.BOYLAT,
+            ENC_VEC_LAYERS.BCNLAT,
+            ENC_VEC_LAYERS.BOYCAR,
+            ENC_VEC_LAYERS.BCNCAR,
+            ENC_VEC_LAYERS.BOYSPP,
+            ENC_VEC_LAYERS.BCNSPP,
+            ENC_VEC_LAYERS.LIGHTS,
+            ENC_VEC_LAYERS.RECTRC,
+            ENC_VEC_LAYERS.RECTRC_LABEL,
+            ENC_VEC_LAYERS.NAVAIDS_LABEL,
+        ];
+        const apply = (): void => {
+            try {
+                for (const id of MARK_LAYERS) {
+                    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+                }
+            } catch {
+                /* style mid-swap — styledata re-applies */
+            }
+        };
+        apply();
+        map.on('styledata', apply);
+        return () => {
+            map.off('styledata', apply);
+            try {
+                encApplyLayerVisibility(map, encVisible);
+                encApplyChartDetailLayers(map, encChartDetail);
+            } catch {
+                /* layers unmounted — nothing to restore */
+            }
+        };
+    }, [coordCaptureMode, mapReady, encVisible, encChartDetail]);
 
     // ── ENC test route line ──
     // One-off rendering of `tryInshoreRoute` output triggered by the
