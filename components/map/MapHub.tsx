@@ -1354,15 +1354,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // route-plan cell load can't repaint a fill between our
                 // styledata ticks — this loop is the belt, that's the braces.
                 if (satelliteVisible) {
-                    for (const id of [
-                        'enc-vec-lndare-fill',
-                        'enc-vec-lndare-islet',
-                        'enc-vec-depare-fill',
-                        'maptiler-ocean-layer',
-                    ]) {
+                    for (const id of ['enc-vec-lndare-fill', 'enc-vec-lndare-islet', 'enc-vec-depare-fill']) {
                         if (map.getLayer(id)) {
                             map.setLayoutProperty(id, 'visibility', 'none');
                         }
+                    }
+                    // Bathymetry OVER the imagery (Shane 2026-07-09: "can we
+                    // have a bathymetry layer on top of the satellite") — the
+                    // MapTiler ocean raster used to be hidden with the fills;
+                    // now it stays on as a translucent depth tint so the water
+                    // carries its contours while the imagery shows through.
+                    if (map.getLayer('maptiler-ocean-layer')) {
+                        map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'visible');
+                        map.setPaintProperty('maptiler-ocean-layer', 'raster-opacity', 0.45);
                     }
                 }
             } catch {
@@ -1378,6 +1382,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             try {
                 if (map.getLayer('maptiler-ocean-layer')) {
                     map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'visible');
+                    // Chart mode gets the original stronger tint back.
+                    map.setPaintProperty('maptiler-ocean-layer', 'raster-opacity', 0.6);
                 }
                 encApplyLayerVisibility(map, encVisible);
                 encApplyChartDetailLayers(map, encChartDetail);
