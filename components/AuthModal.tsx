@@ -123,6 +123,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         return msg.includes('rate limit') || msg.includes('rate_limit');
     };
 
+    /**
+     * GoTrue counts an email as "registered" when ANY identity holds it —
+     * including Apple/Google identities on an account whose primary email
+     * is something else. The OTP lane then 422s with user_already_exists
+     * ("User already registered"), which reads as nonsense to someone who
+     * never made a password. Field bug Shane 2026-07-09: his gmail lived
+     * on the account's Google/Apple identities while the primary email
+     * was the unreachable captain@<vessel> address. Map it to advice.
+     */
+    const isOauthBoundEmail = (err: unknown): boolean => {
+        const errObj = err as { code?: string } | undefined;
+        if (errObj?.code === 'user_already_exists') return true;
+        return getErrorMessage(err).toLowerCase().includes('already registered');
+    };
+
     /** Log raw error for debugging */
     const logAuthError = (context: string, err: unknown) => {
         const msg = getErrorMessage(err);
@@ -167,6 +182,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             if (isRateLimited(err)) {
                 setError('Too many sign-in attempts. Please wait a few minutes and try again.');
                 setResendCooldown(120);
+            } else if (isOauthBoundEmail(err)) {
+                setError(
+                    'This email is linked to an Apple or Google sign-in. Use that sign-in method on your boat app instead — or sign in with the email address shown under Settings → Account.',
+                );
             } else {
                 setError(getErrorMessage(err) || 'Failed to send code. Please try again.');
             }
@@ -238,6 +257,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             if (isRateLimited(err)) {
                 setError('Too many sign-in attempts. Please wait a few minutes and try again.');
                 setResendCooldown(120);
+            } else if (isOauthBoundEmail(err)) {
+                setError(
+                    'This email is linked to an Apple or Google sign-in. Use that sign-in method on your boat app instead — or sign in with the email address shown under Settings → Account.',
+                );
             } else {
                 setError(getErrorMessage(err) || 'Failed to resend code.');
             }
