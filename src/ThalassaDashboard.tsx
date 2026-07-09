@@ -129,15 +129,27 @@ export default function ThalassaDashboard() {
         // h-screen/overflow-hidden clipped everything below the fold and the
         // diary + photos were unreachable (Shane 2026-07-04). The map gets a
         // fixed 45dvh window; the diary flows below at full length.
-        <div className="flex flex-col min-h-[100dvh] md:h-screen md:overflow-hidden bg-slate-900 text-slate-100 font-sans">
+        // EXCEPT when the diary is folded (Shane 2026-07-09 "make the map
+        // expand to use all of that area"): with nothing below the fold to
+        // reach, mobile flips into the same locked app-shell as desktop and
+        // the map takes every pixel above the reopen bar.
+        <div
+            className={`flex flex-col ${
+                diaryHidden ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'
+            } md:h-screen md:overflow-hidden bg-slate-900 text-slate-100 font-sans`}
+        >
             <TopNav vessel={vessel} telemetry={telemetry} entryCount={entries.length} />
             <VoyageProgressBar track={track} destination={destination} />
 
-            <div className="relative flex flex-col md:flex-row md:flex-1 md:overflow-hidden">
+            <div
+                className={`relative flex flex-col md:flex-row md:flex-1 md:overflow-hidden ${
+                    diaryHidden ? 'flex-1 min-h-0' : ''
+                }`}
+            >
                 <main
-                    className={`shrink-0 ${
-                        diaryHidden ? 'h-[78dvh]' : 'h-[45dvh]'
-                    } min-h-[280px] md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative transition-[height] duration-300`}
+                    className={`${
+                        diaryHidden ? 'flex-1 min-h-0' : 'shrink-0 h-[45dvh] min-h-[280px]'
+                    } md:shrink md:h-auto md:min-h-0 md:flex-1 bg-slate-950 relative`}
                 >
                     <MapContainer
                         track={track}
