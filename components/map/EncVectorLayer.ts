@@ -71,6 +71,7 @@ export const ENC_VEC_LAYERS = {
     DEPARE: 'enc-vec-depare-fill',
     DEPCNT_LINE: 'enc-vec-depcnt-line',
     DEPCNT_SAFETY: 'enc-vec-depcnt-safety',
+    DEPCNT_LABEL: 'enc-vec-depcnt-label',
     COALNE: 'enc-vec-coalne-line',
     OBSTRN: 'enc-vec-obstrn-circle',
     WRECKS: 'enc-vec-wrecks-circle',
@@ -98,6 +99,7 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPARE, // bottom (water fills)
     ENC_VEC_LAYERS.DEPCNT_LINE,
     ENC_VEC_LAYERS.DEPCNT_SAFETY,
+    ENC_VEC_LAYERS.DEPCNT_LABEL,
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
@@ -129,7 +131,8 @@ const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.POINTS_LABEL &&
         id !== ENC_VEC_LAYERS.RECTRC &&
         id !== ENC_VEC_LAYERS.RECTRC_LABEL &&
-        id !== ENC_VEC_LAYERS.SOUNDG,
+        id !== ENC_VEC_LAYERS.SOUNDG &&
+        id !== ENC_VEC_LAYERS.DEPCNT_LABEL,
 );
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
@@ -512,6 +515,39 @@ export function mountEncVectorLayer(
             beforeIdFor(ENC_VEC_LAYERS.DEPCNT_SAFETY),
         );
     }
+    // ── DEPCNT value labels ("more depth numbers", Shane 2026-07-09) ──
+    // Every contour already carries VALDCO; labelling it along the line
+    // is how paper charts pack depth-reading into open water without a
+    // sounding cloud. Sparse line placement + collision culling keep it
+    // chart-clean; the numbers inherit the contour's muted slate so
+    // soundings (brighter) stay the primary read.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.DEPCNT,
+                minzoom: 11,
+                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 350,
+                    'text-field': ['to-string', ['round', ['to-number', ['get', 'VALDCO']]]],
+                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9, 15, 11],
+                    'text-allow-overlap': false,
+                    'text-padding': 4,
+                },
+                paint: {
+                    'text-color': '#8fa5b3',
+                    'text-halo-color': 'rgba(10, 25, 41, 0.8)',
+                    'text-halo-width': 1.2,
+                    'text-opacity': opacity,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_LABEL),
+        );
+    }
 
     // ── LNDARE (tan land) ─────────────────────────────────────────
     // No fill-outline-color: Mapbox strokes EVERY internal edge of
@@ -730,7 +766,11 @@ export function mountEncVectorLayer(
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9, 16, 12],
                     'text-allow-overlap': false,
-                    'text-padding': 6,
+                    // 2, not 6: tighter collision padding roughly doubles the
+                    // numbers that survive placement in a dense survey cloud
+                    // ("we need more depth numbers", 2026-07-09) while
+                    // shallowest-wins sort still decides who yields.
+                    'text-padding': 2,
                     // Shallowest wins collision placement — those are the
                     // numbers a keel actually cares about.
                     'symbol-sort-key': ['get', '_d'],
@@ -1022,6 +1062,8 @@ const CHART_DETAIL_HIDE_LAYERS = [
     ENC_VEC_LAYERS.DEPARE,
     ENC_VEC_LAYERS.DEPCNT_LINE,
     ENC_VEC_LAYERS.DEPCNT_SAFETY,
+    // Contour value labels travel with their contours.
+    ENC_VEC_LAYERS.DEPCNT_LABEL,
 ] as const;
 
 /**
