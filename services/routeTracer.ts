@@ -56,6 +56,10 @@ export interface TraceIssue {
     /** Skipper-readable, ≤ ~60 chars — shown on the leg row in the panel. */
     message: string;
     at?: TracePoint;
+    /** The physical mark this issue is about (cardinal/lateral/gate) — the
+     *  panel flies here and pulses a halo so the skipper can SEE which mark
+     *  (Shane 2026-07-11: "I cannot see which marker I am too close to"). */
+    mark?: TracePoint;
 }
 
 export interface TraceLegVerdict {
@@ -168,6 +172,12 @@ export function pointInBbox(p: TracePoint, bbox: [number, number, number, number
         p.lon <= bbox[2] - marginDeg &&
         p.lat <= bbox[3] - marginDeg
     );
+}
+
+/** Larger bbox span in metres — MapHub's cluster budget check. */
+export function bboxMaxSpanM(bbox: [number, number, number, number]): number {
+    const { spanLonM, spanLatM } = bboxSpansM(bbox);
+    return Math.max(spanLonM, spanLatM);
 }
 
 /** Bbox spans in metres (lon-span, lat-span) at the bbox mid-latitude. */
@@ -377,11 +387,27 @@ function waterNearby(grid: NavGrid, p: TracePoint, cells: number): boolean {
 
 // ── The leg validator (pure, sync) ─────────────────────────────────────────
 
-export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContext): TraceLegVerdict {
+export function validateTraceLeg(
+    a: TracePoint,
+    b: TracePoint,
+    ctx: TracerContext,
+    opts: { lastLeg?: boolean } = {},
+): TraceLegVerdict {
     const issues: TraceIssue[] = [];
     const legM = distM(a, b);
     const { grid, draftM } = ctx;
     const keelM = draftM + DEFAULT_TIDE_SAFETY_M;
+    /** Solo-mark advisory OWNERSHIP: a mark closest to this leg near its FAR
+     *  endpoint belongs to the NEXT leg (which starts there), so only one
+     *  leg carries the advisory — mark "13" used to nag on both 5→6 and 6→7
+     *  (Shane 2026-07-11). Distance-based, not t-based: a mark metres short
+     *  of abeam of the shared pin projects at t≈0.99 and still double-
+     *  flagged under a t cutoff. This leg owns the advisory only when its
+     *  approach beats handing off at the far pin by >1 m; the last leg owns
+     *  everything (no next leg to inherit). DANGER verdicts are exempt —
+     *  a wrong-side read is positional truth on every leg it touches. */
+    const ownsSoloApproach = (nearDistM: number, mark: TracePoint): boolean =>
+        opts.lastLeg === true || nearDistM < distM(mark, b) - 1;
 
     // 1 — sample charted depth along the leg (skipped on marks-only contexts:
     // the trace outgrew the depth-grid budget, so say "unchecked", never guess).
@@ -428,7 +454,10 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
             }
         }
     } else {
-        issues.push({ severity: 'caution', message: 'depth unchecked — trace too long, split it' });
+        // Marks-only context: this LEG outgrew the depth-grid budget (the
+        // window is per-cluster now, so only a genuinely huge single leg
+        // lands here) — dropping a mid pin splits it into checkable halves.
+        issues.push({ severity: 'caution', message: 'depth unchecked — leg too long, drop a pin midway' });
     }
 
     let needsTide = false;
@@ -479,12 +508,19 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
                 severity: 'danger',
                 message: `wrong side of the ${DIR_WORD[c.dir]} cardinal — pass ${DIR_WORD[c.dir]} of it`,
                 at: near.point,
+                mark: { lat: c.lat, lon: c.lon },
             });
         } else if (sideM < CARDINAL_CLEAR_M) {
+            // NO ownership dedupe here (unlike solo laterals): the shave is
+            // judged at each leg's own closest point, so the next leg's
+            // check can land on a different, healthier spot — suppressing
+            // this leg would lose a REAL 60 m pass on a dogleg. A duplicate
+            // row beats a silent shave.
             issues.push({
                 severity: 'caution',
                 message: `shaves the ${DIR_WORD[c.dir]} cardinal — give it ${CARDINAL_CLEAR_M} m`,
                 at: near.point,
+                mark: { lat: c.lat, lon: c.lon },
             });
         }
     }
@@ -516,6 +552,7 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
                     severity: 'danger',
                     message: `wrong side of the ${outsidePort ? 'red (port)' : 'green (starboard)'} mark — pass between the pair`,
                     at: cross,
+                    mark: outsidePort ? g.port : g.stbd,
                 });
             }
         }
@@ -527,11 +564,12 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
     // drew the line, so we just make sure the mark is CONSIDERED.
     for (const m of ctx.soloLaterals) {
         const near = closestOnLeg(m, a, b);
-        if (near.distM < SOLO_LATERAL_BAND_M) {
+        if (near.distM < SOLO_LATERAL_BAND_M && ownsSoloApproach(near.distM, m)) {
             issues.push({
                 severity: 'caution',
-                message: `close to ${m.name || 'a'} ${m.side === 'port' ? 'port' : 'starboard'} mark — verify your side`,
+                message: `${Math.round(near.distM)} m off ${m.side === 'port' ? 'port' : 'starboard'} mark${m.name ? ` ${m.name}` : ''} — verify your side`,
                 at: near.point,
+                mark: { lat: m.lat, lon: m.lon },
             });
         }
     }
@@ -609,7 +647,8 @@ export function validateTraceLeg(a: TracePoint, b: TracePoint, ctx: TracerContex
 /** Grade every leg of a trace. verdicts[i] covers points[i]→points[i+1]. */
 export function validateTrace(points: readonly TracePoint[], ctx: TracerContext): TraceLegVerdict[] {
     const out: TraceLegVerdict[] = [];
-    for (let i = 1; i < points.length; i++) out.push(validateTraceLeg(points[i - 1], points[i], ctx));
+    for (let i = 1; i < points.length; i++)
+        out.push(validateTraceLeg(points[i - 1], points[i], ctx, { lastLeg: i === points.length - 1 }));
     return out;
 }
 
@@ -699,28 +738,48 @@ export interface TraceHealth {
     clear: number;
     caution: number;
     danger: number;
+    /** Legs not graded yet (null slots — their window is still building). */
+    pending: number;
     label: string;
     tone: TraceGrade;
 }
 
-export function traceHealth(verdicts: readonly TraceLegVerdict[]): TraceHealth {
+export function traceHealth(verdicts: ReadonlyArray<TraceLegVerdict | null | undefined>): TraceHealth {
     let clear = 0,
         caution = 0,
         danger = 0;
+    let pending = 0;
     for (const v of verdicts) {
+        if (!v) {
+            pending++; // slot still grading in its build window
+            continue;
+        }
         if (v.grade === 'danger') danger++;
         else if (v.grade === 'caution') caution++;
         else clear++;
     }
+    // Pending legs must never read as green — a just-loaded 60 km trace is
+    // ALL nulls for a few seconds, and "all clear" there is a lie. Confirmed
+    // dangers still headline (they don't get less real while others grade).
+    const graded = clear + caution + danger;
     const label =
         verdicts.length === 0
             ? 'drop pins to trace'
             : danger > 0
               ? `${danger} no-go leg${danger > 1 ? 's' : ''}`
-              : caution > 0
-                ? `${caution} caution${caution > 1 ? 's' : ''}`
-                : 'all clear';
-    return { clear, caution, danger, label, tone: danger > 0 ? 'danger' : caution > 0 ? 'caution' : 'clear' };
+              : pending > 0
+                ? `checking ${graded}/${verdicts.length}…`
+                : caution > 0
+                  ? `${caution} caution${caution > 1 ? 's' : ''}`
+                  : 'all clear';
+    return {
+        clear,
+        caution,
+        danger,
+        pending,
+        label,
+        tone: danger > 0 ? 'danger' : caution > 0 || pending > 0 ? 'caution' : 'clear',
+    };
 }
 
 // ── P4: save / load / flywheel / sail ──────────────────────────────────────
@@ -1101,10 +1160,12 @@ function intersectWindows(
  * a few hours of departure; the label says "gates checked for today's tide".
  */
 export async function commonDepartureWindowLabel(
-    verdicts: readonly TraceLegVerdict[],
+    verdicts: ReadonlyArray<TraceLegVerdict | null | undefined>,
     draftM: number,
 ): Promise<string | null> {
-    const gated = verdicts.filter((v) => v.needsTide && v.minDepthM !== null && v.minAt);
+    const gated = verdicts.filter(
+        (v): v is TraceLegVerdict => !!v && v.needsTide && v.minDepthM !== null && v.minAt !== null,
+    );
     if (gated.length === 0) return null;
     const fromMs = Date.now();
     const untilMs = fromMs + 24 * 3600_000;
