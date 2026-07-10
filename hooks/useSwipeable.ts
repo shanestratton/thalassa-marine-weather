@@ -114,8 +114,14 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
         directionLocked.current = null;
         setIsSwiping(false);
 
+        // Latch at HALF-reveal, settle at full. The delete button is
+        // visible from the first pixel of swipe, but the old latch
+        // demanded the full `threshold` (80 px) — a natural 50-70 px
+        // swipe showed the button under the finger and then snapped it
+        // shut on release (Shane 2026-07-10: "it disappears when I let
+        // go"). Native list convention: past halfway = it stays open.
         const final = offsetRef.current;
-        if (final >= threshold) {
+        if (final >= threshold * 0.5) {
             setSwipeOffset(threshold);
             offsetRef.current = threshold;
             onSwipeComplete?.();
@@ -135,6 +141,7 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 elementRef.current.removeEventListener('touchmove', handleTouchMove as any);
                 elementRef.current.removeEventListener('touchend', handleTouchEnd);
+                elementRef.current.removeEventListener('touchcancel', handleTouchEnd);
             }
 
             elementRef.current = node;
@@ -146,6 +153,9 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 node.addEventListener('touchmove', handleTouchMove as any, { passive: false });
                 node.addEventListener('touchend', handleTouchEnd, { passive: true });
+                // WKWebView cancels touches (edge swipes, scroll steals) —
+                // settle exactly like a lift, never strand mid-drag state.
+                node.addEventListener('touchcancel', handleTouchEnd, { passive: true });
             }
         },
         [handleTouchStart, handleTouchMove, handleTouchEnd],
@@ -159,6 +169,7 @@ export function useSwipeable(options: UseSwipeableOptions = {}): UseSwipeableRet
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 elementRef.current.removeEventListener('touchmove', handleTouchMove as any);
                 elementRef.current.removeEventListener('touchend', handleTouchEnd);
+                elementRef.current.removeEventListener('touchcancel', handleTouchEnd);
             }
         };
     }, [handleTouchStart, handleTouchMove, handleTouchEnd]);

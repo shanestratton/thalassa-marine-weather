@@ -94,14 +94,12 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 };
             }
 
-            // CARTO Voyager base (2026-06-13) — clean light nautical map,
-            // matches TrackMapViewer; replaced the grungy near-black base.
-            // tmv-deepwater darkens the pale water (global rule in index.css,
-            // filters the tile images — see there for the iOS reason).
-            L.tileLayer(
-                piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png'),
-                { maxZoom: 19, className: 'tmv-deepwater' },
-            ).addTo(map);
+            // CARTO dark base (Shane 2026-07-10 'darker or more hip') —
+            // matches TrackMapViewer's always-dark look; the neon track
+            // colours are tuned for it.
+            L.tileLayer(piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'), {
+                maxZoom: 19,
+            }).addTo(map);
 
             // OpenSeaMap overlay
             L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
@@ -161,7 +159,7 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
             const isPlanned = sorted.some((e) => e.source === 'planned_route');
 
             // Bolder colour that reads on the light Voyager base.
-            const mainColor = isPlanned ? '#7c3aed' : '#0284c7';
+            const mainColor = isPlanned ? '#a78bfa' : '#38bdf8';
 
             // Track lines
             if (coords.length >= 2) {
