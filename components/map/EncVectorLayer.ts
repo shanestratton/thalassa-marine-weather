@@ -1318,6 +1318,12 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>):
         const cat = String(props.CATCAM ?? props.catcam ?? '');
         if (cat && CATCAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Quadrant</span><b>${esc(CATCAM_LABELS[cat])}</b></div>`;
+            // The rule, spelled out — a cardinal is passed on the side it
+            // NAMES. Shane 2026-07-11: "I need to pass on the correct side
+            // of cardinals but I do not know which side is which."
+            body += `<div class="enc-popup-row"><span>Pass</span><b style="color:#4ade80">${esc(
+                CATCAM_LABELS[cat].toUpperCase(),
+            )} of this mark</b></div>`;
         }
         const name = props.OBJNAM ?? props.objnam;
         if (typeof name === 'string' && name)

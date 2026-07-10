@@ -35,6 +35,7 @@ import { useSettings } from '../../context/SettingsContext';
 import { useUI } from '../../context/UIContext';
 import { triggerHaptic } from '../../utils/system';
 import { PassageBanner } from './PassageBanner';
+import { CompassRoseOverlay } from './CompassRoseOverlay';
 import { RouteEnhancementChip } from '../passage/RouteEnhancementChip';
 import { GpsService } from '../../services/GpsService';
 import { piCache } from '../../services/PiCacheService';
@@ -333,6 +334,12 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  the chevron toggles it any time. */
     const [panelFolded, setPanelFolded] = useState(false);
     const autoFoldedRef = useRef(false);
+    /** Draggable compass rose while tracing — park it beside a cardinal
+     *  mark to read which side is north (Shane 2026-07-11: "I need to
+     *  pass on the correct side of cardinals but I do not know which
+     *  side is which"). Session-only state, ON by default; ✕ on the
+     *  rose hides it, the 🧭 in the panel header brings it back. */
+    const [roseVisible, setRoseVisible] = useState(true);
     useEffect(() => {
         if (!coordCaptureMode) {
             autoFoldedRef.current = false;
@@ -3276,6 +3283,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                     />
                 )}
 
+                {/* Compass rose — tracer's hand tool, same surface gates. */}
+                {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && roseVisible && (
+                    <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} onClose={() => setRoseVisible(false)} />
+                )}
+
                 {/* ═══ ROUTE TRACER ═══
                     Tap pins along your own line — every leg grades live
                     (depth vs keel, land/berths, cardinals, gates, leads) and
@@ -3343,6 +3355,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </span>
                                         );
                                     })()}
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            setRoseVisible((v) => !v);
+                                        }}
+                                        aria-pressed={roseVisible}
+                                        aria-label={roseVisible ? 'Hide compass rose' : 'Show compass rose'}
+                                        className={`text-sm leading-none ${roseVisible ? '' : 'opacity-40 grayscale'}`}
+                                    >
+                                        🧭
+                                    </button>
                                     <button
                                         onClick={() => {
                                             triggerHaptic('light');
