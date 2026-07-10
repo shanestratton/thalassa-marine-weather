@@ -98,7 +98,9 @@ import {
     buildTracerContext,
     validateTraceLeg,
     traceHealth,
+    traceBbox,
     traceBboxPadded,
+    bboxMaxSpanM,
     pointInBbox,
     tideWindowLabelFor,
     loadSavedTraces,
@@ -201,35 +203,19 @@ const getWeatherInspectPopup = async () => {
 
 // ── Component ──────────────────────────────────────────────────
 
-/** Cache key for one trace leg — endpoint coords pin the verdict. */
-const legCacheKey = (a: { lat: number; lon: number }, b: { lat: number; lon: number }): string =>
-    `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}`;
+/** Cache key for one trace leg — endpoint coords pin the verdict. The last
+ *  leg is keyed separately ("|last"): it owns marks that project onto its
+ *  far endpoint (see validateTraceLeg's ownership rule), so when a new pin
+ *  demotes it to an interior leg its verdict must re-grade — one leg, cheap. */
+const legCacheKey = (a: { lat: number; lon: number }, b: { lat: number; lon: number }, isLast: boolean): string =>
+    `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}${isLast ? '|last' : ''}`;
 
-/**
- * validateTrace with a per-leg memo: unchanged legs reuse their verdict,
- * so appending pin N only grades leg N-1→N and a nudge only re-grades
- * the two legs touching the moved pin. The cache is pruned to exactly
- * the current trace each pass (bounded memory) and must be CLEARED by
- * the caller whenever the TracerContext is rebuilt — every cached
- * verdict was graded against the old context's grid/draft.
- */
-function validateTraceCached(
-    points: ReadonlyArray<{ lat: number; lon: number }>,
-    ctx: TracerContext,
-    cache: Map<string, TraceLegVerdict>,
-): TraceLegVerdict[] {
-    const out: TraceLegVerdict[] = [];
-    const fresh = new Map<string, TraceLegVerdict>();
-    for (let i = 1; i < points.length; i++) {
-        const key = legCacheKey(points[i - 1], points[i]);
-        const verdict = fresh.get(key) ?? cache.get(key) ?? validateTraceLeg(points[i - 1], points[i], ctx);
-        fresh.set(key, verdict);
-        out.push(verdict);
-    }
-    cache.clear();
-    for (const [k, v] of fresh) cache.set(k, v);
-    return out;
-}
+/** Ungraded legs are clustered into build windows no wider than this, so the
+ *  padded context bbox (1.5× span) always fits the depth-grid budget — the
+ *  whole-trace bbox used to go marks-only at 40 km ("trace too long") AND
+ *  cleared the leg cache on every outgrow (Shane 2026-07-11: full re-check
+ *  on each new pin, then no depth at all through the shipping channel). */
+const TRACE_CLUSTER_SPAN_M = 24_000;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -289,7 +275,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Tracer verdicts + context. The context (ENC cells + OSM overlay +
     // depth grid over the trace bbox) builds async once per area; a seq
     // guard drops stale builds when pins outrun a slow fetch.
-    const [legVerdicts, setLegVerdicts] = useState<TraceLegVerdict[]>([]);
+    // null slot = leg not graded yet (its window is still building) — the
+    // panel row shows grey "checking…" and the chart leg draws 'pending'.
+    const [legVerdicts, setLegVerdicts] = useState<Array<TraceLegVerdict | null>>([]);
     const [tideLabels, setTideLabels] = useState<Record<number, string>>({});
     const [tracerStatus, setTracerStatus] = useState<
         'idle' | 'loading' | 'ready' | 'marksonly' | 'toolarge' | 'nochart'
@@ -304,6 +292,17 @@ export const MapHub: React.FC<MapHubProps> = ({
      *  every untouched leg is a hit. Cleared when the CONTEXT rebuilds
      *  (new area / draft change) — those invalidate every cached verdict. */
     const legCacheRef = useRef<Map<string, TraceLegVerdict>>(new Map());
+    /** VOLATILE failure verdicts ("no ENC chart here", build exception) —
+     *  kept OUT of legCacheRef because a nochart can be a transient network
+     *  blip (cloud cell hydration offline): every grading pass clears this
+     *  map and retries, so charts appearing mid-session heal the legs.
+     *  toolarge verdicts ARE durable (pure geometry — the leg really is
+     *  that long until a pin splits it, which changes its cache key). */
+    const failVerdictsRef = useRef<Map<string, TraceLegVerdict>>(new Map());
+    /** Draft the caches were graded with — invalidation must key on THIS,
+     *  not on tracerCtxRef (Done nulls the ctx but keeps the cache; draft
+     *  edits between Done and reopen used to serve stale-keel verdicts). */
+    const gradedDraftRef = useRef<{ d: number; assumed: boolean } | null>(null);
     /** Tide-window labels cached by SPOT (leg indices shift on insert/
      *  delete; the shallow patch itself doesn't move). */
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
@@ -617,6 +616,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     });
                 }
                 for (const v of legVerdicts) {
+                    if (!v) continue; // pending slot — still grading
                     for (const iss of v.issues) {
                         if (!iss.at) continue;
                         issueFeats.push({
@@ -839,7 +839,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         const plan = traceAsVoyagePlan(
             traceName,
             capturedCoords,
-            legVerdicts.length === capturedCoords.length - 1 ? legVerdicts.map((v) => v.grade) : undefined,
+            legVerdicts.length === capturedCoords.length - 1 && legVerdicts.every((v) => v !== null)
+                ? legVerdicts.map((v) => v!.grade)
+                : undefined,
         );
         // FOLLOW FIRST — it's synchronous/local and it's the thing the skipper
         // actually needs. The logbook save used to run ahead of it: four
@@ -889,14 +891,41 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Splice micro-A* detours for the given DANGER legs. Processed last-to-
     // first so earlier indices stay valid, on ONE local pin array so a
     // multi-fix doesn't chase stale state. Returns how many actually fixed.
+    // ASYNC since windowed grading: tracerCtxRef holds only the LAST build
+    // window, so a danger leg from an earlier window builds a fresh context
+    // around ITSELF before the A* — otherwise every out-of-window fix
+    // false-failed with "No clean detour here".
     const applyFixes = useCallback(
-        (legIdxs: number[]): number => {
-            const ctx = tracerCtxRef.current;
-            if (!ctx?.grid) return 0;
+        async (legIdxs: number[]): Promise<number> => {
+            // Draft from the last grading pass (settings isn't in scope this
+            // early in the component) — Fix buttons only exist once a pass
+            // has graded, so the ref is always populated here.
+            const draft = gradedDraftRef.current;
+            if (!draft) return 0;
             let pins = [...capturedCoords];
             let fixed = 0;
             for (const i of [...legIdxs].sort((x, y) => y - x)) {
                 if (i < 0 || i + 1 >= pins.length) continue;
+                let ctx = tracerCtxRef.current;
+                if (
+                    !ctx?.grid ||
+                    !pointInBbox(pins[i], ctx.bbox, 0.008) ||
+                    !pointInBbox(pins[i + 1], ctx.bbox, 0.008)
+                ) {
+                    try {
+                        const built = await buildTracerContext(traceBboxPadded([pins[i], pins[i + 1]]), draft.d, {
+                            draftAssumed: draft.assumed,
+                        });
+                        if (built.status === 'ready') {
+                            ctx = built.ctx;
+                            tracerCtxRef.current = built.ctx;
+                        } else {
+                            continue; // marks-only/no chart — nothing to A* on
+                        }
+                    } catch {
+                        continue;
+                    }
+                }
                 const detour = fixLegOnGrid(ctx, pins[i], pins[i + 1]);
                 if (detour && detour.length >= 2) {
                     pins = [...pins.slice(0, i + 1), ...detour.slice(1, -1), ...pins.slice(i + 1)];
@@ -911,29 +940,59 @@ export const MapHub: React.FC<MapHubProps> = ({
     const onFixLeg = useCallback(
         (i: number) => {
             setFixBusyLeg(i);
-            // Yield a frame so the "Fixing…" state paints before the sync A*.
+            // Yield a frame so the "Fixing…" state paints before the A*.
             setTimeout(() => {
-                const n = applyFixes([i]);
-                flashTraceFeedback(n > 0 ? 'Leg fixed — re-checked' : 'No clean detour here — acknowledge or re-trace');
-                setFixBusyLeg(null);
+                void applyFixes([i]).then((n) => {
+                    flashTraceFeedback(
+                        n > 0 ? 'Leg fixed — re-checked' : 'No clean detour here — acknowledge or re-trace',
+                    );
+                    setFixBusyLeg(null);
+                });
             }, 30);
         },
         [applyFixes, flashTraceFeedback],
     );
+    /** Pulse a temporary amber halo on a chart mark — the answer to "WHICH
+     *  marker am I too close to?" (Shane 2026-07-11). Tapping a mark caution
+     *  flies there and rings the mark itself; WebAnimations, self-removing,
+     *  one halo at a time. */
+    const markHaloRef = useRef<mapboxgl.Marker | null>(null);
+    const pulseMarkHalo = useCallback((p: { lat: number; lon: number }) => {
+        const map = mapRef.current;
+        if (!map) return;
+        markHaloRef.current?.remove();
+        const el = document.createElement('div');
+        el.style.cssText =
+            'width:44px;height:44px;border-radius:50%;border:3px solid #fbbf24;box-shadow:0 0 14px rgba(251,191,36,0.9);pointer-events:none;';
+        el.animate(
+            [
+                { transform: 'scale(0.5)', opacity: 1 },
+                { transform: 'scale(1.6)', opacity: 0 },
+            ],
+            { duration: 1100, iterations: 5, easing: 'ease-out' },
+        );
+        const marker = new mapboxgl.Marker({ element: el }).setLngLat([p.lon, p.lat]).addTo(map);
+        markHaloRef.current = marker;
+        window.setTimeout(() => {
+            marker.remove();
+            if (markHaloRef.current === marker) markHaloRef.current = null;
+        }, 5600);
+    }, []);
     const onFixAll = useCallback(() => {
         const dangers = legVerdicts
-            .map((v, i) => (v.grade === 'danger' && !ackedLegs.has(i) ? i : -1))
+            .map((v, i) => (v?.grade === 'danger' && !ackedLegs.has(i) ? i : -1))
             .filter((i) => i >= 0);
         if (dangers.length === 0) return;
         setFixBusyLeg(-1);
         setTimeout(() => {
-            const n = applyFixes(dangers);
-            flashTraceFeedback(
-                n === dangers.length
-                    ? `All ${n} no-go legs fixed — re-checked`
-                    : `${n}/${dangers.length} fixed — the rest need an acknowledge or a re-trace`,
-            );
-            setFixBusyLeg(null);
+            void applyFixes(dangers).then((n) => {
+                flashTraceFeedback(
+                    n === dangers.length
+                        ? `All ${n} no-go legs fixed — re-checked`
+                        : `${n}/${dangers.length} fixed — the rest need an acknowledge or a re-trace`,
+                );
+                setFixBusyLeg(null);
+            });
         }, 30);
     }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
@@ -1084,56 +1143,164 @@ export const MapHub: React.FC<MapHubProps> = ({
         setAckedLegs(new Set()); // ack indices die with the old leg list
         setShareArmed(false); // consent never outlives the line it was given for
         if (!coordCaptureMode || capturedCoords.length === 0) {
+            // Kill any in-flight grading pass — un-superseded, it would
+            // resurrect the old trace's verdicts/status over Clear/Done.
+            tracerSeqRef.current++;
             if (capturedCoords.length === 0) {
                 setLegVerdicts([]);
                 legCacheRef.current.clear();
+                failVerdictsRef.current.clear();
             }
             return;
         }
         const draftNow = vesselDraftMetres(settings.vessel);
         const draftAssumed = !(Number(settings.vessel?.draft) > 0);
-        const ctx = tracerCtxRef.current;
-        const needsBuild =
-            !ctx ||
-            ctx.draftM !== draftNow ||
-            ctx.draftAssumed !== draftAssumed ||
-            capturedCoords.some((p) => !pointInBbox(p, ctx.bbox));
-        if (!needsBuild && ctx) {
-            // Incremental: untouched legs reuse cached verdicts (and their
-            // already-fetched tide labels via the spot cache) — only the
-            // new/nudged legs actually grade.
-            setLegVerdicts(validateTraceCached(capturedCoords, ctx, legCacheRef.current));
+        const seq = ++tracerSeqRef.current;
+
+        // Draft change invalidates EVERY cached verdict and tide label —
+        // they were graded against the old keel (adversarial-audit critical
+        // #1); keyed on the draft the CACHE saw, not on the ctx (Done nulls
+        // the ctx but keeps the cache). Area growth does NOT invalidate:
+        // chart data is static for the session, so a verdict graded in an
+        // earlier window stays true forever.
+        const prevDraft = gradedDraftRef.current;
+        if (prevDraft && (prevDraft.d !== draftNow || prevDraft.assumed !== draftAssumed)) {
+            tracerCtxRef.current = null;
+            legCacheRef.current.clear();
+            tideSpotCacheRef.current.clear();
+            setTideLabels({});
+            tideReqRef.current.clear();
+        }
+        gradedDraftRef.current = { d: draftNow, assumed: draftAssumed };
+        const cache = legCacheRef.current;
+        // Failure verdicts retry every pass — a chart that appears
+        // mid-session (Pi back in range, cloud sync) heals the legs.
+        const failMap = failVerdictsRef.current;
+        failMap.clear();
+
+        const legs: Array<{ a: { lat: number; lon: number }; b: { lat: number; lon: number }; key: string }> = [];
+        for (let i = 1; i < capturedCoords.length; i++) {
+            legs.push({
+                a: capturedCoords[i - 1],
+                b: capturedCoords[i],
+                key: legCacheKey(capturedCoords[i - 1], capturedCoords[i], i === capturedCoords.length - 1),
+            });
+        }
+        const publish = (): void => {
+            if (seq !== tracerSeqRef.current) return;
+            setLegVerdicts(legs.map((l) => cache.get(l.key) ?? failMap.get(l.key) ?? null));
+        };
+        publish(); // cached legs render NOW; only truly new legs show "checking…"
+
+        const pending = legs.filter((l) => !cache.has(l.key));
+        if (pending.length === 0) {
+            setTracerStatus('ready');
             return;
         }
-        // Rebuild: clear verdicts FIRST so new pins render grey "pending" —
-        // never the previous area's greens (audit major: stale verdicts drawn
-        // on a loaded/cleared trace while the slow rebuild ran). Caches die
-        // with the context: verdicts AND tide labels were graded against the
-        // old grid/draft.
-        setLegVerdicts([]);
-        legCacheRef.current.clear();
-        tideSpotCacheRef.current.clear();
-        setTideLabels({});
-        tideReqRef.current.clear();
-        const seq = ++tracerSeqRef.current;
-        setTracerStatus('loading');
-        void buildTracerContext(traceBboxPadded(capturedCoords), draftNow, { draftAssumed })
-            .then((built) => {
-                if (seq !== tracerSeqRef.current) return; // stale build — a newer pin superseded it
-                tracerCtxRef.current = built.status === 'ready' || built.status === 'marksonly' ? built.ctx : null;
-                setTracerStatus(built.status);
-                setLegVerdicts(
-                    tracerCtxRef.current
-                        ? validateTraceCached(capturedCoords, tracerCtxRef.current, legCacheRef.current)
-                        : [],
-                );
-            })
-            .catch((err) => {
-                if (seq !== tracerSeqRef.current) return;
-                log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
-                setTracerStatus('nochart');
-                setLegVerdicts([]);
+
+        void (async () => {
+            // Cluster the ungraded legs (in trace order) into span-bounded
+            // build windows. The common cases — appended pin, nudged pin,
+            // inserted pin — are ONE tiny cluster around the touched legs;
+            // a loaded 60 km trace grades window-by-window with real depth
+            // everywhere instead of a whole-trace marks-only bail.
+            const clusters: Array<typeof pending> = [];
+            let cur: typeof pending = [];
+            for (const leg of pending) {
+                const probe = [...cur, leg];
+                if (
+                    cur.length > 0 &&
+                    bboxMaxSpanM(
+                        traceBbox(
+                            probe.flatMap((l) => [l.a, l.b]),
+                            0,
+                        ),
+                    ) > TRACE_CLUSTER_SPAN_M
+                ) {
+                    clusters.push(cur);
+                    cur = [leg];
+                } else {
+                    cur = probe;
+                }
+            }
+            if (cur.length > 0) clusters.push(cur);
+
+            const cautionVerdict = (message: string): TraceLegVerdict => ({
+                grade: 'caution',
+                issues: [{ severity: 'caution', message }],
+                minDepthM: null,
+                minAt: null,
+                needsTide: false,
+                nudge: null,
             });
+            let failStatus: 'toolarge' | 'nochart' | null = null;
+            let sawMarksOnly = false;
+            for (const cluster of clusters) {
+                if (seq !== tracerSeqRef.current) return; // a newer pin superseded this pass
+                const pts = cluster.flatMap((l) => [l.a, l.b]);
+                // Reuse the held window only when it has a DEPTH GRID and the
+                // cluster sits well inside it (~890 m margin — a gate mark's
+                // pair partner sits up to a few hundred metres across the
+                // channel; a fringe reuse once split a pair at the bbox edge
+                // and downgraded a wrong-side DANGER to a solo caution). A
+                // grid-less (marks-only) ctx is NEVER reused: its huge bbox
+                // would stamp every short leg inside it "depth unchecked".
+                let ctx = tracerCtxRef.current;
+                if (!ctx || !ctx.grid || !pts.every((p) => pointInBbox(p, ctx!.bbox, 0.008))) {
+                    setTracerStatus('loading');
+                    try {
+                        const built = await buildTracerContext(traceBboxPadded(pts), draftNow, { draftAssumed });
+                        if (seq !== tracerSeqRef.current) return;
+                        if (built.status === 'ready') {
+                            ctx = built.ctx;
+                            tracerCtxRef.current = built.ctx;
+                        } else if (built.status === 'marksonly') {
+                            // One genuinely long leg — grade marks with this
+                            // ctx but DON'T hold it: a grid-less window must
+                            // never shadow later clusters.
+                            ctx = built.ctx;
+                            sawMarksOnly = true;
+                        } else if (built.status === 'toolarge') {
+                            // Pure geometry (>80 km leg) — durable verdict;
+                            // splitting the leg changes its key and re-grades.
+                            failStatus = 'toolarge';
+                            for (const l of cluster)
+                                cache.set(l.key, cautionVerdict('depth unchecked — leg too long, drop a pin midway'));
+                            publish();
+                            continue;
+                        } else {
+                            // nochart can be a NETWORK BLIP (cloud cells not
+                            // yet hydrated) — volatile verdict, retried every
+                            // pass so charts appearing mid-session heal it.
+                            failStatus = 'nochart';
+                            for (const l of cluster)
+                                failMap.set(l.key, cautionVerdict('no ENC chart here — depth unchecked'));
+                            publish();
+                            continue;
+                        }
+                    } catch (err) {
+                        if (seq !== tracerSeqRef.current) return;
+                        log.warn(`tracer context build failed: ${err instanceof Error ? err.message : String(err)}`);
+                        failStatus = 'nochart';
+                        for (const l of cluster)
+                            failMap.set(l.key, cautionVerdict('chart load failed — depth unchecked, will retry'));
+                        publish();
+                        continue;
+                    }
+                }
+                for (const l of cluster) {
+                    cache.set(l.key, validateTraceLeg(l.a, l.b, ctx, { lastLeg: l.key.endsWith('|last') }));
+                }
+                publish();
+            }
+            if (seq !== tracerSeqRef.current) return;
+            // Prune verdicts for legs no longer in the trace (bounded memory).
+            const keep = new Set(legs.map((l) => l.key));
+            for (const k of Array.from(cache.keys())) if (!keep.has(k)) cache.delete(k);
+            // Failures outrank the held ctx in the strip — a half-graded
+            // trace must not read "ready" while legs say "load failed".
+            setTracerStatus(failStatus ?? (sawMarksOnly ? 'marksonly' : tracerCtxRef.current ? 'ready' : 'nochart'));
+        })();
     }, [capturedCoords, coordCaptureMode, settings.vessel]);
     // Tide windows for sub-keel legs — async per shallow SPOT, cached by the
     // spot's position+depth (never by leg index: indices shift on insert/
@@ -1146,7 +1313,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         const draftM = vesselDraftMetres(settings.vessel);
         const next: Record<number, string> = {};
         legVerdicts.forEach((v, i) => {
-            if (!v.needsTide || v.minDepthM === null || !v.minAt) return;
+            if (!v || !v.needsTide || v.minDepthM === null || !v.minAt) return;
             const spot = `${v.minAt.lat.toFixed(5)}|${v.minAt.lon.toFixed(5)}|${v.minDepthM}`;
             const cached = tideSpotCacheRef.current.get(spot);
             if (cached) {
@@ -1156,7 +1323,14 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (tideReqRef.current.has(spot)) return;
             tideReqRef.current.add(spot);
             void tideWindowLabelFor(v.minDepthM, draftM, v.minAt).then((label) => {
-                if (!label || !tideReqRef.current.has(spot)) return;
+                if (!label) {
+                    // Fetch failed (offline) — release the spot so a later
+                    // pass retries; the old design got free retries from
+                    // context rebuilds, the windowed design does not.
+                    tideReqRef.current.delete(spot);
+                    return;
+                }
+                if (!tideReqRef.current.has(spot)) return;
                 tideSpotCacheRef.current.set(spot, label);
                 // Index is valid for the verdicts THIS run saw; if the legs
                 // shifted mid-fetch, the next re-grade re-syncs from cache.
@@ -3502,12 +3676,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         )}
                                         {tracerStatus === 'toolarge' && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
-                                                Trace too long to check — split it into shorter routes.
+                                                A leg spans too much water to check — drop pins along it.
                                             </div>
                                         )}
                                         {tracerStatus === 'marksonly' && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
-                                                Long trace — marks checked, depth NOT. Split it for depth checks.
+                                                Long open-water leg — marks checked, depth not. Add a mid pin.
                                             </div>
                                         )}
                                         {traceFeedback && (
@@ -3688,10 +3862,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                               ? `clear — ${v.minDepthM.toFixed(1)} m least`
                                                               : 'clear'
                                                           : (v.issues[0]?.message ?? v.grade);
-                                                    // Tap a leg row → fly to its problem spot
-                                                    // (or the leg midpoint) — the verdict knew
-                                                    // the exact position all along.
-                                                    const spot = v?.issues[0]?.at ??
+                                                    // Tap a leg row → fly to the MARK it's
+                                                    // about (haloed) when there is one, else
+                                                    // the problem spot / leg midpoint.
+                                                    const firstIssue = v?.issues[0];
+                                                    const spot = firstIssue?.mark ??
+                                                        firstIssue?.at ??
                                                         v?.minAt ?? {
                                                             lat: (capturedCoords[i - 1].lat + c.lat) / 2,
                                                             lon: (capturedCoords[i - 1].lon + c.lon) / 2,
@@ -3708,6 +3884,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     zoom: Math.max(m.getZoom(), 15),
                                                                     duration: 700,
                                                                 });
+                                                                if (firstIssue?.mark) pulseMarkHalo(firstIssue.mark);
                                                             }}
                                                             className="cursor-pointer active:opacity-70"
                                                         >
@@ -3732,7 +3909,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                                     v.issues.length > 1) && (
                                                                     <div className="pl-4 text-[10px] leading-tight text-gray-400">
                                                                         {v.issues.slice(1).map((iss, k) => (
-                                                                            <div key={k}>· {iss.message}</div>
+                                                                            <div
+                                                                                key={k}
+                                                                                onClick={(e) => {
+                                                                                    const tgt = iss.mark ?? iss.at;
+                                                                                    const m = mapRef.current;
+                                                                                    if (!tgt || !m) return;
+                                                                                    e.stopPropagation();
+                                                                                    triggerHaptic('light');
+                                                                                    m.flyTo({
+                                                                                        center: [tgt.lon, tgt.lat],
+                                                                                        zoom: Math.max(m.getZoom(), 15),
+                                                                                        duration: 700,
+                                                                                    });
+                                                                                    if (iss.mark)
+                                                                                        pulseMarkHalo(iss.mark);
+                                                                                }}
+                                                                                className={
+                                                                                    iss.mark || iss.at
+                                                                                        ? 'cursor-pointer underline decoration-dotted underline-offset-2 active:opacity-70'
+                                                                                        : undefined
+                                                                                }
+                                                                            >
+                                                                                · {iss.message}
+                                                                            </div>
                                                                         ))}
                                                                         {tideLabels[i - 1] && (
                                                                             <div>🌊 {tideLabels[i - 1]}</div>

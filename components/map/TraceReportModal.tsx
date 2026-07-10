@@ -17,7 +17,8 @@ interface Props {
     open: boolean;
     onClose: () => void;
     pins: TracePoint[];
-    verdicts: TraceLegVerdict[];
+    /** null slot = leg still grading in its build window. */
+    verdicts: Array<TraceLegVerdict | null>;
     tideLabels: Record<number, string>;
     /** null while computing, '' when nothing tide-gated. */
     departureLabel: string | null;
@@ -41,7 +42,7 @@ const sevRow = (
     onFixLeg: Props['onFixLeg'],
     onAckLeg: Props['onAckLeg'],
 ): React.ReactNode => {
-    const spot = v.issues[0]?.at ?? v.minAt ?? pins[i];
+    const spot = v.issues[0]?.mark ?? v.issues[0]?.at ?? v.minAt ?? pins[i];
     const isAcked = acked.has(i);
     return (
         <div key={i} className={`rounded-xl border border-white/10 bg-white/5 p-2 ${isAcked ? 'opacity-50' : ''}`}>
@@ -103,8 +104,9 @@ export const TraceReportModal: React.FC<Props> = ({
 }) => {
     if (!open) return null;
     const h = traceHealth(verdicts);
-    const dangers = verdicts.map((v, i) => ({ v, i })).filter((x) => x.v.grade === 'danger');
-    const cautions = verdicts.map((v, i) => ({ v, i })).filter((x) => x.v.grade === 'caution');
+    const graded = verdicts.map((v, i) => ({ v, i })).filter((x): x is { v: TraceLegVerdict; i: number } => !!x.v);
+    const dangers = graded.filter((x) => x.v.grade === 'danger');
+    const cautions = graded.filter((x) => x.v.grade === 'caution');
     const fixable = dangers.filter((x) => !ackedLegs.has(x.i));
     return (
         <div className="fixed inset-0 z-[10050] flex items-end justify-center bg-black/60 sm:items-center">
@@ -121,6 +123,12 @@ export const TraceReportModal: React.FC<Props> = ({
                     <span className="text-amber-300">{h.caution} caution</span>
                     <span className="text-gray-500"> · </span>
                     <span className="text-red-400">{h.danger} no-go</span>
+                    {h.pending > 0 && (
+                        <>
+                            <span className="text-gray-500"> · </span>
+                            <span className="text-gray-400">{h.pending} checking…</span>
+                        </>
+                    )}
                 </div>
                 {departureLabel === null ? (
                     <div className="border-b border-white/10 px-4 py-2 text-[11px] text-gray-400">
@@ -141,9 +149,14 @@ export const TraceReportModal: React.FC<Props> = ({
                     {cautions.map((x) =>
                         sevRow(x.v, x.i, pins, tideLabels, ackedLegs, fixBusy, onFlyTo, onFixLeg, onAckLeg),
                     )}
-                    {h.danger === 0 && h.caution === 0 && verdicts.length > 0 && (
+                    {h.danger === 0 && h.caution === 0 && h.pending === 0 && verdicts.length > 0 && (
                         <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-[12px] font-bold text-emerald-300">
                             ✓ Every leg checks out for your keel. Good water the whole way.
+                        </div>
+                    )}
+                    {h.danger === 0 && h.caution === 0 && h.pending > 0 && (
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-[12px] font-bold text-gray-300">
+                            Still checking {h.pending} leg{h.pending > 1 ? 's' : ''} — hold fast.
                         </div>
                     )}
                 </div>

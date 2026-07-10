@@ -174,6 +174,67 @@ describe('routeTracer — marker discipline (P2)', () => {
         const v = validateTraceLeg({ lat: -27.00527, lon: 153.004 }, { lat: -27.00527, lon: 153.006 }, ctx);
         expect(v.grade).toBe('caution');
         expect(v.issues[0].message).toContain('verify your side');
+        // The panel flies to the MARK, not the leg — position must ride along.
+        expect(v.issues[0].mark?.lat).toBeCloseTo(-27.005, 5);
+        expect(v.issues[0].mark?.lon).toBeCloseTo(153.005, 5);
+    });
+
+    it('a mark off a shared pin nags only the FOLLOWING leg, never both', () => {
+        // Mark "13" sat 30 m off pin 6 and flagged legs 5→6 AND 6→7 (Shane
+        // 2026-07-11) — closest approach lands ON the shared pin, so both
+        // legs saw it. Ownership: the leg whose t=1 releases it downstream.
+        const ctx = {
+            ...baseCtx,
+            soloLaterals: [{ lat: -27.00527, lon: 153.005, side: 'stbd' as const, key: 'NUM', seq: 13, name: '13' }],
+        };
+        const verdicts = validateTrace(
+            [
+                { lat: -27.005, lon: 153.003 },
+                { lat: -27.005, lon: 153.005 }, // shared pin — mark 30 m south
+                { lat: -27.005, lon: 153.007 },
+            ],
+            ctx,
+        );
+        const flagged = verdicts.map((v) => v.issues.some((i) => i.message.includes('verify your side')));
+        expect(flagged).toEqual([false, true]);
+    });
+
+    it('a mark metres SHORT of abeam of the shared pin still nags only one leg', () => {
+        // Verify-pass finding: a t-based cutoff (t >= 0.999) missed this —
+        // the mark projects at t≈0.99 onto leg 1 AND within the 60 m band
+        // of leg 2's start, double-flagging again. The distance-based
+        // ownership (approach must beat the far-pin handoff by >1 m) holds.
+        const ctx = {
+            ...baseCtx,
+            soloLaterals: [{ lat: -27.00527, lon: 153.00498, side: 'stbd' as const, key: 'NUM', seq: 13, name: '13' }],
+        };
+        const verdicts = validateTrace(
+            [
+                { lat: -27.005, lon: 153.003 },
+                { lat: -27.005, lon: 153.005 },
+                { lat: -27.005, lon: 153.007 },
+            ],
+            ctx,
+        );
+        const flagged = verdicts.map((v) => v.issues.some((i) => i.message.includes('verify your side')));
+        expect(flagged).toEqual([false, true]);
+    });
+
+    it('the LAST leg keeps marks that project onto its far endpoint', () => {
+        // No next leg to inherit the advisory — a mark at the trace's very
+        // end must not vanish through the ownership rule.
+        const ctx = {
+            ...baseCtx,
+            soloLaterals: [{ lat: -27.00527, lon: 153.005, side: 'stbd' as const, key: 'NUM', seq: 13, name: '13' }],
+        };
+        const verdicts = validateTrace(
+            [
+                { lat: -27.005, lon: 153.003 },
+                { lat: -27.005, lon: 153.005 },
+            ],
+            ctx,
+        );
+        expect(verdicts[0].issues.some((i) => i.message.includes('verify your side'))).toBe(true);
     });
 });
 
@@ -225,6 +286,25 @@ describe('routeTracer — trace plumbing (P4)', () => {
         expect(h.danger).toBe(1);
         expect(h.tone).toBe('danger');
         expect(h.label).toContain('no-go');
+    });
+
+    it('traceHealth never reads green while legs are still pending (null slots)', () => {
+        // Windowed grading publishes null slots immediately; a just-loaded
+        // trace is ALL nulls for a beat and must not badge "all clear".
+        const h = traceHealth([null, null, null]);
+        expect(h.pending).toBe(3);
+        expect(h.tone).toBe('caution');
+        expect(h.label).toContain('checking');
+        // A confirmed danger still headlines over pending neighbours.
+        const danger = {
+            grade: 'danger' as const,
+            issues: [],
+            minDepthM: null,
+            minAt: null,
+            needsTide: false,
+            nudge: null,
+        };
+        expect(traceHealth([null, danger]).tone).toBe('danger');
     });
 
     it('curated-fairway snippet is paste-ready [lon,lat] with a padded bbox', () => {
