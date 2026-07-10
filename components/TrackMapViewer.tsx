@@ -33,7 +33,10 @@ import {
 } from '../services/shiplog/trackViz';
 
 // Base-map tile templates: light Voyager by day, dark by night watch.
-const NIGHT_BASE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+// Esri World Imagery — Shane 2026-07-10: dark carto was "too dark,
+// maybe the satellite layer?" Token-free, CSP-allowed, and the neon
+// track palette reads perfectly on imagery (same look as the tracer).
+const SATELLITE_BASE = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
 
 interface TrackMapViewerProps {
     isOpen: boolean;
@@ -201,10 +204,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // Base map — CARTO Voyager by day (clean light nautical), dark by
         // night watch. Kept on a ref so the day/night toggle can swap it
         // live without recreating the map or refitting bounds.
-        // Always the dark base (Shane 2026-07-10: maps 'darker or more hip —
-        // very hard to see sometimes'): the neon track palette below is tuned
-        // for it, and the pale Voyager day base washed out in sunlight.
-        const base = L.tileLayer(piCache.leafletTileTemplate(NIGHT_BASE), {
+        const base = L.tileLayer(piCache.leafletTileTemplate(SATELLITE_BASE), {
             maxZoom: 19,
             // Deepen Voyager's very pale water (the "Mary Poppins" wash) —
             // a saturation/brightness filter on the day base only.
@@ -293,10 +293,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const map = mapInstanceRef.current;
         if (!map || !isOpen) return;
         if (baseTileRef.current) map.removeLayer(baseTileRef.current);
-        // Always the dark base (Shane 2026-07-10: maps 'darker or more hip —
-        // very hard to see sometimes'): the neon track palette below is tuned
-        // for it, and the pale Voyager day base washed out in sunlight.
-        const base = L.tileLayer(piCache.leafletTileTemplate(NIGHT_BASE), {
+        const base = L.tileLayer(piCache.leafletTileTemplate(SATELLITE_BASE), {
             maxZoom: 19,
             className: '',
         }).addTo(map);
