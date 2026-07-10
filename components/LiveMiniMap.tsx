@@ -94,12 +94,15 @@ export const LiveMiniMap: React.FC<LiveMiniMapProps> = memo(
                 };
             }
 
-            // CARTO dark base (Shane 2026-07-10 'darker or more hip') —
-            // matches TrackMapViewer's always-dark look; the neon track
-            // colours are tuned for it.
-            L.tileLayer(piCache.leafletTileTemplate('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'), {
-                maxZoom: 19,
-            }).addTo(map);
+            // Esri World Imagery (Shane 2026-07-10: dark carto was too dark —
+            // "maybe we could have the satellite layer?"). Matches
+            // TrackMapViewer; the neon track palette pops on imagery.
+            L.tileLayer(
+                piCache.leafletTileTemplate(
+                    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                ),
+                { maxZoom: 19 },
+            ).addTo(map);
 
             // OpenSeaMap overlay
             L.tileLayer(piCache.leafletTileTemplate('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png'), {
