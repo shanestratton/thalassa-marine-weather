@@ -1502,15 +1502,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [lightningVisible, setLightningVisible] = usePersistedState('thalassa_map_lightning_visible', false);
     // Seaway Graph debug overlay (masterplan Stage IV Phase 10) — gates/
     // edges compiled from installed ENC cells. Per-device flag, never
-    // cloud-synced (it's dev tooling, not a user setting).
-    // Bumped key (…_v2) on 2026-06-22 to RESET a stuck "on" value: Shane's device had the
-    // Seaway-Graph debug overlay (sky-blue channel-edge spans) persisted ON, painting over the
-    // route — he couldn't find the toggle, so this abandons the old key and defaults OFF again.
-    // The toggle (Charts → modes → "Seaway Graph") still works for dev use; it just starts off.
-    const [seawayDebugVisible, setSeawayDebugVisible] = usePersistedState(
-        'thalassa_map_seaway_debug_visible_v2',
-        false,
-    );
+    // SESSION-ONLY, deliberately NOT persisted (2026-07-10, second offence):
+    // this debug overlay got stuck ON across restarts in June (key bumped
+    // _v2 to reset it) and AGAIN in July — sky-blue graph edges + numbered
+    // node pins zigzagging between the Newport channel marks, haunting
+    // every screenshot ("we STILL have our spaghetti routes"). A dev
+    // overlay must never outlive the session that turned it on. The toggle
+    // (Charts → modes gear → "Seaway Graph") still works for a debugging
+    // session; a restart always starts clean.
+    const [seawayDebugVisible, setSeawayDebugVisible] = useState(false);
     const [skChartIds, setSkChartIds] = usePersistedStringSet('thalassa_map_sk_chart_ids');
     const [skChartOpacity, setSkChartOpacity] = usePersistedState('thalassa_map_sk_chart_opacity', 0.7);
     const [localChartIds, setLocalChartIds] = usePersistedStringSet('thalassa_map_local_chart_ids');
@@ -4079,12 +4079,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // Route ink that outlives layer toggles: the follow-
                         // route persists in localStorage by design (SAIL IT
                         // survives restarts), and the chart route/track picks
-                        // live in session state. "Clear All" kills the lot.
+                        // live in session state. "Clear All" kills the lot —
+                        // including the Seaway Graph debug overlay, twice now
+                        // the true identity of "the blue spaghetti".
                         void import('../../stores/followRouteStore').then(({ useFollowRouteStore }) =>
                             useFollowRouteStore.getState().stopFollowing(),
                         );
                         setActiveChartRoute(null);
                         setActiveChartTrack(null);
+                        setSeawayDebugVisible(false);
                     }}
                     onPlanEncRoute={async () => {
                         // Demo waypoints — hardcoded Newport → Rivergate
