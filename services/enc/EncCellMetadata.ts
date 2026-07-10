@@ -76,6 +76,22 @@ function readCell(id: string): EncCell | null {
 // ── Public API ────────────────────────────────────────────────────
 
 /**
+ * Cells no consumer may ever see, even if a device still holds them.
+ *
+ * 'au-brisbane-test': a leftover GEBCO-contour TEST pack (1,512 crude
+ * DEPARE bands over Moreton/Deception Bay). Its 0-0.5 m bands painted
+ * "0.0 m charted — needs +2.9 m tide" over water the real AHO coastal
+ * cell charts at 2-5 m, and — because its bbox is SMALLER than the
+ * coastal cell's — the scale-shadow heuristic treated the junk as the
+ * finer chart and dropped the real data beneath it (Shane 2026-07-10,
+ * legs 9→12 off Deception Bay; likely also the engine's phantom
+ * "coverage gap ~1 NM"). Every consumer (render merge, tracer grid,
+ * router cell selection) lists cells through here, so the quarantine
+ * heals already-synced devices without a delete-sync protocol.
+ */
+const QUARANTINED_CELLS = new Set(['au-brisbane-test']);
+
+/**
  * List every imported cell. Cheap (reads localStorage index +
  * parses each record); fine to call on every UI render of the
  * chart locker page.
@@ -84,6 +100,7 @@ export function listCells(): EncCell[] {
     const ids = readIndex();
     const out: EncCell[] = [];
     for (const id of ids) {
+        if (QUARANTINED_CELLS.has(id)) continue;
         const cell = readCell(id);
         if (cell) out.push(cell);
     }
