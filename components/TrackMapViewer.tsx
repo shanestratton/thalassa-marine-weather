@@ -33,7 +33,6 @@ import {
 } from '../services/shiplog/trackViz';
 
 // Base-map tile templates: light Voyager by day, dark by night watch.
-const DAY_BASE = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const NIGHT_BASE = 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
 
 interface TrackMapViewerProps {
@@ -88,7 +87,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
     // at each point; 'plain' is the old water/land scheme. Day/night
     // swaps the base map (light Voyager vs dark) for night watches.
     const [colorMode, setColorMode] = useState<'wind' | 'plain'>('wind');
-    const [nightMode, setNightMode] = useState(false);
 
     // Playback state
     const [isPlaying, setIsPlaying] = useState(false);
@@ -203,11 +201,14 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         // Base map — CARTO Voyager by day (clean light nautical), dark by
         // night watch. Kept on a ref so the day/night toggle can swap it
         // live without recreating the map or refitting bounds.
-        const base = L.tileLayer(piCache.leafletTileTemplate(nightMode ? NIGHT_BASE : DAY_BASE), {
+        // Always the dark base (Shane 2026-07-10: maps 'darker or more hip —
+        // very hard to see sometimes'): the neon track palette below is tuned
+        // for it, and the pale Voyager day base washed out in sunlight.
+        const base = L.tileLayer(piCache.leafletTileTemplate(NIGHT_BASE), {
             maxZoom: 19,
             // Deepen Voyager's very pale water (the "Mary Poppins" wash) —
             // a saturation/brightness filter on the day base only.
-            className: nightMode ? '' : 'tmv-deepwater',
+            className: '',
         }).addTo(map);
         baseTileRef.current = base;
 
@@ -279,7 +280,7 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 hasFitBoundsRef.current = false;
             }
         };
-        // nightMode read at creation only; live swaps handled by the
+        // Base recreated only when the viewer reopens; live swaps handled by the
         // day/night effect below (recreating the map would lose pan/zoom).
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
@@ -292,13 +293,16 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
         const map = mapInstanceRef.current;
         if (!map || !isOpen) return;
         if (baseTileRef.current) map.removeLayer(baseTileRef.current);
-        const base = L.tileLayer(piCache.leafletTileTemplate(nightMode ? NIGHT_BASE : DAY_BASE), {
+        // Always the dark base (Shane 2026-07-10: maps 'darker or more hip —
+        // very hard to see sometimes'): the neon track palette below is tuned
+        // for it, and the pale Voyager day base washed out in sunlight.
+        const base = L.tileLayer(piCache.leafletTileTemplate(NIGHT_BASE), {
             maxZoom: 19,
-            className: nightMode ? '' : 'tmv-deepwater',
+            className: '',
         }).addTo(map);
         baseTileRef.current = base;
         if (seamarkTileRef.current) seamarkTileRef.current.bringToFront();
-    }, [nightMode, isOpen]);
+    }, [isOpen]);
 
     // Reset playback when modal opens/closes
     useEffect(() => {
@@ -365,7 +369,9 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                 return { key: b.key, color: b.color };
             }
             const water = entry.isOnWater ?? true;
-            return { key: water ? 'water' : 'land', color: water ? '#0284c7' : '#059669' };
+            // Neon-on-dark palette — sky-400 water / emerald-400 land pop on
+            // the dark base where the old 600-weight blues sank into it.
+            return { key: water ? 'water' : 'land', color: water ? '#38bdf8' : '#34d399' };
         };
 
         // Partition by voyage — drawing one line through several
@@ -809,13 +815,6 @@ export const TrackMapViewer: React.FC<TrackMapViewerProps> = React.memo(({ isOpe
                             </button>
                         ))}
                     </div>
-                    <button
-                        onClick={() => setNightMode((v) => !v)}
-                        aria-label="Toggle day/night map"
-                        className="w-9 h-9 rounded-full bg-slate-900/90 border border-white/15 shadow-xl flex items-center justify-center text-base"
-                    >
-                        {nightMode ? '☀️' : '🌙'}
-                    </button>
                 </div>
             )}
 
