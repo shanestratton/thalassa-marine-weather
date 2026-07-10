@@ -840,8 +840,15 @@ export function useLogPageState() {
     const loadVoyageEntries = useCallback(async (voyageId: string) => {
         if (!voyageId) return;
         if (loadedVoyagesRef.current.has(voyageId) || loadingVoyagesRef.current.has(voyageId)) return;
-        // Already resident (active voyage or previously merged)? Mark loaded.
-        if (entriesRef.current.some((e) => e.voyageId === voyageId)) {
+        // Only the ACTIVELY-RECORDING voyage may claim residency — its
+        // points stream into state live, so a fetch would be redundant.
+        // The old check latched on ANY resident row (`entries.some`), but
+        // the boot seed also loads offline-queue stragglers and a stopped
+        // voyage can leave 1-2 of those behind: one stray row marked the
+        // voyage "loaded", the 2,800-point fetch never ran, and the track
+        // viewer starved at "Loading track…" forever (Shane 2026-07-10 —
+        // one test track opened, the other never did).
+        if (voyageId === ShipLogService.getCurrentVoyageId()) {
             loadedVoyagesRef.current.add(voyageId);
             return;
         }
