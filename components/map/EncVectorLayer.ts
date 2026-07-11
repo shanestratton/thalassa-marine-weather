@@ -69,6 +69,12 @@ export const ENC_VEC_LAYERS = {
     LNDARE: 'enc-vec-lndare-fill',
     LNDARE_ISLET: 'enc-vec-lndare-islet',
     DEPARE: 'enc-vec-depare-fill',
+    /** Fine-survey water REPAINTED ABOVE land (2026-07-11: the coarse
+     *  1:90k cell's crude LNDARE blob swallowed the Mooloolah river +
+     *  canal estates — "where is our beautiful layer??? help help").
+     *  Land-over-water is right for a cell's OWN generalisation; wrong
+     *  across scales. Harbour-grade bands overrule coarse land bleed. */
+    DEPARE_FINE: 'enc-vec-depare-fine-fill',
     DEPCNT_LINE: 'enc-vec-depcnt-line',
     DEPCNT_SAFETY: 'enc-vec-depcnt-safety',
     DEPCNT_LABEL: 'enc-vec-depcnt-label',
@@ -103,6 +109,7 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
+    ENC_VEC_LAYERS.DEPARE_FINE, // fine-survey water beats coarse land bleed
     ENC_VEC_LAYERS.SOUNDG, // depth numbers under everything interactive
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.BOYLAT,
@@ -132,7 +139,8 @@ const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.RECTRC &&
         id !== ENC_VEC_LAYERS.RECTRC_LABEL &&
         id !== ENC_VEC_LAYERS.SOUNDG &&
-        id !== ENC_VEC_LAYERS.DEPCNT_LABEL,
+        id !== ENC_VEC_LAYERS.DEPCNT_LABEL &&
+        id !== ENC_VEC_LAYERS.DEPARE_FINE,
 );
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
@@ -377,6 +385,9 @@ function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): vo
     const live = tideOffsetM !== null;
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
         map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-color', buildDepareFillColor(h));
+    }
+    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-color', buildDepareFillColor(h));
     }
     if (map.getLayer(ENC_VEC_LAYERS.SOUNDG)) {
         map.setLayoutProperty(ENC_VEC_LAYERS.SOUNDG, 'text-field', buildSoundingTextField(h));
@@ -628,6 +639,29 @@ export function mountEncVectorLayer(
         // Heal layers created by earlier app versions (AA on).
         map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
     }
+    // ── DEPARE_FINE (fine-survey water repainted ABOVE land) ──────
+    // Same source, filtered to harbour-grade ranks. Sits over LNDARE/
+    // COALNE so a coarse cell's generalised land blob can't swallow a
+    // finer survey's rivers and canal estates (Mooloolaba, 2026-07-11).
+    // Not clickable — the base DEPARE layer answers taps.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPARE_FINE,
+                type: 'fill',
+                source: ENC_VEC_SRC.DEPARE,
+                minzoom: minZoom,
+                filter: DEPARE_FINE_RANK_FILTER,
+                paint: {
+                    'fill-color': buildDepareFillColor(),
+                    'fill-opacity': DEPARE_CHART_OPACITY,
+                    'fill-antialias': false,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPARE_FINE),
+        );
+    }
+
     // Mount can happen while satellite is already on (style swap,
     // late cell load) — apply the right treatment immediately. Same
     // for a live tide offset: re-point the depth readouts at it.
@@ -1264,21 +1298,41 @@ const DEPARE_COMPETENCE_FILTER = [
     ['>=', DEPARE_RANK, 40], // ~1° coastal cells bow out at street zoom
 ] as unknown as mapboxgl.FilterSpecification;
 
+/** Harbour-grade fineness gate for the over-land repaint (rank from
+ *  cellScaleRank: ~1-degree coastal cells are ~0; harbour cells 80+). */
+const DEPARE_FINE_RANK_FILTER = [
+    '>=',
+    ['coalesce', ['to-number', ['get', '_scaleRank']], -32768],
+    40,
+] as unknown as mapboxgl.FilterSpecification;
+
 /**
- * Re-point the DEPARE fill at the current base: near-opaque paper on the
- * chart, depth-graded glaze + competence filter over satellite. Called
- * by every visibility writer here plus MapHub's satellite effect, so no
- * code path can leave the wrong treatment behind.
+ * Re-point BOTH DEPARE fills at the current base: near-opaque paper on
+ * the chart, depth-graded glaze + competence filter over satellite.
+ * Called by every visibility writer here plus MapHub's satellite
+ * effect, so no code path can leave the wrong treatment behind.
  */
 export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) return;
     const satOn = satelliteBaseOn();
-    map.setPaintProperty(
-        ENC_VEC_LAYERS.DEPARE,
-        'fill-opacity',
-        satOn ? buildDepareSatelliteOpacity() : DEPARE_CHART_OPACITY,
-    );
+    const opacity = satOn ? buildDepareSatelliteOpacity() : DEPARE_CHART_OPACITY;
+    map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-opacity', opacity);
     map.setFilter(ENC_VEC_LAYERS.DEPARE, satOn ? DEPARE_COMPETENCE_FILTER : null);
+    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-opacity', opacity);
+        // The twin ALWAYS keeps its fineness gate; satellite adds the
+        // competence ladder on top (harbour cells never retire anyway).
+        map.setFilter(
+            ENC_VEC_LAYERS.DEPARE_FINE,
+            satOn
+                ? ([
+                      'all',
+                      DEPARE_FINE_RANK_FILTER,
+                      DEPARE_COMPETENCE_FILTER,
+                  ] as unknown as mapboxgl.FilterSpecification)
+                : DEPARE_FINE_RANK_FILTER,
+        );
+    }
 }
 
 /**
@@ -1312,6 +1366,7 @@ const ENC_LABEL_HIDE_LAYERS = [ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_LAYERS.POIN
  */
 const ROUTE_FOCUS_HIDE_LAYERS = [
     ENC_VEC_LAYERS.DEPARE,
+    ENC_VEC_LAYERS.DEPARE_FINE,
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.COALNE,
     ...ENC_LABEL_HIDE_LAYERS,
@@ -1327,6 +1382,7 @@ const ROUTE_FOCUS_HIDE_LAYERS = [
  */
 const CHART_DETAIL_HIDE_LAYERS = [
     ENC_VEC_LAYERS.DEPARE,
+    ENC_VEC_LAYERS.DEPARE_FINE,
     ENC_VEC_LAYERS.DEPCNT_LINE,
     ENC_VEC_LAYERS.DEPCNT_SAFETY,
     // Contour value labels travel with their contours.
