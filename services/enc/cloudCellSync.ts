@@ -24,6 +24,16 @@ const log = createLogger('cloudCellSync');
 
 const BUCKET = 'enc-cells';
 
+/** Last manifest version whose blobs this browser downloaded. When the
+ *  bucket is re-uploaded under a bumped version (extractor output
+ *  changed — e.g. the 2026-07 sounding explosion), every cached cloud
+ *  blob is silently stale FOREVER without this: blobs only download on
+ *  a local miss, so a returning browser kept rendering pre-sounding
+ *  cells while a fresh one got the new data (Shane 2026-07-12: "we
+ *  need more depth numbers??" — Mooloolaba's 200 in-view soundings were
+ *  in the bucket, not in his IndexedDB). */
+const MANIFEST_VERSION_KEY = 'thalassa_enc_cloud_manifest_version';
+
 interface CloudManifest {
     version: number;
     cells: Array<{ cellId: string; bbox: [number, number, number, number] }>;
@@ -61,6 +71,7 @@ export async function registerCloudCells(): Promise<number> {
         manifestPromise = null;
         return 0;
     }
+    await refreshStaleCloudBlobs(manifest.version);
     const known = new Set(listCells().map((c) => c.id));
     let added = 0;
     for (const c of manifest.cells) {
@@ -81,6 +92,45 @@ export async function registerCloudCells(): Promise<number> {
     }
     if (added > 0) log.warn(`registered ${added} cloud ENC cells (of ${manifest.cells.length})`);
     return added;
+}
+
+/**
+ * Manifest-version blob invalidation. When the stored version differs
+ * from the bucket's (including the never-stored first run under this
+ * code — exactly the browsers that cached pre-sounding blobs), delete
+ * every CLOUD-MANAGED blob so the background hydrator re-downloads
+ * fresh ones. Cloud-managed = registry geojsonPath under 'enc-cells/';
+ * Pi-synced and imported cells live under the local GeoJSON dir and are
+ * never touched — the boat's charts don't get wiped by a bucket bump.
+ * Registry entries stay put (bboxes still render as loading extents);
+ * only blobs go, and each re-download notifies the debounced merge.
+ */
+async function refreshStaleCloudBlobs(manifestVersion: number): Promise<void> {
+    let stored: string | null = null;
+    try {
+        stored = localStorage.getItem(MANIFEST_VERSION_KEY);
+    } catch {
+        return; // storage unavailable — nothing persisted to go stale
+    }
+    if (stored === String(manifestVersion)) return;
+    const cloudCells = listCells().filter((c) => c.geojsonPath.startsWith(`${BUCKET}/`));
+    if (cloudCells.length > 0) {
+        const { deleteCellGeoJSON } = await import('./EncCellStore');
+        for (const c of cloudCells) {
+            await deleteCellGeoJSON(c.id);
+        }
+        // One registry touch: bump the version counter so the debounced
+        // ENC merge re-runs, finds the missing blobs, and hydrates.
+        putCell(cloudCells[0]);
+        log.warn(
+            `manifest v${stored ?? 'none'} → v${manifestVersion}: wiped ${cloudCells.length} cloud blobs for re-download`,
+        );
+    }
+    try {
+        localStorage.setItem(MANIFEST_VERSION_KEY, String(manifestVersion));
+    } catch {
+        /* unavailable — we'll harmlessly re-wipe next boot */
+    }
 }
 
 /**
