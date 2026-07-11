@@ -348,14 +348,26 @@ export function buildDepcntLabelField(tideOffsetM = 0): mapboxgl.ExpressionSpeci
  * their own per-spot tide windows properly). Stored per map so
  * mount/refresh re-apply it after style swaps and cell loads.
  */
-export function setEncTideOffset(map: mapboxgl.Map, tideOffsetM: number | null): void {
+export function setEncTideOffset(map: mapboxgl.Map, tideOffsetM: number | null, atMs: number | null = null): void {
     const state = depthStyleState.get(map) ?? {
         safetyDepthM: DEFAULT_SAFETY_DEPTH_M,
         depcntValdcos: [],
     };
     state.tideOffsetM = tideOffsetM;
+    state.tideOffsetAtMs = tideOffsetM === null ? null : atMs;
     depthStyleState.set(map, state);
     applyTideOffsetPaint(map, tideOffsetM);
+}
+
+/** Flag the keel maths as fallback-draft so the popup verdicts carry
+ *  the honesty caveat (mirrors the tracer's draftAssumed convention). */
+export function setEncDraftAssumed(map: mapboxgl.Map, assumed: boolean): void {
+    const state = depthStyleState.get(map) ?? {
+        safetyDepthM: DEFAULT_SAFETY_DEPTH_M,
+        depcntValdcos: [],
+    };
+    state.draftAssumed = assumed;
+    depthStyleState.set(map, state);
 }
 
 function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): void {
@@ -419,6 +431,16 @@ interface EncDepthStyleState {
      *  null = chart datum. VISUAL ONLY: routing/tracer verdicts never
      *  read this. See setEncTideOffset. */
     tideOffsetM?: number | null;
+    /** When the offset is a SCRUBBED instant (the tide slider), the
+     *  absolute ms it was sampled at; null/undefined = live "now".
+     *  The tap-the-water popup words its rows off this — a scrubbed
+     *  offset presented as "right now" was a grounding-grade lie
+     *  (adversarial review, critical, 2026-07-11). */
+    tideOffsetAtMs?: number | null;
+    /** True when safetyDepthM was derived from the 2.5 m fallback
+     *  draft — the popup's keel verdict must carry the same "set your
+     *  vessel" caveat the tracer uses, never an unqualified tick. */
+    draftAssumed?: boolean;
 }
 const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
 
@@ -589,11 +611,20 @@ export function mountEncVectorLayer(
                     // glaze over satellite — syncDepareBaseTreatment
                     // right below picks per the current base.
                     'fill-opacity': DEPARE_CHART_OPACITY,
-                    'fill-antialias': true,
+                    // NO antialiasing: adjacent bands (and the 1°×1° cell
+                    // tiles) abut exactly; AA outlines on translucent
+                    // fills double-painted every shared edge into a
+                    // hairline "graticule" over the glaze (Shane
+                    // 2026-07-11: "dead straight horizontal and vertical
+                    // lines"). Aliased band edges are sub-pixel at retina.
+                    'fill-antialias': false,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPARE),
         );
+    } else {
+        // Heal layers created by earlier app versions (AA on).
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
     }
     // Mount can happen while satellite is already on (style swap,
     // late cell load) — apply the right treatment immediately. Same
@@ -1200,18 +1231,45 @@ export function buildDepareSatelliteOpacity(): mapboxgl.ExpressionSpecification 
 export const DEPARE_CHART_OPACITY = 0.95;
 
 /**
+ * Survey-competence filter for the satellite glaze: a band from a coarse
+ * cell retires at zooms beyond its survey's generalisation — a 1:90k
+ * flats polygon drawn at street zoom cut "1980s edges" across the real
+ * foreshore imagery (Shane 2026-07-11: "we don't need those"). Bare
+ * imagery beats a wrong edge. Ranks come from cellScaleRank (higher =
+ * finer); unranked features never retire. Chart mode keeps everything —
+ * there's no imagery to contradict, the chart IS the picture (and the
+ * tap-the-water popup keeps answering everywhere).
+ */
+const DEPARE_RANK = ['coalesce', ['to-number', ['get', '_scaleRank']], 32000];
+const DEPARE_COMPETENCE_FILTER = [
+    'step',
+    ['zoom'],
+    true,
+    10,
+    ['>=', DEPARE_RANK, -200], // ocean/overview cells bow out
+    12,
+    ['>=', DEPARE_RANK, -120],
+    14,
+    ['>=', DEPARE_RANK, -40],
+    16,
+    ['>=', DEPARE_RANK, 40], // ~1° coastal cells bow out at street zoom
+] as unknown as mapboxgl.FilterSpecification;
+
+/**
  * Re-point the DEPARE fill at the current base: near-opaque paper on the
- * chart, depth-graded glaze over satellite. Called by every visibility
- * writer here plus MapHub's satellite effect, so no code path can leave
- * the wrong treatment behind.
+ * chart, depth-graded glaze + competence filter over satellite. Called
+ * by every visibility writer here plus MapHub's satellite effect, so no
+ * code path can leave the wrong treatment behind.
  */
 export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) return;
+    const satOn = satelliteBaseOn();
     map.setPaintProperty(
         ENC_VEC_LAYERS.DEPARE,
         'fill-opacity',
-        satelliteBaseOn() ? buildDepareSatelliteOpacity() : DEPARE_CHART_OPACITY,
+        satOn ? buildDepareSatelliteOpacity() : DEPARE_CHART_OPACITY,
     );
+    map.setFilter(ENC_VEC_LAYERS.DEPARE, satOn ? DEPARE_COMPETENCE_FILTER : null);
 }
 
 /**
@@ -1395,7 +1453,21 @@ const WATLEV_LABELS: Record<string, string> = {
  * UI. Mapbox's default popup CSS gives us a white background; we
  * override per-class in the class names.
  */
-function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>): string {
+interface PopupExtras {
+    /** Vessel keel floor (draft + tide margin, metres) from depthStyleState. */
+    safetyDepthM?: number;
+    /** Tide offset in force on the chart (metres above LAT), null = datum. */
+    tideOffsetM?: number | null;
+    /** Non-null when the offset is a SCRUBBED instant, not live "now". */
+    tideOffsetAtMs?: number | null;
+    /** Keel floor came from the 2.5 m fallback draft — caveat required. */
+    draftAssumed?: boolean;
+}
+
+const fmtHm = (ms: number): string =>
+    new Date(ms).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>, extras: PopupExtras = {}): string {
     const cellId = props._cellId as string | undefined;
     const sourceHO = props._sourceHO as string | undefined;
     const provenance = cellId
@@ -1407,10 +1479,67 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>):
     let accent = '#0ea5e9'; // sky-500 default
 
     if (layerId === ENC_VEC_LAYERS.DEPARE) {
-        title = 'Depth area';
+        // Tap-the-water (2026-07-11 #1): the punter taps any patch of
+        // water and gets the ANSWER — charted band, live water, and the
+        // keel verdict — instead of chart-speak. The tide window for
+        // needs-tide reads fills in async (see fillDepareTideWindow).
+        title = 'Water';
         accent = '#3a8dbf';
-        const range = fmtRange(props.DRVAL1 ?? props.drval1, props.DRVAL2 ?? props.drval2);
-        if (range) body += `<div class="enc-popup-row"><span>Depth</span><b>${range}</b></div>`;
+        const d1raw = Number(props.DRVAL1 ?? props.drval1);
+        const d2raw = Number(props.DRVAL2 ?? props.drval2);
+        const d1 = Number.isFinite(d1raw) ? d1raw : null;
+        const d2 = Number.isFinite(d2raw) ? d2raw : null;
+        if (d1 !== null) {
+            const charted =
+                d1 < 0 && d2 !== null && d2 > 0
+                    ? // Straddles the drying line: part sand at low tide,
+                      // part water — say BOTH (review minor: "dries up to
+                      // X" alone hid the water).
+                      `dries up to ${Math.abs(d1).toFixed(1)} m / up to ${d2.toFixed(1)} m of water`
+                    : d1 < 0
+                      ? `dries up to ${Math.abs(d1).toFixed(1)} m`
+                      : d2 !== null
+                        ? `${d1.toFixed(d1 < 10 ? 1 : 0)}–${d2.toFixed(d2 < 10 ? 1 : 0)} m of water`
+                        : `at least ${d1.toFixed(1)} m`;
+            body += `<div class="enc-popup-row"><span>At low tide</span><b>${esc(charted)}</b></div>`;
+            const h = extras.tideOffsetM;
+            // Scrub honesty (review CRITICAL): a scrubbed offset must never
+            // wear "right now" — every tide-derived row is labelled with
+            // the instant it describes, in the scrubber's violet.
+            const scrubbedAt = extras.tideOffsetAtMs ?? null;
+            const whenLabel = scrubbedAt !== null ? `At ${fmtHm(scrubbedAt)}` : 'Right now';
+            const tideColor = scrubbedAt !== null ? '#c4b5fd' : '#5eead4';
+            if (h != null) {
+                const lo = d1 + h;
+                const hi = d2 !== null ? d2 + h : null;
+                const reads =
+                    lo <= 0 && hi !== null && hi <= 0
+                        ? 'still dry'
+                        : `≈ ${Math.max(0, lo).toFixed(1)}${hi !== null ? `–${Math.max(0, hi).toFixed(1)}` : ''} m`;
+                body += `<div class="enc-popup-row"><span>${esc(whenLabel)}</span><b style="color:${tideColor}">${esc(reads)} (tide ${h >= 0 ? '+' : ''}${h.toFixed(1)} m)</b></div>`;
+            }
+            const S = extras.safetyDepthM;
+            if (S != null && S > 0) {
+                if (d1 >= S) {
+                    body += `<div class="enc-popup-row"><span>Your keel</span><b style="color:#4ade80">✓ deep enough at any tide</b></div>`;
+                } else if (h != null && d1 + h >= S) {
+                    body +=
+                        scrubbedAt !== null
+                            ? `<div class="enc-popup-row"><span>Your keel</span><b style="color:${tideColor}">✓ enough water at ${esc(fmtHm(scrubbedAt))} — NOT necessarily now</b></div>`
+                            : `<div class="enc-popup-row"><span>Your keel</span><b style="color:${tideColor}">✓ enough water right now — the tide is in</b></div>`;
+                } else {
+                    body += `<div class="enc-popup-row"><span>Your keel</span><b style="color:#fbbf24">needs +${(S - d1).toFixed(1)} m of tide</b></div>`;
+                    body += `<div class="enc-popup-row"><span>Window</span><b class="enc-popup-tidewin" style="color:#fbbf24">checking tides…</b></div>`;
+                }
+                // Draft honesty (mirrors the tracer): a verdict against the
+                // fallback draft always says so.
+                if (extras.draftAssumed) {
+                    body += `<div class="enc-popup-row"><span></span><b style="color:#fbbf24">checked against a default 2.5 m draft — set your vessel</b></div>`;
+                }
+            }
+        } else {
+            body += `<div class="enc-popup-row"><span>Type</span><b>Charted depth area</b></div>`;
+        }
     } else if (layerId === ENC_VEC_LAYERS.LNDARE) {
         title = 'Land';
         accent = '#a8956a';
@@ -1649,6 +1778,48 @@ interface AttachedHandlers {
 const attachedHandlers = new WeakMap<mapboxgl.Map, AttachedHandlers>();
 
 /**
+ * Popup suppression — a tap sometimes means something else entirely
+ * (tracer pin drops, picker mode, weather inspect). MapHub flips this
+ * so the tap-the-water popup never fights those. PER MAP: every ENC
+ * mount attaches popup handlers (embedded surfaces included), so a
+ * module-global flag would let one surface mute another (review
+ * minor, 2026-07-11).
+ */
+const popupSuppression = new WeakMap<mapboxgl.Map, boolean>();
+export function setEncPopupSuppression(map: mapboxgl.Map, suppressed: boolean): void {
+    popupSuppression.set(map, suppressed);
+}
+
+/**
+ * Async half of the tap-the-water popup: a needs-tide verdict shows
+ * "checking tides…" and this fills in the actual window ("clears
+ * 09:10–14:30 today") once the curve answers. No-ops silently when
+ * the popup closed or tide data is unreachable.
+ */
+function fillDepareTideWindow(popup: mapboxgl.Popup, props: Record<string, unknown>, extras: PopupExtras): void {
+    const d1 = Number(props.DRVAL1 ?? props.drval1);
+    const S = extras.safetyDepthM;
+    if (!Number.isFinite(d1) || S == null || S <= 0 || d1 >= S) return;
+    const h = extras.tideOffsetM;
+    if (h != null && d1 + h >= S) return;
+    if (!popup.getElement()?.querySelector('.enc-popup-tidewin')) return;
+    const at = popup.getLngLat();
+    void Promise.all([import('../../services/routeTracer'), import('../../services/routing/tidalWindow')])
+        .then(([{ tideWindowLabelFor }, { DEFAULT_TIDE_SAFETY_M }]) =>
+            tideWindowLabelFor(d1, S - DEFAULT_TIDE_SAFETY_M, { lat: at.lat, lon: at.lng }),
+        )
+        .then((label) => {
+            if (!popup.isOpen()) return;
+            const span = popup.getElement()?.querySelector('.enc-popup-tidewin');
+            if (span) span.textContent = label ?? 'tide data unavailable right now';
+        })
+        .catch(() => {
+            const span = popup.getElement()?.querySelector('.enc-popup-tidewin');
+            if (span) span.textContent = 'tide data unavailable right now';
+        });
+}
+
+/**
  * Wire up click handlers on every ENC vector layer so tapping a
  * feature shows a popup describing it. Idempotent — if handlers
  * are already attached, this is a no-op.
@@ -1657,6 +1828,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
     if (attachedHandlers.has(map)) return;
 
     const onClick = (e: mapboxgl.MapMouseEvent) => {
+        if (popupSuppression.get(map)) return;
         // queryRenderedFeatures across all our layers; topmost wins.
         // Order matters: we list points first (small, easy to miss
         // if covered by a polygon hit) then polygons last.
@@ -1686,6 +1858,16 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         const existing = attachedHandlers.get(map);
         if (existing?.popup) existing.popup.remove();
 
+        // Vessel keel + live tide state ride along so the DEPARE branch
+        // can answer "can I float here" instead of quoting chart-speak.
+        const dstate = depthStyleState.get(map);
+        const extras: PopupExtras = {
+            safetyDepthM: dstate?.safetyDepthM,
+            tideOffsetM: dstate?.tideOffsetM ?? null,
+            tideOffsetAtMs: dstate?.tideOffsetAtMs ?? null,
+            draftAssumed: dstate?.draftAssumed ?? false,
+        };
+
         const popup = new mapboxgl.Popup({
             closeButton: false,
             maxWidth: '280px',
@@ -1693,10 +1875,11 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             className: 'enc-popup-mapbox',
         })
             .setLngLat(e.lngLat)
-            .setHTML(buildFeaturePopupHtml(layerId, props))
+            .setHTML(buildFeaturePopupHtml(layerId, props, extras))
             .addTo(map);
 
         if (existing) existing.popup = popup;
+        if (layerId === ENC_VEC_LAYERS.DEPARE) fillDepareTideWindow(popup, props, extras);
 
         const closeBtn = popup.getElement()?.querySelector<HTMLButtonElement>('.enc-popup-close');
         if (closeBtn) {

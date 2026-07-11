@@ -35,7 +35,7 @@ import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideBboxes } from './clipDepareOverlap';
+import { clipFeatureOutsideBboxes, clipLineFeatureOutsideBboxes } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -528,19 +528,67 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
     // Newport-approach "dries 2 m over a surveyed 2–5 m band" conflict,
     // 2026-07-11) — order is what resolves the partial overlaps here.
     const cellsCoarseToFine = [...cells].sort((a, b) => cellScaleRank(a.bbox) - cellScaleRank(b.bbox));
+
+    // Pass 1: load blobs and compute each cell's DEPARE DATA EXTENT — the
+    // ground it ACTUALLY charts. Dropping/clipping coarse features by the
+    // registry bbox carved bare black rectangles wherever a fine cell's
+    // bbox outran its charted data (Shane 2026-07-11, NW of Bribie: the
+    // Newport cell's bbox spans half the bay; its bands chart a fraction
+    // of it). The fineness DECISION stays on the registry bbox (the scale
+    // heuristic); the CUTTING geometry uses the data extent.
+    const loadedBlobs = new Map<string, NonNullable<Awaited<ReturnType<typeof cellStore.loadCellGeoJSON>>>>();
+    const depareExtent = new Map<string, [number, number, number, number]>();
     for (const cell of cellsCoarseToFine) {
-        let blob;
         try {
-            blob = await cellStore.loadCellGeoJSON(cell.id);
+            const blob = await cellStore.loadCellGeoJSON(cell.id);
+            if (!blob) continue;
+            loadedBlobs.set(cell.id, blob);
+            let minLon = Infinity,
+                minLat = Infinity,
+                maxLon = -Infinity,
+                maxLat = -Infinity;
+            const visit = (coords: unknown): void => {
+                if (!Array.isArray(coords)) return;
+                if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                    const lon = coords[0] as number;
+                    const lat = coords[1] as number;
+                    if (lon < minLon) minLon = lon;
+                    if (lat < minLat) minLat = lat;
+                    if (lon > maxLon) maxLon = lon;
+                    if (lat > maxLat) maxLat = lat;
+                    return;
+                }
+                for (const c of coords) visit(c);
+            };
+            for (const f of blob.layers.DEPARE?.features ?? []) {
+                const g = f?.geometry;
+                if (!g || g.type === 'GeometryCollection') continue;
+                visit((g as { coordinates?: unknown }).coordinates);
+            }
+            if (Number.isFinite(minLon) && maxLon > minLon && maxLat > minLat) {
+                depareExtent.set(cell.id, [
+                    Math.max(minLon, cell.bbox[0]),
+                    Math.max(minLat, cell.bbox[1]),
+                    Math.min(maxLon, cell.bbox[2]),
+                    Math.min(maxLat, cell.bbox[3]),
+                ]);
+            }
         } catch (err) {
             log.warn(`getMergedVectorData: failed to load cell ${cell.id}`, err);
-            continue;
         }
+    }
+
+    for (const cell of cellsCoarseToFine) {
+        const blob = loadedBlobs.get(cell.id);
         if (!blob) continue;
         merged.cellCount++;
 
         const ialaRegion = ialaRegionForSourceHO(cell.sourceHO);
-        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents);
+        // Shadow list re-anchored on DATA extents: a finer cell with no
+        // DEPARE (marks-only) never erases coarse bands at all.
+        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents)
+            .map((s) => (depareExtent.has(s.id) ? { id: s.id, bbox: depareExtent.get(s.id)! } : null))
+            .filter((s): s is { id: string; bbox: [number, number, number, number] } => s !== null);
 
         const tagAndPush = (
             target: keyof Omit<EncMergedVectorData, 'cellCount'>,
@@ -566,6 +614,22 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
                     if (!clipped) continue;
                     feat = clipped;
                 }
+                // Same disease, line edition — COALNE ONLY. DEPCNT is
+                // deliberately NOT clipped: the draft-keyed SAFETY CONTOUR
+                // renders from the same merged source, and clipping a
+                // coarse contour inside finer coverage could erase the
+                // most prominent safety line on the chart wherever the
+                // fine cell lacks a contour at that exact VALDCO (review
+                // major, 2026-07-11). Duplicate thin contours beat a
+                // missing safety line.
+                if (target === 'COALNE' && shadows.length > 0) {
+                    const clipped = clipLineFeatureOutsideBboxes(
+                        feat,
+                        shadows.map((s) => s.bbox),
+                    );
+                    if (!clipped) continue;
+                    feat = clipped;
+                }
                 // Decorate properties with provenance so the map
                 // can keep "which cell" context for clicks/etc.
                 const props: Record<string, unknown> = {
@@ -574,6 +638,11 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
                     _sourceHO: cell.sourceHO,
                     _ialaRegion: ialaRegion,
                 };
+                // Fineness rank rides along on DEPARE so the renderer can
+                // retire a coarse cell's bands at zooms beyond its survey's
+                // competence (the "1980s edges", 2026-07-11). Set on the new
+                // props object — never stamped into the cached blob here.
+                if (target === 'DEPARE') props._scaleRank = cellScaleRank(cell.bbox);
 
                 // Pre-compute the display colour for lateral marks
                 // (BOYLAT/BCNLAT) so the renderer doesn't need a

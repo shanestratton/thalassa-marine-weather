@@ -77,8 +77,24 @@ export function useEncVectorLayer(
     safetyDepthRef.current = safetyDepthM;
 
     useEffect(() => {
-        const unsub = subscribeToEnc(() => setBumpCounter((c) => c + 1));
-        return unsub;
+        // DEBOUNCED (2026-07-11, Shane: "takes a long time for our new
+        // layer to show up"): every putCell notify used to trigger a
+        // FULL re-merge — a 171-cell cloud/Pi sync fired up to 171
+        // merges back to back, each re-clipping and re-laddering the
+        // whole coast. Trailing 800 ms coalesces a registration storm
+        // into one merge once the dust settles.
+        let t: number | null = null;
+        const unsub = subscribeToEnc(() => {
+            if (t !== null) window.clearTimeout(t);
+            t = window.setTimeout(() => {
+                t = null;
+                setBumpCounter((c) => c + 1);
+            }, 800);
+        });
+        return () => {
+            if (t !== null) window.clearTimeout(t);
+            unsub();
+        };
     }, []);
 
     useEffect(() => {

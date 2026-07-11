@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import type { Feature, MultiPolygon, Polygon, Position } from 'geojson';
-import { clipFeatureOutsideBboxes } from '../../services/enc/clipDepareOverlap';
+import { clipFeatureOutsideBboxes, clipLineFeatureOutsideBboxes } from '../../services/enc/clipDepareOverlap';
 
 const rect = (minX: number, minY: number, maxX: number, maxY: number): Position[] => [
     [minX, minY],
@@ -83,5 +83,43 @@ describe('clipDepareOverlap — glaze de-duplication geometry', () => {
         const snapshot = JSON.stringify(f);
         clipFeatureOutsideBboxes(f, [[4, 4, 6, 6]]);
         expect(JSON.stringify(f)).toBe(snapshot);
+    });
+});
+
+describe('clipDepareOverlap — line edition (contours/coastlines)', () => {
+    const line = (coords: Position[]): Feature => ({
+        type: 'Feature',
+        properties: { VALDCO: 5 },
+        geometry: { type: 'LineString', coordinates: coords },
+    });
+
+    it('a line crossing finer coverage splits with the covered middle removed', () => {
+        const f = line([
+            [0, 5],
+            [10, 5],
+        ]);
+        const out = clipLineFeatureOutsideBboxes(f, [[4, 0, 6, 10]]);
+        expect(out).not.toBeNull();
+        expect(out!.geometry.type).toBe('MultiLineString');
+        const parts = (out!.geometry as { coordinates: Position[][] }).coordinates;
+        expect(parts).toHaveLength(2);
+        expect(parts[0][1][0]).toBeCloseTo(4, 9); // first piece ends at the bbox edge
+        expect(parts[1][0][0]).toBeCloseTo(6, 9); // second resumes past it
+    });
+
+    it('a line fully inside finer coverage vanishes', () => {
+        const f = line([
+            [4.5, 5],
+            [5.5, 5],
+        ]);
+        expect(clipLineFeatureOutsideBboxes(f, [[4, 0, 6, 10]])).toBeNull();
+    });
+
+    it('a clear line returns by identity', () => {
+        const f = line([
+            [0, 20],
+            [10, 20],
+        ]);
+        expect(clipLineFeatureOutsideBboxes(f, [[4, 0, 6, 10]])).toBe(f);
     });
 });

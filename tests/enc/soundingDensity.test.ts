@@ -44,9 +44,13 @@ describe('soundingDensity — the numbers ladder', () => {
         expect(zs[3]).toBeLessThanOrEqual(16); // 500 m apart all resolve within the ladder
     });
 
-    it('never loosens a stricter SCAMIN gate', () => {
-        const gated = pt(153.0, -27.0, 3.2, 13); // SCAMIN says z13+
+    it('REPLACES the SCAMIN pre-bake — wide-zoom numbers actually appear', () => {
+        // SCAMIN pinned nearly every AU sounding to z11+, silencing the
+        // ladder's wide rungs (Shane 2026-07-11: "depths from zoom 7??").
+        // The ladder is the stricter safety-biased declutter — it owns
+        // the gate outright now.
+        const gated = pt(153.0, -27.0, 3.2, 13); // extractor SCAMIN said z13+
         assignSoundingDensityMinZoom([gated]);
-        expect(mz(gated)).toBe(13); // density said 4; SCAMIN wins
+        expect(mz(gated)).toBe(4); // ladder wins: the shallowest sounding leads from z4
     });
 });
