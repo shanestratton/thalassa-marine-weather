@@ -473,17 +473,19 @@ export function mountEncVectorLayer(
                     // buildDepareFillColor. Static: draft changes move
                     // only the safety contour now.
                     'fill-color': buildDepareFillColor(),
-                    // 0.95, not the overall multiplier: dark-v11
-                    // bleeding through muddies the whites. The chart
-                    // area reads as paper; the dark shell stays
-                    // outside ENC coverage.
-                    'fill-opacity': 0.95,
+                    // Near-opaque paper on the chart, depth-graded
+                    // glaze over satellite — syncDepareBaseTreatment
+                    // right below picks per the current base.
+                    'fill-opacity': DEPARE_CHART_OPACITY,
                     'fill-antialias': true,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPARE),
         );
     }
+    // Mount can happen while satellite is already on (style swap,
+    // late cell load) — apply the right treatment immediately.
+    syncDepareBaseTreatment(map);
 
     // ── DEPCNT (depth contours + bold safety contour) ─────────────
     // Two layers off one source: thin gray ordinary contours
@@ -1010,25 +1012,69 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
 
 /**
  * Satellite-base gate. When the user has satellite imagery on, the opaque
- * area fills must never paint — they'd blanket the imagery (the whole point
- * of the toggle). Every visibility writer in this module consults this so
- * that cell-list bumps, master toggles, detail mode and route-focus can't
- * re-show a fill behind MapHub's back, whatever order they run in. Contour
- * LINES, coastline, markers and hazards are unaffected — they read fine on
- * top of imagery.
+ * LAND fills must never paint — they'd blanket the imagery. The DEPARE
+ * ramp is different since 2026-07-11 ("our layer sitting on top of the
+ * satellite layer"): it stays VISIBLE as a translucent glaze — see
+ * syncDepareBaseTreatment. Every visibility writer in this module
+ * consults this so that cell-list bumps, master toggles, detail mode and
+ * route-focus can't re-show a land fill (or leave the wrong DEPARE
+ * treatment) behind MapHub's back, whatever order they run in. Contour
+ * LINES, coastline, markers and hazards are unaffected — they read fine
+ * on top of imagery.
  */
 const SATELLITE_KEY = 'thalassa_satellite_base';
-const SATELLITE_HIDE_LAYERS: readonly string[] = [
-    ENC_VEC_LAYERS.LNDARE,
-    ENC_VEC_LAYERS.LNDARE_ISLET,
-    ENC_VEC_LAYERS.DEPARE,
-];
+const SATELLITE_HIDE_LAYERS: readonly string[] = [ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.LNDARE_ISLET];
 function satelliteBaseOn(): boolean {
     try {
         return localStorage.getItem(SATELLITE_KEY) === 'true';
     } catch {
         return false;
     }
+}
+
+/**
+ * Satellite-mode DEPARE opacity — the white ramp becomes a depth-graded
+ * GLAZE over the imagery: deep water takes the full wash (the imagery
+ * there is featureless navy), shallows go translucent so the real sand
+ * banks glow through the dirty tint, and drying stays solid enough to
+ * read as a warning.
+ */
+export function buildDepareSatelliteOpacity(): mapboxgl.ExpressionSpecification {
+    return [
+        'step',
+        ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
+        0.55, // drying — a real warning even over imagery
+        0,
+        0.3, // 0–2 m — the banks themselves, let them show
+        2,
+        0.33,
+        5,
+        0.37,
+        10,
+        0.42,
+        20,
+        0.48,
+        50,
+        0.55, // open water — mostly paper
+    ] as unknown as mapboxgl.ExpressionSpecification;
+}
+
+/** Chart-mode fill opacity — near-opaque paper over the dark shell. */
+export const DEPARE_CHART_OPACITY = 0.95;
+
+/**
+ * Re-point the DEPARE fill at the current base: near-opaque paper on the
+ * chart, depth-graded glaze over satellite. Called by every visibility
+ * writer here plus MapHub's satellite effect, so no code path can leave
+ * the wrong treatment behind.
+ */
+export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) return;
+    map.setPaintProperty(
+        ENC_VEC_LAYERS.DEPARE,
+        'fill-opacity',
+        satelliteBaseOn() ? buildDepareSatelliteOpacity() : DEPARE_CHART_OPACITY,
+    );
 }
 
 /**
@@ -1042,6 +1088,7 @@ export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): voi
         const wantVisible = visible && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
+    syncDepareBaseTreatment(map);
 }
 
 /**
@@ -1109,6 +1156,7 @@ export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void 
         const wantVisible = !focused && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
+    syncDepareBaseTreatment(map);
 }
 
 /**
@@ -1133,6 +1181,7 @@ export function setEncChartDetail(map: mapboxgl.Map, detailed: boolean): void {
         const wantVisible = detailed && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
+    syncDepareBaseTreatment(map);
 }
 
 // ── Click-to-popup ─────────────────────────────────────────────────

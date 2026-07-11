@@ -78,6 +78,7 @@ import { useEncVectorLayer } from './useEncVectorLayer';
 import {
     setEncVectorVisibility as encApplyLayerVisibility,
     setEncChartDetail as encApplyChartDetailLayers,
+    syncDepareBaseTreatment as encSyncDepareBaseTreatment,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
@@ -1644,22 +1645,24 @@ export const MapHub: React.FC<MapHubProps> = ({
                         map.moveLayer('satellite-base-layer', encBottom);
                     }
                 }
-                // The opaque ENC area fills + the ocean-bathymetry raster sit
-                // ABOVE the satellite base and blanket the whole viewport in
-                // covered areas — with them visible, toggling satellite did
-                // nothing anywhere it mattered (Shane 2026-07-03: "satellite
-                // overlay is not active on a plan"). Satellite ON = hide the
-                // FILLS ONLY; depth contours, coastline, soundings, marks,
-                // routes and chips all stay on top of the imagery. The ENC
+                // The opaque LAND fills sit ABOVE the satellite base and
+                // blanket the imagery — satellite ON hides those. The DEPARE
+                // ramp is different since 2026-07-11 ("our layer sitting on
+                // top of the satellite layer"): it STAYS visible as a
+                // depth-graded translucent glaze (deep = white wash, shallow
+                // = the real sand banks glowing through the dirty tint) via
+                // syncDepareBaseTreatment. Contours, coastline, soundings,
+                // marks, routes and chips all render on the imagery. The ENC
                 // setters in EncVectorLayer are satellite-gated too, so a
-                // route-plan cell load can't repaint a fill between our
+                // route-plan cell load can't repaint a land fill between our
                 // styledata ticks — this loop is the belt, that's the braces.
                 if (satelliteVisible) {
-                    for (const id of ['enc-vec-lndare-fill', 'enc-vec-lndare-islet', 'enc-vec-depare-fill']) {
+                    for (const id of ['enc-vec-lndare-fill', 'enc-vec-lndare-islet']) {
                         if (map.getLayer(id)) {
                             map.setLayoutProperty(id, 'visibility', 'none');
                         }
                     }
+                    encSyncDepareBaseTreatment(map);
                     // Bathymetry OVER the imagery (Shane 2026-07-09: "can we
                     // have a bathymetry layer on top of the satellite") — the
                     // MapTiler ocean raster used to be hidden with the fills;
