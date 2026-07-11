@@ -1178,7 +1178,7 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
  * LINES, coastline, markers and hazards are unaffected — they read fine
  * on top of imagery.
  */
-const SATELLITE_KEY = 'thalassa_satellite_base';
+const SATELLITE_KEY = 'thalassa_satellite_base_v2';
 // Land fills blanket the imagery; COALNE + the bold safety contour are
 // CHART furniture that reads as scribble over photos (Shane 2026-07-11:
 // "the thick black line, the straight brown lines… can we remove all of
