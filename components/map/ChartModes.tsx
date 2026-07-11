@@ -146,6 +146,11 @@ interface ChartModesProps {
     satelliteVisible?: boolean;
     setSatelliteVisible?: (v: boolean) => void;
 
+    /** "Depth right now" — depth tints/numbers re-read as charted +
+     *  predicted tide (visual only; MapHub owns the disclaimer + badge). */
+    tideDepthMode?: boolean;
+    onToggleTideDepth?: () => void;
+
     /**
      * If provided, renders a "Plan ENC Route" action row between the
      * Charts Only and Clear All preset rows in the dropdown. The callback
@@ -544,6 +549,49 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 real imagery under your route, marks &amp; weather
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && props.onToggleTideDepth && (
+                                    <button
+                                        onClick={() => {
+                                            props.onToggleTideDepth?.();
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.tideDepthMode
+                                                ? 'rgba(45, 212, 191, 0.18)'
+                                                : 'rgba(45, 212, 191, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(45, 212, 191, 0.25)',
+                                        }}
+                                        aria-label="Toggle live tide depth"
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#2dd4bf', fontSize: 15, fontWeight: 900 }}
+                                        >
+                                            ≈
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#2dd4bf', fontSize: 13 }}
+                                            >
+                                                Live tide depth {props.tideDepthMode ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                depths as they are right now, not chart datum
                                             </span>
                                         </span>
                                     </button>

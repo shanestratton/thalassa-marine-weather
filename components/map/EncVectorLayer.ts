@@ -240,7 +240,7 @@ const DEFAULT_SAFETY_DEPTH_M = 3.0;
  * `step` stops must ascend strictly — S > 0 guarantees 0 < S < 2S,
  * and max(4S, 20) > 2S for any S.
  */
-export function buildDepareFillColor(): mapboxgl.ExpressionSpecification {
+export function buildDepareFillColor(tideOffsetM = 0): mapboxgl.ExpressionSpecification {
     // Absolute white ramp — paper-chart convention (Shane 2026-07-11:
     // "white where deep, off white all the way to a dirty white where
     // it is not"). White = SURVEYED AND DEEP; the tint dirties as the
@@ -250,26 +250,128 @@ export function buildDepareFillColor(): mapboxgl.ExpressionSpecification {
     // draft-keyed SAFETY CONTOUR on top. Uncharted water gets no fill
     // at all — absence of data must never read as deep (the
     // au-brisbane-test lesson).
+    //
+    // tideOffsetM ("depth right now" toggle): shifting every band stop
+    // down by the predicted tide height re-tints the whole chart for
+    // the water that's actually under the keel — a drying bank under
+    // 1.8 m of tide renders as 0–2 m dirty white because it IS
+    // navigable water right now. Stops stay strictly ascending for any
+    // constant shift, so the step expression remains valid.
+    const h = tideOffsetM;
     return [
         'step',
         // DRVAL1 = minimum depth in S-57 metres (positive = depth,
         // negative = drying height). Missing values sort as "very
         // deep" so empty polygons don't render as drying banks.
         ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
-        '#c9c6ae', // DRVAL1 < 0 — drying / intertidal khaki
-        0,
-        '#d4cdbf', // 0–2 m — dirtiest white: never, at any tide
-        2,
+        '#c9c6ae', // < 0 now — still drying at THIS tide
+        0 - h,
+        '#d4cdbf', // 0–2 m — dirtiest white
+        2 - h,
         '#ded8cc', // 2–5 m — the 2.4 m-keel decision band
-        5,
+        5 - h,
         '#e8e3d9', // 5–10 m
-        10,
+        10 - h,
         '#f0ede5', // 10–20 m
-        20,
+        20 - h,
         '#f7f5f0', // 20–50 m
-        50,
+        50 - h,
         '#ffffff', // 50 m+ — clean paper
     ] as unknown as mapboxgl.ExpressionSpecification;
+}
+
+/** Subscript digits for chart-style sounding tenths (3₄, not 3.4). */
+const SUBSCRIPT_DIGITS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
+
+/**
+ * Sounding label text. With a tide offset the displayed value is
+ * charted + tide ("depth right now"). Carry-safe: whole and tenth both
+ * derive from round(|v|·10) — computing them separately turned 1.96
+ * into "1₀" instead of "2" once offsets made non-pre-rounded values
+ * possible.
+ */
+export function buildSoundingTextField(tideOffsetM = 0): mapboxgl.ExpressionSpecification {
+    const v = tideOffsetM === 0 ? ['get', '_d'] : ['+', ['get', '_d'], tideOffsetM];
+    const d10 = ['round', ['*', ['abs', v], 10]];
+    const whole = ['floor', ['/', d10, 10]];
+    const tenth = ['%', d10, 10];
+    return [
+        'case',
+        ['<', ['abs', v], 10],
+        ['concat', ['to-string', whole], ['case', ['==', tenth, 0], '', ['at', tenth, ['literal', SUBSCRIPT_DIGITS]]]],
+        ['to-string', ['round', v]],
+    ] as unknown as mapboxgl.ExpressionSpecification;
+}
+
+/**
+ * Sounding ink. Chart datum = slate (shallow darker) with khaki drying.
+ * LIVE tide mode = a distinct TEAL family so a screenshot can never
+ * masquerade as chart datum (the honesty rule from the design session);
+ * "drying at this tide" keeps the khaki.
+ */
+export function buildSoundingTextColor(tideOffsetM: number | null = null): mapboxgl.ExpressionSpecification {
+    if (tideOffsetM === null) {
+        return [
+            'case',
+            ['<', ['get', '_d'], 0],
+            '#6b5e23',
+            ['<', ['get', '_d'], 5],
+            '#2f3e49',
+            '#647885',
+        ] as unknown as mapboxgl.ExpressionSpecification;
+    }
+    const v = ['+', ['get', '_d'], tideOffsetM];
+    return [
+        'case',
+        ['<', v, 0],
+        '#6b5e23',
+        ['<', v, 5],
+        '#0e5a63',
+        '#3f7d88',
+    ] as unknown as mapboxgl.ExpressionSpecification;
+}
+
+/** Contour label text — shifts with the tide offset so the screen never
+ *  mixes datums (a "5" line reading charted while soundings read live
+ *  would be a trap). */
+export function buildDepcntLabelField(tideOffsetM = 0): mapboxgl.ExpressionSpecification {
+    const val = ['to-number', ['get', 'VALDCO']];
+    const v = tideOffsetM === 0 ? val : ['+', val, tideOffsetM];
+    return ['to-string', ['round', v]] as unknown as mapboxgl.ExpressionSpecification;
+}
+
+/**
+ * "Depth right now" — apply (or clear, with null) the tide offset on
+ * every depth READOUT layer: band tints, sounding numbers + ink,
+ * contour labels. VISUAL ONLY by hard rule: the safety contour, the
+ * tracer and the router all keep grading against chart datum (they do
+ * their own per-spot tide windows properly). Stored per map so
+ * mount/refresh re-apply it after style swaps and cell loads.
+ */
+export function setEncTideOffset(map: mapboxgl.Map, tideOffsetM: number | null): void {
+    const state = depthStyleState.get(map) ?? {
+        safetyDepthM: DEFAULT_SAFETY_DEPTH_M,
+        depcntValdcos: [],
+    };
+    state.tideOffsetM = tideOffsetM;
+    depthStyleState.set(map, state);
+    applyTideOffsetPaint(map, tideOffsetM);
+}
+
+function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): void {
+    const h = tideOffsetM ?? 0;
+    const live = tideOffsetM !== null;
+    if (map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-color', buildDepareFillColor(h));
+    }
+    if (map.getLayer(ENC_VEC_LAYERS.SOUNDG)) {
+        map.setLayoutProperty(ENC_VEC_LAYERS.SOUNDG, 'text-field', buildSoundingTextField(h));
+        map.setPaintProperty(ENC_VEC_LAYERS.SOUNDG, 'text-color', buildSoundingTextColor(live ? h : null));
+    }
+    if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_LABEL)) {
+        map.setLayoutProperty(ENC_VEC_LAYERS.DEPCNT_LABEL, 'text-field', buildDepcntLabelField(h));
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_LABEL, 'text-color', live ? '#54828d' : '#7d8e9b');
+    }
 }
 
 /**
@@ -313,6 +415,10 @@ function distinctValdcos(fc: FeatureCollection): number[] {
 interface EncDepthStyleState {
     safetyDepthM: number;
     depcntValdcos: number[];
+    /** "Depth right now" offset (predicted tide above LAT, metres) —
+     *  null = chart datum. VISUAL ONLY: routing/tracer verdicts never
+     *  read this. See setEncTideOffset. */
+    tideOffsetM?: number | null;
 }
 const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
 
@@ -415,8 +521,14 @@ export function mountEncVectorLayer(
     void registerSeamarkIcons(map);
 
     // Seed the per-map depth-style state so updateEncDepthStyle /
-    // refresh can recompute the safety contour later.
-    depthStyleState.set(map, { safetyDepthM, depcntValdcos: distinctValdcos(data.DEPCNT) });
+    // refresh can recompute the safety contour later. The tide offset
+    // survives re-mounts (style swaps, cell loads) — it belongs to the
+    // MODE, not the mount.
+    depthStyleState.set(map, {
+        safetyDepthM,
+        depcntValdcos: distinctValdcos(data.DEPCNT),
+        tideOffsetM: depthStyleState.get(map)?.tideOffsetM ?? null,
+    });
     const safetyValdco = computeSafetyValdco(distinctValdcos(data.DEPCNT), safetyDepthM);
 
     const ensureSource = (id: string, fc: FeatureCollection) => {
@@ -484,8 +596,10 @@ export function mountEncVectorLayer(
         );
     }
     // Mount can happen while satellite is already on (style swap,
-    // late cell load) — apply the right treatment immediately.
+    // late cell load) — apply the right treatment immediately. Same
+    // for a live tide offset: re-point the depth readouts at it.
     syncDepareBaseTreatment(map);
+    applyTideOffsetPaint(map, depthStyleState.get(map)?.tideOffsetM ?? null);
 
     // ── DEPCNT (depth contours + bold safety contour) ─────────────
     // Two layers off one source: thin gray ordinary contours
@@ -543,7 +657,7 @@ export function mountEncVectorLayer(
                 layout: {
                     'symbol-placement': 'line',
                     'symbol-spacing': 350,
-                    'text-field': ['to-string', ['round', ['to-number', ['get', 'VALDCO']]]],
+                    'text-field': buildDepcntLabelField(0),
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9, 15, 11],
                     'text-allow-overlap': false,
@@ -781,26 +895,10 @@ export function mountEncVectorLayer(
                     // Drying heights render as magnitude in khaki ink (see
                     // text-color), never with a minus sign ("-0.2 m" reads
                     // as nonsense to a punter; khaki 0₂ over the khaki
-                    // drying band reads as "dries 0.2 m").
-                    'text-field': [
-                        'case',
-                        ['<', ['abs', ['get', '_d']], 10],
-                        [
-                            'concat',
-                            ['to-string', ['floor', ['abs', ['get', '_d']]]],
-                            [
-                                'case',
-                                ['==', ['%', ['round', ['*', ['abs', ['get', '_d']], 10]], 10], 0],
-                                '',
-                                [
-                                    'at',
-                                    ['%', ['round', ['*', ['abs', ['get', '_d']], 10]], 10],
-                                    ['literal', ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉']],
-                                ],
-                            ],
-                        ],
-                        ['to-string', ['round', ['get', '_d']]],
-                    ],
+                    // drying band reads as "dries 0.2 m"). Single source of
+                    // truth in buildSoundingTextField — the tide-offset mode
+                    // re-points this at charted+tide.
+                    'text-field': buildSoundingTextField(0),
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 16, 12],
                     'text-allow-overlap': false,
@@ -818,15 +916,10 @@ export function mountEncVectorLayer(
                     // magnitude-only text-field); shallow darker than deep so
                     // the eye finds the skinny water first. symbol-sort-key
                     // on _d already puts drying (negative) first in collision
-                    // placement — the scariest number always survives.
-                    'text-color': [
-                        'case',
-                        ['<', ['get', '_d'], 0],
-                        '#6b5e23',
-                        ['<', ['get', '_d'], 5],
-                        '#2f3e49',
-                        '#647885',
-                    ],
+                    // placement — the scariest number always survives. Live
+                    // tide mode swaps the whole family to teal via
+                    // buildSoundingTextColor.
+                    'text-color': buildSoundingTextColor(null),
                     'text-halo-color': 'rgba(255, 255, 255, 0.88)',
                     'text-halo-width': 1.2,
                     'text-opacity': opacity,
