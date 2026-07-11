@@ -175,10 +175,10 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                     // Big and bold — scale down only for wide numbers
                                     const sizeClass =
                                         len > 3
-                                            ? 'text-2xl md:text-4xl'
+                                            ? 'text-4xl md:text-5xl'
                                             : len > 2
-                                              ? 'text-3xl md:text-4xl'
-                                              : 'text-4xl md:text-4xl';
+                                              ? 'text-5xl md:text-6xl'
+                                              : 'text-6xl md:text-6xl';
 
                                     return (
                                         <span
