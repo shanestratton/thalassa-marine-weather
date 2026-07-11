@@ -1055,7 +1055,19 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
  * on top of imagery.
  */
 const SATELLITE_KEY = 'thalassa_satellite_base';
-const SATELLITE_HIDE_LAYERS: readonly string[] = [ENC_VEC_LAYERS.LNDARE, ENC_VEC_LAYERS.LNDARE_ISLET];
+// Land fills blanket the imagery; COALNE + the bold safety contour are
+// CHART furniture that reads as scribble over photos (Shane 2026-07-11:
+// "the thick black line, the straight brown lines… can we remove all of
+// these" — the brown was the 1:90k cell's generalized coastline drawn
+// straight across a headland the imagery already shows perfectly). The
+// thin grey depth contours + labels stay: they carry information the
+// imagery can't.
+const SATELLITE_HIDE_LAYERS: readonly string[] = [
+    ENC_VEC_LAYERS.LNDARE,
+    ENC_VEC_LAYERS.LNDARE_ISLET,
+    ENC_VEC_LAYERS.COALNE,
+    ENC_VEC_LAYERS.DEPCNT_SAFETY,
+];
 function satelliteBaseOn(): boolean {
     try {
         return localStorage.getItem(SATELLITE_KEY) === 'true';

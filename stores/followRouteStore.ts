@@ -145,12 +145,27 @@ function saveToStorage(state: FollowRouteState) {
     }
 }
 
+/** A restored follow older than this is a zombie test sail, not a
+ *  passage resume — mid-passage restarts are hours apart, never days
+ *  (Shane 2026-07-11: a morning "Sail it" test kept painting its blue
+ *  track + harbour dashes over the chart for days until manually
+ *  cleared). Genuine multi-day passages refresh the route (lastRefresh
+ *  bumps), so age off startedAt with a generous ceiling is safe. */
+const FOLLOW_RESUME_MAX_AGE_MS = 7 * 24 * 3600_000;
+
 function loadFromStorage(): FollowRouteState | null {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        if (parsed.isFollowing && parsed.voyagePlan) return { ...parsed, isRefreshing: false };
+        if (parsed.isFollowing && parsed.voyagePlan) {
+            const ageMs = Date.now() - new Date(parsed.startedAt ?? 0).getTime();
+            if (!Number.isFinite(ageMs) || ageMs > FOLLOW_RESUME_MAX_AGE_MS) {
+                clearStorage(); // zombie — drop rather than resume
+                return null;
+            }
+            return { ...parsed, isRefreshing: false };
+        }
     } catch {
         /* corrupted */
     }

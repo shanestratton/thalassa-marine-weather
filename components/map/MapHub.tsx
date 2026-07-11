@@ -1657,7 +1657,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // route-plan cell load can't repaint a land fill between our
                 // styledata ticks — this loop is the belt, that's the braces.
                 if (satelliteVisible) {
-                    for (const id of ['enc-vec-lndare-fill', 'enc-vec-lndare-islet']) {
+                    // Mirrors EncVectorLayer's SATELLITE_HIDE_LAYERS: land
+                    // fills + charted coastline + bold safety contour are
+                    // chart furniture the imagery replaces (Shane 2026-07-11).
+                    for (const id of [
+                        ENC_VEC_LAYERS.LNDARE,
+                        ENC_VEC_LAYERS.LNDARE_ISLET,
+                        ENC_VEC_LAYERS.COALNE,
+                        ENC_VEC_LAYERS.DEPCNT_SAFETY,
+                    ]) {
                         if (map.getLayer(id)) {
                             map.setLayoutProperty(id, 'visibility', 'none');
                         }
