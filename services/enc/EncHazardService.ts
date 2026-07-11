@@ -537,10 +537,23 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
     // heuristic); the CUTTING geometry uses the data extent.
     const loadedBlobs = new Map<string, NonNullable<Awaited<ReturnType<typeof cellStore.loadCellGeoJSON>>>>();
     const depareExtent = new Map<string, [number, number, number, number]>();
+    const missingBlobs: string[] = [];
     for (const cell of cellsCoarseToFine) {
         try {
-            const blob = await cellStore.loadCellGeoJSON(cell.id);
-            if (!blob) continue;
+            // LOCAL blobs only (cloudFallback=false): a registry full of
+            // cloud placeholders used to make this loop download the
+            // ENTIRE chart library sequentially before painting ANYTHING
+            // — a fresh Vercel browser stared at a bare map for tens of
+            // minutes (Shane 2026-07-12: "waited a good 5 minutes...
+            // not working"). Paint what's on hand NOW; the background
+            // hydrator below fetches the rest, and each arrival
+            // re-notifies into the debounced merge — the chart fills in
+            // cell by cell.
+            const blob = await cellStore.loadCellGeoJSON(cell.id, false);
+            if (!blob) {
+                missingBlobs.push(cell.id);
+                continue;
+            }
             loadedBlobs.set(cell.id, blob);
             let minLon = Infinity,
                 minLat = Infinity,
@@ -743,6 +756,10 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
     assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
 
     mergedCache = { version: currentVersion, data: merged };
+    if (missingBlobs.length > 0) {
+        log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);
+        void hydrateMissingCells(missingBlobs);
+    }
     log.info(
         `merged vector data: ${merged.cellCount} cells, ` +
             `DEPARE(+DRGARE)=${merged.DEPARE.features.length}, DEPCNT=${merged.DEPCNT.features.length}, ` +
@@ -756,6 +773,40 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
             `soundings=${merged.SOUNDG.features.length}`,
     );
     return merged;
+}
+
+// ── Background blob hydration ─────────────────────────────────────
+
+/** Single-flight guard — one hydration walk at a time. */
+let hydrationRunning = false;
+
+/**
+ * Fetch missing cell blobs from the cloud bucket, one at a time, in
+ * the background. Each success touches the registry (putCell notify)
+ * so the debounced ENC refresh re-merges and the chart fills in cell
+ * by cell. Signed-out browsers fail quietly (private bucket — the
+ * licensing gate) and the chart honestly stays absent.
+ */
+async function hydrateMissingCells(cellIds: string[]): Promise<void> {
+    if (hydrationRunning || cellIds.length === 0) return;
+    hydrationRunning = true;
+    try {
+        const { downloadCloudCell } = await import('./cloudCellSync');
+        for (const id of cellIds) {
+            const ok = await downloadCloudCell(id);
+            if (ok) {
+                // Guarantee a notify even when the download didn't patch
+                // provenance — an idempotent registry touch re-triggers
+                // the debounced merge.
+                const rec = cellMeta.getCell(id);
+                if (rec) cellMeta.putCell(rec);
+            }
+        }
+    } catch (err) {
+        log.warn(`hydration walk failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+        hydrationRunning = false;
+    }
 }
 
 // ── Reactivity passthrough ────────────────────────────────────────
