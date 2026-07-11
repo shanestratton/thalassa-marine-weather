@@ -199,6 +199,32 @@ describe('routeTracer — marker discipline (P2)', () => {
         expect(flagged).toEqual([false, true]);
     });
 
+    it('a CONFIRMED channel-side pass of a solo lateral is silent — clean canal runs', () => {
+        // Mark on the north edge of the shallow square (1.5 m): the chart
+        // itself says the shoal is south of it. A leg passing 30 m NORTH
+        // (deep 8 m) is on the correct side — no advisory (Shane
+        // 2026-07-11: a canal narrower than 2× the 60 m band had NO
+        // possible clean line).
+        const ctx = {
+            ...baseCtx,
+            soloLaterals: [{ lat: -27.0075, lon: 153.011, side: 'stbd' as const, key: 'NUM', seq: 13, name: '13' }],
+        };
+        const clean = validateTraceLeg({ lat: -27.00722, lon: 153.009 }, { lat: -27.00722, lon: 153.013 }, ctx);
+        expect(clean.issues.filter((i) => i.message.includes('mark'))).toHaveLength(0);
+        expect(clean.grade).toBe('clear');
+    });
+
+    it('a confirmed BANK-side pass of a solo lateral warns with teeth', () => {
+        // Same mark — a leg 30 m SOUTH runs over the 1.5 m shoal the mark
+        // guards: the advisory upgrades to a directive.
+        const ctx = {
+            ...baseCtx,
+            soloLaterals: [{ lat: -27.0075, lon: 153.011, side: 'stbd' as const, key: 'NUM', seq: 13, name: '13' }],
+        };
+        const wrong = validateTraceLeg({ lat: -27.00778, lon: 153.0095 }, { lat: -27.00778, lon: 153.0125 }, ctx);
+        expect(wrong.issues.some((i) => i.message.includes('bank side of starboard mark 13'))).toBe(true);
+    });
+
     it('a mark metres SHORT of abeam of the shared pin still nags only one leg', () => {
         // Verify-pass finding: a t-based cutoff (t >= 0.999) missed this —
         // the mark projects at t≈0.99 onto leg 1 AND within the 60 m band
