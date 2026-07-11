@@ -1662,17 +1662,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // lesson: state that shouldn't haunt doesn't persist). The effect
     // below mirrors the live value into localStorage purely for
     // EncVectorLayer's synchronous satelliteBaseOn() reads.
-    // CHART-ONLY SURFACES (Shane 2026-07-11: "our layer to come up not
-    // just first, but ONLY on our private web page and our route page"):
-    // on the Pi-served page (port 3001, the boat's private web app) and
-    // the /plan|/builder routes, the white chart IS the map — no
-    // satellite layer, no toggle, nothing to trip or persist. Native app
-    // and other web surfaces keep the session-only satellite peek.
-    const CHART_ONLY_SURFACE =
-        typeof window !== 'undefined' &&
-        (window.location.port === '3001' || /^\/(plan|builder)/.test(window.location.pathname));
-    const [satelliteVisibleRaw, setSatelliteVisible] = useState(false);
-    const satelliteVisible = CHART_ONLY_SURFACE ? false : satelliteVisibleRaw;
+    // CHART-ONLY hard-off RETIRED (Shane 2026-07-12: "just missing the
+    // sat overlay" — on the web chart, the day after asking for chart-
+    // ONLY there): every surface now keeps the session-only satellite
+    // peek. The 2026-07-11 intent ("our layer to come up not just
+    // first, but ONLY") is preserved where it mattered — satellite is
+    // never persisted, so every boot on every surface is the white
+    // chart; the toggle is opt-in each session.
+    const [satelliteVisible, setSatelliteVisible] = useState(false);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -4784,7 +4781,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     mpaVisible={weather.mpaVisible}
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
                     satelliteVisible={satelliteVisible}
-                    setSatelliteVisible={CHART_ONLY_SURFACE ? undefined : setSatelliteVisible}
+                    setSatelliteVisible={setSatelliteVisible}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}
                     onOpenChartKey={() => setChartKeyOpen(true)}
