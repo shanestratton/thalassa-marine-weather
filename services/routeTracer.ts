@@ -524,9 +524,20 @@ export function validateTraceLeg(
         if (minDepthM < keelM) {
             needsTide = true;
             const rise = keelM - minDepthM;
+            // "0.0 m charted" read as "not charted at all" (Shane
+            // 2026-07-11, Newport entrance — a properly-surveyed 0–2 m
+            // band whose FLOOR we grade against). Zero and drying
+            // depths now speak chart language instead of printing a
+            // bare band floor.
+            const depthWord =
+                minDepthM < 0
+                    ? `dries ${Math.abs(minDepthM).toFixed(1)} m at low tide`
+                    : minDepthM === 0
+                      ? 'charted awash at low tide'
+                      : `${minDepthM.toFixed(1)} m charted`;
             issues.push({
                 severity: 'danger',
-                message: `${minDepthM.toFixed(1)} m charted — needs +${rise.toFixed(1)} m tide`,
+                message: `${depthWord} — needs +${rise.toFixed(1)} m tide`,
                 at: minAt,
             });
         } else if (minDepthM < keelM + THIN_MARGIN_M) {
