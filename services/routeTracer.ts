@@ -385,6 +385,54 @@ function waterNearby(grid: NavGrid, p: TracePoint, cells: number): boolean {
     return false;
 }
 
+/** What the chart says about ONE side of a lateral mark: probe the grid at
+ *  12/24/36 m along the given unit direction and return the first definitive
+ *  read. 'shoal' = blocked or sub-keel water; 'deep' = keel-safe water. */
+type LateralSideRead = 'deep' | 'shoal' | 'unknown';
+function lateralSideRead(grid: NavGrid, m: TracePoint, dirE: number, dirN: number, keelM: number): LateralSideRead {
+    for (const offM of [12, 24, 36]) {
+        const p = {
+            lat: m.lat + (offM * dirN) / M_PER_DEG_LAT,
+            lon: m.lon + (offM * dirE) / mPerLon(m.lat),
+        };
+        const r = readCell(grid, p);
+        if (r.kind === 'blocked') return 'shoal';
+        if (r.kind === 'depth') return r.depthM < keelM ? 'shoal' : 'deep';
+        // uncharted / caution-uncharted / offgrid — keep probing outward
+    }
+    return 'unknown';
+}
+
+/**
+ * Direction-of-buoyage-free safe-side read for a SOLO lateral: the mark
+ * guards a shoal, so the DEEP side is the passing side — derived from the
+ * chart itself, no travel-direction guess (the honesty rule that kept this
+ * check advisory-only). 'clean' = boat on keel-safe water with the shoal
+ * confirmed on the far side of the mark (Shane 2026-07-11: a canal narrower
+ * than 2× the advisory band had NO clean line — every possible trace nagged
+ * "verify your side"). 'shoalside' = the boat's side of the mark reads
+ * blocked/sub-keel. Anything ambiguous stays 'unknown' → the advisory holds.
+ */
+function lateralPassRead(
+    grid: NavGrid,
+    m: TracePoint,
+    boatPt: TracePoint,
+    keelM: number,
+): 'clean' | 'shoalside' | 'unknown' {
+    const kx = mPerLon(m.lat);
+    let ex = (boatPt.lon - m.lon) * kx;
+    let ny = (boatPt.lat - m.lat) * M_PER_DEG_LAT;
+    const len = Math.hypot(ex, ny);
+    if (len < 1) return 'unknown'; // trace passes essentially OVER the mark
+    ex /= len;
+    ny /= len;
+    const boatSide = lateralSideRead(grid, m, ex, ny, keelM);
+    const farSide = lateralSideRead(grid, m, -ex, -ny, keelM);
+    if (boatSide === 'shoal') return 'shoalside';
+    if (boatSide === 'deep' && farSide === 'shoal') return 'clean';
+    return 'unknown';
+}
+
 // ── The leg validator (pure, sync) ─────────────────────────────────────────
 
 export function validateTraceLeg(
@@ -565,9 +613,21 @@ export function validateTraceLeg(
     for (const m of ctx.soloLaterals) {
         const near = closestOnLeg(m, a, b);
         if (near.distM < SOLO_LATERAL_BAND_M && ownsSoloApproach(near.distM, m)) {
+            // Chart-derived side check: when the grid CONFIRMS the boat is
+            // on keel-safe water and the shoal sits on the far side of the
+            // mark, the pass is correct — say nothing (a clean run through
+            // a narrow canal is possible again). Only ambiguity keeps the
+            // honest "verify your side"; a confirmed bank-side pass warns
+            // with teeth.
+            const read = grid ? lateralPassRead(grid, m, near.point, keelM) : 'unknown';
+            if (read === 'clean') continue;
+            const markName = `${m.side === 'port' ? 'port' : 'starboard'} mark${m.name ? ` ${m.name}` : ''}`;
             issues.push({
                 severity: 'caution',
-                message: `${Math.round(near.distM)} m off ${m.side === 'port' ? 'port' : 'starboard'} mark${m.name ? ` ${m.name}` : ''} — verify your side`,
+                message:
+                    read === 'shoalside'
+                        ? `bank side of ${markName} — cross to the channel side`
+                        : `${Math.round(near.distM)} m off ${markName} — verify your side`,
                 at: near.point,
                 mark: { lat: m.lat, lon: m.lon },
             });
