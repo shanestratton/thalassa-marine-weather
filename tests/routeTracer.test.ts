@@ -56,6 +56,8 @@ const layers: InshoreLayers = {
         poly(153.0, -27.02, 153.036, -27.0, { DRVAL1: 8, DRVAL2: 10 }), // deep basin (charts stop at 153.036)
         poly(153.01, -27.0085, 153.012, -27.0075, { DRVAL1: 1.5, DRVAL2: 1.5 }), // shallow square (sub-keel)
         poly(153.03, -27.02, 153.032, -27.0, { DRVAL1: 3.5, DRVAL2: 3.5 }), // thin strip
+        poly(153.004, -27.018, 153.006, -27.016, { DRVAL1: -2, DRVAL2: 0 }), // drying bank
+        poly(153.014, -27.018, 153.016, -27.016, { DRVAL1: 0, DRVAL2: 2 }), // awash band (Newport-entrance style)
     ]),
     LNDARE: fc([poly(153.02, -27.012, 153.022, -27.008)]), // island
 };
@@ -113,6 +115,19 @@ describe('routeTracer — depth grading (P1)', () => {
         const v = validateTraceLeg({ lat: -27.01, lon: 153.018 }, { lat: -27.01, lon: 153.024 }, baseCtx);
         expect(v.grade).toBe('danger');
         expect(v.issues.some((i) => i.message === 'crosses charted land')).toBe(true);
+    });
+
+    it('band-floor depths speak chart language — awash and drying, never "0.0 m charted"', () => {
+        // Newport entrance 2026-07-11: a surveyed 0–2 m band graded as
+        // "0.0 m charted", which Shane read as "not charted at all".
+        const awash = validateTraceLeg({ lat: -27.017, lon: 153.0135 }, { lat: -27.017, lon: 153.0165 }, baseCtx);
+        expect(awash.grade).toBe('danger');
+        expect(awash.issues[0].message).toContain('charted awash at low tide');
+        expect(awash.issues[0].message).toContain('needs +2.9 m tide');
+        const drying = validateTraceLeg({ lat: -27.017, lon: 153.0035 }, { lat: -27.017, lon: 153.0065 }, baseCtx);
+        expect(drying.grade).toBe('danger');
+        expect(drying.issues[0].message).toContain('dries 2.0 m at low tide');
+        expect(drying.issues[0].message).toContain('needs +4.9 m tide');
     });
 
     it('leg beyond chart coverage flags uncharted', () => {
