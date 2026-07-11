@@ -17,9 +17,12 @@ import type { Feature, Point } from 'geojson';
 /** Metres per screen pixel at zoom 0 (Mapbox GL 512 px tiles, equator). */
 const BASE_M_PER_PX = 78271.484;
 /** Target density — roughly one sounding per this many pixels of glass.
- *  90 → 60 on Shane's first on-water read (2026-07-11: "a few more depth
- *  numbers") — about 2.3× the labels at every zoom. */
-const CELL_PX = 60;
+ *  90 → 60 → 44 across Shane's on-water reads (2026-07-11: "a few more
+ *  depth numbers", then "even more... the more the merrier") — now ~4×
+ *  the original label count at every zoom. Mapbox collision culling +
+ *  shallowest-first sort keep it readable; go below ~40 and the numbers
+ *  start fighting the marks for glass. */
+const CELL_PX = 44;
 /** Ladder range: below MIN_Z even one number per 50 NM is clutter; past
  *  MAX_Z the chart is boat-length scale and every sounding may show. */
 const MIN_Z = 4;
