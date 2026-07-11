@@ -2962,20 +2962,18 @@ export const MapHub: React.FC<MapHubProps> = ({
                 overlay: !hide,
                 permanent: !hide && weather.activeLayers.has('sea'),
             });
-            // Circles yield to triangles (Shane 2026-07-09: "when the
-            // triangles come into zoom, remove the circles — busy"). The
-            // OSM seamark circles are the wide-zoom read; the ENC IALA
-            // glyphs arrive around z13-14 (per-mark SCAMIN). While a real
-            // chart source is active, the circles bow out at z14 and their
-            // labels retire entirely (the ENC labels carry names + light
-            // characters). No chart source = circles at every zoom, as
-            // before.
+            // OSM seamark circles retire ENTIRELY while a real chart source
+            // is active (2026-07-11, Shane: "can we kill those?" — green
+            // and blue dot trails down every channel at bay zoom). They
+            // were the wide-zoom read from before broad ENC coverage; the
+            // ENC IALA glyphs (per-mark SCAMIN, ~z13.5+) are now the only
+            // marks worth glass, and the white ramp carries the wide view.
+            // No chart source = circles at every zoom, as before — they're
+            // still the only marks a chartless region has.
             try {
                 if (map.getLayer('harbour-seamarks-circle')) {
-                    // 13.5, not 14: the Moreton-corridor beacons clear their
-                    // SCAMIN at ~13.6, so a 14 cap left a band where dots AND
-                    // triangles both rendered (Shane's entrance screenshot).
-                    map.setLayerZoomRange('harbour-seamarks-circle', 0, hide ? 13.5 : 24);
+                    map.setLayoutProperty('harbour-seamarks-circle', 'visibility', hide ? 'none' : 'visible');
+                    if (!hide) map.setLayerZoomRange('harbour-seamarks-circle', 0, 24);
                 }
                 if (map.getLayer('harbour-seamarks-label')) {
                     map.setLayerZoomRange('harbour-seamarks-label', hide ? 24 : 14, 24);

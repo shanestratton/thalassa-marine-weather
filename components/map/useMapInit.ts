@@ -707,11 +707,16 @@ export function useMapInit(opts: UseMapInitOptions) {
                 data: { type: 'FeatureCollection', features: [] },
             });
 
-            // Seamark circle markers — colour-coded by IALA classification
+            // Seamark circle markers — colour-coded by IALA classification.
+            // 'fairway' nodes are excluded outright (2026-07-11): they're
+            // OSM fairway-LINE vertices, not physical marks — rendered as
+            // dots they strung meaningless blue trails down every channel
+            // (Shane: "can we kill those?").
             map.addLayer({
                 id: 'harbour-seamarks-circle',
                 type: 'circle',
                 source: 'harbour-seamarks',
+                filter: ['!=', ['get', '_class'], 'fairway'],
                 paint: {
                     'circle-radius': ['match', ['get', '_class'], 'light_major', 6, 'safe_water', 5, 4],
                     'circle-color': [
