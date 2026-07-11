@@ -670,16 +670,18 @@ export function mountEncVectorLayer(
                 paint: {
                     'fill-color': buildDepareFillColor(),
                     'fill-opacity': 0,
-                    // AA ON, unlike the chart fills ('a little blocky at
-                    // this zoom', 2026-07-12): aliased band edges are
-                    // sub-pixel on the retina phone but visible stair-
-                    // steps on a desktop display. The glaze can afford
-                    // the AA the chart can't — overlap-clipping means at
-                    // most ONE translucent band covers any point, so the
-                    // feather can't double-paint into the old hairline
-                    // graticule, and the contour lines sit right on the
-                    // band edges masking any residual seam.
-                    'fill-antialias': true,
+                    // AA OFF, matching the chart fills (Shane 2026-07-12:
+                    // "vertical + horizontal lines" once the 172-cell
+                    // bucket landed). Overlap-clipping stops the WITHIN-
+                    // cell band feathers from double-painting, but it does
+                    // nothing for adjacent CELLS: their clipped glaze
+                    // polygons abut along dead-straight bbox edges, and AA
+                    // feathered every one of those seams into a hairline —
+                    // invisible at 19 cells, a full graticule at 172.
+                    // Aliased band edges are sub-pixel on the retina phone;
+                    // if desktop stair-steps ever bite, the fix is a cross-
+                    // cell geometry dissolve, not AA back on.
+                    'fill-antialias': false,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPARE_GLAZE),
@@ -1391,6 +1393,11 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         );
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
+        // Heal AA on glaze layers built before 2026-07-12 (AA was on):
+        // adjacent cells' clipped glaze polygons feathered every bbox
+        // seam into a graticule once the 172-cell bucket landed. Cheap
+        // to re-assert every sync — Mapbox no-ops if already false.
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-antialias', false);
         // Keel-keyed glaze: bright paper where the band guarantees the
         // safety depth, bare imagery where it doesn't. Chart datum by
         // the same hard rule as the safety contour — the tide scrubber
