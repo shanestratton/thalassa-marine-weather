@@ -208,24 +208,28 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     const len = tempStr.length;
                                     const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
                                     return (
-                                        <div className="flex items-start">
+                                        <div className="flex items-stretch">
                                             <span
                                                 className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
                                                 aria-label={`Temperature ${tempStr} degrees ${units.temp}`}
                                             >
                                                 {tempStr}
                                             </span>
-                                            {/* ° with the unit letter tucked directly beneath its
-                                                ring — the ° span's height is clamped to just the
-                                                ink at the top of its em box so the letter nests
-                                                inside the numeral's height instead of beside it. */}
-                                            <div className="flex flex-col items-center" aria-hidden="true">
+                                            {/* ° ring pinned to the top, unit letter dropped to the
+                                                numeral's baseline directly beneath it. The column
+                                                stretches the full temp height and justify-between
+                                                splits ring/letter top-to-bottom; letter matches the
+                                                numeral's colour so the pair reads as one unit. */}
+                                            <div
+                                                className="flex flex-col items-center justify-between self-stretch"
+                                                aria-hidden="true"
+                                            >
                                                 <span
                                                     className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none h-[0.42em]`}
                                                 >
                                                     °
                                                 </span>
-                                                <span className="text-lg font-bold text-white/60 leading-none mt-0.5">
+                                                <span className={`text-xl font-bold leading-none ${getTempColor()}`}>
                                                     {units.temp}
                                                 </span>
                                             </div>
