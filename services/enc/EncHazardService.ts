@@ -28,7 +28,8 @@
  *      → run point-in-polygon for each query point
  */
 
-import type { Feature, FeatureCollection } from 'geojson';
+import type { Feature, FeatureCollection, Point } from 'geojson';
+import { assignSoundingDensityMinZoom } from './soundingDensity';
 
 import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
@@ -661,6 +662,13 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
             }
         }
     }
+
+    // Density ladder: bake "one number per ~90 px of glass" min-zooms
+    // onto the merged sounding heap, shallowest-first (safety: the
+    // surviving number is always the scariest nearby). Runs on the
+    // MERGED set, not per cell — per-cell passes double density at
+    // every cell seam.
+    assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
 
     mergedCache = { version: currentVersion, data: merged };
     log.info(

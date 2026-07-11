@@ -11,11 +11,11 @@
  * that a cruising sailor can recognise their chart.
  *
  *   LNDARE  → tan fill (#d6c590)
- *   DEPARE  → draft-aware day-palette bands keyed to the vessel's
- *             safety depth S = draft + tide margin (see
- *             buildDepareFillColor): drying green, unsafe strong
- *             blue (<S), caution mid blue (<2S), safe pale blue,
- *             deep near-white
+ *   DEPARE  → absolute white ramp, paper-chart convention (see
+ *             buildDepareFillColor): drying khaki, then dirty white
+ *             at 0–2 m cleaning stepwise to pure white at 50 m+.
+ *             The draft-keyed keel story lives in the SAFETY
+ *             CONTOUR, not the fill
  *   DEPCNT  → thin gray contours + the bold dark safety contour
  *             (smallest charted VALDCO ≥ S)
  *   COALNE  → chart-brown line
@@ -240,23 +240,35 @@ const DEFAULT_SAFETY_DEPTH_M = 3.0;
  * `step` stops must ascend strictly — S > 0 guarantees 0 < S < 2S,
  * and max(4S, 20) > 2S for any S.
  */
-export function buildDepareFillColor(safetyDepthM: number): mapboxgl.ExpressionSpecification {
-    const S = Math.max(safetyDepthM, 0.1); // guard degenerate input
+export function buildDepareFillColor(): mapboxgl.ExpressionSpecification {
+    // Absolute white ramp — paper-chart convention (Shane 2026-07-11:
+    // "white where deep, off white all the way to a dirty white where
+    // it is not"). White = SURVEYED AND DEEP; the tint dirties as the
+    // sand comes up, drying banks go khaki (paper-chart intertidal).
+    // Bands are absolute, not draft-keyed (his call — predictable,
+    // matches the paper chart aboard); the keel story lives in the
+    // draft-keyed SAFETY CONTOUR on top. Uncharted water gets no fill
+    // at all — absence of data must never read as deep (the
+    // au-brisbane-test lesson).
     return [
         'step',
         // DRVAL1 = minimum depth in S-57 metres (positive = depth,
         // negative = drying height). Missing values sort as "very
         // deep" so empty polygons don't render as drying banks.
         ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
-        '#8fc97e', // DRVAL1 < 0 — drying / intertidal (S-52 DEPIT green)
+        '#c9c6ae', // DRVAL1 < 0 — drying / intertidal khaki
         0,
-        '#3f8fd1', // 0..S — unsafe: strong saturated blue
-        S,
-        '#8fc3e8', // S..2S — caution: mid blue
-        2 * S,
-        '#c9e3f5', // 2S..deep — safe: pale blue
-        Math.max(4 * S, 20),
-        '#f4f9fd', // deep: near-white (S-52 DEPDW)
+        '#d4cdbf', // 0–2 m — dirtiest white: never, at any tide
+        2,
+        '#ded8cc', // 2–5 m — the 2.4 m-keel decision band
+        5,
+        '#e8e3d9', // 5–10 m
+        10,
+        '#f0ede5', // 10–20 m
+        20,
+        '#f7f5f0', // 20–50 m
+        50,
+        '#ffffff', // 50 m+ — clean paper
     ] as unknown as mapboxgl.ExpressionSpecification;
 }
 
@@ -341,9 +353,10 @@ function depcntSafetyFilter(safetyValdco: number | null): mapboxgl.FilterSpecifi
 /**
  * THE single choke point for draft changes (risk note: a missed
  * update path silently shows the WRONG safety contour — worse than
- * none). Re-bands the DEPARE fill and moves the safety contour
- * atomically. Called from mount (via opts), from the hook whenever
- * vessel draft changes, and from refresh when new cells land.
+ * none). Moves the safety contour; the DEPARE fill is an ABSOLUTE
+ * white ramp since 2026-07-11 and no longer re-bands with draft.
+ * Called from mount (via opts), from the hook whenever vessel draft
+ * changes, and from refresh when new cells land.
  *
  * `safetyDepthM` = vesselDraftMetres(vessel) + tide margin. METRES.
  */
@@ -351,10 +364,6 @@ export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number): vo
     const state = depthStyleState.get(map) ?? { safetyDepthM, depcntValdcos: [] };
     state.safetyDepthM = safetyDepthM;
     depthStyleState.set(map, state);
-
-    if (map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-color', buildDepareFillColor(safetyDepthM));
-    }
 
     const safetyValdco = computeSafetyValdco(state.depcntValdcos, safetyDepthM);
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
@@ -451,7 +460,7 @@ export function mountEncVectorLayer(
         return anchor;
     };
 
-    // ── DEPARE (draft-aware day-palette band fills) ───────────────
+    // ── DEPARE (absolute white-ramp band fills) ───────────────────
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
         map.addLayer(
             {
@@ -460,14 +469,14 @@ export function mountEncVectorLayer(
                 source: ENC_VEC_SRC.DEPARE,
                 minzoom: minZoom,
                 paint: {
-                    // Bands computed in TS from the vessel's safety
-                    // depth — see buildDepareFillColor. Re-styled
-                    // live by updateEncDepthStyle on draft changes.
-                    'fill-color': buildDepareFillColor(safetyDepthM),
+                    // Absolute paper-chart ramp — see
+                    // buildDepareFillColor. Static: draft changes move
+                    // only the safety contour now.
+                    'fill-color': buildDepareFillColor(),
                     // 0.95, not the overall multiplier: dark-v11
-                    // bleeding through muddies the pale deep band.
-                    // The chart area reads as a classic day chart;
-                    // the dark shell stays outside ENC coverage.
+                    // bleeding through muddies the whites. The chart
+                    // area reads as paper; the dark shell stays
+                    // outside ENC coverage.
                     'fill-opacity': 0.95,
                     'fill-antialias': true,
                 },
@@ -539,8 +548,11 @@ export function mountEncVectorLayer(
                     'text-padding': 4,
                 },
                 paint: {
-                    'text-color': '#8fa5b3',
-                    'text-halo-color': 'rgba(10, 25, 41, 0.8)',
+                    // Muted slate on light halo — legible on the white
+                    // ramp and over satellite imagery, quieter than the
+                    // soundings (which stay the primary read).
+                    'text-color': '#7d8e9b',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.85)',
                     'text-halo-width': 1.2,
                     'text-opacity': opacity,
                 },
@@ -742,19 +754,23 @@ export function mountEncVectorLayer(
     navaidSymbolLayer(ENC_VEC_LAYERS.BCNSPP, 'BCNSPP');
 
     // ── SOUNDG (spot soundings — the chartplotter depth numbers) ──
-    // Shane 2026-07-09: "more depth measurements in close." Text-only
-    // layer: sub-10 m depths keep one decimal ("3.2"), deeper rounds
-    // whole ("12"). z12 floor + per-feature SCAMIN keep the open water
-    // clean; text-allow-overlap false lets Mapbox auto-decimate dense
-    // survey clouds instead of painting soup. Shallow reads slightly
-    // brighter than deep so the eye finds the skinny water first.
+    // Shane 2026-07-09: "more depth measurements in close"; 2026-07-11:
+    // numbers at every zoom, density-laddered. Text-only layer: sub-10 m
+    // depths keep one decimal ("3.2"), deeper rounds whole ("12"). The
+    // zoom gate is the PRECOMPUTED density ladder (soundingDensity.ts,
+    // one number per ~90 px of glass, shallowest-first) baked into
+    // _minZoom and applied by SCAMIN_CLAUSE — so the layer floor drops
+    // to z4 and open water stays chart-clean. Dark ink + light halo
+    // reads on the white ramp AND on satellite imagery (fills hidden
+    // there, numbers stay). Shallow reads darker than deep so the eye
+    // finds the skinny water first.
     if (!map.getLayer(ENC_VEC_LAYERS.SOUNDG)) {
         map.addLayer(
             {
                 id: ENC_VEC_LAYERS.SOUNDG,
                 type: 'symbol',
                 source: ENC_VEC_SRC.SOUNDG,
-                minzoom: 12,
+                minzoom: 4,
                 filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
                 layout: {
                     'text-field': [
@@ -764,7 +780,7 @@ export function mountEncVectorLayer(
                         ['to-string', ['round', ['get', '_d']]],
                     ],
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 12, 9, 16, 12],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 16, 12],
                     'text-allow-overlap': false,
                     // 2, not 6: tighter collision padding roughly doubles the
                     // numbers that survive placement in a dense survey cloud
@@ -776,8 +792,8 @@ export function mountEncVectorLayer(
                     'symbol-sort-key': ['get', '_d'],
                 },
                 paint: {
-                    'text-color': ['case', ['<', ['get', '_d'], 5], '#dbeafe', '#93b3c8'],
-                    'text-halo-color': 'rgba(10, 25, 41, 0.85)',
+                    'text-color': ['case', ['<', ['get', '_d'], 5], '#2f3e49', '#647885'],
+                    'text-halo-color': 'rgba(255, 255, 255, 0.88)',
                     'text-halo-width': 1.2,
                     'text-opacity': opacity,
                 },
