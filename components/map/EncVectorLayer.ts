@@ -52,6 +52,7 @@ const log = createLogger('EncVectorLayer');
 export const ENC_VEC_SRC = {
     LNDARE: 'enc-vec-lndare',
     DEPARE: 'enc-vec-depare', // DEPARE + DRGARE merged
+    DEPARE_GLAZE: 'enc-vec-depare-glaze', // overlap-clipped twin for the satellite glaze
     DEPCNT: 'enc-vec-depcnt',
     COALNE: 'enc-vec-coalne',
     POINTS: 'enc-vec-points', // OBSTRN + WRECKS + UWTROC merged
@@ -75,6 +76,13 @@ export const ENC_VEC_LAYERS = {
      *  Land-over-water is right for a cell's OWN generalisation; wrong
      *  across scales. Harbour-grade bands overrule coarse land bleed. */
     DEPARE_FINE: 'enc-vec-depare-fine-fill',
+    /** Satellite-glaze fill off the overlap-CLIPPED collection: exactly
+     *  one translucent band per point of water, so overlapping surveys
+     *  can't stack into the hard-edged dark wedges ("80's rendering",
+     *  2026-07-12). Opacity-0 in chart mode; over imagery it replaces
+     *  BOTH plain DEPARE fills (which go opacity-0 — translucent twins
+     *  double-paint every fine feature). */
+    DEPARE_GLAZE: 'enc-vec-depare-glaze-fill',
     DEPCNT_LINE: 'enc-vec-depcnt-line',
     DEPCNT_SAFETY: 'enc-vec-depcnt-safety',
     DEPCNT_LABEL: 'enc-vec-depcnt-label',
@@ -103,6 +111,7 @@ export const ENC_VEC_LAYERS = {
 // appending on top.
 const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPARE, // bottom (water fills)
+    ENC_VEC_LAYERS.DEPARE_GLAZE, // satellite twin directly above (opacity-0 on chart)
     ENC_VEC_LAYERS.DEPCNT_LINE,
     ENC_VEC_LAYERS.DEPCNT_SAFETY,
     ENC_VEC_LAYERS.DEPCNT_LABEL,
@@ -140,7 +149,8 @@ const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.RECTRC_LABEL &&
         id !== ENC_VEC_LAYERS.SOUNDG &&
         id !== ENC_VEC_LAYERS.DEPCNT_LABEL &&
-        id !== ENC_VEC_LAYERS.DEPARE_FINE,
+        id !== ENC_VEC_LAYERS.DEPARE_FINE &&
+        id !== ENC_VEC_LAYERS.DEPARE_GLAZE,
 );
 
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
@@ -389,6 +399,9 @@ function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): vo
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
         map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-color', buildDepareFillColor(h));
     }
+    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareFillColor(h));
+    }
     if (map.getLayer(ENC_VEC_LAYERS.SOUNDG)) {
         map.setLayoutProperty(ENC_VEC_LAYERS.SOUNDG, 'text-field', buildSoundingTextField(h));
         map.setPaintProperty(ENC_VEC_LAYERS.SOUNDG, 'text-color', buildSoundingTextColor(live ? h : null));
@@ -581,6 +594,7 @@ export function mountEncVectorLayer(
 
     ensureSource(ENC_VEC_SRC.LNDARE, data.LNDARE);
     ensureSource(ENC_VEC_SRC.DEPARE, data.DEPARE);
+    ensureSource(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
     ensureSource(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
     ensureSource(ENC_VEC_SRC.COALNE, data.COALNE);
     ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
@@ -638,6 +652,25 @@ export function mountEncVectorLayer(
     } else {
         // Heal layers created by earlier app versions (AA on).
         map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
+    }
+    // ── DEPARE_GLAZE (overlap-clipped satellite twin) ─────────────
+    // Same ramp off the CLIPPED collection; syncDepareBaseTreatment
+    // owns its opacity (0 on the chart, the depth glaze over imagery).
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPARE_GLAZE,
+                type: 'fill',
+                source: ENC_VEC_SRC.DEPARE_GLAZE,
+                minzoom: minZoom,
+                paint: {
+                    'fill-color': buildDepareFillColor(),
+                    'fill-opacity': 0,
+                    'fill-antialias': false,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPARE_GLAZE),
+        );
     }
     // ── DEPARE_FINE (fine-survey water repainted ABOVE land) ──────
     // Same source, filtered to harbour-grade ranks. Sits over LNDARE/
@@ -1166,6 +1199,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     };
     setData(ENC_VEC_SRC.LNDARE, data.LNDARE);
     setData(ENC_VEC_SRC.DEPARE, data.DEPARE);
+    setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
     setData(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
     setData(ENC_VEC_SRC.COALNE, data.COALNE);
     setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
@@ -1315,11 +1349,17 @@ const DEPARE_FINE_RANK_FILTER = [
 export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) return;
     const satOn = satelliteBaseOn();
-    const opacity = satOn ? buildDepareSatelliteOpacity() : DEPARE_CHART_OPACITY;
-    map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-opacity', opacity);
+    // Over imagery the GLAZE layer (overlap-clipped collection) is the
+    // ONLY band painter — the plain fills go opacity-0. Translucent
+    // twins stack: DEPARE + DEPARE_FINE double-painted every fine
+    // feature, and unclipped coarse-under-fine doubled the rest into
+    // the hard-edged dark wedges (Shane 2026-07-12: "horrible 80's
+    // style rendering"). On the chart the opaque originals return and
+    // the glaze goes opacity-0.
+    map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-opacity', satOn ? 0 : DEPARE_CHART_OPACITY);
     map.setFilter(ENC_VEC_LAYERS.DEPARE, satOn ? DEPARE_COMPETENCE_FILTER : null);
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-opacity', opacity);
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-opacity', satOn ? 0 : DEPARE_CHART_OPACITY);
         // The twin ALWAYS keeps its fineness gate; satellite adds the
         // competence ladder on top (harbour cells never retire anyway).
         map.setFilter(
@@ -1332,6 +1372,14 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
                   ] as unknown as mapboxgl.FilterSpecification)
                 : DEPARE_FINE_RANK_FILTER,
         );
+    }
+    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
+        map.setPaintProperty(
+            ENC_VEC_LAYERS.DEPARE_GLAZE,
+            'fill-opacity',
+            satOn ? buildDepareSatelliteOpacity() : 0,
+        );
+        map.setFilter(ENC_VEC_LAYERS.DEPARE_GLAZE, satOn ? DEPARE_COMPETENCE_FILTER : null);
     }
 }
 

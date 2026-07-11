@@ -226,7 +226,20 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
     const [encBusy, setEncBusy] = useState(false);
     const [encLastResult, setEncLastResult] = useState<string | null>(null);
     const showEncRouteRow = !!props.onPlanEncRoute && (props.encCellCount ?? 0) > 0;
-    const showSeawayRow = !!props.onToggleSeawayDebug && (props.encCellCount ?? 0) > 0;
+    // DEV-ONLY row (Shane 2026-07-12: "we still have our blue squiggles"
+    // — the Phase 10 gate-graph debug overlay sat one tap below
+    // Satellite and kept getting flipped on while exploring the menu).
+    // The masterplan is explicit: "debug map overlay only". Resurrect it
+    // for a debugging session with
+    // localStorage.setItem('thalassa_dev_seaway', 'true').
+    const seawayDevMode = (() => {
+        try {
+            return localStorage.getItem('thalassa_dev_seaway') === 'true';
+        } catch {
+            return false;
+        }
+    })();
+    const showSeawayRow = seawayDevMode && !!props.onToggleSeawayDebug && (props.encCellCount ?? 0) > 0;
     const runEncRoute = useCallback(async () => {
         if (!props.onPlanEncRoute || encBusy) return;
         setEncBusy(true);

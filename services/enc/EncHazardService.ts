@@ -35,6 +35,7 @@ import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
+import { clipFeatureOutsideBboxes } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -464,6 +465,16 @@ export interface EncMergedVectorData {
      *  25D coords) — kept compact on disk, exploded here because a
      *  Mapbox symbol layer can only label per-FEATURE, not per-vertex. */
     SOUNDG: FeatureCollection;
+    /** DEPARE(+DRGARE) with coarse-cell polygons geometrically CUT OUT
+     *  of finer cells' charted coverage (clipDepareOverlap — "that
+     *  day" arrived 2026-07-12). The satellite GLAZE paints bands
+     *  translucently, and translucent fills STACK: everywhere two
+     *  cells charted the same water the glaze double-painted into
+     *  hard-edged darker wedges ("horrible 80's style rendering").
+     *  Chart mode keeps drawing the UNCLIPPED collection — its fills
+     *  are near-opaque and coarse→fine paint order already hides
+     *  overlaps without the clip's bare-patch risk. */
+    DEPARE_GLAZE: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -547,6 +558,7 @@ export async function getMergedVectorData(
         BCNSPP: { type: 'FeatureCollection', features: [] },
         RECTRC: { type: 'FeatureCollection', features: [] },
         SOUNDG: { type: 'FeatureCollection', features: [] },
+        DEPARE_GLAZE: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -729,12 +741,27 @@ export async function getMergedVectorData(
             }
         };
 
+        const depareStart = merged.DEPARE.features.length;
         tagAndPush('DEPARE', blob.layers.DEPARE);
         // DRGARE (dredged areas) carries DRVAL1 just like DEPARE —
         // merge into the same collection so dredged basins shade
         // with the draft-aware depth bands instead of rendering as
         // chart holes.
         tagAndPush('DEPARE', blob.layers.DRGARE);
+        // Glaze variant: the same decorated features, with the parts a
+        // FINER cell also charts cut away — exactly one translucent band
+        // over any point of water in satellite mode. The fully-shadowed
+        // features are already gone (featureIsShadowed above); this
+        // handles the big partial-overlap survivors. Identity fast-path
+        // shares the untouched feature objects with merged.DEPARE.
+        const finerExtents = shadows.map((s) => s.bbox);
+        for (let i = depareStart; i < merged.DEPARE.features.length; i++) {
+            const glazed =
+                finerExtents.length > 0
+                    ? clipFeatureOutsideBboxes(merged.DEPARE.features[i], finerExtents)
+                    : merged.DEPARE.features[i];
+            if (glazed) merged.DEPARE_GLAZE.features.push(glazed);
+        }
         tagAndPush('LNDARE', blob.layers.LNDARE);
         tagAndPush('COALNE', blob.layers.COALNE);
         tagAndPush('OBSTRN', blob.layers.OBSTRN);
