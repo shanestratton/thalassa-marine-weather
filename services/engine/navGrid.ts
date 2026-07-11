@@ -262,6 +262,19 @@ export function buildNavGrid(
     // the Pass-6 buffer can't seal the river shut. Never set by drying
     // bands (DRVAL1 ≤ 0) — a charted drying spit defers to land paint.
     const wetChartClaim = new Uint8Array(width * height);
+    // Per-cell FINENESS RANK of the finest ranked DEPARE that claimed the
+    // cell (see cellScaleRank). Whole-bbox scale-shadowing can't drop a
+    // huge coarse polygon that pokes outside finer coverage; it then
+    // fought the fine survey here, where shallowest-wins let a 1:90k
+    // "dries 2 m" flats blob beat a 1:22k surveyed 2–5 m band (Newport
+    // approach, 2026-07-11). Rule: a COARSER ranked feature contributes
+    // nothing to a cell a finer ranked feature owns; the first FINER
+    // claim resets the coarser DEPARE accumulation. Unranked features
+    // (injected OSM/Mapbox water, curated) stay outside the rank system —
+    // they merge exactly as before, protected by their own flags.
+    // RANK_UNCLAIMED = no ranked feature has touched the cell yet.
+    const RANK_UNCLAIMED = -32768;
+    const depareRank = new Int16Array(width * height).fill(RANK_UNCLAIMED);
     // Cells where the wet claim actually RESOLVED a land conflict (a subset
     // of wetChartClaim). Exposed as grid.wetConflict: routable mid-route at
     // 40× caution, but endpoint snapping must PREFER honest water — a
@@ -419,6 +432,9 @@ export function buildNavGrid(
         const osmVouched = !isS57Depare && isAuthoritativeDepare(props);
         const authoritative = isS57Depare || osmVouched;
         const shallow = drval1Num < draftM + safetyM;
+        // Fineness rank stamped at merge time (stampScaleRank) — undefined
+        // for injected/unranked features, which bypass the rank system.
+        const rank = typeof props?._scaleRank === 'number' ? (props._scaleRank as number) : null;
         // INJECTED nearshore canal water we added for routing (Mapbox vector
         // water over the endpoint crops). Tagged regardless of the shallow/deep
         // branch so a deep-draft vessel (where 5 m reads shallow) still marks
@@ -435,6 +451,32 @@ export function buildNavGrid(
             // Tag injected Mapbox canal water (both branches) → tier-1 + fine pass.
             // Narrowed to the actual channel after the LNDARE passes (see below).
             if (isMapboxWater) injectedCanalCells[idx] = 1;
+
+            // Finest-survey-wins (ranked features only): a coarser ranked
+            // feature never writes into a cell a finer one owns; the first
+            // strictly-finer claim resets the coarser DEPARE accumulation
+            // so a crude overview band can't pre-poison it via shallowest-
+            // wins. Unranked (injected) contributions are never reset —
+            // resets only fire when superseding a RANKED claim.
+            if (rank !== null) {
+                const held = depareRank[idx];
+                if (held !== RANK_UNCLAIMED) {
+                    if (rank < held) return; // finer survey owns this cell
+                    if (rank > held) {
+                        depareVerdict[idx] = NaN;
+                        shallowDepthM[idx] = NaN;
+                        wetChartClaim[idx] = 0;
+                        // Reset only DEPARE-derived navigability state;
+                        // NaN (hard-block), protection flags and PROTECTED
+                        // cell values (authoritative injected water) belong
+                        // to other sources and stay.
+                        if (!Number.isNaN(cells[idx]) && protectedCells[idx] !== 1) {
+                            cells[idx] = UNKNOWN_OPEN;
+                        }
+                    }
+                }
+                depareRank[idx] = rank;
+            }
 
             // Record the DEPARE-only verdict (independent of any later LNDARE
             // hard-block), tracking the shallowest real depth or CAUTION — so

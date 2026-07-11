@@ -45,7 +45,7 @@ import type { EncCell } from './enc/types';
 import { loadCellGeoJSON } from './enc/EncCellStore';
 import { routeInshore, type InshoreLayers } from './inshoreRouterEngine';
 import type { ShallowRunInfo } from './engine/types';
-import { shadowingCells, featureIsShadowed } from './enc/scaleShadow';
+import { shadowingCells, featureIsShadowed, stampScaleRank } from './enc/scaleShadow';
 import { shadowCompare, shadowSummary } from './seaway/seawayRouter';
 import { piCache } from './PiCacheService';
 import { getOsmRouteOverlay, type OsmRouteOverlay } from './OsmRouteOverlayService';
@@ -514,8 +514,14 @@ async function tryInshoreRouteInner(
                         if (drop) shadowDropped++;
                         return !drop;
                     });
+                    // Fineness rank for the nav grid's finest-survey-wins
+                    // resolution — whole-bbox shadowing above can't drop a
+                    // coarse polygon that pokes outside finer coverage.
+                    // MIRRORED in assembleTracerLayers.
+                    if (layer === 'DEPARE') stampScaleRank(kept, cell.bbox);
                     (target.features as unknown[]).push(...kept);
                 } else {
+                    if (layer === 'DEPARE') stampScaleRank(fc.features as GeoJSON.Feature[], cell.bbox);
                     (target.features as unknown[]).push(...fc.features);
                 }
             }
@@ -3462,8 +3468,12 @@ export async function assembleTracerLayers(bbox: [number, number, number, number
             if (fc?.features && Array.isArray(fc.features) && target) {
                 if ((layer === 'LNDARE' || layer === 'DEPARE') && shadows.length > 0) {
                     const kept = (fc.features as GeoJSON.Feature[]).filter((f) => !featureIsShadowed(f, shadows));
+                    // Fineness rank for finest-survey-wins in the grid —
+                    // MIRROR of the engine merge above (tryInshoreRouteInner).
+                    if (layer === 'DEPARE') stampScaleRank(kept, cell.bbox);
                     (target.features as unknown[]).push(...kept);
                 } else {
+                    if (layer === 'DEPARE') stampScaleRank(fc.features as GeoJSON.Feature[], cell.bbox);
                     (target.features as unknown[]).push(...fc.features);
                 }
             }

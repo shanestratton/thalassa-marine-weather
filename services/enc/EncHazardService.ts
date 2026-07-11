@@ -34,7 +34,7 @@ import { assignSoundingDensityMinZoom } from './soundingDensity';
 import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
-import { shadowingCells, featureIsShadowed } from './scaleShadow';
+import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -520,7 +520,14 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
     // (land, depth areas, coastline, contours); point marks are untouched.
     const cellExtents = cells.map((c) => ({ id: c.id, bbox: c.bbox }));
     const SHADOWED_CLASSES = new Set(['LNDARE', 'DEPARE', 'COALNE', 'DEPCNT']);
-    for (const cell of cells) {
+    // COARSE → FINE merge order: overlapping near-opaque fills paint in
+    // source order, so the finer survey's bands must come LAST to draw on
+    // top. Whole-bbox shadowing alone can't stop a huge coarse polygon
+    // that pokes outside finer coverage from painting over it (the
+    // Newport-approach "dries 2 m over a surveyed 2–5 m band" conflict,
+    // 2026-07-11) — order is what resolves the partial overlaps here.
+    const cellsCoarseToFine = [...cells].sort((a, b) => cellScaleRank(a.bbox) - cellScaleRank(b.bbox));
+    for (const cell of cellsCoarseToFine) {
         let blob;
         try {
             blob = await cellStore.loadCellGeoJSON(cell.id);

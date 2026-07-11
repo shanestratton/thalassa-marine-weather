@@ -29,6 +29,35 @@ export const SCALE_SHADOW_RATIO = 16;
 
 const bboxArea = (b: [number, number, number, number]): number => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
 
+/**
+ * Deterministic FINENESS RANK from a cell's bbox area (the same
+ * smaller-is-finer heuristic shadowingCells trusts): higher = finer
+ * survey. Whole-bbox shadowing above can only drop features fully
+ * inside finer coverage — a huge coarse polygon that pokes outside
+ * survives whole and then fights the fine survey cell-by-cell in the
+ * nav grid, where shallowest-wins let a crude 1:90k "dries 2 m" flats
+ * blob beat a 1:22k surveyed 2–5 m band (Newport approach, Shane
+ * 2026-07-11: "my keel is only 2.4 m and it is 2 m deep at LAT??").
+ * The grid resolves that with per-cell rank claims: finest survey
+ * wins the cell, conservatism applies within a rank. Derived from the
+ * bbox alone (not the candidate set) so stamping cached blob features
+ * is idempotent and race-free across concurrent merges.
+ */
+export function cellScaleRank(bbox: [number, number, number, number]): number {
+    const a = bboxArea(bbox);
+    if (!Number.isFinite(a) || a <= 0) return 0;
+    return Math.max(-32000, Math.min(32000, Math.round(-Math.log10(a) * 100)));
+}
+
+/** Stamp `_scaleRank` onto features (idempotent — same value every merge). */
+export function stampScaleRank(features: readonly Feature[], bbox: [number, number, number, number]): void {
+    const rank = cellScaleRank(bbox);
+    for (const f of features) {
+        const props = (f.properties ??= {}) as Record<string, unknown>;
+        if (props._scaleRank !== rank) props._scaleRank = rank;
+    }
+}
+
 /** The finer cells that shadow `cell` (empty = nothing to drop, fast path). */
 export function shadowingCells(cell: CellExtent, all: readonly CellExtent[], ratio = SCALE_SHADOW_RATIO): CellExtent[] {
     const a = bboxArea(cell.bbox);
