@@ -193,6 +193,16 @@ class GpsServiceClass {
                 resolve(null);
                 return;
             }
+            // Plain-http origins (the Pi at calypso.local:3001) are not
+            // secure contexts — Chrome rejects geolocation outright. Fail
+            // FAST instead of burning the caller's 10 s timeout on a
+            // request that can never succeed; callers fall back to the
+            // home-port coords.
+            if (typeof window !== 'undefined' && window.isSecureContext === false) {
+                log.warn('[GpsService] insecure context (http) — geolocation unavailable, skipping');
+                resolve(null);
+                return;
+            }
             navigator.geolocation.getCurrentPosition(
                 (pos) =>
                     resolve({

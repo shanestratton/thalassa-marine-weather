@@ -306,8 +306,32 @@ export class WeatherOrchestrator {
                     log.warn('GPS returned null');
                     addBreadcrumb({ category: 'weather', message: 'GPS returned null', level: 'warning' });
                     if (!hasCachedData) {
-                        this.cb.setError('Unable to get GPS location. Please select a location.');
-                        this.cb.setLoading(false);
+                        // GPS is a dead end here (plain-http Pi page can
+                        // NEVER get it — not a secure context; or the user
+                        // denied it). Fall back to the home-port coords
+                        // saved at onboarding rather than a blocking error
+                        // card (Shane 2026-07-11, calypso.local:3001).
+                        const fallbackCoords = settings.defaultLocationCoords as Coords | undefined;
+                        const fallbackName =
+                            typeof settings.defaultLocation === 'string' &&
+                            settings.defaultLocation !== 'Current Location'
+                                ? settings.defaultLocation
+                                : null;
+                        if (fallbackCoords) {
+                            log.warn('GPS unavailable — falling back to saved home-port coords');
+                            this.fetchWeather(fallbackName ?? 'Home port', {
+                                force: true,
+                                coords: fallbackCoords,
+                                showOverlay: false,
+                            });
+                        } else {
+                            this.cb.setError(
+                                typeof window !== 'undefined' && window.isSecureContext === false
+                                    ? 'GPS is unavailable on this connection (http) — search or pick a location instead.'
+                                    : 'Unable to get GPS location. Please select a location.',
+                            );
+                            this.cb.setLoading(false);
+                        }
                     }
                 }
             });
@@ -373,7 +397,23 @@ export class WeatherOrchestrator {
                     message: 'Failed to get GPS for "Current Location"',
                     level: 'error',
                 });
-                throw new Error('Unable to get GPS location. Please select a location or enable location services.');
+                // Same fallback ladder as the boot path: home-port coords
+                // beat a fatal throw (http origins can never get GPS).
+                const s = this.cb.getSettings();
+                const fbCoords = s?.defaultLocationCoords as Coords | undefined;
+                if (fbCoords) {
+                    const fbName =
+                        typeof s.defaultLocation === 'string' && s.defaultLocation !== 'Current Location'
+                            ? s.defaultLocation
+                            : 'Home port';
+                    log.warn('resolveLocation: GPS unavailable — using saved home-port coords');
+                    return { name: fbName, coords: fbCoords };
+                }
+                throw new Error(
+                    typeof window !== 'undefined' && window.isSecureContext === false
+                        ? 'GPS is unavailable on this connection (http) — search or pick a location instead.'
+                        : 'Unable to get GPS location. Please select a location or enable location services.',
+                );
             }
 
             try {
