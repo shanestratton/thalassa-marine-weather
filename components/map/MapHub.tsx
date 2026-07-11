@@ -1642,7 +1642,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
     // "satellite overlay instead of the enc overlay when running a route".
     // Key doubles as the init-time visibility read in useMapInit.
-    const [satelliteVisible, setSatelliteVisible] = usePersistedState('thalassa_satellite_base', false);
+    // Key bumped _v2 for THE PURGE (Shane 2026-07-11: 'full purge of all
+    // layers, except our new one') — every device boots into the white
+    // chart once; satellite remains a toggle, not the default.
+    const [satelliteVisible, setSatelliteVisible] = usePersistedState('thalassa_satellite_base_v2', false);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1708,9 +1711,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             // chart state.
             try {
                 if (map.getLayer('maptiler-ocean-layer')) {
-                    map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'visible');
-                    // Chart mode gets the original stronger tint back.
-                    map.setPaintProperty('maptiler-ocean-layer', 'raster-opacity', 0.6);
+                    // THE PURGE (2026-07-11): the raster bathy tint is
+                    // satellite-mode furniture only. In chart mode the white
+                    // ramp IS the water; uncovered water stays honestly dark.
+                    map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'none');
                 }
                 encApplyLayerVisibility(map, encVisible);
                 encApplyChartDetailLayers(map, encChartDetail);
@@ -1858,19 +1862,19 @@ export const MapHub: React.FC<MapHubProps> = ({
         setEncPopupSuppression(map, coordCaptureMode || pickerMode || weatherInspectMode);
         return () => setEncPopupSuppression(map, false);
     }, [coordCaptureMode, pickerMode, weatherInspectMode, mapReady]);
-    // ── /plan lean boot (the purge begins, 2026-07-11: "our new layer is
-    // going to be the only layer... speed is the key") ──
-    // First tracer open per tab on the WEB planning page strips the whole
-    // weather stack so the chart boots bare and fast. One-shot per tab;
-    // the ChartModes chip brings anything back.
+    // ── THE PURGE (Shane 2026-07-11: "full purge of all layers, except
+    // our new one... speed is the key") ──
+    // One-shot per device: the first main-surface mount strips the whole
+    // weather/overlay stack so the WHITE CHART is simply what the app
+    // looks like. Every toggle still exists in the ChartModes chip — this
+    // resets the default, it doesn't remove capability.
     useEffect(() => {
-        if (!coordCaptureMode) return;
-        if (!/^\/(plan|builder)/.test(window.location.pathname)) return;
+        if (embedded || pickerMode || isPinView) return;
         try {
-            if (sessionStorage.getItem('thalassa_plan_lean_v1')) return;
-            sessionStorage.setItem('thalassa_plan_lean_v1', '1');
+            if (localStorage.getItem('thalassa_purge_lean_v1')) return;
+            localStorage.setItem('thalassa_purge_lean_v1', new Date().toISOString());
         } catch {
-            return; // no sessionStorage — skip rather than clobber repeatedly
+            return; // no storage — skip rather than clobber on every mount
         }
         for (const layer of Array.from(weather.activeLayers as Set<string>)) {
             weather.toggleLayer(layer as never);
@@ -1881,8 +1885,9 @@ export const MapHub: React.FC<MapHubProps> = ({
         setSquallVisible(false);
         setChokepointVisible(false);
         setTideStationsVisible(false);
+        setSeamarkVisible(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [coordCaptureMode]);
+    }, []);
     // ── Chart key (the legend for mere mortals, 2026-07-11) ──
     // Auto-opens ONCE when charted water first renders (punters don't
     // know khaki means "dries" or what LAT is); after that it lives
