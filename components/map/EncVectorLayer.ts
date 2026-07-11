@@ -507,8 +507,9 @@ function depcntSafetyFilter(safetyValdco: number | null): mapboxgl.FilterSpecifi
 /**
  * THE single choke point for draft changes (risk note: a missed
  * update path silently shows the WRONG safety contour — worse than
- * none). Moves the safety contour; the DEPARE fill is an ABSOLUTE
- * white ramp since 2026-07-11 and no longer re-bands with draft.
+ * none). Moves the safety contour and re-keys the keel-keyed satellite
+ * glaze; the chart-mode DEPARE fill is an ABSOLUTE white ramp since
+ * 2026-07-11 and no longer re-bands with draft.
  * Called from mount (via opts), from the hook whenever vessel draft
  * changes, and from refresh when new cells land.
  *
@@ -526,6 +527,9 @@ export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number): vo
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
         map.setFilter(ENC_VEC_LAYERS.DEPCNT_SAFETY, depcntSafetyFilter(safetyValdco));
     }
+    // The satellite glaze is keel-keyed (safe = whiter) — a draft change
+    // must re-key it through the same choke point as the contour.
+    syncDepareBaseTreatment(map);
 }
 
 // ── Mount ──────────────────────────────────────────────────────────
@@ -1278,29 +1282,33 @@ function satelliteBaseOn(): boolean {
 }
 
 /**
- * Satellite-mode DEPARE opacity — the white ramp becomes a depth-graded
- * GLAZE over the imagery: deep water takes the full wash (the imagery
- * there is featureless navy), shallows go translucent so the real sand
- * banks glow through the dirty tint, and drying stays solid enough to
- * read as a warning.
+ * Satellite-mode DEPARE opacity — KEEL-KEYED since 2026-07-12 (Shane:
+ * "can we have the areas that are safe to sail, whiter... we need to
+ * be able to see the areas that have enough depth for our keel
+ * easily"). The glaze is now a go/no-go read:
+ *  - drying: solid warning wash;
+ *  - charted but SHALLOWER than the safety depth: a whisper of tint —
+ *    the actual sandbank imagery stares back, "not for your keel";
+ *  - guaranteed depth ≥ safety depth (band DRVAL1, chart datum — the
+ *    same conservative convention as the safety contour): bright white
+ *    paper, stepping brighter as it deepens.
+ * The safe/unsafe edge lands exactly on the survey band edge — the end
+ * of the sandbar, not somewhere near it.
  */
-export function buildDepareSatelliteOpacity(): mapboxgl.ExpressionSpecification {
+export function buildDepareSatelliteOpacity(safetyDepthM: number): mapboxgl.ExpressionSpecification {
+    const s = Math.max(safetyDepthM, 0.1);
     return [
         'step',
         ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
         0.55, // drying — a real warning even over imagery
         0,
-        0.3, // 0–2 m — the banks themselves, let them show
-        2,
-        0.33,
-        5,
-        0.37,
-        10,
-        0.42,
-        20,
-        0.48,
-        50,
-        0.55, // open water — mostly paper
+        0.15, // charted but under the keel — imagery IS the message
+        s,
+        0.62, // enough water — bright paper, sail here
+        Math.max(s + 0.01, 20),
+        0.68,
+        Math.max(s + 0.02, 50),
+        0.72, // open water — mostly paper
     ] as unknown as mapboxgl.ExpressionSpecification;
 }
 
@@ -1374,10 +1382,15 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         );
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
+        // Keel-keyed glaze: bright paper where the band guarantees the
+        // safety depth, bare imagery where it doesn't. Chart datum by
+        // the same hard rule as the safety contour — the tide scrubber
+        // never moves the go/no-go read.
+        const safetyDepthM = depthStyleState.get(map)?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
         map.setPaintProperty(
             ENC_VEC_LAYERS.DEPARE_GLAZE,
             'fill-opacity',
-            satOn ? buildDepareSatelliteOpacity() : 0,
+            satOn ? buildDepareSatelliteOpacity(safetyDepthM) : 0,
         );
         map.setFilter(ENC_VEC_LAYERS.DEPARE_GLAZE, satOn ? DEPARE_COMPETENCE_FILTER : null);
     }
