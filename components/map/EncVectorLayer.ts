@@ -935,11 +935,12 @@ export function mountEncVectorLayer(
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
                     'text-size': ['interpolate', ['linear'], ['zoom'], 4, 9, 16, 12],
                     'text-allow-overlap': false,
-                    // 2, not 6: tighter collision padding roughly doubles the
-                    // numbers that survive placement in a dense survey cloud
-                    // ("we need more depth numbers", 2026-07-09) while
-                    // shallowest-wins sort still decides who yields.
-                    'text-padding': 2,
+                    // Collision padding shrinks as you zoom in — the density
+                    // ladder offers more numbers from z13 ("at zoom 14 we
+                    // need a lot more", 2026-07-11) and the collision engine
+                    // must not eat them; shallowest-wins sort still decides
+                    // who yields when glass runs out.
+                    'text-padding': ['interpolate', ['linear'], ['zoom'], 12, 2, 14, 1, 16, 0.5],
                     // Shallowest wins collision placement — those are the
                     // numbers a keel actually cares about.
                     'symbol-sort-key': ['get', '_d'],

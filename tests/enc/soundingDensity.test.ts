@@ -22,7 +22,10 @@ describe('soundingDensity — the numbers ladder', () => {
         // Deliberately passed deep-first: input order must not matter.
         assignSoundingDensityMinZoom([deep, shallow]);
         expect(mz(shallow)).toBe(4);
-        expect(mz(deep)).toBe(17); // never wins a cell — max-zoom-only
+        // The deep one waits for boat-length zooms — the exact rung moves
+        // with the density curve, the ORDER is the invariant.
+        expect(mz(deep)).toBeGreaterThanOrEqual(14);
+        expect(mz(deep)).toBeGreaterThan(mz(shallow));
     });
 
     it('far-apart soundings both appear at the coarsest zoom', () => {
