@@ -229,7 +229,9 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                                 >
                                                     °
                                                 </span>
-                                                <span className={`text-xl font-bold leading-none ${getTempColor()}`}>
+                                                <span
+                                                    className={`text-xl font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
+                                                >
                                                     {units.temp}
                                                 </span>
                                             </div>
