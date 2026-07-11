@@ -130,6 +130,42 @@ describe('routeTracer — depth grading (P1)', () => {
         expect(drying.issues[0].message).toContain('needs +4.9 m tide');
     });
 
+    it('a finer survey beats a coarse drying blob — finest-survey-wins, order-independent', () => {
+        // Newport approach 2026-07-11: the 1:90k cell's crude flats
+        // polygon said "dries 2 m" over water the 1:22k cell surveys at
+        // 2–5 m. Whole-bbox shadowing kept the coarse blob (it pokes
+        // outside fine coverage) and shallowest-wins let it poison the
+        // fine survey. Ranked rasterisation resolves it.
+        const coarse = poly(153.0, -27.02, 153.04, -27.0, {
+            DRVAL1: -2,
+            DRVAL2: 0,
+            acronym: 'DEPARE',
+            _scaleRank: 10,
+        });
+        const fine = poly(153.005, -27.015, 153.03, -27.005, {
+            DRVAL1: 2,
+            DRVAL2: 5,
+            acronym: 'DEPARE',
+            _scaleRank: 200,
+        });
+        for (const order of [
+            [coarse, fine],
+            [fine, coarse], // rasterisation order must not matter
+        ]) {
+            const grid = buildNavGrid({ DEPARE: fc(order), LNDARE: fc([]) }, BBOX, 10, DRAFT_M, 0.5, 60);
+            const v = validateTraceLeg(
+                { lat: -27.01, lon: 153.012 },
+                { lat: -27.01, lon: 153.025 },
+                {
+                    ...baseCtx,
+                    grid,
+                },
+            );
+            expect(v.issues[0].message).toContain('2.0 m charted');
+            expect(v.issues[0].message).toContain('needs +0.9 m tide');
+        }
+    });
+
     it('leg beyond chart coverage flags uncharted', () => {
         const v = validateTraceLeg({ lat: -27.005, lon: 153.0365 }, { lat: -27.005, lon: 153.0395 }, baseCtx);
         expect(v.grade).toBe('caution');
