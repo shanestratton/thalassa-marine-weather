@@ -53,7 +53,14 @@ async function fetchManifest(): Promise<CloudManifest | null> {
 export async function registerCloudCells(): Promise<number> {
     manifestPromise = manifestPromise ?? fetchManifest();
     const manifest = await manifestPromise;
-    if (!manifest) return 0;
+    if (!manifest) {
+        // Don't memoize failure: a signed-OUT fetch caches null for the
+        // session, and the punter who signs in on the page would never
+        // get charts (the map-mount + auth-change retries would all hit
+        // this cache). Failed fetches retry on the next call instead.
+        manifestPromise = null;
+        return 0;
+    }
     const known = new Set(listCells().map((c) => c.id));
     let added = 0;
     for (const c of manifest.cells) {

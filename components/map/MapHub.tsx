@@ -1577,6 +1577,35 @@ export const MapHub: React.FC<MapHubProps> = ({
         // walks back to the boat and the cells flow in within a poll cycle.
         // Throttled to never hit the Pi more than once per 5 min.
         startAutoSyncPolling();
+        // Web default = the white depth chart (Shane 2026-07-11: "show our
+        // new layer as the default on our routing web page"). Cloud cells
+        // used to register only when the tracer opened, so a signed-in
+        // punter browsing thalassawx.app/plan saw a bare dark map until
+        // they tapped Trace. Register at map mount instead — idempotent,
+        // manifest-only (blobs still hydrate on demand), and quietly a
+        // no-op when signed out (the private bucket refuses: licensing
+        // gate stays). Native keeps its Pi-first ladder; a cloud
+        // registration there is equally idempotent and covers boats
+        // sailing without a Pi aboard.
+        void import('../../services/enc/cloudCellSync')
+            .then(({ registerCloudCells }) => registerCloudCells())
+            .catch(() => {});
+        // A punter who lands signed OUT and signs in on the page gets the
+        // charts the moment auth flips — without needing to open the tracer.
+        let unsubAuth: (() => void) | undefined;
+        void import('../../services/supabase')
+            .then(({ supabase }) => {
+                if (!supabase) return;
+                const { data } = supabase.auth.onAuthStateChange((event: string) => {
+                    if (event !== 'SIGNED_IN') return;
+                    void import('../../services/enc/cloudCellSync')
+                        .then(({ registerCloudCells }) => registerCloudCells())
+                        .catch(() => {});
+                });
+                unsubAuth = () => data.subscription.unsubscribe();
+            })
+            .catch(() => {});
+        return () => unsubAuth?.();
     }, []);
     const [chokepointVisible, setChokepointVisible] = usePersistedState('thalassa_map_chokepoint_visible', false);
     const [cycloneVisible, setCycloneVisible] = useState(false);
