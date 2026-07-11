@@ -775,10 +775,30 @@ export function mountEncVectorLayer(
                 minzoom: 4,
                 filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
                 layout: {
+                    // Paper-chart sounding typography: sub-10 m depths carry
+                    // their tenths as a TRUE SUBSCRIPT (3₄, not 3.4) — the
+                    // convention every chart-reading eye already parses.
+                    // Drying heights render as magnitude in khaki ink (see
+                    // text-color), never with a minus sign ("-0.2 m" reads
+                    // as nonsense to a punter; khaki 0₂ over the khaki
+                    // drying band reads as "dries 0.2 m").
                     'text-field': [
                         'case',
-                        ['<', ['get', '_d'], 10],
-                        ['to-string', ['get', '_d']],
+                        ['<', ['abs', ['get', '_d']], 10],
+                        [
+                            'concat',
+                            ['to-string', ['floor', ['abs', ['get', '_d']]]],
+                            [
+                                'case',
+                                ['==', ['%', ['round', ['*', ['abs', ['get', '_d']], 10]], 10], 0],
+                                '',
+                                [
+                                    'at',
+                                    ['%', ['round', ['*', ['abs', ['get', '_d']], 10]], 10],
+                                    ['literal', ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉']],
+                                ],
+                            ],
+                        ],
                         ['to-string', ['round', ['get', '_d']]],
                     ],
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
@@ -794,7 +814,19 @@ export function mountEncVectorLayer(
                     'symbol-sort-key': ['get', '_d'],
                 },
                 paint: {
-                    'text-color': ['case', ['<', ['get', '_d'], 5], '#2f3e49', '#647885'],
+                    // Drying = khaki ink (pairs with the drying band and the
+                    // magnitude-only text-field); shallow darker than deep so
+                    // the eye finds the skinny water first. symbol-sort-key
+                    // on _d already puts drying (negative) first in collision
+                    // placement — the scariest number always survives.
+                    'text-color': [
+                        'case',
+                        ['<', ['get', '_d'], 0],
+                        '#6b5e23',
+                        ['<', ['get', '_d'], 5],
+                        '#2f3e49',
+                        '#647885',
+                    ],
                     'text-halo-color': 'rgba(255, 255, 255, 0.88)',
                     'text-halo-width': 1.2,
                     'text-opacity': opacity,
