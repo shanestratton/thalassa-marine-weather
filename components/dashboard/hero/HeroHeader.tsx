@@ -188,7 +188,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                         </span>
                                     );
                                 })()}
-                                <span className="text-sm font-bold text-white/60 mt-1 ml-0.5">{units.temp}</span>
+                                <span className="text-lg font-bold text-white/60 mt-1.5 ml-0.5">{units.temp}</span>
                             </div>
                             <AutoFitConditionLabel
                                 text={
