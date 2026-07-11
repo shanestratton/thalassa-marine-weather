@@ -79,8 +79,10 @@ import {
     setEncVectorVisibility as encApplyLayerVisibility,
     setEncChartDetail as encApplyChartDetailLayers,
     syncDepareBaseTreatment as encSyncDepareBaseTreatment,
+    setEncTideOffset,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
+import { readTideOffsetNow, type TideOffsetRead } from '../../services/TideOffsetService';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { TraceReportModal } from './TraceReportModal';
@@ -210,6 +212,10 @@ const getWeatherInspectPopup = async () => {
  *  demotes it to an interior leg its verdict must re-grade — one leg, cheap. */
 const legCacheKey = (a: { lat: number; lon: number }, b: { lat: number; lon: number }, isLast: boolean): string =>
     `${a.lat.toFixed(6)},${a.lon.toFixed(6)}|${b.lat.toFixed(6)},${b.lon.toFixed(6)}${isLast ? '|last' : ''}`;
+
+/** One-time "live tide depth" disclaimer acknowledgment (design 2026-07-11:
+ *  "needs a disclaimer of course"). Value = ISO timestamp of the ack. */
+const TIDE_ACK_KEY = 'thalassa_tide_depth_ack_v1';
 
 /** Ungraded legs are clustered into build windows no wider than this, so the
  *  padded context bbox (1.5× span) always fits the depth-grid budget — the
@@ -1711,6 +1717,72 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.off('styledata', apply);
         };
     }, [satelliteVisible, mapReady, encVisible, encChartDetail]);
+    // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
+    // Charted depth + predicted tide, ONE offset applied at the paint
+    // layer (band tints, sounding numbers, contour labels — see
+    // setEncTideOffset). VISUAL ONLY by hard rule: the safety contour,
+    // tracer and router keep grading against chart datum. Persisted:
+    // the offset is re-read live on every boot, and the badge makes the
+    // mode unmistakable, so stickiness is safe.
+    const [tideDepthMode, setTideDepthMode] = usePersistedState('thalassa_tide_depth_mode', false);
+    const [tideOffsetInfo, setTideOffsetInfo] = useState<TideOffsetRead | null>(null);
+    const [showTideAck, setShowTideAck] = useState(false);
+    const onToggleTideDepth = useCallback(() => {
+        triggerHaptic('light');
+        if (!tideDepthMode) {
+            let acked = false;
+            try {
+                acked = !!localStorage.getItem(TIDE_ACK_KEY);
+            } catch {
+                /* storage unavailable — show the sheet every time, honest default */
+            }
+            if (!acked) {
+                setShowTideAck(true);
+                return;
+            }
+        }
+        setTideDepthMode(!tideDepthMode);
+    }, [tideDepthMode, setTideDepthMode]);
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        if (!tideDepthMode) {
+            setEncTideOffset(map, null);
+            setTideOffsetInfo(null);
+            return;
+        }
+        let cancelled = false;
+        let lastFix: { lat: number; lon: number } | null = null;
+        const refresh = async (): Promise<void> => {
+            const c = map.getCenter();
+            lastFix = { lat: c.lat, lon: c.lng };
+            const read = await readTideOffsetNow(c.lat, c.lng);
+            if (cancelled) return;
+            setTideOffsetInfo(read);
+            // Fail-safe: no curve → chart datum, and the badge says so.
+            setEncTideOffset(map, read ? read.offsetM : null);
+        };
+        void refresh();
+        // Tide moves ~1–2 cm/min at worst — 5 min keeps the offset
+        // within a freeboard of truth without hammering the API.
+        const iv = window.setInterval(() => void refresh(), 5 * 60_000);
+        const onMoveEnd = (): void => {
+            const c = map.getCenter();
+            if (!lastFix) return;
+            // ~0.2° ≈ 12–20 NM — far enough that a different station
+            // governs; small pans keep the current read.
+            if (Math.abs(c.lat - lastFix.lat) > 0.2 || Math.abs(c.lng - lastFix.lon) > 0.2) {
+                void refresh();
+            }
+        };
+        map.on('moveend', onMoveEnd);
+        return () => {
+            cancelled = true;
+            window.clearInterval(iv);
+            map.off('moveend', onMoveEnd);
+            setEncTideOffset(map, null);
+        };
+    }, [tideDepthMode, mapReady]);
     // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
     const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
         'thalassa_map_chart_controls_hidden',
@@ -4302,6 +4374,86 @@ export const MapHub: React.FC<MapHubProps> = ({
                     own code was loaded and ready. Now it stands alone so
                     it renders independently of any other component's
                     loading state. */}
+                {/* Live-tide badge — the permanent, unmistakable "you are
+                    NOT looking at chart datum" marker (design 2026-07-11).
+                    Teal = live offset applied; amber = mode on but no tide
+                    data, chart fell back to LAT. Tap = kill switch. */}
+                {tideDepthMode && !embedded && !isPinView && !pickerMode && (
+                    <button
+                        onClick={onToggleTideDepth}
+                        aria-label="Live tide depth is on — tap to return to chart datum"
+                        className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
+                        style={
+                            tideOffsetInfo
+                                ? {
+                                      background: 'rgba(13, 63, 70, 0.92)',
+                                      borderColor: 'rgba(45, 212, 191, 0.45)',
+                                      color: '#5eead4',
+                                  }
+                                : {
+                                      background: 'rgba(69, 51, 8, 0.92)',
+                                      borderColor: 'rgba(251, 191, 36, 0.45)',
+                                      color: '#fcd34d',
+                                  }
+                        }
+                    >
+                        {tideOffsetInfo
+                            ? `LIVE DEPTH ${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m ${
+                                  tideOffsetInfo.trend === 'rising' ? '↑' : '↓'
+                              }${tideOffsetInfo.stationName ? ` · ${tideOffsetInfo.stationName}` : ''}${
+                                  tideOffsetInfo.approx ? ' · approx' : ''
+                              }`
+                            : 'LIVE DEPTH — no tide data, showing chart datum'}
+                    </button>
+                )}
+                {/* One-time disclaimer before the first enable ("needs a
+                    disclaimer of course"). */}
+                {showTideAck && (
+                    <div
+                        className="fixed inset-0 z-[10060] flex items-end justify-center bg-black/60 sm:items-center"
+                        onClick={() => setShowTideAck(false)}
+                    >
+                        <div
+                            className="w-full max-w-md rounded-t-3xl border border-teal-500/30 bg-slate-900 p-5 shadow-2xl sm:rounded-3xl"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            <div className="mb-2 text-sm font-black uppercase tracking-widest text-teal-300">
+                                Live tide depth
+                            </div>
+                            <p className="mb-3 text-[13px] leading-snug text-gray-200">
+                                Depths re-tint to charted depth + the predicted tide at the nearest station, refreshed
+                                every few minutes. Numbers turn teal so you always know you're not reading chart datum.
+                            </p>
+                            <p className="mb-4 text-[12px] leading-snug text-amber-300/90">
+                                It's a prediction, not a measurement: wind and pressure can move real water by 0.3 m or
+                                more, tide differs across a bay, and sand moves. Your sounder is the truth. Route checks
+                                stay on chart datum (LAT).
+                            </p>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => setShowTideAck(false)}
+                                    className="flex-1 rounded-xl bg-white/5 py-2.5 text-[12px] font-black uppercase tracking-wide text-gray-300 active:scale-95"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        try {
+                                            localStorage.setItem(TIDE_ACK_KEY, new Date().toISOString());
+                                        } catch {
+                                            /* private mode — sheet just shows again next time */
+                                        }
+                                        setShowTideAck(false);
+                                        setTideDepthMode(true);
+                                    }}
+                                    className="flex-1 rounded-xl bg-teal-500/20 py-2.5 text-[12px] font-black uppercase tracking-wide text-teal-300 active:scale-95"
+                                >
+                                    Show live depths
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* Chart modes — top-center one-tap layer presets so a
                     new user can go from blank chart to "Day Sail" or
                     "Storm Watch" in a single tap, instead of hunting
@@ -4335,6 +4487,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
                     satelliteVisible={satelliteVisible}
                     setSatelliteVisible={setSatelliteVisible}
+                    tideDepthMode={tideDepthMode}
+                    onToggleTideDepth={onToggleTideDepth}
                     encCellCount={encCellCount}
                     seawayDebugVisible={seawayDebugVisible}
                     onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}
