@@ -35,6 +35,7 @@ import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
+import { clipFeatureOutsideBboxes } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -547,9 +548,24 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
         ) => {
             if (!fc || !Array.isArray(fc.features)) return;
             const dest = merged[target];
-            for (const feat of fc.features) {
+            for (let feat of fc.features) {
                 if (!feat || !feat.geometry) continue;
                 if (shadows.length > 0 && SHADOWED_CLASSES.has(target) && featureIsShadowed(feat, shadows)) continue;
+                // DEPARE partial overlaps get CLIPPED out of finer cells'
+                // coverage (whole-bbox shadowing above only drops features
+                // fully inside): translucent glaze fills stack, so every
+                // coarse band surviving over a finer cell double-painted a
+                // hard-edged darker patch (Shane 2026-07-11: "ruining my
+                // day"). After the clip exactly one band covers any point
+                // of water. Returns a NEW feature — cached blobs unmutated.
+                if (target === 'DEPARE' && shadows.length > 0) {
+                    const clipped = clipFeatureOutsideBboxes(
+                        feat,
+                        shadows.map((s) => s.bbox),
+                    );
+                    if (!clipped) continue;
+                    feat = clipped;
+                }
                 // Decorate properties with provenance so the map
                 // can keep "which cell" context for clicks/etc.
                 const props: Record<string, unknown> = {
