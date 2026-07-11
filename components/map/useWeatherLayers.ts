@@ -1315,32 +1315,19 @@ export function useWeatherLayers(
             log.warn('[useWeatherLayers]', _);
         }
 
-        // ── Permanent base layer: Esri satellite imagery ──
-        const SAT_ID = 'tiles-satellite';
-        if (!map.getSource(SAT_ID)) {
-            try {
-                map.addSource(SAT_ID, {
-                    type: 'raster',
-                    tiles: [getTileUrl('satellite')!],
-                    tileSize: 256,
-                    maxzoom: 16,
-                });
-                // Insert above base fill/background but below symbol/label layers
-                const styleLayers = map.getStyle()?.layers ?? [];
-                const firstSymbolId = styleLayers.find((l) => l.type === 'symbol')?.id;
-                map.addLayer(
-                    {
-                        id: SAT_ID,
-                        type: 'raster',
-                        source: SAT_ID,
-                        paint: { 'raster-opacity': 0.85, 'raster-fade-duration': 0 },
-                    },
-                    firstSymbolId,
-                );
-                log.info('Added permanent Esri satellite base layer');
-            } catch (err) {
-                log.warn('Failed to add satellite base layer:', err);
-            }
+        // ── 'tiles-satellite' PERMANENT Esri base REMOVED (2026-07-11) ──
+        // This always-on 0.85-opacity imagery raster was the app's
+        // de-facto basemap — THE "old sat map" that survived every
+        // satellite fix of the purge (all of which targeted
+        // 'satellite-base-layer', a DIFFERENT layer). The white chart is
+        // the map now; imagery exists only behind the explicit satellite
+        // toggle. Actively removed (not just no-longer-added) so live
+        // sessions heal without a reload.
+        try {
+            if (map.getLayer('tiles-satellite')) map.removeLayer('tiles-satellite');
+            if (map.getSource('tiles-satellite')) map.removeSource('tiles-satellite');
+        } catch (_) {
+            /* style mid-swap — next pass heals */
         }
 
         // Himawari-9 IR satellite layer is now managed by useCycloneLayer.ts
