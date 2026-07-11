@@ -146,6 +146,114 @@ function outsidePartition(frame: Bbox, hole: Bbox): Bbox[] {
 }
 
 /**
+ * Subtract the given bboxes from a LINE feature (DEPCNT contours,
+ * COALNE coastlines) — the same double-paint disease as the fills,
+ * drawn as duplicate/criss-crossing lines where coarse and fine cells
+ * overlap. Per segment: drop the parts inside any bbox, keep the rest
+ * as split line pieces. Returns the ORIGINAL feature untouched when
+ * nothing overlaps, null when swallowed whole.
+ */
+export function clipLineFeatureOutsideBboxes(feature: Feature, allBboxes: readonly Bbox[]): Feature | null {
+    const g = feature.geometry;
+    if (!g || (g.type !== 'LineString' && g.type !== 'MultiLineString')) return feature;
+    const inputLines: Position[][] = g.type === 'LineString' ? [g.coordinates] : g.coordinates;
+
+    // Feature-level prefilter (review major: every segment allocated a
+    // param Set against every bbox in the library) — only bboxes that
+    // touch this feature's own extent can affect it; none → identity.
+    let fMinX = Infinity,
+        fMinY = Infinity,
+        fMaxX = -Infinity,
+        fMaxY = -Infinity;
+    for (const line of inputLines) {
+        for (const p of line) {
+            if (p[0] < fMinX) fMinX = p[0];
+            if (p[1] < fMinY) fMinY = p[1];
+            if (p[0] > fMaxX) fMaxX = p[0];
+            if (p[1] > fMaxY) fMaxY = p[1];
+        }
+    }
+    const bboxes = allBboxes.filter((b) => !(fMaxX <= b[0] || fMinX >= b[2] || fMaxY <= b[1] || fMinY >= b[3]));
+    if (bboxes.length === 0) return feature;
+
+    const insideAny = (p: Position): boolean =>
+        bboxes.some((b) => p[0] >= b[0] && p[0] <= b[2] && p[1] >= b[1] && p[1] <= b[3]);
+
+    // Split each line at bbox boundaries by sampling segment crossings.
+    // Exact param clipping per bbox edge: for each segment, collect the
+    // entry/exit parameters against every bbox, then keep sub-segments
+    // whose midpoints are outside all bboxes.
+    const segParams = (a: Position, b: Position): number[] => {
+        const ts = new Set<number>([0, 1]);
+        for (const [minX, minY, maxX, maxY] of bboxes) {
+            for (const [axis, bound] of [
+                [0, minX],
+                [0, maxX],
+                [1, minY],
+                [1, maxY],
+            ] as const) {
+                const da = a[axis];
+                const db = b[axis];
+                if (da === db) continue;
+                const t = (bound - da) / (db - da);
+                if (t > 0 && t < 1) ts.add(t);
+            }
+        }
+        return Array.from(ts).sort((x, y) => x - y);
+    };
+
+    let touched = false;
+    const outLines: Position[][] = [];
+    for (const line of inputLines) {
+        let current: Position[] = [];
+        const flush = (): void => {
+            if (current.length >= 2) outLines.push(current);
+            current = [];
+        };
+        for (let i = 0; i < line.length - 1; i++) {
+            const a = line[i];
+            const b = line[i + 1];
+            // Per-segment quick reject — segments clear of every relevant
+            // bbox pass through without the param machinery.
+            const sMinX = Math.min(a[0], b[0]);
+            const sMaxX = Math.max(a[0], b[0]);
+            const sMinY = Math.min(a[1], b[1]);
+            const sMaxY = Math.max(a[1], b[1]);
+            if (!bboxes.some((bb) => !(sMaxX <= bb[0] || sMinX >= bb[2] || sMaxY <= bb[1] || sMinY >= bb[3]))) {
+                if (current.length === 0) current.push(a);
+                current.push(b);
+                continue;
+            }
+            const ts = segParams(a, b);
+            for (let k = 0; k < ts.length - 1; k++) {
+                const t0 = ts[k];
+                const t1 = ts[k + 1];
+                const mid: Position = [a[0] + ((b[0] - a[0]) * (t0 + t1)) / 2, a[1] + ((b[1] - a[1]) * (t0 + t1)) / 2];
+                const p0: Position = t0 === 0 ? a : [a[0] + (b[0] - a[0]) * t0, a[1] + (b[1] - a[1]) * t0];
+                const p1: Position = t1 === 1 ? b : [a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1];
+                if (insideAny(mid)) {
+                    touched = true;
+                    flush();
+                } else {
+                    if (current.length === 0) current.push(p0);
+                    current.push(p1);
+                }
+            }
+        }
+        flush();
+    }
+    if (!touched) return feature;
+    if (outLines.length === 0) return null;
+    return {
+        ...feature,
+        geometry:
+            outLines.length === 1
+                ? { type: 'LineString', coordinates: outLines[0] }
+                : { type: 'MultiLineString', coordinates: outLines },
+    };
+}
+
+/**
  * Subtract the given bboxes from a DEPARE feature's polygons. Returns:
  *  - the ORIGINAL feature when no bbox overlaps it (fast identity path),
  *  - null when the bboxes swallow it whole,

@@ -80,9 +80,16 @@ import {
     setEncChartDetail as encApplyChartDetailLayers,
     syncDepareBaseTreatment as encSyncDepareBaseTreatment,
     setEncTideOffset,
+    setEncPopupSuppression,
+    setEncDraftAssumed,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
-import { readTideOffsetNow, type TideOffsetRead } from '../../services/TideOffsetService';
+import {
+    readTideCurveWindow,
+    tideReadAt,
+    type TideCurveWindow,
+    type TideOffsetRead,
+} from '../../services/TideOffsetService';
 import { useEncTestRouteLayer, type EncTestRoute } from './useEncTestRouteLayer';
 import { useSeawayDebugLayer } from './useSeawayDebugLayer';
 import { TraceReportModal } from './TraceReportModal';
@@ -467,6 +474,8 @@ export const MapHub: React.FC<MapHubProps> = ({
         window.addEventListener('thalassa:trace-mode', open);
         return () => window.removeEventListener('thalassa:trace-mode', open);
     }, [embedded, pickerMode, hideTracer, isPinView]);
+    // (Tap-the-water popup suppression lives below, after mapRef/mapReady
+    // are declared — it's per-map now, not module-global.)
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
         if (coordCaptureMode) {
@@ -1727,6 +1736,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [tideDepthMode, setTideDepthMode] = usePersistedState('thalassa_tide_depth_mode', false);
     const [tideOffsetInfo, setTideOffsetInfo] = useState<TideOffsetRead | null>(null);
     const [showTideAck, setShowTideAck] = useState(false);
+    /** Scrubber position in QUARTER-HOURS AHEAD of now, 0 = live now
+     *  (2026-07-11 #3: drag through the day, watch the banks flood and
+     *  dry, park it on your ETA). RELATIVE, not an absolute instant — an
+     *  absolute scrub drifted into the past and the thumb crept as time
+     *  passed (review major). A ref mirrors it for async closures. */
+    const [tideScrubQ, setTideScrubQ] = useState(0);
+    const tideScrubRef = useRef(0);
+    const tideCurveRef = useRef<TideCurveWindow | null>(null);
+    /** The instant the scrub currently points at (null = live). */
+    const scrubInstant = (q: number): number | null => (q > 0 ? Date.now() + q * 900_000 : null);
     const onToggleTideDepth = useCallback(() => {
         triggerHaptic('light');
         if (!tideDepthMode) {
@@ -1749,22 +1768,48 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!tideDepthMode) {
             setEncTideOffset(map, null);
             setTideOffsetInfo(null);
+            setTideScrubQ(0);
+            tideCurveRef.current = null;
             return;
         }
         let cancelled = false;
         let lastFix: { lat: number; lon: number } | null = null;
+        const applyAtScrub = (): void => {
+            const curve = tideCurveRef.current;
+            const atMs = tideScrubRef.current > 0 ? Date.now() + tideScrubRef.current * 900_000 : null;
+            const read = curve ? tideReadAt(curve, atMs ?? Date.now()) : null;
+            setTideOffsetInfo(read);
+            // Fail-safe: no curve / off the curve → chart datum, badge says
+            // so. The scrub instant rides along so the tap-the-water popup
+            // can never present a scrubbed tide as "right now".
+            setEncTideOffset(map, read ? read.offsetM : null, atMs);
+        };
         const refresh = async (): Promise<void> => {
             const c = map.getCenter();
             lastFix = { lat: c.lat, lon: c.lng };
-            const read = await readTideOffsetNow(c.lat, c.lng);
+            const curve = await readTideCurveWindow(c.lat, c.lng);
             if (cancelled) return;
-            setTideOffsetInfo(read);
-            // Fail-safe: no curve → chart datum, and the badge says so.
-            setEncTideOffset(map, read ? read.offsetM : null);
+            if (curve) {
+                tideCurveRef.current = curve;
+            } else {
+                // Fetch failed — KEEP a still-valid curve for the same
+                // waters (review major: a blip mid-scrub silently dropped
+                // the chart to datum); drop it only when it's for
+                // somewhere else or has expired.
+                const old = tideCurveRef.current;
+                const stillGood =
+                    old &&
+                    Math.abs(c.lat - old.fix.lat) <= 0.2 &&
+                    Math.abs(c.lng - old.fix.lon) <= 0.2 &&
+                    Date.now() < old.rangeMs[1];
+                if (!stillGood) tideCurveRef.current = null;
+            }
+            applyAtScrub();
         };
         void refresh();
-        // Tide moves ~1–2 cm/min at worst — 5 min keeps the offset
-        // within a freeboard of truth without hammering the API.
+        // Tide moves ~1–2 cm/min at worst — 5 min keeps the live read
+        // within a freeboard of truth without hammering the API (and
+        // re-samples the curve at the scrub position either way).
         const iv = window.setInterval(() => void refresh(), 5 * 60_000);
         const onMoveEnd = (): void => {
             const c = map.getCenter();
@@ -1783,6 +1828,79 @@ export const MapHub: React.FC<MapHubProps> = ({
             setEncTideOffset(map, null);
         };
     }, [tideDepthMode, mapReady]);
+    // Scrub moves re-sample the already-fetched curve — no network, no
+    // rebuild, frame-instant re-tint.
+    useEffect(() => {
+        tideScrubRef.current = tideScrubQ;
+        if (!tideDepthMode || !mapReady) return;
+        const map = mapRef.current;
+        if (!map) return;
+        const curve = tideCurveRef.current;
+        const atMs = scrubInstant(tideScrubQ);
+        const read = curve ? tideReadAt(curve, atMs ?? Date.now()) : null;
+        setTideOffsetInfo(read);
+        setEncTideOffset(map, read ? read.offsetM : null, atMs);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [tideScrubQ, tideDepthMode, mapReady]);
+    // Keel-honesty flag for the tap-the-water popup — a verdict against
+    // the 2.5 m fallback draft must say so (mirrors the tracer).
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        setEncDraftAssumed(map, !(Number(settings.vessel?.draft) > 0));
+    }, [settings.vessel, mapReady]);
+    // A tap means "drop a pin" while tracing and "pick" in picker mode —
+    // the tap-the-water popup must never fight those (same for weather
+    // inspect, which owns taps too). Per-map flag.
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !mapReady) return;
+        setEncPopupSuppression(map, coordCaptureMode || pickerMode || weatherInspectMode);
+        return () => setEncPopupSuppression(map, false);
+    }, [coordCaptureMode, pickerMode, weatherInspectMode, mapReady]);
+    // ── /plan lean boot (the purge begins, 2026-07-11: "our new layer is
+    // going to be the only layer... speed is the key") ──
+    // First tracer open per tab on the WEB planning page strips the whole
+    // weather stack so the chart boots bare and fast. One-shot per tab;
+    // the ChartModes chip brings anything back.
+    useEffect(() => {
+        if (!coordCaptureMode) return;
+        if (!/^\/(plan|builder)/.test(window.location.pathname)) return;
+        try {
+            if (sessionStorage.getItem('thalassa_plan_lean_v1')) return;
+            sessionStorage.setItem('thalassa_plan_lean_v1', '1');
+        } catch {
+            return; // no sessionStorage — skip rather than clobber repeatedly
+        }
+        for (const layer of Array.from(weather.activeLayers as Set<string>)) {
+            weather.toggleLayer(layer as never);
+        }
+        setAisVisible(false);
+        setLightningVisible(false);
+        setCycloneVisible(false);
+        setSquallVisible(false);
+        setChokepointVisible(false);
+        setTideStationsVisible(false);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [coordCaptureMode]);
+    // ── Chart key (the legend for mere mortals, 2026-07-11) ──
+    // Auto-opens ONCE when charted water first renders (punters don't
+    // know khaki means "dries" or what LAT is); after that it lives
+    // behind the ChartModes row. Session state + a seen-flag.
+    const [chartKeyOpen, setChartKeyOpen] = useState(false);
+    useEffect(() => {
+        // encVisible gate (review minor): never auto-open (or burn the
+        // one-shot flag) over a map that isn't showing the chart.
+        if (encCellCount === 0 || !encVisible || embedded || pickerMode || isPinView) return;
+        try {
+            if (!localStorage.getItem('thalassa_chart_key_seen_v1')) {
+                localStorage.setItem('thalassa_chart_key_seen_v1', new Date().toISOString());
+                setChartKeyOpen(true);
+            }
+        } catch {
+            /* private mode — no auto-open, row still works */
+        }
+    }, [encCellCount, encVisible, embedded, pickerMode, isPinView]);
     // Declutter: collapse the bottom weather cluster (model selector + scrubber + legend) behind a pop-out.
     const [chartControlsHidden, setChartControlsHidden] = usePersistedState(
         'thalassa_map_chart_controls_hidden',
@@ -4377,32 +4495,140 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Teal = live offset applied; amber = mode on but no tide
                     data, chart fell back to LAT. Tap = kill switch. */}
                 {tideDepthMode && !embedded && !isPinView && !pickerMode && (
-                    <button
-                        onClick={onToggleTideDepth}
-                        aria-label="Live tide depth is on — tap to return to chart datum"
-                        className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
-                        style={
-                            tideOffsetInfo
-                                ? {
-                                      background: 'rgba(13, 63, 70, 0.92)',
-                                      borderColor: 'rgba(45, 212, 191, 0.45)',
-                                      color: '#5eead4',
-                                  }
-                                : {
-                                      background: 'rgba(69, 51, 8, 0.92)',
-                                      borderColor: 'rgba(251, 191, 36, 0.45)',
-                                      color: '#fcd34d',
-                                  }
-                        }
+                    <>
+                        <button
+                            onClick={() => {
+                                // Scrubbed WITH data = snap back to now; otherwise
+                                // (live, or no data at all) = kill switch. A
+                                // no-data badge must never eat the first tap as a
+                                // silent scrub reset (review minor).
+                                triggerHaptic('light');
+                                if (tideScrubQ > 0 && tideOffsetInfo) {
+                                    setTideScrubQ(0);
+                                } else {
+                                    onToggleTideDepth();
+                                }
+                            }}
+                            aria-label={
+                                tideScrubQ > 0 && tideOffsetInfo
+                                    ? 'Depths shown at a future tide — tap to return to now'
+                                    : 'Live tide depth is on — tap to return to chart datum'
+                            }
+                            className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
+                            style={
+                                tideOffsetInfo && tideScrubQ > 0
+                                    ? {
+                                          background: 'rgba(49, 27, 95, 0.92)',
+                                          borderColor: 'rgba(167, 139, 250, 0.5)',
+                                          color: '#c4b5fd',
+                                      }
+                                    : tideOffsetInfo
+                                      ? {
+                                            background: 'rgba(13, 63, 70, 0.92)',
+                                            borderColor: 'rgba(45, 212, 191, 0.45)',
+                                            color: '#5eead4',
+                                        }
+                                      : {
+                                            background: 'rgba(69, 51, 8, 0.92)',
+                                            borderColor: 'rgba(251, 191, 36, 0.45)',
+                                            color: '#fcd34d',
+                                        }
+                            }
+                        >
+                            {tideOffsetInfo
+                                ? `${
+                                      tideScrubQ > 0
+                                          ? `AT ${new Date(Date.now() + tideScrubQ * 900_000).toLocaleTimeString(
+                                                'en-AU',
+                                                { hour: '2-digit', minute: '2-digit', hour12: false },
+                                            )}`
+                                          : 'LIVE DEPTH'
+                                  } ${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m ${
+                                      tideOffsetInfo.trend === 'rising' ? '↑' : '↓'
+                                  }${tideOffsetInfo.stationName ? ` · ${tideOffsetInfo.stationName}` : ''}${
+                                      tideOffsetInfo.approx ? ' · approx' : ''
+                                  }${tideScrubQ > 0 ? ' · tap for now' : ''}`
+                                : 'LIVE DEPTH — no tide data, showing chart datum'}
+                        </button>
+                        {/* The scrubber (#3): slide through the next 24 h and
+                            watch the banks flood and dry — or park it on your
+                            ETA. Re-samples the fetched curve; no network. */}
+                        {tideOffsetInfo && (
+                            <div className="absolute left-1/2 top-[6.4rem] z-[9989] w-60 -translate-x-1/2 rounded-xl border border-white/10 bg-slate-900/85 px-3 pb-1 pt-1.5 shadow-lg">
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={96}
+                                    step={1}
+                                    value={tideScrubQ}
+                                    onChange={(e) => setTideScrubQ(Number(e.target.value))}
+                                    aria-label="Scrub the tide through the next 24 hours"
+                                    className={`w-full ${tideScrubQ > 0 ? 'accent-violet-400' : 'accent-teal-400'}`}
+                                />
+                                <div className="flex justify-between text-[9px] font-bold text-gray-400">
+                                    <span>now</span>
+                                    <span>+12 h</span>
+                                    <span>+24 h</span>
+                                </div>
+                            </div>
+                        )}
+                    </>
+                )}
+                {/* Datum chip — the one-line honesty note (2026-07-11 #4).
+                    Mode-aware: chart datum vs live tide, so the corner of
+                    the chart always says which water you're reading. */}
+                {encCellCount > 0 && encVisible && !embedded && !pickerMode && !isPinView && (
+                    <div
+                        className="pointer-events-none absolute bottom-1 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900/70 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-gray-400"
+                        aria-hidden
                     >
-                        {tideOffsetInfo
-                            ? `LIVE DEPTH ${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m ${
-                                  tideOffsetInfo.trend === 'rising' ? '↑' : '↓'
-                              }${tideOffsetInfo.stationName ? ` · ${tideOffsetInfo.stationName}` : ''}${
-                                  tideOffsetInfo.approx ? ' · approx' : ''
-                              }`
-                            : 'LIVE DEPTH — no tide data, showing chart datum'}
-                    </button>
+                        {tideDepthMode && tideOffsetInfo
+                            ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
+                            : 'depths in metres at low tide (LAT)'}
+                    </div>
+                )}
+                {/* Chart key — the legend for mere mortals (2026-07-11 #2).
+                    Auto-opens once on first charted render; afterwards via
+                    the ChartModes row. */}
+                {chartKeyOpen && !embedded && !pickerMode && !isPinView && (
+                    <div className="absolute bottom-44 right-2 z-[9992] w-64 rounded-2xl border border-white/10 bg-slate-900/95 p-3 shadow-2xl">
+                        <div className="mb-2 flex items-center justify-between">
+                            <span className="text-[11px] font-black uppercase tracking-widest text-amber-300">
+                                Chart key
+                            </span>
+                            <button
+                                onClick={() => setChartKeyOpen(false)}
+                                aria-label="Close chart key"
+                                className="text-xs font-bold text-gray-400"
+                            >
+                                ✕
+                            </button>
+                        </div>
+                        <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
+                            {[
+                                ['#c9c6ae', 'dries'],
+                                ['#d4cdbf', '0–2'],
+                                ['#ded8cc', '2–5'],
+                                ['#e8e3d9', '5–10'],
+                                ['#f0ede5', '10–20'],
+                                ['#f7f5f0', '20–50'],
+                                ['#ffffff', '50+'],
+                            ].map(([hex, label]) => (
+                                <div key={label} className="flex-1">
+                                    <div style={{ background: hex, height: 14 }} />
+                                    <div className="bg-slate-800 py-0.5 text-center text-[8px] font-bold text-gray-300">
+                                        {label}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="space-y-1 text-[10px] leading-snug text-gray-300">
+                            <div>Whiter = deeper. Dirty white = shallow. Khaki dries at low tide.</div>
+                            <div>Numbers are metres at the lowest tide — 3₄ means 3.4 m. Khaki numbers dry.</div>
+                            <div>The bold dark contour is your keel's limit; thin grey lines join equal depths.</div>
+                            <div className="text-teal-300">Teal numbers = live tide depth is on.</div>
+                        </div>
+                    </div>
                 )}
                 {/* One-time disclaimer before the first enable ("needs a
                     disclaimer of course"). */}
@@ -4487,6 +4713,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     setSatelliteVisible={setSatelliteVisible}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}
+                    onOpenChartKey={() => setChartKeyOpen(true)}
                     encCellCount={encCellCount}
                     seawayDebugVisible={seawayDebugVisible}
                     onToggleSeawayDebug={() => setSeawayDebugVisible(!seawayDebugVisible)}

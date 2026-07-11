@@ -34,23 +34,54 @@ export interface TideOffsetRead {
     fetchedAt: number;
 }
 
-export async function readTideOffsetNow(lat: number, lon: number): Promise<TideOffsetRead | null> {
+/** A tide curve spanning now → +24 h — the scrubber's raw material. */
+export interface TideCurveWindow {
+    heightAt(tMs: number): number | null;
+    rangeMs: [number, number];
+    stationName: string | null;
+    approx: boolean;
+    fetchedAt: number;
+    /** Where this curve was requested for — refresh failures keep a
+     *  still-valid curve only while the viewport stays near this fix. */
+    fix: { lat: number; lon: number };
+}
+
+export async function readTideCurveWindow(lat: number, lon: number): Promise<TideCurveWindow | null> {
     const now = Date.now();
     try {
-        const curve = await fetchTideCurve(lat, lon, now - 3 * 3600_000, now + 9 * 3600_000);
+        const curve = await fetchTideCurve(lat, lon, now - 3 * 3600_000, now + 27 * 3600_000);
         if (!curve) return null;
-        const h = curve.heightAt(now);
-        if (h === null || !Number.isFinite(h)) return null;
-        const later = curve.heightAt(now + 30 * 60_000);
         return {
-            offsetM: Math.round(h * 10) / 10,
-            trend: (later ?? h) >= h ? 'rising' : 'falling',
+            heightAt: (t: number) => curve.heightAt(t),
+            rangeMs: curve.rangeMs,
             stationName: curve.stationName ?? null,
             approx: curve.provenance === 'EXTREMES_INTERP',
             fetchedAt: now,
+            fix: { lat, lon },
         };
     } catch (err) {
-        log.warn(`tide offset read failed: ${err instanceof Error ? err.message : String(err)}`);
+        log.warn(`tide curve read failed: ${err instanceof Error ? err.message : String(err)}`);
         return null;
     }
+}
+
+/** Sample the curve at a moment (scrubber position or "now") into the
+ *  badge-ready read. Null when the moment is outside the curve — the
+ *  caller falls back to chart datum, never extrapolates. */
+export function tideReadAt(curve: TideCurveWindow, tMs: number): TideOffsetRead | null {
+    const h = curve.heightAt(tMs);
+    if (h === null || !Number.isFinite(h)) return null;
+    const later = curve.heightAt(tMs + 30 * 60_000);
+    return {
+        offsetM: Math.round(h * 10) / 10,
+        trend: (later ?? h) >= h ? 'rising' : 'falling',
+        stationName: curve.stationName,
+        approx: curve.approx,
+        fetchedAt: curve.fetchedAt,
+    };
+}
+
+export async function readTideOffsetNow(lat: number, lon: number): Promise<TideOffsetRead | null> {
+    const curve = await readTideCurveWindow(lat, lon);
+    return curve ? tideReadAt(curve, Date.now()) : null;
 }

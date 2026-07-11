@@ -59,6 +59,17 @@ async function ensureDir(): Promise<void> {
 // ── Public API ────────────────────────────────────────────────────
 
 /**
+ * Parsed-blob memory cache (2026-07-11, Shane: "it seems to take a
+ * long time for our new layer to show up"). Every render merge used
+ * to re-read + re-JSON.parse EVERY cell from disk — and a cell-sync
+ * storm triggers many merges back to back. Geometry objects are
+ * shared into the merged FeatureCollections anyway (properties get
+ * cloned, geometry doesn't), so caching the parsed blob costs little
+ * beyond what the merge already retains. Invalidated on save/delete.
+ */
+const blobCache = new Map<string, EncConversionResult>();
+
+/**
  * Save the converted GeoJSON for a cell. Returns the relative path
  * the caller should persist in the cell metadata record so we can
  * find the blob again later.
@@ -76,6 +87,7 @@ export async function saveCellGeoJSON(cellId: string, blob: EncConversionResult)
         directory: DIRECTORY,
         encoding: Encoding.UTF8,
     });
+    blobCache.delete(cellId); // fresh edition — next load re-parses
     log.info(`saved cell ${cellId} → ${path} (${(data.length / 1024).toFixed(1)} KB)`);
     return path;
 }
@@ -87,6 +99,8 @@ export async function saveCellGeoJSON(cellId: string, blob: EncConversionResult)
  * the Pi, so registered-but-not-downloaded cells hydrate on demand).
  */
 export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Promise<EncConversionResult | null> {
+    const cached = blobCache.get(cellId);
+    if (cached) return cached;
     try {
         const path = relPath(cellId);
         const result = await Filesystem.readFile({
@@ -100,6 +114,7 @@ export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Pro
             log.warn(`loadCellGeoJSON ${cellId}: malformed JSON`);
             return null;
         }
+        blobCache.set(cellId, parsed);
         return parsed;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -120,6 +135,7 @@ export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Pro
  * file is missing.
  */
 export async function deleteCellGeoJSON(cellId: string): Promise<void> {
+    blobCache.delete(cellId);
     try {
         await Filesystem.deleteFile({
             path: relPath(cellId),
@@ -138,6 +154,7 @@ export async function deleteCellGeoJSON(cellId: string): Promise<void> {
  * charts" admin action and by tests.
  */
 export async function clearAllGeoJSON(): Promise<void> {
+    blobCache.clear();
     try {
         await Filesystem.rmdir({
             path: ENC_GEOJSON_DIR,

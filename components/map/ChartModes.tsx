@@ -151,6 +151,9 @@ interface ChartModesProps {
     tideDepthMode?: boolean;
     onToggleTideDepth?: () => void;
 
+    /** Chart key — the plain-words legend card (MapHub owns the card). */
+    onOpenChartKey?: () => void;
+
     /**
      * If provided, renders a "Plan ENC Route" action row between the
      * Charts Only and Clear All preset rows in the dropdown. The callback
@@ -592,6 +595,48 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 depths as they are right now, not chart datum
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && props.onOpenChartKey && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            props.onOpenChartKey?.();
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: 'rgba(251, 191, 36, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(251, 191, 36, 0.25)',
+                                        }}
+                                        aria-label="Open the chart key"
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#fbbf24', fontSize: 14, fontWeight: 900 }}
+                                        >
+                                            ?
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#fbbf24', fontSize: 13 }}
+                                            >
+                                                Chart key
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                what the shades and numbers mean
                                             </span>
                                         </span>
                                     </button>

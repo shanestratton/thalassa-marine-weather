@@ -29,10 +29,12 @@ const MIN_Z = 4;
 const MAX_Z = 16;
 
 /**
- * Bakes a density min-zoom onto every sounding, combined with any
- * existing SCAMIN `_minZoom` via max (the stricter gate wins). Points
- * that never win a cell get MAX_Z + 1 — visible only past the ladder's
- * end. Mutates the features in place; the merged heap is throwaway.
+ * Bakes a density min-zoom onto every sounding, REPLACING any SCAMIN
+ * `_minZoom` the extractor pre-baked (SCAMIN pinned nearly every AU
+ * sounding to z11+, which silenced the wide-zoom rungs entirely).
+ * Points that never win a cell get MAX_Z + 1 — visible only past the
+ * ladder's end. Mutates the features in place; the merged heap is
+ * throwaway.
  */
 export function assignSoundingDensityMinZoom(features: Array<Feature<Point>>): void {
     const pts: Array<{ f: Feature<Point>; lon: number; lat: number; d: number }> = [];
@@ -69,7 +71,13 @@ export function assignSoundingDensityMinZoom(features: Array<Feature<Point>>): v
             occupied.add(key(z, p.lon, p.lat));
         }
         const props = (p.f.properties ??= {}) as Record<string, unknown>;
-        const prev = Number(props._minZoom);
-        props._minZoom = Number.isFinite(prev) ? Math.max(prev, mz) : mz;
+        // The ladder REPLACES the chart's SCAMIN pre-bake (was max() of
+        // both): nearly every AU sounding carries SCAMIN ≈ z11+, so the
+        // wide-zoom rungs never fired — a bay-scale view showed NO numbers
+        // at all (Shane 2026-07-11: "can we start getting depths from
+        // zoom 7??"). SCAMIN is paper-chart declutter advice; the
+        // shallowest-wins ladder is a stricter, safety-biased declutter,
+        // so overriding it widens visibility without adding clutter.
+        props._minZoom = mz;
     }
 }

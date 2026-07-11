@@ -751,7 +751,11 @@ export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: 
         const curve = await fetchTideCurve(at.lat, at.lon, fromMs, untilMs);
         if (!curve) return null;
         const res = computeTidalWindows({ minDepthM, draftM, tide: tideFieldFromCurve(curve), fromMs, untilMs });
-        if (res.alwaysOpen) return null;
+        // alwaysOpen with a real required rise = the tide never drops low
+        // enough to matter — say so (the popup used to show "tide data
+        // unavailable" for this, review minor 2026-07-11). Zero/negative
+        // rise = nothing to say, as before.
+        if (res.alwaysOpen) return res.requiredRiseM > 0 ? 'the tide covers this all day today' : null;
         if (res.windows.length === 0) return `needs +${res.requiredRiseM.toFixed(1)} m — no tide window in 24 h`;
         const w = res.windows[0];
         return `clears ${fmtHm(w.openMs)}–${fmtHm(w.closeMs)} ${dayWord(w.openMs)}${w.approx ? ' (approx)' : ''}`;
