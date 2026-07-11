@@ -543,21 +543,13 @@ export function useMapInit(opts: UseMapInitOptions) {
 
             setMapReady(true);
 
-            // ── Coastline outline — always on top of weather layers ──
-            // Uses the built-in 'water' source-layer from the composite vector tileset
-            // to draw a thin white line at land/sea boundaries.
-            if (!map.getLayer('coastline-outline')) {
-                map.addLayer({
-                    id: 'coastline-outline',
-                    type: 'line',
-                    source: 'composite',
-                    'source-layer': 'water',
-                    paint: {
-                        'line-color': 'rgba(255, 255, 255, 0.45)',
-                        'line-width': ['interpolate', ['linear'], ['zoom'], 2, 0.4, 5, 0.8, 8, 1.2, 12, 1.5],
-                    },
-                });
-            }
+            // ── Coastline outline REMOVED 2026-07-11 ──
+            // The white land/sea stroke ('coastline-outline') was a weather-
+            // layer visibility aid on the dark map; with the white depth ramp
+            // and satellite glaze it rimmed every landmass and canal islet in
+            // white (Shane: "remove the white line surrounding the land
+            // areas... less is more"). The base style's land/water contrast
+            // and the ENC render carry the boundary now.
 
             const styleLayers = map.getStyle()?.layers || [];
             let firstSymbolId: string | undefined;
@@ -1116,19 +1108,9 @@ export function useMapInit(opts: UseMapInitOptions) {
                 },
             });
 
-            // ── Coastline overlays (brighter for visibility under weather layers) ──
-            map.addLayer({
-                id: 'coastline-stroke',
-                type: 'line',
-                source: 'composite',
-                'source-layer': 'water',
-                paint: {
-                    'line-color': 'rgba(255, 255, 255, 0.55)',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 0, 0.4, 5, 0.8, 10, 1.2, 14, 1.5],
-                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 0, 0.6, 6, 0.8, 12, 0.9],
-                },
-            });
-
+            // 'coastline-stroke' (second white land rim) REMOVED 2026-07-11 —
+            // same reasoning as 'coastline-outline' above. The chat pin
+            // viewer keeps its own copy: tiny dark mini-map, different rules.
             map.addLayer({
                 id: 'country-borders-overlay',
                 type: 'line',
