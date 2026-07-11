@@ -6,15 +6,23 @@
  * vector chart overlay (depth-graduated water, tan land, white
  * coastline, magenta hazard symbols) whenever ANY cell is imported.
  *
- * Phase 8 v1: simple "all cells, all layers, all the time, zoom-
- * gated". Sufficient for the typical 1-10 cell user. Phase 9 can
- * add viewport-filtered loading for fleet users.
+ * Phase 9 (2026-07-12): VIEWPORT-WINDOWED. Phase 8's "all cells,
+ * all layers, all the time" was sufficient for the 1-10 cell user;
+ * the completed 172-cell cloud bucket turned it into a multi-GB
+ * heap (every blob parsed + a full merged clone + Mapbox's worker
+ * copies) and desktop Chrome's renderer OOM-crashed the moment the
+ * satellite rasters stacked on top. The merge now takes the map
+ * viewport expanded WINDOW_FACTOR× and only re-merges when the view
+ * escapes that window (or the zoom band shifts) — panning inside a
+ * bay costs nothing.
  *
  * Reactivity:
  *   - Mounts once when map ready and cells exist.
  *   - Subscribes to EncHazardService cell-list changes; on bump
  *     reloads merged data + setData on the existing sources
  *     (cheaper than tearing down layers).
+ *   - moveend: bumps ONLY when the viewport leaves the merged
+ *     window or crosses a whole zoom level.
  *   - Unmounts when the last cell is removed.
  */
 
@@ -35,6 +43,27 @@ import {
 import { getMergedVectorData, hasAnyCells, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 
 const log = createLogger('useEncVectorLayer');
+
+/** Merge window = viewport expanded this many × per side. Big enough
+ *  that a normal pan stays inside it; small enough that the merged
+ *  set stays a bay, not a coastline. */
+const WINDOW_FACTOR = 2.5;
+
+type Bbox = [number, number, number, number];
+
+function windowFor(map: mapboxgl.Map): Bbox {
+    const b = map.getBounds()!;
+    const cx = (b.getWest() + b.getEast()) / 2;
+    const cy = (b.getSouth() + b.getNorth()) / 2;
+    const hw = ((b.getEast() - b.getWest()) / 2) * WINDOW_FACTOR;
+    const hh = ((b.getNorth() - b.getSouth()) / 2) * WINDOW_FACTOR;
+    return [cx - hw, Math.max(cy - hh, -85), cx + hw, Math.min(cy + hh, 85)];
+}
+
+function viewportInside(map: mapboxgl.Map, win: Bbox): boolean {
+    const b = map.getBounds()!;
+    return b.getWest() >= win[0] && b.getSouth() >= win[1] && b.getEast() <= win[2] && b.getNorth() <= win[3];
+}
 
 export function useEncVectorLayer(
     mapRef: React.MutableRefObject<mapboxgl.Map | null>,
@@ -63,6 +92,10 @@ export function useEncVectorLayer(
 ): void {
     const mountedRef = useRef(false);
     const [bumpCounter, setBumpCounter] = useState(0);
+    /** Window + zoom the current merge was built for — moveend only
+     *  re-merges once the view actually escapes them. */
+    const mergedWindowRef = useRef<Bbox | null>(null);
+    const mergedZoomRef = useRef(0);
 
     // Latest safety depth, read inside the async apply() so the FIRST mount
     // always uses the live value — WITHOUT putting safetyDepthM in the mount
@@ -97,6 +130,32 @@ export function useEncVectorLayer(
         };
     }, []);
 
+    // Window escape watch: re-merge only when the view leaves the merged
+    // window, or crosses a whole zoom level (zooming IN never escapes the
+    // window geometrically, but it must still re-merge — the shrinking
+    // window is what pulls fine harbour cells past WINDOW_MIN_DIAG_RATIO
+    // into the selection).
+    useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        if (!map) return;
+        let t: number | null = null;
+        const onMoveEnd = () => {
+            const win = mergedWindowRef.current;
+            if (win && viewportInside(map, win) && Math.abs(map.getZoom() - mergedZoomRef.current) < 1) return;
+            if (t !== null) window.clearTimeout(t);
+            t = window.setTimeout(() => {
+                t = null;
+                setBumpCounter((c) => c + 1);
+            }, 250);
+        };
+        map.on('moveend', onMoveEnd);
+        return () => {
+            if (t !== null) window.clearTimeout(t);
+            map.off('moveend', onMoveEnd);
+        };
+    }, [mapRef, mapReady]);
+
     useEffect(() => {
         if (!mapReady) return;
         const map = mapRef.current;
@@ -115,8 +174,11 @@ export function useEncVectorLayer(
             }
 
             try {
-                const data = await getMergedVectorData();
+                const win = windowFor(map);
+                const data = await getMergedVectorData(win);
                 if (cancelled || !data) return;
+                mergedWindowRef.current = win;
+                mergedZoomRef.current = map.getZoom();
                 if (mountedRef.current) {
                     // refreshEncVectorData re-applies the depth style from
                     // the per-map state it seeded at mount, so the safety

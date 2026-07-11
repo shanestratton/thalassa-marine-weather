@@ -468,7 +468,7 @@ export interface EncMergedVectorData {
     cellCount: number;
 }
 
-let mergedCache: { version: number; data: EncMergedVectorData } | null = null;
+let mergedCache: { version: number; key: string; data: EncMergedVectorData } | null = null;
 
 /**
  * Build the per-layer FeatureCollections by reading every imported
@@ -484,14 +484,51 @@ let mergedCache: { version: number; data: EncMergedVectorData } | null = null;
  * Returns null when no cells are imported (so the caller can skip
  * mounting the Mapbox source entirely).
  */
-export async function getMergedVectorData(): Promise<EncMergedVectorData | null> {
-    const cells = cellMeta.listCells();
-    if (cells.length === 0) {
+/** A cell only joins a WINDOWED merge when its bbox diagonal is at
+ *  least this fraction of the window's — below it the cell paints a
+ *  postage stamp of sub-pixel detail while its parsed blob still costs
+ *  megabytes of heap. Zoom in and the window shrinks past the ratio,
+ *  pulling the fine cell in. */
+const WINDOW_MIN_DIAG_RATIO = 0.05;
+
+function bboxIntersects(a: [number, number, number, number], b: [number, number, number, number]): boolean {
+    return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
+}
+
+function bboxDiag(b: [number, number, number, number]): number {
+    return Math.hypot(b[2] - b[0], b[3] - b[1]);
+}
+
+export async function getMergedVectorData(
+    /**
+     * Optional render window [minLon, minLat, maxLon, maxLat] — merge
+     * ONLY the cells worth painting there (Phase 9, forced by the
+     * 2026-07-12 desktop tab OOM: the completed 172-cell cloud bucket
+     * made the all-cells merge hold ~210 MB of GeoJSON text as parsed
+     * heap, and Chrome's renderer died the moment satellite rasters
+     * stacked on top). No window = the old full merge (seaway debug
+     * compile and other whole-library consumers).
+     */
+    window?: [number, number, number, number],
+): Promise<EncMergedVectorData | null> {
+    const allCells = cellMeta.listCells();
+    if (allCells.length === 0) {
         mergedCache = null;
         return null;
     }
+    const cells = window
+        ? allCells.filter(
+              (c) =>
+                  bboxIntersects(c.bbox, window) &&
+                  bboxDiag(c.bbox) >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO,
+          )
+        : allCells;
+    const cacheKey = window ? window.map((v) => v.toFixed(3)).join(',') : 'full';
     const currentVersion = cellMeta.getVersion();
-    if (mergedCache && mergedCache.version === currentVersion) return mergedCache.data;
+    if (mergedCache && mergedCache.version === currentVersion && mergedCache.key === cacheKey) {
+        return mergedCache.data;
+    }
+    if (cells.length === 0) return null;
 
     const merged: EncMergedVectorData = {
         DEPARE: { type: 'FeatureCollection', features: [] },
@@ -755,7 +792,7 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
     // every cell seam.
     assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
 
-    mergedCache = { version: currentVersion, data: merged };
+    mergedCache = { version: currentVersion, key: cacheKey, data: merged };
     if (missingBlobs.length > 0) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);
         void hydrateMissingCells(missingBlobs);

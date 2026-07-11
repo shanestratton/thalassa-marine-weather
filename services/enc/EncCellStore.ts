@@ -69,6 +69,33 @@ async function ensureDir(): Promise<void> {
  */
 const blobCache = new Map<string, EncConversionResult>();
 
+/** LRU cap (2026-07-12): unbounded, the cache held all 172 parsed
+ *  cells (~210 MB of JSON text, several × that as JS heap) and desktop
+ *  Chrome's renderer OOM-died. A windowed render merge touches a bay's
+ *  worth of cells; 32 keeps that working set warm while the rest of
+ *  the library stays on disk. Map iteration order = insertion order;
+ *  touchBlob() re-inserts on hit so eviction is least-recently-USED. */
+const BLOB_CACHE_MAX = 32;
+
+function touchBlob(cellId: string): EncConversionResult | undefined {
+    const hit = blobCache.get(cellId);
+    if (hit) {
+        blobCache.delete(cellId);
+        blobCache.set(cellId, hit);
+    }
+    return hit;
+}
+
+function cacheBlob(cellId: string, blob: EncConversionResult): void {
+    blobCache.delete(cellId);
+    blobCache.set(cellId, blob);
+    while (blobCache.size > BLOB_CACHE_MAX) {
+        const oldest = blobCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        blobCache.delete(oldest);
+    }
+}
+
 /**
  * Save the converted GeoJSON for a cell. Returns the relative path
  * the caller should persist in the cell metadata record so we can
@@ -99,7 +126,7 @@ export async function saveCellGeoJSON(cellId: string, blob: EncConversionResult)
  * the Pi, so registered-but-not-downloaded cells hydrate on demand).
  */
 export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Promise<EncConversionResult | null> {
-    const cached = blobCache.get(cellId);
+    const cached = touchBlob(cellId);
     if (cached) return cached;
     try {
         const path = relPath(cellId);
@@ -114,7 +141,7 @@ export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Pro
             log.warn(`loadCellGeoJSON ${cellId}: malformed JSON`);
             return null;
         }
-        blobCache.set(cellId, parsed);
+        cacheBlob(cellId, parsed);
         return parsed;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
