@@ -1642,13 +1642,24 @@ export const MapHub: React.FC<MapHubProps> = ({
     // layer — routes/seamarks/weather render on top). Owner ask 2026-07-03:
     // "satellite overlay instead of the enc overlay when running a route".
     // Key doubles as the init-time visibility read in useMapInit.
-    // Key bumped _v2 for THE PURGE (Shane 2026-07-11: 'full purge of all
-    // layers, except our new one') — every device boots into the white
-    // chart once; satellite remains a toggle, not the default.
-    const [satelliteVisible, setSatelliteVisible] = usePersistedState('thalassa_satellite_base_v2', false);
+    // THE PURGE, final form (Shane 2026-07-11: "the app does not
+    // automatically go to our new layer" — it must, ALWAYS): satellite is
+    // SESSION-ONLY now, never persisted. Every boot is the white chart;
+    // satellite is a peek you flip on when you want it (the Seaway-debug
+    // lesson: state that shouldn't haunt doesn't persist). The effect
+    // below mirrors the live value into localStorage purely for
+    // EncVectorLayer's synchronous satelliteBaseOn() reads.
+    const [satelliteVisible, setSatelliteVisible] = useState(false);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
+        // Mirror for EncVectorLayer's sync reads — written BEFORE apply()
+        // so the visibility writers see the same truth this render does.
+        try {
+            localStorage.setItem('thalassa_satellite_base_v2', satelliteVisible ? 'true' : 'false');
+        } catch {
+            /* storage unavailable — writers fall back to their default */
+        }
         const apply = () => {
             try {
                 if (map.getLayer('satellite-base-layer')) {
