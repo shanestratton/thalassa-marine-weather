@@ -311,13 +311,15 @@ export function buildSoundingTextField(tideOffsetM = 0): mapboxgl.ExpressionSpec
  */
 export function buildSoundingTextColor(tideOffsetM: number | null = null): mapboxgl.ExpressionSpecification {
     if (tideOffsetM === null) {
+        // Black-family ink (Shane 2026-07-11: "black, and thinner") —
+        // shallow slightly blacker than deep, khaki for drying.
         return [
             'case',
             ['<', ['get', '_d'], 0],
             '#6b5e23',
             ['<', ['get', '_d'], 5],
-            '#2f3e49',
-            '#647885',
+            '#0b1116',
+            '#26333d',
         ] as unknown as mapboxgl.ExpressionSpecification;
     }
     const v = ['+', ['get', '_d'], tideOffsetM];
@@ -326,8 +328,8 @@ export function buildSoundingTextColor(tideOffsetM: number | null = null): mapbo
         ['<', v, 0],
         '#6b5e23',
         ['<', v, 5],
-        '#0e5a63',
-        '#3f7d88',
+        '#0b4f58',
+        '#2a6b77',
     ] as unknown as mapboxgl.ExpressionSpecification;
 }
 
@@ -695,12 +697,12 @@ export function mountEncVectorLayer(
                     'text-padding': 4,
                 },
                 paint: {
-                    // Muted slate on light halo — legible on the white
-                    // ramp and over satellite imagery, quieter than the
-                    // soundings (which stay the primary read).
-                    'text-color': '#7d8e9b',
-                    'text-halo-color': 'rgba(255, 255, 255, 0.85)',
-                    'text-halo-width': 1.2,
+                    // Muted dark slate on a thin light halo — legible on
+                    // the white ramp and over satellite imagery, quieter
+                    // than the soundings (which stay the primary read).
+                    'text-color': '#46555f',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.8)',
+                    'text-halo-width': 0.8,
                     'text-opacity': opacity,
                 },
             },
@@ -951,8 +953,8 @@ export function mountEncVectorLayer(
                     // tide mode swaps the whole family to teal via
                     // buildSoundingTextColor.
                     'text-color': buildSoundingTextColor(null),
-                    'text-halo-color': 'rgba(255, 255, 255, 0.88)',
-                    'text-halo-width': 1.2,
+                    'text-halo-color': 'rgba(255, 255, 255, 0.8)',
+                    'text-halo-width': 0.8,
                     'text-opacity': opacity,
                 },
             },
