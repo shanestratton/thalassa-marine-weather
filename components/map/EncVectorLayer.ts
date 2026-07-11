@@ -666,8 +666,14 @@ export function mountEncVectorLayer(
                 minzoom: minZoom,
                 filter: depcntSafetyFilter(safetyValdco),
                 paint: {
-                    'line-color': '#16323f',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.6, 15, 2.8],
+                    // Slate hairline, not marker pen (Shane 2026-07-11:
+                    // "horrible black lines" — ECDIS-bold traced every bank
+                    // in a shallow bay into black scribble on the white
+                    // paper). Still the only keel-aware line on the chart;
+                    // now it whispers it.
+                    'line-color': '#44586a',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 15, 1.4],
+                    'line-opacity': 0.9,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPCNT_SAFETY),

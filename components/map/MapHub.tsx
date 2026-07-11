@@ -4699,7 +4699,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <div className="space-y-1 text-[10px] leading-snug text-gray-300">
                             <div>Whiter = deeper. Dirty white = shallow. Khaki dries at low tide.</div>
                             <div>Numbers are metres at the lowest tide — 3₄ means 3.4 m. Khaki numbers dry.</div>
-                            <div>The bold dark contour is your keel's limit; thin grey lines join equal depths.</div>
+                            <div>The slate contour is your keel's limit; thin grey lines join equal depths.</div>
                             <div className="text-teal-300">Teal numbers = live tide depth is on.</div>
                         </div>
                     </div>

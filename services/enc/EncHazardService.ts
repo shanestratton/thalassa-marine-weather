@@ -35,7 +35,6 @@ import { createLogger } from '../../utils/createLogger';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideBboxes, clipLineFeatureOutsideBboxes } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -599,37 +598,18 @@ export async function getMergedVectorData(): Promise<EncMergedVectorData | null>
             for (let feat of fc.features) {
                 if (!feat || !feat.geometry) continue;
                 if (shadows.length > 0 && SHADOWED_CLASSES.has(target) && featureIsShadowed(feat, shadows)) continue;
-                // DEPARE partial overlaps get CLIPPED out of finer cells'
-                // coverage (whole-bbox shadowing above only drops features
-                // fully inside): translucent glaze fills stack, so every
-                // coarse band surviving over a finer cell double-painted a
-                // hard-edged darker patch (Shane 2026-07-11: "ruining my
-                // day"). After the clip exactly one band covers any point
-                // of water. Returns a NEW feature — cached blobs unmutated.
-                if (target === 'DEPARE' && shadows.length > 0) {
-                    const clipped = clipFeatureOutsideBboxes(
-                        feat,
-                        shadows.map((s) => s.bbox),
-                    );
-                    if (!clipped) continue;
-                    feat = clipped;
-                }
-                // Same disease, line edition — COALNE ONLY. DEPCNT is
-                // deliberately NOT clipped: the draft-keyed SAFETY CONTOUR
-                // renders from the same merged source, and clipping a
-                // coarse contour inside finer coverage could erase the
-                // most prominent safety line on the chart wherever the
-                // fine cell lacks a contour at that exact VALDCO (review
-                // major, 2026-07-11). Duplicate thin contours beat a
-                // missing safety line.
-                if (target === 'COALNE' && shadows.length > 0) {
-                    const clipped = clipLineFeatureOutsideBboxes(
-                        feat,
-                        shadows.map((s) => s.bbox),
-                    );
-                    if (!clipped) continue;
-                    feat = clipped;
-                }
+                // GEOMETRY CLIPPING RETIRED (2026-07-11, same day it
+                // shipped): cutting coarse DEPARE out of a finer cell's
+                // data-extent RECTANGLE left bare black holes wherever the
+                // fine cell charts only part of that rectangle (Shane:
+                // "the horrible black lines are back" — black boxes over
+                // the Bribie channel). In the chart-first world the fills
+                // are near-opaque and the merge is sorted coarse→fine, so
+                // finest-paints-last hides overlaps WITHOUT cutting holes.
+                // (The satellite GLAZE can re-stack translucently — it's a
+                // manual peek now; a proper coverage-geometry clip is the
+                // future fix if that ever grates. clipDepareOverlap.ts
+                // stays for that day.)
                 // Decorate properties with provenance so the map
                 // can keep "which cell" context for clicks/etc.
                 const props: Record<string, unknown> = {
