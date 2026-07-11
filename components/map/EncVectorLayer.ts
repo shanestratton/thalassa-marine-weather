@@ -670,7 +670,16 @@ export function mountEncVectorLayer(
                 paint: {
                     'fill-color': buildDepareFillColor(),
                     'fill-opacity': 0,
-                    'fill-antialias': false,
+                    // AA ON, unlike the chart fills ('a little blocky at
+                    // this zoom', 2026-07-12): aliased band edges are
+                    // sub-pixel on the retina phone but visible stair-
+                    // steps on a desktop display. The glaze can afford
+                    // the AA the chart can't — overlap-clipping means at
+                    // most ONE translucent band covers any point, so the
+                    // feather can't double-paint into the old hairline
+                    // graticule, and the contour lines sit right on the
+                    // band edges masking any residual seam.
+                    'fill-antialias': true,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.DEPARE_GLAZE),
