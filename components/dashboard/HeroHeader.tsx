@@ -187,12 +187,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     </span>
                                     <div className="flex items-baseline gap-1 leading-none">
                                         <span
-                                            className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-2xl' : 'text-3xl'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
+                                            className={`${typeof pinnedDisplay.value === 'string' && pinnedDisplay.value.length > 3 ? 'text-4xl' : 'text-5xl'} font-mono font-bold tracking-tighter text-ivory drop-shadow`}
                                         >
                                             {pinnedDisplay.value}
                                         </span>
                                         {pinnedDisplay.unit && (
-                                            <span className="text-xs font-bold text-white/60">
+                                            <span className="text-base font-bold text-white/60">
                                                 {pinnedDisplay.unit}
                                             </span>
                                         )}
@@ -206,14 +206,17 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                             : '--'
                                     ).toString();
                                     const len = tempStr.length;
-                                    const sizeClass = len > 3 ? 'text-3xl' : len > 2 ? 'text-4xl' : 'text-3xl';
+                                    const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-5xl' : 'text-6xl';
                                     return (
-                                        <span
-                                            className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
-                                            aria-label={`Temperature ${tempStr} degrees`}
-                                        >
-                                            {tempStr}°
-                                        </span>
+                                        <div className="flex items-start gap-0.5">
+                                            <span
+                                                className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
+                                                aria-label={`Temperature ${tempStr} degrees ${units.temp}`}
+                                            >
+                                                {tempStr}°
+                                            </span>
+                                            <span className="text-lg font-bold text-white/60 mt-0.5">{units.temp}</span>
+                                        </div>
                                     );
                                 })()
                             )}

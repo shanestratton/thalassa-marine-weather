@@ -175,10 +175,10 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                     // Big and bold — scale down only for wide numbers
                                     const sizeClass =
                                         len > 3
-                                            ? 'text-4xl md:text-5xl'
+                                            ? 'text-2xl md:text-4xl'
                                             : len > 2
-                                              ? 'text-5xl md:text-6xl'
-                                              : 'text-6xl md:text-6xl';
+                                              ? 'text-3xl md:text-4xl'
+                                              : 'text-4xl md:text-4xl';
 
                                     return (
                                         <span
@@ -188,7 +188,7 @@ export const HeroHeader: React.FC<HeroHeaderProps> = ({
                                         </span>
                                     );
                                 })()}
-                                <span className="text-lg font-bold text-white/60 mt-1.5 ml-0.5">{units.temp}</span>
+                                <span className="text-sm font-bold text-white/60 mt-1 ml-0.5">{units.temp}</span>
                             </div>
                             <AutoFitConditionLabel
                                 text={
