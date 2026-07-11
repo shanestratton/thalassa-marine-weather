@@ -17,6 +17,7 @@
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback } from 'react';
+import { Capacitor } from '@capacitor/core';
 import { CompassIcon, SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
@@ -1663,12 +1664,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // EncVectorLayer's synchronous satelliteBaseOn() reads.
     // CHART-ONLY hard-off RETIRED (Shane 2026-07-12: "just missing the
     // sat overlay" — on the web chart, the day after asking for chart-
-    // ONLY there): every surface now keeps the session-only satellite
-    // peek. The 2026-07-11 intent ("our layer to come up not just
-    // first, but ONLY") is preserved where it mattered — satellite is
-    // never persisted, so every boot on every surface is the white
-    // chart; the toggle is opt-in each session.
-    const [satelliteVisible, setSatelliteVisible] = useState(false);
+    // ONLY there): every surface keeps the session-only satellite peek.
+    // WEB now BOOTS with it ON (same day: "can we default to having the
+    // satellite layer on??" — the keel glaze earned it). NATIVE keeps
+    // the white-chart boot: satellite tiles stream, and offshore with no
+    // internet a satellite default is a dark screen under a glaze while
+    // the white chart stands alone offline. Still never persisted — the
+    // toggle owns it per session, so no state can haunt a later boot.
+    const [satelliteVisible, setSatelliteVisible] = useState(!Capacitor.isNativePlatform());
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
