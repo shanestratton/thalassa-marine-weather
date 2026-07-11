@@ -72,7 +72,6 @@ import { useChlRasterLayer, isCmemsChlEnabled } from './useChlRasterLayer';
 import { useSeaIceRasterLayer, isCmemsSeaIceEnabled } from './useSeaIceRasterLayer';
 import { useMldRasterLayer, isCmemsMldEnabled } from './useMldRasterLayer';
 import { useMpaLayer, isMpaEnabled } from './useMpaLayer';
-import { useEncCoverageLayer } from './useEncCoverageLayer';
 import { useEncVectorLayer } from './useEncVectorLayer';
 // Aliased: MapHub's own `setEncChartDetail` is the persisted-state setter.
 import {
@@ -2987,11 +2986,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     useMpaLayer(mapRef, mapReady, weather.mpaVisible);
 
     // ── ENC Chart Coverage (dashed bbox overview) ──
-    // Auto-mounts whenever the user has imported S-57 ENC cells.
-    // Dashed-outline overlay showing which areas are ENC-covered;
-    // most useful at low zooms (zoom <8) where the vector layer
-    // is hidden. Colour-coded by CATZOC confidence.
-    useEncCoverageLayer(mapRef, mapReady);
+    // ENC coverage overlay RETIRED from auto-mount (Shane 2026-07-12:
+    // "rid ourselves of those blue dotted lines that are everywhere").
+    // The always-on CATZOC-coloured cell outlines were "highest-value
+    // feedback" when a punter owned 1-10 cells; with the full 172-cell
+    // library registered they grid the ENTIRE coast in dashed sky-blue
+    // rectangles. The chart itself now carries the coverage message
+    // (white ramp = charted, dark shell = not). EncCoverageLayer +
+    // useEncCoverageLayer stay in the tree for a future diagnostics
+    // toggle.
 
     // ── ENC Vector Chart Display ──
     // The real chart — surveyed depth contours (DEPARE),
