@@ -285,6 +285,16 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, [capturedCoords]);
     const [coordsCopied, setCoordsCopied] = useState(false);
     const coordCaptureRef = useRef(false);
+    /** The PEN switch (Shane 2026-07-11: stray taps while the tracer is
+     *  open dropped unwanted pins — "great when you want it, and fucken
+     *  annoying when you don't"). Armed = taps plot pins (the default on
+     *  every tracer open); paused = the chart is a chart again: popups
+     *  answer, pans are safe, nothing plots until ▶ resume. */
+    const [plotArmed, setPlotArmed] = useState(true);
+    const plotArmedRef = useRef(true);
+    useEffect(() => {
+        plotArmedRef.current = plotArmed;
+    }, [plotArmed]);
     const captureMarkersRef = useRef<mapboxgl.Marker[]>([]);
     // Tracer verdicts + context. The context (ENC cells + OSM overlay +
     // depth grid over the trace bbox) builds async once per area; a seq
@@ -479,6 +489,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         coordCaptureRef.current = coordCaptureMode;
         if (coordCaptureMode) {
+            // Every tracer open starts with the pen ARMED — pausing is a
+            // within-session choice, never a haunting state.
+            setPlotArmed(true);
             setSavedTraces(loadSavedTraces());
             // Desktop builder (Phase 5): register cloud ENC cells (idempotent,
             // signed-in only — a browser can't reach the Pi) and pull the
@@ -1864,15 +1877,16 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!map || !mapReady) return;
         setEncDraftAssumed(map, !(Number(settings.vessel?.draft) > 0));
     }, [settings.vessel, mapReady]);
-    // A tap means "drop a pin" while tracing and "pick" in picker mode —
-    // the tap-the-water popup must never fight those (same for weather
-    // inspect, which owns taps too). Per-map flag.
+    // A tap means "drop a pin" while tracing ARMED and "pick" in picker
+    // mode — the tap-the-water popup must never fight those (same for
+    // weather inspect, which owns taps too). Paused plotting deliberately
+    // RESTORES popups: that's half the point of pausing. Per-map flag.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        setEncPopupSuppression(map, coordCaptureMode || pickerMode || weatherInspectMode);
+        setEncPopupSuppression(map, (coordCaptureMode && plotArmed) || pickerMode || weatherInspectMode);
         return () => setEncPopupSuppression(map, false);
-    }, [coordCaptureMode, pickerMode, weatherInspectMode, mapReady]);
+    }, [coordCaptureMode, plotArmed, pickerMode, weatherInspectMode, mapReady]);
     // ── THE PURGE (Shane 2026-07-11: "full purge of all layers, except
     // our new one... speed is the key") ──
     // One-shot per device: the first main-surface mount strips the whole
@@ -2465,11 +2479,13 @@ export const MapHub: React.FC<MapHubProps> = ({
             const map = mapRef.current;
             if (!map) return;
 
-            // Route Tracer owns the tap when active — record the fix (snapped
-            // off the breakwater if the fat finger just missed the water),
-            // splice it mid-trace when an insert is armed, and stop (no
-            // weather popup).
-            if (coordCaptureRef.current) {
+            // Route Tracer owns the tap when active AND ARMED — record the
+            // fix (snapped off the breakwater if the fat finger just missed
+            // the water), splice it mid-trace when an insert is armed, and
+            // stop (no weather popup). PAUSED plotting (Shane 2026-07-11:
+            // "great when you want it, and fucken annoying when you don't")
+            // hands the tap back to the chart — popups, pans, no pin.
+            if (coordCaptureRef.current && plotArmedRef.current) {
                 let pt = { lat, lon };
                 const ctx = tracerCtxRef.current;
                 if (ctx) {
@@ -3787,6 +3803,23 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     <button
                                         onClick={() => {
                                             triggerHaptic('light');
+                                            setPlotArmed((a) => !a);
+                                        }}
+                                        aria-pressed={plotArmed}
+                                        aria-label={
+                                            plotArmed
+                                                ? 'Pause plotting — taps stop dropping pins'
+                                                : 'Resume plotting — taps drop pins again'
+                                        }
+                                        className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
+                                            plotArmed ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-gray-300'
+                                        }`}
+                                    >
+                                        {plotArmed ? '✏️ plotting' : '⏸ paused'}
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
                                             setCoordCaptureMode(false);
                                             // Free the grid (10–30 MB) and force a fresh
                                             // rebuild on reopen — a ctx held across
@@ -3812,6 +3845,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </div>
                                         )}
                                         <div className="flex items-center gap-2 px-3 py-1.5">
+                                            <button
+                                                onClick={() => {
+                                                    triggerHaptic('light');
+                                                    setPlotArmed((a) => !a);
+                                                }}
+                                                aria-pressed={plotArmed}
+                                                className={`flex-1 rounded-lg py-1.5 text-[10px] font-black uppercase tracking-wide active:scale-95 ${
+                                                    plotArmed
+                                                        ? 'bg-amber-500/20 text-amber-300'
+                                                        : 'bg-white/10 text-gray-300'
+                                                }`}
+                                            >
+                                                {plotArmed ? '✏️ Plotting' : '⏸ Paused'}
+                                            </button>
                                             {(capturedCoords.length > 0 || traceOrigin) &&
                                                 (traceDest || passage.arrival) && (
                                                     <button
