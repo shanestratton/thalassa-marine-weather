@@ -499,8 +499,14 @@ let mergedCache: { version: number; key: string; data: EncMergedVectorData } | n
  *  least this fraction of the window's — below it the cell paints a
  *  postage stamp of sub-pixel detail while its parsed blob still costs
  *  megabytes of heap. Zoom in and the window shrinks past the ratio,
- *  pulling the fine cell in. */
-const WINDOW_MIN_DIAG_RATIO = 0.05;
+ *  pulling the fine cell in.
+ *  0.05 → 0.01 (2026-07-12 'a little blocky at this zoom'): 5% of a
+ *  bay-zoom window is ~150 screen px — it was evicting 1:8k-1:22k
+ *  harbour surveys mid-zoom and leaving the 1:90k cell to paint their
+ *  water in chunky generalised bands. 1% ≈ a ~30 px footprint: still
+ *  culls true postage stamps at coastline zoom, keeps every survey
+ *  that's actually legible. */
+const WINDOW_MIN_DIAG_RATIO = 0.01;
 
 function bboxIntersects(a: [number, number, number, number], b: [number, number, number, number]): boolean {
     return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
