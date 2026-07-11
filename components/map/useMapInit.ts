@@ -497,8 +497,15 @@ export function useMapInit(opts: UseMapInitOptions) {
                         type: 'raster',
                         source: 'satellite-base',
                         layout: {
-                            // usePersistedState JSON-serialises — the stored value is 'true'.
-                            visibility: localStorage.getItem('thalassa_satellite_base') === 'true' ? 'visible' : 'none',
+                            // ALWAYS born hidden (2026-07-11): satellite is
+                            // session-only now, and this line used to read the
+                            // RETIRED pre-purge localStorage key — every device
+                            // that ever toggled satellite had 'true' parked
+                            // there, resurrecting imagery on each boot no
+                            // matter what the session state said (Shane:
+                            // "still the old sat map???"). MapHub's satellite
+                            // effect is the sole owner of this visibility.
+                            visibility: 'none',
                         },
                         // Match the public page's brightness pop (voyage-log-sat-bright
                         // filter) with raster paint props — saturation + a touch of
