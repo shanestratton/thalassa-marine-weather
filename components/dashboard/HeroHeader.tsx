@@ -208,14 +208,27 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                     const len = tempStr.length;
                                     const sizeClass = len > 3 ? 'text-4xl' : len > 2 ? 'text-[44px]' : 'text-[54px]';
                                     return (
-                                        <div className="flex items-start gap-0.5">
+                                        <div className="flex items-start">
                                             <span
                                                 className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none`}
                                                 aria-label={`Temperature ${tempStr} degrees ${units.temp}`}
                                             >
-                                                {tempStr}°
+                                                {tempStr}
                                             </span>
-                                            <span className="text-lg font-bold text-white/60 mt-0.5">{units.temp}</span>
+                                            {/* ° with the unit letter tucked directly beneath its
+                                                ring — the ° span's height is clamped to just the
+                                                ink at the top of its em box so the letter nests
+                                                inside the numeral's height instead of beside it. */}
+                                            <div className="flex flex-col items-center" aria-hidden="true">
+                                                <span
+                                                    className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none h-[0.42em]`}
+                                                >
+                                                    °
+                                                </span>
+                                                <span className="text-lg font-bold text-white/60 leading-none mt-0.5">
+                                                    {units.temp}
+                                                </span>
+                                            </div>
                                         </div>
                                     );
                                 })()
