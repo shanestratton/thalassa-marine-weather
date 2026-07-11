@@ -21,12 +21,7 @@ import {
     STEERING_WARNING_FRACTION,
     type LonLat,
 } from '../services/routing/TideAwareAnnotator';
-import {
-    computeTidalWindows,
-    DEFAULT_TIDE_SAFETY_M,
-    EXTREMES_CONSERVATISM_M,
-    EDGE_PAD_MS,
-} from '../services/routing/tidalWindow';
+import { computeTidalWindows, DEFAULT_TIDE_SAFETY_M, EDGE_PAD_MS } from '../services/routing/tidalWindow';
 import type { TideCurve } from '../services/TideHeightService';
 
 // ── Synthetic tide: sinusoid, 12 h period, midtide 1.0 m, amplitude 1.0 m ──
@@ -286,7 +281,11 @@ describe('tidalWindow — the "bar opens 09:40" maths', () => {
         expect(w.approx).toBe(false);
     });
 
-    it('extremes curves get the conservatism band — narrower, approx-flagged', () => {
+    it('extremes curves share station maths but flag approx (conservatism band retired 2026-07-12)', () => {
+        // The +0.3 m EXTREMES band made the window maths contradict the
+        // live-depth banner built from the SAME curve ("+1.0 m right now"
+        // beside "wait for 17:34"). The owner margin is the buffer; the
+        // "(approx)" label carries the curve honesty instead.
         const rs = computeTidalWindows({
             minDepthM: 1.9,
             draftM: 2.4,
@@ -303,10 +302,42 @@ describe('tidalWindow — the "bar opens 09:40" maths', () => {
         });
         expect(re.windows.length).toBe(1);
         expect(re.windows[0].approx).toBe(true);
-        // Higher threshold (＋0.3 m) ⇒ later open, earlier close.
-        expect(re.windows[0].openMs).toBeGreaterThan(rs.windows[0].openMs);
-        expect(re.windows[0].closeMs).toBeLessThan(rs.windows[0].closeMs);
-        expect(EXTREMES_CONSERVATISM_M).toBe(0.3);
+        expect(rs.windows[0].approx).toBe(false);
+        expect(re.windows[0].openMs).toBe(rs.windows[0].openMs);
+        expect(re.windows[0].closeMs).toBe(rs.windows[0].closeMs);
+    });
+
+    it('a window already open at fromMs starts AT fromMs — horizon edges are not crossings (the 17:34 bug)', () => {
+        // Start the sweep at +4 h: the tide (≥1.0 m from +3 h to +9 h) is
+        // ALREADY over the line. The window must open at fromMs exactly —
+        // no inward pad — and close padded at the real crossing (+9 h).
+        const fromMs = T0 + 4 * HOUR;
+        const r = computeTidalWindows({
+            minDepthM: 1.9,
+            draftM: 2.4,
+            tide: station,
+            fromMs,
+            untilMs: fromMs + 24 * HOUR,
+        });
+        expect(r.windows.length).toBeGreaterThan(0);
+        expect(r.windows[0].openMs).toBe(fromMs);
+        expect(Math.abs(r.windows[0].closeMs - (T0 + 9 * HOUR - EDGE_PAD_MS))).toBeLessThanOrEqual(5 * 60_000);
+    });
+
+    it('a window still open at untilMs closes AT untilMs — no inward pad at the far horizon', () => {
+        // Sweep ends at +5 h, mid-window (tide over the line +3 h→+9 h):
+        // the close edge is the horizon, not a crossing.
+        const r = computeTidalWindows({
+            minDepthM: 1.9,
+            draftM: 2.4,
+            tide: station,
+            fromMs: T0,
+            untilMs: T0 + 5 * HOUR,
+        });
+        expect(r.windows.length).toBe(1);
+        expect(r.windows[0].closeMs).toBe(T0 + 5 * HOUR);
+        // The open edge (+3 h) IS a crossing — still padded.
+        expect(Math.abs(r.windows[0].openMs - (T0 + 3 * HOUR + EDGE_PAD_MS))).toBeLessThanOrEqual(5 * 60_000);
     });
 
     it('errs closed: a tide that never makes the rise yields zero windows', () => {

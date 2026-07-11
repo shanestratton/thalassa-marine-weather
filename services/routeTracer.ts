@@ -758,6 +758,12 @@ export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: 
         if (res.alwaysOpen) return res.requiredRiseM > 0 ? 'the tide covers this all day today' : null;
         if (res.windows.length === 0) return `needs +${res.requiredRiseM.toFixed(1)} m — no tide window in 24 h`;
         const w = res.windows[0];
+        // Window already open at "now": say so — the 17:34 bug (Shane
+        // 2026-07-12: "+1 m of water... it always says this") was this
+        // exact case pointed at the NEXT window instead.
+        if (w.openMs <= fromMs) {
+            return `clears NOW until ${fmtHm(w.closeMs)} ${dayWord(w.closeMs)}${w.approx ? ' (approx)' : ''}`;
+        }
         return `clears ${fmtHm(w.openMs)}–${fmtHm(w.closeMs)} ${dayWord(w.openMs)}${w.approx ? ' (approx)' : ''}`;
     } catch (err) {
         log.warn(`tide window failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -1263,5 +1269,6 @@ export async function commonDepartureWindowLabel(
     }
     if (!common || common.length === 0) return null;
     const w = common[0];
-    return `leave ${fmtHm(w.o)}–${fmtHm(w.c)} ${dayWord(w.o)} and every tide gate clears (checked at today's tide)`;
+    const openLabel = w.o <= fromMs ? 'now' : fmtHm(w.o);
+    return `leave ${openLabel}–${fmtHm(w.c)} ${dayWord(w.o)} and every tide gate clears (checked at today's tide)`;
 }
