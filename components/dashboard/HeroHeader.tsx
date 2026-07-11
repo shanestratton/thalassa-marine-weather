@@ -79,17 +79,12 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
 }) => {
     // PERF: Memoize helper to get source text color for temperature
     const getTempColor = useCallback((): string => {
+        // Live hero temp reads green by default (brand look); amber is kept as
+        // the one data-source caution signal. Non-live (forecast) cards stay
+        // white so the live/forecast distinction survives.
         if (!isLive) return 'text-white';
-        if (!sources || !sources['airTemperature']) return 'text-white';
-        const sourceColor = sources['airTemperature']?.sourceColor;
-        switch (sourceColor) {
-            case 'emerald':
-                return 'text-emerald-400';
-            case 'amber':
-                return 'text-amber-400';
-            default:
-                return 'text-white';
-        }
+        if (sources?.['airTemperature']?.sourceColor === 'amber') return 'text-amber-400';
+        return 'text-emerald-400';
     }, [isLive, sources]);
 
     // The previous getConditionIcon emoji-mapping helper + its
@@ -230,7 +225,7 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                                     °
                                                 </span>
                                                 <span
-                                                    className={`text-xl font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
+                                                    className={`text-[22px] font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
                                                 >
                                                     {units.temp}
                                                 </span>
