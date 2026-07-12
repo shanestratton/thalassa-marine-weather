@@ -44,6 +44,34 @@ import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { LITCHR_LABELS } from '../../services/enc/types';
 import { registerSeamarkIcons } from './seamarkIcons';
+import {
+    DEFAULT_SAFETY_DEPTH_M,
+    DEPARE_CHART_OPACITY,
+    DEPCNT_LABEL_INK_DATUM,
+    DEPCNT_LABEL_INK_LIVE,
+    SCAMIN_CLAUSE,
+    buildDepareFillColor,
+    buildDepareSatelliteOpacity,
+    buildDepcntLabelField,
+    buildSoundingTextColor,
+    buildSoundingTextField,
+    computeSafetyValdcoByCell,
+    depcntLineFilter,
+    depcntSafetyFilter,
+    distinctValdcosByCell,
+} from './encDepthStyle';
+
+// Re-export the pure style API for existing importers + tests.
+export {
+    DEFAULT_SAFETY_DEPTH_M,
+    DEPARE_CHART_OPACITY,
+    buildDepareFillColor,
+    buildDepareSatelliteOpacity,
+    buildDepcntLabelField,
+    buildSoundingTextColor,
+    buildSoundingTextField,
+} from './encDepthStyle';
+export { computeSafetyValdco } from './encDepthStyle';
 
 const log = createLogger('EncVectorLayer');
 
@@ -112,13 +140,19 @@ export const ENC_VEC_LAYERS = {
 const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPARE, // bottom (water fills)
     ENC_VEC_LAYERS.DEPARE_GLAZE, // satellite twin directly above (opacity-0 on chart)
-    ENC_VEC_LAYERS.DEPCNT_LINE,
-    ENC_VEC_LAYERS.DEPCNT_SAFETY,
-    ENC_VEC_LAYERS.DEPCNT_LABEL,
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
     ENC_VEC_LAYERS.DEPARE_FINE, // fine-survey water beats coarse land bleed
+    // Contours + the bold safety contour sit ABOVE the fine repaint.
+    // They used to sit just above DEPARE — when the fine-survey twin
+    // landed (0eb6cc19) SOUNDG was re-slotted above it but the DEPCNT
+    // trio was forgotten, so the 0.95-opacity repaint buried the one
+    // keel-aware line on the chart across ALL fine-survey harbour
+    // water in default chart mode (2026-07-12 audit, CRITICAL).
+    ENC_VEC_LAYERS.DEPCNT_LINE,
+    ENC_VEC_LAYERS.DEPCNT_SAFETY,
+    ENC_VEC_LAYERS.DEPCNT_LABEL,
     ENC_VEC_LAYERS.SOUNDG, // depth numbers under everything interactive
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.BOYLAT,
@@ -241,124 +275,9 @@ function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
 }
 
 // ── Draft-aware depth styling ──────────────────────────────────────
-
-/**
- * Fallback safety depth when the caller doesn't supply one:
- * vesselDraftMetres() default (2.5 m) + the MASTERPLAN §8 tide
- * margin (0.5 m). The hook always passes the live value.
- */
-const DEFAULT_SAFETY_DEPTH_M = 3.0;
-
-/**
- * S-52-style day-palette band fills keyed to the vessel's safety
- * depth S (draft + tide margin, METRES — callers must come through
- * vesselDraftMetres(), never raw vessel.draft which is FEET).
- *
- * House pattern: compute the stops in TS, keep the expression dumb.
- * `step` stops must ascend strictly — S > 0 guarantees 0 < S < 2S,
- * and max(4S, 20) > 2S for any S.
- */
-export function buildDepareFillColor(tideOffsetM = 0): mapboxgl.ExpressionSpecification {
-    // Absolute white ramp — paper-chart convention (Shane 2026-07-11:
-    // "white where deep, off white all the way to a dirty white where
-    // it is not"). White = SURVEYED AND DEEP; the tint dirties as the
-    // sand comes up, drying banks go khaki (paper-chart intertidal).
-    // Bands are absolute, not draft-keyed (his call — predictable,
-    // matches the paper chart aboard); the keel story lives in the
-    // draft-keyed SAFETY CONTOUR on top. Uncharted water gets no fill
-    // at all — absence of data must never read as deep (the
-    // au-brisbane-test lesson).
-    //
-    // tideOffsetM ("depth right now" toggle): shifting every band stop
-    // down by the predicted tide height re-tints the whole chart for
-    // the water that's actually under the keel — a drying bank under
-    // 1.8 m of tide renders as 0–2 m dirty white because it IS
-    // navigable water right now. Stops stay strictly ascending for any
-    // constant shift, so the step expression remains valid.
-    const h = tideOffsetM;
-    return [
-        'step',
-        // DRVAL1 = minimum depth in S-57 metres (positive = depth,
-        // negative = drying height). Missing values sort as "very
-        // deep" so empty polygons don't render as drying banks.
-        ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
-        '#c9c6ae', // < 0 now — still drying at THIS tide
-        0 - h,
-        '#d4cdbf', // 0–2 m — dirtiest white
-        2 - h,
-        '#ded8cc', // 2–5 m — the 2.4 m-keel decision band
-        5 - h,
-        '#e8e3d9', // 5–10 m
-        10 - h,
-        '#f0ede5', // 10–20 m
-        20 - h,
-        '#f7f5f0', // 20–50 m
-        50 - h,
-        '#ffffff', // 50 m+ — clean paper
-    ] as unknown as mapboxgl.ExpressionSpecification;
-}
-
-/** Subscript digits for chart-style sounding tenths (3₄, not 3.4). */
-const SUBSCRIPT_DIGITS = ['₀', '₁', '₂', '₃', '₄', '₅', '₆', '₇', '₈', '₉'];
-
-/**
- * Sounding label text. With a tide offset the displayed value is
- * charted + tide ("depth right now"). Carry-safe: whole and tenth both
- * derive from round(|v|·10) — computing them separately turned 1.96
- * into "1₀" instead of "2" once offsets made non-pre-rounded values
- * possible.
- */
-export function buildSoundingTextField(tideOffsetM = 0): mapboxgl.ExpressionSpecification {
-    const v = tideOffsetM === 0 ? ['get', '_d'] : ['+', ['get', '_d'], tideOffsetM];
-    const d10 = ['round', ['*', ['abs', v], 10]];
-    const whole = ['floor', ['/', d10, 10]];
-    const tenth = ['%', d10, 10];
-    return [
-        'case',
-        ['<', ['abs', v], 10],
-        ['concat', ['to-string', whole], ['case', ['==', tenth, 0], '', ['at', tenth, ['literal', SUBSCRIPT_DIGITS]]]],
-        ['to-string', ['round', v]],
-    ] as unknown as mapboxgl.ExpressionSpecification;
-}
-
-/**
- * Sounding ink. Chart datum = slate (shallow darker) with khaki drying.
- * LIVE tide mode = a distinct TEAL family so a screenshot can never
- * masquerade as chart datum (the honesty rule from the design session);
- * "drying at this tide" keeps the khaki.
- */
-export function buildSoundingTextColor(tideOffsetM: number | null = null): mapboxgl.ExpressionSpecification {
-    if (tideOffsetM === null) {
-        // Black-family ink (Shane 2026-07-11: "black, and thinner") —
-        // shallow slightly blacker than deep, khaki for drying.
-        return [
-            'case',
-            ['<', ['get', '_d'], 0],
-            '#6b5e23',
-            ['<', ['get', '_d'], 5],
-            '#0b1116',
-            '#26333d',
-        ] as unknown as mapboxgl.ExpressionSpecification;
-    }
-    const v = ['+', ['get', '_d'], tideOffsetM];
-    return [
-        'case',
-        ['<', v, 0],
-        '#6b5e23',
-        ['<', v, 5],
-        '#0b4f58',
-        '#2a6b77',
-    ] as unknown as mapboxgl.ExpressionSpecification;
-}
-
-/** Contour label text — shifts with the tide offset so the screen never
- *  mixes datums (a "5" line reading charted while soundings read live
- *  would be a trap). */
-export function buildDepcntLabelField(tideOffsetM = 0): mapboxgl.ExpressionSpecification {
-    const val = ['to-number', ['get', 'VALDCO']];
-    const v = tideOffsetM === 0 ? val : ['+', val, tideOffsetM];
-    return ['to-string', ['round', v]] as unknown as mapboxgl.ExpressionSpecification;
-}
+// The pure style math (band ramps, sounding typography, safety-contour
+// derivation) lives in encDepthStyle.ts so it's unit-testable without a
+// map. This module owns the stateful map-facing half.
 
 /**
  * "Depth right now" — apply (or clear, with null) the tide offset on
@@ -371,7 +290,7 @@ export function buildDepcntLabelField(tideOffsetM = 0): mapboxgl.ExpressionSpeci
 export function setEncTideOffset(map: mapboxgl.Map, tideOffsetM: number | null, atMs: number | null = null): void {
     const state = depthStyleState.get(map) ?? {
         safetyDepthM: DEFAULT_SAFETY_DEPTH_M,
-        depcntValdcos: [],
+        depcntValdcosByCell: {},
     };
     state.tideOffsetM = tideOffsetM;
     state.tideOffsetAtMs = tideOffsetM === null ? null : atMs;
@@ -384,7 +303,7 @@ export function setEncTideOffset(map: mapboxgl.Map, tideOffsetM: number | null, 
 export function setEncDraftAssumed(map: mapboxgl.Map, assumed: boolean): void {
     const state = depthStyleState.get(map) ?? {
         safetyDepthM: DEFAULT_SAFETY_DEPTH_M,
-        depcntValdcos: [],
+        depcntValdcosByCell: {},
     };
     state.draftAssumed = assumed;
     depthStyleState.set(map, state);
@@ -408,41 +327,12 @@ function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): vo
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_LABEL)) {
         map.setLayoutProperty(ENC_VEC_LAYERS.DEPCNT_LABEL, 'text-field', buildDepcntLabelField(h));
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_LABEL, 'text-color', live ? '#54828d' : '#7d8e9b');
+        map.setPaintProperty(
+            ENC_VEC_LAYERS.DEPCNT_LABEL,
+            'text-color',
+            live ? DEPCNT_LABEL_INK_LIVE : DEPCNT_LABEL_INK_DATUM,
+        );
     }
-}
-
-/**
- * The safety contour to embolden: the smallest charted VALDCO ≥ the
- * vessel's safety depth S. Null when NO charted contour reaches S (a
- * shallow-only cell, or S deeper than every contour here) — we then
- * embolden NOTHING and let the draft-keyed DEPARE bands carry the depth
- * message. Emboldening the deepest available contour in that case (the
- * old `best ?? deepest`) was actively MISLEADING: it promoted a line
- * SHALLOWER than S to "safety contour", implying the water seaward of it
- * clears the keel when it doesn't — a grounding-risk line drawn at the
- * wrong depth, exactly what the draft wiring exists to prevent. The
- * shallower contours still draw as ordinary thin lines; only the bold
- * "this is your safety line" emphasis is withheld.
- */
-export function computeSafetyValdco(valdcos: readonly number[], safetyDepthM: number): number | null {
-    let best: number | null = null;
-    for (const v of valdcos) {
-        if (!Number.isFinite(v)) continue;
-        if (v >= safetyDepthM && (best == null || v < best)) best = v;
-    }
-    return best;
-}
-
-/** Distinct VALDCO values present in the merged DEPCNT collection. */
-function distinctValdcos(fc: FeatureCollection): number[] {
-    const set = new Set<number>();
-    for (const f of fc.features ?? []) {
-        const props = (f.properties ?? {}) as Record<string, unknown>;
-        const v = Number(props.VALDCO ?? props.valdco);
-        if (Number.isFinite(v)) set.add(v);
-    }
-    return [...set].sort((a, b) => a - b);
 }
 
 /**
@@ -452,7 +342,11 @@ function distinctValdcos(fc: FeatureCollection): number[] {
  */
 interface EncDepthStyleState {
     safetyDepthM: number;
-    depcntValdcos: number[];
+    /** Distinct charted VALDCO values PER CELL (keyed by `_cellId`) —
+     *  each cell bolds its own smallest qualifying contour, so a cell
+     *  whose inventory lacks its neighbour's exact value keeps its
+     *  keel line (2026-07-12 audit). */
+    depcntValdcosByCell: Record<string, number[]>;
     /** "Depth right now" offset (predicted tide above LAT, metres) —
      *  null = chart datum. VISUAL ONLY: routing/tracer verdicts never
      *  read this. See setEncTideOffset. */
@@ -470,12 +364,6 @@ interface EncDepthStyleState {
 }
 const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
 
-// SCAMIN-aware visibility clause — features pre-tagged with `_minZoom`
-// (derived from S-57 SCAMIN at extraction time) become visible only at
-// or above their chart-prescribed display zoom. Features without
-// `_minZoom` are always-visible (correct for hazards lacking SCAMIN).
-const SCAMIN_CLAUSE = ['any', ['!', ['has', '_minZoom']], ['>=', ['zoom'], ['get', '_minZoom']]];
-
 /**
  * Compose the `_kind` routing filter with the SCAMIN clause.
  *
@@ -484,25 +372,6 @@ const SCAMIN_CLAUSE = ['any', ['!', ['has', '_minZoom']], ['>=', ['zoom'], ['get
  */
 const scaminAware = (kindFilter: unknown): mapboxgl.FilterSpecification =>
     ['all', kindFilter, SCAMIN_CLAUSE] as unknown as mapboxgl.FilterSpecification;
-
-/** Sentinel VALDCO that matches no real contour (no-contour cells). */
-const NO_SAFETY_VALDCO = -9999;
-
-function depcntLineFilter(safetyValdco: number | null): mapboxgl.FilterSpecification {
-    const sv = safetyValdco ?? NO_SAFETY_VALDCO;
-    // Ordinary contours: everything except the safety contour, SCAMIN-gated.
-    return [
-        'all',
-        ['!=', ['to-number', ['get', 'VALDCO']], sv],
-        SCAMIN_CLAUSE,
-    ] as unknown as mapboxgl.FilterSpecification;
-}
-
-function depcntSafetyFilter(safetyValdco: number | null): mapboxgl.FilterSpecification {
-    const sv = safetyValdco ?? NO_SAFETY_VALDCO;
-    // The safety contour always shows — NO scamin gate, per S-52.
-    return ['==', ['to-number', ['get', 'VALDCO']], sv] as unknown as mapboxgl.FilterSpecification;
-}
 
 /**
  * THE single choke point for draft changes (risk note: a missed
@@ -516,16 +385,16 @@ function depcntSafetyFilter(safetyValdco: number | null): mapboxgl.FilterSpecifi
  * `safetyDepthM` = vesselDraftMetres(vessel) + tide margin. METRES.
  */
 export function updateEncDepthStyle(map: mapboxgl.Map, safetyDepthM: number): void {
-    const state = depthStyleState.get(map) ?? { safetyDepthM, depcntValdcos: [] };
+    const state = depthStyleState.get(map) ?? { safetyDepthM, depcntValdcosByCell: {} };
     state.safetyDepthM = safetyDepthM;
     depthStyleState.set(map, state);
 
-    const safetyValdco = computeSafetyValdco(state.depcntValdcos, safetyDepthM);
+    const safetyByCell = computeSafetyValdcoByCell(state.depcntValdcosByCell, safetyDepthM);
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
-        map.setFilter(ENC_VEC_LAYERS.DEPCNT_LINE, depcntLineFilter(safetyValdco));
+        map.setFilter(ENC_VEC_LAYERS.DEPCNT_LINE, depcntLineFilter(safetyByCell));
     }
     if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
-        map.setFilter(ENC_VEC_LAYERS.DEPCNT_SAFETY, depcntSafetyFilter(safetyValdco));
+        map.setFilter(ENC_VEC_LAYERS.DEPCNT_SAFETY, depcntSafetyFilter(safetyByCell));
     }
     // The satellite glaze is keel-keyed (safe = whiter) — a draft change
     // must re-key it through the same choke point as the contour.
@@ -573,15 +442,22 @@ export function mountEncVectorLayer(
     void registerSeamarkIcons(map);
 
     // Seed the per-map depth-style state so updateEncDepthStyle /
-    // refresh can recompute the safety contour later. The tide offset
-    // survives re-mounts (style swaps, cell loads) — it belongs to the
-    // MODE, not the mount.
+    // refresh can recompute the safety contour later. MERGE with the
+    // previous state — the tide offset, its scrub timestamp AND the
+    // draft-assumed honesty flag all survive re-mounts (style swaps,
+    // cell loads): they belong to the MODE, not the mount. Rebuilding
+    // this object from scratch silently wiped them, so a re-mount
+    // could relabel a scrubbed verdict "Right now" and drop the
+    // "default 2.5 m draft" caveat for the session (2026-07-12 audit).
+    const prevState = depthStyleState.get(map);
+    const valdcosByCell = distinctValdcosByCell(data.DEPCNT);
     depthStyleState.set(map, {
+        ...prevState,
         safetyDepthM,
-        depcntValdcos: distinctValdcos(data.DEPCNT),
-        tideOffsetM: depthStyleState.get(map)?.tideOffsetM ?? null,
+        depcntValdcosByCell: valdcosByCell,
+        tideOffsetM: prevState?.tideOffsetM ?? null,
     });
-    const safetyValdco = computeSafetyValdco(distinctValdcos(data.DEPCNT), safetyDepthM);
+    const safetyByCell = computeSafetyValdcoByCell(valdcosByCell, safetyDepthM);
 
     const ensureSource = (id: string, fc: FeatureCollection) => {
         const existing = map.getSource(id);
@@ -729,7 +605,7 @@ export function mountEncVectorLayer(
                 type: 'line',
                 source: ENC_VEC_SRC.DEPCNT,
                 minzoom: minZoom,
-                filter: depcntLineFilter(safetyValdco),
+                filter: depcntLineFilter(safetyByCell),
                 paint: {
                     'line-color': '#7d8e9b',
                     'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 15, 1.0],
@@ -746,7 +622,7 @@ export function mountEncVectorLayer(
                 type: 'line',
                 source: ENC_VEC_SRC.DEPCNT,
                 minzoom: minZoom,
-                filter: depcntSafetyFilter(safetyValdco),
+                filter: depcntSafetyFilter(safetyByCell),
                 paint: {
                     // Slate hairline, not marker pen (Shane 2026-07-11:
                     // "horrible black lines" — ECDIS-bold traced every bank
@@ -788,7 +664,10 @@ export function mountEncVectorLayer(
                     // Muted dark slate on a thin light halo — legible on
                     // the white ramp and over satellite imagery, quieter
                     // than the soundings (which stay the primary read).
-                    'text-color': '#46555f',
+                    // Shared constant: applyTideOffsetPaint re-asserts the
+                    // same ink on every mount, so a second hardcoded hex
+                    // here silently drifts (2026-07-12 audit).
+                    'text-color': DEPCNT_LABEL_INK_DATUM,
                     'text-halo-color': 'rgba(255, 255, 255, 0.8)',
                     'text-halo-width': 0.8,
                     'text-opacity': opacity,
@@ -1187,6 +1066,26 @@ export function mountEncVectorLayer(
     labelLayer(ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_SRC.NAVAIDS);
     labelLayer(ENC_VEC_LAYERS.POINTS_LABEL, ENC_VEC_SRC.POINTS);
 
+    // Z-ORDER HEAL: idempotent-additive mounting only positions layers
+    // at ADD time — layers surviving from an earlier bundle keep the
+    // old stacking (the 2026-07-12 audit found the DEPCNT trio buried
+    // below DEPARE_FINE this way). Walk the canonical list top-down and
+    // moveLayer anything out of place so a live map converges on the
+    // spec order without a remount.
+    let aboveId: string | undefined;
+    for (let i = ALL_LAYER_IDS.length - 1; i >= 0; i--) {
+        const id = ALL_LAYER_IDS[i];
+        if (!map.getLayer(id)) continue;
+        if (aboveId) {
+            try {
+                map.moveLayer(id, aboveId);
+            } catch {
+                /* best effort */
+            }
+        }
+        aboveId = id;
+    }
+
     log.info(
         `mounted vector layers: ${data.cellCount} cells, ` +
             `${data.LIGHTS.features.length} lights, ` +
@@ -1197,7 +1096,12 @@ export function mountEncVectorLayer(
             `spp marks=${data.BOYSPP.features.length + data.BCNSPP.features.length}, ` +
             `polygons: ${data.DEPARE.features.length} depare(+drgare), ${data.LNDARE.features.length} lndare, ` +
             `${data.COALNE.features.length} coalne, ${data.DEPCNT.features.length} depcnt ` +
-            `(safety VALDCO=${safetyValdco ?? 'n/a'} @ S=${safetyDepthM.toFixed(1)}m), ` +
+            `(safety VALDCO by cell=${
+                Object.values(safetyByCell)
+                    .filter((v): v is number => v != null)
+                    .sort((a, b) => a - b)
+                    .join('/') || 'n/a'
+            } @ S=${safetyDepthM.toFixed(1)}m), ` +
             `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} hazard pts`,
     );
 }
@@ -1224,10 +1128,21 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the
-    // last-applied safety depth.
+    // last-applied safety depth. MERGE, never rebuild: this fires on
+    // every window-escape pan and every cloud-hydration arrival, and
+    // rebuilding the state object from scratch wiped tideOffsetM /
+    // tideOffsetAtMs / draftAssumed while the tide-tinted paint stayed
+    // on screen — teal "live" soundings answering taps in chart datum,
+    // and the "default 2.5 m draft" caveat lost for the session
+    // (2026-07-12 audit, the mixed-datum trap this module's own rules
+    // prohibit).
     const state = depthStyleState.get(map);
     const safetyDepthM = state?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
-    depthStyleState.set(map, { safetyDepthM, depcntValdcos: distinctValdcos(data.DEPCNT) });
+    depthStyleState.set(map, {
+        ...state,
+        safetyDepthM,
+        depcntValdcosByCell: distinctValdcosByCell(data.DEPCNT),
+    });
     updateEncDepthStyle(map, safetyDepthM);
 
     log.info(`refreshed vector data: ${data.cellCount} cells`);
@@ -1291,40 +1206,6 @@ function satelliteBaseOn(): boolean {
         return false;
     }
 }
-
-/**
- * Satellite-mode DEPARE opacity — KEEL-KEYED since 2026-07-12 (Shane:
- * "can we have the areas that are safe to sail, whiter... we need to
- * be able to see the areas that have enough depth for our keel
- * easily"). The glaze is now a go/no-go read:
- *  - drying: solid warning wash;
- *  - charted but SHALLOWER than the safety depth: a whisper of tint —
- *    the actual sandbank imagery stares back, "not for your keel";
- *  - guaranteed depth ≥ safety depth (band DRVAL1, chart datum — the
- *    same conservative convention as the safety contour): bright white
- *    paper, stepping brighter as it deepens.
- * The safe/unsafe edge lands exactly on the survey band edge — the end
- * of the sandbar, not somewhere near it.
- */
-export function buildDepareSatelliteOpacity(safetyDepthM: number): mapboxgl.ExpressionSpecification {
-    const s = Math.max(safetyDepthM, 0.1);
-    return [
-        'step',
-        ['coalesce', ['to-number', ['get', 'DRVAL1']], 999],
-        0.55, // drying — a real warning even over imagery
-        0,
-        0.15, // charted but under the keel — imagery IS the message
-        s,
-        0.62, // enough water — bright paper, sail here
-        Math.max(s + 0.01, 20),
-        0.68,
-        Math.max(s + 0.02, 50),
-        0.72, // open water — mostly paper
-    ] as unknown as mapboxgl.ExpressionSpecification;
-}
-
-/** Chart-mode fill opacity — near-opaque paper over the dark shell. */
-export const DEPARE_CHART_OPACITY = 0.95;
 
 /**
  * Survey-competence filter for the satellite glaze: a band from a coarse
@@ -1541,6 +1422,20 @@ function fmtDepth(v: unknown, suffix = ' m'): string {
     return `${n.toFixed(1)}${suffix}`;
 }
 
+/** Depth row for VALSOU-carrying hazards. Negative VALSOU = a drying
+ *  height (the feature stands PROUD of the water at datum) — render it
+ *  the way the sounding layer does ("Dries 0.3 m"), never as a signed
+ *  negative depth ("Depth -0.3 m" reads as a 0.3 m-DEEP rock — the
+ *  anti-conservative misread, 2026-07-12 audit). */
+function valsouRow(depth: unknown): string {
+    const n = typeof depth === 'number' ? depth : Number(depth);
+    if (!Number.isFinite(n)) return '';
+    if (n < 0) {
+        return `<div class="enc-popup-row"><span>Dries</span><b>${esc(`${Math.abs(n).toFixed(1)} m at low tide`)}</b></div>`;
+    }
+    return `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(n))}</b></div>`;
+}
+
 function fmtRange(min: unknown, max: unknown): string | null {
     const a = typeof min === 'number' ? min : Number(min);
     const b = typeof max === 'number' ? max : Number(max);
@@ -1700,8 +1595,7 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>, 
         if (cat && CATOBS_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATOBS_LABELS[cat])}</b></div>`;
         }
-        const depth = props.VALSOU ?? props.valsou;
-        if (depth != null) body += `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(depth))}</b></div>`;
+        body += valsouRow(props.VALSOU ?? props.valsou);
         const watlev = String(props.WATLEV ?? props.watlev ?? '');
         if (watlev && WATLEV_LABELS[watlev]) {
             body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
@@ -1716,13 +1610,11 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>, 
         if (cat && CATWRK_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Category</span><b>${esc(CATWRK_LABELS[cat])}</b></div>`;
         }
-        const depth = props.VALSOU ?? props.valsou;
-        if (depth != null) body += `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(depth))}</b></div>`;
+        body += valsouRow(props.VALSOU ?? props.valsou);
     } else if (layerId === ENC_VEC_LAYERS.UWTROC) {
         title = 'Underwater rock';
         accent = '#d837a9';
-        const depth = props.VALSOU ?? props.valsou;
-        if (depth != null) body += `<div class="enc-popup-row"><span>Depth</span><b>${esc(fmtDepth(depth))}</b></div>`;
+        body += valsouRow(props.VALSOU ?? props.valsou);
         const watlev = String(props.WATLEV ?? props.watlev ?? '');
         if (watlev && WATLEV_LABELS[watlev]) {
             body += `<div class="enc-popup-row"><span>Water level</span><b>${esc(WATLEV_LABELS[watlev])}</b></div>`;
