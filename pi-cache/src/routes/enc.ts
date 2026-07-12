@@ -173,6 +173,12 @@ const ENC_LAYERS = [
     // ogr2ogr emits MultiPoint25D (depth in the Z); the SENC path emits
     // MultiPoint + a `depths` property array — the app's merge handles both.
     'SOUNDG',
+    // Safe-water + isolated-danger marks (2026-07-12 audit) — mirrored
+    // with ROUTING_CLASSES in lock-step; EncVectorLayer renders them.
+    'BOYSAW',
+    'BCNSAW',
+    'BOYISD',
+    'BCNISD',
 ] as const;
 
 const TEMP_ROOT = path.join(os.tmpdir(), 'thalassa-enc-conversion');

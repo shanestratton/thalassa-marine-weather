@@ -124,6 +124,10 @@ export const ENC_VEC_LAYERS = {
     BCNCAR: 'enc-vec-bcncar-circle',
     BOYSPP: 'enc-vec-boyspp-symbol',
     BCNSPP: 'enc-vec-bcnspp-symbol',
+    BOYSAW: 'enc-vec-boysaw-symbol',
+    BCNSAW: 'enc-vec-bcnsaw-symbol',
+    BOYISD: 'enc-vec-boyisd-symbol',
+    BCNISD: 'enc-vec-bcnisd-symbol',
     LIGHTS: 'enc-vec-lights-symbol',
     RECTRC: 'enc-vec-rectrc-line',
     RECTRC_LABEL: 'enc-vec-rectrc-label',
@@ -161,6 +165,10 @@ const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.BCNCAR,
     ENC_VEC_LAYERS.BOYSPP,
     ENC_VEC_LAYERS.BCNSPP,
+    ENC_VEC_LAYERS.BOYSAW,
+    ENC_VEC_LAYERS.BCNSAW,
+    ENC_VEC_LAYERS.BOYISD,
+    ENC_VEC_LAYERS.BCNISD,
     ENC_VEC_LAYERS.OBSTRN,
     ENC_VEC_LAYERS.WRECKS,
     ENC_VEC_LAYERS.UWTROC,
@@ -269,6 +277,22 @@ function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
         ...data.BCNSPP.features.map((f) => ({
             ...f,
             properties: { ...(f.properties ?? {}), _kind: 'BCNSPP' },
+        })),
+        ...data.BOYSAW.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BOYSAW' },
+        })),
+        ...data.BCNSAW.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BCNSAW' },
+        })),
+        ...data.BOYISD.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BOYISD' },
+        })),
+        ...data.BCNISD.features.map((f) => ({
+            ...f,
+            properties: { ...(f.properties ?? {}), _kind: 'BCNISD' },
         })),
     ];
     return { type: 'FeatureCollection', features };
@@ -836,7 +860,17 @@ export function mountEncVectorLayer(
     // them (see ENC_VEC_LAYERS note).
     const navaidSymbolLayer = (
         layerId: string,
-        kind: 'BOYLAT' | 'BCNLAT' | 'BOYCAR' | 'BCNCAR' | 'BOYSPP' | 'BCNSPP',
+        kind:
+            | 'BOYLAT'
+            | 'BCNLAT'
+            | 'BOYCAR'
+            | 'BCNCAR'
+            | 'BOYSPP'
+            | 'BCNSPP'
+            | 'BOYSAW'
+            | 'BCNSAW'
+            | 'BOYISD'
+            | 'BCNISD',
     ) => {
         if (map.getLayer(layerId)) return;
         map.addLayer(
@@ -868,6 +902,10 @@ export function mountEncVectorLayer(
     navaidSymbolLayer(ENC_VEC_LAYERS.BCNCAR, 'BCNCAR');
     navaidSymbolLayer(ENC_VEC_LAYERS.BOYSPP, 'BOYSPP');
     navaidSymbolLayer(ENC_VEC_LAYERS.BCNSPP, 'BCNSPP');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BOYSAW, 'BOYSAW');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BCNSAW, 'BCNSAW');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BOYISD, 'BOYISD');
+    navaidSymbolLayer(ENC_VEC_LAYERS.BCNISD, 'BCNISD');
 
     // ── SOUNDG (spot soundings — the chartplotter depth numbers) ──
     // Shane 2026-07-09: "more depth measurements in close"; 2026-07-11:
@@ -1009,6 +1047,11 @@ export function mountEncVectorLayer(
                     // longest-range lights when space is tight.
                     'text-allow-overlap': false,
                     'text-anchor': 'center',
+                    // Flare OFFSET from the structure, S-52 style — stamped
+                    // dead-centre it painted an 11-22 px starburst directly
+                    // over the buoy/beacon symbol beneath, hiding the IALA
+                    // bands and topmark (2026-07-12 audit).
+                    'text-offset': [0.7, -0.7],
                     'symbol-sort-key': ['-', 0, ['coalesce', ['to-number', ['get', 'VALNMR']], 0]],
                 },
                 paint: {
@@ -1325,6 +1368,13 @@ const ENC_LABEL_HIDE_LAYERS = [ENC_VEC_LAYERS.NAVAIDS_LABEL, ENC_VEC_LAYERS.POIN
 const ROUTE_FOCUS_HIDE_LAYERS = [
     ENC_VEC_LAYERS.DEPARE,
     ENC_VEC_LAYERS.DEPARE_FINE,
+    // The satellite twin hides too — route-focus over imagery kept
+    // painting keel-keyed bands at up to 0.72 opacity, fighting the
+    // route polyline the mode exists to spotlight (2026-07-12 audit).
+    // Visibility is a separate channel from the opacity/filter pair
+    // syncDepareBaseTreatment manages, so the base-treatment sync
+    // can't resurrect a hidden glaze.
+    ENC_VEC_LAYERS.DEPARE_GLAZE,
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.COALNE,
     ...ENC_LABEL_HIDE_LAYERS,
@@ -1341,6 +1391,9 @@ const ROUTE_FOCUS_HIDE_LAYERS = [
 const CHART_DETAIL_HIDE_LAYERS = [
     ENC_VEC_LAYERS.DEPARE,
     ENC_VEC_LAYERS.DEPARE_FINE,
+    // Clean chart means clean over imagery too (see the route-focus
+    // note — visibility beats the base-treatment opacity writer).
+    ENC_VEC_LAYERS.DEPARE_GLAZE,
     ENC_VEC_LAYERS.DEPCNT_LINE,
     ENC_VEC_LAYERS.DEPCNT_SAFETY,
     // Contour value labels travel with their contours.
@@ -1693,6 +1746,20 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>, 
         const name = props.OBJNAM ?? props.objnam;
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.BOYSAW || layerId === ENC_VEC_LAYERS.BCNSAW) {
+        title = layerId === ENC_VEC_LAYERS.BCNSAW ? 'Safe-water beacon' : 'Safe-water buoy';
+        accent = '#f87171';
+        body += `<div class="enc-popup-row"><span>Meaning</span><b>Safe water all round — fairway / landfall mark</b></div>`;
+        const sawName = props.OBJNAM ?? props.objnam;
+        if (typeof sawName === 'string' && sawName)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(sawName)}</b></div>`;
+    } else if (layerId === ENC_VEC_LAYERS.BOYISD || layerId === ENC_VEC_LAYERS.BCNISD) {
+        title = layerId === ENC_VEC_LAYERS.BCNISD ? 'Isolated-danger beacon' : 'Isolated-danger buoy';
+        accent = '#f87171';
+        body += `<div class="enc-popup-row"><span>Meaning</span><b style="color:#fbbf24">Danger below — navigable water AROUND it, keep clear of the mark</b></div>`;
+        const isdName = props.OBJNAM ?? props.objnam;
+        if (typeof isdName === 'string' && isdName)
+            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(isdName)}</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.BOYSPP || layerId === ENC_VEC_LAYERS.BCNSPP) {
         const isBeacon = layerId === ENC_VEC_LAYERS.BCNSPP;
         title = isBeacon ? 'Special-purpose beacon' : 'Special-purpose buoy';
@@ -1883,6 +1950,10 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             ENC_VEC_LAYERS.BCNCAR,
             ENC_VEC_LAYERS.BOYSPP,
             ENC_VEC_LAYERS.BCNSPP,
+            ENC_VEC_LAYERS.BOYSAW,
+            ENC_VEC_LAYERS.BCNSAW,
+            ENC_VEC_LAYERS.BOYISD,
+            ENC_VEC_LAYERS.BCNISD,
         ]);
         const point = features.find((f) => POINT_LAYER_IDS.has(f.layer?.id ?? ''));
         const feat = point ?? features[0];

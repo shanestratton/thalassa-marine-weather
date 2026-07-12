@@ -47,6 +47,27 @@ describe('soundingDensity — the numbers ladder', () => {
         expect(zs[3]).toBeLessThanOrEqual(16); // 500 m apart all resolve within the ladder
     });
 
+    it('grid is screen-square at high latitude — no column-y Mercator bias', () => {
+        // At 60°S a degree of latitude spans 2× the pixels of a degree of
+        // longitude. cellDeg[4] ≈ 48px worth of lon-degrees at z4; two
+        // points 0.6 lon-cells apart HORIZONTALLY share a cell (one
+        // waits), so the same 0.6·cellDeg separation VERTICALLY — which
+        // is 1.2 screen cells at cos(60°)=0.5 — must NOT share one
+        // (2026-07-12 audit: one shared degree-size made Tasmania's
+        // sounding field ~40% sparser down than across).
+        const cellDeg4 = (48 * 78271.484) / 2 ** 4 / 111_320;
+        const a = pt(150.0, -60.0, 5);
+        const vert = pt(150.0, -60.0 + cellDeg4 * 0.6, 9); // 1.2 screen cells away
+        const horiz = pt(150.0 + cellDeg4 * 0.6, -60.0, 9); // 0.6 screen cells away
+        assignSoundingDensityMinZoom([a, vert]);
+        expect(mz(a)).toBe(4);
+        expect(mz(vert)).toBe(4); // its own screen cell — shows immediately
+        const a2 = pt(150.0, -60.0, 5);
+        assignSoundingDensityMinZoom([a2, horiz]);
+        expect(mz(a2)).toBe(4);
+        expect(mz(horiz)).toBeGreaterThan(4); // same screen cell — waits
+    });
+
     it('REPLACES the SCAMIN pre-bake — wide-zoom numbers actually appear', () => {
         // SCAMIN pinned nearly every AU sounding to z11+, silencing the
         // ladder's wide rungs (Shane 2026-07-11: "depths from zoom 7??").

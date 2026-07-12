@@ -105,6 +105,15 @@ export const ROUTING_CLASSES = new Set([
     // and EncVectorLayer draws the numbers, so the renderer-consumes rule
     // below is satisfied.
     'SOUNDG',
+    // Safe-water (RW fairway/landfall) + isolated-danger (BRB) marks —
+    // two of the five IALA families, missing from the chart entirely
+    // until the 2026-07-12 audit. EncVectorLayer renders all four.
+    // NOTE: existing cells need RE-EXTRACTION (+ manifest bump for the
+    // cloud bucket) before these actually appear.
+    'BOYSAW',
+    'BCNSAW',
+    'BOYISD',
+    'BCNISD',
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
     // imported cell's full vector data into memory at once). Re-add here AND
