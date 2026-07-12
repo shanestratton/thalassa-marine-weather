@@ -654,6 +654,19 @@ export async function getMergedVectorData(
     }
 }
 
+/** Sounding-derived contours are DISABLED (2026-07-12): the Delaunay +
+ *  isoline march is genuinely too heavy to run on the main thread on the
+ *  web (it hung the live chart on zoom). Even zoom-gated it's a band-aid;
+ *  the honest home for it is the Web Worker (deferred audit item 4).
+ *  Re-enable ONLY once the merge runs off-thread. The layers/sources
+ *  stay wired but carry no data — zero render cost — so re-enabling is a
+ *  one-line flip. See [[lesson_zoom_gate_render_only_compute]]. */
+const DERIVED_CONTOURS_ENABLED = false;
+/** Light sectors stay ON — generation is O(sectored-lights), cheap, and
+ *  it's the flagship night-approach feature. Flag exists so it can be
+ *  killed instantly if it ever proves otherwise. */
+const LIGHT_SECTORS_ENABLED = true;
+
 /** Derived contours only render at z13+; compute from z12 for headroom.
  *  Below this the pass is skipped entirely — it's the merge's heaviest
  *  discretionary cost and invisible when zoomed out. */
@@ -926,7 +939,7 @@ async function buildMergedVectorData(
                     // legs into LIGHTSEC (night-approach read). Each S-57
                     // sector is its own LIGHTS feature, so this fires per
                     // sector and one light's sectors accrete naturally.
-                    const bearings = readSectorBearings(featProps);
+                    const bearings = LIGHT_SECTORS_ENABLED ? readSectorBearings(featProps) : null;
                     if (bearings && feat.geometry?.type === 'Point') {
                         const secProps = {
                             _cellId: cell.id,
@@ -1090,7 +1103,7 @@ async function buildMergedVectorData(
     // z13+ layer renders, and hard-capped on sounding count: computing
     // it over a wide-zoom window hung the page (2026-07-12). Will move
     // into the worker with the rest of the merge.
-    if (densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS) {
+    if (DERIVED_CONTOURS_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS) {
         await yieldIfNeeded();
         const soundingPts = merged.SOUNDG.features.map((f) => {
             const c = (f.geometry as Point).coordinates;
