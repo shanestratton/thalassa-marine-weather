@@ -182,7 +182,7 @@ export function useEncVectorLayer(
 
             try {
                 const win = windowFor(map);
-                const data = await getMergedVectorData(win);
+                const data = await getMergedVectorData(win, map.getZoom());
                 if (cancelled || !data) return;
                 mergedWindowRef.current = win;
                 mergedZoomRef.current = map.getZoom();
