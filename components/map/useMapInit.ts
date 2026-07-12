@@ -294,7 +294,17 @@ export function useMapInit(opts: UseMapInitOptions) {
             bearing: 0,
             pitch: 0,
             maxPitch: 0,
-            maxTileCacheSize: 500,
+            // Bounded HARD (2026-07-13): was 500 — ~10× Mapbox's default.
+            // maxTileCacheSize is retained tiles PER SOURCE in memory, and
+            // a retina @2x satellite tile decodes to ~1 MB of texture, so
+            // 500 let the satellite + MapTiler-ocean + ENC-vector caches
+            // grow to ~1 GB of GPU/native memory as the punter panned —
+            // invisible to the JS heap (which stayed ~20 MB) and fatal to
+            // Chrome's renderer after ~a minute of use ("Aw, Snap",
+            // Shane 2026-07-13, "fine then locks up after ~1 min"). The
+            // SW still caches tiles to DISK for offline, so this only
+            // bounds the in-memory working set, not offline coverage.
+            maxTileCacheSize: 60,
             // Tile request interceptor — handles two cases:
             // 1. Local MBTiles: mbtiles.local URLs → blob URLs from sql.js (synchronous)
             // 2. ocharts DRM: encrypted URLs for AvNav DRM tile requests
