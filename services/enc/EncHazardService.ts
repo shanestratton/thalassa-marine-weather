@@ -36,7 +36,7 @@ import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideBboxes } from './clipDepareOverlap';
+import { clipFeatureOutsideCoverage, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -486,6 +486,12 @@ export interface EncMergedVectorData {
     BOYSPP: FeatureCollection;
     /** Special-purpose beacons — yellow X (display only). */
     BCNSPP: FeatureCollection;
+    /** Safe-water marks — RW fairway/landfall (display only). */
+    BOYSAW: FeatureCollection;
+    BCNSAW: FeatureCollection;
+    /** Isolated-danger marks — BRB, navigable water all round (display only). */
+    BOYISD: FeatureCollection;
+    BCNISD: FeatureCollection;
     /** Recommended tracks / leading lines (RECTRC line features).
      *  The same geometry the tracer grades leads against — drawing
      *  it is what lets a punter STEER by the lead (Shane 2026-07-09
@@ -640,6 +646,10 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
         BCNCAR: { type: 'FeatureCollection', features: [] },
         BOYSPP: { type: 'FeatureCollection', features: [] },
         BCNSPP: { type: 'FeatureCollection', features: [] },
+        BOYSAW: { type: 'FeatureCollection', features: [] },
+        BCNSAW: { type: 'FeatureCollection', features: [] },
+        BOYISD: { type: 'FeatureCollection', features: [] },
+        BCNISD: { type: 'FeatureCollection', features: [] },
         RECTRC: { type: 'FeatureCollection', features: [] },
         SOUNDG: { type: 'FeatureCollection', features: [] },
         DEPARE_GLAZE: { type: 'FeatureCollection', features: [] },
@@ -732,6 +742,29 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
         }
     }
 
+    // Charted-water footprint (DEPARE + DRGARE polygon coords) per
+    // SHADOWING cell, memoized for this run — feeds the glaze's
+    // true-coverage subtraction. Coordinate arrays are shared with the
+    // cached blob, never cloned.
+    const coverageMemo = new Map<string, CoverageGeom | null>();
+    const coverageFor = (cellId: string): CoverageGeom | null => {
+        const memo = coverageMemo.get(cellId);
+        if (memo !== undefined) return memo;
+        const b = loadedBlobs.get(cellId);
+        const polys: CoverageGeom = [];
+        for (const fc of [b?.layers.DEPARE, b?.layers.DRGARE]) {
+            for (const f of fc?.features ?? []) {
+                const g = f?.geometry;
+                if (!g) continue;
+                if (g.type === 'Polygon') polys.push(g.coordinates as CoverageGeom[number]);
+                else if (g.type === 'MultiPolygon') polys.push(...(g.coordinates as unknown as CoverageGeom));
+            }
+        }
+        const cov = polys.length > 0 ? polys : null;
+        coverageMemo.set(cellId, cov);
+        return cov;
+    };
+
     for (const cell of cellsCoarseToFine) {
         const blob = loadedBlobs.get(cell.id);
         if (!blob) continue;
@@ -800,12 +833,19 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
                     target === 'BOYCAR' ||
                     target === 'BCNCAR' ||
                     target === 'BOYSPP' ||
-                    target === 'BCNSPP'
+                    target === 'BCNSPP' ||
+                    target === 'BOYSAW' ||
+                    target === 'BCNSAW' ||
+                    target === 'BOYISD' ||
+                    target === 'BCNISD'
                 ) {
                     const featProps = (feat.properties ?? {}) as Record<string, unknown>;
                     props._icon = encNavaidIconId(target, featProps, ialaRegion);
+                    // Danger marks (cardinals + isolated danger) win the
+                    // collision engine, then laterals + safe water, then
+                    // specials.
                     props._priority =
-                        target === 'BOYCAR' || target === 'BCNCAR'
+                        target === 'BOYCAR' || target === 'BCNCAR' || target === 'BOYISD' || target === 'BCNISD'
                             ? 0
                             : target === 'BOYSPP' || target === 'BCNSPP'
                               ? 2
@@ -835,26 +875,40 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
             }
         };
 
-        const depareStart = merged.DEPARE.features.length;
         tagAndPush('DEPARE', blob.layers.DEPARE);
         // DRGARE (dredged areas) carries DRVAL1 just like DEPARE —
         // merge into the same collection so dredged basins shade
         // with the draft-aware depth bands instead of rendering as
         // chart holes.
         tagAndPush('DEPARE', blob.layers.DRGARE);
-        // Glaze variant: the same decorated features, with the parts a
-        // FINER cell also charts cut away — exactly one translucent band
-        // over any point of water in satellite mode. The fully-shadowed
-        // features are already gone (featureIsShadowed above); this
-        // handles the big partial-overlap survivors. Identity fast-path
-        // shares the untouched feature objects with merged.DEPARE.
-        const finerExtents = shadows.map((s) => s.bbox);
-        for (let i = depareStart; i < merged.DEPARE.features.length; i++) {
-            const glazed =
-                finerExtents.length > 0
-                    ? clipFeatureOutsideBboxes(merged.DEPARE.features[i], finerExtents)
-                    : merged.DEPARE.features[i];
-            if (glazed) merged.DEPARE_GLAZE.features.push(glazed);
+        // Glaze variant — built from the ORIGINAL band features (NOT the
+        // post-featureIsShadowed survivors) with the finer cells' ACTUAL
+        // charted coverage subtracted (martinez difference). The first
+        // cut subtracted the finer cells' data-extent RECTANGLES and
+        // inherited the rectangle-based shadow drops: wherever a fine
+        // survey charts only part of its rectangle — surf strips,
+        // corners — no band painted at all and raw imagery stared
+        // through as hard-edged dark boxes ("shaded areas around some
+        // areas in shore", Shane 2026-07-12). True coverage leaves the
+        // coarse band everywhere the finer survey is genuinely silent:
+        // exactly one band over charted water, zero holes.
+        const fineCoverages = shadows
+            .map((s) => {
+                const cov = coverageFor(s.id);
+                return cov ? { bbox: s.bbox, coverage: cov } : null;
+            })
+            .filter((c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null);
+        const glazeRank = cellScaleRank(cell.bbox);
+        for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
+            for (const feat of fc?.features ?? []) {
+                if (!feat || !feat.geometry) continue;
+                const base: Feature = {
+                    ...feat,
+                    properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
+                };
+                const glazed = fineCoverages.length > 0 ? clipFeatureOutsideCoverage(base, fineCoverages) : base;
+                if (glazed) merged.DEPARE_GLAZE.features.push(glazed);
+            }
         }
         tagAndPush('LNDARE', blob.layers.LNDARE);
         tagAndPush('COALNE', blob.layers.COALNE);
@@ -869,6 +923,10 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
         tagAndPush('BCNCAR', blob.layers.BCNCAR);
         tagAndPush('BOYSPP', blob.layers.BOYSPP);
         tagAndPush('BCNSPP', blob.layers.BCNSPP);
+        tagAndPush('BOYSAW', blob.layers.BOYSAW);
+        tagAndPush('BCNSAW', blob.layers.BCNSAW);
+        tagAndPush('BOYISD', blob.layers.BOYISD);
+        tagAndPush('BCNISD', blob.layers.BCNISD);
         tagAndPush('RECTRC', blob.layers.RECTRC);
 
         // Soundings: explode each MultiPoint cloud into labelled points.
