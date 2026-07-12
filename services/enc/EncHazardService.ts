@@ -586,8 +586,15 @@ const GLAZE_CELL_CACHE_MAX = 32;
  *  harbour surveys mid-zoom and leaving the 1:90k cell to paint their
  *  water in chunky generalised bands. 1% ≈ a ~30 px footprint: still
  *  culls true postage stamps at coastline zoom, keeps every survey
- *  that's actually legible. */
+ *  that's actually legible.
+ *  ZOOM-SPLIT (2026-07-13): the 0.01 crispness only matters zoomed IN;
+ *  at a wide passage view it dragged the whole coast's fine cells into
+ *  the merge (all their geometry + soundings) for sub-pixel gain,
+ *  feeding the z7-8 OOM. Below GLAZE_MIN_ZOOM the strict 0.045 floor
+ *  keeps only cells big enough to read at passage scale; zoomed in the
+ *  0.01 floor restores full harbour crispness. */
 const WINDOW_MIN_DIAG_RATIO = 0.01;
+const WINDOW_MIN_DIAG_RATIO_WIDE = 0.045;
 
 function bboxIntersects(a: [number, number, number, number], b: [number, number, number, number]): boolean {
     return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
@@ -625,19 +632,29 @@ export async function getMergedVectorData(
         mergedCache.clear();
         return null;
     }
+    // Stricter cell-selection floor at wide passage zoom (see the ratio
+    // constants) — fewer, larger cells so a z7-8 window doesn't load the
+    // whole coast's fine geometry it can't even show.
+    const diagRatio =
+        zoom != null && zoom < GLAZE_MIN_ZOOM ? WINDOW_MIN_DIAG_RATIO_WIDE : WINDOW_MIN_DIAG_RATIO;
     const cells = window
         ? allCells.filter(
-              (c) => bboxIntersects(c.bbox, window) && bboxDiag(c.bbox) >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO,
+              (c) => bboxIntersects(c.bbox, window) && bboxDiag(c.bbox) >= bboxDiag(window) * diagRatio,
           )
         : allCells;
     if (cells.length === 0) return null;
     const densify = zoom != null && zoom >= DERIVED_CONTOUR_MIN_ZOOM;
+    // Build the heavy satellite glaze (2nd depth-geometry copy) only when
+    // zoomed in enough to navigate by it. zoom==null (seaway/full merge)
+    // never needs the glaze, so skip it there too — pure memory saved.
+    const buildGlaze = zoom != null && zoom >= GLAZE_MIN_ZOOM;
     // Key by what actually determines the output: the cell set (merge
     // geometry depends only on the selected cells, never on the window
     // that selected them) + the registry version + whether derived
-    // contours were computed (so a zoomed-out no-contour merge and a
-    // zoomed-in with-contour merge over the same cell set don't collide).
-    const cacheKey = `v${cellMeta.getVersion()}:${densify ? 'd1' : 'd0'}:${cells
+    // contours were computed + whether the glaze was built (so a wide
+    // no-glaze merge and a zoomed-in with-glaze merge over the same cell
+    // set don't collide).
+    const cacheKey = `v${cellMeta.getVersion()}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:${cells
         .map((c) => c.id)
         .sort()
         .join(',')}`;
@@ -645,7 +662,7 @@ export async function getMergedVectorData(
     if (cached) return cached;
     const inflight = inflightMerges.get(cacheKey);
     if (inflight) return inflight;
-    const build = buildMergedVectorData(cells, cacheKey, densify);
+    const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze);
     inflightMerges.set(cacheKey, build);
     try {
         return await build;
@@ -676,11 +693,23 @@ const DERIVED_CONTOUR_MIN_ZOOM = 12;
  *  harbour window runs a few thousand; 30k triangulates in well under a
  *  frame, past that we skip rather than risk a hang. */
 const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
+/** The satellite keel-glaze (overlap-clipped DEPARE_GLAZE — a full SECOND
+ *  copy of the depth-area geometry) is only built at z ≥ this. At a wide
+ *  z7-9 passage view the window pulls the whole coast's cells including
+ *  the 1:3M ocean overview, and doubling all that band geometry for the
+ *  glaze tipped Chrome's renderer into an OOM crash ("Aw, Snap"; Shane
+ *  2026-07-13, "locks up as the white layer arrives ~z7-8"). The glaze is
+ *  a zoomed-in "is this water safe for my keel" read — useless at passage
+ *  scale — so gating it here sheds the heaviest wide-view layer with no
+ *  visual loss: passage overview shows clean imagery, the glaze fades in
+ *  as you close the coast to navigate. */
+const GLAZE_MIN_ZOOM = 10;
 
 async function buildMergedVectorData(
     cells: EncCell[],
     cacheKey: string,
     densify: boolean,
+    buildGlaze: boolean,
 ): Promise<EncMergedVectorData | null> {
     // TIME-SLICED (2026-07-12 audit, MAJOR): the merge — parse, clone,
     // extent-walk, glaze clip, sounding explode — used to run as ONE
@@ -980,6 +1009,11 @@ async function buildMergedVectorData(
         // areas in shore", Shane 2026-07-12). True coverage leaves the
         // coarse band everywhere the finer survey is genuinely silent:
         // exactly one band over charted water, zero holes.
+        // ZOOM-GATED (2026-07-13): skipped entirely at wide passage zoom —
+        // a full second copy of every band across the whole coast's cells
+        // OOM-crashed the renderer at z7-8, and the keel glaze is moot at
+        // that scale. See GLAZE_MIN_ZOOM.
+        if (buildGlaze) {
         const fineCoverages = shadows
             .map((s) => {
                 const cov = coverageFor(s.id);
@@ -1034,6 +1068,7 @@ async function buildMergedVectorData(
                 glazeCellCache.delete(oldest);
             }
         }
+        } // end buildGlaze gate
         tagAndPush('LNDARE', blob.layers.LNDARE);
         tagAndPush('COALNE', blob.layers.COALNE);
         tagAndPush('OBSTRN', blob.layers.OBSTRN);
