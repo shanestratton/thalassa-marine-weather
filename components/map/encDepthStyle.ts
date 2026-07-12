@@ -62,6 +62,11 @@ export const DEPCNT_LABEL_INK_DATUM = '#46555f';
  *  screenshot can never masquerade as chart datum. */
 export const DEPCNT_LABEL_INK_LIVE = '#54828d';
 
+/** IHO hazard magenta — hazard point symbols AND their popup accents.
+ *  Was four scattered literals; a rebrand that missed one left symbols
+ *  and popups subtly mismatched. */
+export const ENC_HAZARD_MAGENTA = '#d837a9';
+
 // ── Case-defensive attribute reads ────────────────────────────────
 
 type Expr = unknown[];

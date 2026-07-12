@@ -3463,3 +3463,41 @@ cells, scale-shadow merged). First-run triage:
 
 Also `7ef57487`: NtM/bridge popups now render in the house dark-glass card (.ntm-popup CSS —
 they were bare text over the chart, Shane-reported).
+
+## ★ reply 76 (2026-07-12) — CHART-LAYER AUDIT SWEEP: 5 batches off the 17-agent scorecard
+
+Shane asked for an honest /100 on the ENC white chart (came in at 62 — full findings in the
+session log); he then green-lit fixing the lot. Landed as five themed commits:
+
+- `3cf169cd` **safety** — DEPCNT trio un-buried from under DEPARE_FINE (z-order heal in mount),
+  depthStyleState MERGED not rebuilt (tide/draft honesty survives pans + hydration), unknown
+  DRVAL1/VALDCO renders UNCHARTED never deep (case-defensive numAttrExpr, lowercase cells fixed),
+  per-cell safety contour (match on \_cellId), "Dries 0.3 m" popups. Pure math extracted to
+  `encDepthStyle.ts` + 24 tests through a mini expression evaluator (`tests/enc/exprEval.ts`).
+- `424e31ee` **perf** — blob LRU byte-capped (48 MB text + min-keep floor), merge time-sliced
+  (~12 ms slices) + single-flighted + keyed by CELL SET (zoom crossings/FAB toggles now free),
+  30 s download deadline + 60 s failure cooldown, 4-wide preload pool, index LRU (12),
+  listCells memoized, extent walks memoized, scrub label relayouts throttled ~150 ms.
+- `bd6a0ee7` **rendering** — BOYSAW/BCNSAW/BOYISD/BCNISD extracted+merged+rendered (mirror lists
+  now 24==24 — NOTE: cells need Pi RE-EXTRACTION + manifest bump before marks appear), retina
+  icon rasterisation (dpr-scaled canvas + pixelRatio), port beacons get the CAN topmark, light
+  flares offset S-52 style, route-focus/clean-chart hide the glaze, sounding grid cos(lat)
+  corrected (Tasmania was ~40% sparser vertically).
+- `00ae8158` **UX** — hydration progress chip ("Chart downloading… n of m",
+  EncHazardService.subscribeHydration), ONE map-level tap handler with 12 px fat-finger box
+  (nearest mark wins), satellite-aware chart key that finally teaches the glaze + no-draft
+  caveat + swatches bound to DEPARE_BAND_COLORS, tappable datum chip opens the key, attribution
+  chip stops showing "cloud ed.0 ()", 32 px popup close, ChartModes dropdown scrolls.
+- (pending) **code quality** — popup subsystem → `encPopup.ts`, layer ids → `encLayerIds.ts`
+  (no-cycle split, EncVectorLayer 2064→1546 lines), cloudCellSync `as never` → shape gate,
+  retired EncCoverageLayer/useEncCoverageLayer DELETED, hazard magenta tokenised.
+
+Mid-sweep, a parallel session landed `cfbc9d08` (glaze clipped by REAL fine-survey coverage via
+martinez — the audit's R6, done properly). Folded around it; no conflicts; its commit compiles
+because my rendering batch supplies the BOYSAW type surface.
+
+**Open from the audit, deliberately NOT shipped:** (1) coarse DEPCNT/COALNE partial-overlap line
+de-dup — should use cfbc9d08's true-coverage machinery, not the rectangle-based
+clipLineFeatureOutsideBboxes (which stays tested-but-unwired); (2) merge off the main thread
+entirely (worker) — time-slicing shipped instead, worker needs an IDB-visible blob store; (3)
+BOYSAW/BOYISD re-extraction runbook run on the Pi + bucket manifest bump.
