@@ -608,6 +608,17 @@ export async function getMergedVectorData(
      * compile and other whole-library consumers).
      */
     window?: [number, number, number, number],
+    /**
+     * Current map zoom. Gates the EXPENSIVE sounding-derived contour
+     * pass (Delaunay + march) to zooms where it actually renders (z13+
+     * layer; compute from z12 for headroom). Without this the pass ran
+     * over EVERY merged sounding at EVERY zoom — at z10 over a wide
+     * window that's tens of thousands of points triangulated for
+     * contours that never draw, hanging the page (2026-07-12, the web
+     * "Page Unresponsive" at z10.2). Omitted (seaway/full merge) = no
+     * derived contours.
+     */
+    zoom?: number,
 ): Promise<EncMergedVectorData | null> {
     const allCells = cellMeta.listCells();
     if (allCells.length === 0) {
@@ -620,10 +631,13 @@ export async function getMergedVectorData(
           )
         : allCells;
     if (cells.length === 0) return null;
+    const densify = zoom != null && zoom >= DERIVED_CONTOUR_MIN_ZOOM;
     // Key by what actually determines the output: the cell set (merge
     // geometry depends only on the selected cells, never on the window
-    // that selected them) + the registry version.
-    const cacheKey = `v${cellMeta.getVersion()}:${cells
+    // that selected them) + the registry version + whether derived
+    // contours were computed (so a zoomed-out no-contour merge and a
+    // zoomed-in with-contour merge over the same cell set don't collide).
+    const cacheKey = `v${cellMeta.getVersion()}:${densify ? 'd1' : 'd0'}:${cells
         .map((c) => c.id)
         .sort()
         .join(',')}`;
@@ -631,7 +645,7 @@ export async function getMergedVectorData(
     if (cached) return cached;
     const inflight = inflightMerges.get(cacheKey);
     if (inflight) return inflight;
-    const build = buildMergedVectorData(cells, cacheKey);
+    const build = buildMergedVectorData(cells, cacheKey, densify);
     inflightMerges.set(cacheKey, build);
     try {
         return await build;
@@ -640,7 +654,21 @@ export async function getMergedVectorData(
     }
 }
 
-async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promise<EncMergedVectorData | null> {
+/** Derived contours only render at z13+; compute from z12 for headroom.
+ *  Below this the pass is skipped entirely — it's the merge's heaviest
+ *  discretionary cost and invisible when zoomed out. */
+const DERIVED_CONTOUR_MIN_ZOOM = 12;
+/** Hard ceiling on soundings fed to the Delaunay pass — belt-and-braces
+ *  against a pathological dense window even inside the zoom gate. A
+ *  harbour window runs a few thousand; 30k triangulates in well under a
+ *  frame, past that we skip rather than risk a hang. */
+const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
+
+async function buildMergedVectorData(
+    cells: EncCell[],
+    cacheKey: string,
+    densify: boolean,
+): Promise<EncMergedVectorData | null> {
     // TIME-SLICED (2026-07-12 audit, MAJOR): the merge — parse, clone,
     // extent-walk, glaze clip, sounding explode — used to run as ONE
     // long main-thread task (100–800 ms; multi-cell mid-zoom windows
@@ -1058,15 +1086,18 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
     // Sounding-derived contours (honest densification): interpolate depth
     // contours from the merged spot soundings, ONLY inside triangles
     // bounded by real soundings (never across a gap). Heavy — Delaunay +
-    // per-level march — so it runs behind the merge's time-slice and
-    // will move into the worker with the rest. Skipped when soundings are
-    // too sparse to contour honestly (the module's own floor).
-    await yieldIfNeeded();
-    const soundingPts = merged.SOUNDG.features.map((f) => {
-        const c = (f.geometry as Point).coordinates;
-        return { lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number })?._d) };
-    });
-    merged.DEPCNT_DERIVED.features = buildDerivedContours(soundingPts);
+    // per-level march. GATED to zoomed-in merges (densify) where the
+    // z13+ layer renders, and hard-capped on sounding count: computing
+    // it over a wide-zoom window hung the page (2026-07-12). Will move
+    // into the worker with the rest of the merge.
+    if (densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS) {
+        await yieldIfNeeded();
+        const soundingPts = merged.SOUNDG.features.map((f) => {
+            const c = (f.geometry as Point).coordinates;
+            return { lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number })?._d) };
+        });
+        merged.DEPCNT_DERIVED.features = buildDerivedContours(soundingPts);
+    }
 
     mergedCache.set(cacheKey, merged);
     while (mergedCache.size > MERGED_CACHE_MAX) {
