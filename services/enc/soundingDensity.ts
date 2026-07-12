@@ -55,12 +55,25 @@ export function assignSoundingDensityMinZoom(features: Array<Feature<Point>>): v
     const cellDeg: number[] = [];
     for (let z = 0; z <= MAX_Z; z++) cellDeg[z] = (cellPxAt(z) * BASE_M_PER_PX) / 2 ** z / 111_320;
 
+    // Web-Mercator anisotropy: cellDeg is degrees-of-LONGITUDE per grid
+    // cell (exact in screen space at every latitude), but a degree of
+    // latitude spans 1/cos(lat) MORE pixels — one shared size made the
+    // grid ~13% sparser vertically at 27°S and ~40% at Tasmania, so the
+    // mid-zoom field read "column-y" instead of the even paper-chart
+    // scatter (2026-07-12 audit). Latitude cells shrink by cos(lat),
+    // sampled once at the merged set's mean latitude (a render window
+    // spans a bay — the variation across it is sub-1%).
+    const meanLat = pts.length > 0 ? pts.reduce((s, p) => s + p.lat, 0) / pts.length : 0;
+    const cosLat = Math.max(Math.cos((meanLat * Math.PI) / 180), 0.2);
+    const latCellDeg: number[] = [];
+    for (let z = 0; z <= MAX_Z; z++) latCellDeg[z] = cellDeg[z] * cosLat;
+
     // Packed numeric keys (~3× faster than template strings on a 170k
     // heap — this runs on-device at every cell-list merge). Cell index
     // range at z16 is ±~372k (19 bits + sign); pack as
     // z·2^44 + (x+2^21)·2^22 + (y+2^21), comfortably inside 2^53.
     const key = (z: number, lon: number, lat: number): number =>
-        z * 2 ** 44 + (Math.floor(lon / cellDeg[z]) + 2 ** 21) * 2 ** 22 + (Math.floor(lat / cellDeg[z]) + 2 ** 21);
+        z * 2 ** 44 + (Math.floor(lon / cellDeg[z]) + 2 ** 21) * 2 ** 22 + (Math.floor(lat / latCellDeg[z]) + 2 ** 21);
 
     const occupied = new Set<number>();
     for (const p of pts) {

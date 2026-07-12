@@ -47,8 +47,24 @@ export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'C
  * equivalent rigid beacons (poles, towers). Same colour logic per
  * IALA region; different physical structure on the chart.
  * BOYSPP/BCNSPP are special-purpose marks (yellow X topmark).
+ * BOYSAW/BCNSAW are safe-water (fairway/landfall, RW stripes);
+ * BOYISD/BCNISD are isolated-danger (BRB, two black balls) — two of
+ * the five IALA families that were simply missing from the chart
+ * until the 2026-07-12 audit (the RW buoy off a harbour entrance
+ * rendered as blank water).
  */
-export type EncNavaidLayer = 'LIGHTS' | 'BOYLAT' | 'BOYCAR' | 'BCNLAT' | 'BCNCAR' | 'BOYSPP' | 'BCNSPP';
+export type EncNavaidLayer =
+    | 'LIGHTS'
+    | 'BOYLAT'
+    | 'BOYCAR'
+    | 'BCNLAT'
+    | 'BCNCAR'
+    | 'BOYSPP'
+    | 'BCNSPP'
+    | 'BOYSAW'
+    | 'BCNSAW'
+    | 'BOYISD'
+    | 'BCNISD';
 
 /**
  * IALA buoyage region. Lateral mark colour conventions are
@@ -156,7 +172,7 @@ export function lateralMarkColour(catlam: number | null | undefined, region: Ial
  * Specials: yellow X buoy / yellow beacon.
  */
 export function encNavaidIconId(
-    kind: 'BOYLAT' | 'BCNLAT' | 'BOYCAR' | 'BCNCAR' | 'BOYSPP' | 'BCNSPP',
+    kind: Exclude<EncNavaidLayer, 'LIGHTS'>,
     props: Record<string, unknown> | null | undefined,
     region: IalaRegion,
 ): string {
@@ -168,7 +184,11 @@ export function encNavaidIconId(
         const isStbdHand = c === 2 || c === 4;
         const isBeacon = kind === 'BCNLAT';
         if (isPortHand) {
-            if (isBeacon) return region === 'A' ? 'sm-beacon-red' : 'sm-beacon-green';
+            // Port-hand beacons carry the CAN (square) topmark — the
+            // shape channel must disambiguate the hand for colour-blind
+            // eyes; a triangle both sides contradicted the colours
+            // (2026-07-12 audit).
+            if (isBeacon) return region === 'A' ? 'sm-beacon-can-red' : 'sm-beacon-can-green';
             return region === 'A' ? 'sm-buoy-port' : 'sm-buoy-port-b';
         }
         if (isStbdHand) {
@@ -186,6 +206,11 @@ export function encNavaidIconId(
         if (c === 4) return 'sm-cardinal-west';
         return 'sm-cardinal-north';
     }
+    // Safe-water (RW stripes + red sphere) and isolated-danger (BRB +
+    // two black balls) read the same afloat or fixed — glyph identity
+    // beats structure fidelity, same call as the cardinals.
+    if (kind === 'BOYSAW' || kind === 'BCNSAW') return 'sm-safe-water';
+    if (kind === 'BOYISD' || kind === 'BCNISD') return 'sm-isolated-danger';
     // Special-purpose marks.
     return kind === 'BCNSPP' ? 'sm-beacon-yellow' : 'sm-special';
 }
@@ -525,6 +550,14 @@ export interface EncConversionResult {
         BOYSPP?: GeoJSON.FeatureCollection;
         /** Special-purpose beacons (yellow X). Display only. */
         BCNSPP?: GeoJSON.FeatureCollection;
+        /** Safe-water buoys (RW fairway/landfall marks). Display only. */
+        BOYSAW?: GeoJSON.FeatureCollection;
+        /** Safe-water beacons. Display only. */
+        BCNSAW?: GeoJSON.FeatureCollection;
+        /** Isolated-danger buoys (BRB, navigable water all round). Display only. */
+        BOYISD?: GeoJSON.FeatureCollection;
+        /** Isolated-danger beacons. Display only. */
+        BCNISD?: GeoJSON.FeatureCollection;
         /** Depth contour lines (VALDCO metres). Display only. */
         DEPCNT?: GeoJSON.FeatureCollection;
         /** Zones of confidence (CATZOC). Info-only — not a hazard. */

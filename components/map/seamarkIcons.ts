@@ -150,12 +150,28 @@ function lightSvg(colour: string, major: boolean): string {
     </svg>`;
 }
 
-/** Beacon — Fixed marker (triangle on a stick) */
+/** Beacon — Fixed marker (triangle/cone on a stick). IALA shape
+ *  convention: the CONE is the STARBOARD-hand topmark. */
 function beaconSvg(colour: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
         <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
         <g filter="url(#s)">
             <polygon points="24,8 14,28 34,28" fill="${colour}" stroke="${COLOURS.white}" stroke-width="1.5"/>
+            <line x1="24" y1="28" x2="24" y2="42" stroke="${COLOURS.grey}" stroke-width="3"/>
+        </g>
+    </svg>`;
+}
+
+/** Port-hand beacon — CAN (square) topmark on a stick. The shape
+ *  channel is the redundancy colour-blind mariners rely on; drawing
+ *  the starboard triangle on BOTH hands contradicted the colours
+ *  (2026-07-12 audit — a red-green colour-blind user saw identical
+ *  triangles both sides of the channel). */
+function beaconCanSvg(colour: string): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+        <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
+        <g filter="url(#s)">
+            <rect x="15" y="10" width="18" height="18" rx="1" fill="${colour}" stroke="${COLOURS.white}" stroke-width="1.5"/>
             <line x1="24" y1="28" x2="24" y2="42" stroke="${COLOURS.grey}" stroke-width="3"/>
         </g>
     </svg>`;
@@ -222,10 +238,14 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
         { id: 'sm-light-green', svg: lightSvg(COLOURS.green, false), size: 48 },
         { id: 'sm-light-white', svg: lightSvg(COLOURS.white, false), size: 48 },
 
-        // Beacons
+        // Beacons — cone (triangle) = starboard-hand topmark, can
+        // (square) = port-hand topmark. Colour swaps by IALA region;
+        // the SHAPE always disambiguates the hand.
         { id: 'sm-beacon-red', svg: beaconSvg(COLOURS.red), size: 48 },
         { id: 'sm-beacon-green', svg: beaconSvg(COLOURS.green), size: 48 },
         { id: 'sm-beacon-yellow', svg: beaconSvg(COLOURS.yellow), size: 48 },
+        { id: 'sm-beacon-can-red', svg: beaconCanSvg(COLOURS.red), size: 48 },
+        { id: 'sm-beacon-can-green', svg: beaconCanSvg(COLOURS.green), size: 48 },
 
         // Infrastructure
         { id: 'sm-anchorage', svg: anchorageSvg(), size: 48 },
@@ -245,15 +265,36 @@ export function getSeamarkIconDefs(): SeamarkIconDef[] {
     ];
 }
 
+/**
+ * Rasterise an SVG icon at the device pixel ratio. Feeding the raw
+ * 48-px <img> to addImage stored a @1x bitmap that the GPU upscaled
+ * ~2-3× on retina — visibly soft cone/can edges next to Mapbox's
+ * crisp basemap glyphs, the single most "non-chartplotter" tell on
+ * the mark layer (2026-07-12 audit). SVG is vector: drawing it onto
+ * a dpr-sized canvas rasterises at full destination resolution.
+ */
+async function svgToImageData(svgString: string, size: number, pixelRatio: number): Promise<ImageData> {
+    const img = await svgToImage(svgString, size);
+    const px = Math.round(size * pixelRatio);
+    const canvas = document.createElement('canvas');
+    canvas.width = px;
+    canvas.height = px;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('2d canvas unavailable');
+    ctx.drawImage(img, 0, 0, px, px);
+    return ctx.getImageData(0, 0, px, px);
+}
+
 /** Register all seamark icons on a Mapbox GL map instance */
 export async function registerSeamarkIcons(map: mapboxgl.Map): Promise<void> {
     const defs = getSeamarkIconDefs();
+    const ratio = Math.min(Math.max(window.devicePixelRatio || 1, 1), 3);
 
     for (const def of defs) {
         if (map.hasImage(def.id)) continue;
         try {
-            const img = await svgToImage(def.svg, def.size);
-            map.addImage(def.id, img, { sdf: false });
+            const data = await svgToImageData(def.svg, def.size, ratio);
+            map.addImage(def.id, data, { sdf: false, pixelRatio: ratio });
         } catch (err) {
             console.warn(`Failed to register seamark icon ${def.id}:`, err);
         }
