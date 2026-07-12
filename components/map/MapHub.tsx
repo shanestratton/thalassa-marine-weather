@@ -1582,18 +1582,28 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         const refresh = () => {
             const cells = listEncCells();
-            // Diagnostic — log every time the FAB-input value changes so we
-            // can see whether MapHub agrees with the bootstrap about state.
-            // Safe to demote to log.info once the ENC toggle is known-good.
-
-            console.warn(
-                `[MapHub] encCellCount = ${cells.length}` +
-                    (cells.length > 0 ? ` (${cells.map((c) => c.id).join(', ')})` : ''),
-            );
+            // Diagnostic — count only: joining all 172 cloud-cell ids
+            // built a ~2.5 KB string per notify and flooded the console
+            // during registration storms (2026-07-12 audit).
+            console.warn(`[MapHub] encCellCount = ${cells.length}`);
             setEncCellCount(cells.length);
         };
         refresh();
-        return subscribeToEnc(refresh);
+        // Debounced: a 172-cell cloud registration fires one notify PER
+        // CELL; refreshing synchronously each time was an O(n²) parse
+        // burst on first signed-in boot.
+        let t: number | null = null;
+        const unsub = subscribeToEnc(() => {
+            if (t !== null) window.clearTimeout(t);
+            t = window.setTimeout(() => {
+                t = null;
+                refresh();
+            }, 300);
+        });
+        return () => {
+            if (t !== null) window.clearTimeout(t);
+            unsub();
+        };
     }, []);
     // One-shot import of any bundled sample cells the dev server is serving.
     // No-op once the localStorage flag is set or when real cells already exist.
@@ -1866,17 +1876,34 @@ export const MapHub: React.FC<MapHubProps> = ({
         };
     }, [tideDepthMode, mapReady]);
     // Scrub moves re-sample the already-fetched curve — no network, no
-    // rebuild, frame-instant re-tint.
+    // rebuild. THROTTLED trailing-edge (2026-07-12 audit): the sounding
+    // and contour-label text-fields are LAYOUT properties, so every
+    // quarter-hour detent forced Mapbox to re-shape + re-collision-place
+    // every visible label. Dragging dawn-to-dusk over a z13 sounding
+    // field fired dozens of full symbol re-layouts; ~150 ms pacing keeps
+    // the flooding-banks feel while the worker breathes. The final detent
+    // always lands (trailing timer).
+    const tideScrubAppliedAtRef = useRef(0);
     useEffect(() => {
         tideScrubRef.current = tideScrubQ;
         if (!tideDepthMode || !mapReady) return;
         const map = mapRef.current;
         if (!map) return;
-        const curve = tideCurveRef.current;
-        const atMs = scrubInstant(tideScrubQ);
-        const read = curve ? tideReadAt(curve, atMs ?? Date.now()) : null;
-        setTideOffsetInfo(read);
-        setEncTideOffset(map, read ? read.offsetM : null, atMs);
+        const apply = () => {
+            tideScrubAppliedAtRef.current = Date.now();
+            const curve = tideCurveRef.current;
+            const atMs = scrubInstant(tideScrubRef.current);
+            const read = curve ? tideReadAt(curve, atMs ?? Date.now()) : null;
+            setTideOffsetInfo(read);
+            setEncTideOffset(map, read ? read.offsetM : null, atMs);
+        };
+        const since = Date.now() - tideScrubAppliedAtRef.current;
+        if (since >= 150) {
+            apply();
+            return;
+        }
+        const t = window.setTimeout(apply, 150 - since);
+        return () => window.clearTimeout(t);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tideScrubQ, tideDepthMode, mapReady]);
     // Keel-honesty flag for the tap-the-water popup — a verdict against

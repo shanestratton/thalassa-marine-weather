@@ -32,6 +32,7 @@ import type { Feature, FeatureCollection, Point } from 'geojson';
 import { assignSoundingDensityMinZoom } from './soundingDensity';
 
 import { createLogger } from '../../utils/createLogger';
+import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
@@ -53,8 +54,35 @@ const log = createLogger('EncHazardService');
 /**
  * One EncSpatialIndex per loaded cell. Keyed by cell ID.
  * Built lazily on first query that touches a given cell.
+ *
+ * LRU-CAPPED (2026-07-12 audit): "we don't evict aggressively" was
+ * sized for the 1–10-cell era; the shipped library is 172 cells and a
+ * long coastal routing session pinned 30+ cells' full hazard geometry
+ * for the session — surviving even blob-cache eviction, so freeing the
+ * blob stopped freeing memory. Indexes rebuild from blobs in tens of
+ * ms; keeping a passage-leg's worth warm is plenty.
  */
 const indexes: Map<string, EncSpatialIndex> = new Map();
+const INDEX_CACHE_MAX = 12;
+
+function touchIndex(cellId: string): EncSpatialIndex | undefined {
+    const hit = indexes.get(cellId);
+    if (hit) {
+        indexes.delete(cellId);
+        indexes.set(cellId, hit);
+    }
+    return hit;
+}
+
+function cacheIndex(cellId: string, index: EncSpatialIndex): void {
+    indexes.delete(cellId);
+    indexes.set(cellId, index);
+    while (indexes.size > INDEX_CACHE_MAX) {
+        const oldest = indexes.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        indexes.delete(oldest);
+    }
+}
 
 /**
  * Cells we've already attempted to load, for which the GeoJSON
@@ -174,7 +202,7 @@ function buildCatzocZones(blob: EncConversionResult): EncCatzocZone[] {
  * the cell has no hazards.
  */
 async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> {
-    const cached = indexes.get(cellId);
+    const cached = touchIndex(cellId);
     if (cached) return cached;
     if (failedLoads.has(cellId)) return null;
 
@@ -196,7 +224,7 @@ async function getOrBuildIndex(cellId: string): Promise<EncSpatialIndex | null> 
     const catzocZones = buildCatzocZones(blob);
     const coastlines = buildCoastlines(blob);
     const index = new EncSpatialIndex(cellId, hazards, catzocZones, coastlines);
-    indexes.set(cellId, index);
+    cacheIndex(cellId, index);
     log.info(
         `built spatial index for cell ${cellId}: ${hazards.length} hazards, ` +
             `${catzocZones.length} CATZOC zones, ${coastlines.length} coastlines`,
@@ -239,8 +267,12 @@ export function hasCoverageFor(bbox: [number, number, number, number]): boolean 
  * first query isn't paying the index-build cost.
  */
 export async function preloadForBBox(bbox: [number, number, number, number]): Promise<void> {
+    // CAPPED pool, not Promise.all: a route-length bbox over the
+    // 172-cell cloud library used to fire dozens of simultaneous
+    // multi-MB downloads + main-thread parses (2026-07-12 audit —
+    // marina-wifi route planning stalled for minutes).
     const cells = cellMeta.cellsForBBox(bbox);
-    await Promise.all(cells.map((c) => getOrBuildIndex(c.id)));
+    await mapWithConcurrency(cells, 4, (c) => getOrBuildIndex(c.id));
 }
 
 /**
@@ -287,14 +319,13 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
         return results;
     }
 
-    // Pre-build all candidate indexes in parallel.
+    // Pre-build the candidate indexes through the capped pool — same
+    // flood risk as preloadForBBox when the query bbox spans a route.
     const candidateIndexes: EncSpatialIndex[] = [];
-    await Promise.all(
-        candidateCells.map(async (cell) => {
-            const idx = await getOrBuildIndex(cell.id);
-            if (idx) candidateIndexes.push(idx);
-        }),
-    );
+    await mapWithConcurrency(candidateCells, 4, async (cell) => {
+        const idx = await getOrBuildIndex(cell.id);
+        if (idx) candidateIndexes.push(idx);
+    });
 
     // Per-point query against the resolved indexes.
     for (let i = 0; i < points.length; i++) {
@@ -326,7 +357,11 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
  * Used by the ChartLocker import flow once Pi conversion succeeds.
  */
 export async function importCell(blob: EncConversionResult): Promise<EncCell> {
-    const path = await cellStore.saveCellGeoJSON(blob.cellId, blob);
+    // sizeBytes rides back from the save — it used to be re-measured
+    // with a SECOND full JSON.stringify of the multi-MB blob right
+    // after the save's own (2026-07-12 audit: ~2× CPU + a transient
+    // twin allocation per imported cell, on the UI thread).
+    const { path, sizeBytes } = await cellStore.saveCellGeoJSON(blob.cellId, blob);
 
     // Rough hazard count for the metadata record (without parsing
     // every feature). Small inaccuracy is fine — UI stat only.
@@ -356,8 +391,6 @@ export async function importCell(blob: EncConversionResult): Promise<EncCell> {
     // re-extractions with the same cellId+edition (e.g. when the
     // senc-extractor's rogue-triangle filter improves). Stringify length
     // matches the bytes the Pi reported in its installed-cells index.
-    const sizeBytes = JSON.stringify(blob).length;
-
     const cell: EncCell = {
         id: blob.cellId,
         sourceHO: blob.sourceHO,
@@ -479,7 +512,26 @@ export interface EncMergedVectorData {
     cellCount: number;
 }
 
-let mergedCache: { version: number; key: string; data: EncMergedVectorData } | null = null;
+/**
+ * Merged-data memo — keyed by the SELECTED CELL SET + registry version,
+ * not raw window coords (2026-07-12 audit): a pinch-zoom from z8 to z16
+ * used to rebuild byte-identical output ~8 times because every whole-
+ * zoom crossing minted a new window key over the same cells. TWO slots
+ * so the windowed render merge and the seaway debug full merge stop
+ * evicting each other on every moveend.
+ */
+const mergedCache = new Map<string, EncMergedVectorData>();
+const MERGED_CACHE_MAX = 2;
+
+/** Single-flight per key — overlapping calls (hook debounce + routing)
+ *  share one build instead of doubling the heaviest CPU in the app. */
+const inflightMerges = new Map<string, Promise<EncMergedVectorData | null>>();
+
+/** DEPARE data extents are deterministic per parsed blob — memoized by
+ *  blob identity so re-merges skip the full coordinate re-walk
+ *  (100k+ coords per coastal cell, every window escape). Evicts with
+ *  the blob itself (WeakMap). */
+const depareExtentCache = new WeakMap<object, [number, number, number, number] | null>();
 
 /**
  * Build the per-layer FeatureCollections by reading every imported
@@ -530,22 +582,48 @@ export async function getMergedVectorData(
 ): Promise<EncMergedVectorData | null> {
     const allCells = cellMeta.listCells();
     if (allCells.length === 0) {
-        mergedCache = null;
+        mergedCache.clear();
         return null;
     }
     const cells = window
         ? allCells.filter(
-              (c) =>
-                  bboxIntersects(c.bbox, window) &&
-                  bboxDiag(c.bbox) >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO,
+              (c) => bboxIntersects(c.bbox, window) && bboxDiag(c.bbox) >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO,
           )
         : allCells;
-    const cacheKey = window ? window.map((v) => v.toFixed(3)).join(',') : 'full';
-    const currentVersion = cellMeta.getVersion();
-    if (mergedCache && mergedCache.version === currentVersion && mergedCache.key === cacheKey) {
-        return mergedCache.data;
-    }
     if (cells.length === 0) return null;
+    // Key by what actually determines the output: the cell set (merge
+    // geometry depends only on the selected cells, never on the window
+    // that selected them) + the registry version.
+    const cacheKey = `v${cellMeta.getVersion()}:${cells
+        .map((c) => c.id)
+        .sort()
+        .join(',')}`;
+    const cached = mergedCache.get(cacheKey);
+    if (cached) return cached;
+    const inflight = inflightMerges.get(cacheKey);
+    if (inflight) return inflight;
+    const build = buildMergedVectorData(cells, cacheKey);
+    inflightMerges.set(cacheKey, build);
+    try {
+        return await build;
+    } finally {
+        inflightMerges.delete(cacheKey);
+    }
+}
+
+async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promise<EncMergedVectorData | null> {
+    // TIME-SLICED (2026-07-12 audit, MAJOR): the merge — parse, clone,
+    // extent-walk, glaze clip, sounding explode — used to run as ONE
+    // long main-thread task (100–800 ms; multi-cell mid-zoom windows
+    // worse), freezing the map and the GPS chase on every window
+    // escape. Yielding a macrotask every ~12 ms of work keeps frames
+    // flowing; total CPU is unchanged but the freeze is gone.
+    let sliceStart = performance.now();
+    const yieldIfNeeded = async (): Promise<void> => {
+        if (performance.now() - sliceStart < 12) return;
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        sliceStart = performance.now();
+    };
 
     const merged: EncMergedVectorData = {
         DEPARE: { type: 'FeatureCollection', features: [] },
@@ -610,34 +688,43 @@ export async function getMergedVectorData(
                 continue;
             }
             loadedBlobs.set(cell.id, blob);
-            let minLon = Infinity,
-                minLat = Infinity,
-                maxLon = -Infinity,
-                maxLat = -Infinity;
-            const visit = (coords: unknown): void => {
-                if (!Array.isArray(coords)) return;
-                if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-                    const lon = coords[0] as number;
-                    const lat = coords[1] as number;
-                    if (lon < minLon) minLon = lon;
-                    if (lat < minLat) minLat = lat;
-                    if (lon > maxLon) maxLon = lon;
-                    if (lat > maxLat) maxLat = lat;
-                    return;
+            await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
+            let raw = depareExtentCache.get(blob);
+            if (raw === undefined) {
+                let minLon = Infinity,
+                    minLat = Infinity,
+                    maxLon = -Infinity,
+                    maxLat = -Infinity;
+                const visit = (coords: unknown): void => {
+                    if (!Array.isArray(coords)) return;
+                    if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                        const lon = coords[0] as number;
+                        const lat = coords[1] as number;
+                        if (lon < minLon) minLon = lon;
+                        if (lat < minLat) minLat = lat;
+                        if (lon > maxLon) maxLon = lon;
+                        if (lat > maxLat) maxLat = lat;
+                        return;
+                    }
+                    for (const c of coords) visit(c);
+                };
+                for (const f of blob.layers.DEPARE?.features ?? []) {
+                    const g = f?.geometry;
+                    if (!g || g.type === 'GeometryCollection') continue;
+                    visit((g as { coordinates?: unknown }).coordinates);
                 }
-                for (const c of coords) visit(c);
-            };
-            for (const f of blob.layers.DEPARE?.features ?? []) {
-                const g = f?.geometry;
-                if (!g || g.type === 'GeometryCollection') continue;
-                visit((g as { coordinates?: unknown }).coordinates);
+                raw =
+                    Number.isFinite(minLon) && maxLon > minLon && maxLat > minLat
+                        ? [minLon, minLat, maxLon, maxLat]
+                        : null;
+                depareExtentCache.set(blob, raw);
             }
-            if (Number.isFinite(minLon) && maxLon > minLon && maxLat > minLat) {
+            if (raw) {
                 depareExtent.set(cell.id, [
-                    Math.max(minLon, cell.bbox[0]),
-                    Math.max(minLat, cell.bbox[1]),
-                    Math.min(maxLon, cell.bbox[2]),
-                    Math.min(maxLat, cell.bbox[3]),
+                    Math.max(raw[0], cell.bbox[0]),
+                    Math.max(raw[1], cell.bbox[1]),
+                    Math.min(raw[2], cell.bbox[2]),
+                    Math.min(raw[3], cell.bbox[3]),
                 ]);
             }
         } catch (err) {
@@ -648,6 +735,7 @@ export async function getMergedVectorData(
     for (const cell of cellsCoarseToFine) {
         const blob = loadedBlobs.get(cell.id);
         if (!blob) continue;
+        await yieldIfNeeded(); // per-cell clone/clip/explode is the heavy loop
         merged.cellCount++;
 
         const ialaRegion = ialaRegionForSourceHO(cell.sourceHO);
@@ -823,9 +911,15 @@ export async function getMergedVectorData(
     // surviving number is always the scariest nearby). Runs on the
     // MERGED set, not per cell — per-cell passes double density at
     // every cell seam.
+    await yieldIfNeeded(); // the ladder is one indivisible hot pass
     assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
 
-    mergedCache = { version: currentVersion, key: cacheKey, data: merged };
+    mergedCache.set(cacheKey, merged);
+    while (mergedCache.size > MERGED_CACHE_MAX) {
+        const oldest = mergedCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        mergedCache.delete(oldest);
+    }
     if (missingBlobs.length > 0) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);
         void hydrateMissingCells(missingBlobs);
@@ -850,6 +944,13 @@ export async function getMergedVectorData(
 /** Single-flight guard — one hydration walk at a time. */
 let hydrationRunning = false;
 
+/** Failed downloads wait out a cooldown before another attempt —
+ *  every window-escape pan used to re-run a doomed sequential fetch
+ *  loop over the same missing cells (offline: forever, 2026-07-12
+ *  audit). Success clears the cell's cooldown. */
+const hydrationCooldownUntil = new Map<string, number>();
+const HYDRATION_RETRY_COOLDOWN_MS = 60_000;
+
 /**
  * Fetch missing cell blobs from the cloud bucket, one at a time, in
  * the background. Each success touches the registry (putCell notify)
@@ -863,13 +964,18 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
         for (const id of cellIds) {
+            const waitUntil = hydrationCooldownUntil.get(id);
+            if (waitUntil !== undefined && Date.now() < waitUntil) continue;
             const ok = await downloadCloudCell(id);
             if (ok) {
+                hydrationCooldownUntil.delete(id);
                 // Guarantee a notify even when the download didn't patch
                 // provenance — an idempotent registry touch re-triggers
                 // the debounced merge.
                 const rec = cellMeta.getCell(id);
                 if (rec) cellMeta.putCell(rec);
+            } else {
+                hydrationCooldownUntil.set(id, Date.now() + HYDRATION_RETRY_COOLDOWN_MS);
             }
         }
     } catch (err) {

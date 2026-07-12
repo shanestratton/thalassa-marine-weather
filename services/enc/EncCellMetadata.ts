@@ -91,12 +91,19 @@ function readCell(id: string): EncCell | null {
  */
 const QUARANTINED_CELLS = new Set(['au-brisbane-test']);
 
+/** listCells memo — keyed to the version counter. With 172 cloud
+ *  cells, every un-memoized call re-parsed ~86 KB of localStorage
+ *  JSON, and hot paths (routing hazard batches, registration storms)
+ *  issued it thousands of times (2026-07-12 audit). Callers must
+ *  treat the returned array as READ-ONLY (copy before sorting). */
+let listCache: { version: number; cells: EncCell[] } | null = null;
+
 /**
- * List every imported cell. Cheap (reads localStorage index +
- * parses each record); fine to call on every UI render of the
- * chart locker page.
+ * List every imported cell. Memoized per registry version — cheap to
+ * call anywhere, including per-frame UI reads and routing loops.
  */
 export function listCells(): EncCell[] {
+    if (listCache && listCache.version === version) return listCache.cells;
     const ids = readIndex();
     const out: EncCell[] = [];
     for (const id of ids) {
@@ -104,6 +111,7 @@ export function listCells(): EncCell[] {
         const cell = readCell(id);
         if (cell) out.push(cell);
     }
+    listCache = { version, cells: out };
     return out;
 }
 

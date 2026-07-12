@@ -67,15 +67,23 @@ async function ensureDir(): Promise<void> {
  * cloned, geometry doesn't), so caching the parsed blob costs little
  * beyond what the merge already retains. Invalidated on save/delete.
  */
-const blobCache = new Map<string, EncConversionResult>();
+const blobCache = new Map<string, { blob: EncConversionResult; sizeBytes: number }>();
 
-/** LRU cap (2026-07-12): unbounded, the cache held all 172 parsed
+/** LRU caps (2026-07-12): unbounded, the cache held all 172 parsed
  *  cells (~210 MB of JSON text, several × that as JS heap) and desktop
- *  Chrome's renderer OOM-died. A windowed render merge touches a bay's
- *  worth of cells; 32 keeps that working set warm while the rest of
- *  the library stays on disk. Map iteration order = insertion order;
- *  touchBlob() re-inserts on hit so eviction is least-recently-USED. */
+ *  Chrome's renderer OOM-died. The first fix capped ENTRY COUNT only —
+ *  but cells run 5–50 MB, so 32 harbour-grade entries could still pin
+ *  150–500 MB of parsed heap inside the very fix that was meant to
+ *  close the OOM (2026-07-12 audit, MAJOR). Eviction now respects a
+ *  BYTE budget (JSON text length; JS heap runs a few × this) as well
+ *  as the count. A handful of most-recent entries are always kept so
+ *  one oversized cell can't thrash itself out of its own render loop.
+ *  Map iteration order = insertion order; touchBlob() re-inserts on
+ *  hit so eviction is least-recently-USED. */
 const BLOB_CACHE_MAX = 32;
+const BLOB_CACHE_MAX_BYTES = 48 * 1024 * 1024; // JSON text — heap ≈ few ×
+const BLOB_CACHE_MIN_KEEP = 4;
+let blobCacheBytes = 0;
 
 function touchBlob(cellId: string): EncConversionResult | undefined {
     const hit = blobCache.get(cellId);
@@ -83,28 +91,45 @@ function touchBlob(cellId: string): EncConversionResult | undefined {
         blobCache.delete(cellId);
         blobCache.set(cellId, hit);
     }
-    return hit;
+    return hit?.blob;
 }
 
-function cacheBlob(cellId: string, blob: EncConversionResult): void {
-    blobCache.delete(cellId);
-    blobCache.set(cellId, blob);
-    while (blobCache.size > BLOB_CACHE_MAX) {
+function dropBlob(cellId: string): void {
+    const hit = blobCache.get(cellId);
+    if (hit) {
+        blobCacheBytes -= hit.sizeBytes;
+        blobCache.delete(cellId);
+    }
+}
+
+function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number): void {
+    dropBlob(cellId);
+    blobCache.set(cellId, { blob, sizeBytes });
+    blobCacheBytes += sizeBytes;
+    while (
+        blobCache.size > BLOB_CACHE_MIN_KEEP &&
+        (blobCache.size > BLOB_CACHE_MAX || blobCacheBytes > BLOB_CACHE_MAX_BYTES)
+    ) {
         const oldest = blobCache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
-        blobCache.delete(oldest);
+        dropBlob(oldest);
     }
 }
 
 /**
  * Save the converted GeoJSON for a cell. Returns the relative path
- * the caller should persist in the cell metadata record so we can
- * find the blob again later.
+ * the caller should persist in the cell metadata record, plus the
+ * serialized byte length — importCell used to re-stringify the whole
+ * multi-MB blob a second time just to measure it (2026-07-12 audit:
+ * ~80 MB of transient UTF-16 per big cell, twice, on the UI thread).
  *
  * Overwrites if the file already exists (used when the user
  * re-imports an updated edition of the same cell).
  */
-export async function saveCellGeoJSON(cellId: string, blob: EncConversionResult): Promise<string> {
+export async function saveCellGeoJSON(
+    cellId: string,
+    blob: EncConversionResult,
+): Promise<{ path: string; sizeBytes: number }> {
     await ensureDir();
     const path = relPath(cellId);
     const data = JSON.stringify(blob);
@@ -114,9 +139,11 @@ export async function saveCellGeoJSON(cellId: string, blob: EncConversionResult)
         directory: DIRECTORY,
         encoding: Encoding.UTF8,
     });
-    blobCache.delete(cellId); // fresh edition — next load re-parses
+    // We hold the fresh parsed blob right here — cache it instead of
+    // forcing the next merge to re-read + re-parse what we just wrote.
+    cacheBlob(cellId, blob, data.length);
     log.info(`saved cell ${cellId} → ${path} (${(data.length / 1024).toFixed(1)} KB)`);
-    return path;
+    return { path, sizeBytes: data.length };
 }
 
 /**
@@ -141,7 +168,7 @@ export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Pro
             log.warn(`loadCellGeoJSON ${cellId}: malformed JSON`);
             return null;
         }
-        cacheBlob(cellId, parsed);
+        cacheBlob(cellId, parsed, text.length);
         return parsed;
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -162,7 +189,7 @@ export async function loadCellGeoJSON(cellId: string, cloudFallback = true): Pro
  * file is missing.
  */
 export async function deleteCellGeoJSON(cellId: string): Promise<void> {
-    blobCache.delete(cellId);
+    dropBlob(cellId);
     try {
         await Filesystem.deleteFile({
             path: relPath(cellId),
@@ -182,6 +209,7 @@ export async function deleteCellGeoJSON(cellId: string): Promise<void> {
  */
 export async function clearAllGeoJSON(): Promise<void> {
     blobCache.clear();
+    blobCacheBytes = 0;
     try {
         await Filesystem.rmdir({
             path: ENC_GEOJSON_DIR,
