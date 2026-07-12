@@ -75,6 +75,7 @@
         "leaflet.offline": "^3.2.1",
         "mapbox-gl": "^3.18.1",
         "maplibre-gl": "^5.24.0",
+        "martinez-polygon-clipping": "^0.8.1",
         "ngraph.graph": "^20.1.2",
         "ngraph.path": "^1.6.1",
         "pbf": "^4.0.1",

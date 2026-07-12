@@ -23,10 +23,21 @@
  * in navGrid); this is purely about what the punter SEES.
  */
 import type { Feature, MultiPolygon, Polygon, Position } from 'geojson';
+import { diff as martinezDiff } from 'martinez-polygon-clipping';
 
 type Bbox = [number, number, number, number]; // [minLon, minLat, maxLon, maxLat]
 type Ring = Position[];
 type PolyRings = Ring[]; // [outer, ...holes]
+/** MultiPolygon coordinate array — martinez's native geometry shape. */
+export type CoverageGeom = Position[][][];
+
+/** One finer cell's charted-water footprint for true-coverage clipping. */
+export interface FineCoverage {
+    /** DEPARE data-extent bbox — the cheap prefilter. */
+    bbox: Bbox;
+    /** The ACTUAL charted polygons (DEPARE + DRGARE), not their rectangle. */
+    coverage: CoverageGeom;
+}
 
 const EPS = 1e-12;
 
@@ -250,6 +261,82 @@ export function clipLineFeatureOutsideBboxes(feature: Feature, allBboxes: readon
             outLines.length === 1
                 ? { type: 'LineString', coordinates: outLines[0] }
                 : { type: 'MultiLineString', coordinates: outLines },
+    };
+}
+
+/** Combined bbox of a multipolygon's outer rings. */
+function coordsBbox(polys: CoverageGeom): Bbox {
+    let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+    for (const poly of polys) {
+        for (const p of poly[0] ?? []) {
+            if (p[0] < minX) minX = p[0];
+            if (p[1] < minY) minY = p[1];
+            if (p[0] > maxX) maxX = p[0];
+            if (p[1] > maxY) maxY = p[1];
+        }
+    }
+    return [minX, minY, maxX, maxY];
+}
+
+/**
+ * Subtract finer cells' ACTUAL charted coverage from a DEPARE feature
+ * (martinez boolean difference). The rectangle version below cuts by the
+ * finer cell's data-extent BBOX — wherever the finer survey charts only
+ * part of that rectangle (surf strips, corners) the coarse band vanished
+ * and raw imagery stared through as hard-edged dark boxes ("shaded areas
+ * around some areas in shore", Shane 2026-07-12). True-coverage
+ * subtraction leaves coarse paint everywhere the finer survey is
+ * genuinely silent, so exactly one band covers charted water and ZERO
+ * bands cover only what nobody charted.
+ *
+ * Returns the original feature untouched when no coverage overlaps it,
+ * null when swallowed whole, otherwise a NEW feature. Falls back to the
+ * rectangle clip per fine cell if martinez rejects a degenerate ring —
+ * a possible hole beats a crashed merge.
+ */
+export function clipFeatureOutsideCoverage(feature: Feature, fines: readonly FineCoverage[]): Feature | null {
+    const g = feature.geometry;
+    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) return feature;
+    let coords: CoverageGeom =
+        g.type === 'Polygon' ? [g.coordinates as PolyRings] : (g.coordinates as unknown as CoverageGeom);
+    const fb = coordsBbox(coords);
+
+    let touched = false;
+    for (const fine of fines) {
+        if (!bboxesIntersect(fb, fine.bbox)) continue;
+        try {
+            const out = martinezDiff(
+                coords as unknown as Parameters<typeof martinezDiff>[0],
+                fine.coverage as unknown as Parameters<typeof martinezDiff>[1],
+            ) as unknown as CoverageGeom | null;
+            touched = true;
+            if (!out || out.length === 0) return null;
+            coords = out;
+        } catch {
+            const asFeature: Feature = {
+                ...feature,
+                geometry:
+                    coords.length === 1
+                        ? { type: 'Polygon', coordinates: coords[0] }
+                        : { type: 'MultiPolygon', coordinates: coords as MultiPolygon['coordinates'] },
+            };
+            const rect = clipFeatureOutsideBboxes(asFeature, [fine.bbox]);
+            if (!rect) return null;
+            touched = true;
+            const rg = rect.geometry as Polygon | MultiPolygon;
+            coords = rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
+        }
+    }
+    if (!touched) return feature;
+    return {
+        ...feature,
+        geometry:
+            coords.length === 1
+                ? { type: 'Polygon', coordinates: coords[0] }
+                : { type: 'MultiPolygon', coordinates: coords as MultiPolygon['coordinates'] },
     };
 }
 
