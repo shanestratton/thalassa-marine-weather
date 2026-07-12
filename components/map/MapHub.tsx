@@ -1702,10 +1702,35 @@ export const MapHub: React.FC<MapHubProps> = ({
         } catch {
             /* storage unavailable — writers fall back to their default */
         }
-        const apply = () => {
+        // Visibility write that no-ops when the layer is ALREADY at the
+        // target — the loop-breaker. Every unconditional setLayoutProperty
+        // emits a fresh `styledata`, which re-invokes this handler: with
+        // satellite default-ON on web that was a self-perpetuating per-
+        // frame storm (getStyle + 8 setters × 60 fps) that saturated the
+        // main thread and froze zoom (Shane 2026-07-12: "locks up as I try
+        // to zoom in"). A conditional write changes nothing at steady
+        // state, so no new styledata is emitted and the loop dies.
+        // Returns true when it actually wrote (i.e. the layer was NOT already
+        // at the target) — the caller uses that to decide whether any heavier
+        // re-assert is needed this pass.
+        const setVis = (id: string, v: 'visible' | 'none'): boolean => {
+            if (!map.getLayer(id)) return false;
+            const cur = (map.getLayoutProperty(id, 'visibility') as string | undefined) ?? 'visible';
+            if (cur === v) return false;
+            map.setLayoutProperty(id, 'visibility', v);
+            return true;
+        };
+        // `force` on the initial call + toggle; styledata re-asserts pass
+        // false so the DEPARE glaze re-paint (encSyncDepareBaseTreatment,
+        // which writes paint UNCONDITIONALLY and would keep the styledata
+        // loop alive) only runs when something structural actually changed
+        // this pass — otherwise steady state emits zero style mutations and
+        // the loop dies (Shane 2026-07-12 "locks up as I try to zoom in").
+        const apply = (force = false) => {
             try {
+                let changed = force;
                 if (map.getLayer('satellite-base-layer')) {
-                    map.setLayoutProperty('satellite-base-layer', 'visibility', satelliteVisible ? 'visible' : 'none');
+                    if (setVis('satellite-base-layer', satelliteVisible ? 'visible' : 'none')) changed = true;
                     // Self-healing z-order: whatever race added the raster
                     // ABOVE the ENC stack (chart-mode swap vs async cell
                     // mount), push it back underneath — marks, lights and
@@ -1714,6 +1739,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                     const encBottom = order.find((id) => id.startsWith('enc-vec-'));
                     if (encBottom && order.indexOf('satellite-base-layer') > order.indexOf(encBottom)) {
                         map.moveLayer('satellite-base-layer', encBottom);
+                        changed = true;
                     }
                 }
                 // The opaque LAND fills sit ABOVE the satellite base and
@@ -1723,10 +1749,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // depth-graded translucent glaze (deep = white wash, shallow
                 // = the real sand banks glowing through the dirty tint) via
                 // syncDepareBaseTreatment. Contours, coastline, soundings,
-                // marks, routes and chips all render on the imagery. The ENC
-                // setters in EncVectorLayer are satellite-gated too, so a
-                // route-plan cell load can't repaint a land fill between our
-                // styledata ticks — this loop is the belt, that's the braces.
+                // marks, routes and chips all render on the imagery.
                 if (satelliteVisible) {
                     // Mirrors EncVectorLayer's SATELLITE_HIDE_LAYERS: land
                     // fills + charted coastline + bold safety contour are
@@ -1737,26 +1760,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                         ENC_VEC_LAYERS.COALNE,
                         ENC_VEC_LAYERS.DEPCNT_SAFETY,
                     ]) {
-                        if (map.getLayer(id)) {
-                            map.setLayoutProperty(id, 'visibility', 'none');
-                        }
+                        if (setVis(id, 'none')) changed = true;
                     }
-                    encSyncDepareBaseTreatment(map);
                     // Bathymetry OVER the imagery (Shane 2026-07-09: "can we
                     // have a bathymetry layer on top of the satellite") — the
                     // MapTiler ocean raster used to be hidden with the fills;
                     // now it stays on as a translucent depth tint so the water
                     // carries its contours while the imagery shows through.
-                    if (map.getLayer('maptiler-ocean-layer')) {
-                        map.setLayoutProperty('maptiler-ocean-layer', 'visibility', 'visible');
-                        map.setPaintProperty('maptiler-ocean-layer', 'raster-opacity', 0.45);
+                    if (setVis('maptiler-ocean-layer', 'visible')) changed = true;
+                    // Only re-paint the DEPARE glaze when this pass actually
+                    // changed layer state (a cell load hid a fresh fill, the
+                    // z-order moved, or force). At steady state this is
+                    // skipped, so no paint write → no styledata → loop dies.
+                    if (changed) {
+                        encSyncDepareBaseTreatment(map);
+                        if (map.getLayer('maptiler-ocean-layer')) {
+                            map.setPaintProperty('maptiler-ocean-layer', 'raster-opacity', 0.45);
+                        }
                     }
                 }
             } catch {
                 /* style mid-swap — re-applied on the next styledata tick */
             }
         };
-        apply();
+        apply(true);
         if (!satelliteVisible) {
             // Toggled OFF: hand the fills back to their owners (ENC master
             // toggle + chart-detail mode) instead of force-showing them —
@@ -1777,10 +1804,25 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         // ENC layers are (re)added asynchronously as cells load — re-assert
         // whenever the style gains layers so a late-added fill can't cover
-        // the imagery.
-        map.on('styledata', apply);
+        // the imagery. COALESCED (2026-07-12): a zoom fires a burst of
+        // styledata (tile loads + the ENC setData), and running the full
+        // apply — getStyle + the DEPARE treatment — on every one of them
+        // pinned the main thread and froze zoom. A trailing timer collapses
+        // each burst into ONE apply after it settles; z-order/visibility
+        // heal ~one frame late, imperceptible, while the tick cost during
+        // the zoom itself drops to nothing.
+        let pending: number | null = null;
+        const scheduleApply = () => {
+            if (pending !== null) return;
+            pending = window.setTimeout(() => {
+                pending = null;
+                apply();
+            }, 120);
+        };
+        map.on('styledata', scheduleApply);
         return () => {
-            map.off('styledata', apply);
+            if (pending !== null) window.clearTimeout(pending);
+            map.off('styledata', scheduleApply);
         };
     }, [satelliteVisible, mapReady, encVisible, encChartDetail]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
@@ -3071,16 +3113,34 @@ export const MapHub: React.FC<MapHubProps> = ({
         const apply = (): void => {
             try {
                 for (const id of MARK_LAYERS) {
-                    if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', 'visible');
+                    if (!map.getLayer(id)) continue;
+                    // Conditional write — an unconditional setLayoutProperty
+                    // emits a styledata that re-invokes this handler, and
+                    // this effect is active during PLOTTING (coordCaptureMode)
+                    // exactly when the user reported zoom locking up. Setting
+                    // only when actually hidden lets steady state emit nothing.
+                    const cur = (map.getLayoutProperty(id, 'visibility') as string | undefined) ?? 'visible';
+                    if (cur !== 'visible') map.setLayoutProperty(id, 'visibility', 'visible');
                 }
             } catch {
                 /* style mid-swap — styledata re-applies */
             }
         };
         apply();
-        map.on('styledata', apply);
+        // Coalesce the styledata burst a zoom/tile-load fires into ONE
+        // trailing pass so the re-assert can't pin the thread mid-zoom.
+        let pending: number | null = null;
+        const scheduleApply = () => {
+            if (pending !== null) return;
+            pending = window.setTimeout(() => {
+                pending = null;
+                apply();
+            }, 120);
+        };
+        map.on('styledata', scheduleApply);
         return () => {
-            map.off('styledata', apply);
+            if (pending !== null) window.clearTimeout(pending);
+            map.off('styledata', scheduleApply);
             try {
                 encApplyLayerVisibility(map, encVisible);
                 encApplyChartDetailLayers(map, encChartDetail);
@@ -3190,10 +3250,22 @@ export const MapHub: React.FC<MapHubProps> = ({
         // basemap style, so every chart-mode/basemap switch resurrects it
         // without any React dep changing — the doubled icon Shane caught at
         // Mooloolaba beacon 5 (2026-07-09: OSM's red-outlined-triangle+star
-        // raster icon stamped over our correct green IALA glyph).
-        map.on('styledata', apply);
+        // raster icon stamped over our correct green IALA glyph). COALESCED
+        // (2026-07-12): setLayoutProperty/setLayerZoomRange here each emit a
+        // styledata, so running per-tick joined the zoom-freeze storm; a
+        // trailing timer collapses each burst into one pass.
+        let pending: number | null = null;
+        const scheduleApply = () => {
+            if (pending !== null) return;
+            pending = window.setTimeout(() => {
+                pending = null;
+                apply();
+            }, 120);
+        };
+        map.on('styledata', scheduleApply);
         return () => {
-            map.off('styledata', apply);
+            if (pending !== null) window.clearTimeout(pending);
+            map.off('styledata', scheduleApply);
         };
     }, [mapRef, mapReady, chartsActive, encActive, weather.activeLayers]);
 
