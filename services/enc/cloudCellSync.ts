@@ -19,10 +19,20 @@
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { listCells, putCell } from './EncCellMetadata';
 import { createLogger } from '../../utils/createLogger';
+import { withTimeout } from '../../utils/deadline';
 
 const log = createLogger('cloudCellSync');
 
 const BUCKET = 'enc-cells';
+
+/** JS-side wall-clock bound per blob download. CapacitorHttp ignores
+ *  AbortSignal (utils/deadline.ts), so a stalled marina-wifi socket
+ *  held the sequential hydration walk — and everything queued behind
+ *  it — for up to the 600 s native timeout (2026-07-12 audit). The
+ *  awaiter unblocks at the deadline; the in-flight dedup entry stays
+ *  until the native request actually settles, so we never double-fetch
+ *  a stalled cell. */
+const DOWNLOAD_DEADLINE_MS = 30_000;
 
 /** Last manifest version whose blobs this browser downloaded. When the
  *  bucket is re-uploaded under a bumped version (extractor output
@@ -180,6 +190,7 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
             inflightCells.delete(cellId);
         }
     })();
-    inflightCells.set(cellId, p);
-    return p;
+    const bounded = withTimeout(p, false, DOWNLOAD_DEADLINE_MS);
+    inflightCells.set(cellId, bounded);
+    return bounded;
 }

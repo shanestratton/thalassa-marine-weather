@@ -96,6 +96,12 @@ export function useEncVectorLayer(
      *  re-merges once the view actually escapes them. */
     const mergedWindowRef = useRef<Bbox | null>(null);
     const mergedZoomRef = useRef(0);
+    /** The exact merged-data object last pushed to Mapbox. The merge
+     *  cache is selection-keyed, so window escapes and zoom crossings
+     *  over the SAME cell set return the identical object — re-running
+     *  9 wholesale setData uploads for it was pure waste (2026-07-12
+     *  audit; visible as a hitch on every FAB toggle too). */
+    const lastAppliedRef = useRef<unknown>(null);
 
     // Latest safety depth, read inside the async apply() so the FIRST mount
     // always uses the live value — WITHOUT putting safetyDepthM in the mount
@@ -169,6 +175,7 @@ export function useEncVectorLayer(
                     detachEncFeatureClickHandlers(map);
                     unmountEncVectorLayer(map);
                     mountedRef.current = false;
+                    lastAppliedRef.current = null;
                 }
                 return;
             }
@@ -183,7 +190,11 @@ export function useEncVectorLayer(
                     // refreshEncVectorData re-applies the depth style from
                     // the per-map state it seeded at mount, so the safety
                     // contour survives cell-list bumps without re-passing.
-                    refreshEncVectorData(map, data);
+                    // Identity check: the selection-keyed merge cache hands
+                    // back the same object when the cell set didn't change
+                    // (zoom crossings, visibility toggles) — skip the
+                    // 9-source re-upload entirely.
+                    if (data !== lastAppliedRef.current) refreshEncVectorData(map, data);
                 } else {
                     mountEncVectorLayer(map, data, { safetyDepthM: safetyDepthRef.current });
                     // Click handlers reference the layer IDs that
@@ -193,6 +204,7 @@ export function useEncVectorLayer(
                     attachEncFeatureClickHandlers(map);
                     mountedRef.current = true;
                 }
+                lastAppliedRef.current = data;
                 // Always-on by default — explicit toggle from the FAB flips it.
                 setEncVectorVisibility(map, visible);
                 // Detail mode independently controls the busy fills + coastlines.
