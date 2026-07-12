@@ -395,6 +395,8 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
     ensureSource(ENC_VEC_SRC.RECTRC, data.RECTRC);
     ensureSource(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
+    ensureSource(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC);
+    ensureSource(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
 
     const anchor = findInsertionAnchor(map);
 
@@ -505,6 +507,59 @@ export function mountEncVectorLayer(
     // for a live tide offset: re-point the depth readouts at it.
     syncDepareBaseTreatment(map);
     applyTideOffsetPaint(map, depthStyleState.get(map)?.tideOffsetM ?? null);
+
+    // ── DEPCNT_DERIVED (contours interpolated from our soundings) ──
+    // Honest densification (2026-07-12): a distinct TEAL-GREY, DASHED,
+    // faint line, deliberately unlike the official slate DEPCNT so it
+    // can never pass for surveyed data. Sits UNDER the official trio, so
+    // a real contour always draws over an interpolated one. z13+ — this
+    // is close-in shallow-water detail, not an overview layer.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
+                type: 'line',
+                source: ENC_VEC_SRC.DEPCNT_DERIVED,
+                minzoom: 13,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': '#5b9aa0',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 1.1],
+                    'line-opacity': 0.5,
+                    'line-dasharray': [2, 3],
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.DEPCNT_DERIVED,
+                minzoom: 14,
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 600,
+                    // Italic + a tilde: chart convention for an approximate /
+                    // unsurveyed depth. Reads "about 5 m", never "5 m surveyed".
+                    'text-field': ['concat', '~', ['to-string', ['get', '_valdco']]],
+                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 14, 8, 16, 10],
+                    'text-allow-overlap': false,
+                    'text-padding': 6,
+                },
+                paint: {
+                    'text-color': '#5b9aa0',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.75)',
+                    'text-halo-width': 0.8,
+                    'text-opacity': 0.75,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL),
+        );
+    }
 
     // ── DEPCNT (depth contours + bold safety contour) ─────────────
     // Two layers off one source: thin gray ordinary contours
@@ -883,6 +938,55 @@ export function mountEncVectorLayer(
             beforeIdFor(ENC_VEC_LAYERS.RECTRC),
         );
     }
+    // ── LIGHTSEC (light-sector arcs + limit legs) ─────────────────
+    // The night-approach read (competitive gap vs Navionics/C-MAP,
+    // 2026-07-12): coloured arcs + dashed limit bearings generated at
+    // merge time from SECTR1/SECTR2 (services/enc/lightSectors.ts).
+    // z11+ — harbour/approach furniture; the light glyph draws on top.
+    if (!map.getLayer(ENC_VEC_LAYERS.LIGHTSEC_LEG)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.LIGHTSEC_LEG,
+                type: 'line',
+                source: ENC_VEC_SRC.LIGHTSEC,
+                minzoom: 11,
+                filter: ['==', ['get', '_secKind'], 'leg'] as unknown as mapboxgl.FilterSpecification,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    // Thin dashed grey radials — the limit bearings, not
+                    // the message; the coloured arc carries the read.
+                    'line-color': '#8794a1',
+                    'line-width': 0.8,
+                    'line-opacity': 0.7,
+                    'line-dasharray': [3, 3],
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.LIGHTSEC_LEG),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.LIGHTSEC_ARC)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.LIGHTSEC_ARC,
+                type: 'line',
+                source: ENC_VEC_SRC.LIGHTSEC,
+                minzoom: 11,
+                filter: ['==', ['get', '_secKind'], 'arc'] as unknown as mapboxgl.FilterSpecification,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    // The sector colour itself (red/white/green/amber) —
+                    // pre-baked _secColor. Bold enough to read at a glance
+                    // at night, dark halo so a white sector shows on the
+                    // pale day chart.
+                    'line-color': ['coalesce', ['get', '_secColor'], '#f0e030'],
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 11, 2, 15, 3.5],
+                    'line-opacity': 0.95,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.LIGHTSEC_ARC),
+        );
+    }
+
     if (!map.getLayer(ENC_VEC_LAYERS.RECTRC_LABEL)) {
         map.addLayer(
             {
@@ -1058,6 +1162,8 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
     setData(ENC_VEC_SRC.RECTRC, data.RECTRC);
     setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
+    setData(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC);
+    setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the

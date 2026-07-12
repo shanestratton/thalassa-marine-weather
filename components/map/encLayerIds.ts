@@ -16,6 +16,8 @@ export const ENC_VEC_SRC = {
     NAVAIDS: 'enc-vec-navaids', // LIGHTS + BOY*/BCN* merged
     RECTRC: 'enc-vec-rectrc', // recommended tracks / leading lines
     SOUNDG: 'enc-vec-soundg', // exploded spot soundings
+    LIGHTSEC: 'enc-vec-lightsec', // light-sector arcs + limit legs
+    DEPCNT_DERIVED: 'enc-vec-depcnt-derived', // contours interpolated from soundings
 } as const;
 
 // NOTE: layer-id stability is load-bearing. Click handlers, the
@@ -33,6 +35,12 @@ export const ENC_VEC_LAYERS = {
      *  Land-over-water is right for a cell's OWN generalisation; wrong
      *  across scales. Harbour-grade bands overrule coarse land bleed. */
     DEPARE_FINE: 'enc-vec-depare-fine-fill',
+    /** Depth contours INTERPOLATED from our own spot soundings (honest,
+     *  official-data-derived, dashed + faint so they never masquerade as
+     *  surveyed DEPCNT lines). Densifies shallow water the way SonarChart
+     *  HD does — without community-sonar guesswork. */
+    DEPCNT_DERIVED_LINE: 'enc-vec-depcnt-derived-line',
+    DEPCNT_DERIVED_LABEL: 'enc-vec-depcnt-derived-label',
     /** Satellite-glaze fill off the overlap-CLIPPED collection: exactly
      *  one translucent band per point of water, so overlapping surveys
      *  can't stack into the hard-edged dark wedges ("80's rendering",
@@ -61,6 +69,10 @@ export const ENC_VEC_LAYERS = {
     RECTRC: 'enc-vec-rectrc-line',
     RECTRC_LABEL: 'enc-vec-rectrc-label',
     SOUNDG: 'enc-vec-soundg-label',
+    /** Light-sector limit legs (thin dashed) + coloured arcs. Drawn
+     *  below the light glyph so the star sits on top of its own sectors. */
+    LIGHTSEC_LEG: 'enc-vec-lightsec-leg',
+    LIGHTSEC_ARC: 'enc-vec-lightsec-arc',
     NAVAIDS_LABEL: 'enc-vec-navaids-label',
     POINTS_LABEL: 'enc-vec-points-label',
 } as const;
@@ -77,6 +89,10 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
     ENC_VEC_LAYERS.DEPARE_FINE, // fine-survey water beats coarse land bleed
+    // Sounding-derived contours sit UNDER the official DEPCNT trio so a
+    // surveyed line always draws over an interpolated one where both exist.
+    ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
+    ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
     // Contours + the bold safety contour sit ABOVE the fine repaint.
     // They used to sit just above DEPARE — when the fine-survey twin
     // landed (0eb6cc19) SOUNDG was re-slotted above it but the DEPCNT
@@ -88,6 +104,8 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPCNT_LABEL,
     ENC_VEC_LAYERS.SOUNDG, // depth numbers under everything interactive
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
+    ENC_VEC_LAYERS.LIGHTSEC_LEG, // sector limit legs under the arcs
+    ENC_VEC_LAYERS.LIGHTSEC_ARC, // coloured sector arcs under the light glyph
     ENC_VEC_LAYERS.BOYLAT,
     ENC_VEC_LAYERS.BCNLAT,
     ENC_VEC_LAYERS.BOYCAR,
@@ -120,6 +138,10 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.RECTRC_LABEL &&
         id !== ENC_VEC_LAYERS.SOUNDG &&
         id !== ENC_VEC_LAYERS.DEPCNT_LABEL &&
+        id !== ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE &&
+        id !== ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL &&
+        id !== ENC_VEC_LAYERS.LIGHTSEC_LEG &&
+        id !== ENC_VEC_LAYERS.LIGHTSEC_ARC &&
         id !== ENC_VEC_LAYERS.DEPARE_FINE &&
         id !== ENC_VEC_LAYERS.DEPARE_GLAZE,
 );

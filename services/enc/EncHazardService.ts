@@ -46,6 +46,8 @@ import {
     lateralMarkColour,
     lightColourHex,
 } from './types';
+import { buildSectorFeatures, readSectorBearings } from './lightSectors';
+import { buildDerivedContours } from './derivedContours';
 
 const log = createLogger('EncHazardService');
 
@@ -472,8 +474,17 @@ export interface EncMergedVectorData {
     UWTROC: FeatureCollection;
     /** Depth contour lines (VALDCO metres). Display only. */
     DEPCNT: FeatureCollection;
+    /** Depth contours INTERPOLATED from our own spot soundings (honest
+     *  densification, `_derived: true`) — drawn dashed/faint so they can
+     *  never pass for surveyed DEPCNT. See services/enc/derivedContours.ts. */
+    DEPCNT_DERIVED: FeatureCollection;
     /** Lights / lighthouses (display only). */
     LIGHTS: FeatureCollection;
+    /** Light-sector arcs + limit legs, generated at merge time from
+     *  sectored LIGHTS features (SECTR1/SECTR2/COLOUR) — the night
+     *  approach read "am I in the white, red, or green?". Display only.
+     *  See services/enc/lightSectors.ts. */
+    LIGHTSEC: FeatureCollection;
     /** Lateral buoys (display only). */
     BOYLAT: FeatureCollection;
     /** Cardinal buoys (display only). */
@@ -538,6 +549,18 @@ const inflightMerges = new Map<string, Promise<EncMergedVectorData | null>>();
  *  (100k+ coords per coastal cell, every window escape). Evicts with
  *  the blob itself (WeakMap). */
 const depareExtentCache = new WeakMap<object, [number, number, number, number] | null>();
+
+/** Per-cell GLAZE output cache (2026-07-12: "locks up as I try to zoom
+ *  in"). The martinez coverage clip is the heaviest CPU in the merge
+ *  (~1.5 s for one 1:90k coastal cell against the channel chain), and a
+ *  zoom that changes the cell set re-ran it from scratch for EVERY cell
+ *  — even ones whose clipped result is byte-identical. The output for a
+ *  coarse cell depends only on its own blob + the shadowing cells that
+ *  supply coverage, both immutable per registry version, so it memoizes
+ *  cleanly. Keyed `v{ver}:{cellId}:{sortedShadowIdsWithCoverage}`;
+ *  capped, LRU by insertion order. */
+const glazeCellCache = new Map<string, Feature[]>();
+const GLAZE_CELL_CACHE_MAX = 32;
 
 /**
  * Build the per-layer FeatureCollections by reading every imported
@@ -639,6 +662,7 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
         WRECKS: { type: 'FeatureCollection', features: [] },
         UWTROC: { type: 'FeatureCollection', features: [] },
         DEPCNT: { type: 'FeatureCollection', features: [] },
+        DEPCNT_DERIVED: { type: 'FeatureCollection', features: [] },
         LIGHTS: { type: 'FeatureCollection', features: [] },
         BOYLAT: { type: 'FeatureCollection', features: [] },
         BOYCAR: { type: 'FeatureCollection', features: [] },
@@ -653,6 +677,7 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
         RECTRC: { type: 'FeatureCollection', features: [] },
         SOUNDG: { type: 'FeatureCollection', features: [] },
         DEPARE_GLAZE: { type: 'FeatureCollection', features: [] },
+        LIGHTSEC: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
 
@@ -869,6 +894,28 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
                     if (colHex) props._lightColor = colHex;
                     const label = buildLightCharacterLabel(featProps);
                     if (label) props._lightLabel = label;
+                    // Sectored light → generate the coloured arc + limit
+                    // legs into LIGHTSEC (night-approach read). Each S-57
+                    // sector is its own LIGHTS feature, so this fires per
+                    // sector and one light's sectors accrete naturally.
+                    const bearings = readSectorBearings(featProps);
+                    if (bearings && feat.geometry?.type === 'Point') {
+                        const secProps = {
+                            _cellId: cell.id,
+                            _minZoom: typeof props._minZoom === 'number' ? props._minZoom : undefined,
+                            OBJNAM: featProps.OBJNAM ?? featProps.objnam,
+                            _lightLabel: label ?? undefined,
+                        };
+                        merged.LIGHTSEC.features.push(
+                            ...buildSectorFeatures({
+                                position: feat.geometry.coordinates as [number, number],
+                                sectr1: bearings.sectr1,
+                                sectr2: bearings.sectr2,
+                                colorHex: colHex ?? '#f0e030',
+                                baseProps: secProps,
+                            }),
+                        );
+                    }
                 }
 
                 dest.features.push({ ...feat, properties: props });
@@ -895,19 +942,55 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
         const fineCoverages = shadows
             .map((s) => {
                 const cov = coverageFor(s.id);
-                return cov ? { bbox: s.bbox, coverage: cov } : null;
+                return cov ? { id: s.id, bbox: s.bbox, coverage: cov } : null;
             })
-            .filter((c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null);
-        const glazeRank = cellScaleRank(cell.bbox);
-        for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
-            for (const feat of fc?.features ?? []) {
-                if (!feat || !feat.geometry) continue;
-                const base: Feature = {
-                    ...feat,
-                    properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
-                };
-                const glazed = fineCoverages.length > 0 ? clipFeatureOutsideCoverage(base, fineCoverages) : base;
-                if (glazed) merged.DEPARE_GLAZE.features.push(glazed);
+            .filter(
+                (c): c is { id: string; bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null,
+            );
+        // Memo key: the glaze for this cell is fully determined by its own
+        // blob (cellId + version) and the shadowing cells that actually
+        // supply coverage (their ids, sorted). A zoom that only widens the
+        // window reuses this instead of re-running martinez per feature.
+        const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${fineCoverages
+            .map((c) => c.id)
+            .sort()
+            .join(',')}`;
+        const cachedGlaze = glazeCellCache.get(glazeKey);
+        if (cachedGlaze) {
+            // Refresh LRU position; push the cached pieces straight in.
+            glazeCellCache.delete(glazeKey);
+            glazeCellCache.set(glazeKey, cachedGlaze);
+            for (const f of cachedGlaze) merged.DEPARE_GLAZE.features.push(f);
+        } else {
+            const glazeRank = cellScaleRank(cell.bbox);
+            const glazeOut: Feature[] = [];
+            let glazeSinceYield = 0;
+            for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
+                for (const feat of fc?.features ?? []) {
+                    if (!feat || !feat.geometry) continue;
+                    const base: Feature = {
+                        ...feat,
+                        properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
+                    };
+                    const glazed = fineCoverages.length > 0 ? clipFeatureOutsideCoverage(base, fineCoverages) : base;
+                    if (glazed) glazeOut.push(glazed);
+                    // The martinez clip is the merge's heaviest per-feature
+                    // cost — yield WITHIN the loop, not just once per cell
+                    // (that left a whole coastal cell's ~1.5 s clip running
+                    // uninterrupted, freezing zoom: "locks up as I try to
+                    // zoom in", 2026-07-12).
+                    if (fineCoverages.length > 0 && ++glazeSinceYield >= 16) {
+                        glazeSinceYield = 0;
+                        await yieldIfNeeded();
+                    }
+                }
+            }
+            for (const f of glazeOut) merged.DEPARE_GLAZE.features.push(f);
+            glazeCellCache.set(glazeKey, glazeOut);
+            while (glazeCellCache.size > GLAZE_CELL_CACHE_MAX) {
+                const oldest = glazeCellCache.keys().next().value as string | undefined;
+                if (oldest === undefined) break;
+                glazeCellCache.delete(oldest);
             }
         }
         tagAndPush('LNDARE', blob.layers.LNDARE);
@@ -971,6 +1054,19 @@ async function buildMergedVectorData(cells: EncCell[], cacheKey: string): Promis
     // every cell seam.
     await yieldIfNeeded(); // the ladder is one indivisible hot pass
     assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
+
+    // Sounding-derived contours (honest densification): interpolate depth
+    // contours from the merged spot soundings, ONLY inside triangles
+    // bounded by real soundings (never across a gap). Heavy — Delaunay +
+    // per-level march — so it runs behind the merge's time-slice and
+    // will move into the worker with the rest. Skipped when soundings are
+    // too sparse to contour honestly (the module's own floor).
+    await yieldIfNeeded();
+    const soundingPts = merged.SOUNDG.features.map((f) => {
+        const c = (f.geometry as Point).coordinates;
+        return { lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number })?._d) };
+    });
+    merged.DEPCNT_DERIVED.features = buildDerivedContours(soundingPts);
 
     mergedCache.set(cacheKey, merged);
     while (mergedCache.size > MERGED_CACHE_MAX) {
