@@ -133,7 +133,12 @@ import {
 } from '../../services/routeTracer';
 import { consumeTracerOpenRequest } from '../../services/deepLink';
 import { listCells as listEncCells } from '../../services/enc/EncCellMetadata';
-import { subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
+import {
+    subscribe as subscribeToEnc,
+    subscribeHydration as subscribeToEncHydration,
+    getHydrationProgress as getEncHydrationProgress,
+} from '../../services/enc/EncHazardService';
+import { DEPARE_BAND_COLORS } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
@@ -1579,6 +1584,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Live cell-count so the layer FAB shows the right "N cells imported" caption
     // and surfaces the toggle the moment the first cell lands.
     const [encCellCount, setEncCellCount] = useState(() => listEncCells().length);
+    // Cloud-chart hydration progress — silent downloads read as "no
+    // chart here" (2026-07-12 audit): the punter needs to know dark
+    // water is a cell still on its way down, not a gap in coverage.
+    const [encHydration, setEncHydration] = useState(() => getEncHydrationProgress());
+    useEffect(() => subscribeToEncHydration(setEncHydration), []);
     useEffect(() => {
         const refresh = () => {
             const cells = listEncCells();
@@ -4618,7 +4628,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     ? 'Depths shown at a future tide — tap to return to now'
                                     : 'Live tide depth is on — tap to return to chart datum'
                             }
-                            className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
+                            className="absolute left-1/2 top-16 z-[9990] -translate-x-1/2 whitespace-nowrap rounded-full border px-4 py-2.5 text-[11px] font-black tracking-wide shadow-lg active:scale-95"
                             style={
                                 tideOffsetInfo && tideScrubQ > 0
                                     ? {
@@ -4682,13 +4692,28 @@ export const MapHub: React.FC<MapHubProps> = ({
                     Mode-aware: chart datum vs live tide, so the corner of
                     the chart always says which water you're reading. */}
                 {encCellCount > 0 && encVisible && !embedded && !pickerMode && !isPinView && (
-                    <div
-                        className="pointer-events-none absolute bottom-1 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900/70 px-2 py-0.5 text-[9px] font-semibold tracking-wide text-gray-400"
-                        aria-hidden
+                    <button
+                        onClick={() => {
+                            triggerHaptic('light');
+                            setChartKeyOpen((v) => !v);
+                        }}
+                        aria-label="What the chart colours and numbers mean"
+                        className="absolute bottom-1 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-md bg-slate-900/70 px-2 py-1 text-[9px] font-semibold tracking-wide text-gray-400 active:scale-95"
                     >
                         {tideDepthMode && tideOffsetInfo
                             ? `depths at predicted tide (${tideOffsetInfo.offsetM >= 0 ? '+' : ''}${tideOffsetInfo.offsetM.toFixed(1)} m)`
                             : 'depths in metres at low tide (LAT)'}
+                        <span className="ml-1 text-gray-500">· key</span>
+                    </button>
+                )}
+                {/* Hydration chip — dark water that's a DOWNLOAD in
+                    flight must never read as "no chart here". */}
+                {encHydration.remaining > 0 && encVisible && !embedded && !pickerMode && !isPinView && (
+                    <div
+                        className="pointer-events-none absolute bottom-6 left-1/2 z-[9980] -translate-x-1/2 whitespace-nowrap rounded-full border border-teal-500/30 bg-slate-900/85 px-3 py-1 text-[10px] font-bold text-teal-300 shadow-lg"
+                        aria-live="polite"
+                    >
+                        Chart downloading… ({encHydration.total - encHydration.remaining + 1} of {encHydration.total})
                     </div>
                 )}
                 {/* Chart key — the legend for mere mortals (2026-07-11 #2).
@@ -4709,15 +4734,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </button>
                         </div>
                         <div className="mb-1 flex overflow-hidden rounded-md border border-white/10">
-                            {[
-                                ['#c9c6ae', 'dries'],
-                                ['#d4cdbf', '0–2'],
-                                ['#ded8cc', '2–5'],
-                                ['#e8e3d9', '5–10'],
-                                ['#f0ede5', '10–20'],
-                                ['#f7f5f0', '20–50'],
-                                ['#ffffff', '50+'],
-                            ].map(([hex, label]) => (
+                            {(
+                                [
+                                    [DEPARE_BAND_COLORS.drying, 'dries'],
+                                    [DEPARE_BAND_COLORS.b0to2, '0–2'],
+                                    [DEPARE_BAND_COLORS.b2to5, '2–5'],
+                                    [DEPARE_BAND_COLORS.b5to10, '5–10'],
+                                    [DEPARE_BAND_COLORS.b10to20, '10–20'],
+                                    [DEPARE_BAND_COLORS.b20to50, '20–50'],
+                                    [DEPARE_BAND_COLORS.b50plus, '50+'],
+                                ] as const
+                            ).map(([hex, label]) => (
                                 <div key={label} className="flex-1">
                                     <div style={{ background: hex, height: 14 }} />
                                     <div className="bg-slate-800 py-0.5 text-center text-[8px] font-bold text-gray-300">
@@ -4729,7 +4756,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                         <div className="space-y-1 text-[10px] leading-snug text-gray-300">
                             <div>Whiter = deeper. Dirty white = shallow. Khaki dries at low tide.</div>
                             <div>Numbers are metres at the lowest tide — 3₄ means 3.4 m. Khaki numbers dry.</div>
-                            <div>The slate contour is your keel's limit; thin grey lines join equal depths.</div>
+                            {satelliteVisible ? (
+                                // The keel-keyed glaze was never taught anywhere
+                                // (2026-07-12 audit) — and the slate-contour line is
+                                // STALE over imagery, where that contour is hidden.
+                                <div className="text-sky-200">
+                                    Over satellite: bright white glaze = water that clears YOUR keel (draft + 0.5 m).
+                                    Bare imagery = not enough water, or uncharted.
+                                </div>
+                            ) : (
+                                <div>The slate contour is your keel's limit; thin grey lines join equal depths.</div>
+                            )}
+                            {!(Number(settings.vessel?.draft) > 0) && (
+                                <div className="text-amber-300">
+                                    Keel reads use a default 2.5 m draft — set your vessel in Settings.
+                                </div>
+                            )}
                             <div className="text-teal-300">Teal numbers = live tide depth is on.</div>
                         </div>
                     </div>

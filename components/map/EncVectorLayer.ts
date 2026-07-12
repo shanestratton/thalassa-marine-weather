@@ -1820,19 +1820,22 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>, 
             }
             .enc-popup-close {
                 position: absolute;
-                top: 4px;
-                right: 6px;
+                top: 2px;
+                right: 2px;
                 background: rgba(15, 23, 42, 0.85);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 color: rgb(209, 213, 219);
                 border-radius: 999px;
-                width: 22px;
-                height: 22px;
+                /* 32 px box (was 22) — gloved-hand target on a moving
+                   deck; half of Apple's 44 pt floor was fat-finger
+                   hostile (2026-07-12 audit). */
+                width: 32px;
+                height: 32px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 cursor: pointer;
-                font-size: 16px;
+                font-size: 18px;
                 line-height: 1;
                 font-weight: bold;
                 padding: 0;
@@ -1845,7 +1848,7 @@ function buildFeaturePopupHtml(layerId: string, props: Record<string, unknown>, 
                 font-size: 13px;
                 font-weight: 700;
                 margin-bottom: 6px;
-                padding-right: 22px;
+                padding-right: 32px;
             }
             .enc-popup-body { display: flex; flex-direction: column; gap: 2px; }
             .enc-popup-row { display: flex; justify-content: space-between; gap: 12px; }
@@ -1920,43 +1923,75 @@ function fillDepareTideWindow(popup: mapboxgl.Popup, props: Record<string, unkno
         });
 }
 
+/** Point-feature layers — small tap targets that get the padded
+ *  fat-finger search box (vs. area fills, which keep exact-point). */
+const POINT_LAYER_IDS = new Set<string>([
+    ENC_VEC_LAYERS.OBSTRN,
+    ENC_VEC_LAYERS.WRECKS,
+    ENC_VEC_LAYERS.UWTROC,
+    ENC_VEC_LAYERS.LIGHTS,
+    ENC_VEC_LAYERS.BOYLAT,
+    ENC_VEC_LAYERS.BOYCAR,
+    ENC_VEC_LAYERS.BCNLAT,
+    ENC_VEC_LAYERS.BCNCAR,
+    ENC_VEC_LAYERS.BOYSPP,
+    ENC_VEC_LAYERS.BCNSPP,
+    ENC_VEC_LAYERS.BOYSAW,
+    ENC_VEC_LAYERS.BCNSAW,
+    ENC_VEC_LAYERS.BOYISD,
+    ENC_VEC_LAYERS.BCNISD,
+]);
+const CLICKABLE_POINT_LAYER_IDS = CLICKABLE_LAYER_IDS.filter((id) => POINT_LAYER_IDS.has(id));
+
+/** Fat-finger tap tolerance in screen px. Wreck dots render ~13-18 px
+ *  and an exact-pixel hit test made a near-miss silently answer about
+ *  the WATER instead of the mark a gloved hand was asking about
+ *  (2026-07-12 audit) — the popup's "Pass NORTH of this mark" row is
+ *  worthless if you can't hit the mark from a moving deck. */
+const TAP_PAD_PX = 12;
+
 /**
- * Wire up click handlers on every ENC vector layer so tapping a
- * feature shows a popup describing it. Idempotent — if handlers
- * are already attached, this is a no-op.
+ * Wire up ONE map-level click handler for every ENC vector layer so
+ * tapping a feature shows a popup describing it. Map-level (not
+ * per-layer): 17 per-layer registrations ran the full query/HTML/popup
+ * cycle once per hit layer on a single stacked tap. Idempotent — if
+ * handlers are already attached, this is a no-op.
  */
 export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
     if (attachedHandlers.has(map)) return;
 
     const onClick = (e: mapboxgl.MapMouseEvent) => {
         if (popupSuppression.get(map)) return;
-        // queryRenderedFeatures across all our layers; topmost wins.
-        // Order matters: we list points first (small, easy to miss
-        // if covered by a polygon hit) then polygons last.
-        const features = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
-        if (!features.length) return;
-
-        // Prefer point features over big polygons when both are
-        // hit — clicking near a buoy that sits on top of a depth
-        // area should pop the buoy info, not the depth.
-        const POINT_LAYER_IDS = new Set<string>([
-            ENC_VEC_LAYERS.OBSTRN,
-            ENC_VEC_LAYERS.WRECKS,
-            ENC_VEC_LAYERS.UWTROC,
-            ENC_VEC_LAYERS.LIGHTS,
-            ENC_VEC_LAYERS.BOYLAT,
-            ENC_VEC_LAYERS.BOYCAR,
-            ENC_VEC_LAYERS.BCNLAT,
-            ENC_VEC_LAYERS.BCNCAR,
-            ENC_VEC_LAYERS.BOYSPP,
-            ENC_VEC_LAYERS.BCNSPP,
-            ENC_VEC_LAYERS.BOYSAW,
-            ENC_VEC_LAYERS.BCNSAW,
-            ENC_VEC_LAYERS.BOYISD,
-            ENC_VEC_LAYERS.BCNISD,
-        ]);
-        const point = features.find((f) => POINT_LAYER_IDS.has(f.layer?.id ?? ''));
-        const feat = point ?? features[0];
+        // Marks first, through the padded box — the NEAREST mark to the
+        // tap wins, so a finger-width miss still answers about the buoy,
+        // not the depth area beneath it.
+        const box: [mapboxgl.PointLike, mapboxgl.PointLike] = [
+            [e.point.x - TAP_PAD_PX, e.point.y - TAP_PAD_PX],
+            [e.point.x + TAP_PAD_PX, e.point.y + TAP_PAD_PX],
+        ];
+        const pointHits =
+            CLICKABLE_POINT_LAYER_IDS.length > 0
+                ? map.queryRenderedFeatures(box, { layers: CLICKABLE_POINT_LAYER_IDS })
+                : [];
+        let feat: mapboxgl.GeoJSONFeature | undefined;
+        if (pointHits.length > 0) {
+            let bestD = Infinity;
+            for (const f of pointHits) {
+                if (f.geometry?.type !== 'Point') continue;
+                const p = map.project(f.geometry.coordinates as [number, number]);
+                const d = (p.x - e.point.x) ** 2 + (p.y - e.point.y) ** 2;
+                if (d < bestD) {
+                    bestD = d;
+                    feat = f;
+                }
+            }
+            feat = feat ?? pointHits[0];
+        } else {
+            // Area fills (water, land) answer only an exact-point tap.
+            const areaHits = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
+            if (!areaHits.length) return;
+            feat = areaHits[0];
+        }
         const layerId = feat.layer?.id ?? '';
         const props = (feat.properties ?? {}) as Record<string, unknown>;
 
@@ -1999,8 +2034,10 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         map.getCanvas().style.cursor = '';
     };
 
+    // ONE map-level click; per-layer listeners only for the desktop
+    // cursor affordance (cheap, no query work).
+    map.on('click', onClick);
     for (const id of CLICKABLE_LAYER_IDS) {
-        map.on('click', id, onClick);
         map.on('mouseenter', id, onEnter);
         map.on('mouseleave', id, onLeave);
     }
@@ -2016,8 +2053,8 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
 export function detachEncFeatureClickHandlers(map: mapboxgl.Map): void {
     const h = attachedHandlers.get(map);
     if (!h) return;
+    map.off('click', h.click);
     for (const id of CLICKABLE_LAYER_IDS) {
-        map.off('click', id, h.click);
         map.off('mouseenter', id, h.enter);
         map.off('mouseleave', id, h.leave);
     }
