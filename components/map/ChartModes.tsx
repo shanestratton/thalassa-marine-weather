@@ -454,6 +454,12 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                     className="absolute left-1/2 -translate-x-1/2 mt-2 flex flex-col gap-1"
                     style={{
                         minWidth: dropdownMinWidth,
+                        // Landscape phones: ~10 rows overran a 375 px-tall
+                        // viewport with no scroll, putting Chart key +
+                        // Clear All permanently off-screen in the cockpit's
+                        // most common orientation (2026-07-12 audit).
+                        maxHeight: 'min(68vh, 520px)',
+                        overflowY: 'auto',
                         // 0.97 alpha (was 0.94) — same readability fix as
                         // the chip itself; the dropdown sits over even
                         // more map content so needs to be more opaque.

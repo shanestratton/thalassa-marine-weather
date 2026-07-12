@@ -1009,6 +1009,46 @@ let hydrationRunning = false;
 const hydrationCooldownUntil = new Map<string, number>();
 const HYDRATION_RETRY_COOLDOWN_MS = 60_000;
 
+// ── Hydration progress (2026-07-12 audit, UX MAJOR) ───────────────
+// Downloading was completely SILENT: a registered-but-not-yet-
+// downloaded cell rendered as the same dark shell as genuinely
+// uncharted water, and a cruiser panning to tomorrow's anchorage
+// concluded the app had no chart there. The map surfaces this as a
+// "Chart downloading… (n of m)" chip.
+
+export interface EncHydrationProgress {
+    /** Cells still to attempt in the current walk (0 = idle). */
+    remaining: number;
+    /** Size of the walk when it started. */
+    total: number;
+}
+
+let hydrationProgress: EncHydrationProgress = { remaining: 0, total: 0 };
+const hydrationListeners = new Set<(p: EncHydrationProgress) => void>();
+
+function setHydrationProgress(next: EncHydrationProgress): void {
+    hydrationProgress = next;
+    for (const l of hydrationListeners) {
+        try {
+            l(hydrationProgress);
+        } catch {
+            /* listener errors never break the walk */
+        }
+    }
+}
+
+export function getHydrationProgress(): EncHydrationProgress {
+    return hydrationProgress;
+}
+
+/** Subscribe to hydration progress. Returns an unsubscribe fn. */
+export function subscribeHydration(listener: (p: EncHydrationProgress) => void): () => void {
+    hydrationListeners.add(listener);
+    return () => {
+        hydrationListeners.delete(listener);
+    };
+}
+
 /**
  * Fetch missing cell blobs from the cloud bucket, one at a time, in
  * the background. Each success touches the registry (putCell notify)
@@ -1019,11 +1059,22 @@ const HYDRATION_RETRY_COOLDOWN_MS = 60_000;
 async function hydrateMissingCells(cellIds: string[]): Promise<void> {
     if (hydrationRunning || cellIds.length === 0) return;
     hydrationRunning = true;
+    // Cooldown-filtered up front so the chip's "n of m" is honest —
+    // cells sitting out a failure cooldown aren't "downloading".
+    const now = Date.now();
+    const walk = cellIds.filter((id) => {
+        const waitUntil = hydrationCooldownUntil.get(id);
+        return waitUntil === undefined || now >= waitUntil;
+    });
+    if (walk.length === 0) {
+        hydrationRunning = false;
+        return;
+    }
+    setHydrationProgress({ remaining: walk.length, total: walk.length });
     try {
         const { downloadCloudCell } = await import('./cloudCellSync');
-        for (const id of cellIds) {
-            const waitUntil = hydrationCooldownUntil.get(id);
-            if (waitUntil !== undefined && Date.now() < waitUntil) continue;
+        for (let i = 0; i < walk.length; i++) {
+            const id = walk[i];
             const ok = await downloadCloudCell(id);
             if (ok) {
                 hydrationCooldownUntil.delete(id);
@@ -1035,11 +1086,13 @@ async function hydrateMissingCells(cellIds: string[]): Promise<void> {
             } else {
                 hydrationCooldownUntil.set(id, Date.now() + HYDRATION_RETRY_COOLDOWN_MS);
             }
+            setHydrationProgress({ remaining: walk.length - i - 1, total: walk.length });
         }
     } catch (err) {
         log.warn(`hydration walk failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
         hydrationRunning = false;
+        setHydrationProgress({ remaining: 0, total: 0 });
     }
 }
 

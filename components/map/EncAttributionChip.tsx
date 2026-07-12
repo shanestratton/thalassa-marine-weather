@@ -143,11 +143,23 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
 
     if (cellsInView.length === 0) return null;
 
-    const sources = summariseSources(cellsInView);
-    const compactLabel =
-        sources.length === 1
-            ? `${sources[0].ho} ed.${cellsInView[0].edition} (${cellsInView[0].issued.slice(0, 4)})`
-            : sources.map((s) => s.ho).join(', ');
+    // Freshly-registered cloud cells carry a placeholder identity
+    // (sourceHO 'cloud', ed.0, no issue date) until their blob lands —
+    // the trust chip must never present "cloud ed.0 ()" as provenance
+    // (2026-07-12 audit). Real cells drive the label; edition/year come
+    // from a cell of the SAME HO as the label (they used to be paired
+    // from whichever cell happened to be first in view).
+    const hydratedInView = cellsInView.filter((c) => c.sourceHO !== 'cloud' && c.edition > 0 && c.issued);
+    const sources = summariseSources(hydratedInView.length > 0 ? hydratedInView : cellsInView);
+    let compactLabel: string;
+    if (hydratedInView.length === 0) {
+        compactLabel = 'downloading…';
+    } else if (sources.length === 1) {
+        const exemplar = hydratedInView.find((c) => c.sourceHO === sources[0].ho) ?? hydratedInView[0];
+        compactLabel = `${sources[0].ho} ed.${exemplar.edition} (${exemplar.issued.slice(0, 4)})`;
+    } else {
+        compactLabel = sources.map((s) => s.ho).join(', ');
+    }
     const worstCatzoc = worstCatzocInView(cellsInView);
     const tone = catzocTone(worstCatzoc);
 
@@ -176,8 +188,9 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                         <div key={cell.id} className="mb-1 last:mb-0">
                             <span className="font-mono text-emerald-200">{cell.id}</span>
                             <span className="text-emerald-300/70">
-                                {' '}
-                                · {cell.sourceHO} ed.{cell.edition} · {cell.issued.slice(0, 7)}
+                                {cell.sourceHO === 'cloud'
+                                    ? ' · downloading…'
+                                    : ` · ${cell.sourceHO} ed.${cell.edition} · ${cell.issued.slice(0, 7)}`}
                             </span>
                             {cell.catzocRange && (
                                 <span
