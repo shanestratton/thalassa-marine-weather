@@ -17,10 +17,17 @@
 // 404'd, lazyRetry reloaded, and the background revalidation died
 // with the page before it could freshen the cache — stale HTML
 // survived every reload. Bump purges the poisoned core caches.
-const CACHE_NAME = 'thalassa-v56-core';
-const TILE_CACHE = 'thalassa-v56-tiles';
-const DATA_CACHE = 'thalassa-v56-data';
-const LAN_TILE_CACHE = 'thalassa-v56-lan-tiles';
+// v57: FORCE-PURGE the derived-contour hang (Shane 2026-07-13: "still
+// locking up as the white layer arrives, ~zoom 7-8"). The z7-8 freeze
+// was the sounding-derived-contour Delaunay pass shipped in 91161c0e;
+// it's disabled in 02f6fd86 AND the styledata storm fixed in b8ef08d6,
+// both deployed — but clients that loaded during the 91161c0e window
+// keep running that bundle's JS until their SW cache is invalidated.
+// This bump makes every stale client purge + re-fetch on next visit.
+const CACHE_NAME = 'thalassa-v57-core';
+const TILE_CACHE = 'thalassa-v57-tiles';
+const DATA_CACHE = 'thalassa-v57-data';
+const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
 
