@@ -3033,7 +3033,9 @@ export const MapHub: React.FC<MapHubProps> = ({
     // library registered they grid the ENTIRE coast in dashed sky-blue
     // rectangles. The chart itself now carries the coverage message
     // (white ramp = charted, dark shell = not). EncCoverageLayer +
-    // useEncCoverageLayer stay in the tree for a future diagnostics
+    // useEncCoverageLayer were DELETED 2026-07-12 (audit: dead since
+    // the grid retirement, drifting from live conventions) — git
+    // history has them if a diagnostics
     // toggle.
 
     // ── ENC Vector Chart Display ──

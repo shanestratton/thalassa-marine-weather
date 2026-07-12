@@ -18,6 +18,7 @@
  */
 import { supabase, isSupabaseConfigured } from '../supabase';
 import { listCells, putCell } from './EncCellMetadata';
+import type { EncConversionResult } from './types';
 import { createLogger } from '../../utils/createLogger';
 import { withTimeout } from '../../utils/deadline';
 
@@ -164,9 +165,29 @@ export async function downloadCloudCell(cellId: string): Promise<boolean> {
                 layers?: unknown;
             };
             const cell = parsed.cells?.find((c) => c.cellId === cellId) ?? parsed.cells?.[0] ?? parsed;
-            if (!cell || !('layers' in cell) || !cell.layers) return false;
+            // Shape gate (2026-07-12 audit): an `as never` cast laundered
+            // unvalidated bucket JSON straight into the type that feeds
+            // the render merge. A wrapper-shape regression (e.g. missing
+            // cellId) persisted blobs that loadCellGeoJSON then rejected
+            // on EVERY read — the cell silently re-downloaded forever
+            // with only a generic malformed-JSON warn pointing nowhere.
+            const candidate = cell as { cellId?: unknown; layers?: unknown };
+            const looksLikeCell =
+                !!candidate &&
+                typeof candidate.cellId === 'string' &&
+                candidate.cellId.length > 0 &&
+                typeof candidate.layers === 'object' &&
+                candidate.layers !== null;
+            if (!looksLikeCell) {
+                log.warn(
+                    `cloud cell ${cellId}: bucket payload failed the shape gate (cellId=` +
+                        `${JSON.stringify(candidate?.cellId)}, layers=${typeof candidate?.layers}) — ` +
+                        'check the bucket upload, not the device',
+                );
+                return false;
+            }
             const { saveCellGeoJSON } = await import('./EncCellStore');
-            await saveCellGeoJSON(cellId, cell as never);
+            await saveCellGeoJSON(cellId, candidate as EncConversionResult);
             // The registry entry was seeded from the manifest with the
             // 'cloud' placeholder — now the blob is in hand, patch the REAL
             // provenance in. sourceHO drives IALA region (red/green sides);
