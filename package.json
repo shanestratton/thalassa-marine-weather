@@ -66,6 +66,7 @@
         "@types/rbush": "^4.0.0",
         "capacitor-tcp-socket": "^7.1.0",
         "class-variance-authority": "^0.7.1",
+        "delaunator": "^5.1.0",
         "framer-motion": "^12.38.0",
         "jspdf": "^4.1.0",
         "kdbush": "^4.0.2",
