@@ -163,8 +163,15 @@ export const DEPARE_BAND_COLORS = {
  * need to be able to see the areas that have enough depth for our keel
  * easily"). The glaze is a go/no-go read:
  *  - drying: solid warning wash;
- *  - charted but SHALLOWER than the safety depth: a whisper of tint —
- *    the actual sandbank imagery stares back, "not for your keel";
+ *  - charted but SHALLOWER than the safety depth: **opacity ZERO** —
+ *    pure natural imagery, no tint at all (Shane 2026-07-13: "remove
+ *    these dark shaded areas" — the old 0.15 whisper read as murky
+ *    dark blocks over water imagery, darkening whole 2–10 m bands even
+ *    where spot soundings inside them read 5–6 m). The mental model is
+ *    now binary and crisp: WHITE WASH = verified safe for YOUR keel;
+ *    natural imagery = read the water and the numbers. Bonus: the
+ *    rectangle-clip glaze holes (the parked martinez trade-off) become
+ *    invisible — a hole in nothing is nothing;
  *  - guaranteed depth ≥ safety depth (band DRVAL1, chart datum — the
  *    same conservative convention as the safety contour): bright white
  *    paper, stepping brighter as it deepens;
@@ -181,7 +188,7 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
             DRVAL1_ATTR,
             0.55, // drying — a real warning even over imagery
             0,
-            0.15, // charted but under the keel — imagery IS the message
+            0, // charted but under the keel — imagery IS the message, untinted
             s,
             0.62, // enough water — bright paper, sail here
             Math.max(s + 0.01, 20),
