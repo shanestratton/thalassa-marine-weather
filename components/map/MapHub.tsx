@@ -1857,6 +1857,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                 dep = cnt('enc-vec-depare');
                 glz = cnt('enc-vec-depare-glaze');
                 snd = cnt('enc-vec-soundg');
+                const dpc = cnt('enc-vec-depcnt');
+                const lnd = cnt('enc-vec-lndare');
+                const col = cnt('enc-vec-coalne');
+                log.warn(
+                    `[MEMPROBE] heap=${heap}/${lim}MB z=${z} encSrc=${encN} depare=${dep} glaze=${glz} soundg=${snd} depcnt=${dpc} lndare=${lnd} coalne=${col}`,
+                );
+                return;
             } catch {
                 /* style mid-swap */
             }
