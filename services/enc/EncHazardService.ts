@@ -36,7 +36,7 @@ import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideCoverage, type CoverageGeom } from './clipDepareOverlap';
+import { clipFeatureOutsideBboxes, clipFeatureOutsideCoverage, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -737,6 +737,18 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
 const GLAZE_MIN_ZOOM = 10;
+/** TRUE-COVERAGE glaze clipping (martinez boolean difference) DISABLED
+ *  (2026-07-13): the device log pinned the fatal OOM to the first
+ *  glaze=true merge — stable for 50 s at z9.7, dead within seconds of
+ *  build #3 (z12.4, glaze on). The real measured cost through the ESM
+ *  path was ~1.5 s and heavy allocation for ONE coarse cell against ONE
+ *  fine coverage (an earlier 22 ms benchmark was silently exercising
+ *  the fallback path — my error). Like the derived contours: heavy
+ *  geometry does not belong on the main thread. Until the merge moves
+ *  into a Web Worker, the glaze falls back to the rectangle clip —
+ *  microseconds, at the cosmetic cost of the surf-strip dark boxes
+ *  returning where a fine survey charts only part of its rectangle. */
+const GLAZE_TRUE_COVERAGE_ENABLED = false;
 /** Keep soundings whose density-ladder `_minZoom` is within this many
  *  levels of the current zoom; the rest can't render yet and only bloat
  *  the (very expensive) symbol source. A whole-zoom re-merge refreshes
@@ -1099,20 +1111,24 @@ async function buildMergedVectorData(
         // OOM-crashed the renderer at z7-8, and the keel glaze is moot at
         // that scale. See GLAZE_MIN_ZOOM.
         if (buildGlaze) {
-        const fineCoverages = shadows
-            .map((s) => {
-                const cov = coverageFor(s.id);
-                return cov ? { id: s.id, bbox: s.bbox, coverage: cov } : null;
-            })
-            .filter(
-                (c): c is { id: string; bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null,
-            );
+        const fineCoverages = GLAZE_TRUE_COVERAGE_ENABLED
+            ? shadows
+                  .map((s) => {
+                      const cov = coverageFor(s.id);
+                      return cov ? { id: s.id, bbox: s.bbox, coverage: cov } : null;
+                  })
+                  .filter(
+                      (c): c is { id: string; bbox: [number, number, number, number]; coverage: CoverageGeom } =>
+                          c !== null,
+                  )
+            : [];
         // Memo key: the glaze for this cell is fully determined by its own
-        // blob (cellId + version) and the shadowing cells that actually
-        // supply coverage (their ids, sorted). A zoom that only widens the
-        // window reuses this instead of re-running martinez per feature.
-        const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${fineCoverages
-            .map((c) => c.id)
+        // blob (cellId + version) and the SHADOWING cells that clip it
+        // (their ids, sorted — the same set drives both the rectangle and
+        // the true-coverage paths). A zoom that only widens the window
+        // reuses this instead of re-clipping per feature.
+        const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${shadows
+            .map((s) => s.id)
             .sort()
             .join(',')}`;
         const cachedGlaze = glazeCellCache.get(glazeKey);
@@ -1122,7 +1138,9 @@ async function buildMergedVectorData(
             glazeCellCache.set(glazeKey, cachedGlaze);
             for (const f of cachedGlaze) merged.DEPARE_GLAZE.features.push(f);
         } else {
+            const glazeT0 = performance.now();
             const glazeRank = cellScaleRank(cell.bbox);
+            const finerRects = shadows.map((s) => s.bbox);
             const glazeOut: Feature[] = [];
             let glazeSinceYield = 0;
             for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
@@ -1132,14 +1150,23 @@ async function buildMergedVectorData(
                         ...feat,
                         properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
                     };
-                    const glazed = fineCoverages.length > 0 ? clipFeatureOutsideCoverage(base, fineCoverages) : base;
+                    // Rectangle clip by default (microseconds). The martinez
+                    // true-coverage diff stays behind the flag until it
+                    // lives in a worker — it OOM-killed the WebView on the
+                    // first glaze merge (device log 2026-07-13; see
+                    // GLAZE_TRUE_COVERAGE_ENABLED).
+                    const glazed = GLAZE_TRUE_COVERAGE_ENABLED
+                        ? fineCoverages.length > 0
+                            ? clipFeatureOutsideCoverage(base, fineCoverages)
+                            : base
+                        : finerRects.length > 0
+                          ? clipFeatureOutsideBboxes(base, finerRects)
+                          : base;
                     if (glazed) glazeOut.push(glazed);
-                    // The martinez clip is the merge's heaviest per-feature
-                    // cost — yield WITHIN the loop, not just once per cell
-                    // (that left a whole coastal cell's ~1.5 s clip running
-                    // uninterrupted, freezing zoom: "locks up as I try to
-                    // zoom in", 2026-07-12).
-                    if (fineCoverages.length > 0 && ++glazeSinceYield >= 16) {
+                    // Yield WITHIN the loop, not just once per cell — a whole
+                    // coastal cell's clip running uninterrupted froze zoom
+                    // ("locks up as I try to zoom in", 2026-07-12).
+                    if ((fineCoverages.length > 0 || finerRects.length > 0) && ++glazeSinceYield >= 16) {
                         glazeSinceYield = 0;
                         await yieldIfNeeded();
                     }
@@ -1152,6 +1179,11 @@ async function buildMergedVectorData(
                 if (oldest === undefined) break;
                 glazeCellCache.delete(oldest);
             }
+            // TEMP DIAGNOSTIC (REMOVE with MEMPROBE): per-cell glaze cost on
+            // device — proves (or clears) the clip as the z10+ detonator.
+            log.warn(
+                `[MEMPROBE-GLAZE] cell=${cell.id} feats=${glazeOut.length} shadows=${shadows.length} ms=${Math.round(performance.now() - glazeT0)}`,
+            );
         }
         } // end buildGlaze gate
         tagAndPush('LNDARE', blob.layers.LNDARE);
