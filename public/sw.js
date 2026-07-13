@@ -24,9 +24,12 @@
 // both deployed — but clients that loaded during the 91161c0e window
 // keep running that bundle's JS until their SW cache is invalidated.
 // This bump makes every stale client purge + re-fetch on next visit.
-const CACHE_NAME = 'thalassa-v57-core';
-const TILE_CACHE = 'thalassa-v57-tiles';
-const DATA_CACHE = 'thalassa-v57-data';
+// v58: glaze clip goes shallow-bands-only (kills the black staircase
+// flanking deep channels) + gesture-parked merge/uploads — make sure
+// every client picks up the new bundle promptly (Shane 2026-07-14).
+const CACHE_NAME = 'thalassa-v58-core';
+const TILE_CACHE = 'thalassa-v58-tiles';
+const DATA_CACHE = 'thalassa-v58-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

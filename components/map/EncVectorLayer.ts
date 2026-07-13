@@ -368,7 +368,13 @@ export function mountEncVectorLayer(
     });
     const safetyByCell = computeSafetyValdcoByCell(valdcosByCell, safetyDepthM);
 
-    const ensureSource = (id: string, fc: FeatureCollection) => {
+    // Tile buffer per source: symbols need the default 128 (cross-tile
+    // label collision), but fills clip cleanly at seams and plain lines
+    // only need enough for caps/joins — the geojson worker then tiles
+    // 4-16× less overlap geometry for the heaviest sources (DEPARE and
+    // the glaze), which is real pan/zoom smoothness on a 47-cell view.
+    // DEPCNT keeps the default: its valdco labels ride the lines.
+    const ensureSource = (id: string, fc: FeatureCollection, buffer?: number) => {
         const existing = map.getSource(id);
         if (existing && 'setData' in existing) {
             (existing as mapboxgl.GeoJSONSource).setData(fc);
@@ -378,19 +384,20 @@ export function mountEncVectorLayer(
             type: 'geojson',
             data: fc,
             generateId: true,
+            ...(buffer != null ? { buffer } : {}),
         });
     };
 
-    ensureSource(ENC_VEC_SRC.LNDARE, data.LNDARE);
-    ensureSource(ENC_VEC_SRC.DEPARE, data.DEPARE);
-    ensureSource(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
+    ensureSource(ENC_VEC_SRC.LNDARE, data.LNDARE, 16); // fill + islet circles (r ≤ 3.5 px)
+    ensureSource(ENC_VEC_SRC.DEPARE, data.DEPARE, 8); // fills only
+    ensureSource(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE, 8); // fills only
     ensureSource(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
-    ensureSource(ENC_VEC_SRC.COALNE, data.COALNE);
+    ensureSource(ENC_VEC_SRC.COALNE, data.COALNE, 32); // lines, round joins
     ensureSource(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
     ensureSource(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
     ensureSource(ENC_VEC_SRC.RECTRC, data.RECTRC);
     ensureSource(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
-    ensureSource(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC);
+    ensureSource(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC, 32); // sector arcs/legs
     ensureSource(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
     ensureSource(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
 
@@ -1237,8 +1244,20 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         typeof requestAnimationFrame === 'function'
             ? requestAnimationFrame
             : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+    // Gesture-deferred (2026-07-14): even ONE big setData mid-gesture
+    // drops frames, so while the camera is moving the loop idles (one
+    // cheap isMoving check per frame, capped so a perpetual camera-
+    // follow animation can't stall uploads forever) and the previous
+    // window's chart keeps rendering — it covers most of the screen
+    // anyway. Uploads land in the first still frames.
+    let deferredFrames = 0;
     const step = (): void => {
         if (generation !== refreshGeneration) return; // superseded — newer refresh owns the sources
+        if (typeof map.isMoving === 'function' && map.isMoving() && deferredFrames < 180) {
+            deferredFrames += 1;
+            raf(step);
+            return;
+        }
         const job = uploads.shift();
         if (!job) return;
         try {
@@ -1248,7 +1267,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         }
         if (uploads.length > 0) raf(step);
     };
-    step(); // first source immediately, rest one-per-frame
+    step(); // first source immediately (or deferred past a live gesture)
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the

@@ -847,6 +847,14 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
 const GLAZE_MIN_ZOOM = 10;
+/** Fine bands at least this deep never clip the coarse glaze. With
+ *  unsafe glaze at opacity 0, the clip only protects against coarse
+ *  SAFE-white over fine UNSAFE water — and no keel this app serves
+ *  needs more than ~10 m under it, so a ≥10 m fine band is safe for
+ *  everyone and white-over-white overlap is harmless. Excluding deep
+ *  bands from the clip coverage removes the strip-mask staircase that
+ *  flanked deep channel corridors ("black steps", 2026-07-14). */
+const GLAZE_CLIP_MAX_SAFE_M = 10;
 /** GEOMETRY WORKER DISPATCH DISABLED (2026-07-13, second crash): moving
  *  martinez off the main thread did NOT stop the OOM — a Worker is a
  *  separate THREAD in the SAME renderer process, so its allocation
@@ -860,6 +868,15 @@ const GLAZE_MIN_ZOOM = 10;
  *  per-cell memo) is wired and tested — bound the inputs, flip the
  *  flag. */
 const GEOMETRY_WORKER_ENABLED = false;
+
+/** "Is the user mid-gesture?" probe, registered by the map hook (it
+ *  answers map.isMoving()). The merge's time-slicer parks while this
+ *  returns true so merge work never competes with a live pan/zoom for
+ *  frame time. Null (no map yet / hook unmounted) means never park. */
+let mergeInteractionProbe: (() => boolean) | null = null;
+export function setMergeInteractionProbe(probe: (() => boolean) | null): void {
+    mergeInteractionProbe = probe;
+}
 /** Keep soundings whose density-ladder `_minZoom` is within this many
  *  levels of the current zoom; the rest can't render yet and only bloat
  *  the (very expensive) symbol source. A whole-zoom re-merge refreshes
@@ -875,7 +892,10 @@ const SUBPIXEL_CULLABLE = new Set(['DEPARE', 'LNDARE', 'COALNE', 'DEPCNT']);
  *  point/other geometry so the sub-pixel cull can never touch it. */
 function featureDiagDeg(feat: Feature): number {
     const g = feat.geometry;
-    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon' && g.type !== 'LineString' && g.type !== 'MultiLineString')) {
+    if (
+        !g ||
+        (g.type !== 'Polygon' && g.type !== 'MultiPolygon' && g.type !== 'LineString' && g.type !== 'MultiLineString')
+    ) {
         return Infinity;
     }
     let minX = Infinity,
@@ -913,10 +933,22 @@ async function buildMergedVectorData(
     // worse), freezing the map and the GPS chase on every window
     // escape. Yielding a macrotask every ~12 ms of work keeps frames
     // flowing; total CPU is unchanged but the freeze is gone.
+    //
+    // GESTURE-PAUSED (2026-07-14, "a little jerky when i am zooming and
+    // moving about"): a 12 ms slice inside a 16 ms frame still drops
+    // that frame, and a merge kicked off by the LAST moveend is often
+    // mid-flight when the next flick starts. While the interaction
+    // probe reports a live gesture, slices park in short naps (capped —
+    // a camera-follow animation must not starve the merge forever).
     let sliceStart = performance.now();
     const yieldIfNeeded = async (): Promise<void> => {
         if (performance.now() - sliceStart < 12) return;
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        let parkedMs = 0;
+        while (mergeInteractionProbe?.() && parkedMs < 2000) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 80));
+            parkedMs += 80;
+        }
         sliceStart = performance.now();
     };
 
@@ -1034,10 +1066,18 @@ async function buildMergedVectorData(
         }
     }
 
-    // Charted-water footprint (DEPARE + DRGARE polygon coords) per
-    // SHADOWING cell, memoized for this run — feeds the glaze's
-    // true-coverage subtraction. Coordinate arrays are shared with the
-    // cached blob, never cloned.
+    // Charted-water footprint per SHADOWING cell, memoized for this run
+    // — feeds the glaze's coverage subtraction. Coordinate arrays are
+    // shared with the cached blob, never cloned.
+    //
+    // SHALLOW BANDS ONLY: since unsafe glaze renders at opacity 0, the
+    // clip's sole job is stopping coarse SAFE-white painting over fine
+    // UNSAFE water. A fine band deeper than any plausible safety depth
+    // can't be unsafe, so clipping under it buys nothing — and the
+    // strip-mask's quantisation halo around deep corridor bands drew a
+    // 1-2 km black staircase flanking the NE Channel ("black steps",
+    // 2026-07-14). Deep fine bands now overlap coarse white harmlessly
+    // (white-on-white); only genuinely shallow bands still clip.
     const coverageMemo = new Map<string, CoverageGeom | null>();
     const coverageFor = (cellId: string): CoverageGeom | null => {
         const memo = coverageMemo.get(cellId);
@@ -1048,6 +1088,9 @@ async function buildMergedVectorData(
             for (const f of fc?.features ?? []) {
                 const g = f?.geometry;
                 if (!g) continue;
+                const drval1 = f.properties?.DRVAL1;
+                // Missing DRVAL1 → treat as shallow (conservative).
+                if (typeof drval1 === 'number' && drval1 >= GLAZE_CLIP_MAX_SAFE_M) continue;
                 if (g.type === 'Polygon') polys.push(g.coordinates as CoverageGeom[number]);
                 else if (g.type === 'MultiPolygon') polys.push(...(g.coordinates as unknown as CoverageGeom));
             }
@@ -1069,16 +1112,22 @@ async function buildMergedVectorData(
         const memo = stripRectsMemo.get(cellId);
         if (memo) return memo;
         const cov = coverageFor(cellId);
-        const rects = cov ? coverageMaskStrips(cov, extent) : [extent];
+        // k=40: shallow-band-only coverage (see coverageFor) leaves far
+        // fewer inside-nodes, so a finer grid stays ~1 ms with the ring-
+        // bbox prefilter while halving the quantisation halo around banks.
+        const rects = cov ? coverageMaskStrips(cov, extent, 40, 160) : [extent];
         stripRectsMemo.set(cellId, rects);
         return rects;
     };
 
-    // Sub-pixel cull threshold for area/line features at passage zoom:
-    // ~2 px in degrees at the merge's zoom bucket (512 px tiles). 0 at
-    // nav zoom (≥ GLAZE_MIN_ZOOM) and on the full merge — no cull.
-    const cullDeg =
-        zoom != null && zoom < GLAZE_MIN_ZOOM ? ((78271.484 / 2 ** Math.round(zoom)) * 2) / 111_320 : 0;
+    // Sub-pixel cull threshold for area/line features: ~2 px in degrees
+    // at the merge's zoom bucket (512 px tiles). Every windowed merge
+    // culls — a whole-zoom crossing re-merges with a tighter threshold,
+    // so nothing visible is ever missing at the zoom you're actually at.
+    // Trimming invisible scraps at nav zoom shrinks the DEPARE upload
+    // (the one setData the frame-stagger can't split). 0 on the full
+    // merge only.
+    const cullDeg = zoom != null ? ((78271.484 / 2 ** Math.round(zoom)) * 2) / 111_320 : 0;
 
     // Named sea areas — dedupe by name across cells; iterating
     // coarse→fine means the finest chart's label point wins (its
@@ -1119,7 +1168,7 @@ async function buildMergedVectorData(
                 // a shoal patch / islet / contour scrap smaller than ~2 px
                 // cannot be seen, but still costs worker tiling + GPU
                 // buffers — and a 47-cell wide window carries thousands of
-                // them. cullDeg is 0 at nav zoom / full merge (no cull).
+                // them. cullDeg is 0 only on the full merge.
                 if (cullDeg > 0 && SUBPIXEL_CULLABLE.has(target) && featureDiagDeg(feat) < cullDeg) continue;
                 if (shadows.length > 0 && SHADOWED_CLASSES.has(target) && featureIsShadowed(feat, shadows)) continue;
                 // GEOMETRY CLIPPING RETIRED (2026-07-11, same day it
@@ -1309,9 +1358,7 @@ async function buildMergedVectorData(
                         const cov = coverageFor(s.id);
                         return cov ? { bbox: s.bbox, coverage: cov } : null;
                     })
-                    .filter(
-                        (c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null,
-                    );
+                    .filter((c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null);
                 if (fineCoverages.length > 0) {
                     const glazeRank = cellScaleRank(cell.bbox);
                     const baseFeats: Feature[] = [];
