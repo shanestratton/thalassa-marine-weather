@@ -651,13 +651,21 @@ export async function getMergedVectorData(
     // zoomed in enough to navigate by it. zoom==null (seaway/full merge)
     // never needs the glaze, so skip it there too — pure memory saved.
     const buildGlaze = zoom != null && zoom >= GLAZE_MIN_ZOOM;
+    // Sounding LOD bucket (2026-07-13): the merged SOUNDG heap over a wide
+    // z7-9 window is ~30 k symbols (device log), the single biggest and
+    // priciest layer — symbol collision + text layout, mostly SCAMIN-
+    // hidden but ALL loaded into the source. Bucket the merge by rounded
+    // zoom so we can drop soundings that can't render at this scale (see
+    // the filter after the density ladder). Aligns with the hook's per-
+    // whole-zoom re-merge cadence. 99 = seaway/full merge, no LOD filter.
+    const soundBucket = zoom != null ? Math.round(zoom) : 99;
     // Key by what actually determines the output: the cell set (merge
     // geometry depends only on the selected cells, never on the window
     // that selected them) + the registry version + whether derived
     // contours were computed + whether the glaze was built (so a wide
     // no-glaze merge and a zoomed-in with-glaze merge over the same cell
     // set don't collide).
-    const cacheKey = `v${cellMeta.getVersion()}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:${cells
+    const cacheKey = `v${cellMeta.getVersion()}:${densify ? 'd1' : 'd0'}:${buildGlaze ? 'g1' : 'g0'}:s${soundBucket}:${cells
         .map((c) => c.id)
         .sort()
         .join(',')}`;
@@ -672,7 +680,7 @@ export async function getMergedVectorData(
     log.warn(
         `[MEMPROBE-MERGE] build #${mergeBuildCount} cells=${cells.length} zoom=${zoom ?? 'null'} glaze=${buildGlaze} key=${cacheKey.slice(0, 24)}`,
     );
-    const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze);
+    const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
     inflightMerges.set(cacheKey, build);
     try {
         return await build;
@@ -714,12 +722,18 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
 const GLAZE_MIN_ZOOM = 10;
+/** Keep soundings whose density-ladder `_minZoom` is within this many
+ *  levels of the current zoom; the rest can't render yet and only bloat
+ *  the (very expensive) symbol source. A whole-zoom re-merge refreshes
+ *  the set, so the look-ahead just needs to cover one hook re-merge step. */
+const SOUNDING_LOD_LOOKAHEAD = 2;
 
 async function buildMergedVectorData(
     cells: EncCell[],
     cacheKey: string,
     densify: boolean,
     buildGlaze: boolean,
+    zoom?: number,
 ): Promise<EncMergedVectorData | null> {
     // TIME-SLICED (2026-07-12 audit, MAJOR): the merge — parse, clone,
     // extent-walk, glaze clip, sounding explode — used to run as ONE
@@ -1140,6 +1154,24 @@ async function buildMergedVectorData(
     // every cell seam.
     await yieldIfNeeded(); // the ladder is one indivisible hot pass
     assignSoundingDensityMinZoom(merged.SOUNDG.features as Array<Feature<Point>>);
+
+    // Sounding LOD cull (2026-07-13, the z7-8 OOM): the ladder just stamped
+    // every sounding with the min-zoom it becomes visible at. A wide-window
+    // merge holds ~30 k of them (device log) but SCAMIN hides all but a
+    // handful at passage scale — yet every one still loads into the source
+    // as a collision-tested text symbol, the single heaviest layer on the
+    // map. Drop the ones that can't render within LOOKAHEAD of the current
+    // zoom; a whole-zoom re-merge (the cache bucket) refreshes the set as
+    // the punter closes in. zoom==null (seaway/full merge) keeps them all.
+    if (zoom != null) {
+        const cap = zoom + SOUNDING_LOD_LOOKAHEAD;
+        const before = merged.SOUNDG.features.length;
+        merged.SOUNDG.features = merged.SOUNDG.features.filter((f) => {
+            const mz = (f.properties as { _minZoom?: number } | null)?._minZoom;
+            return typeof mz !== 'number' || mz <= cap;
+        });
+        log.warn(`[MEMPROBE-MERGE] soundings culled ${before}→${merged.SOUNDG.features.length} (z${zoom.toFixed(1)})`);
+    }
 
     // Sounding-derived contours (honest densification): interpolate depth
     // contours from the merged spot soundings, ONLY inside triangles
