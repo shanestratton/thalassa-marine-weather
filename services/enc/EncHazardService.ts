@@ -36,7 +36,7 @@ import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideBboxes, coverageStripRects, type CoverageGeom } from './clipDepareOverlap';
+import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -1050,41 +1050,18 @@ async function buildMergedVectorData(
     };
 
     // Strip-rect coverage per shadowing cell for the glaze clip (see
-    // coverageStripRects): per-feature bboxes grid-coarsened into a
-    // staircase of rects that hugs what the fine survey actually charts.
+    // coverageMaskStrips): the survey's REAL polygons rasterised into a
+    // staircase of rects that hugs the charted ribbon. Feature bboxes
+    // were tried first and failed — a channel cell's bands are long
+    // diagonal ribbons, so their bboxes blacked out the water beside
+    // the corridor (2026-07-14, "we still have these black squares").
     // Memoized per merge run — the same cell shadows many coarse cells.
     const stripRectsMemo = new Map<string, [number, number, number, number][]>();
     const stripRectsFor = (cellId: string, extent: [number, number, number, number]) => {
         const memo = stripRectsMemo.get(cellId);
         if (memo) return memo;
-        const b = loadedBlobs.get(cellId);
-        const featBoxes: [number, number, number, number][] = [];
-        for (const fc of [b?.layers.DEPARE, b?.layers.DRGARE]) {
-            for (const f of fc?.features ?? []) {
-                const g = f?.geometry;
-                if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
-                let minX = Infinity,
-                    minY = Infinity,
-                    maxX = -Infinity,
-                    maxY = -Infinity;
-                const visit = (coords: unknown): void => {
-                    if (!Array.isArray(coords)) return;
-                    if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-                        const lon = coords[0] as number;
-                        const lat = coords[1] as number;
-                        if (lon < minX) minX = lon;
-                        if (lat < minY) minY = lat;
-                        if (lon > maxX) maxX = lon;
-                        if (lat > maxY) maxY = lat;
-                        return;
-                    }
-                    for (const c of coords) visit(c);
-                };
-                visit((g as { coordinates?: unknown }).coordinates);
-                if (Number.isFinite(minX)) featBoxes.push([minX, minY, maxX, maxY]);
-            }
-        }
-        const rects = coverageStripRects(featBoxes, extent);
+        const cov = coverageFor(cellId);
+        const rects = cov ? coverageMaskStrips(cov, extent) : [extent];
         stripRectsMemo.set(cellId, rects);
         return rects;
     };
@@ -1381,29 +1358,50 @@ async function buildMergedVectorData(
         // and the finest chart's tighter geometry wins the dedupe).
         for (const feat of blob.layers.SEAARE?.features ?? []) {
             const g = feat?.geometry;
-            if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+            if (!g) continue;
             const props = (feat.properties ?? {}) as Record<string, unknown>;
             const name = typeof props.OBJNAM === 'string' ? props.OBJNAM.trim() : '';
             if (!name) continue;
-            const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-            let ring: number[][] | null = null;
-            for (const poly of polys) {
-                const outer = poly?.[0] as number[][] | undefined;
-                if (outer && outer.length >= 4 && (!ring || outer.length > ring.length)) ring = outer;
+            // The AU SENC emits most named areas as POINTS — the
+            // cartographer's own label anchor, use it verbatim. Polygon
+            // SEAARE falls back to the largest-ring vertex average.
+            let anchor: [number, number] | null = null;
+            if (g.type === 'Point') {
+                const c = g.coordinates as number[];
+                if (Number.isFinite(c?.[0]) && Number.isFinite(c?.[1])) anchor = [c[0], c[1]];
+            } else if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
+                const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+                let ring: number[][] | null = null;
+                for (const poly of polys) {
+                    const outer = poly?.[0] as number[][] | undefined;
+                    if (outer && outer.length >= 4 && (!ring || outer.length > ring.length)) ring = outer;
+                }
+                if (ring) {
+                    let sx = 0;
+                    let sy = 0;
+                    const n = ring.length - 1; // skip the closing duplicate vertex
+                    for (let i = 0; i < n; i++) {
+                        sx += ring[i][0];
+                        sy += ring[i][1];
+                    }
+                    anchor = [sx / n, sy / n];
+                }
             }
-            if (!ring) continue;
-            let sx = 0;
-            let sy = 0;
-            const n = ring.length - 1; // skip the closing duplicate vertex
-            for (let i = 0; i < n; i++) {
-                sx += ring[i][0];
-                sy += ring[i][1];
-            }
+            if (!anchor) continue;
             const labelProps: Record<string, unknown> = { _name: name };
-            if (typeof props._minZoom === 'number') labelProps._minZoom = props._minZoom;
+            // SCAMIN gates the 1:90k channel/bank names to z12.6 — "need
+            // to be at zoom 13 to see any names... probably a bit high"
+            // (Shane 2026-07-14). Same doctrine as the sounding ladder:
+            // SCAMIN is paper declutter advice, not law. Keep the
+            // HIERARCHY (bay names before bank names) but pull the whole
+            // ladder ~2.5 levels earlier: 12.6→10.1, 11.6→9.1, 8.5→the
+            // layer floor. Collision handles the density.
+            if (typeof props._minZoom === 'number') {
+                labelProps._minZoom = Math.max(7, props._minZoom - 2.5);
+            }
             seaareByName.set(name, {
                 type: 'Feature',
-                geometry: { type: 'Point', coordinates: [sx / n, sy / n] },
+                geometry: { type: 'Point', coordinates: anchor },
                 properties: labelProps,
             });
         }

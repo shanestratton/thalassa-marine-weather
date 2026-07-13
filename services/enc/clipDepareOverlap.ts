@@ -301,6 +301,74 @@ export function coverageStripRects(
         if (cx1 < 0 || cx0 > k - 1 || cy1 < 0 || cy0 > k - 1) continue;
         for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) covered[y * k + x] = true;
     }
+    return maskToStrips(covered, extent, k, maxRects);
+}
+
+/**
+ * Strip rects from the survey's ACTUAL polygons, rasterised — the fix
+ * for the fix (2026-07-14): a channel survey's bands are long DIAGONAL
+ * ribbons, so even per-feature bboxes are fat rectangles around them
+ * and the staircase still blacked out the water beside the corridor.
+ * Here each K-grid node is point-in-polygon tested against the real
+ * coverage (plus every ring vertex marks its cell, catching slivers
+ * between nodes), so the strips hug the ribbon itself. A node inside
+ * ANY polygon marks its four adjacent cells — slight over-cover, which
+ * is the conservative direction (coarse glaze removed a whisker wide,
+ * never left painting over the fine survey's claims).
+ */
+export function coverageMaskStrips(coverage: CoverageGeom, extent: Bbox, k = 24, maxRects = 96): Bbox[] {
+    if (coverage.length === 0) return [extent];
+    const [ex0, ey0, ex1, ey1] = extent;
+    const w = ex1 - ex0;
+    const h = ey1 - ey0;
+    if (!(w > 0) || !(h > 0)) return [extent];
+    const covered: boolean[] = new Array(k * k).fill(false);
+    const markCell = (x: number, y: number): void => {
+        if (x >= 0 && y >= 0 && x < k && y < k) covered[y * k + x] = true;
+    };
+    // Ring vertices mark their cells directly (cheap sliver-catcher).
+    for (const poly of coverage) {
+        for (const ring of poly) {
+            for (const p of ring) {
+                markCell(Math.floor(((p[0] - ex0) / w) * k), Math.floor(((p[1] - ey0) / h) * k));
+            }
+        }
+    }
+    // Grid NODES ((k+1)² points) PIP-tested even-odd across all rings;
+    // an inside node marks its four adjacent cells.
+    for (let ny = 0; ny <= k; ny++) {
+        const py = ey0 + (ny / k) * h;
+        for (let nx = 0; nx <= k; nx++) {
+            const px = ex0 + (nx / k) * w;
+            let inside = false;
+            for (const poly of coverage) {
+                for (const ring of poly) {
+                    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                        const yi = ring[i][1];
+                        const yj = ring[j][1];
+                        if (yi > py !== yj > py && px < ((ring[j][0] - ring[i][0]) * (py - yi)) / (yj - yi) + ring[i][0]) {
+                            inside = !inside;
+                        }
+                    }
+                }
+            }
+            if (inside) {
+                markCell(nx - 1, ny - 1);
+                markCell(nx, ny - 1);
+                markCell(nx - 1, ny);
+                markCell(nx, ny);
+            }
+        }
+    }
+    return maskToStrips(covered, extent, k, maxRects);
+}
+
+/** Shared strip merger: covered-cell mask → row-run rects, merging
+ *  identical adjacent rows; empty or over-budget → [extent] fallback. */
+function maskToStrips(covered: readonly boolean[], extent: Bbox, k: number, maxRects: number): Bbox[] {
+    const [ex0, ey0, ex1, ey1] = extent;
+    const w = ex1 - ex0;
+    const h = ey1 - ey0;
     // Row runs → strips, merging rows with identical runs.
     const rects: Bbox[] = [];
     let prevRuns: Array<[number, number]> = [];

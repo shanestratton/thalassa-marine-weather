@@ -141,3 +141,36 @@ describe('coverageStripRects — strips hug the survey, not its rectangle', () =
         expect(inAny(rects, 0.5, 15.5)).toBe(true);
     });
 });
+
+import { coverageMaskStrips } from '../../services/enc/clipDepareOverlap';
+
+describe('coverageMaskStrips — rasterised polygons beat ribbon bboxes', () => {
+    const EXT: [number, number, number, number] = [0, 0, 16, 16];
+    const inAny = (rects: [number, number, number, number][], x: number, y: number) =>
+        rects.some((r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]);
+
+    it('a thin diagonal ribbon leaves the off-corridor corners OPEN (the black-squares regression)', () => {
+        // One long diagonal band, width ~2, corner to corner — its BBOX is
+        // the whole extent (which is exactly why the bbox strips failed).
+        const ribbon = [
+            [
+                [0, 0],
+                [2, 0],
+                [16, 14],
+                [16, 16],
+                [14, 16],
+                [0, 2],
+                [0, 0],
+            ],
+        ];
+        const rects = coverageMaskStrips([ribbon] as never, EXT);
+        expect(rects.length).toBeGreaterThan(1); // not the extent fallback
+        expect(inAny(rects, 8, 8)).toBe(true); // on the ribbon — clipped (conservative)
+        expect(inAny(rects, 14, 2)).toBe(false); // SE corner — open water, glaze survives
+        expect(inAny(rects, 2, 14)).toBe(false); // NW corner — open water, glaze survives
+    });
+
+    it('empty coverage → extent fallback', () => {
+        expect(coverageMaskStrips([] as never, EXT)).toEqual([EXT]);
+    });
+});
