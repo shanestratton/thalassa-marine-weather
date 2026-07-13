@@ -42,7 +42,6 @@ import type { FeatureCollection } from 'geojson';
 
 import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
-import { LITCHR_LABELS } from '../../services/enc/types';
 import { registerSeamarkIcons } from './seamarkIcons';
 import { ALL_LAYER_IDS, CLICKABLE_LAYER_IDS, ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
 import { buildFeaturePopupHtml, type PopupExtras } from './encPopup';
@@ -88,10 +87,6 @@ const log = createLogger('EncVectorLayer');
 const ALL_SOURCE_IDS = Object.values(ENC_VEC_SRC);
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-function emptyFC(): FeatureCollection {
-    return { type: 'FeatureCollection', features: [] };
-}
 
 /**
  * Find a sensible insertion anchor — vector chart should sit

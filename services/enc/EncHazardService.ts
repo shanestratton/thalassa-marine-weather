@@ -1076,7 +1076,7 @@ async function buildMergedVectorData(
         ) => {
             if (!fc || !Array.isArray(fc.features)) return;
             const dest = merged[target];
-            for (let feat of fc.features) {
+            for (const feat of fc.features) {
                 if (!feat || !feat.geometry) continue;
                 // Sub-pixel cull (2026-07-13, the z7-8 OOM): at passage zoom
                 // a shoal patch / islet / contour scrap smaller than ~2 px
@@ -1253,11 +1253,13 @@ async function buildMergedVectorData(
                 putGlazeCell(glazeKey, { upgraded: shadows.length === 0, feats: glazeOut });
                 needQueue = shadows.length > 0;
             }
-            if (needQueue) {
+            if (needQueue && GEOMETRY_WORKER_ENABLED) {
                 // Payload for the worker's true-coverage upgrade: the
                 // decorated base features + the shadowing cells' actual
                 // charted polygons (coordinate arrays shared with the
                 // cached blobs — structured-clone copies them off-thread).
+                // Gated on the flag so a disabled worker costs ZERO — no
+                // payload copies built just to be thrown away.
                 const fineCoverages = shadows
                     .map((s) => {
                         const cov = coverageFor(s.id);
@@ -1385,7 +1387,6 @@ async function buildMergedVectorData(
     // WebView, died earlier this session) = the fast version stays up.
     const wantContours =
         GEOMETRY_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
-    if (!GEOMETRY_WORKER_ENABLED) glazeUpgradeQueue.length = 0;
     if (glazeUpgradeQueue.length > 0 || wantContours) {
         const worker = getGeoWorker();
         if (worker) {

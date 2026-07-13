@@ -90,3 +90,10 @@ icons_new
 
 # local collab-file watch state
 .claude/.collab-watch-seen
+
+# scratch dirs agents keep leaving at the repo root
+/tmp/
+.codex/
+
+# per-machine Xcode workspace settings
+ios/App/App.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
