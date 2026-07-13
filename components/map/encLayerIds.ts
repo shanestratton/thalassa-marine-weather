@@ -18,6 +18,7 @@ export const ENC_VEC_SRC = {
     SOUNDG: 'enc-vec-soundg', // exploded spot soundings
     LIGHTSEC: 'enc-vec-lightsec', // light-sector arcs + limit legs
     DEPCNT_DERIVED: 'enc-vec-depcnt-derived', // contours interpolated from soundings
+    SEAARE_LABELS: 'enc-vec-seaare-labels', // one label point per named sea area
 } as const;
 
 // NOTE: layer-id stability is load-bearing. Click handlers, the
@@ -75,6 +76,9 @@ export const ENC_VEC_LAYERS = {
     LIGHTSEC_ARC: 'enc-vec-lightsec-arc',
     NAVAIDS_LABEL: 'enc-vec-navaids-label',
     POINTS_LABEL: 'enc-vec-points-label',
+    /** Named-water ink — "Mooloolah River" in the river (Shane
+     *  2026-07-13). Dark italic chart lettering, one label per name. */
+    SEAARE_LABEL: 'enc-vec-seaare-label',
 } as const;
 
 // All layer IDs, ordered bottom-to-top for correct stacking. The
@@ -103,6 +107,7 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPCNT_SAFETY,
     ENC_VEC_LAYERS.DEPCNT_LABEL,
     ENC_VEC_LAYERS.SOUNDG, // depth numbers under everything interactive
+    ENC_VEC_LAYERS.SEAARE_LABEL, // waterway names over numbers, under marks
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.LIGHTSEC_LEG, // sector limit legs under the arcs
     ENC_VEC_LAYERS.LIGHTSEC_ARC, // coloured sector arcs under the light glyph
@@ -143,5 +148,6 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.LIGHTSEC_LEG &&
         id !== ENC_VEC_LAYERS.LIGHTSEC_ARC &&
         id !== ENC_VEC_LAYERS.DEPARE_FINE &&
-        id !== ENC_VEC_LAYERS.DEPARE_GLAZE,
+        id !== ENC_VEC_LAYERS.DEPARE_GLAZE &&
+        id !== ENC_VEC_LAYERS.SEAARE_LABEL,
 );

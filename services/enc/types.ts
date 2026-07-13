@@ -572,6 +572,10 @@ export interface EncConversionResult {
          *  ogr2ogr path: MultiPoint25D (depth in the Z coordinate). Display
          *  only — exploded into labelled points at merge time. */
         SOUNDG?: GeoJSON.FeatureCollection;
+        /** Named sea areas — bays/channels/passages/rivers carrying OBJNAM
+         *  ("Mooloolah River"). Reduced to ONE label point per name at
+         *  merge time; only the name ink renders, never the polygons. */
+        SEAARE?: GeoJSON.FeatureCollection;
     };
 }
 
