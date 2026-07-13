@@ -758,10 +758,18 @@ export async function getMergedVectorData(
     // instead: ocean zoom gets the ocean charts, passage zoom the
     // coastal series, harbour zoom everything legible.
     const zBucket = zoom != null ? Math.round(zoom) : null;
+    // LOOSENED one grade (2026-07-14, "best resolution possible at lower
+    // zooms"): the original floors were set mid-OOM-war; the mitigations
+    // that landed since (sub-pixel feature cull below z10, sounding LOD,
+    // glaze z10+ gate, tile-cache cap) make extra cells far cheaper —
+    // their invisible detail is culled before it costs tiles. Each band
+    // now admits the next-finer series; the cull keeps the geometry that
+    // reaches Mapbox bounded to what's actually legible.
     const minCellDiag = (): number => {
         if (zBucket == null) return 0; // full merge — everything
-        if (zBucket < 7) return 3; // ocean: overview charts only (≥ ~3°)
-        if (zBucket < 10) return 0.9; // passage: 1° coastal series + up
+        if (zBucket < 7) return 1.2; // ocean: overviews + the 1° coastal series
+        if (zBucket < 9) return 0.35; // passage: + approach-scale cells
+        if (zBucket < 10) return 0.12; // pre-nav: + harbour cells
         return 0; // nav: legibility ratio below decides
     };
     const floorDeg = minCellDiag();
