@@ -562,6 +562,9 @@ const depareExtentCache = new WeakMap<object, [number, number, number, number] |
 const glazeCellCache = new Map<string, Feature[]>();
 const GLAZE_CELL_CACHE_MAX = 32;
 
+/** TEMP DIAGNOSTIC (2026-07-13, REMOVE) — merge build counter for the OOM hunt. */
+let mergeBuildCount = 0;
+
 /**
  * Build the per-layer FeatureCollections by reading every imported
  * cell's GeoJSON from filesystem and concatenating features. Cached
@@ -662,6 +665,13 @@ export async function getMergedVectorData(
     if (cached) return cached;
     const inflight = inflightMerges.get(cacheKey);
     if (inflight) return inflight;
+    // TEMP DIAGNOSTIC (2026-07-13, REMOVE) — count actual BUILDS (cache
+    // misses). A climbing count over a static view = a re-merge storm
+    // (hydration / moveend) churning geometry. Grep `MEMPROBE`.
+    mergeBuildCount++;
+    log.warn(
+        `[MEMPROBE-MERGE] build #${mergeBuildCount} cells=${cells.length} zoom=${zoom ?? 'null'} glaze=${buildGlaze} key=${cacheKey.slice(0, 24)}`,
+    );
     const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze);
     inflightMerges.set(cacheKey, build);
     try {
