@@ -831,7 +831,15 @@ export function buildNavGrid(
     // never resurrect a cell that is ALSO a wreck buffer just because land
     // paint and a depth band overlap it too (adversarial-review finding #7).
     const obstnBlocked = new Uint8Array(width * height);
-    const blockPointBuffer = (lat: number, lon: number): void => {
+    // markDiscBlocked: cells blocked by an IALA MARK-INFERENCE disc (the
+    // oriented half-circles / point buffers synthesised from solo
+    // laterals + cardinals), NOT by a charted obstruction. The A* cost
+    // treats both as blocked — the robot stays conservative — but the
+    // TRACER verdict must not call an inference "a charted hazard" over
+    // charted 5-6 m water (Shane 2026-07-14, Skirmish Point: "it says
+    // crossing a hazard?? but there are not").
+    const markDiscBlocked = new Uint8Array(width * height);
+    const blockPointBuffer = (lat: number, lon: number, isMarkDisc: boolean): void => {
         const dLatBuf = obstructionBufferM / M_PER_DEG_LAT;
         const dLonBuf = obstructionBufferM / mPerLon;
         const x0 = Math.max(0, Math.floor((lon - dLonBuf - minLon) / dLon));
@@ -847,6 +855,7 @@ export function buildNavGrid(
                     cells[y * width + x] = BLOCKED;
                     hardBlocked[y * width + x] = 1;
                     obstnBlocked[y * width + x] = 1;
+                    if (isMarkDisc) markDiscBlocked[y * width + x] = 1;
                 }
             }
         }
@@ -866,9 +875,15 @@ export function buildNavGrid(
         // (chart FAIRWY/DRGARE keys-back, component bridge carve, endpoint
         // carve) refuse to tunnel it.
         const isClearanceBar = (f.properties as { _class?: string } | null)?._class === 'low-clearance';
+        // Mark-inference features: the oriented half-discs + the raw
+        // point-hazards they were built from. Blocked the same, but the
+        // markDiscBlocked mask lets the tracer speak honestly about them.
+        const cls = (f.properties as { _class?: string } | null)?._class;
+        const isMarkDisc =
+            cls === 'iala-oriented-hazard' || cls === 'direct-hazard' || cls === 'lateral-marker-as-hazard';
         if (f.geometry.type === 'Point') {
             const [lon, lat] = (f.geometry as Point).coordinates;
-            blockPointBuffer(lat, lon);
+            blockPointBuffer(lat, lon, isMarkDisc);
         } else if (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') {
             // For polygon obstructions, treat the polygon area itself as blocked.
             rasterizePolygonCells(grid, f.geometry as Polygon | MultiPolygon, (x, y) => {
@@ -876,6 +891,7 @@ export function buildNavGrid(
                 cells[idx] = BLOCKED;
                 hardBlocked[idx] = 1;
                 obstnBlocked[idx] = 1;
+                if (isMarkDisc) markDiscBlocked[idx] = 1;
                 if (isClearanceBar) clearanceBarred[idx] = 1;
             });
         }
@@ -1438,6 +1454,7 @@ export function buildNavGrid(
     grid.shallowDepthM = shallowDepthM;
     grid.clearanceBarred = clearanceBarred;
     grid.wetConflict = wetConflict;
+    grid.markDiscBlocked = markDiscBlocked;
     // Exposed only when endpoint relax zones softened land — the relax-retry
     // acceptance uses it to catch a route circumventing a low-clearance
     // bridge overland (relax-carved cells near a clearanceBarred cell).
