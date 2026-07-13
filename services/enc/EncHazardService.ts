@@ -590,14 +590,12 @@ let mergeBuildCount = 0;
  *  water in chunky generalised bands. 1% ≈ a ~30 px footprint: still
  *  culls true postage stamps at coastline zoom, keeps every survey
  *  that's actually legible.
- *  ZOOM-SPLIT (2026-07-13): the 0.01 crispness only matters zoomed IN;
- *  at a wide passage view it dragged the whole coast's fine cells into
- *  the merge (all their geometry + soundings) for sub-pixel gain,
- *  feeding the z7-8 OOM. Below GLAZE_MIN_ZOOM the strict 0.045 floor
- *  keeps only cells big enough to read at passage scale; zoomed in the
- *  0.01 floor restores full harbour crispness. */
+ *  ZOOM-SPLIT (2026-07-13): the 0.01 crispness only matters zoomed IN.
+ *  Below z10 an absolute chart-table floor applies instead (see
+ *  minCellDiag in getMergedVectorData) — the 0.045-ratio attempt still
+ *  let all ~47 one-degree coastal cells into a z6.9 window and the
+ *  renderer OOM'd on their stacked geometry. */
 const WINDOW_MIN_DIAG_RATIO = 0.01;
-const WINDOW_MIN_DIAG_RATIO_WIDE = 0.045;
 
 function bboxIntersects(a: [number, number, number, number], b: [number, number, number, number]): boolean {
     return a[0] <= b[2] && a[2] >= b[0] && a[1] <= b[3] && a[3] >= b[1];
@@ -638,12 +636,29 @@ export async function getMergedVectorData(
     // Stricter cell-selection floor at wide passage zoom (see the ratio
     // constants) — fewer, larger cells so a z7-8 window doesn't load the
     // whole coast's fine geometry it can't even show.
-    const diagRatio =
-        zoom != null && zoom < GLAZE_MIN_ZOOM ? WINDOW_MIN_DIAG_RATIO_WIDE : WINDOW_MIN_DIAG_RATIO;
+    // ZOOM-GRADED SELECTION (2026-07-13, the crash that survived every
+    // other cut): the device log showed 47-49 cells joining a z6.7-6.9
+    // merge — depare=15643 polygons plus the unlogged contours/land/
+    // coastline from the same cells, tens of thousands of features and
+    // millions of vertices tiled into GPU buffers for a view where the
+    // 1° coastal cells are barely legible. Select like a chart table
+    // instead: ocean zoom gets the ocean charts, passage zoom the
+    // coastal series, harbour zoom everything legible.
+    const zBucket = zoom != null ? Math.round(zoom) : null;
+    const minCellDiag = (): number => {
+        if (zBucket == null) return 0; // full merge — everything
+        if (zBucket < 7) return 3; // ocean: overview charts only (≥ ~3°)
+        if (zBucket < 10) return 0.9; // passage: 1° coastal series + up
+        return 0; // nav: legibility ratio below decides
+    };
+    const floorDeg = minCellDiag();
     const cells = window
-        ? allCells.filter(
-              (c) => bboxIntersects(c.bbox, window) && bboxDiag(c.bbox) >= bboxDiag(window) * diagRatio,
-          )
+        ? allCells.filter((c) => {
+              if (!bboxIntersects(c.bbox, window)) return false;
+              const d = bboxDiag(c.bbox);
+              if (floorDeg > 0) return d >= floorDeg;
+              return d >= bboxDiag(window) * WINDOW_MIN_DIAG_RATIO;
+          })
         : allCells;
     if (cells.length === 0) return null;
     const densify = zoom != null && zoom >= DERIVED_CONTOUR_MIN_ZOOM;
@@ -727,6 +742,40 @@ const GLAZE_MIN_ZOOM = 10;
  *  the (very expensive) symbol source. A whole-zoom re-merge refreshes
  *  the set, so the look-ahead just needs to cover one hook re-merge step. */
 const SOUNDING_LOD_LOOKAHEAD = 2;
+
+/** Geometry classes eligible for the wide-zoom sub-pixel cull. Point
+ *  layers (marks, lights, hazards) are NEVER culled — a point has zero
+ *  extent but full meaning. */
+const SUBPIXEL_CULLABLE = new Set(['DEPARE', 'LNDARE', 'COALNE', 'DEPCNT']);
+
+/** Bbox diagonal of a polygon/line feature in degrees; Infinity for
+ *  point/other geometry so the sub-pixel cull can never touch it. */
+function featureDiagDeg(feat: Feature): number {
+    const g = feat.geometry;
+    if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon' && g.type !== 'LineString' && g.type !== 'MultiLineString')) {
+        return Infinity;
+    }
+    let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity;
+    const visit = (coords: unknown): void => {
+        if (!Array.isArray(coords)) return;
+        if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+            const x = coords[0] as number;
+            const y = coords[1] as number;
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+            return;
+        }
+        for (const c of coords) visit(c);
+    };
+    visit((g as { coordinates?: unknown }).coordinates);
+    if (!Number.isFinite(minX)) return Infinity;
+    return Math.hypot(maxX - minX, maxY - minY);
+}
 
 async function buildMergedVectorData(
     cells: EncCell[],
@@ -884,6 +933,12 @@ async function buildMergedVectorData(
         return cov;
     };
 
+    // Sub-pixel cull threshold for area/line features at passage zoom:
+    // ~2 px in degrees at the merge's zoom bucket (512 px tiles). 0 at
+    // nav zoom (≥ GLAZE_MIN_ZOOM) and on the full merge — no cull.
+    const cullDeg =
+        zoom != null && zoom < GLAZE_MIN_ZOOM ? ((78271.484 / 2 ** Math.round(zoom)) * 2) / 111_320 : 0;
+
     for (const cell of cellsCoarseToFine) {
         const blob = loadedBlobs.get(cell.id);
         if (!blob) continue;
@@ -905,6 +960,12 @@ async function buildMergedVectorData(
             const dest = merged[target];
             for (let feat of fc.features) {
                 if (!feat || !feat.geometry) continue;
+                // Sub-pixel cull (2026-07-13, the z7-8 OOM): at passage zoom
+                // a shoal patch / islet / contour scrap smaller than ~2 px
+                // cannot be seen, but still costs worker tiling + GPU
+                // buffers — and a 47-cell wide window carries thousands of
+                // them. cullDeg is 0 at nav zoom / full merge (no cull).
+                if (cullDeg > 0 && SUBPIXEL_CULLABLE.has(target) && featureDiagDeg(feat) < cullDeg) continue;
                 if (shadows.length > 0 && SHADOWED_CLASSES.has(target) && featureIsShadowed(feat, shadows)) continue;
                 // GEOMETRY CLIPPING RETIRED (2026-07-11, same day it
                 // shipped): cutting coarse DEPARE out of a finer cell's
