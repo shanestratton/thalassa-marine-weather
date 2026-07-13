@@ -751,13 +751,17 @@ export const MapHub: React.FC<MapHubProps> = ({
             el.append(ring, label);
             return new mapboxgl.Marker({ element: el, anchor: 'top' }).setLngLat([p.lon, p.lat]).addTo(map);
         };
-        if (traceOrigin) frameMarkersRef.current.push(mk(traceOrigin, 'start'));
+        // Origin ghost only until the first real pin lands — pin 1 IS the
+        // START button now, and two green STARTs on one chart is noise.
+        // The 🏁 destination ghost stays: it's the target being traced
+        // toward until the trace actually gets there.
+        if (traceOrigin && capturedCoords.length === 0) frameMarkersRef.current.push(mk(traceOrigin, 'start'));
         if (traceDest) frameMarkersRef.current.push(mk(traceDest, 'finish'));
         return () => {
             frameMarkersRef.current.forEach((m) => m.remove());
             frameMarkersRef.current = [];
         };
-    }, [traceOrigin, traceDest, coordCaptureMode]);
+    }, [traceOrigin, traceDest, coordCaptureMode, capturedCoords.length]);
     // Arrival nudge — the punter's latest pin landed on the doorstep of
     // the framed destination: close the loop, point at Save.
     useEffect(() => {
@@ -793,15 +797,38 @@ export const MapHub: React.FC<MapHubProps> = ({
         captureMarkersRef.current = [];
         if (!coordCaptureMode) return;
         capturedCoords.forEach((c, i) => {
+            // Journey book-ends (Shane 2026-07-14): the FIRST pin IS the
+            // green START button and the LAST pin IS the red finish ring —
+            // middles stay numbered (2, 3, …). Appending a pin just works:
+            // this effect rebuilds every marker, so the old tail pin
+            // collapses back to its number and the newcomer goes red.
+            const isStart = i === 0;
+            const isEnd = !isStart && i === capturedCoords.length - 1;
             const el = document.createElement('div');
-            el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
+            el.style.cssText =
+                'position:relative;width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
             const dot = document.createElement('div');
-            dot.textContent = String(i + 1);
             const ring =
                 i === selectedPin
                     ? 'box-shadow:0 0 0 3px #38bdf8,0 1px 4px rgba(0,0,0,.5);'
                     : 'box-shadow:0 1px 4px rgba(0,0,0,.5);';
-            dot.style.cssText = `background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;${ring}`;
+            if (isStart || isEnd) {
+                const colour = isStart ? '#34d399' : '#f87171';
+                dot.style.cssText = `width:22px;height:22px;border-radius:9999px;border:4px solid ${colour};background:rgba(15,23,42,0.85);${ring}`;
+                if (isStart) {
+                    // Label overflows the fixed 40 px hit-box (absolute, no
+                    // layout part) so the marker's centre anchor — and drag
+                    // grab point — stays exactly on the coordinate.
+                    const tag = document.createElement('div');
+                    tag.style.cssText =
+                        'position:absolute;top:33px;left:50%;transform:translateX(-50%);font:800 9px/1 system-ui;letter-spacing:0.04em;color:#34d399;text-shadow:0 1px 3px #000;pointer-events:none;';
+                    tag.textContent = 'START';
+                    el.appendChild(tag);
+                }
+            } else {
+                dot.textContent = String(i + 1);
+                dot.style.cssText = `background:#f59e0b;color:#000;border-radius:9999px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font:700 12px sans-serif;${ring}`;
+            }
             el.appendChild(dot);
             const marker = new mapboxgl.Marker({ element: el, draggable: true }).setLngLat([c.lon, c.lat]).addTo(map);
             let dragged = false;
@@ -4175,7 +4202,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         {selectedPin !== null && selectedPin < capturedCoords.length && (
                                             <div className="flex items-center gap-1.5 border-b border-sky-500/30 bg-sky-500/10 px-3 py-1.5">
                                                 <span className="flex-1 text-[11px] font-bold text-sky-300">
-                                                    Pin {selectedPin + 1}
+                                                    {selectedPin === 0
+                                                        ? 'Start'
+                                                        : selectedPin === capturedCoords.length - 1
+                                                          ? 'Finish'
+                                                          : `Pin ${selectedPin + 1}`}
                                                     {insertAfter !== null ? ' — tap the chart to insert after it' : ''}
                                                 </span>
                                                 {insertAfter === null && (
