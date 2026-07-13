@@ -404,6 +404,18 @@ export interface NavGrid {
      */
     berthBlocked?: Uint8Array;
     /**
+     * Per-cell MARK-INFERENCE flag (1 = the cell was blocked by an IALA
+     * avoidance disc synthesised from a solo lateral/cardinal mark —
+     * `_class` iala-oriented-hazard / direct-hazard /
+     * lateral-marker-as-hazard — NOT by a charted obstruction). A*
+     * treats it as blocked like any hazard (the robot stays
+     * conservative); the TRACER downgrades it to an honest caution —
+     * calling an inference "a charted hazard" over charted 5-6 m water
+     * cried wolf (Skirmish Point, 2026-07-14). Optional for cached-grid
+     * back-compat.
+     */
+    markDiscBlocked?: Uint8Array;
+    /**
      * Per-cell NO-WATER-EVIDENCE flag (1 = at the end of the grid build the
      * cell was still UNKNOWN_OPEN with no DEPARE verdict, no FAIRWY/DRGARE
      * preference, no OSM water and no protection — nothing in any source

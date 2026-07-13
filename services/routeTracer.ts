@@ -341,7 +341,7 @@ const DIR_WORD: Record<CardinalDisc['dir'], string> = { n: 'north', e: 'east', s
 // ── Grid sampling ──────────────────────────────────────────────────────────
 
 type CellRead =
-    | { kind: 'blocked'; sub: 'land' | 'berth' | 'hazard' }
+    | { kind: 'blocked'; sub: 'land' | 'berth' | 'hazard' | 'markzone' }
     | { kind: 'depth'; depthM: number }
     | { kind: 'caution-uncharted' }
     | { kind: 'uncharted' }
@@ -356,6 +356,11 @@ function readCell(grid: NavGrid, p: TracePoint): CellRead {
     if (Number.isNaN(v)) {
         if (grid.berthBlocked?.[idx]) return { kind: 'blocked', sub: 'berth' };
         if (grid.landBlocked?.[idx]) return { kind: 'blocked', sub: 'land' };
+        // Mark-inference disc (solo lateral / cardinal avoidance zone) —
+        // NOT a charted obstruction. The A* router treats it as blocked;
+        // the tracer must tell the punter the truth: the chart may show
+        // perfectly good water here, the block is IALA side-discipline.
+        if (grid.markDiscBlocked?.[idx]) return { kind: 'blocked', sub: 'markzone' };
         return { kind: 'blocked', sub: 'hazard' };
     }
     if (v === CAUTION) {
@@ -396,7 +401,13 @@ function lateralSideRead(grid: NavGrid, m: TracePoint, dirE: number, dirN: numbe
             lon: m.lon + (offM * dirE) / mPerLon(m.lat),
         };
         const r = readCell(grid, p);
-        if (r.kind === 'blocked') return 'shoal';
+        if (r.kind === 'blocked') {
+            // A mark-inference disc is OUR OWN synthesis around this very
+            // mark — reading it as "shoal" would be circular evidence.
+            // Skip it and keep probing for real chart data.
+            if (r.sub === 'markzone') continue;
+            return 'shoal';
+        }
         if (r.kind === 'depth') return r.depthM < keelM ? 'shoal' : 'deep';
         // uncharted / caution-uncharted / offgrid — keep probing outward
     }
@@ -465,6 +476,10 @@ export function validateTraceLeg(
     let minAt: TracePoint | null = null;
     let blockedAt: TracePoint | null = null;
     let blockedSub: 'land' | 'berth' | 'hazard' | null = null;
+    // Mark-inference discs tracked SEPARATELY from hard blocks: a leg
+    // crossing both a solo-mark disc and real land must still report the
+    // land as danger — the disc caution must never mask it.
+    let markZoneAt: TracePoint | null = null;
     let bankShaveAt: TracePoint | null = null;
     let uncharted = 0;
     let conflict = 0;
@@ -487,7 +502,9 @@ export function validateTraceLeg(
             } else if (r.kind === 'blocked' && r.sub === 'land' && waterNearby(grid, p, edgeCells)) {
                 // On the land/water boundary — bank hug, not a crossing.
                 if (!bankShaveAt) bankShaveAt = p;
-            } else if (r.kind === 'blocked' && !blockedAt) {
+            } else if (r.kind === 'blocked' && r.sub === 'markzone') {
+                if (!markZoneAt) markZoneAt = p;
+            } else if (r.kind === 'blocked' && r.sub !== 'markzone' && !blockedAt) {
                 blockedAt = p;
                 blockedSub = r.sub;
             } else if (r.kind === 'depth') {
@@ -517,6 +534,18 @@ export function validateTraceLeg(
                   ? 'cuts through marina berths'
                   : 'crosses a charted hazard';
         issues.push({ severity: 'danger', message: msg, at: blockedAt });
+    } else if (markZoneAt) {
+        // A solo mark's IALA avoidance disc, not charted danger — the
+        // chart may show good water right here (Skirmish Point
+        // 2026-07-14: "crossing a hazard?? but there are not" over
+        // charted 5-6 m). Caution, honestly worded: the punter can see
+        // the mark and judge which side their line belongs. Reported
+        // only when NO hard block exists on the leg.
+        issues.push({
+            severity: 'caution',
+            message: 'passes the danger side of a nearby mark — verify and favour its safe side',
+            at: markZoneAt,
+        });
     } else if (bankShaveAt) {
         issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });
     }
@@ -774,11 +803,14 @@ export async function tideWindowLabelFor(minDepthM: number, draftM: number, at: 
 // ── Pin helpers (P2 punter-proofing) ───────────────────────────────────────
 
 /** Is this exact spot blocked in the tracer grid (and why)? Drives the
- *  pin-level diagnosis: "pin 4 is on charted land — drag it seaward". */
+ *  pin-level diagnosis: "pin 4 is on charted land — drag it seaward".
+ *  A mark-inference disc reads as NOT blocked here: a pin dropped in
+ *  charted-good water beside a solo mark is a legitimate pin — the leg
+ *  verdict carries the mark caution instead. */
 export function tracePinBlocked(ctx: TracerContext, p: TracePoint): 'land' | 'berth' | 'hazard' | null {
     if (!ctx.grid) return null;
     const r = readCell(ctx.grid, p);
-    return r.kind === 'blocked' ? r.sub : null;
+    return r.kind === 'blocked' && r.sub !== 'markzone' ? r.sub : null;
 }
 
 /**
