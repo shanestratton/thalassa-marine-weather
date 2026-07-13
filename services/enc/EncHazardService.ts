@@ -846,7 +846,7 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  scale — so gating it here sheds the heaviest wide-view layer with no
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
-const GLAZE_MIN_ZOOM = 10;
+export const GLAZE_MIN_ZOOM = 10;
 /** Fine bands at least this deep never clip the coarse glaze. With
  *  unsafe glaze at opacity 0, the clip only protects against coarse
  *  SAFE-white over fine UNSAFE water — and no keel this app serves
@@ -855,6 +855,33 @@ const GLAZE_MIN_ZOOM = 10;
  *  bands from the clip coverage removes the strip-mask staircase that
  *  flanked deep channel corridors ("black steps", 2026-07-14). */
 const GLAZE_CLIP_MAX_SAFE_M = 10;
+
+/** Shallow-band clip footprint from a cell's DEPARE/DRGARE collections:
+ *  polygon coords of every band shallower than GLAZE_CLIP_MAX_SAFE_M
+ *  (missing DRVAL1 → treated shallow, conservative). May legitimately
+ *  return EMPTY — a corridor-only channel cell whose bands are all deep
+ *  clips NOTHING. Callers must never conflate empty with "unknown":
+ *  falling back to the data-extent rectangle on empty blacked out whole
+ *  corridor-cell extents ("large steps through the shipping channel",
+ *  2026-07-14). */
+export function shallowClipCoverage(collections: Array<FeatureCollection | undefined>): CoverageGeom {
+    const polys: CoverageGeom = [];
+    for (const fc of collections) {
+        for (const f of fc?.features ?? []) {
+            const g = f?.geometry;
+            if (!g) continue;
+            // readNumber, not a bare property read: ogr2ogr cells carry
+            // lowercase names and string-quoted numerics (hard rule 2 —
+            // the "every contour 0 m" incident), and a missed deep-band
+            // exclusion re-classifies whole corridors as shallow.
+            const drval1 = readNumber(f, 'DRVAL1');
+            if (drval1 != null && drval1 >= GLAZE_CLIP_MAX_SAFE_M) continue;
+            if (g.type === 'Polygon') polys.push(g.coordinates as CoverageGeom[number]);
+            else if (g.type === 'MultiPolygon') polys.push(...(g.coordinates as unknown as CoverageGeom));
+        }
+    }
+    return polys;
+}
 /** GEOMETRY WORKER DISPATCH DISABLED (2026-07-13, second crash): moving
  *  martinez off the main thread did NOT stop the OOM — a Worker is a
  *  separate THREAD in the SAME renderer process, so its allocation
@@ -1042,10 +1069,18 @@ async function buildMergedVectorData(
                     }
                     for (const c of coords) visit(c);
                 };
-                for (const f of blob.layers.DEPARE?.features ?? []) {
-                    const g = f?.geometry;
-                    if (!g || g.type === 'GeometryCollection') continue;
-                    visit((g as { coordinates?: unknown }).coordinates);
+                // DEPARE + DRGARE: S-57 Group 1 means dredged areas
+                // REPLACE depth areas, so DRGARE geometry can sit wholly
+                // outside the DEPARE hull. The clip coverage includes
+                // DRGARE, and a frame that excluded it rasterised such
+                // coverage to ZERO cells → whole-extent fallback → the
+                // corridor blackout, one seam down (review 2026-07-14).
+                for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
+                    for (const f of fc?.features ?? []) {
+                        const g = f?.geometry;
+                        if (!g || g.type === 'GeometryCollection') continue;
+                        visit((g as { coordinates?: unknown }).coordinates);
+                    }
                 }
                 raw =
                     Number.isFinite(minLon) && maxLon > minLon && maxLat > minLat
@@ -1068,34 +1103,20 @@ async function buildMergedVectorData(
 
     // Charted-water footprint per SHADOWING cell, memoized for this run
     // — feeds the glaze's coverage subtraction. Coordinate arrays are
-    // shared with the cached blob, never cloned.
-    //
-    // SHALLOW BANDS ONLY: since unsafe glaze renders at opacity 0, the
-    // clip's sole job is stopping coarse SAFE-white painting over fine
-    // UNSAFE water. A fine band deeper than any plausible safety depth
-    // can't be unsafe, so clipping under it buys nothing — and the
-    // strip-mask's quantisation halo around deep corridor bands drew a
-    // 1-2 km black staircase flanking the NE Channel ("black steps",
-    // 2026-07-14). Deep fine bands now overlap coarse white harmlessly
-    // (white-on-white); only genuinely shallow bands still clip.
+    // shared with the cached blob, never cloned. THREE states, and the
+    // distinction is load-bearing (2026-07-14, "large steps through the
+    // shipping channel" — conflating the last two blacked out whole
+    // corridor-cell extents):
+    //   null              → blob unavailable: fall back to clipping the
+    //                       whole data extent (conservative).
+    //   []                → charted, but nothing shallow: clip NOTHING.
+    //   polys (non-empty) → clip under strip-rasterised polys.
     const coverageMemo = new Map<string, CoverageGeom | null>();
     const coverageFor = (cellId: string): CoverageGeom | null => {
         const memo = coverageMemo.get(cellId);
         if (memo !== undefined) return memo;
         const b = loadedBlobs.get(cellId);
-        const polys: CoverageGeom = [];
-        for (const fc of [b?.layers.DEPARE, b?.layers.DRGARE]) {
-            for (const f of fc?.features ?? []) {
-                const g = f?.geometry;
-                if (!g) continue;
-                const drval1 = f.properties?.DRVAL1;
-                // Missing DRVAL1 → treat as shallow (conservative).
-                if (typeof drval1 === 'number' && drval1 >= GLAZE_CLIP_MAX_SAFE_M) continue;
-                if (g.type === 'Polygon') polys.push(g.coordinates as CoverageGeom[number]);
-                else if (g.type === 'MultiPolygon') polys.push(...(g.coordinates as unknown as CoverageGeom));
-            }
-        }
-        const cov = polys.length > 0 ? polys : null;
+        const cov = b ? shallowClipCoverage([b.layers.DEPARE, b.layers.DRGARE]) : null;
         coverageMemo.set(cellId, cov);
         return cov;
     };
@@ -1115,7 +1136,9 @@ async function buildMergedVectorData(
         // k=40: shallow-band-only coverage (see coverageFor) leaves far
         // fewer inside-nodes, so a finer grid stays ~1 ms with the ring-
         // bbox prefilter while halving the quantisation halo around banks.
-        const rects = cov ? coverageMaskStrips(cov, extent, 40, 160) : [extent];
+        // NOTE: coverageMaskStrips falls back to [extent] on EMPTY input,
+        // so the nothing-shallow case must short-circuit to [] here.
+        const rects = cov == null ? [extent] : cov.length === 0 ? [] : coverageMaskStrips(cov, extent, 40, 160);
         stripRectsMemo.set(cellId, rects);
         return rects;
     };
@@ -1326,7 +1349,6 @@ async function buildMergedVectorData(
                 // survey is silent.
                 const finerRects = shadows.flatMap((s) => stripRectsFor(s.id, s.bbox));
                 const glazeOut: Feature[] = [];
-                let glazeSinceYield = 0;
                 for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
                     for (const feat of fc?.features ?? []) {
                         if (!feat || !feat.geometry) continue;
@@ -1336,10 +1358,13 @@ async function buildMergedVectorData(
                         };
                         const glazed = finerRects.length > 0 ? clipFeatureOutsideBboxes(base, finerRects) : base;
                         if (glazed) glazeOut.push(glazed);
-                        if (finerRects.length > 0 && ++glazeSinceYield >= 64) {
-                            glazeSinceYield = 0;
-                            await yieldIfNeeded();
-                        }
+                        // EVERY feature, not every 64th (review 2026-07-14):
+                        // one multi-thousand-vertex band vs hundreds of clip
+                        // rects costs whole milliseconds, so a 64-feature
+                        // stride let 300 ms+ run uninterrupted between yield
+                        // checks. The check itself early-returns in <1 µs
+                        // when the 12 ms slice isn't up.
+                        if (finerRects.length > 0) await yieldIfNeeded();
                     }
                 }
                 for (const f of glazeOut) merged.DEPARE_GLAZE.features.push(f);
@@ -1356,7 +1381,8 @@ async function buildMergedVectorData(
                 const fineCoverages = shadows
                     .map((s) => {
                         const cov = coverageFor(s.id);
-                        return cov ? { bbox: s.bbox, coverage: cov } : null;
+                        // Empty = nothing shallow = nothing to subtract.
+                        return cov && cov.length > 0 ? { bbox: s.bbox, coverage: cov } : null;
                     })
                     .filter((c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null);
                 if (fineCoverages.length > 0) {

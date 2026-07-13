@@ -42,6 +42,7 @@ import {
     updateEncDepthStyle,
 } from './EncVectorLayer';
 import {
+    GLAZE_MIN_ZOOM,
     getMergedVectorData,
     hasAnyCells,
     setMergeInteractionProbe,
@@ -188,7 +189,19 @@ export function useEncVectorLayer(
         let t: number | null = null;
         const onMoveEnd = () => {
             const win = mergedWindowRef.current;
-            if (win && viewportInside(map, win) && Math.abs(map.getZoom() - mergedZoomRef.current) < 1) return;
+            // Stale when the ZOOM BUCKET changes, not when raw |dz| ≥ 1:
+            // the merge's cull threshold and sounding LOD key off
+            // Math.round(zoom), so a merge at z10.49 reused at z11.4
+            // (raw delta 0.91) was showing bucket-10 culls at bucket-11
+            // sizes — visibly missing islets/scraps (review 2026-07-14).
+            // Crossing GLAZE_MIN_ZOOM is likewise a merge-parameter edge:
+            // a z9.6 merge carries NO glaze, and without this a z10.2
+            // view sat glaze-less until a full zoom of travel.
+            const zNow = map.getZoom();
+            const zMerged = mergedZoomRef.current;
+            const paramsFresh =
+                Math.round(zNow) === Math.round(zMerged) && zNow >= GLAZE_MIN_ZOOM === zMerged >= GLAZE_MIN_ZOOM;
+            if (win && viewportInside(map, win) && paramsFresh) return;
             if (t !== null) window.clearTimeout(t);
             t = window.setTimeout(() => {
                 t = null;

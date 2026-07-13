@@ -173,4 +173,32 @@ describe('coverageMaskStrips — rasterised polygons beat ribbon bboxes', () => 
     it('empty coverage → extent fallback', () => {
         expect(coverageMaskStrips([] as never, EXT)).toEqual([EXT]);
     });
+
+    it('NON-empty coverage entirely OUTSIDE the frame → clip NOTHING, never the extent (the DRGARE seam)', () => {
+        // A shallow pocket wholly outside the DEPARE frame used to
+        // rasterise to zero cells and fall back to [extent] — blacking
+        // out a deep corridor cell's whole rectangle (review 2026-07-14).
+        const outside = [[square(100, 100, 101, 101)]];
+        expect(coverageMaskStrips(outside as never, EXT)).toEqual([]);
+    });
+
+    it('over-budget fragmented coverage degrades to a coarser grid — open water STAYS open', () => {
+        // Reef-fringe style: a dense field of disjoint shallow specks in
+        // the WEST half, open water east. At a fine grid the specks
+        // exceed a tiny budget; the ladder must answer with real
+        // (coarser) strips over the fringe — never the [extent]
+        // blackout that would clip the open east too.
+        const specks: Position[][][] = [];
+        for (let gx = 0; gx < 4; gx++) {
+            for (let gy = 0; gy < 8; gy++) {
+                specks.push([square(gx * 2 + 0.4, gy * 2 + 0.4, gx * 2 + 1, gy * 2 + 1)]);
+            }
+        }
+        const rects = coverageMaskStrips(specks as never, EXT, 40, 12);
+        expect(rects.length).toBeLessThanOrEqual(12);
+        const inAnyRect = (x: number, y: number) => rects.some((r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]);
+        expect(inAnyRect(2, 2)).toBe(true); // on the fringe — clipped (conservative)
+        expect(inAnyRect(14, 2)).toBe(false); // open east — glaze survives
+        expect(inAnyRect(14, 14)).toBe(false);
+    });
 });
