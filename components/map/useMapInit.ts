@@ -305,6 +305,20 @@ export function useMapInit(opts: UseMapInitOptions) {
             // SW still caches tiles to DISK for offline, so this only
             // bounds the in-memory working set, not offline coverage.
             maxTileCacheSize: 60,
+            // Free-flowing camera (Shane 2026-07-14: "a little jerky at
+            // times when I am zooming and moving about"):
+            //  - crossSourceCollisions:false — collision-test each symbol
+            //    source independently instead of one global graph across
+            //    soundings + navaid labels + water names + contour labels
+            //    + place labels; the global graph re-solves on every
+            //    camera frame and grew with every label layer we added.
+            //    Slight risk of cross-source label overlap, well worth it.
+            //  - fadeDuration:0 — symbol fade-in re-renders every frame
+            //    for 300 ms after each placement; with our label volume
+            //    that is constant churn while panning. Labels now appear
+            //    crisply instead of fading.
+            crossSourceCollisions: false,
+            fadeDuration: 0,
             // Tile request interceptor — handles two cases:
             // 1. Local MBTiles: mbtiles.local URLs → blob URLs from sql.js (synchronous)
             // 2. ocharts DRM: encrypted URLs for AvNav DRM tile requests

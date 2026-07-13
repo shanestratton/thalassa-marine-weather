@@ -1199,23 +1199,56 @@ export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorDa
     setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
 }
 
+/** Monotonic token — a newer refresh supersedes the staggered tail of an
+ *  older one (per map is overkill: one chart map exists per session). */
+let refreshGeneration = 0;
+
 export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorData): void {
+    const generation = ++refreshGeneration;
     const setData = (id: string, fc: FeatureCollection) => {
         const src = map.getSource(id);
         if (src && 'setData' in src) (src as mapboxgl.GeoJSONSource).setData(fc);
     };
-    setData(ENC_VEC_SRC.LNDARE, data.LNDARE);
-    setData(ENC_VEC_SRC.DEPARE, data.DEPARE);
-    setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
-    setData(ENC_VEC_SRC.DEPCNT, data.DEPCNT);
-    setData(ENC_VEC_SRC.COALNE, data.COALNE);
-    setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data));
-    setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data));
-    setData(ENC_VEC_SRC.RECTRC, data.RECTRC);
-    setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
-    setData(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC);
-    setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
-    setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
+    // STAGGERED upload ("free flowing", Shane 2026-07-14): every setData
+    // serialises a multi-thousand-feature collection to Mapbox's worker
+    // ON the main thread — pushing all 12 sources in one tick was a
+    // 100-400 ms hitch on every window-escape re-merge, felt as a jerk
+    // mid-pan/zoom. One source per animation frame spreads the same work
+    // across ~12 frames; layers refresh progressively and imperceptibly.
+    // The two biggest ship first so the visual core lands early; a newer
+    // refresh simply abandons the tail of a superseded one (adjacent
+    // windows share most content — a stale side layer survives a frame
+    // or two at worst).
+    const uploads: Array<() => void> = [
+        () => setData(ENC_VEC_SRC.DEPARE, data.DEPARE),
+        () => setData(ENC_VEC_SRC.LNDARE, data.LNDARE),
+        () => setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE),
+        () => setData(ENC_VEC_SRC.DEPCNT, data.DEPCNT),
+        () => setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG),
+        () => setData(ENC_VEC_SRC.COALNE, data.COALNE),
+        () => setData(ENC_VEC_SRC.POINTS, buildMergedPoints(data)),
+        () => setData(ENC_VEC_SRC.NAVAIDS, buildMergedNavaids(data)),
+        () => setData(ENC_VEC_SRC.RECTRC, data.RECTRC),
+        () => setData(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC),
+        () => setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED),
+        () => setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS),
+    ];
+    const raf =
+        typeof requestAnimationFrame === 'function'
+            ? requestAnimationFrame
+            : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+    const step = (): void => {
+        if (generation !== refreshGeneration) return; // superseded — newer refresh owns the sources
+        const job = uploads.shift();
+        if (!job) return;
+        try {
+            job();
+        } catch {
+            /* source mid-teardown — the next refresh re-applies */
+        }
+        if (uploads.length > 0) raf(step);
+    };
+    step(); // first source immediately, rest one-per-frame
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the
