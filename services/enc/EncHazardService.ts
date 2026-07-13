@@ -833,14 +833,19 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
 const GLAZE_MIN_ZOOM = 10;
-/** TRUE-COVERAGE glaze clipping (martinez boolean difference) runs in
- *  encGeometryWorker only (2026-07-13): on the main thread it OOM-killed
- *  the WebView on the first glaze=true merge — the device log showed
- *  50 s rock-stable at z9.7, dead within seconds of the z12.4 build.
- *  Real cost: ~1.5 s + a heavy allocation spike per coarse-cell/fine-
- *  coverage pair. The merge paints the rectangle clip instantly
- *  (microseconds); the worker's hole-free answer swaps in a moment
- *  later via the geometry-upgrade hook. */
+/** GEOMETRY WORKER DISPATCH DISABLED (2026-07-13, second crash): moving
+ *  martinez off the main thread did NOT stop the OOM — a Worker is a
+ *  separate THREAD in the SAME renderer process, so its allocation
+ *  spike still kills the whole tab ("Aw, Snap" returned within minutes
+ *  of the worker shipping; the flag-off build before it was confirmed
+ *  crash-free). Workers protect against HANGS, not process OOM. The
+ *  true-coverage clip needs a bounded algorithm (or per-pair vertex
+ *  caps + chunked jobs) before this flips back on; until then the
+ *  instant rectangle glaze is the only glaze, and derived contours stay
+ *  dark. All worker scaffolding (encGeometryWorker, upgrade hook,
+ *  per-cell memo) is wired and tested — bound the inputs, flip the
+ *  flag. */
+const GEOMETRY_WORKER_ENABLED = false;
 /** Keep soundings whose density-ladder `_minZoom` is within this many
  *  levels of the current zoom; the rest can't render yet and only bloat
  *  the (very expensive) symbol source. A whole-zoom re-merge refreshes
@@ -1378,7 +1383,9 @@ async function buildMergedVectorData(
     // OOM-killed it 2026-07-13 when run here). Both answers swap into
     // this cached merge via the geometry-upgrade hook. No worker (old
     // WebView, died earlier this session) = the fast version stays up.
-    const wantContours = densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
+    const wantContours =
+        GEOMETRY_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
+    if (!GEOMETRY_WORKER_ENABLED) glazeUpgradeQueue.length = 0;
     if (glazeUpgradeQueue.length > 0 || wantContours) {
         const worker = getGeoWorker();
         if (worker) {
