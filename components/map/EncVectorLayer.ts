@@ -1148,6 +1148,21 @@ export function mountEncVectorLayer(
  * layers. Faster than a full mount cycle when cells are imported
  * or removed mid-session.
  */
+/**
+ * Push ONLY the worker-upgraded collections (hole-free satellite glaze,
+ * sounding-derived contours) into their live sources. Called by the hook
+ * when encGeometryWorker's answer lands in the cached merge — a focused
+ * two-source refresh, not the full 11-source re-upload.
+ */
+export function refreshEncAsyncLayers(map: mapboxgl.Map, data: EncMergedVectorData): void {
+    const setData = (id: string, fc: FeatureCollection) => {
+        const src = map.getSource(id);
+        if (src && 'setData' in src) (src as mapboxgl.GeoJSONSource).setData(fc);
+    };
+    setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE);
+    setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
+}
+
 export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorData): void {
     const setData = (id: string, fc: FeatureCollection) => {
         const src = map.getSource(id);

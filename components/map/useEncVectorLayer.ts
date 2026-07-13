@@ -34,13 +34,20 @@ import {
     attachEncFeatureClickHandlers,
     detachEncFeatureClickHandlers,
     mountEncVectorLayer,
+    refreshEncAsyncLayers,
     refreshEncVectorData,
     setEncChartDetail,
     setEncVectorVisibility,
     unmountEncVectorLayer,
     updateEncDepthStyle,
 } from './EncVectorLayer';
-import { getMergedVectorData, hasAnyCells, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
+import {
+    getMergedVectorData,
+    hasAnyCells,
+    subscribe as subscribeToEnc,
+    subscribeGeometryUpgrades,
+    type EncMergedVectorData,
+} from '../../services/enc/EncHazardService';
 
 const log = createLogger('useEncVectorLayer');
 
@@ -135,6 +142,27 @@ export function useEncVectorLayer(
             unsub();
         };
     }, []);
+
+    // Geometry-upgrade watch: encGeometryWorker finished the hole-free
+    // glaze / derived contours for the CACHED merge object — the same
+    // object we last pushed (its collections were swapped in place), so
+    // re-push just those two sources. If the view has since moved to a
+    // different merge, this re-sends unchanged data — a cheap no-op.
+    useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        if (!map) return;
+        const unsub = subscribeGeometryUpgrades(() => {
+            const data = lastAppliedRef.current as EncMergedVectorData | null;
+            if (!data || !mountedRef.current) return;
+            try {
+                refreshEncAsyncLayers(map, data);
+            } catch {
+                /* style mid-swap — the next full refresh re-applies */
+            }
+        });
+        return unsub;
+    }, [mapRef, mapReady]);
 
     // Window escape watch: re-merge only when the view leaves the merged
     // window, or crosses a whole zoom level (zooming IN never escapes the
