@@ -114,12 +114,18 @@ export const ROUTING_CLASSES = new Set([
     'BCNSAW',
     'BOYISD',
     'BCNISD',
+    // Named sea areas — bays, channels, passages, rivers ("Mooloolah
+    // River", "Pumicestone Passage"). Carried for their OBJNAM only:
+    // the merge reduces each polygon to ONE label point, EncVectorLayer
+    // draws the name in chart ink (Shane 2026-07-13: "put the channel
+    // name in the channels"). NOTE: existing cells need RE-EXTRACTION
+    // (+ bucket re-upload + manifest bump) before names appear.
+    'SEAARE',
     // ── Deferred — extract cleanly but NO renderer consumes them yet, so
     // kept OUT to protect on-device memory (getMergedVectorData loads every
-    // imported cell's full vector data into memory at once). Re-add here AND
-    // in pi-cache ENC_LAYERS in lock-step the moment EncVectorLayer draws
-    // them. Next visual batch: TOPMAR/DAYMAR
+    // imported cell's full vector data into memory at once). Re-add here
+    // the moment EncVectorLayer draws them. Next visual batch: TOPMAR/DAYMAR
     // (topmark glyphs), PONTON/SLCONS/BRIDGE/MORFAC/HRBFAC (harbour
-    // structures), SEAARE/LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
+    // structures), LNDRGN/BUAARE/LAKARE (named areas), ACHARE/ACHBRT
     // (anchorages), RESARE/CBLARE/CBLSUB/PIPSOL/DMPGRD (caution areas). ──
 ]);

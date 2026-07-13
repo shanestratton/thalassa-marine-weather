@@ -392,6 +392,7 @@ export function mountEncVectorLayer(
     ensureSource(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
     ensureSource(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC);
     ensureSource(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
+    ensureSource(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
 
     const anchor = findInsertionAnchor(map);
 
@@ -908,6 +909,46 @@ export function mountEncVectorLayer(
         );
     }
 
+    // ── SEAARE labels (waterway names in the waterways) ───────────
+    // "Put the channel name in the channels — dark easy readable ink,
+    // not too big, not too small" (Shane 2026-07-13). One point per
+    // named sea area from the merge (finest chart wins the dedupe).
+    // Paper-chart water lettering: italic, letter-spaced, slate ink
+    // with a soft halo so it reads on the white ramp AND on satellite.
+    // z9+: at passage zoom the big bay names orient; channel/river
+    // names land as their areas become legible.
+    if (!map.getLayer(ENC_VEC_LAYERS.SEAARE_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.SEAARE_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.SEAARE_LABELS,
+                minzoom: 9,
+                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'text-field': ['get', '_name'],
+                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
+                    // "Not too big, not too small": a step above the
+                    // sounding digits, well under settlement labels.
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10.5, 13, 12.5, 16, 14],
+                    'text-letter-spacing': 0.15,
+                    'text-allow-overlap': false,
+                    'text-padding': 6,
+                    // Long names ("North East Channel") wrap rather than
+                    // sprawl across half the bay.
+                    'text-max-width': 8,
+                },
+                paint: {
+                    'text-color': '#26333d', // dark slate — chart ink, not black tar
+                    'text-halo-color': 'rgba(255, 255, 255, 0.75)',
+                    'text-halo-width': 1.1,
+                    'text-opacity': opacity,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.SEAARE_LABEL),
+        );
+    }
+
     // ── RECTRC (recommended tracks / leading lines) ───────────────
     // The lead the tracer grades "off-lead by 40 m" against was
     // invisible until now — a punter can't ride a line he can't see
@@ -1174,6 +1215,7 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG);
     setData(ENC_VEC_SRC.LIGHTSEC, data.LIGHTSEC);
     setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED);
+    setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS);
 
     // New cells can carry different charted contour values — refresh
     // the VALDCO inventory and re-derive the safety contour at the

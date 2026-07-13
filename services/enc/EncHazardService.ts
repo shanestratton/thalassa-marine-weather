@@ -524,6 +524,12 @@ export interface EncMergedVectorData {
      *  are near-opaque and coarse→fine paint order already hides
      *  overlaps without the clip's bare-patch risk. */
     DEPARE_GLAZE: FeatureCollection;
+    /** ONE label point per named sea area (SEAARE OBJNAM — "Mooloolah
+     *  River", "Pumicestone Passage"), deduped finest-cell-wins across
+     *  the window. Point features `{_name}` only — the polygons never
+     *  leave the merge (Shane 2026-07-13: "put the channel name in the
+     *  channels"). */
+    SEAARE_LABELS: FeatureCollection;
     /** Total cells contributing data. */
     cellCount: number;
 }
@@ -929,6 +935,7 @@ async function buildMergedVectorData(
         RECTRC: { type: 'FeatureCollection', features: [] },
         SOUNDG: { type: 'FeatureCollection', features: [] },
         DEPARE_GLAZE: { type: 'FeatureCollection', features: [] },
+        SEAARE_LABELS: { type: 'FeatureCollection', features: [] },
         LIGHTSEC: { type: 'FeatureCollection', features: [] },
         cellCount: 0,
     };
@@ -1047,6 +1054,11 @@ async function buildMergedVectorData(
     // nav zoom (≥ GLAZE_MIN_ZOOM) and on the full merge — no cull.
     const cullDeg =
         zoom != null && zoom < GLAZE_MIN_ZOOM ? ((78271.484 / 2 ** Math.round(zoom)) * 2) / 111_320 : 0;
+
+    // Named sea areas — dedupe by name across cells; iterating
+    // coarse→fine means the finest chart's label point wins (its
+    // geometry traces the channel best).
+    const seaareByName = new Map<string, Feature>();
 
     // Per-merge bookkeeping for the worker's true-coverage glaze upgrade.
     const glazeUpgradeQueue: Array<{
@@ -1313,6 +1325,42 @@ async function buildMergedVectorData(
         tagAndPush('BCNISD', blob.layers.BCNISD);
         tagAndPush('RECTRC', blob.layers.RECTRC);
 
+        // Named sea areas → ONE label point per name ("put the channel
+        // name in the channels", Shane 2026-07-13). Skips tagAndPush: the
+        // polygons are label carriers only — reducing them here keeps a
+        // bay-sized SEAARE from ever entering the render heap. Label
+        // anchor = outer-ring vertex average of the largest polygon (a
+        // curving river's centroid can drift slightly off-axis; readable,
+        // and the finest chart's tighter geometry wins the dedupe).
+        for (const feat of blob.layers.SEAARE?.features ?? []) {
+            const g = feat?.geometry;
+            if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+            const props = (feat.properties ?? {}) as Record<string, unknown>;
+            const name = typeof props.OBJNAM === 'string' ? props.OBJNAM.trim() : '';
+            if (!name) continue;
+            const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+            let ring: number[][] | null = null;
+            for (const poly of polys) {
+                const outer = poly?.[0] as number[][] | undefined;
+                if (outer && outer.length >= 4 && (!ring || outer.length > ring.length)) ring = outer;
+            }
+            if (!ring) continue;
+            let sx = 0;
+            let sy = 0;
+            const n = ring.length - 1; // skip the closing duplicate vertex
+            for (let i = 0; i < n; i++) {
+                sx += ring[i][0];
+                sy += ring[i][1];
+            }
+            const labelProps: Record<string, unknown> = { _name: name };
+            if (typeof props._minZoom === 'number') labelProps._minZoom = props._minZoom;
+            seaareByName.set(name, {
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [sx / n, sy / n] },
+                properties: labelProps,
+            });
+        }
+
         // Soundings: explode each MultiPoint cloud into labelled points.
         // DELIBERATELY skips tagAndPush — no provenance/_cellId decoration:
         // a harbour cell carries thousands of soundings and the minimal
@@ -1347,6 +1395,8 @@ async function buildMergedVectorData(
             }
         }
     }
+
+    merged.SEAARE_LABELS.features = [...seaareByName.values()];
 
     // Density ladder: bake "one number per ~90 px of glass" min-zooms
     // onto the merged sounding heap, shallowest-first (safety: the
