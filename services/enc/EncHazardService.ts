@@ -36,7 +36,7 @@ import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideBboxes, clipFeatureOutsideCoverage, type CoverageGeom } from './clipDepareOverlap';
+import { clipFeatureOutsideBboxes, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -47,7 +47,6 @@ import {
     lightColourHex,
 } from './types';
 import { buildSectorFeatures, readSectorBearings } from './lightSectors';
-import { buildDerivedContours } from './derivedContours';
 
 const log = createLogger('EncHazardService');
 
@@ -550,20 +549,128 @@ const inflightMerges = new Map<string, Promise<EncMergedVectorData | null>>();
  *  the blob itself (WeakMap). */
 const depareExtentCache = new WeakMap<object, [number, number, number, number] | null>();
 
-/** Per-cell GLAZE output cache (2026-07-12: "locks up as I try to zoom
- *  in"). The martinez coverage clip is the heaviest CPU in the merge
- *  (~1.5 s for one 1:90k coastal cell against the channel chain), and a
- *  zoom that changes the cell set re-ran it from scratch for EVERY cell
- *  — even ones whose clipped result is byte-identical. The output for a
- *  coarse cell depends only on its own blob + the shadowing cells that
- *  supply coverage, both immutable per registry version, so it memoizes
- *  cleanly. Keyed `v{ver}:{cellId}:{sortedShadowIdsWithCoverage}`;
- *  capped, LRU by insertion order. */
-const glazeCellCache = new Map<string, Feature[]>();
+/** Per-cell GLAZE output cache. The output for a coarse cell depends
+ *  only on its own blob + the shadowing cells that clip it, both
+ *  immutable per registry version, so it memoizes cleanly. Keyed
+ *  `v{ver}:{cellId}:{sortedShadowIds}`; capped, LRU by insertion order.
+ *  `upgraded` marks entries the geometry worker has re-clipped against
+ *  TRUE fine-survey coverage (hole-free); un-upgraded entries hold the
+ *  instant rectangle clip and are re-queued for upgrade on use. */
+const glazeCellCache = new Map<string, { upgraded: boolean; feats: Feature[] }>();
 const GLAZE_CELL_CACHE_MAX = 32;
 
-/** TEMP DIAGNOSTIC (2026-07-13, REMOVE) — merge build counter for the OOM hunt. */
-let mergeBuildCount = 0;
+function putGlazeCell(key: string, entry: { upgraded: boolean; feats: Feature[] }): void {
+    glazeCellCache.delete(key);
+    glazeCellCache.set(key, entry);
+    while (glazeCellCache.size > GLAZE_CELL_CACHE_MAX) {
+        const oldest = glazeCellCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        glazeCellCache.delete(oldest);
+    }
+}
+
+// ── Async geometry upgrades (the heavy-geometry worker) ────────────
+//
+// The 2026-07-13 OOM hunt's lasting rule: heavy geometry (martinez
+// true-coverage glaze clip, derived-contour Delaunay) never runs on
+// the main thread. The merge returns the FAST version instantly;
+// encGeometryWorker computes the good version and these hooks swap it
+// into the cached merge + notify the render hook. A dead worker is
+// harmless — the fast version simply stays up.
+
+interface PendingGeometryJob {
+    /** mergedCache key whose DEPARE_GLAZE / DEPCNT_DERIVED to upgrade. */
+    cacheKey: string;
+    /** Ordered per-cell glaze keys composing that merge's glaze. */
+    glazeKeys: string[];
+}
+
+let geoWorker: Worker | null = null;
+let geoWorkerBroken = false;
+let geoJobSeq = 0;
+const pendingGeometryJobs = new Map<number, PendingGeometryJob>();
+const geometryUpgradeListeners = new Set<() => void>();
+
+/** Notify when a background geometry upgrade landed in the cached merge —
+ *  the render hook re-pushes just the affected sources. */
+export function subscribeGeometryUpgrades(cb: () => void): () => void {
+    geometryUpgradeListeners.add(cb);
+    return () => geometryUpgradeListeners.delete(cb);
+}
+
+function notifyGeometryUpgrade(): void {
+    for (const cb of geometryUpgradeListeners) {
+        try {
+            cb();
+        } catch {
+            /* listener errors never break the pipeline */
+        }
+    }
+}
+
+/** Rebuild a cached merge's glaze collection from the per-cell cache
+ *  (post-upgrade). Skips silently if the merge or any cell entry has
+ *  been evicted — the next natural re-merge redoes it. */
+function applyGlazeUpgrade(job: PendingGeometryJob): void {
+    const cached = mergedCache.get(job.cacheKey);
+    if (!cached) return;
+    const feats: Feature[] = [];
+    for (const key of job.glazeKeys) {
+        const entry = glazeCellCache.get(key);
+        if (!entry) return; // evicted mid-flight — abandon, stay on fast version
+        feats.push(...entry.feats);
+    }
+    cached.DEPARE_GLAZE.features = feats;
+    notifyGeometryUpgrade();
+}
+
+function getGeoWorker(): Worker | null {
+    if (geoWorkerBroken) return null;
+    if (geoWorker) return geoWorker;
+    if (typeof Worker === 'undefined') return null;
+    try {
+        geoWorker = new Worker(new URL('./encGeometryWorker.ts', import.meta.url), { type: 'module' });
+    } catch {
+        geoWorkerBroken = true;
+        return null;
+    }
+    geoWorker.onerror = () => {
+        // Worker died (OOM/bug): the page is unaffected, the fast glaze
+        // stays up. Don't respawn — same input would kill it again.
+        geoWorkerBroken = true;
+        geoWorker = null;
+        pendingGeometryJobs.clear();
+        log.warn('geometry worker died — staying on fast glaze/contours this session');
+    };
+    geoWorker.onmessage = (
+        ev: MessageEvent<{ jobId: number; type: string; glazeKey?: string; features?: Feature[]; message?: string }>,
+    ) => {
+        const { jobId, type, glazeKey, features, message } = ev.data;
+        const job = pendingGeometryJobs.get(jobId);
+        if (type === 'glaze-cell' && glazeKey && features) {
+            putGlazeCell(glazeKey, { upgraded: true, feats: features });
+            return;
+        }
+        if (type === 'contours' && features && job) {
+            const cached = mergedCache.get(job.cacheKey);
+            if (cached) {
+                cached.DEPCNT_DERIVED.features = features;
+                notifyGeometryUpgrade();
+            }
+            return;
+        }
+        if (type === 'done' && job) {
+            pendingGeometryJobs.delete(jobId);
+            if (job.glazeKeys.length > 0) applyGlazeUpgrade(job);
+            return;
+        }
+        if (type === 'error') {
+            pendingGeometryJobs.delete(jobId);
+            log.warn(`geometry worker job failed (fast version stays): ${message ?? 'unknown'}`);
+        }
+    };
+    return geoWorker;
+}
 
 /**
  * Build the per-layer FeatureCollections by reading every imported
@@ -688,13 +795,6 @@ export async function getMergedVectorData(
     if (cached) return cached;
     const inflight = inflightMerges.get(cacheKey);
     if (inflight) return inflight;
-    // TEMP DIAGNOSTIC (2026-07-13, REMOVE) — count actual BUILDS (cache
-    // misses). A climbing count over a static view = a re-merge storm
-    // (hydration / moveend) churning geometry. Grep `MEMPROBE`.
-    mergeBuildCount++;
-    log.warn(
-        `[MEMPROBE-MERGE] build #${mergeBuildCount} cells=${cells.length} zoom=${zoom ?? 'null'} glaze=${buildGlaze} key=${cacheKey.slice(0, 24)}`,
-    );
     const build = buildMergedVectorData(cells, cacheKey, densify, buildGlaze, zoom);
     inflightMerges.set(cacheKey, build);
     try {
@@ -704,14 +804,10 @@ export async function getMergedVectorData(
     }
 }
 
-/** Sounding-derived contours are DISABLED (2026-07-12): the Delaunay +
- *  isoline march is genuinely too heavy to run on the main thread on the
- *  web (it hung the live chart on zoom). Even zoom-gated it's a band-aid;
- *  the honest home for it is the Web Worker (deferred audit item 4).
- *  Re-enable ONLY once the merge runs off-thread. The layers/sources
- *  stay wired but carry no data — zero render cost — so re-enabling is a
- *  one-line flip. See [[lesson_zoom_gate_render_only_compute]]. */
-const DERIVED_CONTOURS_ENABLED = false;
+/** Sounding-derived contours run in encGeometryWorker (2026-07-13) —
+ *  the Delaunay + isoline march hung the main thread when it ran here
+ *  (2026-07-12). The merge returns without them; the worker's answer is
+ *  swapped into the cached merge and pushed via the upgrade hook. */
 /** Light sectors stay ON — generation is O(sectored-lights), cheap, and
  *  it's the flagship night-approach feature. Flag exists so it can be
  *  killed instantly if it ever proves otherwise. */
@@ -737,18 +833,14 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
 const GLAZE_MIN_ZOOM = 10;
-/** TRUE-COVERAGE glaze clipping (martinez boolean difference) DISABLED
- *  (2026-07-13): the device log pinned the fatal OOM to the first
- *  glaze=true merge — stable for 50 s at z9.7, dead within seconds of
- *  build #3 (z12.4, glaze on). The real measured cost through the ESM
- *  path was ~1.5 s and heavy allocation for ONE coarse cell against ONE
- *  fine coverage (an earlier 22 ms benchmark was silently exercising
- *  the fallback path — my error). Like the derived contours: heavy
- *  geometry does not belong on the main thread. Until the merge moves
- *  into a Web Worker, the glaze falls back to the rectangle clip —
- *  microseconds, at the cosmetic cost of the surf-strip dark boxes
- *  returning where a fine survey charts only part of its rectangle. */
-const GLAZE_TRUE_COVERAGE_ENABLED = false;
+/** TRUE-COVERAGE glaze clipping (martinez boolean difference) runs in
+ *  encGeometryWorker only (2026-07-13): on the main thread it OOM-killed
+ *  the WebView on the first glaze=true merge — the device log showed
+ *  50 s rock-stable at z9.7, dead within seconds of the z12.4 build.
+ *  Real cost: ~1.5 s + a heavy allocation spike per coarse-cell/fine-
+ *  coverage pair. The merge paints the rectangle clip instantly
+ *  (microseconds); the worker's hole-free answer swaps in a moment
+ *  later via the geometry-upgrade hook. */
 /** Keep soundings whose density-ladder `_minZoom` is within this many
  *  levels of the current zoom; the rest can't render yet and only bloat
  *  the (very expensive) symbol source. A whole-zoom re-merge refreshes
@@ -951,6 +1043,15 @@ async function buildMergedVectorData(
     const cullDeg =
         zoom != null && zoom < GLAZE_MIN_ZOOM ? ((78271.484 / 2 ** Math.round(zoom)) * 2) / 111_320 : 0;
 
+    // Per-merge bookkeeping for the worker's true-coverage glaze upgrade.
+    const glazeUpgradeQueue: Array<{
+        cellId: string;
+        glazeKey: string;
+        features: Feature[];
+        coverages: Array<{ bbox: [number, number, number, number]; coverage: CoverageGeom }>;
+    }> = [];
+    const mergeGlazeKeys: string[] = [];
+
     for (const cell of cellsCoarseToFine) {
         const blob = loadedBlobs.get(cell.id);
         if (!blob) continue;
@@ -1096,96 +1197,96 @@ async function buildMergedVectorData(
         // chart holes.
         tagAndPush('DEPARE', blob.layers.DRGARE);
         // Glaze variant — built from the ORIGINAL band features (NOT the
-        // post-featureIsShadowed survivors) with the finer cells' ACTUAL
-        // charted coverage subtracted (martinez difference). The first
-        // cut subtracted the finer cells' data-extent RECTANGLES and
-        // inherited the rectangle-based shadow drops: wherever a fine
-        // survey charts only part of its rectangle — surf strips,
-        // corners — no band painted at all and raw imagery stared
-        // through as hard-edged dark boxes ("shaded areas around some
-        // areas in shore", Shane 2026-07-12). True coverage leaves the
-        // coarse band everywhere the finer survey is genuinely silent:
-        // exactly one band over charted water, zero holes.
-        // ZOOM-GATED (2026-07-13): skipped entirely at wide passage zoom —
-        // a full second copy of every band across the whole coast's cells
-        // OOM-crashed the renderer at z7-8, and the keel glaze is moot at
-        // that scale. See GLAZE_MIN_ZOOM.
+        // post-featureIsShadowed survivors). Two grades:
+        //  - INSTANT (here, main thread): finer cells' data-extent
+        //    RECTANGLES subtracted (Sutherland–Hodgman, microseconds).
+        //    May leave surf-strip dark boxes where a fine survey charts
+        //    only part of its rectangle.
+        //  - UPGRADED (encGeometryWorker): the finer cells' ACTUAL charted
+        //    coverage subtracted (martinez) — exactly one band over
+        //    charted water, zero holes ("shaded areas around some areas
+        //    in shore", Shane 2026-07-12). Swapped in via the geometry-
+        //    upgrade hook when the worker answers; NEVER computed here
+        //    (it OOM-killed the WebView, device log 2026-07-13).
+        // ZOOM-GATED to nav zoom — a second copy of every band across a
+        // passage-zoom window fed the z7-8 OOM. See GLAZE_MIN_ZOOM.
         if (buildGlaze) {
-        const fineCoverages = GLAZE_TRUE_COVERAGE_ENABLED
-            ? shadows
-                  .map((s) => {
-                      const cov = coverageFor(s.id);
-                      return cov ? { id: s.id, bbox: s.bbox, coverage: cov } : null;
-                  })
-                  .filter(
-                      (c): c is { id: string; bbox: [number, number, number, number]; coverage: CoverageGeom } =>
-                          c !== null,
-                  )
-            : [];
-        // Memo key: the glaze for this cell is fully determined by its own
-        // blob (cellId + version) and the SHADOWING cells that clip it
-        // (their ids, sorted — the same set drives both the rectangle and
-        // the true-coverage paths). A zoom that only widens the window
-        // reuses this instead of re-clipping per feature.
-        const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${shadows
-            .map((s) => s.id)
-            .sort()
-            .join(',')}`;
-        const cachedGlaze = glazeCellCache.get(glazeKey);
-        if (cachedGlaze) {
-            // Refresh LRU position; push the cached pieces straight in.
-            glazeCellCache.delete(glazeKey);
-            glazeCellCache.set(glazeKey, cachedGlaze);
-            for (const f of cachedGlaze) merged.DEPARE_GLAZE.features.push(f);
-        } else {
-            const glazeT0 = performance.now();
-            const glazeRank = cellScaleRank(cell.bbox);
-            const finerRects = shadows.map((s) => s.bbox);
-            const glazeOut: Feature[] = [];
-            let glazeSinceYield = 0;
-            for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
-                for (const feat of fc?.features ?? []) {
-                    if (!feat || !feat.geometry) continue;
-                    const base: Feature = {
-                        ...feat,
-                        properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
-                    };
-                    // Rectangle clip by default (microseconds). The martinez
-                    // true-coverage diff stays behind the flag until it
-                    // lives in a worker — it OOM-killed the WebView on the
-                    // first glaze merge (device log 2026-07-13; see
-                    // GLAZE_TRUE_COVERAGE_ENABLED).
-                    const glazed = GLAZE_TRUE_COVERAGE_ENABLED
-                        ? fineCoverages.length > 0
-                            ? clipFeatureOutsideCoverage(base, fineCoverages)
-                            : base
-                        : finerRects.length > 0
-                          ? clipFeatureOutsideBboxes(base, finerRects)
-                          : base;
-                    if (glazed) glazeOut.push(glazed);
-                    // Yield WITHIN the loop, not just once per cell — a whole
-                    // coastal cell's clip running uninterrupted froze zoom
-                    // ("locks up as I try to zoom in", 2026-07-12).
-                    if ((fineCoverages.length > 0 || finerRects.length > 0) && ++glazeSinceYield >= 16) {
-                        glazeSinceYield = 0;
-                        await yieldIfNeeded();
+            // Memo key: the glaze for this cell is fully determined by its
+            // own blob (cellId + version) and the SHADOWING cells that clip
+            // it (their ids, sorted — same set for both grades).
+            const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${shadows
+                .map((s) => s.id)
+                .sort()
+                .join(',')}`;
+            const cached = glazeCellCache.get(glazeKey);
+            let needQueue = false;
+            if (cached) {
+                putGlazeCell(glazeKey, cached); // refresh LRU position
+                for (const f of cached.feats) merged.DEPARE_GLAZE.features.push(f);
+                needQueue = !cached.upgraded && shadows.length > 0;
+            } else {
+                const glazeRank = cellScaleRank(cell.bbox);
+                const finerRects = shadows.map((s) => s.bbox);
+                const glazeOut: Feature[] = [];
+                let glazeSinceYield = 0;
+                for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
+                    for (const feat of fc?.features ?? []) {
+                        if (!feat || !feat.geometry) continue;
+                        const base: Feature = {
+                            ...feat,
+                            properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
+                        };
+                        const glazed = finerRects.length > 0 ? clipFeatureOutsideBboxes(base, finerRects) : base;
+                        if (glazed) glazeOut.push(glazed);
+                        if (finerRects.length > 0 && ++glazeSinceYield >= 64) {
+                            glazeSinceYield = 0;
+                            await yieldIfNeeded();
+                        }
                     }
                 }
+                for (const f of glazeOut) merged.DEPARE_GLAZE.features.push(f);
+                putGlazeCell(glazeKey, { upgraded: shadows.length === 0, feats: glazeOut });
+                needQueue = shadows.length > 0;
             }
-            for (const f of glazeOut) merged.DEPARE_GLAZE.features.push(f);
-            glazeCellCache.set(glazeKey, glazeOut);
-            while (glazeCellCache.size > GLAZE_CELL_CACHE_MAX) {
-                const oldest = glazeCellCache.keys().next().value as string | undefined;
-                if (oldest === undefined) break;
-                glazeCellCache.delete(oldest);
+            if (needQueue) {
+                // Payload for the worker's true-coverage upgrade: the
+                // decorated base features + the shadowing cells' actual
+                // charted polygons (coordinate arrays shared with the
+                // cached blobs — structured-clone copies them off-thread).
+                const fineCoverages = shadows
+                    .map((s) => {
+                        const cov = coverageFor(s.id);
+                        return cov ? { bbox: s.bbox, coverage: cov } : null;
+                    })
+                    .filter(
+                        (c): c is { bbox: [number, number, number, number]; coverage: CoverageGeom } => c !== null,
+                    );
+                if (fineCoverages.length > 0) {
+                    const glazeRank = cellScaleRank(cell.bbox);
+                    const baseFeats: Feature[] = [];
+                    for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
+                        for (const feat of fc?.features ?? []) {
+                            if (!feat || !feat.geometry) continue;
+                            baseFeats.push({
+                                ...feat,
+                                properties: { ...(feat.properties ?? {}), _scaleRank: glazeRank },
+                            });
+                        }
+                    }
+                    glazeUpgradeQueue.push({
+                        cellId: cell.id,
+                        glazeKey,
+                        features: baseFeats,
+                        coverages: fineCoverages,
+                    });
+                } else {
+                    // No real coverage to subtract — the rectangle grade IS final.
+                    const entry = glazeCellCache.get(glazeKey);
+                    if (entry) entry.upgraded = true;
+                }
             }
-            // TEMP DIAGNOSTIC (REMOVE with MEMPROBE): per-cell glaze cost on
-            // device — proves (or clears) the clip as the z10+ detonator.
-            log.warn(
-                `[MEMPROBE-GLAZE] cell=${cell.id} feats=${glazeOut.length} shadows=${shadows.length} ms=${Math.round(performance.now() - glazeT0)}`,
-            );
+            mergeGlazeKeys.push(glazeKey);
         }
-        } // end buildGlaze gate
         tagAndPush('LNDARE', blob.layers.LNDARE);
         tagAndPush('COALNE', blob.layers.COALNE);
         tagAndPush('OBSTRN', blob.layers.OBSTRN);
@@ -1258,28 +1359,10 @@ async function buildMergedVectorData(
     // the punter closes in. zoom==null (seaway/full merge) keeps them all.
     if (zoom != null) {
         const cap = zoom + SOUNDING_LOD_LOOKAHEAD;
-        const before = merged.SOUNDG.features.length;
         merged.SOUNDG.features = merged.SOUNDG.features.filter((f) => {
             const mz = (f.properties as { _minZoom?: number } | null)?._minZoom;
             return typeof mz !== 'number' || mz <= cap;
         });
-        log.warn(`[MEMPROBE-MERGE] soundings culled ${before}→${merged.SOUNDG.features.length} (z${zoom.toFixed(1)})`);
-    }
-
-    // Sounding-derived contours (honest densification): interpolate depth
-    // contours from the merged spot soundings, ONLY inside triangles
-    // bounded by real soundings (never across a gap). Heavy — Delaunay +
-    // per-level march. GATED to zoomed-in merges (densify) where the
-    // z13+ layer renders, and hard-capped on sounding count: computing
-    // it over a wide-zoom window hung the page (2026-07-12). Will move
-    // into the worker with the rest of the merge.
-    if (DERIVED_CONTOURS_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS) {
-        await yieldIfNeeded();
-        const soundingPts = merged.SOUNDG.features.map((f) => {
-            const c = (f.geometry as Point).coordinates;
-            return { lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number })?._d) };
-        });
-        merged.DEPCNT_DERIVED.features = buildDerivedContours(soundingPts);
     }
 
     mergedCache.set(cacheKey, merged);
@@ -1287,6 +1370,36 @@ async function buildMergedVectorData(
         const oldest = mergedCache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         mergedCache.delete(oldest);
+    }
+
+    // Hand the HEAVY geometry to the worker: the true-coverage glaze
+    // upgrade (queued per cell above) and the sounding-derived contours
+    // (Delaunay + isoline march — hung the main thread 2026-07-12,
+    // OOM-killed it 2026-07-13 when run here). Both answers swap into
+    // this cached merge via the geometry-upgrade hook. No worker (old
+    // WebView, died earlier this session) = the fast version stays up.
+    const wantContours = densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
+    if (glazeUpgradeQueue.length > 0 || wantContours) {
+        const worker = getGeoWorker();
+        if (worker) {
+            const jobId = ++geoJobSeq;
+            pendingGeometryJobs.set(jobId, {
+                cacheKey,
+                glazeKeys: glazeUpgradeQueue.length > 0 ? mergeGlazeKeys : [],
+            });
+            const contourPoints = wantContours
+                ? merged.SOUNDG.features.map((f) => {
+                      const c = (f.geometry as Point).coordinates;
+                      return { lon: c[0], lat: c[1], d: Number((f.properties as { _d?: number })?._d) };
+                  })
+                : undefined;
+            try {
+                worker.postMessage({ jobId, glazeCells: glazeUpgradeQueue, contourPoints });
+            } catch (err) {
+                pendingGeometryJobs.delete(jobId);
+                log.warn(`geometry worker dispatch failed: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
     }
     if (missingBlobs.length > 0) {
         log.warn(`merge painted ${merged.cellCount} local cells; hydrating ${missingBlobs.length} from the cloud`);

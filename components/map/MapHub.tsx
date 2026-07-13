@@ -1825,54 +1825,6 @@ export const MapHub: React.FC<MapHubProps> = ({
             map.off('styledata', scheduleApply);
         };
     }, [satelliteVisible, mapReady, encVisible, encChartDetail]);
-    // ── TEMP DIAGNOSTIC (2026-07-13, REMOVE) — the z7-8 OOM hunt ──────
-    // WARN level so it survives prod log-silencing and shows in the Xcode
-    // console. Every 2 s: JS heap vs limit + the ENC source feature counts,
-    // so we can see whether heap climbs to the limit (JS leak) or stays
-    // flat while native/GPU memory kills the tab, and whether any source
-    // grows unbounded. Grep `MEMPROBE`.
-    useEffect(() => {
-        if (!mapReady) return;
-        const map = mapRef.current;
-        if (!map) return;
-        const probe = () => {
-            const mem = (performance as unknown as { memory?: { usedJSHeapSize: number; jsHeapSizeLimit: number } })
-                .memory;
-            const heap = mem ? Math.round(mem.usedJSHeapSize / 1048576) : -1;
-            const lim = mem ? Math.round(mem.jsHeapSizeLimit / 1048576) : -1;
-            let z = -1;
-            let encN = 0;
-            let dep = -1;
-            let glz = -1;
-            let snd = -1;
-            try {
-                z = Math.round(map.getZoom() * 10) / 10;
-                const s = map.getStyle();
-                const encSrc = Object.keys(s?.sources ?? {}).filter((x) => x.startsWith('enc-vec-'));
-                encN = encSrc.length;
-                const cnt = (id: string): number => {
-                    const src = map.getSource(id) as { _data?: { features?: unknown[] } } | undefined;
-                    return src?._data?.features?.length ?? -1;
-                };
-                dep = cnt('enc-vec-depare');
-                glz = cnt('enc-vec-depare-glaze');
-                snd = cnt('enc-vec-soundg');
-                const dpc = cnt('enc-vec-depcnt');
-                const lnd = cnt('enc-vec-lndare');
-                const col = cnt('enc-vec-coalne');
-                log.warn(
-                    `[MEMPROBE] heap=${heap}/${lim}MB z=${z} encSrc=${encN} depare=${dep} glaze=${glz} soundg=${snd} depcnt=${dpc} lndare=${lnd} coalne=${col}`,
-                );
-                return;
-            } catch {
-                /* style mid-swap */
-            }
-            log.warn(`[MEMPROBE] heap=${heap}/${lim}MB z=${z} encSrc=${encN} depare=${dep} glaze=${glz} soundg=${snd}`);
-        };
-        probe();
-        const id = window.setInterval(probe, 2000);
-        return () => window.clearInterval(id);
-    }, [mapReady]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
