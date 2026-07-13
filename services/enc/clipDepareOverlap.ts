@@ -281,12 +281,7 @@ export function clipLineFeatureOutsideBboxes(feature: Feature, allBboxes: readon
  * genuinely silent. Capped: > maxRects falls back to [extent] (the old
  * single-rectangle behaviour).
  */
-export function coverageStripRects(
-    featureBboxes: readonly Bbox[],
-    extent: Bbox,
-    k = 16,
-    maxRects = 64,
-): Bbox[] {
+export function coverageStripRects(featureBboxes: readonly Bbox[], extent: Bbox, k = 16, maxRects = 64): Bbox[] {
     if (featureBboxes.length === 0) return [extent];
     const [ex0, ey0, ex1, ey1] = extent;
     const w = ex1 - ex0;
@@ -301,7 +296,10 @@ export function coverageStripRects(
         if (cx1 < 0 || cx0 > k - 1 || cy1 < 0 || cy0 > k - 1) continue;
         for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) covered[y * k + x] = true;
     }
-    return maskToStrips(covered, extent, k, maxRects);
+    // Legacy semantics preserved (test-covered): empty or over-budget →
+    // the old single-rectangle behaviour.
+    const rects = maskToStrips(covered, extent, k);
+    return rects.length === 0 || rects.length > maxRects ? [extent] : rects;
 }
 
 /**
@@ -377,12 +375,26 @@ export function coverageMaskStrips(coverage: CoverageGeom, extent: Bbox, k = 24,
             }
         }
     }
-    return maskToStrips(covered, extent, k, maxRects);
+    const strips = maskToStrips(covered, extent, k);
+    // NON-EMPTY coverage that marked NOTHING lies entirely outside this
+    // frame — there is nothing to clip HERE, so clip nothing. Falling
+    // back to [extent] here is the whole-rectangle blackout (review
+    // 2026-07-14: an out-of-frame shallow DRGARE pocket blacked out a
+    // deep corridor cell's entire extent).
+    if (strips.length === 0) return [];
+    if (strips.length <= maxRects) return strips;
+    // Over budget (fragmented reef-fringe shallows): degrade to a coarser
+    // grid instead of the [extent] blackout. k=10 cannot overflow any
+    // sane budget (≤ 5 runs/row × 10 rows = 50 strips), so this
+    // terminates with real strips, never the whole rectangle.
+    return k > 10 ? coverageMaskStrips(coverage, extent, Math.max(10, k >> 1), maxRects) : strips;
 }
 
 /** Shared strip merger: covered-cell mask → row-run rects, merging
- *  identical adjacent rows; empty or over-budget → [extent] fallback. */
-function maskToStrips(covered: readonly boolean[], extent: Bbox, k: number, maxRects: number): Bbox[] {
+ *  identical adjacent rows. Returns the RAW strips — empty and
+ *  over-budget handling belongs to the callers, whose fallbacks
+ *  differ (see coverageMaskStrips vs coverageStripRects). */
+function maskToStrips(covered: readonly boolean[], extent: Bbox, k: number): Bbox[] {
     const [ex0, ey0, ex1, ey1] = extent;
     const w = ex1 - ex0;
     const h = ey1 - ey0;
@@ -425,7 +437,6 @@ function maskToStrips(covered: readonly boolean[], extent: Bbox, k: number, maxR
         }
     }
     if (prevRuns.length > 0) flush(k - 1);
-    if (rects.length === 0 || rects.length > maxRects) return [extent];
     return rects;
 }
 
@@ -492,7 +503,8 @@ export function clipFeatureOutsideCoverage(feature: Feature, fines: readonly Fin
             if (!rect) return null;
             touched = true;
             const rg = rect.geometry as Polygon | MultiPolygon;
-            coords = rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
+            coords =
+                rg.type === 'Polygon' ? [rg.coordinates as PolyRings] : (rg.coordinates as unknown as CoverageGeom);
         }
     }
     if (!touched) return feature;
@@ -518,21 +530,49 @@ export function clipFeatureOutsideBboxes(feature: Feature, bboxes: readonly Bbox
     const inputPolys: PolyRings[] =
         g.type === 'Polygon' ? [g.coordinates as PolyRings] : (g.coordinates as PolyRings[]);
 
+    // Hot path (review 2026-07-14: 300 ms+ main-thread blocks): pieces
+    // carry their bbox — computed ONCE, not re-walked per (piece, hole)
+    // pair — and holes that can't touch the feature at all are dropped
+    // up front. With 6 shadowing cells × 160 strip rects the old shape
+    // walked a 3k-vertex ring up to 960 times for a miss.
+    let pieces: Array<{ poly: PolyRings; bbox: Bbox }> = inputPolys.map((poly) => ({
+        poly,
+        bbox: ringBbox(poly[0]),
+    }));
+    const featBbox: Bbox = [
+        Math.min(...pieces.map((p) => p.bbox[0])),
+        Math.min(...pieces.map((p) => p.bbox[1])),
+        Math.max(...pieces.map((p) => p.bbox[2])),
+        Math.max(...pieces.map((p) => p.bbox[3])),
+    ];
+    const holes = bboxes.filter((hole) => bboxesIntersect(featBbox, hole));
+    if (holes.length === 0) return feature;
+
     let touched = false;
-    let pieces: PolyRings[] = inputPolys;
-    for (const hole of bboxes) {
-        const next: PolyRings[] = [];
-        for (const poly of pieces) {
-            const fb = ringBbox(poly[0]);
-            if (!bboxesIntersect(fb, hole)) {
-                next.push(poly);
+    for (const hole of holes) {
+        const next: Array<{ poly: PolyRings; bbox: Bbox }> = [];
+        for (const piece of pieces) {
+            if (!bboxesIntersect(piece.bbox, hole)) {
+                next.push(piece);
                 continue;
             }
             touched = true;
-            if (bboxInside(fb, hole)) continue; // swallowed whole
-            for (const rect of outsidePartition(fb, hole)) {
-                const clipped = clipPolyToRect(poly, rect);
-                if (clipped) next.push(clipped);
+            if (bboxInside(piece.bbox, hole)) continue; // swallowed whole
+            for (const rect of outsidePartition(piece.bbox, hole)) {
+                const clipped = clipPolyToRect(piece.poly, rect);
+                // Clip output is bounded by rect ∩ old bbox — a tight-enough
+                // bbox for later intersection tests without re-walking rings.
+                if (clipped) {
+                    next.push({
+                        poly: clipped,
+                        bbox: [
+                            Math.max(piece.bbox[0], rect[0]),
+                            Math.max(piece.bbox[1], rect[1]),
+                            Math.min(piece.bbox[2], rect[2]),
+                            Math.min(piece.bbox[3], rect[3]),
+                        ],
+                    });
+                }
             }
         }
         pieces = next;
@@ -542,7 +582,7 @@ export function clipFeatureOutsideBboxes(feature: Feature, bboxes: readonly Bbox
 
     const geometry: MultiPolygon | Polygon =
         pieces.length === 1
-            ? { type: 'Polygon', coordinates: pieces[0] }
-            : { type: 'MultiPolygon', coordinates: pieces };
+            ? { type: 'Polygon', coordinates: pieces[0].poly }
+            : { type: 'MultiPolygon', coordinates: pieces.map((p) => p.poly) };
     return { ...feature, geometry };
 }

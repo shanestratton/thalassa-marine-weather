@@ -27,9 +27,12 @@
 // v58: glaze clip goes shallow-bands-only (kills the black staircase
 // flanking deep channels) + gesture-parked merge/uploads — make sure
 // every client picks up the new bundle promptly (Shane 2026-07-14).
-const CACHE_NAME = 'thalassa-v58-core';
-const TILE_CACHE = 'thalassa-v58-tiles';
-const DATA_CACHE = 'thalassa-v58-data';
+// v59: corridor-blackout fix round 2 (empty-vs-null coverage seams,
+// DRGARE frame, robust DRVAL1) + clip-loop stall fix — purge so
+// Shane's test devices pull the new bundle immediately (2026-07-14).
+const CACHE_NAME = 'thalassa-v59-core';
+const TILE_CACHE = 'thalassa-v59-tiles';
+const DATA_CACHE = 'thalassa-v59-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
