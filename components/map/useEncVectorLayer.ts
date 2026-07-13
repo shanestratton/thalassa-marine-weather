@@ -44,6 +44,7 @@ import {
 import {
     getMergedVectorData,
     hasAnyCells,
+    setMergeInteractionProbe,
     subscribe as subscribeToEnc,
     subscribeGeometryUpgrades,
     type EncMergedVectorData,
@@ -162,6 +163,17 @@ export function useEncVectorLayer(
             }
         });
         return unsub;
+    }, [mapRef, mapReady]);
+
+    // Gesture probe for the merge's time-slicer: while the camera is
+    // moving, merge slices park instead of stealing frame time from the
+    // pan/zoom ("a little jerky", 2026-07-14).
+    useEffect(() => {
+        if (!mapReady) return;
+        const map = mapRef.current;
+        if (!map) return;
+        setMergeInteractionProbe(() => map.isMoving());
+        return () => setMergeInteractionProbe(null);
     }, [mapRef, mapReady]);
 
     // Window escape watch: re-merge only when the view leaves the merged
