@@ -264,6 +264,86 @@ export function clipLineFeatureOutsideBboxes(feature: Feature, allBboxes: readon
     };
 }
 
+/**
+ * Approximate a fine cell's charted-water COVERAGE as a small set of
+ * axis-aligned strip rects — the honest middle between the two failed
+ * extremes: the single data-extent RECTANGLE (clipped the coarse glaze
+ * out of water the fine survey never charts → the NE-channel "dark
+ * squares", 2026-07-14) and the true martinez difference (OOM-killed
+ * the tab, parked behind GEOMETRY_WORKER_ENABLED).
+ *
+ * Method: rasterise every feature's bbox onto a K×K grid over the
+ * extent, then merge covered cells into row-strips and merge identical
+ * adjacent rows. A diagonal channel corridor becomes a ~K-step
+ * staircase of rects. Conservative by construction (feature bbox ⊇
+ * feature), so the coarse glaze is still removed everywhere the fine
+ * survey makes any claim — it survives only where the fine cell is
+ * genuinely silent. Capped: > maxRects falls back to [extent] (the old
+ * single-rectangle behaviour).
+ */
+export function coverageStripRects(
+    featureBboxes: readonly Bbox[],
+    extent: Bbox,
+    k = 16,
+    maxRects = 64,
+): Bbox[] {
+    if (featureBboxes.length === 0) return [extent];
+    const [ex0, ey0, ex1, ey1] = extent;
+    const w = ex1 - ex0;
+    const h = ey1 - ey0;
+    if (!(w > 0) || !(h > 0)) return [extent];
+    const covered: boolean[] = new Array(k * k).fill(false);
+    for (const b of featureBboxes) {
+        const cx0 = Math.max(0, Math.floor(((b[0] - ex0) / w) * k));
+        const cx1 = Math.min(k - 1, Math.floor(((b[2] - ex0) / w) * k));
+        const cy0 = Math.max(0, Math.floor(((b[1] - ey0) / h) * k));
+        const cy1 = Math.min(k - 1, Math.floor(((b[3] - ey0) / h) * k));
+        if (cx1 < 0 || cx0 > k - 1 || cy1 < 0 || cy0 > k - 1) continue;
+        for (let y = cy0; y <= cy1; y++) for (let x = cx0; x <= cx1; x++) covered[y * k + x] = true;
+    }
+    // Row runs → strips, merging rows with identical runs.
+    const rects: Bbox[] = [];
+    let prevRuns: Array<[number, number]> = [];
+    let stripStartRow = 0;
+    const runsOfRow = (y: number): Array<[number, number]> => {
+        const runs: Array<[number, number]> = [];
+        let start = -1;
+        for (let x = 0; x < k; x++) {
+            if (covered[y * k + x]) {
+                if (start < 0) start = x;
+            } else if (start >= 0) {
+                runs.push([start, x - 1]);
+                start = -1;
+            }
+        }
+        if (start >= 0) runs.push([start, k - 1]);
+        return runs;
+    };
+    const flush = (endRow: number): void => {
+        for (const [x0, x1] of prevRuns) {
+            rects.push([
+                ex0 + (x0 / k) * w,
+                ey0 + (stripStartRow / k) * h,
+                ex0 + ((x1 + 1) / k) * w,
+                ey0 + ((endRow + 1) / k) * h,
+            ]);
+        }
+    };
+    for (let y = 0; y < k; y++) {
+        const runs = runsOfRow(y);
+        const same =
+            runs.length === prevRuns.length && runs.every((r, i) => r[0] === prevRuns[i][0] && r[1] === prevRuns[i][1]);
+        if (!same) {
+            if (prevRuns.length > 0) flush(y - 1);
+            prevRuns = runs;
+            stripStartRow = y;
+        }
+    }
+    if (prevRuns.length > 0) flush(k - 1);
+    if (rects.length === 0 || rects.length > maxRects) return [extent];
+    return rects;
+}
+
 /** Combined bbox of a multipolygon's outer rings. */
 function coordsBbox(polys: CoverageGeom): Bbox {
     let minX = Infinity,
