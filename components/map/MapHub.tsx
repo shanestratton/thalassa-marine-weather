@@ -142,7 +142,6 @@ import { DEPARE_BAND_COLORS } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
-import { AvNavService, type AvNavChart } from '../../services/AvNavService';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
 import { useFollowRouteMapbox } from '../../hooks/useFollowRouteMapbox';
 import { useDestinationFlag } from './useDestinationFlag';
@@ -1086,7 +1085,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const pinMarkerRef = useRef<mapboxgl.Marker | null>(null);
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings } = useSettings();
-    const { setPage, previousView, currentView } = useUI();
+    const { setPage, currentView } = useUI();
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
     // the vessel's real draft (feet→metres via vesselDraftMetres) plus the
@@ -1956,7 +1955,6 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
         const t = window.setTimeout(apply, 150 - since);
         return () => window.clearTimeout(t);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [tideScrubQ, tideDepthMode, mapReady]);
     // Keel-honesty flag for the tap-the-water popup — a verdict against
     // the 2.5 m fallback draft must say so (mirrors the tracer).
