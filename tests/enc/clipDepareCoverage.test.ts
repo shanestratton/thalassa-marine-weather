@@ -106,3 +106,38 @@ describe('clipFeatureOutsideCoverage — true coverage, not rectangles', () => {
         expect(clipFeatureOutsideCoverage(line, [fineL])).toBe(line);
     });
 });
+
+import { coverageStripRects } from '../../services/enc/clipDepareOverlap';
+
+describe('coverageStripRects — strips hug the survey, not its rectangle', () => {
+    const EXT: [number, number, number, number] = [0, 0, 16, 16];
+    const inAny = (rects: [number, number, number, number][], x: number, y: number) =>
+        rects.some((r) => x >= r[0] && x <= r[2] && y >= r[1] && y <= r[3]);
+
+    it('a narrow diagonal corridor leaves the rest of the extent open', () => {
+        // Channel-survey shape: feature boxes stepping diagonally.
+        const feats: [number, number, number, number][] = [
+            [0, 0, 4, 4],
+            [3, 3, 7, 7],
+            [6, 6, 10, 10],
+            [9, 9, 13, 13],
+            [12, 12, 16, 16],
+        ];
+        const rects = coverageStripRects(feats, EXT);
+        expect(rects.length).toBeGreaterThan(1); // not the single-extent fallback
+        expect(inAny(rects, 2, 2)).toBe(true); // on the corridor — clipped (conservative)
+        expect(inAny(rects, 8, 8)).toBe(true); // corridor mid — clipped
+        expect(inAny(rects, 14, 2)).toBe(false); // off-corridor — coarse glaze SURVIVES
+        expect(inAny(rects, 2, 14)).toBe(false); // off-corridor — the old dark square, now open
+    });
+
+    it('no features → the whole extent (old behaviour)', () => {
+        expect(coverageStripRects([], EXT)).toEqual([EXT]);
+    });
+
+    it('full-extent coverage stays a single rect-equivalent', () => {
+        const rects = coverageStripRects([[0, 0, 16, 16]], EXT);
+        expect(inAny(rects, 8, 8)).toBe(true);
+        expect(inAny(rects, 0.5, 15.5)).toBe(true);
+    });
+});

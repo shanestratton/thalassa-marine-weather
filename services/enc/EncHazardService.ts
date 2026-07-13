@@ -36,7 +36,7 @@ import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
 import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
-import { clipFeatureOutsideBboxes, type CoverageGeom } from './clipDepareOverlap';
+import { clipFeatureOutsideBboxes, coverageStripRects, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
@@ -1049,6 +1049,46 @@ async function buildMergedVectorData(
         return cov;
     };
 
+    // Strip-rect coverage per shadowing cell for the glaze clip (see
+    // coverageStripRects): per-feature bboxes grid-coarsened into a
+    // staircase of rects that hugs what the fine survey actually charts.
+    // Memoized per merge run — the same cell shadows many coarse cells.
+    const stripRectsMemo = new Map<string, [number, number, number, number][]>();
+    const stripRectsFor = (cellId: string, extent: [number, number, number, number]) => {
+        const memo = stripRectsMemo.get(cellId);
+        if (memo) return memo;
+        const b = loadedBlobs.get(cellId);
+        const featBoxes: [number, number, number, number][] = [];
+        for (const fc of [b?.layers.DEPARE, b?.layers.DRGARE]) {
+            for (const f of fc?.features ?? []) {
+                const g = f?.geometry;
+                if (!g || (g.type !== 'Polygon' && g.type !== 'MultiPolygon')) continue;
+                let minX = Infinity,
+                    minY = Infinity,
+                    maxX = -Infinity,
+                    maxY = -Infinity;
+                const visit = (coords: unknown): void => {
+                    if (!Array.isArray(coords)) return;
+                    if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                        const lon = coords[0] as number;
+                        const lat = coords[1] as number;
+                        if (lon < minX) minX = lon;
+                        if (lat < minY) minY = lat;
+                        if (lon > maxX) maxX = lon;
+                        if (lat > maxY) maxY = lat;
+                        return;
+                    }
+                    for (const c of coords) visit(c);
+                };
+                visit((g as { coordinates?: unknown }).coordinates);
+                if (Number.isFinite(minX)) featBoxes.push([minX, minY, maxX, maxY]);
+            }
+        }
+        const rects = coverageStripRects(featBoxes, extent);
+        stripRectsMemo.set(cellId, rects);
+        return rects;
+    };
+
     // Sub-pixel cull threshold for area/line features at passage zoom:
     // ~2 px in degrees at the merge's zoom bucket (512 px tiles). 0 at
     // nav zoom (≥ GLAZE_MIN_ZOOM) and on the full merge — no cull.
@@ -1243,7 +1283,14 @@ async function buildMergedVectorData(
                 needQueue = !cached.upgraded && shadows.length > 0;
             } else {
                 const glazeRank = cellScaleRank(cell.bbox);
-                const finerRects = shadows.map((s) => s.bbox);
+                // Strip rects, not the whole data-extent rectangle: a
+                // narrow channel survey's rect clipped the coarse SAFE
+                // glaze out of the water it never charts — dark squares
+                // marching up the NE Channel at bay zoom (2026-07-14).
+                // Strips hug the fine features (conservative: bbox ⊇
+                // band), so coarse white survives only where the fine
+                // survey is silent.
+                const finerRects = shadows.flatMap((s) => stripRectsFor(s.id, s.bbox));
                 const glazeOut: Feature[] = [];
                 let glazeSinceYield = 0;
                 for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
