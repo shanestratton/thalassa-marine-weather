@@ -326,29 +326,46 @@ export function coverageMaskStrips(coverage: CoverageGeom, extent: Bbox, k = 24,
     const markCell = (x: number, y: number): void => {
         if (x >= 0 && y >= 0 && x < k && y < k) covered[y * k + x] = true;
     };
-    // Ring vertices mark their cells directly (cheap sliver-catcher).
+    // Ring vertices mark their cells directly (cheap sliver-catcher) —
+    // and each ring's bbox is precomputed for the PIP prefilter below.
+    const rings: Array<{ ring: Position[]; minX: number; minY: number; maxX: number; maxY: number }> = [];
     for (const poly of coverage) {
         for (const ring of poly) {
+            let minX = Infinity,
+                minY = Infinity,
+                maxX = -Infinity,
+                maxY = -Infinity;
             for (const p of ring) {
                 markCell(Math.floor(((p[0] - ex0) / w) * k), Math.floor(((p[1] - ey0) / h) * k));
+                if (p[0] < minX) minX = p[0];
+                if (p[1] < minY) minY = p[1];
+                if (p[0] > maxX) maxX = p[0];
+                if (p[1] > maxY) maxY = p[1];
             }
+            rings.push({ ring, minX, minY, maxX, maxY });
         }
     }
-    // Grid NODES ((k+1)² points) PIP-tested even-odd across all rings;
-    // an inside node marks its four adjacent cells.
+    // Grid NODES ((k+1)² points) PIP-tested even-odd; an inside node
+    // marks its four adjacent cells. Ring-bbox prefilter keeps this from
+    // jerking the main thread mid-zoom ("a little jerky at times", Shane
+    // 2026-07-14): a ring whose y-range misses the node has no straddling
+    // edges; one fully LEFT of the node contributes no crossings; one
+    // fully RIGHT contributes an EVEN count (a closed ring crosses any
+    // horizontal line an even number of times) — parity unchanged, all
+    // three safely skipped. Typical node then tests 1-3 rings, not 179.
     for (let ny = 0; ny <= k; ny++) {
         const py = ey0 + (ny / k) * h;
         for (let nx = 0; nx <= k; nx++) {
             const px = ex0 + (nx / k) * w;
             let inside = false;
-            for (const poly of coverage) {
-                for (const ring of poly) {
-                    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-                        const yi = ring[i][1];
-                        const yj = ring[j][1];
-                        if (yi > py !== yj > py && px < ((ring[j][0] - ring[i][0]) * (py - yi)) / (yj - yi) + ring[i][0]) {
-                            inside = !inside;
-                        }
+            for (const r of rings) {
+                if (py < r.minY || py > r.maxY || px > r.maxX || px < r.minX) continue;
+                const ring = r.ring;
+                for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+                    const yi = ring[i][1];
+                    const yj = ring[j][1];
+                    if (yi > py !== yj > py && px < ((ring[j][0] - ring[i][0]) * (py - yi)) / (yj - yi) + ring[i][0]) {
+                        inside = !inside;
                     }
                 }
             }
