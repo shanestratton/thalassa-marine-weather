@@ -172,18 +172,24 @@ function bridgeEl(passable: boolean): HTMLDivElement {
 }
 
 function bridgePopupHtml(b: LowBridge, airDraftM: number | null): string {
-    const blocked = airDraftM !== null && airDraftM > b.clearanceM;
+    const blocked = airDraftM !== null && b.clearanceM !== null && airDraftM > b.clearanceM;
     const verdict =
-        airDraftM === null
-            ? '<span style="color:#94a3b8;">Set your air draft in Vessel settings for clearance checks.</span>'
-            : blocked
-              ? `<span style="color:#f87171;font-weight:700;">IMPASSABLE for your ${airDraftM.toFixed(1)} m air draft — routes are blocked here.</span>`
-              : `<span style="color:#4ade80;">Clears your ${airDraftM.toFixed(1)} m air draft.</span>`;
+        b.clearanceM === null
+            ? '<span style="color:#fbbf24;font-weight:700;">No published clearance — verify locally before passing. Routing is NOT gated here.</span>'
+            : airDraftM === null
+              ? '<span style="color:#94a3b8;">Set your air draft in Vessel settings for clearance checks.</span>'
+              : blocked
+                ? `<span style="color:#f87171;font-weight:700;">IMPASSABLE for your ${airDraftM.toFixed(1)} m air draft — routes are blocked here.</span>`
+                : `<span style="color:#4ade80;">Clears your ${airDraftM.toFixed(1)} m air draft.</span>`;
+    const clearanceLine =
+        b.clearanceM === null
+            ? 'Vertical clearance not charted'
+            : `Vertical clearance ${b.clearanceM.toFixed(1)} m${b.estimated ? ' (estimated — verify locally)' : ''}`;
     return `
       <div style="font-family:inherit;color:#e2e8f0;max-width:240px;">
         <div style="font-size:10px;font-weight:700;letter-spacing:0.08em;color:#94a3b8;margin-bottom:2px;">🌉 FIXED BRIDGE</div>
         <div style="font-size:13px;font-weight:700;margin-bottom:4px;">${esc(b.name)}</div>
-        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">Vertical clearance ${b.clearanceM.toFixed(1)} m${b.estimated ? ' (estimated — verify locally)' : ''}</div>
+        <div style="font-size:11px;color:#cbd5e1;margin-bottom:4px;">${clearanceLine}</div>
         <div style="font-size:11px;">${verdict}</div>
       </div>`;
 }
@@ -336,7 +342,9 @@ export function useNoticeLayer(mapRef: MutableRefObject<mapboxgl.Map | null>, ma
             const airDraftM = vesselAirDraftMetres(useSettingsStore.getState().settings.vessel);
             for (const b of bridges) {
                 const mid = b.span[Math.floor(b.span.length / 2)];
-                const passable = airDraftM === null || airDraftM <= b.clearanceM;
+                // Unknown clearance renders NEUTRAL (not red): the popup
+                // carries the verify-locally caution instead.
+                const passable = airDraftM === null || b.clearanceM === null || airDraftM <= b.clearanceM;
                 const el = bridgeEl(passable);
                 el.addEventListener('click', (ev) => {
                     ev.stopPropagation();
