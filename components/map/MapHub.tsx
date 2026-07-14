@@ -140,6 +140,7 @@ import {
 } from '../../services/enc/EncHazardService';
 import { DEPARE_BAND_COLORS } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
+import { DETAIL_SCRUB_MAX, applyChartDetailLevel } from './encDetailScrubber';
 import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -1730,6 +1731,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // untouched chart water. Session-only like satellite; the two are
     // mutually exclusive (the ChartModes setters clear the sibling).
     const [terrainVisible, setTerrainVisible] = useState(false);
+    // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
+    // near-bare. Session-only; encDetailScrubber owns which furniture
+    // each step removes (safety layers are untouchable there).
+    const [declutter, setDeclutter] = useState(0);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1838,6 +1843,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                         }
                     }
                 }
+                // Declutter runs LAST so it has the final word on its
+                // furniture after the visibility owners above have spoken.
+                // Conditional writes inside — silent at steady state.
+                if (applyChartDetailLevel(map, declutter)) changed = true;
             } catch {
                 /* style mid-swap — re-applied on the next styledata tick */
             }
@@ -1883,7 +1892,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [satelliteVisible, terrainVisible, mapReady, encVisible, encChartDetail]);
+    }, [satelliteVisible, terrainVisible, declutter, mapReady, encVisible, encChartDetail]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -3903,6 +3912,43 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {/* Compass rose — tracer's hand tool, same surface gates. */}
                 {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && roseVisible && (
                     <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} onClose={() => setRoseVisible(false)} />
+                )}
+
+                {/* ═══ DETAIL SCRUBBER ═══
+                    "Hard right is very little detail, hard left is full
+                    detail" (Shane 2026-07-14). Bottom-centre slider, 7
+                    detents — encDetailScrubber maps each step to furniture
+                    cuts + a sounding-density bias; hazards and the safety
+                    contour are untouchable. Same surface gates as the
+                    tracer so embedded/pin/picker views stay clean. */}
+                {!embedded && !isPinView && !pickerMode && !hideTracer && encCellCount > 0 && (
+                    <div
+                        className="absolute left-1/2 z-[9994] -translate-x-1/2"
+                        style={{ bottom: 'calc(2.4rem + env(safe-area-inset-bottom))' }}
+                    >
+                        <div className="flex w-64 items-center gap-2 rounded-full border border-white/10 bg-slate-900/85 px-3 py-1.5 shadow-lg backdrop-blur-sm">
+                            <span className="text-[9px] font-black uppercase tracking-widest text-sky-300/90">
+                                Full
+                            </span>
+                            <input
+                                type="range"
+                                min={0}
+                                max={DETAIL_SCRUB_MAX}
+                                step={1}
+                                value={declutter}
+                                onChange={(e) => {
+                                    const v = Number(e.target.value);
+                                    if (v !== declutter) triggerHaptic('light');
+                                    setDeclutter(v);
+                                }}
+                                aria-label="Chart detail — full at left, minimal at right"
+                                className="h-1 flex-1 cursor-pointer appearance-none rounded-full bg-slate-600/70 accent-sky-400"
+                            />
+                            <span className="text-[9px] font-black uppercase tracking-widest text-slate-400">
+                                Clean
+                            </span>
+                        </div>
+                    </div>
                 )}
 
                 {/* ═══ ROUTE TRACER ═══
