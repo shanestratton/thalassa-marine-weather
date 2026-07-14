@@ -235,7 +235,21 @@ export function useEncVectorLayer(
 
             try {
                 const win = windowFor(map);
+                // warn, not info: info is silent in prod and this line is
+                // the only breadcrumb for "chart never mounted / never
+                // refreshed" field reports (2026-07-15, "white layer is
+                // not showing"). One line per merge attempt — cheap.
+                log.warn(
+                    `[apply] merge start z=${map.getZoom().toFixed(1)} win=${win.map((v) => v.toFixed(2)).join(',')}`,
+                );
                 const data = await getMergedVectorData(win, map.getZoom());
+                log.warn(
+                    `[apply] merge done: ${
+                        data
+                            ? `${data.cellCount} cells, depare=${data.DEPARE.features.length}, glaze=${data.DEPARE_GLAZE.features.length}, cancelled=${cancelled}`
+                            : 'NULL (no cells in window/floor)'
+                    }`,
+                );
                 if (cancelled || !data) return;
                 mergedWindowRef.current = win;
                 mergedZoomRef.current = map.getZoom();

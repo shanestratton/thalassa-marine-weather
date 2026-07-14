@@ -822,7 +822,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     : 'box-shadow:0 1px 4px rgba(0,0,0,.5);';
             if (isStart || isEnd) {
                 const colour = isStart ? '#34d399' : '#f87171';
-                dot.style.cssText = `width:22px;height:22px;border-radius:9999px;border:4px solid ${colour};background:rgba(15,23,42,0.85);${ring}`;
+                // The sequence number rides INSIDE the ring (Shane
+                // 2026-07-15: "1 inside the green, whatever the last
+                // number is inside the red") — the journey book-ends
+                // still count as waypoints.
+                dot.textContent = isStart ? '1' : String(capturedCoords.length);
+                dot.style.cssText = `width:22px;height:22px;border-radius:9999px;border:4px solid ${colour};background:rgba(15,23,42,0.85);color:${colour};display:flex;align-items:center;justify-content:center;font:800 ${capturedCoords.length > 9 && isEnd ? 8 : 10}px sans-serif;${ring}`;
                 if (isStart) {
                     // Label overflows the fixed 40 px hit-box (absolute, no
                     // layout part) so the marker's centre anchor — and drag
@@ -3924,7 +3929,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 {!embedded && !isPinView && !pickerMode && !hideTracer && encCellCount > 0 && (
                     <div
                         className="absolute left-1/2 z-[9994] -translate-x-1/2"
-                        style={{ bottom: 'calc(2.4rem + env(safe-area-inset-bottom))' }}
+                        style={{ bottom: 'calc(5.4rem + env(safe-area-inset-bottom))' }}
                     >
                         <div className="flex w-64 items-center gap-2 rounded-full border border-white/10 bg-slate-900/85 px-3 py-1.5 shadow-lg backdrop-blur-sm">
                             <span className="text-[9px] font-black uppercase tracking-widest text-sky-300/90">
