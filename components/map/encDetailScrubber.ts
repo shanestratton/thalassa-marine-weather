@@ -89,6 +89,24 @@ const biasedFilters = (bias: number): Array<[string, unknown]> => [
     [ENC_VEC_LAYERS.LNDARE_LABEL, ['all', ['==', ['get', '_kind'], 'land'], scaminWithBias(bias)]],
 ];
 
+/** The level last applied — the other visibility writers consult this
+ *  via isScrubHidden() so they never force-show scrubbed furniture.
+ *  Without it, every merge/effect pass re-showed the cut layers and the
+ *  scrubber re-hid them 120 ms later — "the lead lines start to flash"
+ *  (Shane 2026-07-15) at any declutter ≥ 5. Module-level: one chart map
+ *  per session, same convention as the refresh generation token. */
+let activeDeclutter = 0;
+
+/** Is this layer currently removed by the detail scrubber? Checked by
+ *  setEncVectorVisibility / setEncChartDetail before force-showing. */
+export function isScrubHidden(layerId: string): boolean {
+    if (activeDeclutter <= 0) return false;
+    for (let i = 0; i < Math.min(activeDeclutter, FURNITURE_CUTS.length); i++) {
+        if (FURNITURE_CUTS[i].includes(layerId)) return true;
+    }
+    return false;
+}
+
 /**
  * Apply a declutter level (0 = full … DETAIL_SCRUB_MAX = minimal).
  * Self-healing and steady-state silent: every write is guarded by a
@@ -98,6 +116,7 @@ const biasedFilters = (bias: number): Array<[string, unknown]> => [
  */
 export function applyChartDetailLevel(map: mapboxgl.Map, declutter: number): boolean {
     const d = Math.max(0, Math.min(DETAIL_SCRUB_MAX, Math.round(declutter)));
+    activeDeclutter = d;
     let changed = false;
     try {
         FURNITURE_CUTS.forEach((group, i) => {

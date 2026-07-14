@@ -146,15 +146,11 @@ interface ChartModesProps {
     satelliteVisible?: boolean;
     setSatelliteVisible?: (v: boolean) => void;
 
-    /** Terrain BASE — shaded-relief land under the untouched chart water.
-     *  Mutually exclusive with satellite (MapHub's setters enforce it). */
-    terrainVisible?: boolean;
-    setTerrainVisible?: (v: boolean) => void;
-
-    /** Dark BASE — the public voyage-page dark-v11 basemap as raster
-     *  tiles under the chart. Mutually exclusive with the other bases. */
-    darkBaseVisible?: boolean;
-    setDarkBaseVisible?: (v: boolean) => void;
+    /** Hybrid BASE — the public voyage-page look: satellite-streets
+     *  imagery with roads + names. The ONLY other base beside plain
+     *  satellite (Shane 2026-07-15); mutually exclusive with it. */
+    hybridVisible?: boolean;
+    setHybridVisible?: (v: boolean) => void;
 
     /** "Depth right now" — depth tints/numbers re-read as charted +
      *  predicted tide (visual only; MapHub owns the disclaimer + badge). */
@@ -585,36 +581,36 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                         </span>
                                     </button>
                                 )}
-                                {isClearRow && props.setTerrainVisible && (
+                                {isClearRow && props.setHybridVisible && (
                                     <button
                                         onClick={() => {
                                             triggerHaptic('light');
-                                            props.setTerrainVisible?.(!props.terrainVisible);
+                                            props.setHybridVisible?.(!props.hybridVisible);
                                         }}
                                         className="flex items-center gap-3 text-left transition-colors"
                                         style={{
-                                            background: props.terrainVisible
-                                                ? 'rgba(217, 185, 138, 0.20)'
-                                                : 'rgba(217, 185, 138, 0.08)',
+                                            background: props.hybridVisible
+                                                ? 'rgba(56, 189, 248, 0.20)'
+                                                : 'rgba(56, 189, 248, 0.08)',
                                             borderRadius: 10,
                                             padding: '8px 10px',
-                                            border: '1px solid rgba(217, 185, 138, 0.3)',
+                                            border: '1px solid rgba(56, 189, 248, 0.3)',
                                         }}
-                                        aria-label="Toggle terrain shaded-relief base"
+                                        aria-label="Toggle hybrid satellite base (imagery with roads and names)"
                                     >
                                         <span
                                             aria-hidden
                                             className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#d9b98a', fontSize: 14, lineHeight: 1 }}
+                                            style={{ color: '#38bdf8', fontSize: 14, lineHeight: 1 }}
                                         >
-                                            ⛰
+                                            🗺️
                                         </span>
                                         <span className="flex-1 min-w-0">
                                             <span
                                                 className="block font-semibold"
-                                                style={{ color: '#d9b98a', fontSize: 13 }}
+                                                style={{ color: '#38bdf8', fontSize: 13 }}
                                             >
-                                                Terrain {props.terrainVisible ? 'ON' : 'off'}
+                                                Hybrid {props.hybridVisible ? 'ON' : 'off'}
                                             </span>
                                             <span
                                                 className="block opacity-70"
@@ -624,51 +620,7 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                     marginTop: 1,
                                                 }}
                                             >
-                                                shaded-relief land, chart water untouched
-                                            </span>
-                                        </span>
-                                    </button>
-                                )}
-                                {isClearRow && props.setDarkBaseVisible && (
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            props.setDarkBaseVisible?.(!props.darkBaseVisible);
-                                        }}
-                                        className="flex items-center gap-3 text-left transition-colors"
-                                        style={{
-                                            background: props.darkBaseVisible
-                                                ? 'rgba(129, 140, 248, 0.20)'
-                                                : 'rgba(129, 140, 248, 0.08)',
-                                            borderRadius: 10,
-                                            padding: '8px 10px',
-                                            border: '1px solid rgba(129, 140, 248, 0.3)',
-                                        }}
-                                        aria-label="Toggle dark basemap"
-                                    >
-                                        <span
-                                            aria-hidden
-                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
-                                            style={{ color: '#818cf8', fontSize: 14, lineHeight: 1 }}
-                                        >
-                                            🌙
-                                        </span>
-                                        <span className="flex-1 min-w-0">
-                                            <span
-                                                className="block font-semibold"
-                                                style={{ color: '#818cf8', fontSize: 13 }}
-                                            >
-                                                Dark {props.darkBaseVisible ? 'ON' : 'off'}
-                                            </span>
-                                            <span
-                                                className="block opacity-70"
-                                                style={{
-                                                    color: 'rgba(255,255,255,0.7)',
-                                                    fontSize: 10,
-                                                    marginTop: 1,
-                                                }}
-                                            >
-                                                the voyage-page dark basemap under your chart
+                                                imagery with roads &amp; names — the public-page look
                                             </span>
                                         </span>
                                     </button>

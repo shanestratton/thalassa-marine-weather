@@ -1731,26 +1731,28 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the white chart stands alone offline. Still never persisted — the
     // toggle owns it per session, so no state can haunt a later boot.
     const [satelliteVisible, setSatelliteVisible] = useState(!Capacitor.isNativePlatform());
-    // Terrain base (Shane 2026-07-14: "another layer apart from the
-    // satellite... something tasteful"): shaded-relief land under the
-    // untouched chart water. Session-only like satellite; the two are
-    // mutually exclusive (the ChartModes setters clear the sibling).
-    const [terrainVisible, setTerrainVisible] = useState(false);
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
-    // Dark base (Shane 2026-07-15): the public voyage-page dark-v11
-    // basemap as a third base mode. Session-only; mutually exclusive
-    // with satellite and terrain via the ChartModes setters.
-    const [darkBaseVisible, setDarkBaseVisible] = useState(false);
+    // Hybrid base (Shane 2026-07-15): the PUBLIC voyage-page look —
+    // satellite-streets, imagery with roads + names — as the ONLY other
+    // base beside plain satellite ("these are the only two layers that
+    // I want"; Terrain and Dark retired the same day). Session-only,
+    // mutually exclusive with satellite via the ChartModes setters, and
+    // it gets the FULL satellite ENC treatment (glaze, hidden land
+    // fills, bathy tint) via imageryOn below.
+    const [hybridVisible, setHybridVisible] = useState(false);
+    const imageryOn = satelliteVisible || hybridVisible;
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
         // Mirror for EncVectorLayer's sync reads — written BEFORE apply()
         // so the visibility writers see the same truth this render does.
         try {
-            localStorage.setItem('thalassa_satellite_base_v2', satelliteVisible ? 'true' : 'false');
+            // Hybrid counts as satellite for every ENC treatment consumer
+            // (glaze opacity, hide-lists) — it IS imagery underneath.
+            localStorage.setItem('thalassa_satellite_base_v2', imageryOn ? 'true' : 'false');
         } catch {
             /* storage unavailable — writers fall back to their default */
         }
@@ -1781,37 +1783,14 @@ export const MapHub: React.FC<MapHubProps> = ({
         const apply = (force = false) => {
             try {
                 let changed = force;
-                // Terrain hillshade rides the same conditional-write rules
-                // as satellite: visibility, self-healing z-order, and a
-                // translucent LNDARE tan (0.5) so the relief glows through
-                // the chart's land — all no-ops at steady state so the
-                // styledata loop stays dead.
-                if (map.getLayer('terrain-hillshade-layer')) {
-                    if (setVis('terrain-hillshade-layer', terrainVisible ? 'visible' : 'none')) changed = true;
+                // Hybrid base rides the same conditional-write rules as
+                // satellite: visibility + self-healing z-order.
+                if (map.getLayer('hybrid-base-layer')) {
+                    if (setVis('hybrid-base-layer', hybridVisible ? 'visible' : 'none')) changed = true;
                     const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
                     const encBottom = order.find((id) => id.startsWith('enc-vec-'));
-                    if (encBottom && order.indexOf('terrain-hillshade-layer') > order.indexOf(encBottom)) {
-                        map.moveLayer('terrain-hillshade-layer', encBottom);
-                        changed = true;
-                    }
-                }
-                // Dark base rides the same conditional-write rules.
-                if (map.getLayer('dark-base-layer')) {
-                    if (setVis('dark-base-layer', darkBaseVisible ? 'visible' : 'none')) changed = true;
-                    const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
-                    const encBottom = order.find((id) => id.startsWith('enc-vec-'));
-                    if (encBottom && order.indexOf('dark-base-layer') > order.indexOf(encBottom)) {
-                        map.moveLayer('dark-base-layer', encBottom);
-                        changed = true;
-                    }
-                }
-                if (map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
-                    // Translucent tan under terrain relief AND under the
-                    // dark base — both are "the basemap's land is the
-                    // point" modes; plain chart keeps the full tan.
-                    const target = terrainVisible || darkBaseVisible ? 0.5 : 0.85;
-                    if (map.getPaintProperty(ENC_VEC_LAYERS.LNDARE, 'fill-opacity') !== target) {
-                        map.setPaintProperty(ENC_VEC_LAYERS.LNDARE, 'fill-opacity', target);
+                    if (encBottom && order.indexOf('hybrid-base-layer') > order.indexOf(encBottom)) {
+                        map.moveLayer('hybrid-base-layer', encBottom);
                         changed = true;
                     }
                 }
@@ -1836,10 +1815,11 @@ export const MapHub: React.FC<MapHubProps> = ({
                 // = the real sand banks glowing through the dirty tint) via
                 // syncDepareBaseTreatment. Contours, coastline, soundings,
                 // marks, routes and chips all render on the imagery.
-                if (satelliteVisible) {
+                if (imageryOn) {
                     // Mirrors EncVectorLayer's SATELLITE_HIDE_LAYERS: land
                     // fills + charted coastline + bold safety contour are
                     // chart furniture the imagery replaces (Shane 2026-07-11).
+                    // Applies to BOTH imagery bases (satellite and hybrid).
                     for (const id of [
                         ENC_VEC_LAYERS.LNDARE,
                         ENC_VEC_LAYERS.LNDARE_ISLET,
@@ -1874,7 +1854,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             }
         };
         apply(true);
-        if (!satelliteVisible) {
+        if (!imageryOn) {
             // Toggled OFF: hand the fills back to their owners (ENC master
             // toggle + chart-detail mode) instead of force-showing them —
             // forcing 'visible' here used to override a user's ENC-off/clean
@@ -1914,7 +1894,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [satelliteVisible, terrainVisible, darkBaseVisible, declutter, mapReady, encVisible, encChartDetail]);
+    }, [satelliteVisible, hybridVisible, imageryOn, declutter, mapReady, encVisible, encChartDetail]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -4068,23 +4048,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     >
                                         🧭
                                     </button>
-                                    <button
-                                        onClick={() => {
-                                            triggerHaptic('light');
-                                            setPlotArmed((a) => !a);
-                                        }}
-                                        aria-pressed={plotArmed}
-                                        aria-label={
-                                            plotArmed
-                                                ? 'Pause plotting — taps stop dropping pins'
-                                                : 'Resume plotting — taps drop pins again'
-                                        }
-                                        className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
-                                            plotArmed ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-gray-300'
-                                        }`}
-                                    >
-                                        {plotArmed ? '✏️ plotting' : '⏸ paused'}
-                                    </button>
+                                    {/* Header plot-armed chip REMOVED (Shane 2026-07-15:
+                                        "two plotting and two pause buttons — get rid of
+                                        the top one"). The action rows own the toggle:
+                                        folded strip + the Undo/Copy/Clear row below. */}
                                     <button
                                         onClick={() => {
                                             triggerHaptic('light');
@@ -4511,6 +4478,20 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </div>
                                         )}
                                         <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
+                                            <button
+                                                onClick={() => {
+                                                    triggerHaptic('light');
+                                                    setPlotArmed((a) => !a);
+                                                }}
+                                                aria-pressed={plotArmed}
+                                                className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 ${
+                                                    plotArmed
+                                                        ? 'bg-amber-500/20 text-amber-300'
+                                                        : 'bg-white/10 text-gray-300'
+                                                }`}
+                                            >
+                                                {plotArmed ? '✏️ Plot' : '⏸ Paused'}
+                                            </button>
                                             <button
                                                 onClick={() => {
                                                     triggerHaptic('light');
@@ -5081,26 +5062,12 @@ export const MapHub: React.FC<MapHubProps> = ({
                     satelliteVisible={satelliteVisible}
                     setSatelliteVisible={(v) => {
                         setSatelliteVisible(v);
-                        if (v) {
-                            setTerrainVisible(false); // one base at a time
-                            setDarkBaseVisible(false);
-                        }
+                        if (v) setHybridVisible(false); // one base at a time
                     }}
-                    terrainVisible={terrainVisible}
-                    setTerrainVisible={(v) => {
-                        setTerrainVisible(v);
-                        if (v) {
-                            setSatelliteVisible(false);
-                            setDarkBaseVisible(false);
-                        }
-                    }}
-                    darkBaseVisible={darkBaseVisible}
-                    setDarkBaseVisible={(v) => {
-                        setDarkBaseVisible(v);
-                        if (v) {
-                            setSatelliteVisible(false);
-                            setTerrainVisible(false);
-                        }
+                    hybridVisible={hybridVisible}
+                    setHybridVisible={(v) => {
+                        setHybridVisible(v);
+                        if (v) setSatelliteVisible(false);
                     }}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}

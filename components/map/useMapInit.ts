@@ -548,72 +548,37 @@ export function useMapInit(opts: UseMapInitOptions) {
                 );
             }
 
-            // ── Terrain hillshade base (Shane 2026-07-14: "another layer
-            // apart from the satellite... something tasteful") ──
-            // Shaded-relief LAND under the chart: a hillshade layer off
-            // the Mapbox DEM, born hidden, toggled by ChartModes' Terrain
-            // row (session-only, like satellite). The ENC water stays the
-            // untouched white ramp — the DEM is flat at sea level, so the
-            // relief only ever sculpts the land; MapHub drops the LNDARE
-            // tan to translucent while it's on so the relief glows
-            // through the chart's own land colour.
-            if (!map.getSource('terrain-hillshade-dem')) {
-                map.addSource('terrain-hillshade-dem', {
-                    type: 'raster-dem',
-                    url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
-                    tileSize: 512,
-                    maxzoom: 14,
-                });
-                const encBottomForDem = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
-                map.addLayer(
-                    {
-                        id: 'terrain-hillshade-layer',
-                        type: 'hillshade',
-                        source: 'terrain-hillshade-dem',
-                        layout: { visibility: 'none' },
-                        paint: {
-                            // Soft warm relief, not gamer-map drama: gentle
-                            // exaggeration, shadows in the chart's own earth
-                            // tones so it reads like engraved paper.
-                            'hillshade-exaggeration': 0.35,
-                            'hillshade-shadow-color': '#8a7a5f',
-                            'hillshade-highlight-color': '#fffdf7',
-                            'hillshade-accent-color': '#a08c6b',
-                        },
-                    },
-                    encBottomForDem,
-                );
-            }
-
-            // ── Dark base (Shane 2026-07-15: "the layer on the public
-            // page… that is a banging layer… pretty please with icecream
-            // and cherries on top") ──
-            // Mapbox dark-v11 — the public voyage/plan pages' dark mode —
-            // served as raster tiles via the Static Tiles API so it can
-            // live INSIDE the app's style like the satellite base does
-            // (a real setStyle() swap would destroy every custom layer).
-            // Born hidden; ChartModes' Dark row toggles it, mutually
-            // exclusive with Satellite and Terrain.
-            if (!map.getSource('dark-base')) {
-                map.addSource('dark-base', {
+            // ── Hybrid base (Shane 2026-07-15: "this is the layer that I
+            // would like on the planning page in addition to the
+            // satellite… these are the only two layers that I want") ──
+            // The PUBLIC voyage-page look: satellite-streets-v12 — imagery
+            // with roads and place names baked in — served as raster tiles
+            // via the Static Tiles API so it lives INSIDE the app's style
+            // like the satellite base does (a setStyle() swap would destroy
+            // every custom layer). Terrain and Dark modes retired the same
+            // day: two bases only, Satellite and Hybrid.
+            if (!map.getSource('hybrid-base')) {
+                map.addSource('hybrid-base', {
                     type: 'raster',
                     tiles: [
-                        `https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/512/{z}/{x}/{y}@2x?access_token=${mapboxToken}`,
+                        `https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/512/{z}/{x}/{y}@2x?access_token=${mapboxToken}`,
                     ],
                     tileSize: 512,
                     maxzoom: 22,
-                    attribution: '© Mapbox © OpenStreetMap',
+                    attribution: '© Mapbox © Maxar © OpenStreetMap',
                 });
-                const encBottomForDark = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
+                const encBottomForHybrid = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
                 map.addLayer(
                     {
-                        id: 'dark-base-layer',
+                        id: 'hybrid-base-layer',
                         type: 'raster',
-                        source: 'dark-base',
+                        source: 'hybrid-base',
                         layout: { visibility: 'none' },
-                        paint: { 'raster-opacity': 1 },
+                        // Same brightness pop as the satellite base and the
+                        // public page's voyage-log-sat-bright filter.
+                        paint: { 'raster-opacity': 1, 'raster-saturation': 0.15, 'raster-contrast': 0.05 },
                     },
-                    encBottomForDark,
+                    encBottomForHybrid,
                 );
             }
 
