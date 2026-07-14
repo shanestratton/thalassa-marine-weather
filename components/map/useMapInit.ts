@@ -80,6 +80,11 @@ interface UseMapInitOptions {
     setSettingPoint: (v: 'departure' | 'arrival' | null) => void;
     /** Called when the user taps a point on the map (for weather inspect popup) */
     onMapTap?: (lat: number, lon: number) => void;
+    /** Called when the user LONG-PRESSES a point on the map (~500 ms hold,
+     *  still finger). The tracer places waypoints on this, never on tap
+     *  (Shane 2026-07-15: "before we place a waypoint, ensure it is a
+     *  long press first"). */
+    onMapLongPress?: (lat: number, lon: number) => void;
     /** When true, long-press pin drop is suppressed (Weather Here takes priority) */
     weatherInspect?: boolean;
     /** When true, a chart tap fires onMapTap even while a passage/route is shown
@@ -124,6 +129,9 @@ export function useMapInit(opts: UseMapInitOptions) {
     // Ref to always hold the latest onMapTap callback — avoids stale closure
     // in the map click handler which is created once at mount time.
     const onMapTapRef = useRef(opts.onMapTap);
+    // Same pattern for the long-press callback.
+    const onMapLongPressRef = useRef(opts.onMapLongPress);
+    onMapLongPressRef.current = opts.onMapLongPress;
     // Ref for weather inspect mode — suppresses long-press pin drop
     const weatherInspectRef = useRef(opts.weatherInspect ?? false);
     // Ref for coordinate-capture mode — lets a chart tap through even with a
@@ -1235,14 +1243,68 @@ export function useMapInit(opts: UseMapInitOptions) {
         // Location changes only happen via picker mode (location box → map).
         // The dropPin callback is kept for passage planner (departure/arrival).
 
+        // ── Long-press handler (hold ~500 ms, still finger/cursor) ──
+        // The tracer's waypoint-placement gesture (Shane 2026-07-15:
+        // "before we place a waypoint, ensure it is a long press first").
+        // Armed on touchstart/mousedown, cancelled by movement (> 8 px),
+        // release, a second finger, or any camera gesture — so a pan or
+        // pinch that BEGINS with a still moment never drops a pin. Fires
+        // with the PRESS-START coordinate (the spot the finger anchored,
+        // not wherever it crept to by the 500 ms mark).
+        let pressStart: { x: number; y: number } | null = null;
+        let suppressNextClick = false;
+        const cancelPress = () => {
+            if (longPressTimer.current) {
+                clearTimeout(longPressTimer.current);
+                longPressTimer.current = null;
+            }
+            pressStart = null;
+        };
+        const beginPress = (point: { x: number; y: number }, lngLat: { lat: number; lng: number }) => {
+            cancelPress();
+            pressStart = { x: point.x, y: point.y };
+            longPressTimer.current = setTimeout(() => {
+                longPressTimer.current = null;
+                pressStart = null;
+                // The finger lift after a fired long-press still emits a
+                // click — swallow exactly one so the pin doesn't double.
+                suppressNextClick = true;
+                onMapLongPressRef.current?.(lngLat.lat, lngLat.lng);
+            }, 500);
+        };
+        const movePress = (point: { x: number; y: number }) => {
+            if (pressStart && Math.hypot(point.x - pressStart.x, point.y - pressStart.y) > 8) cancelPress();
+        };
+        map.on('touchstart', (e) => {
+            if (e.points && e.points.length > 1) {
+                cancelPress(); // pinch, not a press
+                return;
+            }
+            beginPress(e.point, e.lngLat);
+        });
+        map.on('touchmove', (e) => movePress(e.point));
+        map.on('touchend', cancelPress);
+        map.on('touchcancel', cancelPress);
+        map.on('mousedown', (e) => beginPress(e.point, e.lngLat));
+        map.on('mousemove', (e) => movePress(e.point));
+        map.on('mouseup', cancelPress);
+        map.on('zoomstart', cancelPress);
+        map.on('rotatestart', cancelPress);
+        map.on('pitchstart', cancelPress);
+
         // ── Single-tap inspect handler ──
         // Fires onMapTap for weather popup if not in picker/passage/embedded mode.
         // Uses wasDragged to ignore tap-after-drag.
         let wasDragged = false;
         map.on('dragstart', () => {
             wasDragged = true;
+            cancelPress();
         });
         map.on('click', (e) => {
+            if (suppressNextClick) {
+                suppressNextClick = false;
+                return;
+            }
             if (wasDragged) {
                 wasDragged = false;
                 return;
