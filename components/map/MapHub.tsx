@@ -1740,6 +1740,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
     const [declutter, setDeclutter] = useState(0);
+    // Dark base (Shane 2026-07-15): the public voyage-page dark-v11
+    // basemap as a third base mode. Session-only; mutually exclusive
+    // with satellite and terrain via the ChartModes setters.
+    const [darkBaseVisible, setDarkBaseVisible] = useState(false);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1791,8 +1795,21 @@ export const MapHub: React.FC<MapHubProps> = ({
                         changed = true;
                     }
                 }
+                // Dark base rides the same conditional-write rules.
+                if (map.getLayer('dark-base-layer')) {
+                    if (setVis('dark-base-layer', darkBaseVisible ? 'visible' : 'none')) changed = true;
+                    const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                    const encBottom = order.find((id) => id.startsWith('enc-vec-'));
+                    if (encBottom && order.indexOf('dark-base-layer') > order.indexOf(encBottom)) {
+                        map.moveLayer('dark-base-layer', encBottom);
+                        changed = true;
+                    }
+                }
                 if (map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
-                    const target = terrainVisible ? 0.5 : 0.85;
+                    // Translucent tan under terrain relief AND under the
+                    // dark base — both are "the basemap's land is the
+                    // point" modes; plain chart keeps the full tan.
+                    const target = terrainVisible || darkBaseVisible ? 0.5 : 0.85;
                     if (map.getPaintProperty(ENC_VEC_LAYERS.LNDARE, 'fill-opacity') !== target) {
                         map.setPaintProperty(ENC_VEC_LAYERS.LNDARE, 'fill-opacity', target);
                         changed = true;
@@ -1897,7 +1914,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [satelliteVisible, terrainVisible, declutter, mapReady, encVisible, encChartDetail]);
+    }, [satelliteVisible, terrainVisible, darkBaseVisible, declutter, mapReady, encVisible, encChartDetail]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -5045,12 +5062,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                     satelliteVisible={satelliteVisible}
                     setSatelliteVisible={(v) => {
                         setSatelliteVisible(v);
-                        if (v) setTerrainVisible(false); // one base at a time
+                        if (v) {
+                            setTerrainVisible(false); // one base at a time
+                            setDarkBaseVisible(false);
+                        }
                     }}
                     terrainVisible={terrainVisible}
                     setTerrainVisible={(v) => {
                         setTerrainVisible(v);
-                        if (v) setSatelliteVisible(false);
+                        if (v) {
+                            setSatelliteVisible(false);
+                            setDarkBaseVisible(false);
+                        }
+                    }}
+                    darkBaseVisible={darkBaseVisible}
+                    setDarkBaseVisible={(v) => {
+                        setDarkBaseVisible(v);
+                        if (v) {
+                            setSatelliteVisible(false);
+                            setTerrainVisible(false);
+                        }
                     }}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}

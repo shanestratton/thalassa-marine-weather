@@ -151,6 +151,11 @@ interface ChartModesProps {
     terrainVisible?: boolean;
     setTerrainVisible?: (v: boolean) => void;
 
+    /** Dark BASE — the public voyage-page dark-v11 basemap as raster
+     *  tiles under the chart. Mutually exclusive with the other bases. */
+    darkBaseVisible?: boolean;
+    setDarkBaseVisible?: (v: boolean) => void;
+
     /** "Depth right now" — depth tints/numbers re-read as charted +
      *  predicted tide (visual only; MapHub owns the disclaimer + badge). */
     tideDepthMode?: boolean;
@@ -620,6 +625,50 @@ export const ChartModes: React.FC<ChartModesProps> = (props) => {
                                                 }}
                                             >
                                                 shaded-relief land, chart water untouched
+                                            </span>
+                                        </span>
+                                    </button>
+                                )}
+                                {isClearRow && props.setDarkBaseVisible && (
+                                    <button
+                                        onClick={() => {
+                                            triggerHaptic('light');
+                                            props.setDarkBaseVisible?.(!props.darkBaseVisible);
+                                        }}
+                                        className="flex items-center gap-3 text-left transition-colors"
+                                        style={{
+                                            background: props.darkBaseVisible
+                                                ? 'rgba(129, 140, 248, 0.20)'
+                                                : 'rgba(129, 140, 248, 0.08)',
+                                            borderRadius: 10,
+                                            padding: '8px 10px',
+                                            border: '1px solid rgba(129, 140, 248, 0.3)',
+                                        }}
+                                        aria-label="Toggle dark basemap"
+                                    >
+                                        <span
+                                            aria-hidden
+                                            className="inline-flex items-center justify-center w-[18px] h-[18px] shrink-0"
+                                            style={{ color: '#818cf8', fontSize: 14, lineHeight: 1 }}
+                                        >
+                                            🌙
+                                        </span>
+                                        <span className="flex-1 min-w-0">
+                                            <span
+                                                className="block font-semibold"
+                                                style={{ color: '#818cf8', fontSize: 13 }}
+                                            >
+                                                Dark {props.darkBaseVisible ? 'ON' : 'off'}
+                                            </span>
+                                            <span
+                                                className="block opacity-70"
+                                                style={{
+                                                    color: 'rgba(255,255,255,0.7)',
+                                                    fontSize: 10,
+                                                    marginTop: 1,
+                                                }}
+                                            >
+                                                the voyage-page dark basemap under your chart
                                             </span>
                                         </span>
                                     </button>

@@ -577,6 +577,38 @@ export function useMapInit(opts: UseMapInitOptions) {
                 );
             }
 
+            // ── Dark base (Shane 2026-07-15: "the layer on the public
+            // page… that is a banging layer… pretty please with icecream
+            // and cherries on top") ──
+            // Mapbox dark-v11 — the public voyage/plan pages' dark mode —
+            // served as raster tiles via the Static Tiles API so it can
+            // live INSIDE the app's style like the satellite base does
+            // (a real setStyle() swap would destroy every custom layer).
+            // Born hidden; ChartModes' Dark row toggles it, mutually
+            // exclusive with Satellite and Terrain.
+            if (!map.getSource('dark-base')) {
+                map.addSource('dark-base', {
+                    type: 'raster',
+                    tiles: [
+                        `https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/512/{z}/{x}/{y}@2x?access_token=${mapboxToken}`,
+                    ],
+                    tileSize: 512,
+                    maxzoom: 22,
+                    attribution: '© Mapbox © OpenStreetMap',
+                });
+                const encBottomForDark = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
+                map.addLayer(
+                    {
+                        id: 'dark-base-layer',
+                        type: 'raster',
+                        source: 'dark-base',
+                        layout: { visibility: 'none' },
+                        paint: { 'raster-opacity': 1 },
+                    },
+                    encBottomForDark,
+                );
+            }
+
             // ── MapTiler Ocean Bathymetry Overlay ──
             // Adds high-res bathymetry contours from MapTiler Ocean tiles as a raster overlay.
             // Uses raster XYZ endpoint (plain HTTPS) which works with mapbox-gl v2+.
