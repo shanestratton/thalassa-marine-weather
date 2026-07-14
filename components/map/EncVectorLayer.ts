@@ -55,6 +55,7 @@ import {
     DEPCNT_LABEL_INK_LIVE,
     SCAMIN_CLAUSE,
     buildDepareFillColor,
+    buildDepareGlazeFillColor,
     buildDepareSatelliteOpacity,
     buildDepcntLabelField,
     buildSoundingTextColor,
@@ -78,6 +79,25 @@ export {
 export { computeSafetyValdco } from './encDepthStyle';
 
 const log = createLogger('EncVectorLayer');
+
+/** Brisbane VTS working area, approximated: Moreton Bay incl. the river
+ *  mouth and the NW/NE/Main channel approaches (Caloundra down to the
+ *  bay's southern islands; the Gold Coast Broadwater is deliberately
+ *  outside). Leads within it badge "VHF 12·16" — MSQ Brisbane VTS works
+ *  channel 12; everywhere else badges the ch-16 watch. Refine to the
+ *  gazetted VTS boundary when it matters. */
+const BRISBANE_VTS_AREA = {
+    type: 'Polygon',
+    coordinates: [
+        [
+            [152.85, -27.6],
+            [153.65, -27.6],
+            [153.65, -26.6],
+            [152.85, -26.6],
+            [152.85, -27.6],
+        ],
+    ],
+} as const;
 
 // ── Source + layer IDs ─────────────────────────────────────────────
 // Live in encLayerIds.ts so the popup module (encPopup.ts) can name
@@ -459,8 +479,12 @@ export function mountEncVectorLayer(
         map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
     }
     // ── DEPARE_GLAZE (overlap-clipped satellite twin) ─────────────
-    // Same ramp off the CLIPPED collection; syncDepareBaseTreatment
-    // owns its opacity (0 on the chart, the depth glaze over imagery).
+    // FLAT two-tone colour off the CLIPPED collection (white / drying
+    // khaki, chart datum) — NOT the depth ramp: graded hues turned
+    // every clipped-piece overlap into a different-tone rectangle
+    // ("blocky squares... 80's styling", 2026-07-14). White-on-white
+    // overlap is just white. syncDepareBaseTreatment owns the opacity
+    // (0 on the chart, the keel-keyed glaze over imagery).
     if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
         map.addLayer(
             {
@@ -469,7 +493,7 @@ export function mountEncVectorLayer(
                 source: ENC_VEC_SRC.DEPARE_GLAZE,
                 minzoom: minZoom,
                 paint: {
-                    'fill-color': buildDepareFillColor(),
+                    'fill-color': buildDepareGlazeFillColor(),
                     'fill-opacity': 0,
                     // AA OFF, matching the chart fills (Shane 2026-07-12:
                     // "vertical + horizontal lines" once the 172-cell
@@ -1109,6 +1133,50 @@ export function mountEncVectorLayer(
         );
     }
 
+    // ── VHF watch-channel badges along the leads ──────────────────
+    // "A little radio symbol with the correct radio channel punters
+    // should be on, dotted along" (Shane 2026-07-14). The charted
+    // leads ARE the marked channels, so the badges ride them like the
+    // lead labels do — ((•)) reads as a transmitting antenna and stays
+    // inside the DIN glyph set (emoji don't rasterise in Mapbox glyph
+    // PBFs). Inside the Brisbane VTS area the watch is VHF 12 + 16
+    // (MSQ: Brisbane VTS works channel 12); everywhere else the
+    // distress/hailing watch, 16. Split with `within` filters — the
+    // one expression Mapbox only honours in filters.
+    const vhfLayer = (id: string, insideVts: boolean): void => {
+        if (map.getLayer(id)) return;
+        map.addLayer(
+            {
+                id,
+                type: 'symbol',
+                source: ENC_VEC_SRC.RECTRC,
+                minzoom: 10.5,
+                filter: (insideVts
+                    ? ['within', BRISBANE_VTS_AREA]
+                    : ['!', ['within', BRISBANE_VTS_AREA]]) as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 560,
+                    'text-field': insideVts ? '((•)) VHF 12·16' : '((•)) VHF 16',
+                    'text-font': ['DIN Pro Bold', 'Arial Unicode MS Regular'],
+                    'text-size': 9.5,
+                    'text-letter-spacing': 0.06,
+                    'text-offset': [0, 1.25], // sit just below the lead, clear of its label
+                    'text-allow-overlap': false,
+                    'text-padding': 4,
+                },
+                paint: {
+                    'text-color': '#7dd3fc', // radio sky-blue — distinct from every chart ink
+                    'text-halo-color': 'rgba(8, 20, 34, 0.9)',
+                    'text-halo-width': 1.3,
+                },
+            },
+            beforeIdFor(id as (typeof ENC_VEC_LAYERS)[keyof typeof ENC_VEC_LAYERS]),
+        );
+    };
+    vhfLayer(ENC_VEC_LAYERS.VHF_BADGE, false);
+    vhfLayer(ENC_VEC_LAYERS.VHF_BADGE_VTS, true);
+
     // ── LIGHTS (lighthouses + lit aids) ───────────────────────────
     // Symbol layer with a star char so it stays sharp at any zoom —
     // the cheap path; an SDF flare icon is the phase-2 pretty path.
@@ -1486,7 +1554,7 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         // TOGETHER on the same datum (pairing invariant, encDepthStyle):
         // applyTideOffsetPaint deliberately skips this layer.
         const safetyDepthM = depthStyleState.get(map)?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareFillColor());
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareGlazeFillColor());
         map.setPaintProperty(
             ENC_VEC_LAYERS.DEPARE_GLAZE,
             'fill-opacity',
