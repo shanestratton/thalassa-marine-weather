@@ -44,9 +44,10 @@
 // bar. Purge hard: stale bundles are exactly what v65 fixes.
 // v66: Dark base mode — the public voyage-page dark-v11 basemap as a
 // third base under the chart.
-const CACHE_NAME = 'thalassa-v66-core';
-const TILE_CACHE = 'thalassa-v66-tiles';
-const DATA_CACHE = 'thalassa-v66-data';
+// v67: tracer pins place on LONG PRESS, taps only coach.
+const CACHE_NAME = 'thalassa-v67-core';
+const TILE_CACHE = 'thalassa-v67-tiles';
+const DATA_CACHE = 'thalassa-v67-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

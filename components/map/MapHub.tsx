@@ -2619,6 +2619,84 @@ export const MapHub: React.FC<MapHubProps> = ({
         }
     }, [showConsensus]);
 
+    // ── Weather-inspect popup (tap gesture, inspect mode only) ──
+    // Hoisted out of the handler map so onMapTap stays a thin router now
+    // that placement moved to onMapLongPress.
+    const showWeatherInspect = (lat: number, lon: number): void => {
+        const map = mapRef.current;
+        if (!map) return;
+        // Close any existing inspect popup
+        if (inspectPopupRef.current) {
+            inspectPopupRef.current.remove();
+            inspectPopupRef.current = null;
+        }
+        if (inspectRootRef.current) {
+            inspectRootRef.current.unmount();
+            inspectRootRef.current = null;
+        }
+
+        const container = document.createElement('div');
+        container.style.minWidth = '240px';
+        const root = createRoot(container);
+        inspectRootRef.current = root;
+
+        setInspectData(null);
+        setInspectLoading(true);
+
+        const closePopup = () => {
+            if (inspectPopupRef.current) {
+                inspectPopupRef.current.remove();
+                inspectPopupRef.current = null;
+            }
+            if (inspectRootRef.current) {
+                inspectRootRef.current.unmount();
+                inspectRootRef.current = null;
+            }
+            setInspectData(null);
+            setInspectLoading(false);
+        };
+
+        getWeatherInspectPopup().then((WIP) => {
+            root.render(<WIP data={null} loading={true} onClose={closePopup} />);
+        });
+
+        const popup = new mapboxgl.Popup({
+            closeButton: false,
+            closeOnClick: true,
+            className: 'weather-inspect-popup',
+            maxWidth: '300px',
+            offset: 8,
+        })
+            .setLngLat([lon, lat])
+            .setDOMContent(container)
+            .addTo(map);
+
+        inspectPopupRef.current = popup;
+        popup.on('close', () => {
+            if (inspectRootRef.current) {
+                inspectRootRef.current.unmount();
+                inspectRootRef.current = null;
+            }
+            inspectPopupRef.current = null;
+            setInspectData(null);
+            setInspectLoading(false);
+        });
+
+        import('../../services/weather/pointWeather')
+            .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
+            .then((data) => {
+                if (!inspectPopupRef.current) return; // popup was closed
+                setInspectData(data);
+                setInspectLoading(false);
+                getWeatherInspectPopup().then((WIP) => {
+                    root.render(<WIP data={data} loading={false} onClose={closePopup} />);
+                });
+            })
+            .catch(() => {
+                setInspectLoading(false);
+            });
+    };
+
     // ── Map Init ──
     const { dropPin } = useMapInit({
         containerRef,
@@ -2656,12 +2734,31 @@ export const MapHub: React.FC<MapHubProps> = ({
             const map = mapRef.current;
             if (!map) return;
 
-            // Route Tracer owns the tap when active AND ARMED — record the
-            // fix (snapped off the breakwater if the fat finger just missed
-            // the water), splice it mid-trace when an insert is armed, and
-            // stop (no weather popup). PAUSED plotting (Shane 2026-07-11:
-            // "great when you want it, and fucken annoying when you don't")
-            // hands the tap back to the chart — popups, pans, no pin.
+            // Tracer active + armed: taps no longer place — placement is
+            // the LONG PRESS (Shane 2026-07-15: "before we place a
+            // waypoint, ensure it is a long press first"), so a stray tap
+            // mid-pan can't seed a phantom pin. The tap just coaches.
+            if (coordCaptureRef.current && plotArmedRef.current) {
+                flashTraceFeedback('Hold the chart to drop a pin');
+                return;
+            }
+
+            // Only show weather popup if the user explicitly enabled inspect mode
+            if (!weatherInspectMode) return;
+            // Weather inspect — stays active so the user can tap multiple
+            // locations; they disable via the layer FAB menu.
+            showWeatherInspect(lat, lon);
+        },
+        onMapLongPress: (lat: number, lon: number) => {
+            const map = mapRef.current;
+            if (!map) return;
+
+            // Route Tracer owns the LONG PRESS when active AND ARMED —
+            // record the fix (snapped off the breakwater if the fat finger
+            // just missed the water), splice it mid-trace when an insert is
+            // armed. PAUSED plotting (Shane 2026-07-11: "great when you
+            // want it, and fucken annoying when you don't") hands the
+            // gesture back to the chart.
             if (coordCaptureRef.current && plotArmedRef.current) {
                 let pt = { lat, lon };
                 const ctx = tracerCtxRef.current;
@@ -2717,90 +2814,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                 } else {
                     setCapturedCoords((prev) => [...prev, pt]);
                 }
-                triggerHaptic('light');
-                return;
+                // Medium, not light: the hold earned a firmer thunk than
+                // the old tap ever gave.
+                triggerHaptic('medium');
             }
-
-            // Only show weather popup if the user explicitly enabled inspect mode
-            if (!weatherInspectMode) return;
-
-            // Weather inspect — stay active so user can tap multiple locations
-            // They disable via the layer FAB menu
-
-            // Close any existing inspect popup
-            if (inspectPopupRef.current) {
-                inspectPopupRef.current.remove();
-                inspectPopupRef.current = null;
-            }
-            if (inspectRootRef.current) {
-                inspectRootRef.current.unmount();
-                inspectRootRef.current = null;
-            }
-
-            // Create popup DOM container
-            const container = document.createElement('div');
-            container.style.minWidth = '240px';
-            const root = createRoot(container);
-            inspectRootRef.current = root;
-
-            // Render loading state immediately
-            setInspectData(null);
-            setInspectLoading(true);
-
-            const closePopup = () => {
-                if (inspectPopupRef.current) {
-                    inspectPopupRef.current.remove();
-                    inspectPopupRef.current = null;
-                }
-                if (inspectRootRef.current) {
-                    inspectRootRef.current.unmount();
-                    inspectRootRef.current = null;
-                }
-                setInspectData(null);
-                setInspectLoading(false);
-            };
-
-            // Render loading state — component loaded async
-            getWeatherInspectPopup().then((WIP) => {
-                root.render(<WIP data={null} loading={true} onClose={closePopup} />);
-            });
-
-            const popup = new mapboxgl.Popup({
-                closeButton: false,
-                closeOnClick: true,
-                className: 'weather-inspect-popup',
-                maxWidth: '300px',
-                offset: 8,
-            })
-                .setLngLat([lon, lat])
-                .setDOMContent(container)
-                .addTo(map);
-
-            inspectPopupRef.current = popup;
-            popup.on('close', () => {
-                if (inspectRootRef.current) {
-                    inspectRootRef.current.unmount();
-                    inspectRootRef.current = null;
-                }
-                inspectPopupRef.current = null;
-                setInspectData(null);
-                setInspectLoading(false);
-            });
-
-            // Fetch weather data (dynamic import — pointWeather only needed on inspect tap)
-            import('../../services/weather/pointWeather')
-                .then(({ fetchPointWeather }) => fetchPointWeather(lat, lon))
-                .then((data) => {
-                    if (!inspectPopupRef.current) return; // popup was closed
-                    setInspectData(data);
-                    setInspectLoading(false);
-                    getWeatherInspectPopup().then((WIP) => {
-                        root.render(<WIP data={data} loading={false} onClose={closePopup} />);
-                    });
-                })
-                .catch(() => {
-                    setInspectLoading(false);
-                });
         },
     });
 
@@ -4308,7 +4325,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                         : selectedPin === capturedCoords.length - 1
                                                           ? 'Finish'
                                                           : `Pin ${selectedPin + 1}`}
-                                                    {insertAfter !== null ? ' — tap the chart to insert after it' : ''}
+                                                    {insertAfter !== null
+                                                        ? ' — hold on the chart to insert after it'
+                                                        : ''}
                                                 </span>
                                                 {insertAfter === null && (
                                                     <button
