@@ -193,8 +193,10 @@ function buildMergedNavaids(data: EncMergedVectorData): FeatureCollection {
  * every depth READOUT layer: band tints, sounding numbers + ink,
  * contour labels. VISUAL ONLY by hard rule: the safety contour, the
  * tracer and the router all keep grading against chart datum (they do
- * their own per-spot tide windows properly). Stored per map so
- * mount/refresh re-apply it after style swaps and cell loads.
+ * their own per-spot tide windows properly). The satellite GLAZE is a
+ * VERDICT, not a readout — it stays chart-datum in both colour and
+ * opacity (see applyTideOffsetPaint). Stored per map so mount/refresh
+ * re-apply it after style swaps and cell loads.
  */
 export function setEncTideOffset(map: mapboxgl.Map, tideOffsetM: number | null, atMs: number | null = null): void {
     const state = depthStyleState.get(map) ?? {
@@ -227,9 +229,13 @@ function applyTideOffsetPaint(map: mapboxgl.Map, tideOffsetM: number | null): vo
     if (map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
         map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_FINE, 'fill-color', buildDepareFillColor(h));
     }
-    if (map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareFillColor(h));
-    }
+    // DEPARE_GLAZE is deliberately NOT here. The satellite glaze is a
+    // go/no-go VERDICT (keel-keyed opacity on chart-datum DRVAL1, same
+    // hard rule as the safety contour) and its colour must stay keyed
+    // to the SAME datum as that opacity: shifting the colour alone
+    // repainted a drying bank as the near-safe dirty white while the
+    // datum-keyed opacity still flagged it drying — a 0.55-strength
+    // "almost safe" wash over ground (adversarial review 2026-07-14).
     if (map.getLayer(ENC_VEC_LAYERS.SOUNDG)) {
         map.setLayoutProperty(ENC_VEC_LAYERS.SOUNDG, 'text-field', buildSoundingTextField(h));
         map.setPaintProperty(ENC_VEC_LAYERS.SOUNDG, 'text-color', buildSoundingTextColor(live ? h : null));
@@ -1425,8 +1431,11 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         // Keel-keyed glaze: bright paper where the band guarantees the
         // safety depth, bare imagery where it doesn't. Chart datum by
         // the same hard rule as the safety contour — the tide scrubber
-        // never moves the go/no-go read.
+        // never moves the go/no-go read. Colour and opacity are asserted
+        // TOGETHER on the same datum (pairing invariant, encDepthStyle):
+        // applyTideOffsetPaint deliberately skips this layer.
         const safetyDepthM = depthStyleState.get(map)?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareFillColor());
         map.setPaintProperty(
             ENC_VEC_LAYERS.DEPARE_GLAZE,
             'fill-opacity',

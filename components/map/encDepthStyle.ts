@@ -177,6 +177,11 @@ export const DEPARE_BAND_COLORS = {
  *    paper, stepping brighter as it deepens;
  *  - unknown DRVAL1: BARE IMAGERY (opacity 0) — same as uncharted,
  *    never the bright "sail here" wash (hard rule 1).
+ *
+ * PAIRING INVARIANT: the glaze's fill-COLOR must be keyed to the same
+ * chart datum as this opacity (buildDepareFillColor with NO tide
+ * offset). Tide-shifting one half alone paints a drying bank in the
+ * near-safe dirty white under the 0.55 drying wash (2026-07-14).
  */
 export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
