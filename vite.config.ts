@@ -309,11 +309,15 @@ export default defineConfig(({ mode }) => {
             cssMinify: true,
             chunkSizeWarningLimit: 750,
             rollupOptions: {
-                // Two entry points: the main Thalassa SPA, and the standalone
-                // public Voyage Log renderer (logs.html → /logs/<handle>).
+                // Three entry points: the main Thalassa SPA, the standalone
+                // public Voyage Log renderer (logs.html → /logs/<handle>),
+                // and the standalone public Passage Plan (plan.html →
+                // <handle>.thalassawx.app/plan) — the float-plan surface,
+                // deliberately outside the app shell.
                 input: {
                     main: path.resolve(__dirname, 'index.html'),
                     logs: path.resolve(__dirname, 'logs.html'),
+                    plan: path.resolve(__dirname, 'plan.html'),
                 },
                 onwarn(warning, warn) {
                     // Suppress "is dynamically imported by X but also statically imported by Y"
