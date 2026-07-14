@@ -1306,6 +1306,14 @@ export function mountEncVectorLayer(
             } @ S=${safetyDepthM.toFixed(1)}m), ` +
             `${data.OBSTRN.features.length + data.WRECKS.features.length + data.UWTROC.features.length} hazard pts`,
     );
+    // Wake a parked render loop (see refreshEncVectorData): with rAF
+    // throttled, the mount's source uploads sit untiled until the next
+    // interaction — the chart mounts invisible.
+    try {
+        map.triggerRepaint();
+    } catch {
+        /* map mid-teardown */
+    }
 }
 
 /**
@@ -1365,22 +1373,35 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         () => setData(ENC_VEC_SRC.DEPCNT_DERIVED, data.DEPCNT_DERIVED),
         () => setData(ENC_VEC_SRC.SEAARE_LABELS, data.SEAARE_LABELS),
     ];
-    const raf =
-        typeof requestAnimationFrame === 'function'
-            ? requestAnimationFrame
-            : (cb: () => void) => setTimeout(cb, 16) as unknown as number;
+    // rAF with a WATCHDOG (2026-07-15, "your white layer is not showing…
+    // just the old enc layer"): rAF only fires while the browser is
+    // painting — an occluded/throttled tab (browser pane, PWA behind the
+    // lock screen, Safari page-cache) parks it, which froze this queue
+    // MID-WAY and left the sources permanently stale. A raced setTimeout
+    // keeps the queue draining at ~20 fps even with rAF parked; whichever
+    // scheduler fires first wins, the other is cancelled by the `done`
+    // latch.
+    const schedule = (cb: () => void): void => {
+        let done = false;
+        const once = () => {
+            if (done) return;
+            done = true;
+            cb();
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(once);
+        setTimeout(once, 48);
+    };
     // Gesture-deferred (2026-07-14): even ONE big setData mid-gesture
-    // drops frames, so while the camera is moving the loop idles (one
-    // cheap isMoving check per frame, capped so a perpetual camera-
-    // follow animation can't stall uploads forever) and the previous
-    // window's chart keeps rendering — it covers most of the screen
-    // anyway. Uploads land in the first still frames.
-    let deferredFrames = 0;
+    // drops frames, so while the camera is moving the loop idles and the
+    // previous window's chart keeps rendering — it covers most of the
+    // screen anyway. Capped by TIME, not frames (frames don't tick when
+    // rAF is parked), so a perpetual camera animation can't stall
+    // uploads past ~3 s.
+    const deferStart = Date.now();
     const step = (): void => {
         if (generation !== refreshGeneration) return; // superseded — newer refresh owns the sources
-        if (typeof map.isMoving === 'function' && map.isMoving() && deferredFrames < 180) {
-            deferredFrames += 1;
-            raf(step);
+        if (typeof map.isMoving === 'function' && map.isMoving() && Date.now() - deferStart < 3000) {
+            schedule(step);
             return;
         }
         const job = uploads.shift();
@@ -1390,7 +1411,20 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
         } catch {
             /* source mid-teardown — the next refresh re-applies */
         }
-        if (uploads.length > 0) raf(step);
+        if (uploads.length > 0) {
+            schedule(step);
+        } else {
+            // Wake a parked render loop: Mapbox schedules its own tiling
+            // repaint via rAF too, so with rAF throttled the final setData
+            // otherwise sits untiled until the next user interaction —
+            // the sources LOOK stale ("the old enc layer") while holding
+            // fresh data.
+            try {
+                map.triggerRepaint();
+            } catch {
+                /* map mid-teardown */
+            }
+        }
     };
     step(); // first source immediately (or deferred past a live gesture)
 
