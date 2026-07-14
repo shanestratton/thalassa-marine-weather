@@ -210,22 +210,24 @@ const HeroHeaderComponent: React.FC<HeroHeaderProps> = ({
                                             >
                                                 {tempStr}
                                             </span>
-                                            {/* ° ring pinned to the top, unit letter dropped to the
-                                                numeral's baseline directly beneath it. The column
-                                                stretches the full temp height and justify-between
-                                                splits ring/letter top-to-bottom; letter matches the
-                                                numeral's colour so the pair reads as one unit. */}
+                                            {/* ° ring (top) and unit letter (baseline) as a matched
+                                                pair: SAME font + size + weight so they share one
+                                                centre line and read as a stacked °C. The column
+                                                stretches the full temp height, justify-between pins
+                                                ring-to-top / letter-to-baseline, items-center keeps
+                                                them collinear. Both mono 22px — no tracking (it
+                                                shifts a single glyph off centre). */}
                                             <div
                                                 className="flex flex-col items-center justify-between self-stretch"
                                                 aria-hidden="true"
                                             >
                                                 <span
-                                                    className={`${sizeClass} font-mono font-bold tracking-tighter ${getTempColor()} leading-none h-[0.42em]`}
+                                                    className={`text-[22px] font-mono font-bold leading-none ${getTempColor()}`}
                                                 >
                                                     °
                                                 </span>
                                                 <span
-                                                    className={`text-[22px] font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
+                                                    className={`text-[22px] font-mono font-bold leading-none ${getTempColor()} -translate-y-[7px]`}
                                                 >
                                                     {units.temp}
                                                 </span>
