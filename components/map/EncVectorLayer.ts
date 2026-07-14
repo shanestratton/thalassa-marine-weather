@@ -937,14 +937,21 @@ export function mountEncVectorLayer(
                 type: 'symbol',
                 source: ENC_VEC_SRC.SEAARE_LABELS,
                 minzoom: 9,
-                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                // Water names only — island names get their own upright
+                // layer below (paper-chart convention: italic water,
+                // upright land).
+                filter: [
+                    'all',
+                    SCAMIN_CLAUSE,
+                    ['!=', ['get', '_kind'], 'land'],
+                ] as unknown as mapboxgl.FilterSpecification,
                 layout: {
                     'text-field': ['get', '_name'],
                     'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
                     // "Not too big, not too small": a step above the
                     // sounding digits, well under settlement labels.
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10.5, 13, 12.5, 16, 14],
-                    'text-letter-spacing': 0.15,
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13, 16, 15],
+                    'text-letter-spacing': 0.18,
                     'text-allow-overlap': false,
                     'text-padding': 6,
                     // Long names ("North East Channel") wrap rather than
@@ -952,13 +959,54 @@ export function mountEncVectorLayer(
                     'text-max-width': 8,
                 },
                 paint: {
-                    'text-color': '#26333d', // dark slate — chart ink, not black tar
-                    'text-halo-color': 'rgba(255, 255, 255, 0.75)',
-                    'text-halo-width': 1.1,
+                    // "Dark lettering with a nice blue hue... that will
+                    // pop" (Shane 2026-07-14): deep marine ink with a
+                    // crisper white halo than the old slate.
+                    'text-color': '#123f66',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.92)',
+                    'text-halo-width': 1.4,
                     'text-opacity': opacity,
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.SEAARE_LABEL),
+        );
+    }
+
+    // ── Island / named-land labels ────────────────────────────────
+    // "More names, like names of islands" (Shane 2026-07-14). LNDARE
+    // OBJNAM reduced in the merge alongside SEAARE (_kind: 'land').
+    // Upright dark ink on a warm halo — reads on tan land fill AND on
+    // satellite bush; visually distinct from the italic blue water
+    // names at a glance.
+    if (!map.getLayer(ENC_VEC_LAYERS.LNDARE_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.LNDARE_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.SEAARE_LABELS,
+                minzoom: 9,
+                filter: [
+                    'all',
+                    SCAMIN_CLAUSE,
+                    ['==', ['get', '_kind'], 'land'],
+                ] as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'text-field': ['get', '_name'],
+                    'text-font': ['DIN Pro Medium', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10.5, 13, 12.5, 16, 14],
+                    'text-letter-spacing': 0.12,
+                    'text-allow-overlap': false,
+                    'text-padding': 6,
+                    'text-max-width': 8,
+                },
+                paint: {
+                    'text-color': '#3d3327', // dark earth — land ink
+                    'text-halo-color': 'rgba(255, 250, 240, 0.9)',
+                    'text-halo-width': 1.3,
+                    'text-opacity': opacity,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.LNDARE_LABEL),
         );
     }
 
@@ -1233,9 +1281,12 @@ export function refreshEncVectorData(map: mapboxgl.Map, data: EncMergedVectorDat
     // windows share most content — a stale side layer survives a frame
     // or two at worst).
     const uploads: Array<() => void> = [
+        // Glaze first: on satellite it IS the chart — the white wash
+        // "popping" at z10 is the thing the punter is waiting on
+        // (2026-07-14). On the white chart it's an invisible no-op.
+        () => setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE),
         () => setData(ENC_VEC_SRC.DEPARE, data.DEPARE),
         () => setData(ENC_VEC_SRC.LNDARE, data.LNDARE),
-        () => setData(ENC_VEC_SRC.DEPARE_GLAZE, data.DEPARE_GLAZE),
         () => setData(ENC_VEC_SRC.DEPCNT, data.DEPCNT),
         () => setData(ENC_VEC_SRC.SOUNDG, data.SOUNDG),
         () => setData(ENC_VEC_SRC.COALNE, data.COALNE),

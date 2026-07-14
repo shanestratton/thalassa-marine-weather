@@ -846,7 +846,15 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
  *  scale — so gating it here sheds the heaviest wide-view layer with no
  *  visual loss: passage overview shows clean imagery, the glaze fades in
  *  as you close the coast to navigate. */
-export const GLAZE_MIN_ZOOM = 10;
+/** 9.5, not 10 (Shane 2026-07-14: "when we get to zoom 10 can we get the
+ *  layer to pop immediately — quite a delay at the moment"): the glaze
+ *  merge used to START only once the punter arrived at z10, so the white
+ *  wash trailed in seconds later. Building from z9.5 pre-warms it half a
+ *  zoom early — right at the bucket boundary (round(9.5)=10), so the
+ *  bucket-crossing re-merge is the SAME merge — and by z10 the glaze is
+ *  already uploaded. The z7-8 wide-window OOM stays safely away: a z9.5
+ *  window is bay-scale, nothing like the whole-coast z7 pull. */
+export const GLAZE_MIN_ZOOM = 9.5;
 /** Fine bands at least this deep never clip the coarse glaze. With
  *  unsafe glaze at opacity 0, the clip only protects against coarse
  *  SAFE-white over fine UNSAFE water — and no keel this app serves
@@ -1441,62 +1449,72 @@ async function buildMergedVectorData(
         tagAndPush('BCNISD', blob.layers.BCNISD);
         tagAndPush('RECTRC', blob.layers.RECTRC);
 
-        // Named sea areas → ONE label point per name ("put the channel
-        // name in the channels", Shane 2026-07-13). Skips tagAndPush: the
+        // Named areas → ONE label point per name ("put the channel
+        // name in the channels", Shane 2026-07-13; "more names, like
+        // names of islands", 2026-07-14). Skips tagAndPush: the
         // polygons are label carriers only — reducing them here keeps a
         // bay-sized SEAARE from ever entering the render heap. Label
         // anchor = outer-ring vertex average of the largest polygon (a
         // curving river's centroid can drift slightly off-axis; readable,
         // and the finest chart's tighter geometry wins the dedupe).
-        for (const feat of blob.layers.SEAARE?.features ?? []) {
-            const g = feat?.geometry;
-            if (!g) continue;
-            const props = (feat.properties ?? {}) as Record<string, unknown>;
-            const name = typeof props.OBJNAM === 'string' ? props.OBJNAM.trim() : '';
-            if (!name) continue;
-            // The AU SENC emits most named areas as POINTS — the
-            // cartographer's own label anchor, use it verbatim. Polygon
-            // SEAARE falls back to the largest-ring vertex average.
-            let anchor: [number, number] | null = null;
+        // The AU SENC emits most named areas as POINTS — the
+        // cartographer's own label anchor, use it verbatim.
+        const labelAnchorFor = (g: Feature['geometry']): [number, number] | null => {
+            if (!g) return null;
             if (g.type === 'Point') {
                 const c = g.coordinates as number[];
-                if (Number.isFinite(c?.[0]) && Number.isFinite(c?.[1])) anchor = [c[0], c[1]];
-            } else if (g.type === 'Polygon' || g.type === 'MultiPolygon') {
-                const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
-                let ring: number[][] | null = null;
-                for (const poly of polys) {
-                    const outer = poly?.[0] as number[][] | undefined;
-                    if (outer && outer.length >= 4 && (!ring || outer.length > ring.length)) ring = outer;
-                }
-                if (ring) {
-                    let sx = 0;
-                    let sy = 0;
-                    const n = ring.length - 1; // skip the closing duplicate vertex
-                    for (let i = 0; i < n; i++) {
-                        sx += ring[i][0];
-                        sy += ring[i][1];
-                    }
-                    anchor = [sx / n, sy / n];
-                }
+                return Number.isFinite(c?.[0]) && Number.isFinite(c?.[1]) ? [c[0], c[1]] : null;
             }
-            if (!anchor) continue;
-            const labelProps: Record<string, unknown> = { _name: name };
-            // SCAMIN gates the 1:90k channel/bank names to z12.6 — "need
-            // to be at zoom 13 to see any names... probably a bit high"
-            // (Shane 2026-07-14). Same doctrine as the sounding ladder:
-            // SCAMIN is paper declutter advice, not law. Keep the
-            // HIERARCHY (bay names before bank names) but pull the whole
-            // ladder ~2.5 levels earlier: 12.6→10.1, 11.6→9.1, 8.5→the
-            // layer floor. Collision handles the density.
-            if (typeof props._minZoom === 'number') {
-                labelProps._minZoom = Math.max(7, props._minZoom - 2.5);
+            if (g.type !== 'Polygon' && g.type !== 'MultiPolygon') return null;
+            const polys = g.type === 'Polygon' ? [g.coordinates] : g.coordinates;
+            let ring: number[][] | null = null;
+            for (const poly of polys) {
+                const outer = poly?.[0] as number[][] | undefined;
+                if (outer && outer.length >= 4 && (!ring || outer.length > ring.length)) ring = outer;
             }
-            seaareByName.set(name, {
-                type: 'Feature',
-                geometry: { type: 'Point', coordinates: anchor },
-                properties: labelProps,
-            });
-        }
+            if (!ring) return null;
+            let sx = 0;
+            let sy = 0;
+            const n = ring.length - 1; // skip the closing duplicate vertex
+            for (let i = 0; i < n; i++) {
+                sx += ring[i][0];
+                sy += ring[i][1];
+            }
+            return [sx / n, sy / n];
+        };
+        // SCAMIN gates the 1:90k channel/bank names to z12.6 — "need
+        // to be at zoom 13 to see any names... probably a bit high"
+        // (Shane 2026-07-14). Same doctrine as the sounding ladder:
+        // SCAMIN is paper declutter advice, not law. Keep the
+        // HIERARCHY (bay names before bank names) but pull the whole
+        // ladder ~2.5 levels earlier: 12.6→10.1, 11.6→9.1, 8.5→the
+        // layer floor. Collision handles the density.
+        const reduceNamedAreas = (fc: FeatureCollection | undefined, kind: 'water' | 'land'): void => {
+            for (const feat of fc?.features ?? []) {
+                const g = feat?.geometry;
+                if (!g) continue;
+                const props = (feat.properties ?? {}) as Record<string, unknown>;
+                const rawName = props.OBJNAM ?? props.objnam;
+                const name = typeof rawName === 'string' ? rawName.trim() : '';
+                if (!name) continue;
+                const anchor = labelAnchorFor(g);
+                if (!anchor) continue;
+                const labelProps: Record<string, unknown> = { _name: name, _kind: kind };
+                if (typeof props._minZoom === 'number') {
+                    labelProps._minZoom = Math.max(7, props._minZoom - 2.5);
+                }
+                seaareByName.set(`${kind}:${name}`, {
+                    type: 'Feature',
+                    geometry: { type: 'Point', coordinates: anchor },
+                    properties: labelProps,
+                });
+            }
+        };
+        reduceNamedAreas(blob.layers.SEAARE, 'water');
+        // Islands: LNDARE already carries OBJNAM on named land ("High
+        // Peak Island", "Fisherman Islands") — no LNDRGN extraction
+        // needed for island names.
+        reduceNamedAreas(blob.layers.LNDARE, 'land');
 
         // Soundings: explode each MultiPoint cloud into labelled points.
         // DELIBERATELY skips tagAndPush — no provenance/_cellId decoration:
