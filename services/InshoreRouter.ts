@@ -1147,7 +1147,7 @@ async function tryInshoreRouteInner(
                 merged.OBSTRN = obstrn;
                 log.warn(
                     `[airDraft] ${blocked.length} low bridge(s) BLOCKED for airDraft ${airDraftM.toFixed(1)} m: ${blocked
-                        .map((b) => `${b.name} (${b.clearanceM.toFixed(1)} m${b.estimated ? ' est' : ''})`)
+                        .map((b) => `${b.name} (${b.clearanceM?.toFixed(1) ?? '?'} m${b.estimated ? ' est' : ''})`)
                         .join(', ')}`,
                 );
             }

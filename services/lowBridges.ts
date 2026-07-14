@@ -21,8 +21,11 @@ const log = createLogger('lowBridges');
 export interface LowBridge {
     id: string;
     name: string;
-    /** Charted/estimated vertical clearance (m). */
-    clearanceM: number;
+    /** Charted/estimated vertical clearance (m). NULL = no published
+     *  value exists — the bridge still DISPLAYS (position is real) but
+     *  never gates routing: an invented number could either block a
+     *  passable span or, far worse, pass a mast into a deck. */
+    clearanceM: number | null;
     /** True until the clearance is verified against a survey/chart value. */
     estimated?: boolean;
     /** The bridge deck line across the waterway — [lon, lat] pairs. */
@@ -41,9 +44,9 @@ export async function loadLowBridges(): Promise<LowBridge[]> {
             const res = await fetch('/notices/bridges-au.json');
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = (await res.json()) as { bridges?: LowBridge[] };
-            cache = (data.bridges ?? []).filter(
-                (b) => Array.isArray(b.span) && b.span.length >= 2 && Number.isFinite(b.clearanceM),
-            );
+            cache = (data.bridges ?? [])
+                .filter((b) => Array.isArray(b.span) && b.span.length >= 2)
+                .map((b) => ({ ...b, clearanceM: Number.isFinite(b.clearanceM) ? b.clearanceM : null }));
             log.warn(`[lowBridges] loaded ${cache.length} curated bridge(s)`);
             return cache;
         } catch (err) {
@@ -105,5 +108,6 @@ export function bridgeBarPolygon(bridge: LowBridge, halfWidthM = 30, endPadM = 1
 /** Bridges whose clearance the vessel cannot make. */
 export function blockedBridgesFor(bridges: readonly LowBridge[], airDraftM: number | null): LowBridge[] {
     if (airDraftM === null || !Number.isFinite(airDraftM) || airDraftM <= 0) return [];
-    return bridges.filter((b) => airDraftM > b.clearanceM);
+    // Null clearance never gates — display-only until a published value lands.
+    return bridges.filter((b) => b.clearanceM !== null && airDraftM > b.clearanceM);
 }

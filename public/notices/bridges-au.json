@@ -1,106 +1,1589 @@
 {
-    "version": 2,
-    "updated": "2026-07-02",
-    "datumNote": "clearanceM values are metres above HAT per MSQ Beacon to Beacon convention — actual clearance at any tide below HAT is greater, so gating airDraft > clearanceM is conservative-safe",
-    "bridges": [
-        {
-            "id": "au-qld-newport-griffith-rd",
-            "name": "Kay Cottee Bridge — Griffith Rd (Newport canal)",
-            "clearanceM": 5.5,
-            "estimated": false,
-            "source": "MSQ Beacon to Beacon Moreton Bay, map MB-6 + Newport Marina enlargement (5.5 m above HAT)",
-            "span": [
-                [153.0940954, -27.2123043],
-                [153.0947812, -27.2118978]
-            ]
-        },
-        {
-            "id": "au-qld-newport-klingner-rd",
-            "name": "Klingner Road footbridge (Newport canal)",
-            "clearanceM": 1.0,
-            "estimated": true,
-            "source": "owner local knowledge 2026-07-02: pedestrian bridge, 'pressed to get a tender under it' — ~1.0 m; no published value exists",
-            "span": [
-                [153.0935879, -27.2203846],
-                [153.0934272, -27.2204036]
-            ]
-        },
-        {
-            "id": "au-qld-newport-dalton-st",
-            "name": "Dalton Street footbridge (Newport canal)",
-            "clearanceM": 1.0,
-            "estimated": true,
-            "source": "owner local knowledge 2026-07-02: pedestrian bridge, 'pressed to get a tender under it' — ~1.0 m; no published value exists",
-            "span": [
-                [153.0926304, -27.2242615],
-                [153.0928412, -27.2242898]
-            ]
-        },
-        {
-            "id": "au-qld-mooloolaba-mayes-brisbane-rd",
-            "name": "Brisbane Road bridge — Mayes Canal mouth (Mooloolaba)",
-            "clearanceM": 2.1,
-            "estimated": false,
-            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.1 m above HAT); span from OSM Brisbane Road bridge way",
-            "span": [
-                [153.1167179, -26.6856358],
-                [153.1168473, -26.6853572]
-            ]
-        },
-        {
-            "id": "au-qld-mooloolaba-tuckers-creek",
-            "name": "Brisbane Road crossing — Tuckers Creek (Mooloolaba)",
-            "clearanceM": 0.7,
-            "estimated": false,
-            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (0.7 m above HAT); span from adjacent OSM cycleway bridge",
-            "span": [
-                [153.1153076, -26.6880094],
-                [153.115245, -26.6882107]
-            ]
-        },
-        {
-            "id": "au-qld-mooloolaba-mckenzie-bridge",
-            "name": "McKenzie Bridge — Nicklin Way over old Mooloolah channel",
-            "clearanceM": 2.3,
-            "estimated": false,
-            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.3 m above HAT); span from OSM bridge way",
-            "span": [
-                [153.1162249, -26.6963592],
-                [153.1156238, -26.6952564]
-            ]
-        },
-        {
-            "id": "au-qld-mooloolaba-old-channel-west",
-            "name": "Old Mooloolah channel crossing W of McKenzie Bridge",
-            "clearanceM": 2.7,
-            "estimated": false,
-            "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.7 m above HAT); SPAN APPROXIMATE (no OSM bridge way — 60 m N-S bar at the published position)",
-            "span": [
-                [153.114, -26.69723],
-                [153.114, -26.69777]
-            ]
-        },
-        {
-            "id": "au-qld-kawana-parrearra-footbridge",
-            "name": "Parrearra Channel footbridge (N of Parrearra Lock & Weir)",
-            "clearanceM": 3.6,
-            "estimated": false,
-            "source": "MSQ Beacon to Beacon Sunshine Coast, maps SC-5/SC-6 (3.6 m above HAT); SPAN APPROXIMATE (60 m E-W bar at the published position); note the adjacent Lock & Weir gates all access to the Kawana Waters system regardless",
-            "span": [
-                [153.12215, -26.706],
-                [153.12285, -26.706]
-            ]
-        },
-        {
-            "id": "au-qld-kawana-parrearra-lock",
-            "name": "Parrearra Lock & Weir (Kawana Waters)",
-            "clearanceM": 0.0,
-            "estimated": false,
-            "source": "MSQ B2B SC-5/SC-6: the Lock & Weir gates ALL access between the Parrearra Channel and the Kawana Waters lake system — no free transit for routing purposes. Modelled as zero clearance so any vessel with an air draft set is barred; the 2026-07-02 device regression routed a 55-ft yacht through the lock as if it were open water.",
-            "span": [
-                [153.1219, -26.7068],
-                [153.1231, -26.7068]
-            ]
-        }
-    ]
+  "version": 3,
+  "updated": "2026-07-14",
+  "datumNote": "clearanceM values are metres above HAT per MSQ Beacon to Beacon convention — actual clearance at any tide below HAT is greater, so gating airDraft > clearanceM is conservative-safe. clearanceM null = no published value: display-only, never gates.",
+  "bridges": [
+    {
+      "id": "au-qld-newport-griffith-rd",
+      "name": "Kay Cottee Bridge — Griffith Rd (Newport canal)",
+      "clearanceM": 5.5,
+      "estimated": false,
+      "source": "MSQ Beacon to Beacon Moreton Bay, map MB-6 + Newport Marina enlargement (5.5 m above HAT)",
+      "span": [
+        [
+          153.0940954,
+          -27.2123043
+        ],
+        [
+          153.0947812,
+          -27.2118978
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-newport-klingner-rd",
+      "name": "Klingner Road footbridge (Newport canal)",
+      "clearanceM": 1.0,
+      "estimated": true,
+      "source": "owner local knowledge 2026-07-02: pedestrian bridge, 'pressed to get a tender under it' — ~1.0 m; no published value exists",
+      "span": [
+        [
+          153.0935879,
+          -27.2203846
+        ],
+        [
+          153.0934272,
+          -27.2204036
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-newport-dalton-st",
+      "name": "Dalton Street footbridge (Newport canal)",
+      "clearanceM": 1.0,
+      "estimated": true,
+      "source": "owner local knowledge 2026-07-02: pedestrian bridge, 'pressed to get a tender under it' — ~1.0 m; no published value exists",
+      "span": [
+        [
+          153.0926304,
+          -27.2242615
+        ],
+        [
+          153.0928412,
+          -27.2242898
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-mooloolaba-mayes-brisbane-rd",
+      "name": "Brisbane Road bridge — Mayes Canal mouth (Mooloolaba)",
+      "clearanceM": 2.1,
+      "estimated": false,
+      "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.1 m above HAT); span from OSM Brisbane Road bridge way",
+      "span": [
+        [
+          153.1167179,
+          -26.6856358
+        ],
+        [
+          153.1168473,
+          -26.6853572
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-mooloolaba-tuckers-creek",
+      "name": "Brisbane Road crossing — Tuckers Creek (Mooloolaba)",
+      "clearanceM": 0.7,
+      "estimated": false,
+      "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (0.7 m above HAT); span from adjacent OSM cycleway bridge",
+      "span": [
+        [
+          153.1153076,
+          -26.6880094
+        ],
+        [
+          153.115245,
+          -26.6882107
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-mooloolaba-mckenzie-bridge",
+      "name": "McKenzie Bridge — Nicklin Way over old Mooloolah channel",
+      "clearanceM": 2.3,
+      "estimated": false,
+      "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.3 m above HAT); span from OSM bridge way",
+      "span": [
+        [
+          153.1162249,
+          -26.6963592
+        ],
+        [
+          153.1156238,
+          -26.6952564
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-mooloolaba-old-channel-west",
+      "name": "Old Mooloolah channel crossing W of McKenzie Bridge",
+      "clearanceM": 2.7,
+      "estimated": false,
+      "source": "MSQ Beacon to Beacon Sunshine Coast, map SC-5 (2.7 m above HAT); SPAN APPROXIMATE (no OSM bridge way — 60 m N-S bar at the published position)",
+      "span": [
+        [
+          153.114,
+          -26.69723
+        ],
+        [
+          153.114,
+          -26.69777
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-kawana-parrearra-footbridge",
+      "name": "Parrearra Channel footbridge (N of Parrearra Lock & Weir)",
+      "clearanceM": 3.6,
+      "estimated": false,
+      "source": "MSQ Beacon to Beacon Sunshine Coast, maps SC-5/SC-6 (3.6 m above HAT); SPAN APPROXIMATE (60 m E-W bar at the published position); note the adjacent Lock & Weir gates all access to the Kawana Waters system regardless",
+      "span": [
+        [
+          153.12215,
+          -26.706
+        ],
+        [
+          153.12285,
+          -26.706
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-kawana-parrearra-lock",
+      "name": "Parrearra Lock & Weir (Kawana Waters)",
+      "clearanceM": 0.0,
+      "estimated": false,
+      "source": "MSQ B2B SC-5/SC-6: the Lock & Weir gates ALL access between the Parrearra Channel and the Kawana Waters lake system — no free transit for routing purposes. Modelled as zero clearance so any vessel with an air draft set is barred; the 2026-07-02 device regression routed a 55-ft yacht through the lock as if it were open water.",
+      "span": [
+        [
+          153.1219,
+          -26.7068
+        ],
+        [
+          153.1231,
+          -26.7068
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-sir-leo-hielscher--gateway--bridges",
+      "name": "Sir Leo Hielscher (Gateway) Bridges",
+      "clearanceM": 54.0,
+      "estimated": false,
+      "source": "MSQ Port Procedures Brisbane Aug-2024 Table 23: 54 m at navigation envelope edge (57.4 m centre) above HAT",
+      "span": [
+        [
+          153.103874,
+          -27.4505764
+        ],
+        [
+          153.0974321,
+          -27.4390671
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-kangaroo-point-green-bridge",
+      "name": "Kangaroo Point Green Bridge",
+      "clearanceM": 12.3,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 12.3 m above HAT",
+      "span": [
+        [
+          153.0308485,
+          -27.4722399
+        ],
+        [
+          153.0349228,
+          -27.4706523
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-goodwill-bridge",
+      "name": "Goodwill Bridge",
+      "clearanceM": 13.25,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 13.25 m above HAT",
+      "span": [
+        [
+          153.0254237,
+          -27.482018
+        ],
+        [
+          153.0285954,
+          -27.4789829
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-neville-bonner-bridge",
+      "name": "Neville Bonner Bridge",
+      "clearanceM": 11.8,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 11.8 m above HAT",
+      "span": [
+        [
+          153.0212141,
+          -27.4750746
+        ],
+        [
+          153.0210965,
+          -27.4755088
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-kurilpa-bridge",
+      "name": "Kurilpa Bridge",
+      "clearanceM": 11.4,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 11.4 m above HAT",
+      "span": [
+        [
+          153.0170517,
+          -27.4696377
+        ],
+        [
+          153.0198766,
+          -27.4685497
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-william-jolly-bridge",
+      "name": "William Jolly Bridge",
+      "clearanceM": 12.0,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 12 m above HAT",
+      "span": [
+        [
+          153.0157214,
+          -27.4697402
+        ],
+        [
+          153.0160866,
+          -27.4706604
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-merivale-railway-bridge",
+      "name": "Merivale Railway Bridge",
+      "clearanceM": 11.5,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 11.5 m above HAT",
+      "span": [
+        [
+          153.0133703,
+          -27.4699139
+        ],
+        [
+          153.0127842,
+          -27.4687674
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-go-between-bridge--hale-st",
+      "name": "Go Between Bridge (Hale St)",
+      "clearanceM": 11.4,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 11.4 m above HAT",
+      "span": [
+        [
+          153.0111119,
+          -27.4688466
+        ],
+        [
+          153.0130349,
+          -27.4708795
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-eleanor-schonell-bridge",
+      "name": "Eleanor Schonell Bridge",
+      "clearanceM": 11.4,
+      "estimated": false,
+      "source": "MSQ B2B Brisbane & Bremer guide: 11.4 m above HAT",
+      "span": [
+        [
+          153.0190334,
+          -27.4975925
+        ],
+        [
+          153.0242637,
+          -27.4979272
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-walter-taylor-bridge",
+      "name": "Walter Taylor Bridge",
+      "clearanceM": 14.5,
+      "estimated": false,
+      "source": "MSQ B2B Brisbane guide: 14.5 m above HAT",
+      "span": [
+        [
+          152.9731904,
+          -27.507092
+        ],
+        [
+          152.9739344,
+          -27.5048025
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-ted-smout-memorial-bridge",
+      "name": "Ted Smout Memorial Bridge",
+      "clearanceM": 4.7,
+      "estimated": false,
+      "source": "MSQ B2B Moreton Bay inset C: 4.7 m above HAT at the marked navigation span",
+      "span": [
+        [
+          153.0799199,
+          -27.2633458
+        ],
+        [
+          153.064222,
+          -27.2838592
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-houghton-highway",
+      "name": "Houghton Highway",
+      "clearanceM": 2.6,
+      "estimated": false,
+      "source": "MSQ B2B Moreton Bay inset C: 2.6 m above HAT at the marked navigation span",
+      "span": [
+        [
+          153.0639317,
+          -27.283476
+        ],
+        [
+          153.0793994,
+          -27.2632607
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-bribie-island-bridge",
+      "name": "Bribie Island Bridge",
+      "clearanceM": 5.0,
+      "estimated": false,
+      "source": "MSQ B2B Pumicestone guide: 5.0 m above HAT at both floodlit navigation spans",
+      "span": [
+        [
+          153.1420363,
+          -27.0734474
+        ],
+        [
+          153.1481502,
+          -27.0682479
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-welsby-bridge--bribie-gardens-lock-entry",
+      "name": "Welsby Bridge (Bribie Gardens lock entry)",
+      "clearanceM": 2.0,
+      "estimated": false,
+      "source": "MSQ B2B Pumicestone guide: 2.0 m above HAT",
+      "span": [
+        [
+          153.1555442,
+          -27.0721879
+        ],
+        [
+          153.1555946,
+          -27.0724543
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-gold-coast--sundale--bridge",
+      "name": "Gold Coast (Sundale) Bridge",
+      "clearanceM": 4.3,
+      "estimated": false,
+      "source": "MSQ B2B Northern Gold Coast NGC-10: 4.3 m above HAT",
+      "span": [
+        [
+          153.4207211,
+          -27.9752923
+        ],
+        [
+          153.4216779,
+          -27.9784722
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-burnett-bridge",
+      "name": "Burnett Bridge",
+      "clearanceM": 6.7,
+      "estimated": false,
+      "source": "MSQ B2B Hervey Bay guide: 6.7 m above HAT",
+      "span": [
+        [
+          152.3453408,
+          -24.860808
+        ],
+        [
+          152.3465702,
+          -24.8645924
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-david-low-bridge--bli-bli",
+      "name": "David Low Bridge (Bli Bli)",
+      "clearanceM": 2.8,
+      "estimated": false,
+      "source": "MSQ B2B Sunshine Coast guide: 2.8 m above HAT",
+      "span": [
+        [
+          153.1087214,
+          -26.4182547
+        ],
+        [
+          153.1087349,
+          -26.4180084
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-coomera--pacific-mwy--bridge-group",
+      "name": "Coomera (Pacific Mwy) Bridge group",
+      "clearanceM": 3.7,
+      "estimated": false,
+      "source": "MSQ B2B NGC-4: group charted 7.0/4.7/3.7 m above HAT — LOWEST used; per-span attribution unlabelled",
+      "span": [
+        [
+          153.314529,
+          -27.8777141
+        ],
+        [
+          153.3141585,
+          -27.8762087
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-gold-coast-rail-bridges--coomera-r",
+      "name": "Gold Coast Rail bridges (Coomera R)",
+      "clearanceM": 6.4,
+      "estimated": false,
+      "source": "MSQ B2B NGC-4: 6.4 m above HAT",
+      "span": [
+        [
+          153.3302279,
+          -27.8747202
+        ],
+        [
+          153.3319543,
+          -27.8823444
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-story-bridge",
+      "name": "Story Bridge",
+      "clearanceM": 30.0,
+      "estimated": false,
+      "source": "MSQ Port Procedures Brisbane Aug-2024 Table 23: 30 m above HAT",
+      "span": [
+        [
+          153.0357364,
+          -27.4617074
+        ],
+        [
+          153.0358451,
+          -27.4657031
+        ]
+      ]
+    },
+    {
+      "id": "au-qld-captain-cook-bridge",
+      "name": "Captain Cook Bridge",
+      "clearanceM": 12.7,
+      "estimated": false,
+      "source": "MSQ PPB Table 23: 12.7 m above HAT",
+      "span": [
+        [
+          153.0305763,
+          -27.4825891
+        ],
+        [
+          153.0273716,
+          -27.4784685
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w720394120",
+      "name": "Aura Boulevard (Bells Creek (North Branch))",
+      "clearanceM": null,
+      "source": "OSM way 720394120 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.066475,
+          -26.8148335
+        ],
+        [
+          153.0656491,
+          -26.8157921
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w45729809",
+      "name": "Bermuda Street (Mudgeeraba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 45729809 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4073255,
+          -28.0428135
+        ],
+        [
+          153.4072196,
+          -28.043316
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w51454292",
+      "name": "Bermuda Street (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 51454292 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4110678,
+          -28.0168004
+        ],
+        [
+          153.4110091,
+          -28.0158554
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w54150643",
+      "name": "Brisbane Road (Biggera Creek)",
+      "clearanceM": null,
+      "source": "OSM way 54150643 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.3951813,
+          -27.9354842
+        ],
+        [
+          153.395461,
+          -27.9355149
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w4636705",
+      "name": "Captain Cook Highway (Barron River)",
+      "clearanceM": null,
+      "source": "OSM way 4636705 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7355283,
+          -16.8681906
+        ],
+        [
+          145.7367203,
+          -16.8693344
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w192615936",
+      "name": "Central Street (Biggera Creek)",
+      "clearanceM": null,
+      "source": "OSM way 192615936 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.3956399,
+          -27.9475408
+        ],
+        [
+          153.3958093,
+          -27.9475631
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w584778199",
+      "name": "Cochrane Street (Moody Creek)",
+      "clearanceM": null,
+      "source": "OSM way 584778199 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7410829,
+          -16.9289261
+        ],
+        [
+          145.7412026,
+          -16.9288279
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w720394121",
+      "name": "Cycleway bridge (Bells Creek (North Branch))",
+      "clearanceM": null,
+      "source": "OSM way 720394121 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0665355,
+          -26.814874
+        ],
+        [
+          153.0657159,
+          -26.8158339
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w51760672",
+      "name": "Cycleway bridge (Biggera Creek)",
+      "clearanceM": null,
+      "source": "OSM way 51760672 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.3951174,
+          -27.9368846
+        ],
+        [
+          153.3953964,
+          -27.9369462
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w456506206",
+      "name": "Cycleway bridge (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 456506206 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7410914,
+          -16.9382495
+        ],
+        [
+          145.7410265,
+          -16.9381274
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1077295533",
+      "name": "Cycleway bridge (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1077295533 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7551827,
+          -16.9493518
+        ],
+        [
+          145.7557544,
+          -16.9489292
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w51626900",
+      "name": "Cycleway bridge (Loders Creek)",
+      "clearanceM": null,
+      "source": "OSM way 51626900 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4090624,
+          -27.9553419
+        ],
+        [
+          153.4092834,
+          -27.9557956
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1231262522",
+      "name": "Cycleway bridge (Moody Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1231262522 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7457052,
+          -16.9344815
+        ],
+        [
+          145.7459058,
+          -16.9343333
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w528243422",
+      "name": "Cycleway bridge (Mudgeeraba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 528243422 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4065544,
+          -28.0432056
+        ],
+        [
+          153.4066603,
+          -28.0427065
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w434695898",
+      "name": "Cycleway bridge (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 434695898 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4112557,
+          -28.0167879
+        ],
+        [
+          153.4112389,
+          -28.0158468
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w233689481",
+      "name": "Cycleway bridge (Noosa Waters)",
+      "clearanceM": null,
+      "source": "OSM way 233689481 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0545904,
+          -26.3982299
+        ],
+        [
+          153.0550255,
+          -26.3981898
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w436651710",
+      "name": "Cycleway bridge (Terranora Creek)",
+      "clearanceM": null,
+      "source": "OSM way 436651710 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.5376187,
+          -28.1822467
+        ],
+        [
+          153.5379449,
+          -28.1839817
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1238736070",
+      "name": "Cycleway bridge (Tokara Canal)",
+      "clearanceM": null,
+      "source": "OSM way 1238736070 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.1274366,
+          -26.7564556
+        ],
+        [
+          153.1271634,
+          -26.7568351
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w224059503",
+      "name": "Cycleway bridge (Tweed River)",
+      "clearanceM": null,
+      "source": "OSM way 224059503 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.5543087,
+          -28.2239426
+        ],
+        [
+          153.5565701,
+          -28.2260007
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w234736876",
+      "name": "Eenie Creek Pathway (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 234736876 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0752229,
+          -26.4112005
+        ],
+        [
+          153.0702541,
+          -26.4098108
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w173359948",
+      "name": "Eenie Creek Road (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 173359948 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0752305,
+          -26.4111432
+        ],
+        [
+          153.0702458,
+          -26.4097453
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w720394122",
+      "name": "Footway bridge (Bells Creek (North Branch))",
+      "clearanceM": null,
+      "source": "OSM way 720394122 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0665533,
+          -26.8148863
+        ],
+        [
+          153.0657399,
+          -26.8158476
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1110238417",
+      "name": "Footway bridge (Biggera Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1110238417 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.3951621,
+          -27.9354009
+        ],
+        [
+          153.3954544,
+          -27.9354371
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1110477922",
+      "name": "Footway bridge (Biggera Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1110477922 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.3958256,
+          -27.9474933
+        ],
+        [
+          153.3956415,
+          -27.9474654
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1298041095",
+      "name": "Footway bridge (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1298041095 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7443015,
+          -16.9388486
+        ],
+        [
+          145.7444553,
+          -16.938747
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w757995758",
+      "name": "Footway bridge (Loders Creek)",
+      "clearanceM": null,
+      "source": "OSM way 757995758 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4036044,
+          -27.965284
+        ],
+        [
+          153.4032868,
+          -27.9652376
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1216642750",
+      "name": "Footway bridge (Loders Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1216642750 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4035297,
+          -27.9567601
+        ],
+        [
+          153.4038472,
+          -27.956808
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w621404782",
+      "name": "Footway bridge (Moody Creek)",
+      "clearanceM": null,
+      "source": "OSM way 621404782 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7389907,
+          -16.9264154
+        ],
+        [
+          145.7390958,
+          -16.9263335
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1298843006",
+      "name": "Footway bridge (Moody Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1298843006 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7512608,
+          -16.9437902
+        ],
+        [
+          145.7510749,
+          -16.9435662
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1318585939",
+      "name": "Footway bridge (Moody Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1318585939 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7484924,
+          -16.9376971
+        ],
+        [
+          145.7488253,
+          -16.9375791
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w553163436",
+      "name": "Footway bridge (Mudgeeraba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 553163436 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.415502,
+          -28.0441164
+        ],
+        [
+          153.4154065,
+          -28.0436849
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1427036023",
+      "name": "Footway bridge (Mudgeeraba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 1427036023 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4075144,
+          -28.0427374
+        ],
+        [
+          153.4074877,
+          -28.0434304
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w848307222",
+      "name": "Footway bridge (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 848307222 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4263614,
+          -27.9986224
+        ],
+        [
+          153.424666,
+          -27.9987594
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1315633600",
+      "name": "Footway bridge (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 1315633600 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4269155,
+          -28.0093125
+        ],
+        [
+          153.4266569,
+          -28.0097006
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w930827389",
+      "name": "Footway bridge (Noosa Waters)",
+      "clearanceM": null,
+      "source": "OSM way 930827389 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0547169,
+          -26.3989086
+        ],
+        [
+          153.0551412,
+          -26.3987204
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1243630406",
+      "name": "Footway bridge (Noosa Waters)",
+      "clearanceM": null,
+      "source": "OSM way 1243630406 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0637232,
+          -26.404637
+        ],
+        [
+          153.0633908,
+          -26.405039
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w124183072",
+      "name": "Footway bridge (Terranora Creek)",
+      "clearanceM": null,
+      "source": "OSM way 124183072 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.526664,
+          -28.1908512
+        ],
+        [
+          153.5272282,
+          -28.1928484
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w1238736284",
+      "name": "Footway bridge (Tokara Canal)",
+      "clearanceM": null,
+      "source": "OSM way 1238736284 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.1269533,
+          -26.7567024
+        ],
+        [
+          153.1272204,
+          -26.7563311
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w163360632",
+      "name": "Footway bridge (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 163360632 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0808139,
+          -26.404858
+        ],
+        [
+          153.081465,
+          -26.4047368
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w234067136",
+      "name": "Footway bridge (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 234067136 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0783027,
+          -26.3946344
+        ],
+        [
+          153.0785419,
+          -26.3937337
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w23254351",
+      "name": "Gibson Road (Noosa Waters)",
+      "clearanceM": null,
+      "source": "OSM way 23254351 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0563028,
+          -26.4011904
+        ],
+        [
+          153.0557824,
+          -26.4010801
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w8390964",
+      "name": "Gold Coast Highway (Currumbin Creek)",
+      "clearanceM": null,
+      "source": "OSM way 8390964 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4800498,
+          -28.1306862
+        ],
+        [
+          153.4814137,
+          -28.1317589
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w23254621",
+      "name": "Gympie Terrace (Noosa Waters)",
+      "clearanceM": null,
+      "source": "OSM way 23254621 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0547133,
+          -26.3988561
+        ],
+        [
+          153.0551116,
+          -26.3986736
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w178282823",
+      "name": "Johnston Street (Loders Creek)",
+      "clearanceM": null,
+      "source": "OSM way 178282823 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.403581,
+          -27.9652285
+        ],
+        [
+          153.4033159,
+          -27.9651908
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w386325996",
+      "name": "Kawana Way Link Road (Currimundi Creek Tributary 1)",
+      "clearanceM": null,
+      "source": "OSM way 386325996 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.1030286,
+          -26.7647845
+        ],
+        [
+          153.1034423,
+          -26.7646098
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w26236769",
+      "name": "Minjungbal Drive (Terranora Creek)",
+      "clearanceM": null,
+      "source": "OSM way 26236769 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.537799,
+          -28.1840015
+        ],
+        [
+          153.5374639,
+          -28.1821518
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w621416971",
+      "name": "Mulgrave Road (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 621416971 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7446645,
+          -16.9390137
+        ],
+        [
+          145.7445485,
+          -16.9390889
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w176378091",
+      "name": "Musgrave Avenue (Loders Creek)",
+      "clearanceM": null,
+      "source": "OSM way 176378091 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4038502,
+          -27.9567516
+        ],
+        [
+          153.4035775,
+          -27.9567115
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w95344688",
+      "name": "Nicklin Way (Tokara Canal)",
+      "clearanceM": null,
+      "source": "OSM way 95344688 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.1269995,
+          -26.7567429
+        ],
+        [
+          153.1272815,
+          -26.7563563
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w195260052",
+      "name": "Noosa Parade (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 195260052 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0783483,
+          -26.3946443
+        ],
+        [
+          153.0785922,
+          -26.3937351
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w156413309",
+      "name": "North Coast Line (Burrum River)",
+      "clearanceM": null,
+      "source": "OSM way 156413309 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          152.5763094,
+          -25.3301882
+        ],
+        [
+          152.5753728,
+          -25.329707
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w4845501",
+      "name": "North Coast Line (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 4845501 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7552116,
+          -16.9523789
+        ],
+        [
+          145.756044,
+          -16.952091
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w136195708",
+      "name": "Old Bruce Highway (Burrum River)",
+      "clearanceM": null,
+      "source": "OSM way 136195708 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          152.5759287,
+          -25.3286511
+        ],
+        [
+          152.5769111,
+          -25.3293289
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w26236970",
+      "name": "Pacific Motorway (Terranora Creek)",
+      "clearanceM": null,
+      "source": "OSM way 26236970 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.5265999,
+          -28.1908324
+        ],
+        [
+          153.5272125,
+          -28.1929856
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w41744758",
+      "name": "Pacific Motorway (Tweed River)",
+      "clearanceM": null,
+      "source": "OSM way 41744758 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.5544709,
+          -28.2238309
+        ],
+        [
+          153.5566516,
+          -28.2258189
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w415181051",
+      "name": "Railway bridge (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 415181051 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7508275,
+          -16.9461765
+        ],
+        [
+          145.7506788,
+          -16.9464108
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w415181050",
+      "name": "Railway bridge (Moody Creek)",
+      "clearanceM": null,
+      "source": "OSM way 415181050 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7515022,
+          -16.9449186
+        ],
+        [
+          145.751318,
+          -16.9452433
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w172780083",
+      "name": "Ray Jones Drive (Chinaman Creek)",
+      "clearanceM": null,
+      "source": "OSM way 172780083 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          145.7557992,
+          -16.9493889
+        ],
+        [
+          145.7553048,
+          -16.9497438
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w26599443",
+      "name": "Rio Vista Boulevard (Mudgeeraba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 26599443 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4154747,
+          -28.0443073
+        ],
+        [
+          153.4153533,
+          -28.0436855
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w41444465",
+      "name": "Ross Street (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 41444465 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.3710351,
+          -28.0077125
+        ],
+        [
+          153.3702537,
+          -28.0088153
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w185351735",
+      "name": "Saltwater Avenue (Noosa Waters)",
+      "clearanceM": null,
+      "source": "OSM way 185351735 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0636804,
+          -26.4046185
+        ],
+        [
+          153.0633429,
+          -26.405022
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w176378088",
+      "name": "Smith Street (Loders Creek)",
+      "clearanceM": null,
+      "source": "OSM way 176378088 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4046075,
+          -27.9632417
+        ],
+        [
+          153.4049128,
+          -27.9632852
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w246087072",
+      "name": "Tableland Road (Baffle Creek)",
+      "clearanceM": null,
+      "source": "OSM way 246087072 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          151.8444552,
+          -24.6006821
+        ],
+        [
+          151.8453227,
+          -24.60142
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w179739004",
+      "name": "Thomas Drive (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 179739004 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4263269,
+          -27.9985863
+        ],
+        [
+          153.4246429,
+          -27.998722
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w179739008",
+      "name": "Via Roma (Nerang River)",
+      "clearanceM": null,
+      "source": "OSM way 179739008 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.4270385,
+          -28.0089806
+        ],
+        [
+          153.4263047,
+          -28.0100857
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w234409223",
+      "name": "Weyba Bridge (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 234409223 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.082053,
+          -26.4056285
+        ],
+        [
+          153.0814023,
+          -26.4056206
+        ]
+      ]
+    },
+    {
+      "id": "au-osm-w178155991",
+      "name": "Weyba Road (Weyba Creek)",
+      "clearanceM": null,
+      "source": "OSM way 178155991 — span only, no published clearance (display-only, never gates routing)",
+      "span": [
+        [
+          153.0808042,
+          -26.4048121
+        ],
+        [
+          153.0814549,
+          -26.4046919
+        ]
+      ]
+    }
+  ]
 }
