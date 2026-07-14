@@ -30,9 +30,13 @@
 // v59: corridor-blackout fix round 2 (empty-vs-null coverage seams,
 // DRGARE frame, robust DRVAL1) + clip-loop stall fix — purge so
 // Shane's test devices pull the new bundle immediately (2026-07-14).
-const CACHE_NAME = 'thalassa-v59-core';
-const TILE_CACHE = 'thalassa-v59-tiles';
-const DATA_CACHE = 'thalassa-v59-data';
+// v60: tracer pins broke geo-anchoring (inline position:relative on the
+// Marker root overrode Mapbox's absolute — pins stacked into document
+// flow, a fixed screen offset that reads as drift while zooming). Purge
+// so every device drops the drifting-pin bundle immediately.
+const CACHE_NAME = 'thalassa-v60-core';
+const TILE_CACHE = 'thalassa-v60-tiles';
+const DATA_CACHE = 'thalassa-v60-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
