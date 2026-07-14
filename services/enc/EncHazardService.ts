@@ -857,12 +857,16 @@ const DERIVED_CONTOUR_MAX_SOUNDINGS = 30_000;
 export const GLAZE_MIN_ZOOM = 9.5;
 /** Fine bands at least this deep never clip the coarse glaze. With
  *  unsafe glaze at opacity 0, the clip only protects against coarse
- *  SAFE-white over fine UNSAFE water — and no keel this app serves
- *  needs more than ~10 m under it, so a ≥10 m fine band is safe for
- *  everyone and white-over-white overlap is harmless. Excluding deep
- *  bands from the clip coverage removes the strip-mask staircase that
- *  flanked deep channel corridors ("black steps", 2026-07-14). */
-const GLAZE_CLIP_MAX_SAFE_M = 10;
+ *  SAFE-white over fine UNSAFE water — a fine band deeper than any
+ *  plausible keel's safety depth is safe for everyone, so clipping
+ *  under it buys nothing and its strip-mask halo shows as blocks.
+ *  Was 10 m ("any keel"), now 5 m: 10 dragged every 9-ish-metre band
+ *  into the mask, and once the glaze clip started seeing adjacent-band
+ *  neighbours (a0b67d39) their halos tiled the mid-depth water with
+ *  grey rectangles ("blocky squares floating around", 2026-07-14
+ *  round 2). 5 m still covers a 4.5 m-safety keel — deeper-draft
+ *  vessels than that aren't reading a white glaze for guidance. */
+const GLAZE_CLIP_MAX_SAFE_M = 5;
 
 /** Shallow-band clip footprint from a cell's DEPARE/DRGARE collections:
  *  polygon coords of every band shallower than GLAZE_CLIP_MAX_SAFE_M

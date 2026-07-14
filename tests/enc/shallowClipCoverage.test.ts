@@ -44,8 +44,12 @@ describe('shallowClipCoverage — deep corridor cells clip nothing', () => {
         expect(shallowClipCoverage([unknownDepth])).toHaveLength(1);
     });
 
-    it('exactly at the 10 m threshold → deep (excluded)', () => {
-        expect(shallowClipCoverage([fc(band(10, square(0, 0, 1, 1)))])).toEqual([]);
+    it('exactly at the 5 m threshold → deep (excluded)', () => {
+        expect(shallowClipCoverage([fc(band(5, square(0, 0, 1, 1)))])).toEqual([]);
+    });
+
+    it('9-ish-metre bands never clip (the round-2 blocky squares)', () => {
+        expect(shallowClipCoverage([fc(band(9.1, square(0, 0, 1, 1)))])).toEqual([]);
     });
 
     it('MultiPolygon shallow bands explode into individual polys', () => {

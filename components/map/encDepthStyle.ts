@@ -205,6 +205,27 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
     ] as unknown as ExpressionSpecification;
 }
 
+/**
+ * Satellite-glaze fill COLOUR — FLAT two-tone, not the chart ramp
+ * (Shane 2026-07-14: "blocky squares floating around... 80's styling").
+ * The glaze verdict is binary (white = GO), but painting it with the
+ * DEPTH-GRADED ramp meant every overlap between a coarse and a fine
+ * band of different depths rendered as a visibly different-hue
+ * rectangle wherever the strip clip cut a piece — grey-blue deep-band
+ * blocks over off-white mid-band water. One flat white for ALL safe
+ * water makes overlaps invisible (white-on-white is just white);
+ * drying keeps its distinct khaki. Chart-datum keyed, matching the
+ * opacity (the PAIRING INVARIANT above).
+ */
+export function buildDepareGlazeFillColor(): ExpressionSpecification {
+    return [
+        'case',
+        attrValid(DRVAL1_ATTR),
+        ['step', DRVAL1_ATTR, DEPARE_BAND_COLORS.drying, 0, '#f7f5f0'],
+        '#f7f5f0', // unknown DRVAL1 is opacity-0 anyway; colour never shows
+    ] as unknown as ExpressionSpecification;
+}
+
 // ── Sounding typography ───────────────────────────────────────────
 
 /** Subscript digits for chart-style sounding tenths (3₄, not 3.4). */

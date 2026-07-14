@@ -37,9 +37,11 @@
 // v61: marine-blue water names + island names, glaze pre-warmed from
 // z9.5, QLD-coast bridge set (30 published clearances + 67 display-only
 // spans) — purge so bridges-au.json v3 and the new bundle land together.
-const CACHE_NAME = 'thalassa-v61-core';
-const TILE_CACHE = 'thalassa-v61-tiles';
-const DATA_CACHE = 'thalassa-v61-data';
+// v62: flat-white glaze (kills the tinted-rectangle patchwork), clip
+// threshold 10→5 m, VHF watch-channel badges on the leads.
+const CACHE_NAME = 'thalassa-v62-core';
+const TILE_CACHE = 'thalassa-v62-tiles';
+const DATA_CACHE = 'thalassa-v62-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

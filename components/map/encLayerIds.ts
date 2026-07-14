@@ -83,6 +83,13 @@ export const ENC_VEC_LAYERS = {
      *  (Shane 2026-07-14). Upright dark-earth lettering; shares the
      *  SEAARE_LABELS source, filtered on _kind === 'land'. */
     LNDARE_LABEL: 'enc-vec-lndare-label',
+    /** VHF watch-channel badges dotted along the leads — "((•)) VHF 16",
+     *  and "((•)) VHF 12·16" inside the Brisbane VTS area (Shane
+     *  2026-07-14: "a little radio symbol with the correct radio
+     *  channel punters should be on"). Two layers, split by a `within`
+     *  filter on the VTS polygon. */
+    VHF_BADGE: 'enc-vec-vhf-badge',
+    VHF_BADGE_VTS: 'enc-vec-vhf-badge-vts',
 } as const;
 
 // All layer IDs, ordered bottom-to-top for correct stacking. The
@@ -131,6 +138,8 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.UWTROC,
     ENC_VEC_LAYERS.LIGHTS,
     ENC_VEC_LAYERS.RECTRC_LABEL,
+    ENC_VEC_LAYERS.VHF_BADGE, // watch-channel badges ride above the lead labels
+    ENC_VEC_LAYERS.VHF_BADGE_VTS,
     ENC_VEC_LAYERS.NAVAIDS_LABEL, // labels topmost
     ENC_VEC_LAYERS.POINTS_LABEL,
 ];
@@ -155,5 +164,7 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.DEPARE_FINE &&
         id !== ENC_VEC_LAYERS.DEPARE_GLAZE &&
         id !== ENC_VEC_LAYERS.SEAARE_LABEL &&
-        id !== ENC_VEC_LAYERS.LNDARE_LABEL,
+        id !== ENC_VEC_LAYERS.LNDARE_LABEL &&
+        id !== ENC_VEC_LAYERS.VHF_BADGE &&
+        id !== ENC_VEC_LAYERS.VHF_BADGE_VTS,
 );
