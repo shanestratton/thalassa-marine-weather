@@ -34,9 +34,12 @@
 // Marker root overrode Mapbox's absolute — pins stacked into document
 // flow, a fixed screen offset that reads as drift while zooming). Purge
 // so every device drops the drifting-pin bundle immediately.
-const CACHE_NAME = 'thalassa-v60-core';
-const TILE_CACHE = 'thalassa-v60-tiles';
-const DATA_CACHE = 'thalassa-v60-data';
+// v61: marine-blue water names + island names, glaze pre-warmed from
+// z9.5, QLD-coast bridge set (30 published clearances + 67 display-only
+// spans) — purge so bridges-au.json v3 and the new bundle land together.
+const CACHE_NAME = 'thalassa-v61-core';
+const TILE_CACHE = 'thalassa-v61-tiles';
+const DATA_CACHE = 'thalassa-v61-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

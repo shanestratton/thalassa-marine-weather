@@ -77,8 +77,12 @@ export const ENC_VEC_LAYERS = {
     NAVAIDS_LABEL: 'enc-vec-navaids-label',
     POINTS_LABEL: 'enc-vec-points-label',
     /** Named-water ink — "Mooloolah River" in the river (Shane
-     *  2026-07-13). Dark italic chart lettering, one label per name. */
+     *  2026-07-13). Marine-blue italic chart lettering, one per name. */
     SEAARE_LABEL: 'enc-vec-seaare-label',
+    /** Island / named-land ink — "High Peak Island" on the island
+     *  (Shane 2026-07-14). Upright dark-earth lettering; shares the
+     *  SEAARE_LABELS source, filtered on _kind === 'land'. */
+    LNDARE_LABEL: 'enc-vec-lndare-label',
 } as const;
 
 // All layer IDs, ordered bottom-to-top for correct stacking. The
@@ -108,6 +112,7 @@ export const ALL_LAYER_IDS = [
     ENC_VEC_LAYERS.DEPCNT_LABEL,
     ENC_VEC_LAYERS.SOUNDG, // depth numbers under everything interactive
     ENC_VEC_LAYERS.SEAARE_LABEL, // waterway names over numbers, under marks
+    ENC_VEC_LAYERS.LNDARE_LABEL, // island names beside them, same altitude
     ENC_VEC_LAYERS.RECTRC, // leads under the marks that define them
     ENC_VEC_LAYERS.LIGHTSEC_LEG, // sector limit legs under the arcs
     ENC_VEC_LAYERS.LIGHTSEC_ARC, // coloured sector arcs under the light glyph
@@ -149,5 +154,6 @@ export const CLICKABLE_LAYER_IDS = ALL_LAYER_IDS.filter(
         id !== ENC_VEC_LAYERS.LIGHTSEC_ARC &&
         id !== ENC_VEC_LAYERS.DEPARE_FINE &&
         id !== ENC_VEC_LAYERS.DEPARE_GLAZE &&
-        id !== ENC_VEC_LAYERS.SEAARE_LABEL,
+        id !== ENC_VEC_LAYERS.SEAARE_LABEL &&
+        id !== ENC_VEC_LAYERS.LNDARE_LABEL,
 );
