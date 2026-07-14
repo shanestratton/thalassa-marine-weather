@@ -1725,6 +1725,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     // the white chart stands alone offline. Still never persisted — the
     // toggle owns it per session, so no state can haunt a later boot.
     const [satelliteVisible, setSatelliteVisible] = useState(!Capacitor.isNativePlatform());
+    // Terrain base (Shane 2026-07-14: "another layer apart from the
+    // satellite... something tasteful"): shaded-relief land under the
+    // untouched chart water. Session-only like satellite; the two are
+    // mutually exclusive (the ChartModes setters clear the sibling).
+    const [terrainVisible, setTerrainVisible] = useState(false);
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
@@ -1762,6 +1767,27 @@ export const MapHub: React.FC<MapHubProps> = ({
         const apply = (force = false) => {
             try {
                 let changed = force;
+                // Terrain hillshade rides the same conditional-write rules
+                // as satellite: visibility, self-healing z-order, and a
+                // translucent LNDARE tan (0.5) so the relief glows through
+                // the chart's land — all no-ops at steady state so the
+                // styledata loop stays dead.
+                if (map.getLayer('terrain-hillshade-layer')) {
+                    if (setVis('terrain-hillshade-layer', terrainVisible ? 'visible' : 'none')) changed = true;
+                    const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                    const encBottom = order.find((id) => id.startsWith('enc-vec-'));
+                    if (encBottom && order.indexOf('terrain-hillshade-layer') > order.indexOf(encBottom)) {
+                        map.moveLayer('terrain-hillshade-layer', encBottom);
+                        changed = true;
+                    }
+                }
+                if (map.getLayer(ENC_VEC_LAYERS.LNDARE)) {
+                    const target = terrainVisible ? 0.5 : 0.85;
+                    if (map.getPaintProperty(ENC_VEC_LAYERS.LNDARE, 'fill-opacity') !== target) {
+                        map.setPaintProperty(ENC_VEC_LAYERS.LNDARE, 'fill-opacity', target);
+                        changed = true;
+                    }
+                }
                 if (map.getLayer('satellite-base-layer')) {
                     if (setVis('satellite-base-layer', satelliteVisible ? 'visible' : 'none')) changed = true;
                     // Self-healing z-order: whatever race added the raster
@@ -1857,7 +1883,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (pending !== null) window.clearTimeout(pending);
             map.off('styledata', scheduleApply);
         };
-    }, [satelliteVisible, mapReady, encVisible, encChartDetail]);
+    }, [satelliteVisible, terrainVisible, mapReady, encVisible, encChartDetail]);
     // ── "Depth right now" — the live tide toggle (design 2026-07-11) ──
     // Charted depth + predicted tide, ONE offset applied at the paint
     // layer (band tints, sounding numbers, contour labels — see
@@ -4966,7 +4992,15 @@ export const MapHub: React.FC<MapHubProps> = ({
                     mpaVisible={weather.mpaVisible}
                     setMpaVisible={(v) => weather.setMpaVisible(v)}
                     satelliteVisible={satelliteVisible}
-                    setSatelliteVisible={setSatelliteVisible}
+                    setSatelliteVisible={(v) => {
+                        setSatelliteVisible(v);
+                        if (v) setTerrainVisible(false); // one base at a time
+                    }}
+                    terrainVisible={terrainVisible}
+                    setTerrainVisible={(v) => {
+                        setTerrainVisible(v);
+                        if (v) setSatelliteVisible(false);
+                    }}
                     tideDepthMode={tideDepthMode}
                     onToggleTideDepth={onToggleTideDepth}
                     onOpenChartKey={() => setChartKeyOpen(true)}
