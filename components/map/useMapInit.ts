@@ -540,6 +540,43 @@ export function useMapInit(opts: UseMapInitOptions) {
                 );
             }
 
+            // ── Terrain hillshade base (Shane 2026-07-14: "another layer
+            // apart from the satellite... something tasteful") ──
+            // Shaded-relief LAND under the chart: a hillshade layer off
+            // the Mapbox DEM, born hidden, toggled by ChartModes' Terrain
+            // row (session-only, like satellite). The ENC water stays the
+            // untouched white ramp — the DEM is flat at sea level, so the
+            // relief only ever sculpts the land; MapHub drops the LNDARE
+            // tan to translucent while it's on so the relief glows
+            // through the chart's own land colour.
+            if (!map.getSource('terrain-hillshade-dem')) {
+                map.addSource('terrain-hillshade-dem', {
+                    type: 'raster-dem',
+                    url: 'mapbox://mapbox.mapbox-terrain-dem-v1',
+                    tileSize: 512,
+                    maxzoom: 14,
+                });
+                const encBottomForDem = map.getStyle()?.layers?.find((l) => l.id.startsWith('enc-vec-'))?.id;
+                map.addLayer(
+                    {
+                        id: 'terrain-hillshade-layer',
+                        type: 'hillshade',
+                        source: 'terrain-hillshade-dem',
+                        layout: { visibility: 'none' },
+                        paint: {
+                            // Soft warm relief, not gamer-map drama: gentle
+                            // exaggeration, shadows in the chart's own earth
+                            // tones so it reads like engraved paper.
+                            'hillshade-exaggeration': 0.35,
+                            'hillshade-shadow-color': '#8a7a5f',
+                            'hillshade-highlight-color': '#fffdf7',
+                            'hillshade-accent-color': '#a08c6b',
+                        },
+                    },
+                    encBottomForDem,
+                );
+            }
+
             // ── MapTiler Ocean Bathymetry Overlay ──
             // Adds high-res bathymetry contours from MapTiler Ocean tiles as a raster overlay.
             // Uses raster XYZ endpoint (plain HTTPS) which works with mapbox-gl v2+.

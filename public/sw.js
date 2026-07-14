@@ -39,9 +39,10 @@
 // spans) — purge so bridges-au.json v3 and the new bundle land together.
 // v62: flat-white glaze (kills the tinted-rectangle patchwork), clip
 // threshold 10→5 m, VHF watch-channel badges on the leads.
-const CACHE_NAME = 'thalassa-v62-core';
-const TILE_CACHE = 'thalassa-v62-tiles';
-const DATA_CACHE = 'thalassa-v62-data';
+// v63: Terrain base mode (shaded-relief land, chart water untouched).
+const CACHE_NAME = 'thalassa-v63-core';
+const TILE_CACHE = 'thalassa-v63-tiles';
+const DATA_CACHE = 'thalassa-v63-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
