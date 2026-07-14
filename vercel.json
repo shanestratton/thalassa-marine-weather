@@ -13,6 +13,14 @@
             "destination": "/logs.html"
         },
         {
+            "source": "/plan",
+            "destination": "/plan.html"
+        },
+        {
+            "source": "/plan/:path*",
+            "destination": "/plan.html"
+        },
+        {
             "source": "/voyage-log-api",
             "destination": "/voyage-log-api.html"
         },
