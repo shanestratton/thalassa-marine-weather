@@ -805,8 +805,15 @@ export const MapHub: React.FC<MapHubProps> = ({
             const isStart = i === 0;
             const isEnd = !isStart && i === capturedCoords.length - 1;
             const el = document.createElement('div');
-            el.style.cssText =
-                'position:relative;width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
+            // NEVER set `position` inline on a Marker root: it overrides
+            // Mapbox's .mapboxgl-marker { position: absolute } and drops
+            // the pin into document FLOW — each pin then rendered a fixed
+            // 40 px × index below its true anchor, which reads as "routes
+            // move when you zoom" (Shane 2026-07-14; live-site autopsy:
+            // transform said y=58, rect said y=118). The root is already
+            // absolutely positioned by Mapbox, so it IS the containing
+            // block for the absolute START label — no `relative` needed.
+            el.style.cssText = 'width:40px;height:40px;display:flex;align-items:center;justify-content:center;';
             const dot = document.createElement('div');
             const ring =
                 i === selectedPin
