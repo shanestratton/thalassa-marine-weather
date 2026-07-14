@@ -44,6 +44,7 @@ import { createLogger } from '../../utils/createLogger';
 import type { EncMergedVectorData } from '../../services/enc/EncHazardService';
 import { registerSeamarkIcons } from './seamarkIcons';
 import { ALL_LAYER_IDS, CLICKABLE_LAYER_IDS, ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
+import { isScrubHidden } from './encDetailScrubber';
 import { buildFeaturePopupHtml, type PopupExtras } from './encPopup';
 
 export { ENC_VEC_LAYERS, ENC_VEC_SRC } from './encLayerIds';
@@ -1606,7 +1607,10 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
 export function setEncVectorVisibility(map: mapboxgl.Map, visible: boolean): void {
     const satOn = satelliteBaseOn();
     for (const id of ALL_LAYER_IDS) {
-        const wantVisible = visible && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
+        // isScrubHidden: never force-show furniture the detail scrubber
+        // has cut — this writer runs on every merge/effect pass, and the
+        // show-then-rehide race flashed the leads (2026-07-15).
+        const wantVisible = visible && !(satOn && SATELLITE_HIDE_LAYERS.includes(id)) && !isScrubHidden(id);
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
     syncDepareBaseTreatment(map);
@@ -1711,7 +1715,10 @@ export function setEncChartDetail(map: mapboxgl.Map, detailed: boolean): void {
     const satOn = satelliteBaseOn();
     for (const id of CHART_DETAIL_HIDE_LAYERS) {
         // Contour lines stay under satellite — only the area fills yield.
-        const wantVisible = detailed && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
+        // The scrub guard mirrors setEncVectorVisibility: detail-on must
+        // not resurrect contours the scrubber cut (they are HIDE_ONLY on
+        // the scrubber side for exactly this ownership seam).
+        const wantVisible = detailed && !(satOn && SATELLITE_HIDE_LAYERS.includes(id)) && !isScrubHidden(id);
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
     syncDepareBaseTreatment(map);
