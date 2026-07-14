@@ -35,7 +35,7 @@ import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
-import { shadowingCells, featureIsShadowed, cellScaleRank } from './scaleShadow';
+import { shadowingCells, featureIsShadowed, cellScaleRank, GLAZE_SHADOW_RATIO, type CellExtent } from './scaleShadow';
 import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
@@ -1173,11 +1173,22 @@ async function buildMergedVectorData(
         merged.cellCount++;
 
         const ialaRegion = ialaRegionForSourceHO(cell.sourceHO);
-        // Shadow list re-anchored on DATA extents: a finer cell with no
+        // Shadow lists re-anchored on DATA extents: a finer cell with no
         // DEPARE (marks-only) never erases coarse bands at all.
-        const shadows = shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents)
-            .map((s) => (depareExtent.has(s.id) ? { id: s.id, bbox: depareExtent.get(s.id)! } : null))
-            .filter((s): s is { id: string; bbox: [number, number, number, number] } => s !== null);
+        const reanchorOnDepare = (list: readonly CellExtent[]) =>
+            list
+                .map((s) => (depareExtent.has(s.id) ? { id: s.id, bbox: depareExtent.get(s.id)! } : null))
+                .filter((s): s is { id: string; bbox: [number, number, number, number] } => s !== null);
+        const shadows = reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents));
+        // The GLAZE clips against every meaningfully-finer overlapping
+        // cell, not just the ≥16x ones (adversarial review 2026-07-14:
+        // adjacent-band pairs inside 16x left coarse SAFE-white painting
+        // over water the finer survey charts as under-keel — see
+        // GLAZE_SHADOW_RATIO). Superset of `shadows`; the base-feature
+        // DROP above stays at the destructive-safe 16x.
+        const glazeShadows = buildGlaze
+            ? reanchorOnDepare(shadowingCells({ id: cell.id, bbox: cell.bbox }, cellExtents, GLAZE_SHADOW_RATIO))
+            : [];
 
         const tagAndPush = (
             target: keyof Omit<EncMergedVectorData, 'cellCount'>,
@@ -1328,7 +1339,7 @@ async function buildMergedVectorData(
             // Memo key: the glaze for this cell is fully determined by its
             // own blob (cellId + version) and the SHADOWING cells that clip
             // it (their ids, sorted — same set for both grades).
-            const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${shadows
+            const glazeKey = `${cacheKey.split(':')[0]}:${cell.id}:${glazeShadows
                 .map((s) => s.id)
                 .sort()
                 .join(',')}`;
@@ -1337,7 +1348,7 @@ async function buildMergedVectorData(
             if (cached) {
                 putGlazeCell(glazeKey, cached); // refresh LRU position
                 for (const f of cached.feats) merged.DEPARE_GLAZE.features.push(f);
-                needQueue = !cached.upgraded && shadows.length > 0;
+                needQueue = !cached.upgraded && glazeShadows.length > 0;
             } else {
                 const glazeRank = cellScaleRank(cell.bbox);
                 // Strip rects, not the whole data-extent rectangle: a
@@ -1347,7 +1358,7 @@ async function buildMergedVectorData(
                 // Strips hug the fine features (conservative: bbox ⊇
                 // band), so coarse white survives only where the fine
                 // survey is silent.
-                const finerRects = shadows.flatMap((s) => stripRectsFor(s.id, s.bbox));
+                const finerRects = glazeShadows.flatMap((s) => stripRectsFor(s.id, s.bbox));
                 const glazeOut: Feature[] = [];
                 for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
                     for (const feat of fc?.features ?? []) {
@@ -1368,8 +1379,8 @@ async function buildMergedVectorData(
                     }
                 }
                 for (const f of glazeOut) merged.DEPARE_GLAZE.features.push(f);
-                putGlazeCell(glazeKey, { upgraded: shadows.length === 0, feats: glazeOut });
-                needQueue = shadows.length > 0;
+                putGlazeCell(glazeKey, { upgraded: glazeShadows.length === 0, feats: glazeOut });
+                needQueue = glazeShadows.length > 0;
             }
             if (needQueue && GEOMETRY_WORKER_ENABLED) {
                 // Payload for the worker's true-coverage upgrade: the
@@ -1378,7 +1389,7 @@ async function buildMergedVectorData(
                 // cached blobs — structured-clone copies them off-thread).
                 // Gated on the flag so a disabled worker costs ZERO — no
                 // payload copies built just to be thrown away.
-                const fineCoverages = shadows
+                const fineCoverages = glazeShadows
                     .map((s) => {
                         const cov = coverageFor(s.id);
                         // Empty = nothing shallow = nothing to subtract.

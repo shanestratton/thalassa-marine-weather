@@ -27,6 +27,33 @@ export interface CellExtent {
 /** Coarse-to-fine bbox-area ratio before a cell is shadowed by a finer one. */
 export const SCALE_SHADOW_RATIO = 16;
 
+/**
+ * Glaze-clip shadow ratio — MUCH lower than SCALE_SHADOW_RATIO, and the
+ * two must stay separate (adversarial review 2026-07-14): overlapping
+ * cells closer than 16x produced an EMPTY shadow list, so the coarser
+ * cell's glaze shipped unclipped and its SAFE-white (fill-opacity keyed
+ * on DRVAL1 ≥ safetyDepth) painted over water the finer survey charts
+ * as under-keel — the fine band's opacity-0 glaze can't occlude
+ * translucent white stacked beneath it. White means "verified safe for
+ * YOUR keel"; that's a safety-optics gap, not a cosmetic one.
+ *
+ * Why the base drop keeps 16x but the glaze clip can run at 2x:
+ * dropping a base feature DELETES chart data, so it demands "much
+ * coarser"; the glaze clip only removes coarse SAFE-white where a finer
+ * survey charts SHALLOW water (< GLAZE_CLIP_MAX_SAFE_M — deep fine
+ * bands never clip, which is what keeps the corridor staircase dead),
+ * and wherever that shallow fine band is still keel-safe the fine
+ * cell's own glaze repaints white. Genuinely safe water can never go
+ * dark; the worst case is the strip-quantisation whisker of bare
+ * imagery — the conservative direction.
+ *
+ * Why 2 and not 1: mutual shadowing needs ratio² ≤ 1, so any ratio > 1
+ * makes the clip one-directional, and the 2x margin keeps same-band
+ * grid siblings (near-equal bbox areas, routinely overlapping at their
+ * seams) from nibbling whisker halos into each other's glaze.
+ */
+export const GLAZE_SHADOW_RATIO = 2;
+
 const bboxArea = (b: [number, number, number, number]): number => Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
 
 /**
