@@ -1,7 +1,9 @@
 /**
- * Edge Middleware — wildcard-subdomain rewrite for the voyage log.
+ * Edge Middleware — wildcard-subdomain router for the public vessel
+ * surfaces.
  *
- * Pattern: <handle>.thalassawx.app/* → /logs.html
+ * Pattern: <handle>.thalassawx.app/plan[/…] → /plan.html   (float plan)
+ *          <handle>.thalassawx.app/*        → /logs.html   (voyage log)
  *
  * Why this exists as middleware and not as a vercel.json rewrite:
  * Vercel's `has.value` field in vercel.json (which would normally let
@@ -39,10 +41,12 @@ export default function middleware(request: Request) {
         return; // undefined = pass through
     }
 
-    // Rewrite to the voyage-log renderer. The renderer reads the
-    // handle from window.location.hostname so we don't need to
-    // pass it in a query param or path segment.
+    // Rewrite to the right standalone renderer. Both read the handle
+    // from window.location.hostname so we don't need to pass it in a
+    // query param or path segment. /plan gets the float-plan page
+    // (Shane 2026-07-15: "a standalone page, not part of the app");
+    // every other path on a boat subdomain is the voyage log.
     const url = new URL(request.url);
-    url.pathname = '/logs.html';
+    url.pathname = url.pathname === '/plan' || url.pathname.startsWith('/plan/') ? '/plan.html' : '/logs.html';
     return fetch(url, request);
 }
