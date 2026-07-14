@@ -27,13 +27,33 @@ const fmtWhen = (iso: string | null): string => {
     });
 };
 
+/** On a boat subdomain, the diary log lives at the BARE origin
+ *  (serene-summer.thalassawx.app) — offer the door back to it. */
+const logHomeHref = (): string | null => {
+    const host = window.location.hostname;
+    const parts = host.split('.');
+    if (parts.length >= 3 && parts[0] !== 'www' && host !== 'thalassawx.app')
+        return `${window.location.protocol}//${host}/`;
+    return null;
+};
+
 const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
         <header className="border-b border-white/10 bg-slate-900/80 px-4 py-3 backdrop-blur">
             <div className="mx-auto flex w-full max-w-4xl items-center gap-2">
                 <span className="text-lg">⛵</span>
                 <span className="text-sm font-black uppercase tracking-widest text-sky-300">Passage Plan</span>
-                <span className="ml-auto text-[11px] text-slate-500">thalassawx.app</span>
+                {logHomeHref() ? (
+                    <a
+                        href={logHomeHref() as string}
+                        className="ml-auto rounded-lg border border-white/10 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider text-slate-300 transition-colors hover:border-white/30 hover:text-white"
+                        title="This vessel's public voyage log"
+                    >
+                        📖 Voyage log
+                    </a>
+                ) : (
+                    <span className="ml-auto text-[11px] text-slate-500">thalassawx.app</span>
+                )}
             </div>
         </header>
         <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-5">{children}</main>

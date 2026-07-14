@@ -14,6 +14,16 @@
         },
         {
             "source": "/plan",
+            "has": [{ "type": "host", "value": "thalassawx.app" }],
+            "destination": "/index.html"
+        },
+        {
+            "source": "/plan",
+            "has": [{ "type": "host", "value": "www.thalassawx.app" }],
+            "destination": "/index.html"
+        },
+        {
+            "source": "/plan",
             "destination": "/plan.html"
         },
         {
