@@ -63,6 +63,48 @@ function metresBetween(lat1: number, lon1: number, lat2: number, lon2: number): 
     return Math.sqrt(x * x + y * y) * EARTH_RADIUS_M;
 }
 
+/** Perpendicular distance (metres) from a point to a segment a→b, using a
+ *  local equirectangular projection about the query point — accurate at
+ *  the sub-km ranges the guard radius cares about. */
+function pointToSegmentMetres(
+    plat: number,
+    plon: number,
+    alat: number,
+    alon: number,
+    blat: number,
+    blon: number,
+): number {
+    const mLon = METRES_PER_DEG_LAT * Math.cos((plat * Math.PI) / 180);
+    const ax = (alon - plon) * mLon;
+    const ay = (alat - plat) * METRES_PER_DEG_LAT;
+    const bx = (blon - plon) * mLon;
+    const by = (blat - plat) * METRES_PER_DEG_LAT;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    let t = len2 > 0 ? -((ax * dx + ay * dy) / len2) : 0;
+    t = Math.max(0, Math.min(1, t));
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+    return Math.sqrt(cx * cx + cy * cy);
+}
+
+/** Min distance (metres) from a point to a Line/MultiLineString geometry. */
+function distanceToLineMetres(lat: number, lon: number, geom: Geometry): number {
+    const lines: Position[][] =
+        geom.type === 'LineString' ? [geom.coordinates] : geom.type === 'MultiLineString' ? geom.coordinates : [];
+    let best = Infinity;
+    for (const line of lines) {
+        for (let i = 0; i + 1 < line.length; i++) {
+            const a = line[i];
+            const b = line[i + 1];
+            const d = pointToSegmentMetres(lat, lon, a[1], a[0], b[1], b[0]);
+            if (d < best) best = d;
+        }
+    }
+    return best;
+}
+
 // ── CATZOC zone (M_QUAL) ───────────────────────────────────────────
 
 /**
@@ -179,6 +221,14 @@ function classifyHazard(hazard: EncHazard): EncHazardType | null {
             if (hazard.minDepthM === null) return 'shallow';
             if (hazard.minDepthM < ENC_HAZARD_DEPTH_M) return 'shallow';
             return null; // Deeper than threshold — clear water.
+        case 'SOUNDG':
+            // Shoal spot sounding (parse-filtered to < threshold). Treat as
+            // a shallow depth; the draft-aware re-eval decides downstream.
+            // A depthless sounding asserts nothing — null so it can't stand
+            // in as false "clear" coverage.
+            if (hazard.minDepthM === null) return null;
+            if (hazard.minDepthM < ENC_HAZARD_DEPTH_M) return 'shallow';
+            return null;
         case 'OBSTRN':
             return 'obstruction';
         case 'WRECKS':
@@ -232,13 +282,14 @@ export class EncSpatialIndex {
 
         for (const hazard of hazards) {
             let [hMinLon, hMinLat, hMaxLon, hMaxLat] = geometryBBox(hazard.geometry);
-            // Point hazards (rock/wreck/obstruction, incl. exploded
-            // MultiPoints) get a guard-radius bbox pad so a route sample
-            // passing NEAR — not exactly on — a charted danger still
-            // selects it as a candidate. queryPoint then confirms with a
-            // true-circle distance test, so the square pad reads as a
-            // circle. Polygons (DEPARE/LNDARE/…) are unpadded.
-            if (hazard.geometry.type === 'Point') {
+            // Thin hazards — point (rock/wreck/obstruction, incl. exploded
+            // MultiPoints) and line (linear OBSTRN) — get a guard-radius
+            // bbox pad so a route sample passing NEAR, not exactly on, still
+            // selects them as a candidate. queryPoint then confirms with a
+            // true distance test, so the square pad reads as a corridor.
+            // Polygons (DEPARE/LNDARE/…) are unpadded (exact point-in-polygon).
+            const gt = hazard.geometry.type;
+            if (gt === 'Point' || gt === 'MultiPoint' || gt === 'LineString' || gt === 'MultiLineString') {
                 const dLat = POINT_HAZARD_GUARD_RADIUS_M / METRES_PER_DEG_LAT;
                 const cosLat = Math.max(0.05, Math.cos((hMinLat * Math.PI) / 180));
                 const dLon = POINT_HAZARD_GUARD_RADIUS_M / (METRES_PER_DEG_LAT * cosLat);
@@ -489,6 +540,10 @@ export class EncSpatialIndex {
                 // it doesn't land exactly on (mission audit fix).
                 const [hLon, hLat] = geom.coordinates as [number, number];
                 inside = metresBetween(lat, lon, hLat, hLon) <= POINT_HAZARD_GUARD_RADIUS_M;
+            } else if (geom.type === 'LineString' || geom.type === 'MultiLineString') {
+                // Linear hazard (line OBSTRN — e.g. a charted foul-ground or
+                // barrier). Same guard-radius corridor test as point hazards.
+                inside = distanceToLineMetres(lat, lon, geom) <= POINT_HAZARD_GUARD_RADIUS_M;
             }
             if (!inside) continue;
 

@@ -20,7 +20,18 @@
 import type { Feature, FeatureCollection } from 'geojson';
 
 import { type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
+import { ENC_HAZARD_DEPTH_M } from './types';
 import type { EncCatzoc, EncConversionResult, EncHazard, EncLayer } from './types';
+
+/** Max charted depth (m) at which a spot sounding is kept as a routing
+ *  hazard. Deeper soundings can never ground any vessel we model and
+ *  would only bloat the index; matches the DEPARE shallow threshold. */
+const SOUNDING_HAZARD_MAX_DEPTH_M = ENC_HAZARD_DEPTH_M;
+
+/** Safety cap on sounding hazards per cell — keep the SHALLOWEST (most
+ *  dangerous) when a shoal harbour carries a huge sounding cloud, so the
+ *  hazard index can't blow up. */
+const SOUNDING_HAZARD_CAP = 20_000;
 
 /**
  * Read a numeric attribute from a GeoJSON feature's properties.
@@ -113,7 +124,37 @@ export function buildHazardsForCell(blob: EncConversionResult): EncHazard[] {
         if (!fc) continue;
         all.push(...featuresToHazards(layer, fc));
     }
+    // Shoal spot soundings as defense-in-depth beneath the DEPARE DRVAL1
+    // floor: a 1.2 m sounding inside an otherwise-deep depth area would
+    // otherwise be invisible to routing (mission audit — soundings were
+    // extracted for DISPLAY only, never entered the hazard model).
+    all.push(...buildSoundingHazards(blob));
     return all;
+}
+
+/**
+ * Build point hazards from a cell's SOUNDG spot soundings. Reuses the
+ * SOUNDG depth-extraction of explodeSoundings (depths[] / Z / VALSOU /
+ * DEPTH), keeps only soundings shallower than SOUNDING_HAZARD_MAX_DEPTH_M
+ * (deeper ones can't ground any modelled vessel and would only bloat the
+ * index), and caps the count at the SHALLOWEST SOUNDING_HAZARD_CAP so a
+ * shoal harbour can't explode it. Each becomes a Point 'SOUNDG' hazard
+ * carrying its depth (S-57 sign: negative = drying above datum), which
+ * the draft-aware re-eval downstream judges against the vessel.
+ */
+export function buildSoundingHazards(blob: EncConversionResult): EncHazard[] {
+    const shoal: EncHazard[] = [];
+    for (const p of explodeSoundings(blob.layers.SOUNDG)) {
+        const d = (p.properties as { _d?: number } | null)?._d;
+        if (typeof d !== 'number' || !Number.isFinite(d)) continue;
+        if (d >= SOUNDING_HAZARD_MAX_DEPTH_M) continue; // too deep to ever ground
+        shoal.push({ layer: 'SOUNDG', geometry: p.geometry, minDepthM: d });
+    }
+    if (shoal.length > SOUNDING_HAZARD_CAP) {
+        shoal.sort((a, b) => (a.minDepthM ?? 0) - (b.minDepthM ?? 0));
+        shoal.length = SOUNDING_HAZARD_CAP;
+    }
+    return shoal;
 }
 
 /**

@@ -109,6 +109,32 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.queryPoint(0.001, 0)).toMatchObject({ hazard: true, hazardType: 'rock' }); // ~111 m away
     });
 
+    it('a shoal SOUNDG spot sounding is a shallow hazard (defense-in-depth in "deep" water)', () => {
+        // A 1.2 m sounding sitting inside otherwise-deep DEPARE — the exact
+        // case the DEPARE DRVAL1 floor can miss.
+        const i = idx('A', [
+            hz('DEPARE', square(0, 0, 1), 25), // deep, clear
+            hz('SOUNDG', { type: 'Point', coordinates: [0, 0] }, 1.2),
+        ]);
+        expect(i.queryPoint(0, 0)).toMatchObject({ hazard: true, hazardType: 'shallow', minDepthM: 1.2 });
+        expect(i.queryPoint(0.001, 0)).toMatchObject({ hazard: true, hazardType: 'shallow' }); // ~111 m away
+    });
+
+    it('a LINE OBSTRN is detected within the guard radius (was invisible to routing)', () => {
+        // Vertical line at lon 0 from lat 0 → 0.01. A sample ~111 m east must
+        // flag it; ~333 m east must not.
+        const line: Geometry = {
+            type: 'LineString',
+            coordinates: [
+                [0, 0],
+                [0, 0.01],
+            ],
+        };
+        const i = idx('A', [hz('OBSTRN', line)]);
+        expect(i.queryPoint(0.005, 0.001)).toMatchObject({ hazard: true, hazardType: 'obstruction' });
+        expect(i.queryPoint(0.005, 0.003).covered).toBe(false);
+    });
+
     it('FAIL-DANGEROUS FIX: a point in the bbox but OUTSIDE all charted polygons is NOT covered (gap → GEBCO)', () => {
         const i = idx('A', [hz('DEPARE', triangle(4), 2)]);
         // (3.5,3.5): inside the cell bbox [0,0,4,4] but OUTSIDE the DEPARE
