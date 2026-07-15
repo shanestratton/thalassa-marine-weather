@@ -81,9 +81,13 @@
 // re-download while underway, the lightning empty-setData 16 Hz drain,
 // halves the tracer grid build, dedupes the ENC bbox double-walk, one
 // getStyle per apply pass, one mousemove delegate, tide-label render bail.
-const CACHE_NAME = 'thalassa-v80-core';
-const TILE_CACHE = 'thalassa-v80-tiles';
-const DATA_CACHE = 'thalassa-v80-data';
+// v81: ⚡ Auto route now DOES its job on long legs — subdivides the leg
+// into short routable pieces itself (fixLegOnGrid is a short-leg tool),
+// builds one depth grid per ~18 km window, bends each piece around
+// land/shoals, and drops the pins. No more "leg spans too much water".
+const CACHE_NAME = 'thalassa-v81-core';
+const TILE_CACHE = 'thalassa-v81-tiles';
+const DATA_CACHE = 'thalassa-v81-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

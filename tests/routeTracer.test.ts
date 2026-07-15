@@ -11,6 +11,7 @@ import { buildNavGrid } from '../services/engine/navGrid';
 import type { InshoreLayers } from '../services/inshoreRouterEngine';
 import {
     rdpTracePoints,
+    capSegmentLength,
     bearingDegBetween,
     courseArrow,
     fixLegOnGrid,
@@ -579,6 +580,58 @@ describe('routeTracer — Phase 1 hardening', () => {
         // halves — cells stay under ~1.1M, not 2.1M.
         const spanM = 2 * 110_540;
         expect((spanM / bigRes) * ((2 * 111_320 * Math.cos((-28 * Math.PI) / 180)) / bigRes)).toBeLessThan(1_100_000);
+    });
+});
+
+describe('capSegmentLength — ⚡ Auto route subdivision', () => {
+    // Local equirectangular distance in metres for the assertions.
+    const dM = (p: { lat: number; lon: number }, q: { lat: number; lon: number }) => {
+        const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
+        return Math.hypot((q.lat - p.lat) * 110_540, (q.lon - p.lon) * mLon);
+    };
+    const maxSeg = (pts: Array<{ lat: number; lon: number }>) => {
+        let m = 0;
+        for (let i = 1; i < pts.length; i++) m = Math.max(m, dM(pts[i - 1], pts[i]));
+        return m;
+    };
+
+    it('leaves a short leg untouched', () => {
+        const a = { lat: -27.0, lon: 153.0 };
+        const b = { lat: -27.0, lon: 153.01 }; // ~1 km
+        expect(capSegmentLength([a, b], 3_000)).toEqual([a, b]);
+    });
+
+    it('subdivides a long leg so no segment exceeds maxM, endpoints preserved', () => {
+        const a = { lat: -27.0, lon: 153.0 };
+        const b = { lat: -27.0, lon: 153.5 }; // ~50 km at this latitude
+        const legM = dM(a, b);
+        const out = capSegmentLength([a, b], 3_000);
+        expect(out[0]).toEqual(a);
+        expect(out[out.length - 1]).toEqual(b);
+        expect(maxSeg(out)).toBeLessThanOrEqual(3_000 + 1e-6);
+        // ceil(legM/3000)+1 nodes.
+        expect(out.length).toBe(Math.ceil(legM / 3_000) + 1);
+    });
+
+    it('only subdivides the long segments of a multi-point path', () => {
+        const pts = [
+            { lat: -27.0, lon: 153.0 },
+            { lat: -27.0, lon: 153.005 }, // ~500 m — untouched
+            { lat: -27.0, lon: 153.3 }, // ~29 km — split
+        ];
+        const out = capSegmentLength(pts, 5_000);
+        expect(maxSeg(out)).toBeLessThanOrEqual(5_000 + 1e-6);
+        // The first short hop survives verbatim.
+        expect(out[1]).toEqual(pts[1]);
+        expect(out[0]).toEqual(pts[0]);
+        expect(out[out.length - 1]).toEqual(pts[2]);
+    });
+
+    it('handles degenerate input safely', () => {
+        expect(capSegmentLength([], 3_000)).toEqual([]);
+        const a = { lat: -27, lon: 153 };
+        expect(capSegmentLength([a], 3_000)).toEqual([a]);
+        expect(capSegmentLength([a, { lat: -27, lon: 153.5 }], 0)).toHaveLength(2); // maxM≤0 = no-op
     });
 });
 

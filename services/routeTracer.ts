@@ -1111,6 +1111,36 @@ export function rdpTracePoints(points: readonly TracePoint[], epsilonM: number):
     return points.filter((_, i) => keep[i] === 1);
 }
 
+/**
+ * Insert straight intermediate points so NO segment of `points` exceeds
+ * `maxM` metres. The engine behind ⚡ Auto route (Shane 2026-07-15: "the
+ * autoroute should drop the pins for us — that is the job of autoroute"):
+ * fixLegOnGrid is a short-leg tool (its A* corridor caps at 600k cells), so
+ * a long leg can't be routed in one shot. Capping the span first turns it
+ * into a chain of routable, depth-checkable sub-legs; it's also the cleanup
+ * pass that re-subdivides any long straight run RDP left behind, so the
+ * "too much water to check" banner can't come back. Endpoints are preserved
+ * exactly; a leg already under maxM passes through untouched.
+ */
+export function capSegmentLength(points: readonly TracePoint[], maxM: number): TracePoint[] {
+    if (points.length < 2 || !(maxM > 0)) return [...points];
+    const out: TracePoint[] = [points[0]];
+    for (let i = 1; i < points.length; i++) {
+        const p = points[i - 1];
+        const q = points[i];
+        const d = distM(p, q);
+        if (d > maxM) {
+            const n = Math.ceil(d / maxM);
+            for (let k = 1; k < n; k++) {
+                const t = k / n;
+                out.push({ lat: p.lat + (q.lat - p.lat) * t, lon: p.lon + (q.lon - p.lon) * t });
+            }
+        }
+        out.push(q);
+    }
+    return out;
+}
+
 /** True bearing a→b in degrees [0, 360). */
 export function bearingDegBetween(a: TracePoint, b: TracePoint): number {
     const brg = (Math.atan2((b.lon - a.lon) * mPerLon(a.lat), (b.lat - a.lat) * M_PER_DEG_LAT) * 180) / Math.PI;
