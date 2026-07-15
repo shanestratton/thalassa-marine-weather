@@ -103,18 +103,10 @@ export type S57PointMarkClass = (typeof S57_POINT_MARK_CLASSES)[number];
  * until the 2026-07-12 audit (the RW buoy off a harbour entrance
  * rendered as blank water).
  */
-export type EncNavaidLayer =
-    | 'LIGHTS'
-    | 'BOYLAT'
-    | 'BOYCAR'
-    | 'BCNLAT'
-    | 'BCNCAR'
-    | 'BOYSPP'
-    | 'BCNSPP'
-    | 'BOYSAW'
-    | 'BCNSAW'
-    | 'BOYISD'
-    | 'BCNISD';
+// DERIVED from S57_NAVAID_CLASSES (not hand-mirrored) so the type can never
+// drift from the runtime list — add a class in one place and both update
+// (audit: EncNavaidLayer was a hand-maintained parallel union).
+export type EncNavaidLayer = (typeof S57_NAVAID_CLASSES)[number];
 
 /**
  * IALA buoyage region. Lateral mark colour conventions are

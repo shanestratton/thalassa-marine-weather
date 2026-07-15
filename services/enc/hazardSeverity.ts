@@ -42,6 +42,25 @@ export function depthSeverity(minDepthM: number | null): number {
 }
 
 /**
+ * Compare two hazards by TYPE (worse type wins) then DEPTH (shallower /
+ * unknown worse). Returns >0 when A is more severe, <0 when B is, 0 when
+ * equal. This is the SINGLE ordering both the within-cell pick
+ * (EncSpatialIndex.queryPoint) and the cross-cell fold call, so the two
+ * levels are structurally incapable of disagreeing on which hazard is worse.
+ */
+export function compareHazardSeverity(
+    aType: EncHazardType | null | undefined,
+    aDepth: number | null,
+    bType: EncHazardType | null | undefined,
+    bDepth: number | null,
+): number {
+    const sa = aType ? HAZARD_TYPE_SEVERITY[aType] : -1;
+    const sb = bType ? HAZARD_TYPE_SEVERITY[bType] : -1;
+    if (sa !== sb) return sa - sb;
+    return depthSeverity(aDepth) - depthSeverity(bDepth);
+}
+
+/**
  * Total-order comparison of two per-cell results by how dangerous they
  * are: tier (hazard > clear > uncovered), then hazard TYPE, then depth
  * (shallower/unknown worse), then cellId as a final deterministic
@@ -56,13 +75,10 @@ function compareSeverity(a: EncHazardResult, b: EncHazardResult): number {
     const tb = tier(b);
     if (ta !== tb) return ta - tb;
     if (ta === 2) {
-        // Both hazards: worse TYPE wins, then shallower/unknown depth.
-        const sa = a.hazardType ? HAZARD_TYPE_SEVERITY[a.hazardType] : -1;
-        const sb = b.hazardType ? HAZARD_TYPE_SEVERITY[b.hazardType] : -1;
-        if (sa !== sb) return sa - sb;
-        const da = depthSeverity(a.minDepthM);
-        const db = depthSeverity(b.minDepthM);
-        if (da !== db) return da - db;
+        // Both hazards: worse TYPE wins, then shallower/unknown depth — the
+        // SAME comparator queryPoint uses for its within-cell pick.
+        const c = compareHazardSeverity(a.hazardType, a.minDepthM, b.hazardType, b.minDepthM);
+        if (c !== 0) return c;
     }
     // Deterministic provenance tiebreak (never a safety factor). This makes
     // the fold total-ordered — but only because queryHazards folds ONE result
