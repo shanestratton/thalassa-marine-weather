@@ -1448,20 +1448,46 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // OC-61-10ENB5 for Deception Bay). Pull the cells nearest
                     // this leg from the Pi and route again — no menu-diving.
                     if (res && 'error' in res && res.code === 'coverage-gap') {
-                        setAutoRouteDiag('⚡ Missing charts for part of this leg — syncing them from your Pi…');
+                        setAutoRouteDiag('⚡ Missing charts for part of this leg — fetching them from the cloud…');
                         try {
-                            const { syncEncFromPi } = await import('../../services/EncImportService');
-                            const mid = { lat: (a.lat + b.lat) / 2, lon: (a.lon + b.lon) / 2 };
-                            const summary = await syncEncFromPi(undefined, { priorityCenter: mid, maxCells: 10 });
-                            if (summary.cells.length > 0) {
-                                log.warn(`auto-route: synced ${summary.cells.length} cells, retrying`);
+                            // Fetch from the CLOUD, not the Pi: this runs on the
+                            // web (thalassawx.app over HTTPS), where the Pi at
+                            // http://…:3001 is unreachable behind the page's HTTPS
+                            // origin (mixed-content block). The cloud bucket is
+                            // HTTPS and holds the same cells. Downloading a cell
+                            // also fixes its hazardCount so the router's coverage
+                            // gate finally accepts it (the real bug — see
+                            // cloudCellSync).
+                            const { downloadCloudCellsForBBox } = await import('../../services/enc/cloudCellSync');
+                            const pad = 0.03;
+                            const bbox: [number, number, number, number] = [
+                                Math.min(a.lon, b.lon) - pad,
+                                Math.min(a.lat, b.lat) - pad,
+                                Math.max(a.lon, b.lon) + pad,
+                                Math.max(a.lat, b.lat) + pad,
+                            ];
+                            const fill = await downloadCloudCellsForBBox(bbox);
+                            log.warn(
+                                `auto-route: cloud fill downloaded=${fill.downloaded} needed=${fill.needed} bucket=${fill.bucketAvailable}`,
+                            );
+                            if (!fill.bucketAvailable) {
+                                setAutoRouteDiag(
+                                    "⚡ This leg needs charts your session doesn't have, and the chart cloud isn't reachable. Check your connection and that you're signed in (the charts are licensed).",
+                                );
+                                return;
+                            }
+                            if (fill.downloaded === 0 && fill.needed > 0) {
+                                setAutoRouteDiag(
+                                    "⚡ The missing charts wouldn't download — you're probably not signed in (the chart bucket is licensed-access). Sign in and try again.",
+                                );
+                                return;
+                            }
+                            if (fill.downloaded > 0) {
                                 ({ res, viaTide } = await runEngine());
                             }
                         } catch (syncErr) {
-                            // Pi unreachable / import failed — fall through to the
-                            // gap message, but say WHY the sync couldn't happen.
                             setAutoRouteDiag(
-                                `⚡ This leg needs charts your device doesn't have, and the Pi isn't reachable to sync them (${syncErr instanceof Error ? syncErr.message.slice(0, 50) : 'offline'}). Connect to the boat WiFi and try again.`,
+                                `⚡ Couldn't fetch the missing charts (${syncErr instanceof Error ? syncErr.message.slice(0, 50) : 'error'}). Check your connection / sign-in and try again.`,
                             );
                             return;
                         }
@@ -1503,7 +1529,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                         // cell isn't on the Pi either, so it's genuinely uncharted.
                         setAutoRouteDiag(
                             res.code === 'coverage-gap'
-                                ? `⚡ Still no detailed chart for part of this leg even after syncing — that stretch isn't charted to routing grade on your Pi. Trace it by hand or drop a pin past the gap. (${res.error.slice(0, 60)})`
+                                ? `⚡ Still no detailed chart for part of this leg even after fetching — that stretch isn't charted to routing grade in the cloud set. Trace it by hand or drop a pin past the gap. (${res.error.slice(0, 60)})`
                                 : `⚡ Engine couldn't route: ${res.error}`,
                         );
                     } else {
