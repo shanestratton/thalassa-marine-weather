@@ -87,6 +87,16 @@ export interface TracerContext {
     grid: NavGrid | null;
     /** Real ENC lateral marks (CATLAM 1–4) NOT part of an accepted gate pair. */
     soloLaterals: LateralMark[];
+    /** Positions of EVERY mark-inference disc the engine built (from
+     *  merged.OBSTRN: lateral-marker-as-hazard + non-cardinal
+     *  iala-oriented-hazard + direct-hazard), EXCLUDING cardinals (§2 owns
+     *  those). The disc source is BROADER than soloLaterals — it includes OSM
+     *  nav_markers and ENC laterals with no numbered OBJNAM, which
+     *  parseLateralMarks drops. So when a leg enters a markzone disc, §1 reads
+     *  the chart against the disc's OWN mark here, not the narrower
+     *  soloLaterals list (Shane 2026-07-16: unnumbered red beacon nagged
+     *  "danger side" because it had a disc but no soloLateral entry). */
+    markHazards: TracePoint[];
     cardinals: CardinalDisc[];
     gatePairs: GatePair[];
     leads: LeadingLine[];
@@ -257,6 +267,7 @@ export function tracerContextFromLayers(
     ] as never[]);
     const inPair = (m: LatLon): boolean => gatePairs.some((g) => distM(m, g.port) < 30 || distM(m, g.stbd) < 30);
     const soloLaterals = laterals.filter((m) => !inPair(m));
+    const markHazards = parseMarkHazards((merged.OBSTRN?.features ?? []) as never[]);
     const cardinals = parseCardinalDiscs((merged.OBSTRN?.features ?? []) as never);
     const leads = parseLeadingLines([
         ...((merged.RECTRC?.features ?? []) as never[]),
@@ -267,6 +278,7 @@ export function tracerContextFromLayers(
     return {
         grid,
         soloLaterals,
+        markHazards,
         cardinals,
         gatePairs,
         leads,
@@ -276,6 +288,52 @@ export function tracerContextFromLayers(
         bbox,
         resM,
     };
+}
+
+/** Positions of every NON-cardinal mark-inference disc in merged.OBSTRN — the
+ *  engine's lateral-marker-as-hazard / direct-hazard points and its
+ *  land-bearing iala-oriented-hazard half-discs (cardinals carry _cardinalDir
+ *  and are excluded — §2 owns their safe-side check). Point features use their
+ *  own coordinates; oriented polygons use the buoy point stashed in
+ *  _markerLat/_markerLon (the polygon centroid is offset toward the hazard
+ *  side). This is the SAME feature set that stamps markDiscBlocked, so §1 can
+ *  chart-read against the exact mark that produced the disc it just entered —
+ *  no dependency on the numbered-name soloLaterals filter. */
+export function parseMarkHazards(features: readonly unknown[]): TracePoint[] {
+    const out: TracePoint[] = [];
+    for (const f of features) {
+        const feat = f as {
+            properties?: { _class?: string; _cardinalDir?: string | null; _markerLat?: number; _markerLon?: number };
+            geometry?: { type?: string; coordinates?: unknown };
+        } | null;
+        const p = feat?.properties;
+        if (!p) continue;
+        const cls = p._class;
+        if (cls !== 'lateral-marker-as-hazard' && cls !== 'direct-hazard' && cls !== 'iala-oriented-hazard') continue;
+        if (cls === 'iala-oriented-hazard' && p._cardinalDir != null) continue; // cardinal → §2
+        if (typeof p._markerLat === 'number' && typeof p._markerLon === 'number') {
+            out.push({ lat: p._markerLat, lon: p._markerLon });
+            continue;
+        }
+        // Fall back to the geometry point (raw hazard points) / first ring vertex.
+        const g = feat?.geometry;
+        if (g?.type === 'Point' && Array.isArray(g.coordinates)) {
+            const [lon, lat] = g.coordinates as [number, number];
+            if (typeof lon === 'number' && typeof lat === 'number') out.push({ lat, lon });
+        } else if (g?.type === 'Polygon' && Array.isArray(g.coordinates)) {
+            const ring = (g.coordinates as number[][][])[0];
+            if (ring && ring.length) {
+                let sx = 0;
+                let sy = 0;
+                for (const [lon, lat] of ring) {
+                    sx += lon;
+                    sy += lat;
+                }
+                out.push({ lat: sy / ring.length, lon: sx / ring.length });
+            }
+        }
+    }
+    return out;
 }
 
 /**
@@ -425,7 +483,12 @@ function waterNearby(grid: NavGrid, p: TracePoint, cells: number): boolean {
  *  read. 'shoal' = blocked or sub-keel water; 'deep' = keel-safe water. */
 type LateralSideRead = 'deep' | 'shoal' | 'unknown';
 function lateralSideRead(grid: NavGrid, m: TracePoint, dirE: number, dirN: number, keelM: number): LateralSideRead {
-    for (const offM of [12, 24, 36]) {
+    // Probe out to 150 m, not 36 m: the mark's OWN avoidance disc (markzone,
+    // skipped below) commonly obscures the real chart within 80 m — the short
+    // range returned 'unknown' exactly when a disc existed, defeating the read
+    // on the marks that most need it (Shane 2026-07-16). The extra samples walk
+    // PAST the disc to the real deep water / bank / land beyond it.
+    for (const offM of [12, 24, 36, 55, 80, 110, 150]) {
         const p = {
             lat: m.lat + (offM * dirN) / M_PER_DEG_LAT,
             lon: m.lon + (offM * dirE) / mPerLon(m.lat),
@@ -574,28 +637,46 @@ export function validateTraceLeg(
                   : 'crosses a charted hazard';
         issues.push({ severity: 'danger', message: msg, at: blockedAt });
     } else if (markZoneAt) {
-        // A solo mark's IALA avoidance disc, not charted danger — the
-        // chart may show good water right here (Skirmish Point
-        // 2026-07-14: "crossing a hazard?? but there are not" over
-        // charted 5-6 m). Its "danger side" is INFERRED from the land
-        // bearing (a heuristic that misfires when the shoal isn't the
-        // nearest-land side — Shane 2026-07-16 got "danger side" while
-        // passing on the CORRECT side of a red mark).
-        //
-        // When a solo lateral sits on this leg, the chart-aware
-        // solo-lateral check (§4 below) is the AUTHORITY: it stays silent
-        // on a clean pass, warns with teeth on a bank-side pass, and owns
-        // the advisory on ONE leg only. Defer to it — don't stack a crude,
-        // doubled "danger side" on top. Fire here only when NO solo lateral
-        // owns the disc (e.g. an offshore direct-hazard), so a genuine
-        // inference isn't lost. Reported only when NO hard block exists.
-        const soloOwnsDisc = ctx.soloLaterals.some((m) => closestOnLeg(m, a, b).distM < SOLO_LATERAL_BAND_M);
-        if (!soloOwnsDisc) {
-            issues.push({
-                severity: 'caution',
-                message: 'passes the danger side of a nearby mark — verify and favour its safe side',
-                at: markZoneAt,
-            });
+        const mz = markZoneAt;
+        // A markzone disc is a ROUTING INFERENCE (a mark buffer / land-bearing
+        // half-disc), NOT charted danger — real hazards took the branch above.
+        // Its old "danger side" wording was a heuristic that misfired when the
+        // shoal wasn't on the nearest-land side (Shane 2026-07-16: nagged
+        // "danger side" while passing a red mark on the CORRECT/5 m side).
+        // So READ THE CHART instead:
+        //  • §2 (cardinals) and §4 (numbered solo laterals) are the
+        //    authoritative per-mark checks — if one owns this disc, defer.
+        //  • otherwise probe the grid on both sides of the disc's OWN mark
+        //    (ctx.markHazards — the exact features that stamped the disc, so
+        //    it covers OSM + unnumbered ENC marks that soloLaterals drops):
+        //    SILENT on a clean pass (deep boat side, shoal/land on the far
+        //    side), an honest "check which side" when the chart can't tell,
+        //    and "bank side — favour the deeper side" on a confirmed shoal
+        //    pass. Never the crude, over-confident "danger side" again.
+        const cardinalOwns = ctx.cardinals.some((c) => closestOnLeg(c, a, b).distM < CARDINAL_BAND_M);
+        const soloOwns = ctx.soloLaterals.some((m) => closestOnLeg(m, a, b).distM < SOLO_LATERAL_BAND_M);
+        if (!cardinalOwns && !soloOwns) {
+            let nearest: TracePoint | null = null;
+            let nd = Infinity;
+            for (const mk of ctx.markHazards ?? []) {
+                const d = distM(mk, mz);
+                if (d < nd) {
+                    nd = d;
+                    nearest = mk;
+                }
+            }
+            const read =
+                grid && nearest ? lateralPassRead(grid, nearest, closestOnLeg(nearest, a, b).point, keelM) : 'unknown';
+            if (read !== 'clean') {
+                issues.push({
+                    severity: 'caution',
+                    message:
+                        read === 'shoalside'
+                            ? 'bank side of a nearby mark — favour the deeper side'
+                            : 'near a mark — check which side is safe',
+                    at: mz,
+                });
+            }
         }
     } else if (bankShaveAt) {
         issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });
