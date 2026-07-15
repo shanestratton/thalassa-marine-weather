@@ -210,7 +210,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
 
             {expanded && (
                 <div className="mt-1 rounded-lg border border-emerald-400/20 bg-black/80 backdrop-blur-sm px-2 py-2 text-[10px] leading-snug text-emerald-100/80 max-h-[40vh] overflow-y-auto">
-                    <p className="mb-1 text-[9px] uppercase tracking-wider text-emerald-300/60">In view</p>
+                    <p className="mb-1 text-[10px] uppercase tracking-wider text-emerald-300/60">In view</p>
                     {cellsInView.map((cell) => (
                         <div key={cell.id} className="mb-1 last:mb-0">
                             <span className="font-mono text-emerald-200">{cell.id}</span>
@@ -240,7 +240,7 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                             {stale ? ' — verify Notices to Mariners' : ''}.
                         </p>
                     )}
-                    <p className="mt-1 text-[9px] text-emerald-300/50 italic">
+                    <p className="mt-1 text-[10px] text-emerald-300/50 italic">
                         Source: hydrographic offices. Verify visually before navigation.
                     </p>
                 </div>
