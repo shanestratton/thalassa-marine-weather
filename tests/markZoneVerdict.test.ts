@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
 import type { FeatureCollection } from 'geojson';
 import { buildNavGrid } from '../services/engine/navGrid';
 import type { InshoreLayers } from '../services/inshoreRouterEngine';
-import { validateTraceLeg, type TracerContext } from '../services/routeTracer';
+import { parseMarkHazards, validateTraceLeg, type TracerContext } from '../services/routeTracer';
 
 const poly = (w: number, s: number, e: number, n: number, props: Record<string, unknown> = {}) => ({
     type: 'Feature' as const,
@@ -42,6 +42,7 @@ function makeCtx(layers: Partial<InshoreLayers>, soloLaterals: unknown[] = []): 
     return {
         grid,
         soloLaterals,
+        markHazards: parseMarkHazards((layers.OBSTRN?.features ?? []) as never[]),
         cardinals: [],
         gatePairs: [],
         leads: [],
@@ -59,14 +60,18 @@ const A = { lat: -27.15, lon: 153.01 };
 const B = { lat: -27.15, lon: 153.09 };
 
 describe('mark-inference discs in the tracer verdict', () => {
-    it('a disc-only crossing grades CAUTION with mark wording, never "charted hazard"', () => {
+    it('a disc-only crossing grades CAUTION with honest mark wording, never "charted hazard"', () => {
+        // Deep water everywhere → the chart can't call the safe side, so the
+        // honest "check which side is safe" fires (NOT the old over-confident
+        // "danger side", NOT a charted-hazard danger).
         const ctx = makeCtx({
             DEPARE: DEEP,
             OBSTRN: fc(poly(153.04, -27.16, 153.06, -27.14, { _class: 'iala-oriented-hazard' })),
         } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).toContain('caution:passes the danger side of a nearby mark');
+        expect(msgs).toContain('caution:near a mark — check which side is safe');
+        expect(msgs).not.toContain('danger side'); // the old false-confident wording is gone
         expect(msgs).not.toContain('charted hazard');
         expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
     });
@@ -90,49 +95,62 @@ describe('mark-inference discs in the tracer verdict', () => {
         expect(v.issues.some((i) => i.severity === 'danger' && i.message === 'crosses charted land')).toBe(true);
     });
 
-    it('a CLEAN pass (deep boat side, shoal on the far side) says NOTHING — no false "danger side"', () => {
-        // Shane 2026-07-16: flagged "passes the danger side of a nearby mark"
-        // while passing on the CORRECT side of a red lateral. Chart: deep (6 m)
-        // where the line runs (NORTH of the mark), shoal (1 m) on the FAR side
-        // (SOUTH, by the land). The land-bearing disc misfired onto the boat
-        // side, but the chart-aware solo-lateral check (§4) owns it and reads
-        // CLEAN → the generic markzone "danger side" must be suppressed.
-        const soloLateral = { lat: -27.1503, lon: 153.05, side: 'port' as const, name: '' };
-        const ctx = makeCtx(
-            {
-                // North half deep (the boat's side + the leg), south half shoal.
-                DEPARE: fc(
-                    poly(153.0, -27.1503, 153.1, -27.1, { DRVAL1: 6, DRVAL2: 10 }),
-                    poly(153.0, -27.2, 153.1, -27.1503, { DRVAL1: 1, DRVAL2: 2 }),
-                ),
-                // A land-bearing disc that misfires onto the boat (north) side:
-                // it obscures the north depth probes but leaves the far side read.
-                OBSTRN: fc(poly(153.047, -27.15035, 153.053, -27.1497, { _class: 'iala-oriented-hazard' })),
-            } as Partial<InshoreLayers>,
-            [soloLateral],
-        );
+    // Shane's ACTUAL 2026-07-16 case: an isolated red beacon ("Fl R 3s", no
+    // numbered OBJNAM) → the engine builds a lateral-marker-as-hazard disc for
+    // it, but parseLateralMarks DROPS it (needs a number) so it never reaches
+    // soloLaterals. §1 must read the chart against the disc's OWN mark
+    // (ctx.markHazards, straight from merged.OBSTRN) — NOT rely on soloLaterals.
+    // soloLaterals is EMPTY in all three below, exactly like the field bug.
+    const MARK_LAT = -27.1503;
+    const MARK_LON = 153.05;
+    const markHazardOBSTRN = fc({
+        type: 'Feature',
+        properties: { _class: 'lateral-marker-as-hazard', _markerKind: 'port' },
+        geometry: { type: 'Point', coordinates: [MARK_LON, MARK_LAT] },
+    });
+
+    it("a CLEAN pass says NOTHING — the disc mark's shoal is on the FAR side (Shane's fix)", () => {
+        // Deep (6 m) NORTH where the line runs, shoal (1 m) SOUTH by the land.
+        // The mark isn't in soloLaterals, but §1 reads markHazards → clean →
+        // silent. Needs the extended probe to see the shoal PAST the 60 m disc.
+        const ctx = makeCtx({
+            DEPARE: fc(
+                poly(153.0, MARK_LAT, 153.1, -27.1, { DRVAL1: 6, DRVAL2: 10 }), // north deep
+                poly(153.0, -27.2, 153.1, MARK_LAT, { DRVAL1: 1, DRVAL2: 2 }), // south shoal
+            ),
+            OBSTRN: markHazardOBSTRN,
+        } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).not.toContain('danger side of a nearby mark');
-        expect(msgs).not.toContain('verify your side'); // clean → §4 stays silent too
+        expect(msgs).not.toContain('danger side');
+        expect(msgs).not.toContain('near a mark'); // clean → fully silent
         expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
     });
 
-    it('with a solo lateral present but the pass ambiguous, §4 owns it — never the crude "danger side"', () => {
-        // Deep both sides (open water, no confirmed shoal): the chart can't
-        // call the side, so §4 emits the honest "verify your side" advisory —
-        // but the falsely-confident markzone "danger side" is still suppressed.
-        const soloLateral = { lat: -27.1503, lon: 153.05, side: 'starboard' as const, name: '' };
-        const ctx = makeCtx(
-            {
-                DEPARE: DEEP, // 6 m everywhere → neither side reads shoal
-                OBSTRN: fc(poly(153.047, -27.15035, 153.053, -27.1497, { _class: 'iala-oriented-hazard' })),
-            } as Partial<InshoreLayers>,
-            [soloLateral],
-        );
+    it('an AMBIGUOUS pass (deep both sides) gets the honest "check which side", never "danger side"', () => {
+        const ctx = makeCtx({
+            DEPARE: DEEP, // 6 m everywhere → chart can't call the side
+            OBSTRN: markHazardOBSTRN,
+        } as Partial<InshoreLayers>);
         const v = validateTraceLeg(A, B, ctx);
         const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
-        expect(msgs).not.toContain('danger side of a nearby mark');
+        expect(msgs).toContain('caution:near a mark — check which side is safe');
+        expect(msgs).not.toContain('danger side');
         expect(v.issues.some((i) => i.severity === 'danger')).toBe(false);
+    });
+
+    it('a genuine BANK-SIDE pass still warns with teeth (shoal on the boat side)', () => {
+        // Flip it: shoal (1 m) NORTH where the line runs, deep SOUTH. The boat
+        // IS on the wrong side → the warning must survive, not get suppressed.
+        const ctx = makeCtx({
+            DEPARE: fc(
+                poly(153.0, MARK_LAT, 153.1, -27.1, { DRVAL1: 1, DRVAL2: 2 }), // north shoal (boat side)
+                poly(153.0, -27.2, 153.1, MARK_LAT, { DRVAL1: 6, DRVAL2: 10 }), // south deep
+            ),
+            OBSTRN: markHazardOBSTRN,
+        } as Partial<InshoreLayers>);
+        const v = validateTraceLeg(A, B, ctx);
+        const msgs = v.issues.map((i) => `${i.severity}:${i.message}`).join(' | ');
+        expect(msgs).toContain('caution:bank side of a nearby mark — favour the deeper side');
     });
 });

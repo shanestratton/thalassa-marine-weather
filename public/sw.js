@@ -132,9 +132,14 @@
 // 'tideDirect' engine profile that commits to the near-direct crossing on
 // the tide instead of a marina dogleg; (2) mark grading no longer cries
 // "danger side" when you pass a solo lateral on the chart-confirmed clean side.
-const CACHE_NAME = 'thalassa-v93-core';
-const TILE_CACHE = 'thalassa-v93-tiles';
-const DATA_CACHE = 'thalassa-v93-data';
+// v94: mark "danger side" fix, take 2 — v93 only covered NUMBERED ENC
+// laterals (soloLaterals); Shane's nagging mark was an unnumbered/OSM beacon
+// that has a disc but no soloLateral. §1 now chart-reads against the disc's
+// OWN mark (merged.OBSTRN → ctx.markHazards) + probes past the disc, so an
+// isolated red beacon on the clean side finally says nothing.
+const CACHE_NAME = 'thalassa-v94-core';
+const TILE_CACHE = 'thalassa-v94-tiles';
+const DATA_CACHE = 'thalassa-v94-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

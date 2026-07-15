@@ -71,6 +71,7 @@ beforeAll(() => {
     baseCtx = {
         grid,
         soloLaterals: [],
+        markHazards: [],
         cardinals: [],
         gatePairs: [],
         leads: [],
