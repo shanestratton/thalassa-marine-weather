@@ -124,7 +124,14 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                         <p className="text-[12px] font-bold text-amber-300 leading-tight">{headline}</p>
                         <p className="text-[10px] text-amber-300/70 leading-tight">
                             {total > 0
-                                ? `within ${report.bufferNm.toFixed(1)} NM · ENC vector data`
+                                ? // Mixed case: surface the no-data / CATZOC advisory in the
+                                  // COLLAPSED header too, not only when there are zero hazards
+                                  // (audit: it was hidden behind a manual expand here).
+                                  `within ${report.bufferNm.toFixed(1)} NM · ENC vector data${
+                                      advisories.length > 0
+                                          ? ` · ⚠ ${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'}`
+                                          : ''
+                                  }`
                                 : `${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'} · tap to read`}
                         </p>
                     </div>
