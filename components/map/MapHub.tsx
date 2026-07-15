@@ -468,6 +468,11 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [showReport, setShowReport] = useState(false);
     const [ackedLegs, setAckedLegs] = useState<Set<number>>(new Set());
     const [fixBusyLeg, setFixBusyLeg] = useState<number | null>(null);
+    // PERSISTENT auto-route diagnostic — the flash vanishes in 1.8 s and I
+    // can't see the device console, so the exact engine outcome (routed / no
+    // coverage / error / straight) stays on screen until the next action so
+    // Shane can screenshot it. Cleared when the pins change.
+    const [autoRouteDiag, setAutoRouteDiag] = useState<string | null>(null);
     /** null = computing, '' = nothing tide-gated on the route. */
     const [departureLabel, setDepartureLabel] = useState<string | null>('');
     /** Community flywheel (#38): consent-armed share, harbourmaster queue,
@@ -1407,6 +1412,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         const b = capturedCoords[iLeg + 1];
         triggerHaptic('medium');
         setFixBusyLeg(iLeg);
+        setAutoRouteDiag(null);
         flashTraceFeedback('Following deep water…');
         setTimeout(() => {
             void (async () => {
@@ -1434,8 +1440,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     }
                     if (res && 'polyline' in res) {
                         const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
+                        const prof = viaTide ? 'tideAssist' : 'safest';
                         log.warn(
-                            `auto-route: engine returned ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM (${viaTide ? 'tideAssist' : 'safest'})`,
+                            `auto-route: engine returned ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM (${prof})`,
                         );
                         // RDP to the bends, THEN cap every straight run to
                         // AUTO_MAX_LEG_M so a long open-water stretch becomes a
@@ -1449,24 +1456,30 @@ export const MapHub: React.FC<MapHubProps> = ({
                         setSelectedPin(null); // indices shifted; drop the highlight
                         setInsertAfter(null);
                         insertAfterRef.current = null;
-                        flashTraceFeedback(
-                            interior.length > 0
-                                ? viaTide
+                        if (interior.length > 0) {
+                            flashTraceFeedback(
+                                viaTide
                                     ? `Routed with a tide gate — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking the window`
-                                    : `Routed through deep water — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking now`
-                                : // Engine kept the straight line: it's already the
-                                  // best water it can see (both profiles agreed).
-                                  'That straight line is already the best water here',
-                        );
+                                    : `Routed through deep water — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking now`,
+                            );
+                            setAutoRouteDiag(null);
+                        } else {
+                            // Engine returned the straight line — it can't see a
+                            // better path even on 'safest'. Persist WHY.
+                            setAutoRouteDiag(
+                                `⚡ Engine kept the straight line (${prof}, ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM). It sees no deeper detour it can reach — the shallow may sit in a coverage gap or between charts.`,
+                            );
+                        }
                     } else if (res && 'error' in res) {
-                        // Engine built a grid but found no clean water path.
-                        flashTraceFeedback(`Can't auto-route this leg — ${res.error.slice(0, 70)}`);
+                        setAutoRouteDiag(`⚡ Engine couldn't route: ${res.error}`);
                     } else {
-                        flashTraceFeedback('No route here — off the charts or over 50 NM. Nothing changed.');
+                        setAutoRouteDiag(
+                            '⚡ Engine declined this leg (returned nothing) — usually no ENC chart coverage at one end, or over the 50 NM cap. Nothing changed.',
+                        );
                     }
                 } catch (err) {
                     log.warn(`auto-route failed: ${err instanceof Error ? err.message : String(err)}`);
-                    flashTraceFeedback('Auto-route failed — nothing changed, try again');
+                    setAutoRouteDiag(`⚡ Auto-route threw: ${err instanceof Error ? err.message : String(err)}`);
                 } finally {
                     setFixBusyLeg(null);
                 }
@@ -4612,6 +4625,16 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-bold text-amber-400">
                                                 Long open-water leg — marks checked, depth not. Add a mid pin.
                                             </div>
+                                        )}
+                                        {/* Persistent ⚡ auto-route outcome — stays until the
+                                            next auto-route so a no-op is legible (tap to dismiss). */}
+                                        {autoRouteDiag && (
+                                            <button
+                                                onClick={() => setAutoRouteDiag(null)}
+                                                className="w-full border-b border-white/10 px-3 py-1.5 text-left text-[10px] font-bold text-violet-300 active:opacity-70"
+                                            >
+                                                {autoRouteDiag} <span className="text-gray-500">(tap to dismiss)</span>
+                                            </button>
                                         )}
                                         {traceFeedback && (
                                             <div className="border-b border-white/10 px-3 py-1.5 text-[10px] font-black text-emerald-300">
