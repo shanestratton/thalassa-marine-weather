@@ -40,23 +40,36 @@ describe('buildSectorFeatures', () => {
         for (const f of fs) expect(f.properties?._secColor).toBe('#ef4444');
     });
 
-    it('the arc starts on SECTR1 and ends on SECTR2, swept clockwise', () => {
+    it('draws the wedge on the RECIPROCAL (from-light) side, not from-seaward', () => {
+        // SECTR1=0/SECTR2=90 are from-seaward bearings, so the coloured wedge
+        // radiates from the light on the reciprocals (180 / 270), NOT 0 / 90.
         const [arc] = buildSectorFeatures({ position: at, sectr1: 0, sectr2: 90, colorHex: '#fff' });
         const coords = arc.geometry.coordinates;
-        // First point due N of the light (bearing 0): same lon, greater lat.
+        // First point on SECTR1 reciprocal (180 = due S): same lon, LOWER lat.
         expect(coords[0][0]).toBeCloseTo(at[0], 4);
-        expect(coords[0][1]).toBeGreaterThan(at[1]);
-        // Last point due E (bearing 90): greater lon, ~same lat.
+        expect(coords[0][1]).toBeLessThan(at[1]);
+        // Last point on SECTR2 reciprocal (270 = due W): LOWER lon, ~same lat.
         const last = coords[coords.length - 1];
-        expect(last[0]).toBeGreaterThan(at[0]);
+        expect(last[0]).toBeLessThan(at[0]);
         expect(last[1]).toBeCloseTo(at[1], 3);
+    });
+
+    it('a light seen bearing 090° from seaward paints its arc to the WEST', () => {
+        // Regression guard for the mirror bug: an observer measuring the light
+        // at ~090° is due WEST of it, so the sector they see must be drawn to
+        // the WEST. Centre the sweep on 090 from-seaward → arc midpoint ~270.
+        const [arc] = buildSectorFeatures({ position: at, sectr1: 80, sectr2: 100, colorHex: '#fff' });
+        const coords = arc.geometry.coordinates;
+        const mid = coords[Math.floor(coords.length / 2)];
+        expect(mid[0]).toBeLessThan(at[0]); // west of the light, never east
     });
 
     it('arc radius is the fixed display radius, not the light range', () => {
         const [arc] = buildSectorFeatures({ position: at, sectr1: 0, sectr2: 10, colorHex: '#fff' });
         const [lon, lat] = arc.geometry.coordinates[0];
         const dLatM = (lat - at[1]) * 111_320;
-        expect(dLatM).toBeCloseTo(SECTOR_ARC_RADIUS_M, 0);
+        // SECTR1=0 reciprocal is 180 (due S) → radius on the negative-lat side.
+        expect(dLatM).toBeCloseTo(-SECTOR_ARC_RADIUS_M, 0);
         expect(lon).toBeCloseTo(at[0], 4);
     });
 
