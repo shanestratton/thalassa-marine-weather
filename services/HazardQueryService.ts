@@ -346,6 +346,31 @@ export async function queryHazards(
     return out;
 }
 
+/**
+ * Segment-level hazard check: does each segment CROSS a charted ENC hazard
+ * POLYGON that the sampled point query would miss between its 231 m samples?
+ * ENC-only — GEBCO is a raster with no polygons, so the sampled point query
+ * stays its backstop. Draft + static tide are applied to the crossed polygon
+ * exactly like the point path via encToHazardResult, so a dredged channel
+ * deep enough for the vessel clears while land/too-shallow blocks.
+ */
+export async function querySegmentHazards(
+    segments: { lat1: number; lon1: number; lat2: number; lon2: number }[],
+    options: HazardQueryOptions = {},
+): Promise<{ isHazard: boolean; hazardType?: EncHazardType; source: 'enc' | 'none' }[]> {
+    if (segments.length === 0) return [];
+    const encResults = await EncHazardService.querySegmentHazards(segments);
+    const hazardThresholdM = hazardDepthForDraft(options.vesselDraftM);
+    const fallbackTideM = Number.isFinite(options.tideOffsetM as number) ? (options.tideOffsetM as number) : 0;
+    return encResults.map((enc, i) => {
+        if (!enc.covered) return { isHazard: false, source: 'none' as const };
+        const midLat = (segments[i].lat1 + segments[i].lat2) / 2;
+        const midLon = (segments[i].lon1 + segments[i].lon2) / 2;
+        const r = encToHazardResult({ lat: midLat, lon: midLon }, enc, hazardThresholdM, fallbackTideM);
+        return { isHazard: r.isHazard, hazardType: enc.hazardType, source: 'enc' as const };
+    });
+}
+
 // ── Constants re-exported for backward compatibility ──────────────
 
 /**

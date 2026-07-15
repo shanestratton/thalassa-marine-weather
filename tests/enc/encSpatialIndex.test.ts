@@ -171,6 +171,36 @@ describe('EncSpatialIndex.queryPoint', () => {
         expect(i.queryPoint(0, 0).minDepthM).toBeNull();
     });
 
+    it('SEGMENT crossing: a shallow DEPARE thinner than the sample spacing is caught even with BOTH endpoints outside', () => {
+        // The exact between-samples gap: a shoal patch the discrete point
+        // sampler steps over. Segment runs W→E through a shallow square whose
+        // extent (±0.5°) both endpoints (lon ±1) sit outside.
+        const i = idx('A', [hz('DEPARE', square(0, 0, 0.5), 2)]);
+        expect(i.segmentHazard(0, -1, 0, 1)).toMatchObject({ covered: true, hazard: true, hazardType: 'shallow' });
+    });
+
+    it('SEGMENT crossing: land is caught; a clear miss returns covered:false', () => {
+        const i = idx('A', [hz('LNDARE', square(0, 0, 0.5))]);
+        expect(i.segmentHazard(0, -1, 0, 1).hazardType).toBe('land');
+        expect(i.segmentHazard(5, -1, 5, 1).covered).toBe(false); // far north — no crossing
+    });
+
+    it('SEGMENT crossing: an endpoint INSIDE a shallow area counts as a crossing', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, 0.5), 2)]);
+        expect(i.segmentHazard(0, 0, 0, 5)).toMatchObject({ covered: true, hazard: true }); // starts inside
+    });
+
+    it('SEGMENT crossing: passing through DEEP water only is covered but NOT a hazard', () => {
+        const i = idx('A', [hz('DEPARE', square(0, 0, 0.5), 25)]);
+        expect(i.segmentHazard(0, -1, 0, 1)).toMatchObject({ covered: true, hazard: false });
+    });
+
+    it('SEGMENT crossing: point/line hazards are ignored here (handled by queryPoint sampling)', () => {
+        const i = idx('A', [hz('UWTROC', { type: 'Point', coordinates: [0, 0] })]);
+        // A point rock is NOT an area — segmentHazard tests polygons only.
+        expect(i.segmentHazard(0, -1, 0, 1).covered).toBe(false);
+    });
+
     it('COMPOSES across cells like queryHazards — worst hazard wins, order-independent', () => {
         // Overlapping coarse (shallow) + fine (rock) cells over one point.
         const coarse = idx('coarse', [hz('DEPARE', square(0, 0, 2), 3)]);

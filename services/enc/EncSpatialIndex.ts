@@ -17,7 +17,8 @@
 
 import RBush from 'rbush';
 import { booleanPointInPolygon } from '@turf/boolean-point-in-polygon';
-import { point as turfPoint } from '@turf/helpers';
+import lineIntersect from '@turf/line-intersect';
+import { lineString as turfLineString, point as turfPoint } from '@turf/helpers';
 import type { Geometry, Position } from 'geojson';
 
 import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
@@ -584,5 +585,70 @@ export class EncSpatialIndex {
             cellId: this.cellId,
             catzoc,
         };
+    }
+
+    /**
+     * Worst POLYGON hazard the SEGMENT (lat1,lon1)→(lat2,lon2) CROSSES —
+     * even when neither endpoint nor any discrete route sample falls inside
+     * it. This closes the gap where a charted shoal DEPARE / LNDARE islet
+     * NARROWER than the route sample spacing (231 m) slips between two
+     * consecutive samples and reads as clear (mission audit #1, the top
+     * remaining fail-dangerous finding).
+     *
+     * Only AREA features are tested here — point/line hazards are already
+     * caught by the guarded queryPoint sampling, and re-testing them would
+     * double-count. A segment "crosses" a polygon if either endpoint is
+     * inside it OR the segment line intersects any polygon edge. Returns the
+     * same covered/hazard shape as queryPoint so it folds through
+     * mergeHazardResults identically; covered:false when this cell charts no
+     * crossed polygon along the segment.
+     */
+    segmentHazard(lat1: number, lon1: number, lat2: number, lon2: number): EncHazardResult {
+        const candidates = this.hazardTree.search({
+            minX: Math.min(lon1, lon2),
+            minY: Math.min(lat1, lat2),
+            maxX: Math.max(lon1, lon2),
+            maxY: Math.max(lat1, lat2),
+        });
+        if (candidates.length === 0) {
+            return { covered: false, hazard: false, minDepthM: null };
+        }
+
+        const segLine = turfLineString([
+            [lon1, lat1],
+            [lon2, lat2],
+        ]);
+        const pA = turfPoint([lon1, lat1]);
+        const pB = turfPoint([lon2, lat2]);
+
+        let bestType: EncHazardType | null = null;
+        let bestDepth: number | null = null;
+        let crossedCharted = false;
+
+        for (const entry of candidates) {
+            const geom = entry.hazard.geometry;
+            if (geom.type !== 'Polygon' && geom.type !== 'MultiPolygon') continue;
+            const crosses =
+                booleanPointInPolygon(pA, geom) ||
+                booleanPointInPolygon(pB, geom) ||
+                lineIntersect(segLine, geom).features.length > 0;
+            if (!crosses) continue;
+
+            crossedCharted = true;
+            const type = classifyHazard(entry.hazard);
+            if (!type) continue; // deep DEPARE/DRGARE the segment merely passes through.
+            if (bestType === null || compareHazardSeverity(type, entry.hazard.minDepthM, bestType, bestDepth) > 0) {
+                bestType = type;
+                bestDepth = entry.hazard.minDepthM;
+            }
+        }
+
+        if (!crossedCharted) {
+            return { covered: false, hazard: false, minDepthM: null };
+        }
+        if (bestType === null) {
+            return { covered: true, hazard: false, minDepthM: null, cellId: this.cellId };
+        }
+        return { covered: true, hazard: true, minDepthM: bestDepth, hazardType: bestType, cellId: this.cellId };
     }
 }

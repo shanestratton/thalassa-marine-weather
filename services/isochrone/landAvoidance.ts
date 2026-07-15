@@ -646,6 +646,40 @@ export async function validateRouteSegments(
             }
         }
 
+        // ── 3b. Segment-vs-polygon crossing (ENC only, audit #1) ──────
+        // The per-sample scan above misses a charted shoal DEPARE / LNDARE
+        // islet NARROWER than the 231 m sampling that sits BETWEEN two
+        // samples. Test each INTERIOR segment's polygon crossings directly.
+        // First/last segments touch the route's origin/destination (often an
+        // intentional shoal berth) and are left to the sampled scan — the
+        // same rule the interior-waypoint check uses, so we never detour a
+        // route away from its own start or finish.
+        if (segmentMeta.length > 2) {
+            const interiorSegs = [];
+            for (let i = 1; i < segmentMeta.length - 1; i++) {
+                interiorSegs.push({
+                    idx: i,
+                    lat1: result[i].lat,
+                    lon1: result[i].lon,
+                    lat2: result[i + 1].lat,
+                    lon2: result[i + 1].lon,
+                });
+            }
+            try {
+                const segResults = await HazardQueryService.querySegmentHazards(
+                    interiorSegs.map((s) => ({ lat1: s.lat1, lon1: s.lon1, lat2: s.lat2, lon2: s.lon2 })),
+                    queryOpts,
+                );
+                for (let k = 0; k < interiorSegs.length; k++) {
+                    if (segResults[k]?.isHazard && !landSegments.includes(interiorSegs[k].idx)) {
+                        landSegments.push(interiorSegs[k].idx);
+                    }
+                }
+            } catch (err) {
+                landLog.warn('[ValidateRoute] segment-polygon check failed (continuing with sample scan):', err);
+            }
+        }
+
         if (landSegments.length === 0) {
             const encHits = allResults.filter((r) => r.source === 'enc').length;
             const gebcoHits = allResults.filter((r) => r.source === 'gebco').length;
