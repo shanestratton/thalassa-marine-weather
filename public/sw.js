@@ -53,9 +53,14 @@
 // v72: hybrid is the boot base everywhere; lit marks answer as the
 // MARK with their light folded in (was light-only, hiding cardinal
 // pass-side info); S-57 colour codes decoded to names.
-const CACHE_NAME = 'thalassa-v72-core';
-const TILE_CACHE = 'thalassa-v72-tiles';
-const DATA_CACHE = 'thalassa-v72-data';
+// v73: tracer perf overhaul — zoom pill no longer re-renders the tree
+// per pinch frame (with N grid reads per render riding along), pin
+// markers reconcile instead of rebuild, redundant verdict publishes
+// and ghost-lane rescans killed. The "unresponsive with many
+// waypoints" bundle must go.
+const CACHE_NAME = 'thalassa-v73-core';
+const TILE_CACHE = 'thalassa-v73-tiles';
+const DATA_CACHE = 'thalassa-v73-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
