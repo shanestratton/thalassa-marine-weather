@@ -72,9 +72,13 @@
 // and the flash announces the new name.
 // v78: Save requires a route name — "Name the route first" + focus
 // instead of minting anonymous date-stamped rows.
-const CACHE_NAME = 'thalassa-v78-core';
-const TILE_CACHE = 'thalassa-v78-tiles';
-const DATA_CACHE = 'thalassa-v78-data';
+// v79: ⚡ Auto route button beside Route report — pin, pin, ⚡ and the
+// tracer's fine-grid A* bends the last leg around shallows/land,
+// splicing the bends as editable pins. Tracer grid only, never the
+// four-tier engine.
+const CACHE_NAME = 'thalassa-v79-core';
+const TILE_CACHE = 'thalassa-v79-tiles';
+const DATA_CACHE = 'thalassa-v79-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

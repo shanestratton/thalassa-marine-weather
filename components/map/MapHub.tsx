@@ -1201,12 +1201,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // around ITSELF before the A* — otherwise every out-of-window fix
     // false-failed with "No clean detour here".
     const applyFixes = useCallback(
-        async (legIdxs: number[]): Promise<number> => {
+        async (legIdxs: number[]): Promise<{ fixed: number; added: number }> => {
             // Draft from the last grading pass (settings isn't in scope this
             // early in the component) — Fix buttons only exist once a pass
             // has graded, so the ref is always populated here.
             const draft = gradedDraftRef.current;
-            if (!draft) return 0;
+            if (!draft) return { fixed: 0, added: 0 };
             let pins = [...capturedCoords];
             let fixed = 0;
             for (const i of [...legIdxs].sort((x, y) => y - x)) {
@@ -1238,7 +1238,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
             }
             if (fixed > 0) setCapturedCoords(pins);
-            return fixed;
+            // `added` feeds the auto-route flash — "3 pins added" vs "the
+            // straight shot was already the clean line".
+            return { fixed, added: fixed > 0 ? pins.length - capturedCoords.length : 0 };
         },
         [capturedCoords],
     );
@@ -1247,9 +1249,9 @@ export const MapHub: React.FC<MapHubProps> = ({
             setFixBusyLeg(i);
             // Yield a frame so the "Fixing…" state paints before the A*.
             setTimeout(() => {
-                void applyFixes([i]).then((n) => {
+                void applyFixes([i]).then(({ fixed }) => {
                     flashTraceFeedback(
-                        n > 0 ? 'Leg fixed — re-checked' : 'No clean detour here — acknowledge or re-trace',
+                        fixed > 0 ? 'Leg fixed — re-checked' : 'No clean detour here — acknowledge or re-trace',
                     );
                     setFixBusyLeg(null);
                 });
@@ -1290,16 +1292,44 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (dangers.length === 0) return;
         setFixBusyLeg(-1);
         setTimeout(() => {
-            void applyFixes(dangers).then((n) => {
+            void applyFixes(dangers).then(({ fixed }) => {
                 flashTraceFeedback(
-                    n === dangers.length
-                        ? `All ${n} no-go legs fixed — re-checked`
-                        : `${n}/${dangers.length} fixed — the rest need an acknowledge or a re-trace`,
+                    fixed === dangers.length
+                        ? `All ${fixed} no-go legs fixed — re-checked`
+                        : `${fixed}/${dangers.length} fixed — the rest need an acknowledge or a re-trace`,
                 );
                 setFixBusyLeg(null);
             });
         }, 30);
     }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
+    // ⚡ Auto route (Shane 2026-07-15: "I place a waypoint, I place
+    // another, I press auto route — the app bends between them around
+    // shallows and land"). Runs the tracer's OWN fine-grid A* (the
+    // Fix-this-leg machinery) on the LAST leg — same ENC recipes as the
+    // live router, depth-cost ladder, hard walls at land/berths — and
+    // splices the bends back as editable pins that re-grade like any
+    // hand-placed pin. Deliberately NOT the four-tier engine: no tier
+    // seam touched, works offline, and it only ever routes BETWEEN the
+    // skipper's pins — close-quarters stays human.
+    const autoRouteLastLeg = useCallback(() => {
+        if (capturedCoords.length < 2 || fixBusyLeg !== null) return;
+        const i = capturedCoords.length - 2;
+        triggerHaptic('medium');
+        setFixBusyLeg(i);
+        flashTraceFeedback('Auto-routing your last leg…');
+        setTimeout(() => {
+            void applyFixes([i]).then(({ fixed, added }) => {
+                setFixBusyLeg(null);
+                flashTraceFeedback(
+                    fixed === 0
+                        ? 'No clean line between those pins — drop one midway and go again'
+                        : added > 0
+                          ? `Auto-routed — ${added} pin${added > 1 ? 's' : ''} added, re-checking now`
+                          : 'Straight shot is already the clean line ✓',
+                );
+            });
+        }, 30);
+    }, [capturedCoords.length, fixBusyLeg, applyFixes, flashTraceFeedback]);
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
     const pasteTrace = useCallback(async () => {
@@ -4768,15 +4798,26 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             </button>
                                         </div>
                                         {capturedCoords.length >= 2 && (
-                                            <div className="border-t border-white/10 px-3 py-2">
+                                            <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
                                                 <button
                                                     onClick={() => {
                                                         triggerHaptic('light');
                                                         setShowReport(true);
                                                     }}
-                                                    className="w-full rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-100 active:scale-95"
+                                                    className="flex-1 rounded-lg bg-white/10 py-2 text-[11px] font-black uppercase tracking-wide text-gray-100 active:scale-95"
                                                 >
                                                     📋 Route report
+                                                </button>
+                                                {/* Pin → pin → ⚡: the tracer's own fine-grid A*
+                                                    bends the LAST leg around shallows/land and
+                                                    splices the bends as editable pins. Never the
+                                                    four-tier engine — close-quarters stays human. */}
+                                                <button
+                                                    onClick={autoRouteLastLeg}
+                                                    disabled={fixBusyLeg !== null}
+                                                    className="flex-1 rounded-lg bg-violet-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
+                                                >
+                                                    {fixBusyLeg !== null ? '⏳ Routing…' : '⚡ Auto route'}
                                                 </button>
                                             </div>
                                         )}
