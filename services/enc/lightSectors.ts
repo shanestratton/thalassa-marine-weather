@@ -12,13 +12,21 @@
  * light), plus its own COLOUR. So one feature → one arc.
  *
  * Depiction (INT1 IP 40.1-41): the lit arc is swept CLOCKWISE from
- * SECTR1 to SECTR2 as seen from the light, drawn at a modest fixed
- * radius so a 20 M light doesn't paint half the screen; the two limit
- * bearings extend as thin dashed legs. Bearings are drawn directly from
- * the light position on the given true bearings — the standard chart
- * convention (the "from seaward" framing is what a helmsman reads off
- * the water; on the chart the same bearing lines radiate from the
- * structure).
+ * SECTR1 to SECTR2, drawn at a modest fixed radius so a 20 M light
+ * doesn't paint half the screen; the two limit bearings extend as thin
+ * dashed legs.
+ *
+ * CRITICAL — the RECIPROCAL. SECTR1/SECTR2 are "from seaward": the true
+ * bearing an observer AT SEA measures TO the light. The wedge on the
+ * chart must radiate FROM the light back toward that water — i.e. on the
+ * bearing + 180. An observer who sees the light bearing 090° is due WEST
+ * of it, so the arc for that limit is drawn to the WEST (270°). Drawing
+ * on the raw from-seaward bearing mirrors every coloured wedge to the
+ * WRONG side of the light — a red danger sector would paint over safe
+ * water on a night approach. So both limits get +180 before they're laid
+ * down (OpenCPN / INT1 IP 40 do exactly this). Adding 180 to BOTH limits
+ * preserves the clockwise SECTR1→SECTR2 sweep, so the arc direction is
+ * unchanged — only its side of the light flips to the correct one.
  *
  * Pure + unit-tested: no Mapbox, no map. EncHazardService calls
  * buildSectorFeatures at merge time into a LIGHTSEC collection.
@@ -87,10 +95,15 @@ export function buildSectorFeatures(input: SectorInput): Feature<LineString>[] {
     }
 
     const sweep = clockwiseSweep(sectr1, sectr2);
+    // Reciprocal: SECTR1/SECTR2 are from-seaward (observer→light); the wedge
+    // radiates from the light on bearing+180. +180 to both limits keeps the
+    // clockwise sweep, flips only the side. (forward() takes sin/cos, so the
+    // un-normalised >360 bearing is fine.) See the header note.
+    const disp1 = sectr1 + 180;
     const steps = Math.max(1, Math.ceil(sweep / ARC_STEP_DEG));
     const arcCoords: [number, number][] = [];
     for (let i = 0; i <= steps; i++) {
-        const bearing = sectr1 + (sweep * i) / steps;
+        const bearing = disp1 + (sweep * i) / steps;
         arcCoords.push(forward(lon, lat, bearing, SECTOR_ARC_RADIUS_M));
     }
 
@@ -107,9 +120,10 @@ export function buildSectorFeatures(input: SectorInput): Feature<LineString>[] {
             properties: { ...baseProps, _secKind: 'arc', _secColor: colorHex },
         },
     ];
-    // A near-all-round sector has no meaningful limit legs.
+    // A near-all-round sector has no meaningful limit legs. Legs also draw
+    // on the reciprocal (see the arc above) so they bound the coloured wedge.
     if (sweep < 359) {
-        features.push(mkLeg(sectr1), mkLeg(sectr2));
+        features.push(mkLeg(sectr1 + 180), mkLeg(sectr2 + 180));
     }
     return features;
 }
