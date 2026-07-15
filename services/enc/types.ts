@@ -37,6 +37,56 @@ import type { Geometry } from 'geojson';
  */
 export type EncLayer = 'DEPARE' | 'LNDARE' | 'OBSTRN' | 'WRECKS' | 'UWTROC' | 'COALNE';
 
+// ── S-57 point-mark class taxonomy ─────────────────────────────────
+// The DOMAIN source of truth for which buoy/beacon/light/hazard classes
+// exist and how they group. Lives here (services, low-level) so the merge
+// (EncHazardService) and the render layer (encLayerIds/EncVectorLayer) can
+// both derive from it WITHOUT a services→components import. encLayerIds
+// binds these to render layer-ids; the merge's tagAndPush + the mount's
+// point/navaid sources iterate them, so a class added here can't silently
+// no-op (mission-audit: the registry previously only half-bound). Every
+// element is also a key of EncMergedVectorData and of EncConversionResult
+// .layers (enforced where they're indexed).
+
+/** Hazard points → the merged POINTS source (magenta symbols). */
+export const S57_HAZARD_POINT_CLASSES = ['OBSTRN', 'WRECKS', 'UWTROC'] as const;
+
+/** Lights + buoys/beacons → the merged NAVAIDS source (each _kind-tagged). */
+export const S57_NAVAID_CLASSES = [
+    'LIGHTS',
+    'BOYLAT',
+    'BOYCAR',
+    'BCNLAT',
+    'BCNCAR',
+    'BOYSPP',
+    'BCNSPP',
+    'BOYSAW',
+    'BCNSAW',
+    'BOYISD',
+    'BCNISD',
+] as const;
+
+/** Buoy/beacon navaids that mount as IALA symbol layers — the navaids
+ *  minus LIGHTS (its own lighthouse layer). */
+export const S57_BUOY_BEACON_CLASSES = [
+    'BOYLAT',
+    'BCNLAT',
+    'BOYCAR',
+    'BCNCAR',
+    'BOYSPP',
+    'BCNSPP',
+    'BOYSAW',
+    'BCNSAW',
+    'BOYISD',
+    'BCNISD',
+] as const;
+
+/** Every S-57 point-mark class — the PARTITION of hazard-points ∪ navaids,
+ *  so it can never drift from its subgroups (it IS their union). */
+export const S57_POINT_MARK_CLASSES = [...S57_HAZARD_POINT_CLASSES, ...S57_NAVAID_CLASSES] as const;
+
+export type S57PointMarkClass = (typeof S57_POINT_MARK_CLASSES)[number];
+
 /**
  * Aids-to-navigation layers. Display-only — never affect routing,
  * never appear in the hazard report. Carried separately from
