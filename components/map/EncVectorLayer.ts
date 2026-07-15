@@ -363,6 +363,158 @@ export interface EncVectorMountOptions {
  * layer-rebuild cost on cell-list changes; we just setData on the
  * source.
  */
+/** Depth-CONTOUR layers, lifted out of the mount monolith (mission-audit
+ *  #2b — pure statement move, identical behaviour): the interpolated
+ *  DERIVED densification (faint teal dashes that can never pass for
+ *  surveyed) plus the official DEPCNT trio — thin ordinary contours, the
+ *  bold per-cell safety contour, and the along-line value labels. Sources
+ *  are already ensured by the caller; this only adds the layers. */
+function mountContourLayers(
+    map: mapboxgl.Map,
+    minZoom: number,
+    opacity: number,
+    safetyByCell: Readonly<Record<string, number | null>>,
+    beforeIdFor: (layerId: string) => string | undefined,
+): void {
+    // ── DEPCNT_DERIVED (contours interpolated from our soundings) ──
+    // Honest densification (2026-07-12): a distinct TEAL-GREY, DASHED,
+    // faint line, deliberately unlike the official slate DEPCNT so it
+    // can never pass for surveyed data. Sits UNDER the official trio, so
+    // a real contour always draws over an interpolated one. z13+ — this
+    // is close-in shallow-water detail, not an overview layer.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
+                type: 'line',
+                source: ENC_VEC_SRC.DEPCNT_DERIVED,
+                minzoom: 13,
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: {
+                    'line-color': '#5b9aa0',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 1.1],
+                    'line-opacity': 0.5,
+                    'line-dasharray': [2, 3],
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.DEPCNT_DERIVED,
+                minzoom: 14,
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 600,
+                    // Italic + a tilde: chart convention for an approximate /
+                    // unsurveyed depth. Reads "about 5 m", never "5 m surveyed".
+                    'text-field': ['concat', '~', ['to-string', ['get', '_valdco']]],
+                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 14, 8, 16, 10],
+                    'text-allow-overlap': false,
+                    'text-padding': 6,
+                },
+                paint: {
+                    'text-color': '#5b9aa0',
+                    'text-halo-color': 'rgba(255, 255, 255, 0.75)',
+                    'text-halo-width': 0.8,
+                    'text-opacity': 0.75,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL),
+        );
+    }
+
+    // ── DEPCNT (depth contours + bold safety contour) ─────────────
+    // Two layers off one source: thin gray ordinary contours
+    // (SCAMIN-gated) and the bold dark safety contour — per S-52 the
+    // single most prominent line on the water, never zoom-gated.
+    // Filters move atomically with the fill bands via
+    // updateEncDepthStyle when the draft changes.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_LINE,
+                type: 'line',
+                source: ENC_VEC_SRC.DEPCNT,
+                minzoom: minZoom,
+                filter: depcntLineFilter(safetyByCell),
+                paint: {
+                    'line-color': '#7d8e9b',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 15, 1.0],
+                    'line-opacity': 0.7,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_LINE),
+        );
+    }
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_SAFETY,
+                type: 'line',
+                source: ENC_VEC_SRC.DEPCNT,
+                minzoom: minZoom,
+                filter: depcntSafetyFilter(safetyByCell),
+                paint: {
+                    // Slate hairline, not marker pen (Shane 2026-07-11:
+                    // "horrible black lines" — ECDIS-bold traced every bank
+                    // in a shallow bay into black scribble on the white
+                    // paper). Still the only keel-aware line on the chart;
+                    // now it whispers it.
+                    'line-color': '#44586a',
+                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 15, 1.4],
+                    'line-opacity': 0.9,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_SAFETY),
+        );
+    }
+    // ── DEPCNT value labels ("more depth numbers", Shane 2026-07-09) ──
+    // Every contour already carries VALDCO; labelling it along the line
+    // is how paper charts pack depth-reading into open water without a
+    // sounding cloud. Sparse line placement + collision culling keep it
+    // chart-clean; the numbers inherit the contour's muted slate so
+    // soundings (brighter) stay the primary read.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_LABEL)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPCNT_LABEL,
+                type: 'symbol',
+                source: ENC_VEC_SRC.DEPCNT,
+                minzoom: 11,
+                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
+                layout: {
+                    'symbol-placement': 'line',
+                    'symbol-spacing': 350,
+                    'text-field': buildDepcntLabelField(0),
+                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
+                    'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9, 15, 11],
+                    'text-allow-overlap': false,
+                    'text-padding': 4,
+                },
+                paint: {
+                    // Muted dark slate on a thin light halo — legible on
+                    // the white ramp and over satellite imagery, quieter
+                    // than the soundings (which stay the primary read).
+                    // Shared constant: applyTideOffsetPaint re-asserts the
+                    // same ink on every mount, so a second hardcoded hex
+                    // here silently drifts (2026-07-12 audit).
+                    'text-color': DEPCNT_LABEL_INK_DATUM,
+                    'text-halo-color': 'rgba(255, 255, 255, 0.8)',
+                    'text-halo-width': 0.8,
+                    'text-opacity': opacity,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_LABEL),
+        );
+    }
+}
+
 export function mountEncVectorLayer(
     map: mapboxgl.Map,
     data: EncMergedVectorData,
@@ -542,143 +694,9 @@ export function mountEncVectorLayer(
     syncDepareBaseTreatment(map);
     applyTideOffsetPaint(map, depthStyleState.get(map)?.tideOffsetM ?? null);
 
-    // ── DEPCNT_DERIVED (contours interpolated from our soundings) ──
-    // Honest densification (2026-07-12): a distinct TEAL-GREY, DASHED,
-    // faint line, deliberately unlike the official slate DEPCNT so it
-    // can never pass for surveyed data. Sits UNDER the official trio, so
-    // a real contour always draws over an interpolated one. z13+ — this
-    // is close-in shallow-water detail, not an overview layer.
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE,
-                type: 'line',
-                source: ENC_VEC_SRC.DEPCNT_DERIVED,
-                minzoom: 13,
-                layout: { 'line-join': 'round', 'line-cap': 'round' },
-                paint: {
-                    'line-color': '#5b9aa0',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 13, 0.5, 16, 1.1],
-                    'line-opacity': 0.5,
-                    'line-dasharray': [2, 3],
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_DERIVED_LINE),
-        );
-    }
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL,
-                type: 'symbol',
-                source: ENC_VEC_SRC.DEPCNT_DERIVED,
-                minzoom: 14,
-                layout: {
-                    'symbol-placement': 'line',
-                    'symbol-spacing': 600,
-                    // Italic + a tilde: chart convention for an approximate /
-                    // unsurveyed depth. Reads "about 5 m", never "5 m surveyed".
-                    'text-field': ['concat', '~', ['to-string', ['get', '_valdco']]],
-                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 14, 8, 16, 10],
-                    'text-allow-overlap': false,
-                    'text-padding': 6,
-                },
-                paint: {
-                    'text-color': '#5b9aa0',
-                    'text-halo-color': 'rgba(255, 255, 255, 0.75)',
-                    'text-halo-width': 0.8,
-                    'text-opacity': 0.75,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_DERIVED_LABEL),
-        );
-    }
-
-    // ── DEPCNT (depth contours + bold safety contour) ─────────────
-    // Two layers off one source: thin gray ordinary contours
-    // (SCAMIN-gated) and the bold dark safety contour — per S-52 the
-    // single most prominent line on the water, never zoom-gated.
-    // Filters move atomically with the fill bands via
-    // updateEncDepthStyle when the draft changes.
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_LINE)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPCNT_LINE,
-                type: 'line',
-                source: ENC_VEC_SRC.DEPCNT,
-                minzoom: minZoom,
-                filter: depcntLineFilter(safetyByCell),
-                paint: {
-                    'line-color': '#7d8e9b',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.4, 15, 1.0],
-                    'line-opacity': 0.7,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_LINE),
-        );
-    }
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPCNT_SAFETY,
-                type: 'line',
-                source: ENC_VEC_SRC.DEPCNT,
-                minzoom: minZoom,
-                filter: depcntSafetyFilter(safetyByCell),
-                paint: {
-                    // Slate hairline, not marker pen (Shane 2026-07-11:
-                    // "horrible black lines" — ECDIS-bold traced every bank
-                    // in a shallow bay into black scribble on the white
-                    // paper). Still the only keel-aware line on the chart;
-                    // now it whispers it.
-                    'line-color': '#44586a',
-                    'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.8, 15, 1.4],
-                    'line-opacity': 0.9,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_SAFETY),
-        );
-    }
-    // ── DEPCNT value labels ("more depth numbers", Shane 2026-07-09) ──
-    // Every contour already carries VALDCO; labelling it along the line
-    // is how paper charts pack depth-reading into open water without a
-    // sounding cloud. Sparse line placement + collision culling keep it
-    // chart-clean; the numbers inherit the contour's muted slate so
-    // soundings (brighter) stay the primary read.
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPCNT_LABEL)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPCNT_LABEL,
-                type: 'symbol',
-                source: ENC_VEC_SRC.DEPCNT,
-                minzoom: 11,
-                filter: SCAMIN_CLAUSE as unknown as mapboxgl.FilterSpecification,
-                layout: {
-                    'symbol-placement': 'line',
-                    'symbol-spacing': 350,
-                    'text-field': buildDepcntLabelField(0),
-                    'text-font': ['DIN Pro Italic', 'Arial Unicode MS Regular'],
-                    'text-size': ['interpolate', ['linear'], ['zoom'], 11, 9, 15, 11],
-                    'text-allow-overlap': false,
-                    'text-padding': 4,
-                },
-                paint: {
-                    // Muted dark slate on a thin light halo — legible on
-                    // the white ramp and over satellite imagery, quieter
-                    // than the soundings (which stay the primary read).
-                    // Shared constant: applyTideOffsetPaint re-asserts the
-                    // same ink on every mount, so a second hardcoded hex
-                    // here silently drifts (2026-07-12 audit).
-                    'text-color': DEPCNT_LABEL_INK_DATUM,
-                    'text-halo-color': 'rgba(255, 255, 255, 0.8)',
-                    'text-halo-width': 0.8,
-                    'text-opacity': opacity,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPCNT_LABEL),
-        );
-    }
+    // Depth-contour layers (derived densification + official DEPCNT trio)
+    // live in mountContourLayers now — see #2b.
+    mountContourLayers(map, minZoom, opacity, safetyByCell, beforeIdFor);
 
     // ── LNDARE (tan land) ─────────────────────────────────────────
     // No fill-outline-color: Mapbox strokes EVERY internal edge of
