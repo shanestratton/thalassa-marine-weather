@@ -124,6 +124,7 @@ import {
     tracePinBlocked,
     snapTraceTapToWater,
     rdpTracePoints,
+    capSegmentLength,
     reverseRouteName,
     bearingDegBetween,
     courseArrow,
@@ -246,6 +247,13 @@ const TIDE_ACK_KEY = 'thalassa_tide_depth_ack_v1';
  *  cleared the leg cache on every outgrow (Shane 2026-07-11: full re-check
  *  on each new pin, then no depth at all through the shipping channel). */
 const TRACE_CLUSTER_SPAN_M = 24_000;
+
+// ⚡ Auto route: after the engine follows deep water, no resulting leg may
+// exceed this — a longer leg outgrows the grading depth-grid budget and
+// reads "long open-water leg, depth unchecked" (Shane 2026-07-15). 15 km
+// (~8 NM) sits well inside TRACE_CLUSTER_SPAN_M so EVERY piece grades with
+// a real depth grid; the extra pins land ON the engine's water line (safe).
+const AUTO_MAX_LEG_M = 15_000;
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -1308,7 +1316,7 @@ export const MapHub: React.FC<MapHubProps> = ({
         }, 30);
     }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
     // ⚡ Auto route lives below the settings declaration (it reads
-    // settings.vessel for draft/air-draft) — see autoRouteLastLeg.
+    // settings.vessel for draft/air-draft) — see autoRouteLeg.
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
     const pasteTrace = useCallback(async () => {
@@ -1385,13 +1393,20 @@ export const MapHub: React.FC<MapHubProps> = ({
     // line — a straight line crosses land, which is exactly the failure the
     // first cut shipped (my mistake). Better to route nothing than route over
     // a headland.
-    const autoRouteLastLeg = useCallback(() => {
+    //
+    // WHICH leg: the one INTO the highlighted pin (Shane 2026-07-15 "whichever
+    // waypoint is highlighted, the leg between it and the waypoint before").
+    // No selection → the last leg.
+    const autoRouteLeg = useCallback(() => {
         if (capturedCoords.length < 2 || fixBusyLeg !== null) return;
-        const iLast = capturedCoords.length - 2;
-        const a = capturedCoords[iLast];
-        const b = capturedCoords[iLast + 1];
+        const iLeg =
+            selectedPin !== null && selectedPin > 0 && selectedPin < capturedCoords.length
+                ? selectedPin - 1
+                : capturedCoords.length - 2;
+        const a = capturedCoords[iLeg];
+        const b = capturedCoords[iLeg + 1];
         triggerHaptic('medium');
-        setFixBusyLeg(iLast);
+        setFixBusyLeg(iLeg);
         flashTraceFeedback('Following deep water…');
         setTimeout(() => {
             void (async () => {
@@ -1405,14 +1420,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                     );
                     if (res && 'polyline' in res) {
                         const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
-                        // The engine's line runs a→b; keep the skipper's own two
-                        // pins and splice the engine's BENDS between them (40 m
-                        // RDP so it's editable, not vertex soup). No bends = the
-                        // straight line was already clear deep water.
-                        const interior = rdpTracePoints(pts, 40).slice(1, -1);
+                        // The engine's line runs a→b through navigable water.
+                        // RDP to the bends, THEN cap every straight run to
+                        // AUTO_MAX_LEG_M so a long open-water stretch becomes a
+                        // chain of DEPTH-CHECKABLE legs (the "long open-water
+                        // leg, depth unchecked" fix) — the added pins sit ON the
+                        // engine's water line, so they can't cross land. Any
+                        // tide-gated shallow the engine chose to cross gets its
+                        // "clears HH:MM–HH:MM" window from the re-grade below.
+                        const followed = capSegmentLength(rdpTracePoints(pts, 40), AUTO_MAX_LEG_M);
+                        const interior = followed.slice(1, -1);
                         const base = capturedCoords;
-                        const newPins = [...base.slice(0, iLast + 1), ...interior, ...base.slice(iLast + 1)];
+                        const newPins = [...base.slice(0, iLeg + 1), ...interior, ...base.slice(iLeg + 1)];
                         setCapturedCoords(newPins);
+                        setSelectedPin(null); // indices shifted; drop the highlight
+                        setInsertAfter(null);
+                        insertAfterRef.current = null;
                         flashTraceFeedback(
                             interior.length > 0
                                 ? `Routed through deep water — ${interior.length} pin${
@@ -1435,7 +1458,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                 }
             })();
         }, 30);
-    }, [capturedCoords, fixBusyLeg, settings.vessel, flashTraceFeedback]);
+    }, [capturedCoords, selectedPin, fixBusyLeg, settings.vessel, flashTraceFeedback]);
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
     // the vessel's real draft (feet→metres via vesselDraftMetres) plus the
@@ -4902,12 +4925,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 >
                                                     📋 Route report
                                                 </button>
-                                                {/* Pin → pin → ⚡: the tracer's own fine-grid A*
-                                                    bends the LAST leg around shallows/land and
-                                                    splices the bends as editable pins. Never the
-                                                    four-tier engine — close-quarters stays human. */}
+                                                {/* ⚡ routes the leg INTO the highlighted pin (tap a
+                                                    pin first) via the real inshore engine — follows
+                                                    deep water, never crosses land, breaks long runs
+                                                    into depth-checkable, tide-aware pins. No pin
+                                                    selected → the last leg. */}
                                                 <button
-                                                    onClick={autoRouteLastLeg}
+                                                    onClick={autoRouteLeg}
                                                     disabled={fixBusyLeg !== null}
                                                     className="flex-1 rounded-lg bg-violet-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
                                                 >

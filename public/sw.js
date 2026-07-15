@@ -86,9 +86,14 @@
 // crosses land), tide-checks shallow crossings. On any engine failure it
 // changes nothing instead of drawing a straight line over land (the v81
 // bug). v81's bespoke subdivide-and-straight-line router is gone.
-const CACHE_NAME = 'thalassa-v82-core';
-const TILE_CACHE = 'thalassa-v82-tiles';
-const DATA_CACHE = 'thalassa-v82-data';
+// v83: ⚡ Auto route routes the leg INTO the highlighted pin (tap a pin
+// first), and breaks the engine's deep-water line into depth-checkable
+// pieces so a long open-water run no longer reads "depth unchecked" —
+// the added pins sit on the engine's water line (never land), tide
+// windows chip onto any shallow crossing.
+const CACHE_NAME = 'thalassa-v83-core';
+const TILE_CACHE = 'thalassa-v83-tiles';
+const DATA_CACHE = 'thalassa-v83-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
