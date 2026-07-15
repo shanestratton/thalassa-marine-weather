@@ -36,10 +36,14 @@ function svgToImage(svgString: string, size: number): Promise<HTMLImageElement> 
 
 /** Lateral buoy — Can (flat top) for port, Conical (pointed) for starboard */
 function lateralBuoySvg(colour: string, shape: 'can' | 'cone'): string {
+    // Topmark takes the buoy colour explicitly. `currentColor` resolves to
+    // the CSS `color` cascade — which is ABSENT when the SVG is rasterised
+    // through a detached data-URI <img>, so it fell back to initial BLACK on
+    // the most common navaid (mission audit fix: bake the resolved fill in).
     const top =
         shape === 'can'
-            ? '<rect x="12" y="8" width="24" height="4" rx="1" fill="currentColor"/>'
-            : '<polygon points="24,6 12,12 36,12" fill="currentColor"/>';
+            ? `<rect x="12" y="8" width="24" height="4" rx="1" fill="${colour}"/>`
+            : `<polygon points="24,6 12,12 36,12" fill="${colour}"/>`;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
         <defs><filter id="s"><feDropShadow dx="0" dy="1" stdDeviation="1.5" flood-opacity="0.4"/></filter></defs>
         <g filter="url(#s)" fill="${colour}" stroke="${COLOURS.white}" stroke-width="1.5">

@@ -353,6 +353,17 @@ export function buildFeaturePopupHtml(
         if (cat && CATLAM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Mark</span><b>${esc(CATLAM_LABELS[cat])}</b></div>`;
         }
+        // Passing rule, spelled out to match the cardinal treatment (audit:
+        // laterals got only a category label). The leave-side is fixed by
+        // CATLAM and is region-INDEPENDENT — region A/B only swaps the
+        // COLOUR, not the hand — so this holds for both IALA regions.
+        const LEAVE_SIDE: Record<string, string> = {
+            '1': 'Leave to PORT',
+            '2': 'Leave to STARBOARD',
+        };
+        if (LEAVE_SIDE[cat]) {
+            body += `<div class="enc-popup-row"><span>Pass</span><b style="color:#4ade80">${LEAVE_SIDE[cat]}</b> <span style="opacity:0.7">with the buoyage direction</span></div>`;
+        }
         const region = props._ialaRegion;
         if (region === 'A' || region === 'B') {
             body += `<div class="enc-popup-row"><span>Region</span><b>IALA-${esc(region)}</b></div>`;
