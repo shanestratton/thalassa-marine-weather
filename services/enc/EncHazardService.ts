@@ -258,6 +258,60 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
     return results;
 }
 
+/**
+ * Segment-level companion to queryHazards: for each segment, the worst
+ * POLYGON hazard it CROSSES, folded across every covering cell via the
+ * same total-order mergeHazardResults. Catches a charted shoal/islet
+ * thinner than the route sample spacing that the point query would miss
+ * between samples (mission audit #1). ENC-only — GEBCO is raster (no
+ * polygons), so the sampled point query remains its backstop.
+ */
+export async function querySegmentHazards(
+    segments: { lat1: number; lon1: number; lat2: number; lon2: number }[],
+): Promise<EncHazardResult[]> {
+    const results: EncHazardResult[] = new Array(segments.length);
+    if (segments.length === 0) return results;
+    const miss = () => ({ covered: false as const, hazard: false as const, minDepthM: null });
+    if (!hasAnyCells()) {
+        for (let i = 0; i < segments.length; i++) results[i] = miss();
+        return results;
+    }
+
+    let qMinLon = Infinity;
+    let qMinLat = Infinity;
+    let qMaxLon = -Infinity;
+    let qMaxLat = -Infinity;
+    for (const s of segments) {
+        qMinLon = Math.min(qMinLon, s.lon1, s.lon2);
+        qMinLat = Math.min(qMinLat, s.lat1, s.lat2);
+        qMaxLon = Math.max(qMaxLon, s.lon1, s.lon2);
+        qMaxLat = Math.max(qMaxLat, s.lat1, s.lat2);
+    }
+    const candidateCells = cellMeta.cellsForBBox([qMinLon, qMinLat, qMaxLon, qMaxLat]);
+    if (candidateCells.length === 0) {
+        for (let i = 0; i < segments.length; i++) results[i] = miss();
+        return results;
+    }
+
+    const candidateIndexes: EncSpatialIndex[] = [];
+    await mapWithConcurrency(candidateCells, 4, async (cell) => {
+        const idx = await getOrBuildIndex(cell.id);
+        if (idx) candidateIndexes.push(idx);
+    });
+
+    for (let i = 0; i < segments.length; i++) {
+        const s = segments[i];
+        let merged: EncHazardResult = miss();
+        for (const idx of candidateIndexes) {
+            const r = idx.segmentHazard(s.lat1, s.lon1, s.lat2, s.lon2);
+            if (!r.covered) continue;
+            merged = mergeHazardResults(merged, r);
+        }
+        results[i] = merged;
+    }
+    return results;
+}
+
 // ── Import / mutation ─────────────────────────────────────────────
 
 /**
