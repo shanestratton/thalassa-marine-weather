@@ -67,9 +67,12 @@
 // see the whole history, the polyline loads per-voyage on tap.
 // v76: ⇄ reverse also flips the route NAME (Newport - Lady Musgrave →
 // Lady Musgrave - Newport), so the return run saves as its own route.
-const CACHE_NAME = 'thalassa-v76-core';
-const TILE_CACHE = 'thalassa-v76-tiles';
-const DATA_CACHE = 'thalassa-v76-data';
+// v77: the name actually flips — Save no longer clears the name box
+// (save → ⇄ was flipping an empty string), sloppy spacing tolerated,
+// and the flash announces the new name.
+const CACHE_NAME = 'thalassa-v77-core';
+const TILE_CACHE = 'thalassa-v77-tiles';
+const DATA_CACHE = 'thalassa-v77-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

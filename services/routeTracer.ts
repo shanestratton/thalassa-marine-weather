@@ -906,10 +906,12 @@ export function traceHealth(verdicts: ReadonlyArray<TraceLegVerdict | null | und
 export function reverseRouteName(name: string): string {
     const trimmed = name.trim();
     if (!trimmed) return name;
+    // \s+ both sides, not single spaces — "newport  -  lady musgrave"
+    // (double space, easy on a phone keyboard) must still flip.
     const SEPS: Array<{ re: RegExp; join: string }> = [
-        { re: / — /, join: ' — ' },
-        { re: / – /, join: ' – ' },
-        { re: / - /, join: ' - ' },
+        { re: /\s+—\s+/, join: ' — ' },
+        { re: /\s+–\s+/, join: ' – ' },
+        { re: /\s+-\s+/, join: ' - ' },
         { re: /\s*→\s*/, join: ' → ' },
         { re: /\s*->\s*/, join: ' -> ' },
         { re: /\s+to\s+/i, join: ' to ' },
