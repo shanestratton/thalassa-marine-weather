@@ -3,8 +3,9 @@
  * GeoJSON blobs produced by the Pi-side S-57 → GeoJSON converter.
  *
  * One file per cell at `Directory.Data/enc-cells/<cellId>.geojson`.
- * Files can run 5–50 MB for a typical Australian harbour cell, so
- * we deliberately keep them on the filesystem rather than in
+ * Files run ~0.5 MB median, ~7.6 MB largest across the measured AU corpus
+ * (2026-07-16; a busy harbour cell is the top end), so we deliberately
+ * keep them on the filesystem rather than in
  * IndexedDB or localStorage (both of which have origin-quota
  * limits we'd hit on a power-user fleet).
  *
@@ -72,18 +73,40 @@ const blobCache = new Map<string, { blob: EncConversionResult; sizeBytes: number
 /** LRU caps (2026-07-12): unbounded, the cache held all 172 parsed
  *  cells (~210 MB of JSON text, several × that as JS heap) and desktop
  *  Chrome's renderer OOM-died. The first fix capped ENTRY COUNT only —
- *  but cells run 5–50 MB, so 32 harbour-grade entries could still pin
- *  150–500 MB of parsed heap inside the very fix that was meant to
- *  close the OOM (2026-07-12 audit, MAJOR). Eviction now respects a
+ *  and a count cap alone can pin unbounded heap if cells are large, so
+ *  it was the wrong bound (2026-07-12 audit, MAJOR). Eviction now respects a
  *  BYTE budget (JSON text length; JS heap runs a few × this) as well
  *  as the count. A handful of most-recent entries are always kept so
  *  one oversized cell can't thrash itself out of its own render loop.
  *  Map iteration order = insertion order; touchBlob() re-inserts on
  *  hit so eviction is least-recently-USED. */
-const BLOB_CACHE_MAX = 32;
+// Real AU corpus (measured 2026-07-16): median cell ~0.5 MB, LARGEST ~7.6 MB
+// — nothing like the hypothetical "50 MB" the old note guessed. So the BYTE
+// budget is the memory bound that matters; the count cap just kept the LRU
+// from growing unboundedly. At 32 the count bound bit first for these small
+// cells (~16 MB of 0.5 MB cells) and evicted/re-parsed history the 48 MB
+// budget had room for. Raised to 128 so the 48 MB byte cap is the real
+// bound: the same peak memory now retains far more recently-panned cells,
+// cutting the JSON.parse re-parse churn on a wide coastal pan. Memory is
+// unchanged — BLOB_CACHE_MAX_BYTES is untouched.
+const BLOB_CACHE_MAX = 128;
 const BLOB_CACHE_MAX_BYTES = 48 * 1024 * 1024; // JSON text — heap ≈ few ×
 const BLOB_CACHE_MIN_KEEP = 4;
 let blobCacheBytes = 0;
+
+/** Eviction decision for the blob LRU — pure so the caps interplay is
+ *  unit-tested. Evict the oldest while over EITHER cap, but never below the
+ *  min-keep floor (so a working set of a few cells can't thrash itself out
+ *  of its own render loop, even if one is oversized). */
+export function shouldEvictBlob(
+    count: number,
+    bytes: number,
+    max = BLOB_CACHE_MAX,
+    maxBytes = BLOB_CACHE_MAX_BYTES,
+    minKeep = BLOB_CACHE_MIN_KEEP,
+): boolean {
+    return count > minKeep && (count > max || bytes > maxBytes);
+}
 
 function touchBlob(cellId: string): EncConversionResult | undefined {
     const hit = blobCache.get(cellId);
@@ -106,10 +129,7 @@ function cacheBlob(cellId: string, blob: EncConversionResult, sizeBytes: number)
     dropBlob(cellId);
     blobCache.set(cellId, { blob, sizeBytes });
     blobCacheBytes += sizeBytes;
-    while (
-        blobCache.size > BLOB_CACHE_MIN_KEEP &&
-        (blobCache.size > BLOB_CACHE_MAX || blobCacheBytes > BLOB_CACHE_MAX_BYTES)
-    ) {
+    while (shouldEvictBlob(blobCache.size, blobCacheBytes)) {
         const oldest = blobCache.keys().next().value as string | undefined;
         if (oldest === undefined) break;
         dropBlob(oldest);
