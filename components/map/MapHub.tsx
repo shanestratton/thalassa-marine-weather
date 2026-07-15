@@ -100,7 +100,12 @@ import {
     reviewRoute,
     type PendingRoute,
 } from '../../services/communityRoutes';
-import { fetchRoutesAndTracks, type RouteOrTrack } from '../../services/shiplog/RoutesAndTracks';
+import {
+    fetchSeaVoyageChoices,
+    loadVoyageTrackPoints,
+    type RouteOrTrack,
+    type SeaVoyageChoice,
+} from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
 import { vesselDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
@@ -454,7 +459,7 @@ export const MapHub: React.FC<MapHubProps> = ({
     const [shareArmed, setShareArmed] = useState(false);
     const [pendingRoutes, setPendingRoutes] = useState<PendingRoute[]>([]);
     const [showQueue, setShowQueue] = useState(false);
-    const [voyageTracks, setVoyageTracks] = useState<RouteOrTrack[]>([]);
+    const [voyageTracks, setVoyageTracks] = useState<SeaVoyageChoice[]>([]);
     const [showVoyagePicker, setShowVoyagePicker] = useState(false);
     /** Proven-lane ghosts: curated fairways near the trace area, drawn dotted
      *  grey; accepting one loads its pins ("trace out of the marina" solved
@@ -1381,25 +1386,32 @@ export const MapHub: React.FC<MapHubProps> = ({
         triggerHaptic('light');
         setShowVoyagePicker((v) => !v);
         if (voyageTracks.length === 0) {
-            const { tracks } = await fetchRoutesAndTracks();
-            // SEA voyages only (Shane 2026-07-15: "only my on land voyages
-            // are showing"): the recency slice used to fill all six slots
-            // with car drives, pushing the real passage off the list.
-            // Filter BEFORE slicing; 'unknown' survives — hiding a legit
-            // old passage that predates water capture is the worse error.
-            setVoyageTracks(tracks.filter((t) => t.points.length >= 2 && t.kind !== 'land').slice(0, 6));
+            // Summary-backed: sees the WHOLE history. The old path listed
+            // groups from the newest-10k entry dump — Shane's 3 July ocean
+            // passage aged out of that window in a week of auto-capture and
+            // the picker could never show it (forensic query 2026-07-15).
+            // Sea-only via the career roll-up's landFraction vote.
+            setVoyageTracks(await fetchSeaVoyageChoices(6));
         }
     }, [voyageTracks.length]);
     const loadVoyageAsTrace = useCallback(
-        (t: RouteOrTrack) => {
+        async (t: SeaVoyageChoice) => {
             triggerHaptic('medium');
-            let pins = rdpTracePoints(t.points, 30);
+            flashTraceFeedback(`Loading ${t.label}…`);
+            // Polyline fetched per-voyage on tap (paged, whole passage) —
+            // the picker rows themselves carry no points now.
+            const points = await loadVoyageTrackPoints(t.voyageId);
+            if (points.length < 2) {
+                flashTraceFeedback('Could not load that track — try again online');
+                return;
+            }
+            let pins = rdpTracePoints(points, 30);
             // Cap at 80 pins — a 12-hour track at trawl speed can survive RDP
             // with hundreds of vertices; coarsen until it's editable.
             let eps = 30;
             while (pins.length > 80 && eps < 500) {
                 eps *= 2;
-                pins = rdpTracePoints(t.points, eps);
+                pins = rdpTracePoints(points, eps);
             }
             setShowVoyagePicker(false);
             setCapturedCoords(pins);
@@ -4850,19 +4862,22 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             {showVoyagePicker &&
                                                 (voyageTracks.length === 0 ? (
                                                     <div className="pl-4 text-[10px] text-gray-500">
-                                                        No sailed tracks yet — finish a voyage first.
+                                                        No sailed sea voyages yet — finish one first.
                                                     </div>
                                                 ) : (
                                                     voyageTracks.map((t) => (
                                                         <button
-                                                            key={t.id}
-                                                            onClick={() => loadVoyageAsTrace(t)}
+                                                            key={t.voyageId}
+                                                            onClick={() => void loadVoyageAsTrace(t)}
                                                             className="block w-full truncate pl-4 text-left text-[11px] text-gray-200 active:opacity-70"
                                                         >
                                                             {t.label}{' '}
-                                                            <span className="text-gray-500">
-                                                                {t.distanceNm.toFixed(0)} NM
-                                                            </span>
+                                                            <span className="text-gray-500">{t.sublabel}</span>
+                                                            {t.isLocal && (
+                                                                <span className="ml-1 rounded bg-white/10 px-1 text-[9px] font-bold text-gray-400">
+                                                                    LOCAL
+                                                                </span>
+                                                            )}
                                                         </button>
                                                     ))
                                                 ))}

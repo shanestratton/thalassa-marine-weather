@@ -61,9 +61,13 @@
 // v74: ⇄ Reverse flips the trace for the return trip (legs re-grade
 // for the opposite heading); Save also mirrors the route into the
 // ship's log as a suggested (planned_%) route.
-const CACHE_NAME = 'thalassa-v74-core';
-const TILE_CACHE = 'thalassa-v74-tiles';
-const DATA_CACHE = 'thalassa-v74-data';
+// v75: voyage picker goes summary-backed — the 3 July ocean passage
+// had aged out of the newest-10k entry window (15,135 rows since
+// 3 July, window floor 10 July) and could NEVER appear; summaries
+// see the whole history, the polyline loads per-voyage on tap.
+const CACHE_NAME = 'thalassa-v75-core';
+const TILE_CACHE = 'thalassa-v75-tiles';
+const DATA_CACHE = 'thalassa-v75-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
