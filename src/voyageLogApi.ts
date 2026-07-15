@@ -200,5 +200,10 @@ export function parseVoyageLogParams(): { handle: string } {
     // Path form: /logs/<handle>
     const path = window.location.pathname.replace(/\/+$/, '');
     const m = path.match(/\/logs\/([^/]+)/);
-    return { handle: m ? decodeURIComponent(m[1]) : '' };
+    if (m) return { handle: decodeURIComponent(m[1]) };
+    // Query form: ?handle=<handle> — local dev + debugging (mirrors the
+    // plan page's parser; Vite serves /logs.html directly with no
+    // rewrite layer to carry a path handle).
+    const q = new URLSearchParams(window.location.search).get('handle');
+    return { handle: q ?? '' };
 }

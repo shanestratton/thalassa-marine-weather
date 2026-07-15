@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from 'react-map-gl/mapbox';
 import type { FeatureCollection, Feature, LineString, Point } from 'geojson';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -28,6 +28,12 @@ interface MapContainerProps {
      *  mood-coloured glow so viewers can spot where the story happened.
      *  No camera move (the whole track is already framed). */
     selectedEntryId?: string;
+    /** Bump when the layout around the map changes size (diary fold /
+     *  unfold): triggers an explicit map.resize() so the canvas fills
+     *  the new box even where the container ResizeObserver misses the
+     *  change (Shane 2026-07-15: "when I close the side card, can the
+     *  map fill the void left behind"). */
+    resizeSignal?: number;
 }
 
 /** Hex fill for an AIS contact's triangle, by ship-type substring. */
@@ -105,8 +111,22 @@ export default function MapContainer({
     nearbyVessels,
     onEntryClick,
     selectedEntryId,
+    resizeSignal,
 }: MapContainerProps) {
     const [styleMode, setStyleMode] = useState<StyleMode>('satellite');
+    // Explicit canvas resize on layout swings (diary fold/unfold). Two
+    // kicks: one right after React commits the new layout, one after any
+    // CSS transition settles — cheap no-ops when the size didn't change.
+    const mapRef = useRef<import('react-map-gl/mapbox').MapRef | null>(null);
+    useEffect(() => {
+        if (resizeSignal === undefined) return;
+        const t1 = setTimeout(() => mapRef.current?.resize(), 60);
+        const t2 = setTimeout(() => mapRef.current?.resize(), 400);
+        return () => {
+            clearTimeout(t1);
+            clearTimeout(t2);
+        };
+    }, [resizeSignal]);
     const [selectedVessel, setSelectedVessel] = useState<NearbyVessel | null>(null);
     // Wind-barb overlay — off by default; fetched from Open-Meteo around the
     // boat the first time it's switched on.
@@ -242,6 +262,7 @@ export default function MapContainer({
             className={`w-full h-full relative bg-slate-900 ${styleMode === 'satellite' ? 'voyage-log-sat-bright' : ''}`}
         >
             <Map
+                ref={mapRef}
                 mapboxAccessToken={MAPBOX_TOKEN}
                 initialViewState={initialViewState}
                 mapStyle={STYLES[styleMode]}
