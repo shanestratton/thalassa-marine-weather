@@ -20,6 +20,7 @@ import React, { Suspense, useRef, useState, useEffect, useCallback, useMemo } fr
 import { CompassIcon, SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
+import { parseCoordinateString } from '../../utils/coordParse';
 import { lazyRetry } from '../../utils/lazyRetry';
 
 const log = createLogger('MapHub');
@@ -412,6 +413,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
     const [traceName, setTraceName] = useState('');
+    // Typed GPS-fix entry (build a route by keying coords, not just tapping —
+    // Shane 2026-07-16). Accepts decimal, hemisphere, DMM and DMS via
+    // parseCoordinateString; each Add appends a pin to the trace.
+    const [coordEntry, setCoordEntry] = useState('');
     // Same-name save = overwrite, but ASKED first: holds the id of the
     // saved route the next Save tap will replace (two-tap arm, like the
     // saved-route delete). Disarmed by editing the name.
@@ -1358,6 +1363,25 @@ export const MapHub: React.FC<MapHubProps> = ({
     // settings.vessel for draft/air-draft) — see autoRouteLeg.
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
+    // Append a typed GPS fix as the next pin. parseCoordinateString handles
+    // the formats a sailor actually reads off a plotter/chart (decimal,
+    // "27 08.5S 153 09.2E" DMM, DMS, hemisphere-suffixed). Builds a route
+    // coord-by-coord — no map tapping needed.
+    const addCoordPin = useCallback(() => {
+        const parsed = parseCoordinateString(coordEntry);
+        if (!parsed) {
+            flashTraceFeedback('Couldn’t read that fix — try "27 08.5S 153 09.2E" or "-27.14, 153.15"');
+            return;
+        }
+        triggerHaptic('light');
+        const pt = { lat: parsed.lat, lon: parsed.lon };
+        setCapturedCoords((prev) => [...prev, pt]);
+        setCoordEntry('');
+        const z = mapRef.current?.getZoom?.() ?? 12;
+        mapRef.current?.flyTo({ center: [pt.lon, pt.lat], zoom: Math.max(z, 12), duration: 700 });
+        flashTraceFeedback(`Point added — ${pt.lat.toFixed(4)}, ${pt.lon.toFixed(4)}`);
+    }, [coordEntry, flashTraceFeedback]);
+
     const pasteTrace = useCallback(async () => {
         try {
             const text = await navigator.clipboard.readText();
@@ -5124,6 +5148,34 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 )}
                                             </div>
                                         )}
+                                        {/* Build a route by keying GPS fixes — decimal, DMM
+                                            ("27 08.5S 153 09.2E"), DMS or hemisphere-suffixed.
+                                            Each Add drops the next pin (Shane 2026-07-16). */}
+                                        <div className="flex gap-1.5 border-t border-white/10 px-3 py-2">
+                                            <input
+                                                value={coordEntry}
+                                                onChange={(e) => setCoordEntry(e.target.value)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter') {
+                                                        e.preventDefault();
+                                                        addCoordPin();
+                                                    }
+                                                }}
+                                                inputMode="text"
+                                                autoCapitalize="characters"
+                                                autoCorrect="off"
+                                                spellCheck={false}
+                                                placeholder="Add a GPS fix — 27 08.5S 153 09.2E"
+                                                className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 font-mono text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-emerald-500/50 focus:outline-none"
+                                            />
+                                            <button
+                                                onClick={addCoordPin}
+                                                disabled={!coordEntry.trim()}
+                                                className="shrink-0 rounded-lg bg-emerald-500/20 px-3 py-1.5 text-[11px] font-black uppercase tracking-wide text-emerald-300 active:scale-95 disabled:opacity-40"
+                                            >
+                                                ＋ Add
+                                            </button>
+                                        </div>
                                         <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
                                             <input
                                                 ref={traceNameInputRef}

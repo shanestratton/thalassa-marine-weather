@@ -432,13 +432,27 @@ export function buildFeaturePopupHtml(
             '39': 'Marine-farm mark',
             '44': 'Wreck mark',
         };
-        const cat = String(props.CATSPM ?? props.catspm ?? '');
+        const cat = String(props.CATSPM ?? props.catspm ?? '').trim();
         if (cat && CATSPM_LABELS[cat]) {
             body += `<div class="enc-popup-row"><span>Purpose</span><b>${esc(CATSPM_LABELS[cat])}</b></div>`;
+        } else if (cat && cat !== 'undefined') {
+            // Charted category with no friendly label yet — show the raw S-57
+            // code so it can be looked up, rather than leaving the popup blank.
+            body += `<div class="enc-popup-row"><span>Purpose</span><b>Special mark (S-57 cat ${esc(cat)})</b></div>`;
         }
+        // Free-text the chart may carry even without a CATSPM category — often
+        // the most useful line ("Cable crossing", "No anchoring", "Ski area").
+        const informRaw = props.INFORM ?? props.inform ?? props.NINFOM ?? props.ninfom;
+        const inform = typeof informRaw === 'string' ? informRaw.trim() : '';
+        if (inform) body += `<div class="enc-popup-row"><span>Note</span><b>${esc(inform)}</b></div>`;
         const name = props.OBJNAM ?? props.objnam;
-        if (typeof name === 'string' && name)
-            body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
+        const hasName = typeof name === 'string' && name.trim() !== '';
+        if (hasName) body += `<div class="enc-popup-row"><span>Name</span><b>${esc(String(name))}</b></div>`;
+        // Nothing charted beyond "it's a yellow special mark" → say so plainly
+        // rather than show an identity-less popup (Shane 2026-07-16: "can we get
+        // more info on what each one is for?"). Honest about the data limit.
+        if (!(cat && cat !== 'undefined') && !inform && !hasName)
+            body += `<div class="enc-popup-row"><span>Purpose</span><b>General special mark — the chart carries no category. Check the paper chart / Notices to Mariners.</b></div>`;
     }
 
     // A lit mark carries its light's details BELOW the mark rows — the
