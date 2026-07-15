@@ -129,8 +129,17 @@ const LEAD_MAX_ANGLE_DEG = 30;
 const LEAD_OFF_CAUTION_M = 40;
 /** Context bbox padding (deg ≈ 2.2 km) and rebuild margin near the edge. */
 export const TRACER_BBOX_PAD_DEG = 0.02;
-/** Grid cell budget — resolution adapts so width×height stays under this. */
-const MAX_GRID_CELLS = 2_000_000;
+/** Grid cell budget — resolution adapts so width×height stays under this.
+ *  Lowered 2M→1M (audit 2026-07-15, rank 7): buildNavGrid is a SYNCHRONOUS
+ *  main-thread build with no yields, so cell count IS the freeze duration
+ *  (~0.3-1.5 s at 2M on iPhone WebKit — the "lockup when tracing" a fresh
+ *  window). Marina-scale windows are pinned at the 6 m floor and never
+ *  approach this cap, so their berth-carve resolution is untouched; only
+ *  bay-scale windows coarsen (28 m→40 m at the 40 km depth-grid ceiling —
+ *  cosmetic for km-wide depth bands), halving the worst-case build. The
+ *  structural fix (build off-thread) is deferred — inputs are bounded so a
+ *  worker is safe, unlike the parked martinez glaze clip. */
+const MAX_GRID_CELLS = 1_000_000;
 /** Above this bbox span the depth grid is skipped (marks-only verdicts) —
  *  an unbounded grid over a long trace was an ~800 MB jetsam kill. */
 const MAX_DEPTH_GRID_SPAN_M = 40_000;

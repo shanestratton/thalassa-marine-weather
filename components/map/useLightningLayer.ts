@@ -443,6 +443,14 @@ function computeShockwave(ageMs: number): { expand: number; alpha: number } {
     return { expand, alpha: Math.max(0, alpha) };
 }
 
+// Tracks whether the last strike-source write was an empty FeatureCollection,
+// per map. Under clear skies the rAF tick calls repaintStrikes ~16×/s; without
+// this, each call did a redundant setData(empty) that forces a FULL map render
+// of the whole ENC stack — a continuous battery drain for a layer a cruiser
+// leaves on all day (audit rank 7). We still paint the ONE clearing write when
+// the last strike expires, then go silent until the next strike lands.
+const lastPaintEmpty = new WeakMap<mapboxgl.Map, boolean>();
+
 function repaintStrikes(map: mapboxgl.Map, strikes: Map<string, LightningStrike>): void {
     const now = Date.now();
     const expired: string[] = [];
@@ -472,6 +480,13 @@ function repaintStrikes(map: mapboxgl.Map, strikes: Map<string, LightningStrike>
 
     const src = map.getSource(LIGHTNING_SOURCE) as mapboxgl.GeoJSONSource | undefined;
     if (src) {
+        const isEmpty = features.length === 0;
+        // Nothing to draw and nothing was drawn last time → skip the write
+        // entirely (Mapbox setData never diffs, so an empty-over-empty push
+        // still forces a full render). The clearing write when the buffer
+        // just emptied still goes through.
+        if (isEmpty && lastPaintEmpty.get(map)) return;
         src.setData({ type: 'FeatureCollection', features });
+        lastPaintEmpty.set(map, isEmpty);
     }
 }

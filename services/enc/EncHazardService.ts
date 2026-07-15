@@ -35,7 +35,14 @@ import { createLogger } from '../../utils/createLogger';
 import { mapWithConcurrency } from '../../utils/concurrency';
 import * as cellStore from './EncCellStore';
 import * as cellMeta from './EncCellMetadata';
-import { shadowingCells, featureIsShadowed, cellScaleRank, GLAZE_SHADOW_RATIO, type CellExtent } from './scaleShadow';
+import {
+    shadowingCells,
+    featureIsShadowed,
+    featureBboxCached,
+    cellScaleRank,
+    GLAZE_SHADOW_RATIO,
+    type CellExtent,
+} from './scaleShadow';
 import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
@@ -928,7 +935,10 @@ const SOUNDING_LOD_LOOKAHEAD = 2;
 const SUBPIXEL_CULLABLE = new Set(['DEPARE', 'LNDARE', 'COALNE', 'DEPCNT']);
 
 /** Bbox diagonal of a polygon/line feature in degrees; Infinity for
- *  point/other geometry so the sub-pixel cull can never touch it. */
+ *  point/other geometry so the sub-pixel cull can never touch it. Shares the
+ *  memoized featureBboxCached walk with the scale-shadow test (audit rank 6:
+ *  this used to be a second identical full-coordinate walk of the same
+ *  feature every merge). */
 function featureDiagDeg(feat: Feature): number {
     const g = feat.geometry;
     if (
@@ -937,26 +947,9 @@ function featureDiagDeg(feat: Feature): number {
     ) {
         return Infinity;
     }
-    let minX = Infinity,
-        minY = Infinity,
-        maxX = -Infinity,
-        maxY = -Infinity;
-    const visit = (coords: unknown): void => {
-        if (!Array.isArray(coords)) return;
-        if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-            const x = coords[0] as number;
-            const y = coords[1] as number;
-            if (x < minX) minX = x;
-            if (y < minY) minY = y;
-            if (x > maxX) maxX = x;
-            if (y > maxY) maxY = y;
-            return;
-        }
-        for (const c of coords) visit(c);
-    };
-    visit((g as { coordinates?: unknown }).coordinates);
-    if (!Number.isFinite(minX)) return Infinity;
-    return Math.hypot(maxX - minX, maxY - minY);
+    const bb = featureBboxCached(feat);
+    if (!bb) return Infinity;
+    return Math.hypot(bb[2] - bb[0], bb[3] - bb[1]);
 }
 
 async function buildMergedVectorData(

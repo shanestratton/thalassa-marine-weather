@@ -108,13 +108,38 @@ export function isScrubHidden(layerId: string): boolean {
 }
 
 /**
+ * Ownership options for the RESTORE side. The scrubber shares its
+ * furniture with two other authorities that hide layers with a stronger
+ * claim; force-showing what they hid creates a two-writer styledata loop
+ * that never converges (audit 2026-07-15, rank 8):
+ *
+ *  - `encMasterOff` — the ENC master FAB hid the WHOLE vector stack. The
+ *    scrubber must not resurrect any furniture; the master re-shows it
+ *    itself when toggled back on.
+ *  - `imageryHidden` — the satellite/hybrid hide-list hides opaque land
+ *    fills (LNDARE_ISLET) that would blanket the imagery. With Hybrid the
+ *    DEFAULT base, this fought applyChartDetailLevel's LNDARE_ISLET
+ *    restore on EVERY apply pass — an ~8 Hz background loop with zero
+ *    user action. The imagery owner wins; the scrubber only ever hides
+ *    LNDARE_ISLET further (at d ≥ 3), never restores it while imagery is on.
+ */
+export interface ChartDetailOwnership {
+    encMasterOff?: boolean;
+    imageryHidden?: ReadonlySet<string>;
+}
+
+/**
  * Apply a declutter level (0 = full … DETAIL_SCRUB_MAX = minimal).
  * Self-healing and steady-state silent: every write is guarded by a
  * read, so re-running after a styledata burst costs reads only unless
  * a remounted layer actually reset something. Returns true when any
  * style mutation happened.
  */
-export function applyChartDetailLevel(map: mapboxgl.Map, declutter: number): boolean {
+export function applyChartDetailLevel(
+    map: mapboxgl.Map,
+    declutter: number,
+    ownership: ChartDetailOwnership = {},
+): boolean {
     const d = Math.max(0, Math.min(DETAIL_SCRUB_MAX, Math.round(declutter)));
     activeDeclutter = d;
     let changed = false;
@@ -123,7 +148,13 @@ export function applyChartDetailLevel(map: mapboxgl.Map, declutter: number): boo
             const target = d >= i + 1 ? 'none' : 'visible';
             for (const id of group) {
                 if (!map.getLayer(id)) continue;
-                if (target === 'visible' && HIDE_ONLY.has(id)) continue;
+                if (target === 'visible') {
+                    // RESTORE side — yield to the stronger owners so the
+                    // two-writer loop can't form (see ChartDetailOwnership).
+                    if (HIDE_ONLY.has(id)) continue;
+                    if (ownership.encMasterOff) continue;
+                    if (ownership.imageryHidden?.has(id)) continue;
+                }
                 const cur = (map.getLayoutProperty(id, 'visibility') as string | undefined) ?? 'visible';
                 if (cur !== target) {
                     map.setLayoutProperty(id, 'visibility', target);

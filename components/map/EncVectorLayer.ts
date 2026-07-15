@@ -1934,13 +1934,16 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
         map.getCanvas().style.cursor = '';
     };
 
-    // ONE map-level click; per-layer listeners only for the desktop
-    // cursor affordance (cheap, no query work).
+    // ONE map-level click; ONE array-scoped mouseenter/leave for the desktop
+    // cursor affordance. The per-layer loop here was NOT "cheap, no query
+    // work" (the old comment was wrong): Mapbox wires one delegated mousemove
+    // per registration, each running its OWN queryRenderedFeatures on every
+    // pointer move — ~40 qRF calls per mousemove, a sticky cursor over
+    // charted water on desktop web (audit rank 5). Passing the id ARRAY makes
+    // it a single delegate doing one qRF. Zero cost on iOS (no mousemove).
     map.on('click', onClick);
-    for (const id of CLICKABLE_LAYER_IDS) {
-        map.on('mouseenter', id, onEnter);
-        map.on('mouseleave', id, onLeave);
-    }
+    map.on('mouseenter', CLICKABLE_LAYER_IDS, onEnter);
+    map.on('mouseleave', CLICKABLE_LAYER_IDS, onLeave);
 
     attachedHandlers.set(map, { click: onClick, enter: onEnter, leave: onLeave, popup: null });
     log.info('attached ENC feature click handlers');
@@ -1954,10 +1957,8 @@ export function detachEncFeatureClickHandlers(map: mapboxgl.Map): void {
     const h = attachedHandlers.get(map);
     if (!h) return;
     map.off('click', h.click);
-    for (const id of CLICKABLE_LAYER_IDS) {
-        map.off('mouseenter', id, h.enter);
-        map.off('mouseleave', id, h.leave);
-    }
+    map.off('mouseenter', CLICKABLE_LAYER_IDS, h.enter);
+    map.off('mouseleave', CLICKABLE_LAYER_IDS, h.leave);
     if (h.popup) h.popup.remove();
     attachedHandlers.delete(map);
     log.info('detached ENC feature click handlers');

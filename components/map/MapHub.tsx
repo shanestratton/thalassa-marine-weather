@@ -147,6 +147,11 @@ import {
 import { DEPARE_BAND_COLORS } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
+// The only scrubber-furniture layer the imagery hide-list also owns — the
+// islet land-fill dot, hidden over satellite/hybrid so it can't blanket the
+// imagery. Passed to applyChartDetailLevel so its restore side yields (audit
+// rank 8: LNDARE_ISLET was the ~8 Hz default-config styledata loop).
+const IMAGERY_SCRUB_OWNED: ReadonlySet<string> = new Set([ENC_VEC_LAYERS.LNDARE_ISLET]);
 import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -1695,7 +1700,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                 setTideLabels((prev) => ({ ...prev, [i]: label }));
             });
         });
-        setTideLabels(next);
+        // Identity-preserving, mirroring the legVerdicts publish (audit rank 3):
+        // this effect fires on every grading publish, and the common case is
+        // `next === {}` (no sub-keel legs). An unconditional setState bought one
+        // guaranteed extra full-tree render per pin interaction — on the exact
+        // "more waypoints = slower" path. Bail when the map is unchanged.
+        setTideLabels((prev) => {
+            const pk = Object.keys(prev);
+            const nk = Object.keys(next);
+            if (pk.length === nk.length && nk.every((k) => prev[k as never] === next[k as never])) return prev;
+            return next;
+        });
     }, [legVerdicts, coordCaptureMode, settings.vessel]);
 
     const [isoProgress, setIsoProgress] = useState<{
@@ -2070,15 +2085,26 @@ export const MapHub: React.FC<MapHubProps> = ({
         const apply = (force = false) => {
             try {
                 let changed = force;
+                // ONE style read shared by both base blocks (audit rank 4):
+                // getStyle() serializes the whole ~150-250-layer stylesheet,
+                // and both base layers always exist so both z-order heals
+                // ran it every pass — a needless serialize + GC hit on every
+                // styledata tick. Refreshed only if a (rare) heal actually
+                // moves a layer, keeping the order honest for the 2nd block.
+                let orderIds = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                let encBottom = orderIds.find((id) => id.startsWith('enc-vec-'));
+                const refreshOrder = () => {
+                    orderIds = map.getStyle()?.layers?.map((l) => l.id) ?? [];
+                    encBottom = orderIds.find((id) => id.startsWith('enc-vec-'));
+                };
                 // Hybrid base rides the same conditional-write rules as
                 // satellite: visibility + self-healing z-order.
                 if (map.getLayer('hybrid-base-layer')) {
                     if (setVis('hybrid-base-layer', hybridVisible ? 'visible' : 'none')) changed = true;
-                    const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
-                    const encBottom = order.find((id) => id.startsWith('enc-vec-'));
-                    if (encBottom && order.indexOf('hybrid-base-layer') > order.indexOf(encBottom)) {
+                    if (encBottom && orderIds.indexOf('hybrid-base-layer') > orderIds.indexOf(encBottom)) {
                         map.moveLayer('hybrid-base-layer', encBottom);
                         changed = true;
+                        refreshOrder();
                     }
                 }
                 if (map.getLayer('satellite-base-layer')) {
@@ -2087,11 +2113,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // ABOVE the ENC stack (chart-mode swap vs async cell
                     // mount), push it back underneath — marks, lights and
                     // leads must always paint over the imagery.
-                    const order = map.getStyle()?.layers?.map((l) => l.id) ?? [];
-                    const encBottom = order.find((id) => id.startsWith('enc-vec-'));
-                    if (encBottom && order.indexOf('satellite-base-layer') > order.indexOf(encBottom)) {
+                    if (encBottom && orderIds.indexOf('satellite-base-layer') > orderIds.indexOf(encBottom)) {
                         map.moveLayer('satellite-base-layer', encBottom);
                         changed = true;
+                        refreshOrder();
                     }
                 }
                 // The opaque LAND fills sit ABOVE the satellite base and
@@ -2133,9 +2158,19 @@ export const MapHub: React.FC<MapHubProps> = ({
                     }
                 }
                 // Declutter runs LAST so it has the final word on its
-                // furniture after the visibility owners above have spoken.
-                // Conditional writes inside — silent at steady state.
-                if (applyChartDetailLevel(map, declutter)) changed = true;
+                // furniture after the visibility owners above have spoken —
+                // EXCEPT where those owners have a stronger claim (ENC master
+                // off, or imagery hiding an opaque land fill). Passing that
+                // authority in stops the scrubber's restore side from fighting
+                // them every pass, which with Hybrid-default was an ~8 Hz
+                // background styledata loop over LNDARE_ISLET (audit rank 8).
+                if (
+                    applyChartDetailLevel(map, declutter, {
+                        encMasterOff: !encVisible,
+                        imageryHidden: imageryOn ? IMAGERY_SCRUB_OWNED : undefined,
+                    })
+                )
+                    changed = true;
             } catch {
                 /* style mid-swap — re-applied on the next styledata tick */
             }
@@ -2495,39 +2530,57 @@ export const MapHub: React.FC<MapHubProps> = ({
     useEffect(() => {
         if (!activeVoyageMode || !activeVoyageId) return;
         let cancelled = false;
-        const sync = async () => {
+        // FULL fetch — matches the planned route by name (routes need the
+        // whole list) AND seeds the sailed track. Runs on mount and when a
+        // save/delete fires the change event; NOT on the 60s tick (the plan
+        // is fixed for the voyage, so re-listing every route every minute
+        // was pure waste — audit rank 7).
+        const syncRouteAndTrack = async () => {
             try {
                 const { fetchRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
-                // Force-refresh — newly logged GPS points need to flow into
-                // the rendered track without waiting on the 60s cache.
                 const { routes, tracks } = await fetchRoutesAndTracks(true);
                 if (cancelled) return;
-
                 const norm = (s: string) => s.trim().toLowerCase();
                 if (activeVoyageName) {
                     const wantLabel = norm(activeVoyageName);
                     const matchedRoute = routes.find((r) => norm(r.label) === wantLabel) ?? null;
-                    if (matchedRoute) {
-                        setActiveChartRoute((cur) => (cur?.id === matchedRoute.id ? cur : matchedRoute));
-                    }
+                    if (matchedRoute) setActiveChartRoute((cur) => (cur?.id === matchedRoute.id ? cur : matchedRoute));
                 }
-
                 const matchedTrack = tracks.find((t) => t.id === activeVoyageId) ?? null;
                 if (matchedTrack) {
-                    setActiveChartTrack((cur) => (cur?.id === matchedTrack.id ? cur : matchedTrack));
+                    setActiveChartTrack((cur) =>
+                        cur?.id === matchedTrack.id && cur.points.length === matchedTrack.points.length
+                            ? cur
+                            : matchedTrack,
+                    );
                 }
             } catch (e) {
                 log.warn('Active voyage auto-select failed:', e);
             }
         };
-        sync();
+        // INCREMENTAL trail refresh — fetches ONLY the active voyage's
+        // entries (bounded by that one passage), not the whole log. Replaces
+        // the rendered track only when it actually GREW (point count changed),
+        // so the trail genuinely extends AND unchanged ticks cost no re-render.
+        const refreshTrail = async () => {
+            try {
+                const { fetchVoyageAsTrack } = await import('../../services/shiplog/RoutesAndTracks');
+                const track = await fetchVoyageAsTrack(activeVoyageId);
+                if (cancelled || !track) return;
+                setActiveChartTrack((cur) =>
+                    cur?.id === track.id && cur.points.length === track.points.length ? cur : track,
+                );
+            } catch (e) {
+                log.warn('Active voyage trail refresh failed:', e);
+            }
+        };
+        void syncRouteAndTrack();
 
-        const onRefresh = () => sync();
+        const onRefresh = () => void syncRouteAndTrack();
         window.addEventListener('thalassa:routes-and-tracks-changed', onRefresh);
-        // Periodic refresh while underway so the trail extends as new GPS
-        // points come in. 60s matches the RoutesAndTracks cache TTL — any
-        // shorter and we'd just hit the cache anyway.
-        const t = setInterval(sync, 60_000);
+        // Extend the trail as new GPS points come in — one voyage's fetch,
+        // not the career's.
+        const t = setInterval(() => void refreshTrail(), 60_000);
         return () => {
             cancelled = true;
             window.removeEventListener('thalassa:routes-and-tracks-changed', onRefresh);

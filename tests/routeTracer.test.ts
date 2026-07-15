@@ -575,8 +575,10 @@ describe('routeTracer — Phase 1 hardening', () => {
         // coarsens past 60 m so cells stay bounded.
         const bigRes = tracerResolutionM([153.0, -29.0, 155.0, -27.0]);
         expect(bigRes).toBeGreaterThan(60);
+        // Budget lowered to 1M (rank-7 fix) so the worst-case sync build
+        // halves — cells stay under ~1.1M, not 2.1M.
         const spanM = 2 * 110_540;
-        expect((spanM / bigRes) * ((2 * 111_320 * Math.cos((-28 * Math.PI) / 180)) / bigRes)).toBeLessThan(2_100_000);
+        expect((spanM / bigRes) * ((2 * 111_320 * Math.cos((-28 * Math.PI) / 180)) / bigRes)).toBeLessThan(1_100_000);
     });
 });
 
