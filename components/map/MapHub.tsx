@@ -517,219 +517,257 @@ export const MapHub: React.FC<MapHubProps> = ({
         const map = mapRef.current;
         if (!map) return;
         const sync = (): void => {
-            if (!map.isStyleLoaded()) return; // styledata retries
-            if (!map.getSource('trace-line')) {
-                map.addSource('trace-line', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
-                });
-            }
-            for (const [id, width, blur, opacity] of [
-                ['trace-line-glow', 10, 8, 0.5],
-                ['trace-line-core', 3.5, 0, 0.95],
-            ] as const) {
-                if (!map.getLayer(id)) {
-                    map.addLayer({
-                        id,
-                        type: 'line',
-                        source: 'trace-line',
-                        layout: { 'line-join': 'round', 'line-cap': 'round' },
-                        paint: {
-                            'line-color': [
-                                'match',
-                                ['get', 'grade'],
-                                'clear',
-                                '#00e676',
-                                'caution',
-                                '#ffb300',
-                                'danger',
-                                '#ff1744',
-                                '#94a3b8', // pending — verdict still computing
-                            ],
-                            'line-width': width,
-                            'line-blur': blur,
-                            'line-opacity': opacity,
-                        },
+            try {
+                // No isStyleLoaded() gate: it idles FALSE on a quiet map
+                // (proven 2026-07-15), and gating on it left fresh verdicts
+                // undrawn — "the last waypoint stays grey until you add
+                // another" / "reopen the page and all waypoints stay grey".
+                // addSource/addLayer only throw during the style's INITIAL
+                // load; the try/catch below plus the retry timer cover that
+                // window, and setData is always safe once sources exist.
+                if (!map.getSource('trace-line')) {
+                    map.addSource('trace-line', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] },
                     });
                 }
-            }
-            // Direction chevrons — "head south when you exit the bar, not
-            // north" (Shane 2026-07-08). Auto-rotated along each leg; white
-            // with a dark halo so they read over every grade colour.
-            if (!map.getLayer('trace-line-arrows')) {
-                map.addLayer({
-                    id: 'trace-line-arrows',
-                    type: 'symbol',
-                    source: 'trace-line',
-                    layout: {
-                        'symbol-placement': 'line',
-                        'symbol-spacing': 90,
-                        'text-field': '›',
-                        'text-size': 18,
-                        'text-keep-upright': false,
-                        'text-allow-overlap': true,
-                        'text-rotation-alignment': 'map',
-                    },
-                    paint: {
-                        'text-color': '#ffffff',
-                        'text-halo-color': '#0f172a',
-                        'text-halo-width': 1.5,
-                    },
-                });
-            }
-            // Proven-lane ghost (guided builder): dotted grey preview of a
-            // curated fairway near the punter — accept it in the panel and
-            // its points become pins.
-            if (!map.getSource('trace-ghost')) {
-                map.addSource('trace-ghost', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
-                });
-            }
-            if (!map.getLayer('trace-ghost-line')) {
-                map.addLayer({
-                    id: 'trace-ghost-line',
-                    type: 'line',
-                    source: 'trace-ghost',
-                    layout: { 'line-join': 'round', 'line-cap': 'round' },
-                    paint: {
-                        'line-color': '#94a3b8',
-                        'line-width': 3,
-                        'line-opacity': 0.7,
-                        'line-dasharray': [1.5, 2],
-                    },
-                });
-            }
-            // Problem spots ON the chart (P2): a ⚠ at every issue position —
-            // the verdict computed the exact lat/lon all along; the panel row
-            // alone left the punter guessing WHERE on a 2 NM leg the 2.1 m
-            // patch was.
-            if (!map.getSource('trace-issues')) {
-                map.addSource('trace-issues', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
-                });
-            }
-            if (!map.getLayer('trace-issues-icons')) {
-                map.addLayer({
-                    id: 'trace-issues-icons',
-                    type: 'symbol',
-                    source: 'trace-issues',
-                    layout: { 'text-field': '⚠', 'text-size': 16, 'text-allow-overlap': true },
-                    paint: {
-                        'text-color': ['match', ['get', 'severity'], 'danger', '#ff1744', '#ffb300'],
-                        'text-halo-color': '#0f172a',
-                        'text-halo-width': 1.5,
-                    },
-                });
-            }
-            const feats: Array<{
-                type: 'Feature';
-                properties: { grade: string };
-                geometry: { type: 'LineString'; coordinates: [number, number][] };
-            }> = [];
-            const issueFeats: Array<{
-                type: 'Feature';
-                properties: { severity: string };
-                geometry: { type: 'Point'; coordinates: [number, number] };
-            }> = [];
-            if (coordCaptureMode) {
-                for (let i = 1; i < capturedCoords.length; i++) {
-                    const a = capturedCoords[i - 1];
-                    const b = capturedCoords[i];
-                    feats.push({
-                        type: 'Feature',
-                        properties: { grade: legVerdicts[i - 1]?.grade ?? 'pending' },
-                        geometry: {
-                            type: 'LineString',
-                            coordinates: [
-                                [a.lon, a.lat],
-                                [b.lon, b.lat],
-                            ],
-                        },
-                    });
-                }
-                for (const v of legVerdicts) {
-                    if (!v) continue; // pending slot — still grading
-                    for (const iss of v.issues) {
-                        if (!iss.at) continue;
-                        issueFeats.push({
-                            type: 'Feature',
-                            properties: { severity: iss.severity },
-                            geometry: { type: 'Point', coordinates: [iss.at.lon, iss.at.lat] },
+                for (const [id, width, blur, opacity] of [
+                    ['trace-line-glow', 10, 8, 0.5],
+                    ['trace-line-core', 3.5, 0, 0.95],
+                ] as const) {
+                    if (!map.getLayer(id)) {
+                        map.addLayer({
+                            id,
+                            type: 'line',
+                            source: 'trace-line',
+                            layout: { 'line-join': 'round', 'line-cap': 'round' },
+                            paint: {
+                                'line-color': [
+                                    'match',
+                                    ['get', 'grade'],
+                                    'clear',
+                                    '#00e676',
+                                    'caution',
+                                    '#ffb300',
+                                    'danger',
+                                    '#ff1744',
+                                    '#94a3b8', // pending — verdict still computing
+                                ],
+                                'line-width': width,
+                                'line-blur': blur,
+                                'line-opacity': opacity,
+                            },
                         });
                     }
                 }
-            }
-            (map.getSource('trace-line') as mapboxgl.GeoJSONSource).setData({
-                type: 'FeatureCollection',
-                features: feats as never,
-            });
-            (map.getSource('trace-issues') as mapboxgl.GeoJSONSource).setData({
-                type: 'FeatureCollection',
-                features: issueFeats as never,
-            });
-            (map.getSource('trace-ghost') as mapboxgl.GeoJSONSource).setData({
-                type: 'FeatureCollection',
-                features: (coordCaptureMode && capturedCoords.length <= 1
-                    ? ghostLanes.map((l) => ({
-                          type: 'Feature' as const,
-                          properties: { id: l.id },
-                          geometry: {
-                              type: 'LineString' as const,
-                              coordinates: l.points.map((p) => [p.lon, p.lat]),
-                          },
-                      }))
-                    : []) as never,
-            });
-            // Course-frame bearing hint — thin dashed sky line from the
-            // trace's live end (or the origin, pre-first-pin) to the 🏁
-            // destination ghost. Pure orientation ("which way is
-            // Mooloolaba"), never a route: it re-anchors as pins land.
-            if (!map.getSource('trace-dest-hint')) {
-                map.addSource('trace-dest-hint', {
-                    type: 'geojson',
-                    data: { type: 'FeatureCollection', features: [] },
+                // Direction chevrons — "head south when you exit the bar, not
+                // north" (Shane 2026-07-08). Auto-rotated along each leg; white
+                // with a dark halo so they read over every grade colour.
+                if (!map.getLayer('trace-line-arrows')) {
+                    map.addLayer({
+                        id: 'trace-line-arrows',
+                        type: 'symbol',
+                        source: 'trace-line',
+                        layout: {
+                            'symbol-placement': 'line',
+                            'symbol-spacing': 90,
+                            'text-field': '›',
+                            'text-size': 18,
+                            'text-keep-upright': false,
+                            'text-allow-overlap': true,
+                            'text-rotation-alignment': 'map',
+                        },
+                        paint: {
+                            'text-color': '#ffffff',
+                            'text-halo-color': '#0f172a',
+                            'text-halo-width': 1.5,
+                        },
+                    });
+                }
+                // Proven-lane ghost (guided builder): dotted grey preview of a
+                // curated fairway near the punter — accept it in the panel and
+                // its points become pins.
+                if (!map.getSource('trace-ghost')) {
+                    map.addSource('trace-ghost', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] },
+                    });
+                }
+                if (!map.getLayer('trace-ghost-line')) {
+                    map.addLayer({
+                        id: 'trace-ghost-line',
+                        type: 'line',
+                        source: 'trace-ghost',
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: {
+                            'line-color': '#94a3b8',
+                            'line-width': 3,
+                            'line-opacity': 0.7,
+                            'line-dasharray': [1.5, 2],
+                        },
+                    });
+                }
+                // Problem spots ON the chart (P2): a ⚠ at every issue position —
+                // the verdict computed the exact lat/lon all along; the panel row
+                // alone left the punter guessing WHERE on a 2 NM leg the 2.1 m
+                // patch was.
+                if (!map.getSource('trace-issues')) {
+                    map.addSource('trace-issues', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] },
+                    });
+                }
+                if (!map.getLayer('trace-issues-icons')) {
+                    map.addLayer({
+                        id: 'trace-issues-icons',
+                        type: 'symbol',
+                        source: 'trace-issues',
+                        layout: { 'text-field': '⚠', 'text-size': 16, 'text-allow-overlap': true },
+                        paint: {
+                            'text-color': ['match', ['get', 'severity'], 'danger', '#ff1744', '#ffb300'],
+                            'text-halo-color': '#0f172a',
+                            'text-halo-width': 1.5,
+                        },
+                    });
+                }
+                const feats: Array<{
+                    type: 'Feature';
+                    properties: { grade: string };
+                    geometry: { type: 'LineString'; coordinates: [number, number][] };
+                }> = [];
+                const issueFeats: Array<{
+                    type: 'Feature';
+                    properties: { severity: string };
+                    geometry: { type: 'Point'; coordinates: [number, number] };
+                }> = [];
+                if (coordCaptureMode) {
+                    for (let i = 1; i < capturedCoords.length; i++) {
+                        const a = capturedCoords[i - 1];
+                        const b = capturedCoords[i];
+                        feats.push({
+                            type: 'Feature',
+                            properties: { grade: legVerdicts[i - 1]?.grade ?? 'pending' },
+                            geometry: {
+                                type: 'LineString',
+                                coordinates: [
+                                    [a.lon, a.lat],
+                                    [b.lon, b.lat],
+                                ],
+                            },
+                        });
+                    }
+                    for (const v of legVerdicts) {
+                        if (!v) continue; // pending slot — still grading
+                        for (const iss of v.issues) {
+                            if (!iss.at) continue;
+                            issueFeats.push({
+                                type: 'Feature',
+                                properties: { severity: iss.severity },
+                                geometry: { type: 'Point', coordinates: [iss.at.lon, iss.at.lat] },
+                            });
+                        }
+                    }
+                }
+                (map.getSource('trace-line') as mapboxgl.GeoJSONSource).setData({
+                    type: 'FeatureCollection',
+                    features: feats as never,
                 });
-            }
-            if (!map.getLayer('trace-dest-hint-line')) {
-                map.addLayer({
-                    id: 'trace-dest-hint-line',
-                    type: 'line',
-                    source: 'trace-dest-hint',
-                    layout: { 'line-join': 'round', 'line-cap': 'round' },
-                    paint: {
-                        'line-color': '#38bdf8',
-                        'line-width': 1.5,
-                        'line-opacity': 0.45,
-                        'line-dasharray': [1, 3],
-                    },
+                (map.getSource('trace-issues') as mapboxgl.GeoJSONSource).setData({
+                    type: 'FeatureCollection',
+                    features: issueFeats as never,
                 });
-            }
-            const hintFrom = capturedCoords[capturedCoords.length - 1] ?? traceOrigin;
-            (map.getSource('trace-dest-hint') as mapboxgl.GeoJSONSource).setData({
-                type: 'FeatureCollection',
-                features: (coordCaptureMode && traceDest && hintFrom
-                    ? [
-                          {
+                (map.getSource('trace-ghost') as mapboxgl.GeoJSONSource).setData({
+                    type: 'FeatureCollection',
+                    features: (coordCaptureMode && capturedCoords.length <= 1
+                        ? ghostLanes.map((l) => ({
                               type: 'Feature' as const,
-                              properties: {},
+                              properties: { id: l.id },
                               geometry: {
                                   type: 'LineString' as const,
-                                  coordinates: [
-                                      [hintFrom.lon, hintFrom.lat],
-                                      [traceDest.lon, traceDest.lat],
-                                  ],
+                                  coordinates: l.points.map((p) => [p.lon, p.lat]),
                               },
-                          },
-                      ]
-                    : []) as never,
-            });
+                          }))
+                        : []) as never,
+                });
+                // Course-frame bearing hint — thin dashed sky line from the
+                // trace's live end (or the origin, pre-first-pin) to the 🏁
+                // destination ghost. Pure orientation ("which way is
+                // Mooloolaba"), never a route: it re-anchors as pins land.
+                if (!map.getSource('trace-dest-hint')) {
+                    map.addSource('trace-dest-hint', {
+                        type: 'geojson',
+                        data: { type: 'FeatureCollection', features: [] },
+                    });
+                }
+                if (!map.getLayer('trace-dest-hint-line')) {
+                    map.addLayer({
+                        id: 'trace-dest-hint-line',
+                        type: 'line',
+                        source: 'trace-dest-hint',
+                        layout: { 'line-join': 'round', 'line-cap': 'round' },
+                        paint: {
+                            'line-color': '#38bdf8',
+                            'line-width': 1.5,
+                            'line-opacity': 0.45,
+                            'line-dasharray': [1, 3],
+                        },
+                    });
+                }
+                const hintFrom = capturedCoords[capturedCoords.length - 1] ?? traceOrigin;
+                (map.getSource('trace-dest-hint') as mapboxgl.GeoJSONSource).setData({
+                    type: 'FeatureCollection',
+                    features: (coordCaptureMode && traceDest && hintFrom
+                        ? [
+                              {
+                                  type: 'Feature' as const,
+                                  properties: {},
+                                  geometry: {
+                                      type: 'LineString' as const,
+                                      coordinates: [
+                                          [hintFrom.lon, hintFrom.lat],
+                                          [traceDest.lon, traceDest.lat],
+                                      ],
+                                  },
+                              },
+                          ]
+                        : []) as never,
+                });
+            } catch {
+                /* style mid-initial-load — the retry timer lands it */
+            }
         };
         sync();
-        map.on('styledata', sync);
+        // Wake a parked render loop so the recolour paints NOW, not on
+        // the next interaction (same rAF-stall as the stale-chart bug).
+        try {
+            map.triggerRepaint();
+        } catch {
+            /* map mid-teardown */
+        }
+        // HEAL, don't re-run: sync's own setData calls emit styledata, so
+        // re-syncing on EVERY styledata was a self-feeding churn loop —
+        // four setData pushes per event, payload growing with each leg
+        // ("the more waypoints I add, the slower the page becomes",
+        // 2026-07-15). The listener now only re-runs sync when a basemap
+        // swap actually DROPPED the sources.
+        const heal = (): void => {
+            if (!map.getSource('trace-line')) sync();
+        };
+        map.on('styledata', heal);
+        // First-paint retry: if the style wasn't ready at effect time,
+        // poll briefly until the sources land, then stop.
+        const firstTry = !map.getSource('trace-line')
+            ? window.setInterval(() => {
+                  if (map.getSource('trace-line')) {
+                      window.clearInterval(firstTry as number);
+                      return;
+                  }
+                  sync();
+              }, 300)
+            : null;
         return () => {
-            map.off('styledata', sync);
+            map.off('styledata', heal);
+            if (firstTry !== null) window.clearInterval(firstTry);
         };
     }, [capturedCoords, legVerdicts, coordCaptureMode, ghostLanes, traceOrigin, traceDest]);
     // START / 🏁 ghost markers for the course frame — DOM markers (they

@@ -1,25 +1,28 @@
 /**
- * CompassRoseOverlay — a draggable compass rose for the route tracer.
+ * CompassRoseOverlay — the route tracer's compass rose.
  *
  * Cardinal marks are passed on the side they NAME (a north cardinal →
  * pass NORTH of it). That's easy on a paper chart, hard on a phone —
- * so while tracing, this rose floats over the chart and can be dragged
- * right up beside the mark in question to read off which side is
- * which (Shane 2026-07-11). The whole card counter-rotates with the
- * map bearing, so the N arm always points at true north ON SCREEN
- * even if the chart isn't north-up.
+ * so while tracing, this rose sits over the chart to read off which
+ * side is which (Shane 2026-07-11). The whole card counter-rotates
+ * with the map bearing, so the N arm always points at true north ON
+ * SCREEN even if the chart isn't north-up.
  *
- * Screen-anchored (not geo-anchored): it's a hand tool, not a map
- * feature. Position persists across sessions per device.
+ * LOCKED top-left, centred on the plotting card (Shane 2026-07-15:
+ * "lock the compass in the top left position, dead centre of the
+ * plotting card") — the draggable-hand-tool era ended when the drift
+ * kept parking it over chart the punter was reading. Screen-anchored,
+ * not geo-anchored.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
-const POS_KEY = 'thalassa_compass_rose_pos';
 /** Rendered size of the rose card in px (square). */
 const SIZE = 116;
-const EDGE = 6;
+/** The tracer card: absolute left-3 (12 px), w-72 (288 px). The rose
+ *  centres on the card's vertical axis: 12 + 288/2 − SIZE/2. */
+const LOCKED_LEFT = 12 + 288 / 2 - SIZE / 2;
 
 interface CompassRoseOverlayProps {
     mapRef: React.RefObject<mapboxgl.Map | null>;
@@ -27,32 +30,8 @@ interface CompassRoseOverlayProps {
     onClose: () => void;
 }
 
-function clampPos(x: number, y: number): { x: number; y: number } {
-    return {
-        x: Math.min(Math.max(x, EDGE), window.innerWidth - SIZE - EDGE),
-        y: Math.min(Math.max(y, EDGE), window.innerHeight - SIZE - EDGE),
-    };
-}
-
-function initialPos(): { x: number; y: number } {
-    try {
-        const raw = localStorage.getItem(POS_KEY);
-        if (raw) {
-            const p = JSON.parse(raw);
-            if (typeof p?.x === 'number' && typeof p?.y === 'number') return clampPos(p.x, p.y);
-        }
-    } catch {
-        /* fall through to default */
-    }
-    // Default: upper-right, clear of the tracer panel (bottom-left)
-    // and the chart-mode buttons (top-left).
-    return clampPos(window.innerWidth - SIZE - 12, window.innerHeight * 0.24);
-}
-
 export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, mapReady, onClose }) => {
-    const [pos, setPos] = useState(initialPos);
     const [bearing, setBearing] = useState(() => mapRef.current?.getBearing() ?? 0);
-    const dragRef = useRef<{ pointerId: number; dx: number; dy: number } | null>(null);
 
     // Counter-rotate with the map so the arms stay honest.
     useEffect(() => {
@@ -67,57 +46,17 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
         };
     }, [mapRef, mapReady]);
 
-    // Keep the rose on-screen through rotations/resizes.
-    useEffect(() => {
-        const onResize = () => setPos((p) => clampPos(p.x, p.y));
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, []);
-
-    const onPointerDown = useCallback(
-        (e: React.PointerEvent<HTMLDivElement>) => {
-            dragRef.current = { pointerId: e.pointerId, dx: e.clientX - pos.x, dy: e.clientY - pos.y };
-            e.currentTarget.setPointerCapture(e.pointerId);
-        },
-        [pos.x, pos.y],
-    );
-
-    const onPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-        const drag = dragRef.current;
-        if (!drag || drag.pointerId !== e.pointerId) return;
-        setPos(clampPos(e.clientX - drag.dx, e.clientY - drag.dy));
-    }, []);
-
-    const onPointerEnd = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-        if (dragRef.current?.pointerId !== e.pointerId) return;
-        dragRef.current = null;
-        setPos((p) => {
-            try {
-                localStorage.setItem(POS_KEY, JSON.stringify(p));
-            } catch {
-                /* storage full — position just won't persist */
-            }
-            return p;
-        });
-    }, []);
-
     return (
         <div
             role="img"
-            aria-label="Compass rose — drag beside a cardinal mark to see which side is north"
+            aria-label="Compass rose — shows which side of the chart is north"
             className="fixed z-[9996] select-none"
             style={{
-                left: pos.x,
-                top: pos.y,
+                left: LOCKED_LEFT,
+                top: 'calc(0.5rem + env(safe-area-inset-top))',
                 width: SIZE,
                 height: SIZE,
-                touchAction: 'none',
-                cursor: 'grab',
             }}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={onPointerEnd}
-            onPointerCancel={onPointerEnd}
         >
             <svg
                 viewBox="0 0 120 120"
