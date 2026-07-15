@@ -128,9 +128,13 @@
 // explosion + every overview/coastal cell) ran at the Aus+NZ boot zoom
 // where nothing but SCAMIN-thinned soundings render. Merge now gated to
 // z6.5+ (the render floor), so it fires as you zoom toward your water.
-const CACHE_NAME = 'thalassa-v92-core';
-const TILE_CACHE = 'thalassa-v92-tiles';
-const DATA_CACHE = 'thalassa-v92-data';
+// v93: two tracer fixes — (1) ⚡ Auto route parked (button hidden) + a new
+// 'tideDirect' engine profile that commits to the near-direct crossing on
+// the tide instead of a marina dogleg; (2) mark grading no longer cries
+// "danger side" when you pass a solo lateral on the chart-confirmed clean side.
+const CACHE_NAME = 'thalassa-v93-core';
+const TILE_CACHE = 'thalassa-v93-tiles';
+const DATA_CACHE = 'thalassa-v93-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

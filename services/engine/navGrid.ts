@@ -48,7 +48,7 @@ export function navGridCacheKey(
     obstructionBufferM: number,
     relaxedLndare: boolean,
     relaxZones: RelaxZone[],
-    routeProfile: 'safest' | 'tideAssist' = 'safest',
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): string {
     const sig = [
         layers.LNDARE?.features.length ?? 0,
@@ -124,7 +124,7 @@ export function buildNavGridCached(
     obstructionBufferM: number,
     relaxedLndare: boolean = false,
     relaxZones: RelaxZone[] = [],
-    routeProfile: 'safest' | 'tideAssist' = 'safest',
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): { grid: NavGrid; cacheHit: boolean } {
     const key = navGridCacheKey(
         layers,
@@ -203,7 +203,7 @@ export function buildNavGrid(
      * requiredRise ≤ 1.8 m priced 10× by A*) — the EXPLICIT "shortest" route
      * profile. 'safest' (default) leaves the mask absent. Part of the cache key.
      */
-    routeProfile: 'safest' | 'tideAssist' = 'safest',
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): NavGrid {
     // Per-pass timing — a single Newport→Brisbane build was clocked at
     // 37.8 s and accounted for 97% of the route compute. Without per-
@@ -1466,11 +1466,15 @@ export function buildNavGrid(
     // acceptance uses it to catch a route circumventing a low-clearance
     // bridge overland (relax-carved cells near a clearanceBarred cell).
     if (relaxZones.length > 0) grid.relaxMask = relaxMask;
-    if (routeProfile === 'tideAssist') {
+    if (routeProfile === 'tideAssist' || routeProfile === 'tideDirect') {
         // Tide-recoverable caution cells: wet at LAT (charted depth > 0) and
         // within a normal tide's reach of the keel margin. Computed AFTER all
         // passes so rescues/carves have settled; drying cells excluded by the
         // s > 0 gate; blocked cells excluded by cells < 0 (NaN compares false).
+        // The SAME mask serves both tide profiles; only the cost multiplier
+        // differs — 'tideAssist' = 10× (tide-window shortest), 'tideDirect' =
+        // 1.5× (auto-route: commit to the near-direct crossing over a modest
+        // deep detour). Baked onto the grid so cellCostMultiplier reads it.
         const TIDE_ASSIST_MAX_RISE_M = 1.8;
         const floorM = draftM + safetyM;
         const ta = new Uint8Array(width * height);
@@ -1485,8 +1489,11 @@ export function buildNavGrid(
             }
         }
         grid.tideAssist = ta;
+        grid.assistCostMul = routeProfile === 'tideDirect' ? 1.5 : 10;
         if (assistCells > 0)
-            engineLog.warn(`[tideAssist] profile active — ${assistCells} recoverable caution cells at 10×`);
+            engineLog.warn(
+                `[${routeProfile}] profile active — ${assistCells} recoverable caution cells at ${grid.assistCostMul}×`,
+            );
     }
     // Narrow the injected-canal mask to the actual CHANNEL: keep only cells with
     // charted LAND (landBlocked, set by the LNDARE passes above) within

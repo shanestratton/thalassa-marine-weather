@@ -175,6 +175,11 @@ export function cellCostMultiplier(
     drying = false,
     tideAssist = false,
     ntmRiseM = Number.NaN,
+    /** Cost multiplier for a recoverable tide-assist cell. 10 = the
+     *  'tideAssist' tide-window profile; 1.5 = the auto-route 'tideDirect'
+     *  profile (commit to the near-direct crossing). Grid carries it in
+     *  assistCostMul; defaults to 10 for tideAssist parity + old callers. */
+    assistMul = 10.0,
 ): number {
     // Cells inside a marked fairway / dredged area always get the
     // baseline cost regardless of depth band — that's how we get
@@ -330,7 +335,7 @@ export function cellCostMultiplier(
             const graded = tideAssist ? 5 + 10 * ntmRiseM : 15 + 40 * ntmRiseM;
             return Math.min(110, Math.max(5, graded));
         }
-        return tideAssist ? 10.0 : drying ? 120.0 : 40.0;
+        return tideAssist ? assistMul : drying ? 120.0 : 40.0;
     }
     // UNKNOWN_OPEN — 500× (see earlier rationale). With non-preferred
     // bathymetry now at 2.5-5.0× the relative gap to unknown is
@@ -539,7 +544,14 @@ export function aStar(
             const tentativeG =
                 curG +
                 stepLengthsM[n] *
-                    cellCostMultiplier(cellDepth, cellPreferred, cellDrying, cellAssist, cellNtmRise) *
+                    cellCostMultiplier(
+                        cellDepth,
+                        cellPreferred,
+                        cellDrying,
+                        cellAssist,
+                        cellNtmRise,
+                        grid.assistCostMul ?? 10.0,
+                    ) *
                     centreFactor[nIdx] +
                 exitPenalty;
             if (tentativeG < gScore[nIdx]) {
@@ -565,7 +577,16 @@ export function cellCostAt(grid: NavGrid, x: number, y: number): number {
     const drying = grid.cells[idx] < 0 && grid.shallowDepthM !== undefined && grid.shallowDepthM[idx] <= 0;
     const assist = grid.cells[idx] < 0 && grid.tideAssist !== undefined && grid.tideAssist[idx] === 1;
     const ntmRise = grid.cells[idx] < 0 && grid.ntmRiseM !== undefined ? grid.ntmRiseM[idx] : Number.NaN;
-    return cellCostMultiplier(grid.cells[idx], grid.preferred[idx] === 1, drying, assist, ntmRise) * centre;
+    return (
+        cellCostMultiplier(
+            grid.cells[idx],
+            grid.preferred[idx] === 1,
+            drying,
+            assist,
+            ntmRise,
+            grid.assistCostMul ?? 10.0,
+        ) * centre
+    );
 }
 
 export function lineOfSightClear(grid: NavGrid, a: { x: number; y: number }, b: { x: number; y: number }): boolean {

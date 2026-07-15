@@ -326,8 +326,10 @@ export async function tryInshoreRoute(
     airDraftM: number | null = null,
     /** Route profile — 'tideAssist' is the EXPLICIT shortest-with-the-tide
      *  option (recoverable ≤1.8 m-rise caution at 10×, windows chipped);
-     *  'safest' (default) never lets tide change preference. */
-    routeProfile: 'safest' | 'tideAssist' = 'safest',
+     *  'tideDirect' is the auto-route profile (same mask at 1.5× so A* commits
+     *  to the near-direct crossing over a modest deep detour); 'safest'
+     *  (default) never lets tide change preference. */
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     // Loud entry log so we can tell from a noisy console whether this
     // function is even being called. createLogger silences info() in
@@ -403,7 +405,7 @@ async function tryInshoreRouteInner(
     destination: InshoreOrigin,
     draftM: number,
     airDraftM: number | null = null,
-    routeProfile: 'safest' | 'tideAssist' = 'safest',
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): Promise<InshoreRouteResult | InshoreRouteFailure | null> {
     const distNM = straightLineNM(origin, destination);
     if (distNM > MAX_INSHORE_NM) {

@@ -257,12 +257,31 @@ const TRACE_CLUSTER_SPAN_M = 24_000;
 // a real depth grid; the extra pins land ON the engine's water line (safe).
 const AUTO_MAX_LEG_M = 15_000;
 
-// ⚡ Auto route: if 'safest' returns a route longer than this × the straight
-// line, it's the deranged shallow-bay dogleg (a 30 NM tour for a 5 NM hop) —
-// re-run on 'tideAssist' (cross on the tide, warnings chipped) and take the
-// shorter. A genuine deep-channel detour (Newport→Rivergate ~1.35×) stays on
-// safest, so 2.2 cleanly separates the two (2026-07-15 route audit).
-const AUTO_DETOUR_CAP = 2.2;
+// ⚡ Auto route profile selection (2026-07-16 rework — the old AUTO_DETOUR_CAP
+// 2.2× cap couldn't tell a legit deep detour from a nearby-marina dogleg, and
+// the tide fallback it fell to ALSO doglegged because tideAssist prices a
+// crossing at 10× — no crossing ever beats a <10×-longer deep detour).
+//
+//   NEAR_DIRECT_CAP  'safest' within this × the straight line ⇒ deep water
+//                    already lines up, keep it (no tide crossing needed).
+//   TIDE_ADOPT_FACTOR  otherwise run 'tideDirect' (recoverable banks at 1.5×,
+//                    so A* commits to the near-direct crossing) and adopt it
+//                    ONLY when it's materially straighter than the safe
+//                    dogleg (< this × the safe distance). Deep detours that
+//                    exist because the direct line is blocked by land/drying
+//                    (Newport→Rivergate) keep 'safest' — 'tideDirect' doglegs
+//                    the same there and isn't materially shorter.
+// The seamanship dial is TIDE_ADOPT_FACTOR: 0.7 keeps a deep detour up to
+// ~1.43× the direct crossing (take the deep water); beyond that, cross on the
+// tide. Lower → commit to deep water harder; raise → cross banks more eagerly.
+const NEAR_DIRECT_CAP = 1.15;
+const TIDE_ADOPT_FACTOR = 0.7;
+
+// ⚡ Auto route is PARKED (Shane 2026-07-16: "hide the autoroute button for
+// now, so we can move on" — not deleted). The engine path (autoRouteLeg +
+// the tideDirect profile) stays wired and tested; flip this back to true to
+// re-expose the button.
+const AUTO_ROUTE_BUTTON_VISIBLE = false;
 
 /** Equirectangular distance in metres between two lat/lon points. */
 const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
@@ -1444,34 +1463,56 @@ export const MapHub: React.FC<MapHubProps> = ({
                     // doesn't fail — it returns an absurd deep-channel dogleg (a
                     // 30 NM tour for a 5 NM hop). THAT is the "can't cross"
                     // signal. So: take 'safest' only when its route stays within
-                    // AUTO_DETOUR_CAP× the straight line; past that, run
-                    // 'tideAssist' (crosses the shallows on the tide, window
-                    // chipped) and take it if materially shorter. A genuine deep
+                    // NEAR_DIRECT_CAP× the straight line; past that, run
+                    // 'tideDirect' (recoverable banks at 1.5× so A* commits to
+                    // the near-direct crossing on the tide) and take it when it's
+                    // materially straighter (TIDE_ADOPT_FACTOR). A genuine deep
                     // detour (Newport→Rivergate ~1.35×) stays on safest.
                     const directNM = distMetres(a, b) / 1852;
+                    const ratio = (nm: number) => (nm / directNM).toFixed(2);
                     const runEngine = async (): Promise<{
                         res: Awaited<ReturnType<typeof tryInshoreRoute>>;
                         viaTide: boolean;
+                        diag: string | null;
                     }> => {
                         const safe = await tryInshoreRoute(O, D, draftM, airM, 'safest');
                         const safeOk = !!safe && 'polyline' in safe;
-                        // Sane deep route → keep it.
-                        if (safeOk && safe.distanceNM <= directNM * AUTO_DETOUR_CAP) {
-                            return { res: safe, viaTide: false };
+                        // Deep water already lines up near-direct → keep it, no
+                        // tide crossing needed.
+                        if (safeOk && safe.distanceNM <= directNM * NEAR_DIRECT_CAP) {
+                            return {
+                                res: safe,
+                                viaTide: false,
+                                diag: `⚡ Deep route ${safe.distanceNM.toFixed(1)} NM (${ratio(safe.distanceNM)}× direct ${directNM.toFixed(1)}) — near-direct, no tide crossing needed.`,
+                            };
                         }
-                        // Either no safe route, or a gross detour → try tideAssist.
-                        const tide = await tryInshoreRoute(O, D, draftM, airM, 'tideAssist');
-                        if (tide && 'polyline' in tide) {
-                            // Adopt tideAssist when safest failed, or when it's
-                            // materially shorter than the safe dogleg.
-                            if (!safeOk || tide.distanceNM < safe.distanceNM * 0.9) {
-                                return { res: tide, viaTide: true };
-                            }
+                        // 'safest' doglegged (or failed) → try 'tideDirect': the
+                        // recoverable banks price at 1.5× so A* commits to the
+                        // near-direct crossing rather than a marina detour
+                        // (land + drying stay hard-blocked, never crossed).
+                        const direct = await tryInshoreRoute(O, D, draftM, airM, 'tideDirect');
+                        const directOk = !!direct && 'polyline' in direct;
+                        if (directOk && (!safeOk || direct.distanceNM < safe.distanceNM * TIDE_ADOPT_FACTOR)) {
+                            return {
+                                res: direct,
+                                viaTide: true,
+                                diag: safeOk
+                                    ? `⚡ Deep route ${safe.distanceNM.toFixed(1)} NM (${ratio(safe.distanceNM)}× direct ${directNM.toFixed(1)}) vs tide-direct ${direct.distanceNM.toFixed(1)} NM (${ratio(direct.distanceNM)}×) → CROSSING the banks on the tide. Cross near HW — see the red legs for the window.`
+                                    : `⚡ No all-deep route — tide-direct ${direct.distanceNM.toFixed(1)} NM (${ratio(direct.distanceNM)}× direct) CROSSES the banks on the tide. Cross near HW — see the red legs.`,
+                            };
                         }
-                        // No better option — return the safe dogleg (or richer failure).
-                        return { res: safeOk ? safe : (safe ?? tide), viaTide: false };
+                        // Neither near-direct deep nor a materially-straighter
+                        // crossing → keep the safe deep route (a genuine detour:
+                        // land/drying blocks the direct line) or the failure.
+                        return {
+                            res: safeOk ? safe : (safe ?? direct),
+                            viaTide: false,
+                            diag: safeOk
+                                ? `⚡ Deep route ${safe.distanceNM.toFixed(1)} NM (${ratio(safe.distanceNM)}× direct ${directNM.toFixed(1)}); tide-direct ${directOk ? `${direct.distanceNM.toFixed(1)} NM not materially shorter` : 'unavailable'} (direct line blocked by land/drying) → kept the deep route.`
+                                : null,
+                        };
                     };
-                    let { res, viaTide } = await runEngine();
+                    let { res, viaTide, diag } = await runEngine();
 
                     // Coverage-gap → SYNC THE CHARTS FIRST, then retry (Shane
                     // 2026-07-15 chose this). The router refuses to cross a
@@ -1515,7 +1556,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 return;
                             }
                             if (fill.downloaded > 0) {
-                                ({ res, viaTide } = await runEngine());
+                                ({ res, viaTide, diag } = await runEngine());
                             }
                         } catch (syncErr) {
                             setAutoRouteDiag(
@@ -1526,9 +1567,9 @@ export const MapHub: React.FC<MapHubProps> = ({
                     }
                     if (res && 'polyline' in res) {
                         const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
-                        const prof = viaTide ? 'tideAssist' : 'safest';
+                        const prof = viaTide ? 'tideDirect' : 'safest';
                         log.warn(
-                            `auto-route: engine returned ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM (${prof})`,
+                            `auto-route: engine returned ${pts.length} pts, ${res.distanceNM.toFixed(1)} NM (${prof}); direct ${directNM.toFixed(1)} NM`,
                         );
                         // RDP to the bends, THEN cap every straight run to
                         // AUTO_MAX_LEG_M so a long open-water stretch becomes a
@@ -1548,7 +1589,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                     ? `Routed with a tide gate — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking the window`
                                     : `Routed through deep water — ${interior.length} pin${interior.length > 1 ? 's' : ''} added, checking now`,
                             );
-                            setAutoRouteDiag(null);
+                            // Persist the decision + ratios (not null) so an
+                            // on-water run gives ground truth to calibrate the
+                            // NEAR_DIRECT_CAP / TIDE_ADOPT_FACTOR dials.
+                            setAutoRouteDiag(diag);
                         } else {
                             // Engine returned the straight line — it can't see a
                             // better path even on 'safest'. Persist WHY.
@@ -5067,14 +5111,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                     pin first) via the real inshore engine — follows
                                                     deep water, never crosses land, breaks long runs
                                                     into depth-checkable, tide-aware pins. No pin
-                                                    selected → the last leg. */}
-                                                <button
-                                                    onClick={autoRouteLeg}
-                                                    disabled={fixBusyLeg !== null}
-                                                    className="flex-1 rounded-lg bg-violet-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
-                                                >
-                                                    {fixBusyLeg !== null ? '⏳ Routing…' : '⚡ Auto route'}
-                                                </button>
+                                                    selected → the last leg. PARKED for now
+                                                    (AUTO_ROUTE_BUTTON_VISIBLE) — engine stays wired. */}
+                                                {AUTO_ROUTE_BUTTON_VISIBLE && (
+                                                    <button
+                                                        onClick={autoRouteLeg}
+                                                        disabled={fixBusyLeg !== null}
+                                                        className="flex-1 rounded-lg bg-violet-500/20 py-2 text-[11px] font-black uppercase tracking-wide text-violet-300 active:scale-95 disabled:opacity-50"
+                                                    >
+                                                        {fixBusyLeg !== null ? '⏳ Routing…' : '⚡ Auto route'}
+                                                    </button>
+                                                )}
                                             </div>
                                         )}
                                         <div className="space-y-1.5 border-t border-white/10 px-3 py-2">

@@ -68,7 +68,7 @@ export function buildNavGridAsync(
     obstructionBufferM: number,
     relaxedLndare = false,
     relaxZones: RelaxZone[] = [],
-    routeProfile: 'safest' | 'tideAssist' = 'safest',
+    routeProfile: 'safest' | 'tideAssist' | 'tideDirect' = 'safest',
 ): Promise<NavGrid> {
     const runSync = (): NavGrid =>
         buildNavGrid(
