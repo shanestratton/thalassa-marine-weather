@@ -57,7 +57,8 @@ export function readString(feat: Feature, ...names: string[]): string | undefine
 /**
  * Convert a parsed FeatureCollection into our internal EncHazard shape.
  * Per-layer attribute extraction:
- *  - DEPARE: minDepth from DRVAL1
+ *  - DEPARE/DRGARE: minDepth from DRVAL1 (dredged areas ARE depth areas —
+ *    S-57 Group 1, they carry DRVAL1 and REPLACE the DEPARE there)
  *  - OBSTRN/WRECKS: minDepth from VALSOU (positive = depth below datum)
  *  - LNDARE/UWTROC: depth N/A (always hazard)
  */
@@ -66,7 +67,7 @@ export function featuresToHazards(layer: EncLayer, fc: FeatureCollection): EncHa
     for (const feat of fc.features ?? []) {
         if (!feat || !feat.geometry) continue;
         let minDepthM: number | null = null;
-        if (layer === 'DEPARE') {
+        if (layer === 'DEPARE' || layer === 'DRGARE') {
             minDepthM = readNumber(feat, 'DRVAL1');
         } else if (layer === 'OBSTRN' || layer === 'WRECKS') {
             minDepthM = readNumber(feat, 'VALSOU');
@@ -91,6 +92,10 @@ export function buildHazardsForCell(blob: EncConversionResult): EncHazard[] {
     const all: EncHazard[] = [];
     const layerPairs: [EncLayer, FeatureCollection | undefined][] = [
         ['DEPARE', blob.layers.DEPARE],
+        // DRGARE (dredged areas) carry DRVAL1 and, per S-57 Group 1, REPLACE
+        // the depth area there — dropping them let a shallow dredged basin
+        // read as unmodelled clear water (mission audit, fail-dangerous).
+        ['DRGARE', blob.layers.DRGARE],
         ['LNDARE', blob.layers.LNDARE],
         ['OBSTRN', blob.layers.OBSTRN],
         ['WRECKS', blob.layers.WRECKS],

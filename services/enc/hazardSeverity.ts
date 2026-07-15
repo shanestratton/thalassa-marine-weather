@@ -34,8 +34,10 @@ function tier(r: EncHazardResult): number {
 
 /** Depth severity for the tiebreak among same-type hazards: SHALLOWER is
  *  worse, and a null (unknown) depth is the WORST — the router can't
- *  confirm clearance, so it must assume the shallowest. */
-function depthSeverity(minDepthM: number | null): number {
+ *  confirm clearance, so it must assume the shallowest. Exported so the
+ *  within-cell pick (EncSpatialIndex.queryPoint) uses the SAME tiebreak as
+ *  the cross-cell merge — the two levels must never disagree. */
+export function depthSeverity(minDepthM: number | null): number {
     return minDepthM == null ? Infinity : -minDepthM;
 }
 

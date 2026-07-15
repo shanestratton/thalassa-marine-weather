@@ -99,6 +99,10 @@ describe('featuresToHazards — depth sourcing + descriptor', () => {
     it('keeps a negative (drying) VALSOU verbatim — S-57 sign convention', () => {
         expect(featuresToHazards('OBSTRN', fc([pt({ VALSOU: -0.5 })]))[0].minDepthM).toBe(-0.5);
     });
+    it('DRGARE (dredged area) sources depth from DRVAL1 like DEPARE — no longer dropped', () => {
+        expect(featuresToHazards('DRGARE', fc([pt({ DRVAL1: 2 })]))[0].minDepthM).toBe(2);
+        expect(featuresToHazards('DRGARE', fc([pt({ drval1: 8 })]))[0].minDepthM).toBe(8);
+    });
     it('skips features with no geometry, never a bogus hazard', () => {
         const bad: Feature = { type: 'Feature', geometry: null as unknown as Feature['geometry'], properties: {} };
         expect(featuresToHazards('OBSTRN', fc([bad]))).toEqual([]);
@@ -106,6 +110,11 @@ describe('featuresToHazards — depth sourcing + descriptor', () => {
 });
 
 describe('buildHazardsForCell — aggregation', () => {
+    it('includes DRGARE (dredged areas) in the hazard model', () => {
+        const h = buildHazardsForCell(blob({ DRGARE: fc([pt({ DRVAL1: 2 })]) }));
+        expect(h).toHaveLength(1);
+        expect(h[0]).toMatchObject({ layer: 'DRGARE', minDepthM: 2 });
+    });
     it('collects hazards across all hazard layers and skips absent ones', () => {
         const h = buildHazardsForCell(
             blob({
