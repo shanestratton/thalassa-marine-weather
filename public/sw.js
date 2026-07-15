@@ -97,9 +97,13 @@
 // v85: ⚡ auto route shows a PERSISTENT diagnostic banner (why it did/didn't
 // route: routed / straight-kept / engine error / no coverage / threw) so a
 // no-op is legible without the device console. Tap to dismiss.
-const CACHE_NAME = 'thalassa-v85-core';
-const TILE_CACHE = 'thalassa-v85-tiles';
-const DATA_CACHE = 'thalassa-v85-data';
+// v86: ⚡ auto route SYNCS THE CHARTS on a coverage gap — pulls the missing
+// detail cells nearest the leg from the boat's Pi, then retries the route
+// automatically (no Pi Cache menu-diving). Honest messages when the Pi is
+// unreachable or the stretch is genuinely uncharted even on the Pi.
+const CACHE_NAME = 'thalassa-v86-core';
+const TILE_CACHE = 'thalassa-v86-tiles';
+const DATA_CACHE = 'thalassa-v86-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
