@@ -76,4 +76,39 @@ describe('buildDerivedContours', () => {
         const pts = [...ramp(6, 6, (ix) => 1 + ix * 1.5), { lon: NaN, lat: -27, d: 5 }, { lon: 153, lat: -27, d: NaN }];
         expect(() => buildDerivedContours(pts, { levels: [5] })).not.toThrow();
     });
+
+    // The safety invariant that lets this pass live in the Web Worker
+    // (2026-07-15): unlike the martinez glaze clip — whose allocation spike
+    // OOM-killed the tab even off-thread — the Delaunay + march is O(n) over
+    // the sounding count, and the dispatch hard-caps that at
+    // DERIVED_CONTOUR_MAX_SOUNDINGS (30 k). This drives a dense harbour-grade
+    // window (150×150 = 22.5 k soundings, every triangle inside maxEdge so
+    // NONE are culled — the worst case for both compute time and output) and
+    // proves the pass stays bounded: it returns (vitest's 5 s timeout is the
+    // hang guard) and emits a finite, sane number of well-formed segments,
+    // never a pathological blow-up.
+    it('stays bounded on a dense near-cap harbour window (worker-safety invariant)', () => {
+        const N = 150;
+        // Smooth 1 m→20 m ramp across the grid so every default level
+        // (2..20) crosses somewhere — maximal legitimate output.
+        const pts = ramp(N, N, (ix) => 1 + ((ix + 0) / (N - 1)) * 19);
+        expect(pts).toHaveLength(N * N);
+
+        const fs = buildDerivedContours(pts); // default levels + 600 m maxEdge
+
+        // Non-trivial output (the ramp genuinely crosses every level)…
+        expect(fs.length).toBeGreaterThan(0);
+        // …but bounded: output can never exceed ~(2·N² triangles × levels).
+        // A generous absolute ceiling catches a pathological blow-up without
+        // being flaky. Real output for this grid is tens of thousands.
+        expect(fs.length).toBeLessThan(500_000);
+        // Every emitted feature is a clean 2-point derived segment — no
+        // malformed geometry that would bloat the render source.
+        for (const f of fs) {
+            expect(f.geometry.type).toBe('LineString');
+            expect(f.geometry.coordinates).toHaveLength(2);
+            expect(f.properties?._derived).toBe(true);
+            expect(Number.isFinite(f.properties?._valdco as number)).toBe(true);
+        }
+    });
 });
