@@ -23,6 +23,7 @@ import { getLogEntries } from './EntryCrud';
 import { getOfflineEntries } from './OfflineQueue';
 import { isTrackworthyEntry } from './helpers';
 import { ROUTE_GEOMETRY_NOTES_PREFIX } from './PassagePlanSave';
+import { getVoyageSummaries, getVoyageEntries, isLandVoyage, type VoyageSummary } from './VoyageSummary';
 import type { ShipLogEntry } from '../../types/navigation';
 
 export interface RouteOrTrack {
@@ -338,4 +339,87 @@ export function invalidateRoutesAndTracks(): void {
             /* CustomEvent not available (very old browsers) — silent fallback */
         }
     }
+}
+
+// ── Summary-backed picker path (no entry-dump window) ──────────────────────
+//
+// The tracer's "From a past voyage" picker originally listed groups from
+// fetchRoutesAndTracks() — i.e. from getLogEntries(10_000), the NEWEST ten
+// thousand rows. At auto-capture cadence that window is about a week of
+// mixed logging: Shane's 3 July ocean passage aged out of it and the
+// picker could never show the one track he wanted (2026-07-15 forensic
+// query: 15,135 rows total, ALL since 3 July, window floor 10 July).
+// Voyage SUMMARIES see the whole history for pennies; the actual polyline
+// loads per-voyage on tap.
+
+export interface SeaVoyageChoice {
+    voyageId: string;
+    /** Picker row title — the voyage date. */
+    label: string;
+    /** Picker row detail — distance or fix count. */
+    sublabel: string;
+    /** startedAt ms — the list is newest-first. */
+    timestamp: number;
+    distanceNm: number;
+    /** Lives only in this device's offline queue (not yet synced). */
+    isLocal: boolean;
+}
+
+/**
+ * Sea voyages for the tracer picker, newest-first, whole history.
+ * Sea filter = the career roll-up's landFraction majority vote
+ * (isLandVoyage); planned/suggested routes excluded; landFraction null
+ * fails OPEN to sea (never hide a real passage that predates water
+ * capture). Offline-queue voyages (signed-out / no-network recordings)
+ * merge in with a LOCAL flag.
+ */
+export async function fetchSeaVoyageChoices(max = 6): Promise<SeaVoyageChoice[]> {
+    const [summaries, offline] = await Promise.all([
+        getVoyageSummaries().catch(() => [] as VoyageSummary[]),
+        getOfflineEntries().catch(() => [] as ShipLogEntry[]),
+    ]);
+    const fromCloud: SeaVoyageChoice[] = summaries
+        .filter((s) => !s.isPlannedRoute && !isLandVoyage(s) && s.entryCount >= 2)
+        .map((s) => {
+            const ts = new Date(s.startedAt).getTime();
+            return {
+                voyageId: s.voyageId,
+                label: fmtDate(ts),
+                sublabel: s.totalDistanceNM > 0 ? `${s.totalDistanceNM.toFixed(0)} NM` : `${s.entryCount} fixes`,
+                timestamp: ts,
+                distanceNm: s.totalDistanceNM,
+                isLocal: false,
+            };
+        });
+    const cloudIds = new Set(fromCloud.map((c) => c.voyageId));
+    const fromQueue: SeaVoyageChoice[] = groupByVoyage(offline, new Set<string>())
+        .filter((t) => !isPlanned(t.id) && t.kind !== 'land' && !cloudIds.has(t.id))
+        .map((t) => ({
+            voyageId: t.id,
+            label: t.label,
+            sublabel: t.distanceNm > 0 ? `${t.distanceNm.toFixed(0)} NM` : `${t.points.length} fixes`,
+            timestamp: t.timestamp,
+            distanceNm: t.distanceNm,
+            isLocal: true,
+        }));
+    return [...fromQueue, ...fromCloud].sort((a, b) => b.timestamp - a.timestamp).slice(0, max);
+}
+
+/**
+ * Full track polyline for ONE voyage, in passage order — offline queue
+ * first, then the per-voyage cloud fetch (paged internally, so a
+ * 1,700-fix passage arrives whole; no global row window to age out of).
+ */
+export async function loadVoyageTrackPoints(voyageId: string): Promise<Array<{ lat: number; lon: number }>> {
+    const offline = (await getOfflineEntries().catch(() => [] as ShipLogEntry[])).filter(
+        (e) => e.voyageId === voyageId,
+    );
+    let entries = offline;
+    if (entries.filter(isTrackworthyEntry).length < 2) {
+        entries = await getVoyageEntries(voyageId);
+    }
+    return entries
+        .filter(isTrackworthyEntry)
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+        .map((e) => ({ lat: e.latitude, lon: e.longitude }));
 }
