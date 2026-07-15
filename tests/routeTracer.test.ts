@@ -466,6 +466,8 @@ describe('routeTracer — trace plumbing (P4)', () => {
 
     it('reverseRouteName flips A-B names and leaves the rest alone', () => {
         expect(reverseRouteName('Newport - Lady Musgrave')).toBe('Lady Musgrave - Newport');
+        // Sloppy spacing (phone keyboards) still flips.
+        expect(reverseRouteName('newport  -  lady musgrave')).toBe('lady musgrave - newport');
         expect(reverseRouteName('Newport → Mooloolaba')).toBe('Mooloolaba → Newport');
         expect(reverseRouteName('Newport to Tin Can Bay')).toBe('Tin Can Bay to Newport');
         // Multi-leg reverses whole; separator style survives.

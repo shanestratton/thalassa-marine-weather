@@ -1038,7 +1038,11 @@ export const MapHub: React.FC<MapHubProps> = ({
         const { persisted, cloud } = saveTrace(traceName, capturedCoords, existing ? { overwriteId: existing.id } : {});
         setSavedTraces(loadSavedTraces());
         if (persisted) {
-            setTraceName('');
+            // Name STAYS after save (Shane 2026-07-15: "name is not
+            // flipping" — his flow is save → ⇄ reverse → save the return
+            // trip, and the old setTraceName('') here handed ⇄ an empty
+            // box to flip). Keeping it also makes re-save-as-overwrite
+            // natural: tap Save again and the "Overwrite?" arm appears.
             flashTraceFeedback(existing ? 'Updated ✓' : 'Saved ✓');
             // Cross-device honesty: "Saved ✓" is true of THIS device either
             // way, but build-on-desktop→sail-on-phone needs the account
@@ -1101,10 +1105,17 @@ export const MapHub: React.FC<MapHubProps> = ({
         // "Lady Musgrave - Newport", Shane 2026-07-15) — so saving the
         // return run creates ITS OWN route instead of colliding with
         // the outbound's overwrite guard. No-op for separator-less names.
-        setTraceName((n) => reverseRouteName(n));
+        const flipped = reverseRouteName(traceName);
+        setTraceName(flipped);
         setOverwriteArm(null);
-        flashTraceFeedback('Reversed — checking the return run now');
-    }, [capturedCoords.length, flashTraceFeedback]);
+        // Say the new name out loud — "name is not flipping" turned out
+        // to be an empty box being flipped; now the flash proves it.
+        flashTraceFeedback(
+            flipped.trim() && flipped !== traceName
+                ? `Reversed — "${flipped.trim()}"`
+                : 'Reversed — checking the return run now',
+        );
+    }, [capturedCoords.length, traceName, flashTraceFeedback]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         try {
