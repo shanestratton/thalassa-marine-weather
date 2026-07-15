@@ -1246,6 +1246,13 @@ async function buildMergedVectorData(
                             _minZoom: typeof props._minZoom === 'number' ? props._minZoom : undefined,
                             OBJNAM: featProps.OBJNAM ?? featProps.objnam,
                             _lightLabel: label ?? undefined,
+                            // For the tap-to-read sector popup (#3a): name the
+                            // colour and the from-seaward limit bearings a
+                            // helmsman reads off the water (raw, NOT the +180
+                            // reciprocal the arc is DRAWN on).
+                            COLOUR: featProps.COLOUR ?? featProps.colour,
+                            SECTR1: bearings.sectr1,
+                            SECTR2: bearings.sectr2,
                         };
                         merged.LIGHTSEC.features.push(
                             ...buildSectorFeatures({

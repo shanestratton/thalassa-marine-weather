@@ -300,6 +300,41 @@ export function buildFeaturePopupHtml(
         if (typeof name === 'string' && name)
             body += `<div class="enc-popup-row"><span>Name</span><b>${esc(name)}</b></div>`;
         body += lightRows(props);
+    } else if (layerId === ENC_VEC_LAYERS.LIGHTSEC_ARC) {
+        // Tap-to-read for a sectored light (#3a): "am I in the red, the white,
+        // or the green?" — the night-approach question the LIGHTSEC layer
+        // exists to answer. A tap here used to fall through to the DEPARE water
+        // popup, so the layer's most safety-critical element was mute.
+        title = 'Light sector';
+        // _secColor is from our controlled lightColourHex palette; validate as
+        // a hex before inlining it into a style attribute all the same.
+        const secColor =
+            typeof props._secColor === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(props._secColor)
+                ? props._secColor
+                : '#fde047';
+        accent = secColor;
+        const colourName = props.COLOUR != null && String(props.COLOUR) !== '' ? colourNames(props.COLOUR) : null;
+        if (colourName) {
+            body += `<div class="enc-popup-row"><span>Sector</span><b style="color:${secColor};text-transform:capitalize">${esc(
+                colourName,
+            )}</b></div>`;
+        }
+        const s1 = Number(props.SECTR1 ?? props.sectr1);
+        const s2 = Number(props.SECTR2 ?? props.sectr2);
+        if (Number.isFinite(s1) && Number.isFinite(s2)) {
+            // Raw from-seaward limits — the bearings read off the water ("you
+            // see this colour when the light bears between…"), NOT the +180
+            // reciprocal the arc is drawn on.
+            body += `<div class="enc-popup-row"><span>Limits</span><b>${s1.toFixed(0)}°–${s2.toFixed(
+                0,
+            )}° from seaward</b></div>`;
+        }
+        const name = props.OBJNAM ?? props.objnam;
+        if (typeof name === 'string' && name)
+            body += `<div class="enc-popup-row"><span>Light</span><b>${esc(name)}</b></div>`;
+        const lightLabel = props._lightLabel;
+        if (typeof lightLabel === 'string' && lightLabel)
+            body += `<div class="enc-popup-row"><span>Character</span><b>${esc(lightLabel)}</b></div>`;
     } else if (layerId === ENC_VEC_LAYERS.BOYLAT || layerId === ENC_VEC_LAYERS.BCNLAT) {
         const isBeacon = layerId === ENC_VEC_LAYERS.BCNLAT;
         title = isBeacon ? 'Lateral beacon' : 'Lateral buoy';
