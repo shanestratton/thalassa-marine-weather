@@ -582,6 +582,31 @@ function putGlazeCell(key: string, entry: { upgraded: boolean; feats: Feature[] 
     }
 }
 
+/** Durable memo for the worker's derived contours — the DEPCNT_DERIVED
+ *  analogue of glazeCellCache (2026-07-15). Without it the contours live
+ *  ONLY inside the merged-data object, and mergedCache holds just
+ *  MERGED_CACHE_MAX entries: a stepwise zoom excursion past z12 and back
+ *  evicts the d1 merge, so the rebuild returns empty DEPCNT_DERIVED and
+ *  the faint densification BLANKS until the re-dispatched worker answers
+ *  (~a few hundred ms). Keyed by the merge cacheKey — which already
+ *  encodes cell set + densify flag + sounding-LOD bucket, so an identical
+ *  key means an identical sounding set means identical contours — a
+ *  re-merge reuses the computed lines synchronously: no flicker, no
+ *  redundant worker pass. Holds only LineString segments (small); capped
+ *  well above mergedCache so it survives the excursion that evicts it. */
+const derivedContourCache = new Map<string, Feature[]>();
+const DERIVED_CONTOUR_CACHE_MAX = 12;
+
+function putDerivedContours(key: string, feats: Feature[]): void {
+    derivedContourCache.delete(key);
+    derivedContourCache.set(key, feats);
+    while (derivedContourCache.size > DERIVED_CONTOUR_CACHE_MAX) {
+        const oldest = derivedContourCache.keys().next().value as string | undefined;
+        if (oldest === undefined) break;
+        derivedContourCache.delete(oldest);
+    }
+}
+
 // ── Async geometry upgrades (the heavy-geometry worker) ────────────
 //
 // The 2026-07-13 OOM hunt's lasting rule: heavy geometry (martinez
@@ -665,6 +690,10 @@ function getGeoWorker(): Worker | null {
             return;
         }
         if (type === 'contours' && features && job) {
+            // Memoize under the merge key so a later re-merge of the SAME
+            // selection reuses these synchronously instead of blanking +
+            // recomputing (the DEPCNT_DERIVED analogue of the glaze memo).
+            putDerivedContours(job.cacheKey, features);
             const cached = mergedCache.get(job.cacheKey);
             if (cached) {
                 cached.DEPCNT_DERIVED.features = features;
@@ -901,19 +930,31 @@ export function shallowClipCoverage(collections: Array<FeatureCollection | undef
     }
     return polys;
 }
-/** GEOMETRY WORKER DISPATCH DISABLED (2026-07-13, second crash): moving
- *  martinez off the main thread did NOT stop the OOM — a Worker is a
- *  separate THREAD in the SAME renderer process, so its allocation
- *  spike still kills the whole tab ("Aw, Snap" returned within minutes
- *  of the worker shipping; the flag-off build before it was confirmed
- *  crash-free). Workers protect against HANGS, not process OOM. The
- *  true-coverage clip needs a bounded algorithm (or per-pair vertex
- *  caps + chunked jobs) before this flips back on; until then the
- *  instant rectangle glaze is the only glaze, and derived contours stay
- *  dark. All worker scaffolding (encGeometryWorker, upgrade hook,
- *  per-cell memo) is wired and tested — bound the inputs, flip the
- *  flag. */
-const GEOMETRY_WORKER_ENABLED = false;
+/** The heavy-geometry worker carries TWO independent jobs with OPPOSITE
+ *  safety profiles, so as of 2026-07-15 they get separate flags — the
+ *  single GEOMETRY_WORKER_ENABLED gate threw the safe job out with the
+ *  dangerous one.
+ *
+ *  GLAZE (martinez true-coverage clip) is the OOM detonator. A Worker is
+ *  a separate THREAD in the SAME renderer process, so martinez's
+ *  allocation spike still kills the whole tab ("Aw, Snap" returned within
+ *  minutes of the worker shipping 2026-07-13; the flag-off build before
+ *  it was confirmed crash-free). Workers protect against HANGS, not
+ *  process OOM. This stays OFF until the clip is bounded (per-pair vertex
+ *  caps / chunked jobs / a bounded clipping algorithm to replace
+ *  martinez); the instant rectangle glaze remains the only glaze.
+ *
+ *  CONTOURS (Delaunay + isoline march) were NEVER the crash — they were a
+ *  main-thread HANG (2026-07-12), which is exactly what a worker cures.
+ *  delaunator is O(n) over flat typed arrays and the input is hard-capped
+ *  (DERIVED_CONTOUR_MAX_SOUNDINGS = 30 k), so the worker's peak allocation
+ *  is bounded — the "bound the inputs first" precondition the glaze still
+ *  fails is already met here. Contours ride the same worker but their
+ *  dispatch never queues a glaze cell, so martinez is never CALLED on
+ *  their behalf: turning this on alone restores the SonarChart-HD depth
+ *  densification off-thread with zero OOM exposure. */
+const GLAZE_WORKER_ENABLED = false;
+const DERIVED_CONTOUR_WORKER_ENABLED = true;
 
 /** "Is the user mid-gesture?" probe, registered by the map hook (it
  *  answers map.isMoving()). The merge's time-slicer parks while this
@@ -1387,7 +1428,7 @@ async function buildMergedVectorData(
                 putGlazeCell(glazeKey, { upgraded: glazeShadows.length === 0, feats: glazeOut });
                 needQueue = glazeShadows.length > 0;
             }
-            if (needQueue && GEOMETRY_WORKER_ENABLED) {
+            if (needQueue && GLAZE_WORKER_ENABLED) {
                 // Payload for the worker's true-coverage upgrade: the
                 // decorated base features + the shadowing cells' actual
                 // charted polygons (coordinate arrays shared with the
@@ -1581,14 +1622,30 @@ async function buildMergedVectorData(
         mergedCache.delete(oldest);
     }
 
-    // Hand the HEAVY geometry to the worker: the true-coverage glaze
-    // upgrade (queued per cell above) and the sounding-derived contours
-    // (Delaunay + isoline march — hung the main thread 2026-07-12,
-    // OOM-killed it 2026-07-13 when run here). Both answers swap into
-    // this cached merge via the geometry-upgrade hook. No worker (old
-    // WebView, died earlier this session) = the fast version stays up.
-    const wantContours =
-        GEOMETRY_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
+    // Hand the HEAVY geometry to the worker. Two jobs, gated apart:
+    //  - CONTOURS (Delaunay + isoline march — hung the main thread
+    //    2026-07-12) dispatch here whenever DERIVED_CONTOUR_WORKER_ENABLED
+    //    and the sounding count is under the cap. Bounded input, safe.
+    //  - GLAZE true-coverage upgrade only rides along when its own flag
+    //    queued cells above (GLAZE_WORKER_ENABLED); with it off the queue
+    //    is empty and martinez is never posted — no OOM exposure.
+    // Answers swap into this cached merge via the geometry-upgrade hook.
+    // No worker (old WebView, died earlier this session) = the fast
+    // version stays up.
+    let wantContours =
+        DERIVED_CONTOUR_WORKER_ENABLED && densify && merged.SOUNDG.features.length <= DERIVED_CONTOUR_MAX_SOUNDINGS;
+    if (wantContours) {
+        // Memo hit: this exact selection's contours were already computed
+        // (a prior visit the merged cache has since evicted). Fill them in
+        // synchronously — no blank on the rebuilt merge, no redundant
+        // worker pass — and skip the contour job entirely.
+        const memo = derivedContourCache.get(cacheKey);
+        if (memo) {
+            merged.DEPCNT_DERIVED.features = memo;
+            putDerivedContours(cacheKey, memo); // refresh LRU position
+            wantContours = false;
+        }
+    }
     if (glazeUpgradeQueue.length > 0 || wantContours) {
         const worker = getGeoWorker();
         if (worker) {
