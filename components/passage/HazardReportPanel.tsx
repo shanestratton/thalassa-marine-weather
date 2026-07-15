@@ -31,7 +31,7 @@ function hazardIcon(type: RouteHazardReportEntry['hazardType']): string {
         case 'wreck':
             return '\u{1F480}'; // skull
         case 'rock':
-            return '⛈'; // mountain (closest emoji for "rock")
+            return '\u{1FAA8}'; // 🪨 rock
         case 'obstruction':
             return '⚠'; // warning
         case 'coast':
@@ -91,11 +91,18 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
     const report = useLastHazardReport();
     const [expanded, setExpanded] = useState(false);
 
+    const advisories = report?.advisories ?? [];
+
     if (!visible) return null;
-    if (!report || report.entries.length === 0) return null;
+    if (!report || (report.entries.length === 0 && advisories.length === 0)) return null;
 
     const total = report.entries.length;
-    const headline = total === 1 ? '1 hazard near route' : `${total} hazards near route`;
+    const headline =
+        total === 0
+            ? 'Route advisory — verify visually'
+            : total === 1
+              ? '1 hazard near route'
+              : `${total} hazards near route`;
 
     return (
         <div
@@ -116,7 +123,9 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                     <div className="flex-1 min-w-0">
                         <p className="text-[12px] font-bold text-amber-300 leading-tight">{headline}</p>
                         <p className="text-[10px] text-amber-300/70 leading-tight">
-                            within {report.bufferNm.toFixed(1)} NM · ENC vector data
+                            {total > 0
+                                ? `within ${report.bufferNm.toFixed(1)} NM · ENC vector data`
+                                : `${advisories.length} advisor${advisories.length === 1 ? 'y' : 'ies'} · tap to read`}
                         </p>
                     </div>
                     <svg
@@ -136,6 +145,16 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                     className="mt-1 rounded-xl border border-amber-500/30 bg-black/85 backdrop-blur-md px-3 py-2 max-h-[60vh] overflow-y-auto"
                     role="list"
                 >
+                    {advisories.length > 0 && (
+                        <div className="mb-1.5 pb-1.5 border-b border-amber-500/20" role="listitem">
+                            {advisories.map((a, i) => (
+                                <div key={`adv-${i}`} className="flex items-start gap-2 py-1">
+                                    <span className="text-sm shrink-0 mt-0.5">{'⚠'}</span>
+                                    <p className="text-[11px] text-amber-100 leading-snug">{a}</p>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                     {report.entries.map((entry, i) => {
                         const lowConf = isLowConfidenceCatzoc(entry.catzoc);
                         const interactive = !!onHazardClick;
@@ -185,10 +204,12 @@ export const HazardReportPanel: React.FC<HazardReportPanelProps> = ({ visible, o
                             </Wrapper>
                         );
                     })}
-                    <p className="mt-2 text-[10px] text-amber-300/50 italic">
-                        From {report.cellsConsulted} ENC cell{report.cellsConsulted === 1 ? '' : 's'}. Verify visually
-                        before relying on these positions.
-                    </p>
+                    {total > 0 && (
+                        <p className="mt-2 text-[10px] text-amber-300/50 italic">
+                            From {report.cellsConsulted} ENC cell{report.cellsConsulted === 1 ? '' : 's'}. Verify
+                            visually before relying on these positions.
+                        </p>
+                    )}
                 </div>
             )}
         </div>

@@ -569,6 +569,12 @@ export async function validateRouteSegments(
         }
     }
 
+    // Route-wide "verify visually" advisories for a route that validates
+    // CLEAN but carries caveats (low-confidence survey, no-depth-data
+    // points). Populated in the clean-break below and ATTACHED to the
+    // hazard report so the skipper actually sees them.
+    let routeAdvisories: string[] = [];
+
     for (let pass = 0; pass < MAX_VALIDATION_PASSES; pass++) {
         // ── 1. Sample all segments ──
         // Each sample carries an optional timeMs computed from the
@@ -632,30 +638,40 @@ export async function validateRouteSegments(
         if (landSegments.length === 0) {
             const encHits = allResults.filter((r) => r.source === 'enc').length;
             const gebcoHits = allResults.filter((r) => r.source === 'gebco').length;
-            // Flag if any ENC point sat in a low-confidence (CATZOC C/D/U)
-            // zone — the user should verify those visually even though the
-            // route validates clean.
+            // Build "verify visually" advisories for a route that validated
+            // CLEAN but carries caveats. These get ATTACHED to the hazard
+            // report below so the skipper actually sees them, and are logged
+            // at warn() level — createLogger silences info() in prod, which
+            // is exactly why the old no-data note never reached anyone.
+            routeAdvisories = [];
+            // Flag any ENC point in a low-confidence (CATZOC C/D/U) zone.
             let worstCatzoc: number | null = null;
             for (const r of allResults) {
                 if (typeof r.catzoc !== 'number') continue;
                 if (worstCatzoc === null || r.catzoc > worstCatzoc) worstCatzoc = r.catzoc;
             }
-            const catzocNote =
-                worstCatzoc !== null && worstCatzoc >= 4
-                    ? ` ⚠ low-confidence ENC zones along route (worst CATZOC ${worstCatzoc}) — verify visually`
-                    : '';
+            if (worstCatzoc !== null && worstCatzoc >= 4) {
+                routeAdvisories.push(
+                    `Low-confidence ENC survey along route (worst CATZOC ${worstCatzoc}) — verify visually`,
+                );
+            }
             // No-data points (uncharted + GEBCO unavailable, source:'none')
             // are treated as passable so a GEBCO outage can't block routing —
             // but they are NOT confirmed clear, so surface them rather than
             // let the false-clear stay silent (mission-audit hardening).
             const noDataHits = allResults.filter((r) => r.source === 'none').length;
-            const noDataNote =
-                noDataHits > 0
-                    ? ` ⚠ ${noDataHits}/${allResults.length} route point(s) have NO depth data (uncharted + GEBCO unavailable) — NOT confirmed safe, verify visually`
-                    : '';
-            landLog.info(
-                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ (${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})${catzocNote}${noDataNote}`,
-            );
+            if (noDataHits > 0) {
+                routeAdvisories.push(
+                    `${noDataHits}/${allResults.length} route point(s) have NO depth data ` +
+                        `(uncharted + GEBCO unavailable) — NOT confirmed safe, verify visually`,
+                );
+            }
+            const clearMsg =
+                `[ValidateRoute] Pass ${pass + 1}: all segments clear ✓ ` +
+                `(${allSamples.length} samples — enc=${encHits} gebco=${gebcoHits})` +
+                (routeAdvisories.length > 0 ? ` ⚠ ${routeAdvisories.join(' · ')}` : '');
+            if (routeAdvisories.length > 0) landLog.warn(clearMsg);
+            else landLog.info(clearMsg);
             break;
         }
 
@@ -693,7 +709,7 @@ export async function validateRouteSegments(
         try {
             const { findHazardsAlongRoute, setLastReport } = await import('./../enc/EncHazardReportService');
             const report = await findHazardsAlongRoute(result.map((n) => ({ lat: n.lat, lon: n.lon })));
-            setLastReport(report);
+            setLastReport(routeAdvisories.length > 0 ? { ...report, advisories: routeAdvisories } : report);
             if (report.entries.length > 0) {
                 landLog.info(
                     `[ValidateRoute] ${report.entries.length} hazards within ${report.bufferNm.toFixed(1)} NM of route`,
@@ -703,11 +719,18 @@ export async function validateRouteSegments(
             landLog.warn('[ValidateRoute] hazard report generation failed', err);
         }
     } else {
-        // No ENC coverage → clear any stale report from a previous
-        // route so the UI doesn't show outdated data.
+        // No ENC coverage → clear any stale report from a previous route so
+        // the UI doesn't show outdated data. BUT if the clean route still
+        // carries route-wide advisories (e.g. no-depth-data points during a
+        // GEBCO outage over uncharted water), surface those as an entry-less
+        // report rather than dropping them silently.
         try {
             const { setLastReport } = await import('./../enc/EncHazardReportService');
-            setLastReport(null);
+            setLastReport(
+                routeAdvisories.length > 0
+                    ? { cellsConsulted: 0, bufferNm: 1.0, entries: [], advisories: routeAdvisories }
+                    : null,
+            );
         } catch {
             /* best effort */
         }
