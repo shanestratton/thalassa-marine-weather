@@ -45,7 +45,7 @@ import {
 } from './scaleShadow';
 import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
-import { buildCatzocZones, buildCoastlines, buildHazardsForCell, readNumber } from './encHazardParse';
+import { buildCatzocZones, buildCoastlines, buildHazardsForCell, explodeSoundings, readNumber } from './encHazardParse';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
     buildLightCharacterLabel,
@@ -1463,39 +1463,11 @@ async function buildMergedVectorData(
         // needed for island names.
         reduceNamedAreas(blob.layers.LNDARE, 'land');
 
-        // Soundings: explode each MultiPoint cloud into labelled points.
-        // DELIBERATELY skips tagAndPush — no provenance/_cellId decoration:
-        // a harbour cell carries thousands of soundings and the minimal
-        // {_d, _minZoom?} bag is what keeps the merged heap sane. Depth
-        // comes from the SENC `depths` array, the 25D Z, or VALSOU —
-        // whichever the extraction path supplied.
-        for (const feat of blob.layers.SOUNDG?.features ?? []) {
-            const g = feat?.geometry;
-            if (!g) continue;
-            const featProps = (feat.properties ?? {}) as Record<string, unknown>;
-            const minZoom = typeof featProps._minZoom === 'number' ? featProps._minZoom : undefined;
-            const depthsArr = Array.isArray(featProps.depths) ? (featProps.depths as unknown[]) : null;
-            const coords: number[][] =
-                g.type === 'MultiPoint'
-                    ? (g.coordinates as number[][])
-                    : g.type === 'Point'
-                      ? [g.coordinates as number[]]
-                      : [];
-            for (let i = 0; i < coords.length; i++) {
-                const c = coords[i];
-                if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
-                const raw = depthsArr?.[i] ?? c[2] ?? featProps.VALSOU ?? featProps.DEPTH;
-                const d = typeof raw === 'number' ? raw : Number(raw);
-                if (!Number.isFinite(d)) continue;
-                const props: Record<string, unknown> = { _d: Math.round(d * 10) / 10 };
-                if (minZoom !== undefined) props._minZoom = minZoom;
-                merged.SOUNDG.features.push({
-                    type: 'Feature',
-                    geometry: { type: 'Point', coordinates: [c[0], c[1]] },
-                    properties: props,
-                });
-            }
-        }
+        // Soundings: explode each MultiPoint cloud into labelled points via
+        // the pure explodeSoundings (no provenance — the minimal {_d,_minZoom}
+        // bag keeps the merged heap sane). Pushed one at a time (a harbour
+        // cell's thousands of points would overflow a spread-arg push).
+        for (const p of explodeSoundings(blob.layers.SOUNDG)) merged.SOUNDG.features.push(p);
     }
 
     merged.SEAARE_LABELS.features = [...seaareByName.values()];

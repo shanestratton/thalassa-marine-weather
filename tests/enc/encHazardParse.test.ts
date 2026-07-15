@@ -12,6 +12,7 @@ import {
     buildCatzocZones,
     buildCoastlines,
     buildHazardsForCell,
+    explodeSoundings,
     featuresToHazards,
     readNumber,
     readString,
@@ -169,5 +170,79 @@ describe('buildCoastlines — COALNE line filter', () => {
     });
     it('missing COALNE → empty', () => {
         expect(buildCoastlines(blob({}))).toEqual([]);
+    });
+});
+
+describe('explodeSoundings — MultiPoint clouds → labelled points', () => {
+    const multi = (coords: number[][], props: Record<string, unknown> = {}): Feature => ({
+        type: 'Feature',
+        geometry: { type: 'MultiPoint', coordinates: coords },
+        properties: props,
+    });
+
+    it('explodes a MultiPoint cloud, one {_d} point per coordinate', () => {
+        const out = explodeSoundings(
+            fc([
+                multi(
+                    [
+                        [153, -27],
+                        [153.1, -27.1],
+                    ],
+                    { depths: [3.2, 5.7] },
+                ),
+            ]),
+        );
+        expect(out).toHaveLength(2);
+        expect(out[0].geometry).toEqual({ type: 'Point', coordinates: [153, -27] });
+        expect(out[0].properties?._d).toBe(3.2);
+        expect(out[1].properties?._d).toBe(5.7);
+    });
+
+    it('depth priority: depths[i] → z(coord[2]) → VALSOU → DEPTH', () => {
+        expect(explodeSoundings(fc([multi([[153, -27]], { depths: [1.1], VALSOU: 9 })]))[0].properties?._d).toBe(1.1);
+        expect(explodeSoundings(fc([multi([[153, -27, 2.5]], {})]))[0].properties?._d).toBe(2.5); // z
+        expect(explodeSoundings(fc([multi([[153, -27]], { VALSOU: 4 })]))[0].properties?._d).toBe(4);
+        expect(explodeSoundings(fc([multi([[153, -27]], { DEPTH: 6 })]))[0].properties?._d).toBe(6);
+    });
+
+    it('handles a single Point geometry too', () => {
+        const out = explodeSoundings(
+            fc([{ type: 'Feature', geometry: { type: 'Point', coordinates: [153, -27, 4.4] }, properties: {} }]),
+        );
+        expect(out).toHaveLength(1);
+        expect(out[0].properties?._d).toBe(4.4);
+    });
+
+    it('rounds _d to 0.1 m', () => {
+        expect(explodeSoundings(fc([multi([[153, -27]], { depths: [3.14159] })]))[0].properties?._d).toBe(3.1);
+    });
+
+    it('carries _minZoom when present', () => {
+        expect(explodeSoundings(fc([multi([[153, -27]], { depths: [3], _minZoom: 12 })]))[0].properties?._minZoom).toBe(
+            12,
+        );
+    });
+
+    it('skips non-finite coords and non-finite depths — never a bogus 0 m point', () => {
+        const out = explodeSoundings(
+            fc([
+                multi(
+                    [
+                        [NaN, -27],
+                        [153, -27],
+                        [153.1, -27.1],
+                    ],
+                    { depths: [3, 'bad', 5] },
+                ),
+            ]),
+        );
+        // point 0 dropped (NaN lon); point 1 dropped (depth 'bad' → NaN); point 2 kept (depth 5)
+        expect(out).toHaveLength(1);
+        expect(out[0].properties?._d).toBe(5);
+    });
+
+    it('empty / undefined collection → []', () => {
+        expect(explodeSoundings(undefined)).toEqual([]);
+        expect(explodeSoundings(fc([]))).toEqual([]);
     });
 });
