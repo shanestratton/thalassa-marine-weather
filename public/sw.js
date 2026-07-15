@@ -116,9 +116,14 @@
 // Web Worker) — the sync build froze the WKWebView long enough for iOS to
 // kill the app while plotting. UI stays alive; sync fallback on any worker
 // failure. (Engine/auto-route grid worker = next.)
-const CACHE_NAME = 'thalassa-v89-core';
-const TILE_CACHE = 'thalassa-v89-tiles';
-const DATA_CACHE = 'thalassa-v89-data';
+// v90: tap a marker/beacon/light for its ENC info WITHOUT closing the
+// tracer card — popups stay live while plotting (placement is the long
+// press, so a tap is free to inspect). The "hold to drop a pin" coach
+// only shows on an empty tap; the release-click after a placement is
+// swallowed so a pin drop doesn't pop up the water beneath it.
+const CACHE_NAME = 'thalassa-v90-core';
+const TILE_CACHE = 'thalassa-v90-tiles';
+const DATA_CACHE = 'thalassa-v90-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

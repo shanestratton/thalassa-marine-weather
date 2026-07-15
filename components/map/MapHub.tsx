@@ -81,6 +81,8 @@ import {
     syncDepareBaseTreatment as encSyncDepareBaseTreatment,
     setEncTideOffset,
     setEncPopupSuppression,
+    encHasClickableFeatureAt,
+    encSuppressNextClickPopup,
     setEncDraftAssumed,
     ENC_VEC_LAYERS,
 } from './EncVectorLayer';
@@ -2537,16 +2539,17 @@ export const MapHub: React.FC<MapHubProps> = ({
         if (!map || !mapReady) return;
         setEncDraftAssumed(map, !(Number(settings.vessel?.draft) > 0));
     }, [settings.vessel, mapReady]);
-    // A tap means "drop a pin" while tracing ARMED and "pick" in picker
-    // mode — the tap-the-water popup must never fight those (same for
-    // weather inspect, which owns taps too). Paused plotting deliberately
-    // RESTORES popups: that's half the point of pausing. Per-map flag.
+    // Popups stay LIVE while plotting (Shane 2026-07-16: "tap a marker for
+    // its info without closing the tracer"). Placement is the LONG PRESS now,
+    // so a tap is free to inspect — the old suppression dated from tap-to-
+    // place. Picker + weather-inspect still own taps outright (they place /
+    // sample), so they keep suppressing. Per-map flag.
     useEffect(() => {
         const map = mapRef.current;
         if (!map || !mapReady) return;
-        setEncPopupSuppression(map, (coordCaptureMode && plotArmed) || pickerMode || weatherInspectMode);
+        setEncPopupSuppression(map, pickerMode || weatherInspectMode);
         return () => setEncPopupSuppression(map, false);
-    }, [coordCaptureMode, plotArmed, pickerMode, weatherInspectMode, mapReady]);
+    }, [pickerMode, weatherInspectMode, mapReady]);
     // ── THE PURGE (Shane 2026-07-11: "full purge of all layers, except
     // our new one... speed is the key") ──
     // One-shot per device: the first main-surface mount strips the whole
@@ -3210,11 +3213,15 @@ export const MapHub: React.FC<MapHubProps> = ({
             if (!map) return;
 
             // Tracer active + armed: taps no longer place — placement is
-            // the LONG PRESS (Shane 2026-07-15: "before we place a
-            // waypoint, ensure it is a long press first"), so a stray tap
-            // mid-pan can't seed a phantom pin. The tap just coaches.
+            // the LONG PRESS (Shane 2026-07-15), so a stray tap mid-pan
+            // can't seed a phantom pin. A tap on a mark/light/water now
+            // shows its ENC popup (Shane 2026-07-16: "tap a marker for its
+            // info without closing the tracer"); we only COACH when the tap
+            // hit nothing to inspect, so the popup isn't buried under a flash.
             if (coordCaptureRef.current && plotArmedRef.current) {
-                flashTraceFeedback('Hold the chart to drop a pin');
+                if (!encHasClickableFeatureAt(map, { lat, lng: lon })) {
+                    flashTraceFeedback('Hold the chart to drop a pin');
+                }
                 return;
             }
 
@@ -3235,6 +3242,10 @@ export const MapHub: React.FC<MapHubProps> = ({
             // want it, and fucken annoying when you don't") hands the
             // gesture back to the chart.
             if (coordCaptureRef.current && plotArmedRef.current) {
+                // The release-click after this placement must NOT open a
+                // feature popup where the pin just landed (popups are live
+                // while plotting now).
+                encSuppressNextClickPopup(map);
                 let pt = { lat, lon };
                 const ctx = tracerCtxRef.current;
                 if (ctx) {
