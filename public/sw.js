@@ -94,9 +94,12 @@
 // v84: ⚡ Auto route prefers DEEPEST water — 'safest' profile first (detours
 // around shoals to deep water), 'tideAssist' only as fallback; every outcome
 // flashes a distinct diagnosable message.
-const CACHE_NAME = 'thalassa-v84-core';
-const TILE_CACHE = 'thalassa-v84-tiles';
-const DATA_CACHE = 'thalassa-v84-data';
+// v85: ⚡ auto route shows a PERSISTENT diagnostic banner (why it did/didn't
+// route: routed / straight-kept / engine error / no coverage / threw) so a
+// no-op is legible without the device console. Tap to dismiss.
+const CACHE_NAME = 'thalassa-v85-core';
+const TILE_CACHE = 'thalassa-v85-tiles';
+const DATA_CACHE = 'thalassa-v85-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
