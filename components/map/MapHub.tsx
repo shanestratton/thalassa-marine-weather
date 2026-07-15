@@ -140,7 +140,7 @@ import {
 } from '../../services/enc/EncHazardService';
 import { DEPARE_BAND_COLORS } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
-import { DETAIL_SCRUB_MAX, applyChartDetailLevel } from './encDetailScrubber';
+import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 import { startAutoSyncPolling } from '../../services/enc/autoSyncFromPi';
 import { consumeMapFit, peekMapFit, subscribeMapFit } from '../../stores/MapFitTargetStore';
 import type { ActiveCyclone } from '../../services/weather/CycloneTrackingService';
@@ -3200,6 +3200,13 @@ export const MapHub: React.FC<MapHubProps> = ({
             try {
                 for (const id of MARK_LAYERS) {
                     if (!map.getLayer(id)) continue;
+                    // The detail scrubber outranks the tracer's re-assert
+                    // (Shane 2026-07-15: "at the clean end of the scrubber
+                    // I have flashing leads as well as markers" — this
+                    // effect force-showed what the scrubber had cut, 120 ms
+                    // apart, forever). Scrubbing clean is explicit intent;
+                    // scrub back left and the marks return for plotting.
+                    if (isScrubHidden(id)) continue;
                     // Conditional write — an unconditional setLayoutProperty
                     // emits a styledata that re-invokes this handler, and
                     // this effect is active during PLOTTING (coordCaptureMode)
