@@ -163,15 +163,16 @@ export const DEPARE_BAND_COLORS = {
  * need to be able to see the areas that have enough depth for our keel
  * easily"). The glaze is a go/no-go read:
  *  - drying: solid warning wash;
- *  - charted but SHALLOWER than the safety depth: **opacity ZERO** —
- *    pure natural imagery, no tint at all (Shane 2026-07-13: "remove
- *    these dark shaded areas" — the old 0.15 whisper read as murky
- *    dark blocks over water imagery, darkening whole 2–10 m bands even
- *    where spot soundings inside them read 5–6 m). The mental model is
- *    now binary and crisp: WHITE WASH = verified safe for YOUR keel;
- *    natural imagery = read the water and the numbers. Bonus: the
- *    rectangle-clip glaze holes (the parked martinez trade-off) become
- *    invisible — a hole in nothing is nothing;
+ *  - charted but SHALLOWER than the safety depth: a low-opacity amber
+ *    CAUTION wash (SHALLOW_CAUTION_*). This was opacity ZERO (Shane
+ *    2026-07-13: "remove these dark shaded areas" — the old 0.15 whisper
+ *    read as murky dark blocks), but zero made a KNOWN shoal pixel-
+ *    identical to unknown/uncharted (also 0) — a salience collision on
+ *    the default base (mission audit). The amber caution is see-through
+ *    enough to keep reading the water + numbers while distinguishing
+ *    charted-shallow from both safe-white and bare imagery. Trade-off:
+ *    the parked-martinez strip-clip glaze holes are no longer fully
+ *    hidden (they read as faint gaps in the shallow wash);
  *  - guaranteed depth ≥ safety depth (band DRVAL1, chart datum — the
  *    same conservative convention as the safety contour): bright white
  *    paper, stepping brighter as it deepens;
