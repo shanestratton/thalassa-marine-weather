@@ -22,7 +22,7 @@ import type { Geometry, Position } from 'geojson';
 
 import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
 import { ENC_HAZARD_DEPTH_M } from './types';
-import { HAZARD_TYPE_SEVERITY, depthSeverity } from './hazardSeverity';
+import { compareHazardSeverity } from './hazardSeverity';
 
 // ── Point-hazard guard radius ──────────────────────────────────────
 
@@ -555,16 +555,12 @@ export class EncSpatialIndex {
             const type = classifyHazard(entry.hazard);
             if (!type) continue; // deep DEPARE/DRGARE — covered, not a hazard.
 
-            // Most-severe wins: worse TYPE first, then (same type) the
-            // SHALLOWER / unknown depth — the SAME tiebreak as the cross-cell
-            // mergeHazardResults, so within-cell and across-cell can never
-            // disagree (audit: the within-cell pick dropped the depth tiebreak).
-            if (
-                bestType === null ||
-                HAZARD_TYPE_SEVERITY[type] > HAZARD_TYPE_SEVERITY[bestType] ||
-                (HAZARD_TYPE_SEVERITY[type] === HAZARD_TYPE_SEVERITY[bestType] &&
-                    depthSeverity(entry.hazard.minDepthM) > depthSeverity(bestDepth))
-            ) {
+            // Most-severe wins via the SHARED comparator — worse TYPE first,
+            // then (same type) the SHALLOWER / unknown depth. Calling the same
+            // compareHazardSeverity the cross-cell fold uses makes the two
+            // levels structurally incapable of disagreeing (audit: this was an
+            // inline re-implementation of the ordering).
+            if (bestType === null || compareHazardSeverity(type, entry.hazard.minDepthM, bestType, bestDepth) > 0) {
                 bestType = type;
                 bestDepth = entry.hazard.minDepthM;
             }
