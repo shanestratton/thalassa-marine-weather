@@ -158,6 +158,9 @@ export default function ThalassaDashboard() {
                         nearbyVessels={nearbyVessels ?? []}
                         onEntryClick={handleSelect}
                         selectedEntryId={selectedEntry?.id}
+                        // Fold/unfold changes the map's box — kick an
+                        // explicit canvas resize so it fills the void.
+                        resizeSignal={diaryHidden ? 1 : 0}
                     />
                 </main>
 
