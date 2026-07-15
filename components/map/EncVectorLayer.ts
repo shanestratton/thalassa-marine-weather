@@ -1489,18 +1489,23 @@ export function unmountEncVectorLayer(map: mapboxgl.Map): void {
  * on top of imagery.
  */
 const SATELLITE_KEY = 'thalassa_satellite_base_v2';
-// Land fills blanket the imagery; COALNE + the bold safety contour are
-// CHART furniture that reads as scribble over photos (Shane 2026-07-11:
-// "the thick black line, the straight brown lines… can we remove all of
-// these" — the brown was the 1:90k cell's generalized coastline drawn
-// straight across a headland the imagery already shows perfectly). The
-// thin grey depth contours + labels stay: they carry information the
+// Land fills blanket the imagery; COALNE is CHART furniture that reads as
+// scribble over photos (Shane 2026-07-11: "the thick black line, the
+// straight brown lines… can we remove all of these" — the brown was the
+// 1:90k cell's generalized coastline drawn straight across a headland the
+// imagery already shows). Land + coastline stay hidden.
+//
+// The bold SAFETY contour USED to hide here too, but that left satellite
+// with no crisp keel line once the glaze retires on coarse cells at
+// overview zoom (mission-audit #3c). It now STAYS on satellite, re-styled
+// by syncDepareBaseTreatment as a deliberate amber keel-limit line — one
+// per-cell contour, NOT the "thick black scribble" Shane rejected. The
+// thin grey depth contours + labels also stay: they carry information the
 // imagery can't.
 const SATELLITE_HIDE_LAYERS: readonly string[] = [
     ENC_VEC_LAYERS.LNDARE,
     ENC_VEC_LAYERS.LNDARE_ISLET,
     ENC_VEC_LAYERS.COALNE,
-    ENC_VEC_LAYERS.DEPCNT_SAFETY,
 ];
 function satelliteBaseOn(): boolean {
     try {
@@ -1596,6 +1601,24 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
             satOn ? buildDepareSatelliteOpacity(safetyDepthM) : 0,
         );
         map.setFilter(ENC_VEC_LAYERS.DEPARE_GLAZE, satOn ? DEPARE_COMPETENCE_FILTER : null);
+    }
+    if (map.getLayer(ENC_VEC_LAYERS.DEPCNT_SAFETY)) {
+        // The one keel-limit line, re-styled per base (#3c). On the white
+        // chart it stays the slate hairline Shane tuned; on satellite slate
+        // goes muddy over water, so it becomes a deliberate AMBER line — the
+        // crisp go/no-go boundary the glaze edge only implies, and still
+        // legible on coarse cells at overview zoom where the glaze retires.
+        // One per-cell contour, amber, hairline-to-modest — NOT the "thick
+        // black scribble" Shane rejected (2026-07-11).
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-color', satOn ? '#f97316' : '#44586a');
+        map.setPaintProperty(
+            ENC_VEC_LAYERS.DEPCNT_SAFETY,
+            'line-width',
+            satOn
+                ? ['interpolate', ['linear'], ['zoom'], 8, 1.0, 15, 2.2]
+                : ['interpolate', ['linear'], ['zoom'], 8, 0.8, 15, 1.4],
+        );
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPCNT_SAFETY, 'line-opacity', satOn ? 1 : 0.9);
     }
 }
 
