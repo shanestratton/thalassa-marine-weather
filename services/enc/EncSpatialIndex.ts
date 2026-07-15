@@ -22,6 +22,7 @@ import type { Geometry, Position } from 'geojson';
 
 import type { BBoxEntry, EncCatzoc, EncHazard, EncHazardResult, EncHazardType } from './types';
 import { ENC_HAZARD_DEPTH_M } from './types';
+import { HAZARD_TYPE_SEVERITY } from './hazardSeverity';
 
 // ── CATZOC zone (M_QUAL) ───────────────────────────────────────────
 
@@ -407,14 +408,8 @@ export class EncSpatialIndex {
 
         let bestType: EncHazardType | null = null;
         let bestDepth: number | null = null;
-        const severity: Record<EncHazardType, number> = {
-            land: 5,
-            rock: 4,
-            wreck: 3,
-            obstruction: 2,
-            shallow: 1,
-            coast: 0, // never selected here — coastlines have their own tree
-        };
+        // Severity ranking shared with the cross-cell merge (hazardSeverity)
+        // so within-cell and across-cell picks can never disagree.
 
         for (const entry of candidates) {
             const type = classifyHazard(entry.hazard);
@@ -432,7 +427,7 @@ export class EncSpatialIndex {
             }
             if (!inside) continue;
 
-            if (bestType === null || severity[type] > severity[bestType]) {
+            if (bestType === null || HAZARD_TYPE_SEVERITY[type] > HAZARD_TYPE_SEVERITY[bestType]) {
                 bestType = type;
                 bestDepth = entry.hazard.minDepthM;
             }

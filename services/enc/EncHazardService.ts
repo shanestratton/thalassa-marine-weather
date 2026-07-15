@@ -46,6 +46,7 @@ import {
 import { clipFeatureOutsideBboxes, coverageMaskStrips, type CoverageGeom } from './clipDepareOverlap';
 import { EncSpatialIndex, type EncCatzocZone, type EncCoastline } from './EncSpatialIndex';
 import { buildCatzocZones, buildCoastlines, buildHazardsForCell, explodeSoundings, readNumber } from './encHazardParse';
+import { mergeHazardResults } from './hazardSeverity';
 import type { EncCatzoc, EncCell, EncConversionResult, EncHazard, EncHazardResult, EncLayer } from './types';
 import {
     buildLightCharacterLabel,
@@ -237,20 +238,19 @@ export async function queryHazards(points: { lat: number; lon: number }[]): Prom
         if (idx) candidateIndexes.push(idx);
     });
 
-    // Per-point query against the resolved indexes.
+    // Per-point query against the resolved indexes. Fold every covering
+    // cell's result through mergeHazardResults, which keeps the MOST SEVERE
+    // (most conservative for grounding). It's a total-order max, so the
+    // nondeterministic candidate-resolution order can't change the answer,
+    // and a shallower/worse hazard from a second overlapping cell can't be
+    // masked by the first cell's milder one (mission-audit fix).
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
         let merged: EncHazardResult = { covered: false, hazard: false, minDepthM: null };
         for (const idx of candidateIndexes) {
             const r = idx.queryPoint(p.lat, p.lon);
             if (!r.covered) continue;
-            if (!merged.covered) {
-                merged = r;
-                continue;
-            }
-            // Already covered by an earlier cell — escalate to hazard
-            // if any cell flagged this point.
-            if (r.hazard && !merged.hazard) merged = r;
+            merged = mergeHazardResults(merged, r);
         }
         results[i] = merged;
     }
