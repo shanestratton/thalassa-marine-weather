@@ -20,6 +20,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type mapboxgl from 'mapbox-gl';
 
+import { chartAgeLabel, chartAgeYears, isChartStale } from '../../services/enc/chartCurrency';
 import { getCoverage as getEncCoverage, subscribe as subscribeToEnc } from '../../services/enc/EncHazardService';
 import type { EncCatzoc, EncCell } from '../../services/enc/types';
 import { CATZOC_LABELS, isLowConfidenceCatzoc } from '../../services/enc/types';
@@ -160,8 +161,26 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
     } else {
         compactLabel = sources.map((s) => s.ho).join(', ');
     }
+    // Chart CURRENCY (mission audit): CATZOC is survey QUALITY, not age — a
+    // decade-old edition wore the same emerald dot as this year's. Fold the
+    // latest-edition age into the dot: an old edition is a caution to verify
+    // Notices to Mariners even at high CATZOC.
+    const latestIssued = hydratedInView.reduce<string | null>(
+        (m, c) => (m === null || c.issued > m ? c.issued : m),
+        null,
+    );
+    const ageYears = chartAgeYears(latestIssued, Date.now());
+    const stale = isChartStale(ageYears);
+    const ageLabel = chartAgeLabel(ageYears);
     const worstCatzoc = worstCatzocInView(cellsInView);
-    const tone = catzocTone(worstCatzoc);
+    const catTone = catzocTone(worstCatzoc);
+    const tone = stale
+        ? {
+              dot: 'bg-amber-400',
+              text: 'text-amber-300',
+              label: `${catTone.label} · edition ~${ageLabel} old — verify updates`,
+          }
+        : catTone;
 
     return (
         <div
@@ -178,6 +197,14 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                 <span>{compactLabel}</span>
                 {cellsInView.length > 1 && (
                     <span className="text-emerald-300/70 ml-1">· {cellsInView.length} cells</span>
+                )}
+                {stale && (
+                    <span
+                        className="ml-1 font-bold text-amber-300"
+                        title={`Chart edition ~${ageLabel} old — verify Notices to Mariners before navigation`}
+                    >
+                        · ⚠ {ageLabel}
+                    </span>
                 )}
             </button>
 
@@ -207,6 +234,12 @@ export const EncAttributionChip: React.FC<EncAttributionChipProps> = ({ mapRef, 
                         <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1 align-middle ${tone.dot}`} />
                         Worst confidence in view: {tone.label}
                     </p>
+                    {ageLabel && (
+                        <p className={`mt-1 text-[10px] ${stale ? 'text-amber-300' : 'text-emerald-300/60'}`}>
+                            Latest edition ~{ageLabel} old
+                            {stale ? ' — verify Notices to Mariners' : ''}.
+                        </p>
+                    )}
                     <p className="mt-1 text-[9px] text-emerald-300/50 italic">
                         Source: hydrographic offices. Verify visually before navigation.
                     </p>
