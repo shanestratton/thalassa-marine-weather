@@ -369,6 +369,8 @@ export const MapHub: React.FC<MapHubProps> = ({
     // saved route the next Save tap will replace (two-tap arm, like the
     // saved-route delete). Disarmed by editing the name.
     const [overwriteArm, setOverwriteArm] = useState<string | null>(null);
+    // Focused by the no-name Save guard so the keyboard pops ready to type.
+    const traceNameInputRef = useRef<HTMLInputElement | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
@@ -1020,6 +1022,15 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
+        // No name, no save (Shane 2026-07-15) — the date-stamped fallback
+        // bred anonymous "Trace 15/07/2026" rows nobody could tell apart.
+        // Prompt and put the cursor in the box instead.
+        if (!traceName.trim()) {
+            triggerHaptic('light');
+            flashTraceFeedback('Name the route first');
+            traceNameInputRef.current?.focus();
+            return;
+        }
         // Saving under an EXISTING route's name updates that route in place
         // — same id locally and on the account, so "Bay run" never breeds
         // "Bay run", "Bay run"… twins. Never silently though (Shane
@@ -4771,6 +4782,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         )}
                                         <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
                                             <input
+                                                ref={traceNameInputRef}
                                                 value={traceName}
                                                 onChange={(e) => {
                                                     setTraceName(e.target.value);

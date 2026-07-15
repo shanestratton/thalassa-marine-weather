@@ -70,9 +70,11 @@
 // v77: the name actually flips — Save no longer clears the name box
 // (save → ⇄ was flipping an empty string), sloppy spacing tolerated,
 // and the flash announces the new name.
-const CACHE_NAME = 'thalassa-v77-core';
-const TILE_CACHE = 'thalassa-v77-tiles';
-const DATA_CACHE = 'thalassa-v77-data';
+// v78: Save requires a route name — "Name the route first" + focus
+// instead of minting anonymous date-stamped rows.
+const CACHE_NAME = 'thalassa-v78-core';
+const TILE_CACHE = 'thalassa-v78-tiles';
+const DATA_CACHE = 'thalassa-v78-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
