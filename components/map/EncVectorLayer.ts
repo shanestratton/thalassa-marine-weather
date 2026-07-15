@@ -1690,7 +1690,8 @@ export function setEncRouteFocusMode(map: mapboxgl.Map, focused: boolean): void 
 
     const satOn = satelliteBaseOn();
     for (const id of ROUTE_FOCUS_HIDE_LAYERS) {
-        const wantVisible = !focused && !(satOn && SATELLITE_HIDE_LAYERS.includes(id));
+        // Scrub guard, same as every other visibility writer.
+        const wantVisible = !focused && !(satOn && SATELLITE_HIDE_LAYERS.includes(id)) && !isScrubHidden(id);
         if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', wantVisible ? 'visible' : 'none');
     }
     syncDepareBaseTreatment(map);

@@ -44,11 +44,11 @@
 // bar. Purge hard: stale bundles are exactly what v65 fixes.
 // v66: Dark base mode — the public voyage-page dark-v11 basemap as a
 // third base under the chart.
-// v68: Hybrid base replaces Terrain+Dark (two bases only), tracer card
-// single plot toggle, scrub-hidden layers stop flashing.
-const CACHE_NAME = 'thalassa-v68-core';
-const TILE_CACHE = 'thalassa-v68-tiles';
-const DATA_CACHE = 'thalassa-v68-data';
+// v69: the LAST two scrub-fighting writers guarded (tracer mark
+// re-assert + route-focus) — clean-end flashing dead for good.
+const CACHE_NAME = 'thalassa-v69-core';
+const TILE_CACHE = 'thalassa-v69-tiles';
+const DATA_CACHE = 'thalassa-v69-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
