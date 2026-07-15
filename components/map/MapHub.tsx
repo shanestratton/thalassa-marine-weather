@@ -337,6 +337,10 @@ export const MapHub: React.FC<MapHubProps> = ({
     const tideSpotCacheRef = useRef<Map<string, string>>(new Map());
     const [savedTraces, setSavedTraces] = useState<SavedTrace[]>([]);
     const [traceName, setTraceName] = useState('');
+    // Same-name save = overwrite, but ASKED first: holds the id of the
+    // saved route the next Save tap will replace (two-tap arm, like the
+    // saved-route delete). Disarmed by editing the name.
+    const [overwriteArm, setOverwriteArm] = useState<string | null>(null);
     const [showSavedTraces, setShowSavedTraces] = useState(false);
     const [traceFeedback, setTraceFeedback] = useState<string | null>(null);
     /** No-go acknowledgment: with danger legs, the first Sail tap arms a red
@@ -912,12 +916,26 @@ export const MapHub: React.FC<MapHubProps> = ({
     }, []);
     const saveCurrentTrace = useCallback(() => {
         if (capturedCoords.length < 2) return;
+        // Saving under an EXISTING route's name updates that route in place
+        // — same id locally and on the account, so "Bay run" never breeds
+        // "Bay run", "Bay run"… twins. Never silently though (Shane
+        // 2026-07-15: "of course it needs to ask me first"): the first tap
+        // arms the button as "Overwrite?", the second replaces.
+        const wantedName = traceName.trim().toLowerCase();
+        const existing = wantedName ? savedTraces.find((t) => t.name.trim().toLowerCase() === wantedName) : undefined;
+        if (existing && overwriteArm !== existing.id) {
+            triggerHaptic('medium');
+            setOverwriteArm(existing.id);
+            flashTraceFeedback(`"${existing.name}" exists — tap again to overwrite it`);
+            return;
+        }
+        setOverwriteArm(null);
         triggerHaptic('medium');
-        const { persisted, cloud } = saveTrace(traceName, capturedCoords);
+        const { persisted, cloud } = saveTrace(traceName, capturedCoords, existing ? { overwriteId: existing.id } : {});
         setSavedTraces(loadSavedTraces());
         if (persisted) {
             setTraceName('');
-            flashTraceFeedback('Saved ✓');
+            flashTraceFeedback(existing ? 'Updated ✓' : 'Saved ✓');
             // Cross-device honesty: "Saved ✓" is true of THIS device either
             // way, but build-on-desktop→sail-on-phone needs the account
             // push — when it didn't happen, say so instead of letting the
@@ -932,7 +950,7 @@ export const MapHub: React.FC<MapHubProps> = ({
             // won't exist next session is exactly the lie we don't tell.
             flashTraceFeedback('Could not save — storage full');
         }
-    }, [capturedCoords, traceName, flashTraceFeedback]);
+    }, [capturedCoords, traceName, savedTraces, overwriteArm, flashTraceFeedback]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         try {
@@ -4055,18 +4073,32 @@ export const MapHub: React.FC<MapHubProps> = ({
                             </button>
                         ) : (
                             <div className="flex max-h-[calc(100dvh-14rem)] w-72 flex-col overflow-hidden rounded-2xl border border-amber-500/30 bg-slate-900/95 shadow-2xl">
-                                <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+                                {/* The WHOLE header folds/unfolds the card (Shane
+                                    2026-07-15: "we need a bigger button to minimise
+                                    and maximise the plotting card") — the old chevron
+                                    was a ~14 px target. The 🧭 and Done buttons stop
+                                    propagation so they keep their own jobs. */}
+                                <div
+                                    onClick={() => {
+                                        triggerHaptic('light');
+                                        setPanelFolded((f) => !f);
+                                    }}
+                                    className="flex cursor-pointer select-none items-center justify-between border-b border-white/10 px-3 py-2.5 active:bg-white/5"
+                                >
                                     <button
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             triggerHaptic('light');
                                             setPanelFolded((f) => !f);
                                         }}
                                         aria-expanded={!panelFolded}
                                         aria-label={panelFolded ? 'Expand tracer panel' : 'Collapse tracer panel'}
-                                        className="flex items-center gap-1 text-xs font-black uppercase tracking-widest text-amber-300"
+                                        className="flex items-center gap-1.5 text-xs font-black uppercase tracking-widest text-amber-300"
                                     >
-                                        <span className="text-gray-500">{panelFolded ? '▸' : '▾'}</span>● Tracer (
-                                        {capturedCoords.length})
+                                        <span className="text-base leading-none text-gray-400">
+                                            {panelFolded ? '▸' : '▾'}
+                                        </span>
+                                        ● Tracer ({capturedCoords.length})
                                     </button>
                                     {(() => {
                                         const h = traceHealth(legVerdicts);
@@ -4083,13 +4115,14 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         );
                                     })()}
                                     <button
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             triggerHaptic('light');
                                             setRoseVisible((v) => !v);
                                         }}
                                         aria-pressed={roseVisible}
                                         aria-label={roseVisible ? 'Hide compass rose' : 'Show compass rose'}
-                                        className={`text-sm leading-none ${roseVisible ? '' : 'opacity-40 grayscale'}`}
+                                        className={`p-1 text-sm leading-none ${roseVisible ? '' : 'opacity-40 grayscale'}`}
                                     >
                                         🧭
                                     </button>
@@ -4098,7 +4131,8 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         the top one"). The action rows own the toggle:
                                         folded strip + the Undo/Copy/Clear row below. */}
                                     <button
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             triggerHaptic('light');
                                             setCoordCaptureMode(false);
                                             // Free the grid (10–30 MB) and force a fresh
@@ -4108,7 +4142,7 @@ export const MapHub: React.FC<MapHubProps> = ({
                                             setTracerStatus('idle');
                                             setLegVerdicts([]);
                                         }}
-                                        className="text-xs font-bold text-gray-400"
+                                        className="p-1 text-xs font-bold text-gray-400"
                                     >
                                         Done
                                     </button>
@@ -4587,7 +4621,10 @@ export const MapHub: React.FC<MapHubProps> = ({
                                         <div className="space-y-1.5 border-t border-white/10 px-3 py-2">
                                             <input
                                                 value={traceName}
-                                                onChange={(e) => setTraceName(e.target.value)}
+                                                onChange={(e) => {
+                                                    setTraceName(e.target.value);
+                                                    setOverwriteArm(null);
+                                                }}
                                                 placeholder="Name this route…"
                                                 className="w-full rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] text-gray-200 placeholder:text-gray-500 focus:border-amber-500/50 focus:outline-none"
                                             />
@@ -4595,9 +4632,13 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 <button
                                                     onClick={saveCurrentTrace}
                                                     disabled={capturedCoords.length < 2}
-                                                    className="flex-1 rounded-lg bg-amber-500/20 py-1.5 text-[11px] font-black uppercase tracking-wide text-amber-300 active:scale-95 disabled:opacity-40"
+                                                    className={`flex-1 rounded-lg py-1.5 text-[11px] font-black uppercase tracking-wide active:scale-95 disabled:opacity-40 ${
+                                                        overwriteArm
+                                                            ? 'bg-red-500/25 text-red-300'
+                                                            : 'bg-amber-500/20 text-amber-300'
+                                                    }`}
                                                 >
-                                                    Save
+                                                    {overwriteArm ? 'Overwrite?' : 'Save'}
                                                 </button>
                                                 {/* Dev-only: CuratedFairway JSON export is
                                         Shane's flywheel workflow, not a punter
