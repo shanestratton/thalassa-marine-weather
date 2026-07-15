@@ -18,7 +18,9 @@ import {
     DEPCNT_LABEL_INK_DATUM,
     DEPCNT_LABEL_INK_LIVE,
     NO_SAFETY_VALDCO,
+    SHALLOW_CAUTION_COLOR,
     buildDepareFillColor,
+    buildDepareGlazeFillColor,
     buildDepareSatelliteOpacity,
     buildDepcntLabelField,
     buildSoundingTextField,
@@ -207,5 +209,36 @@ describe('expression structural invariants', () => {
 
     it('contour label inks are distinct between datum and live modes', () => {
         expect(DEPCNT_LABEL_INK_DATUM).not.toBe(DEPCNT_LABEL_INK_LIVE);
+    });
+});
+
+describe('satellite shallow-water salience — a known shoal is NOT identical to uncharted', () => {
+    const glazeColor = (props: Record<string, unknown>, S = 3): unknown =>
+        evalExpr(buildDepareGlazeFillColor(S), { props });
+
+    it('charted-shallow paints a CAUTION wash (opacity > 0), unlike uncharted (0) — the collision is broken', () => {
+        expect(glaze({ DRVAL1: 1 }, 3)).toBeGreaterThan(0); // known 1 m shoal, S=3
+        expect(glaze({}, 3)).toBe(0); // uncharted → still bare imagery
+        expect(glaze({ DRVAL1: 1 }, 3)).not.toBe(glaze({}, 3));
+    });
+
+    it('drying / shallow-caution / safe are three DISTINCT colours', () => {
+        const drying = glazeColor({ DRVAL1: -0.5 }, 3);
+        const shallow = glazeColor({ DRVAL1: 1 }, 3);
+        const safe = glazeColor({ DRVAL1: 5 }, 3);
+        expect(shallow).toBe(SHALLOW_CAUTION_COLOR);
+        expect(safe).toBe(DEPARE_BAND_COLORS.b20to50); // '#f7f5f0' safe white
+        expect(new Set([drying, shallow, safe]).size).toBe(3);
+    });
+
+    it('safe water stays brighter than the shallow caution wash', () => {
+        expect(glaze({ DRVAL1: 5 }, 3)).toBeGreaterThan(glaze({ DRVAL1: 1 }, 3) as number);
+    });
+
+    it('opacity + colour agree on the 0/S boundaries (pairing invariant)', () => {
+        // At exactly S → safe; just under → caution amber.
+        expect(glazeColor({ DRVAL1: 3 }, 3)).toBe('#f7f5f0');
+        expect(glaze({ DRVAL1: 3 }, 3)).toBeGreaterThanOrEqual(0.6);
+        expect(glazeColor({ DRVAL1: 2.99 }, 3)).toBe(SHALLOW_CAUTION_COLOR);
     });
 });
