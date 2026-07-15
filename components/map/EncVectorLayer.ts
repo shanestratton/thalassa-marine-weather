@@ -404,7 +404,11 @@ function mountLandCoastLayers(
                 paint: {
                     'line-color': '#4a3f28',
                     'line-width': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 1.0, 13, 1.4, 15, 1.8],
-                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, opacity],
+                    // MONOTONIC ramp — the charted coastline gets crisper as
+                    // you zoom in, never dimmer. The z15 stop used the 0.85
+                    // opacity multiplier, so it FADED below its own z13 value
+                    // (0.95) exactly where detail matters (audit cosmetic).
+                    'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 0.6, 10, 0.8, 13, 0.95, 15, 1],
                 },
             },
             beforeIdFor(ENC_VEC_LAYERS.COALNE),
@@ -759,9 +763,11 @@ function mountTrackAidLayers(
                 layout: { 'line-join': 'round', 'line-cap': 'round' },
                 paint: {
                     // The sector colour itself (red/white/green/amber) —
-                    // pre-baked _secColor. Bold enough to read at a glance
-                    // at night, dark halo so a white sector shows on the
-                    // pale day chart.
+                    // pre-baked _secColor. Bold enough to read at a glance at
+                    // night; the "white" sector is a warm off-white (#f0e030,
+                    // the _secColor fallback too) rather than pure #ffffff so
+                    // it still reads on the pale day chart — there is no line
+                    // casing/halo here (that would need a separate under-layer).
                     'line-color': ['coalesce', ['get', '_secColor'], '#f0e030'],
                     'line-width': ['interpolate', ['linear'], ['zoom'], 11, 2, 15, 3.5],
                     'line-opacity': 0.95,
