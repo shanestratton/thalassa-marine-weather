@@ -64,6 +64,7 @@ import {
     DEPCNT_LABEL_INK_DATUM,
     DEPCNT_LABEL_INK_LIVE,
     SCAMIN_CLAUSE,
+    MARK_SCAMIN_CLAUSE,
     buildDepareFillColor,
     buildDepareGlazeFillColor,
     buildDepareSatelliteOpacity,
@@ -273,6 +274,11 @@ const depthStyleState = new WeakMap<mapboxgl.Map, EncDepthStyleState>();
  */
 const scaminAware = (kindFilter: unknown): mapboxgl.FilterSpecification =>
     ['all', kindFilter, SCAMIN_CLAUSE] as unknown as mapboxgl.FilterSpecification;
+
+// Like scaminAware but with the z10 mark floor — for buoys/beacons/lights,
+// which should be visible from z10 (Shane 2026-07-16).
+const scaminAwareMark = (kindFilter: unknown): mapboxgl.FilterSpecification =>
+    ['all', kindFilter, MARK_SCAMIN_CLAUSE] as unknown as mapboxgl.FilterSpecification;
 
 /**
  * THE single choke point for draft changes (risk note: a missed
@@ -502,7 +508,7 @@ function mountPointMarkLayers(
                 type: 'symbol',
                 source: ENC_VEC_SRC.NAVAIDS,
                 minzoom: minZoom,
-                filter: scaminAware(['==', ['get', '_kind'], kind]),
+                filter: scaminAwareMark(['==', ['get', '_kind'], kind]),
                 layout: {
                     'icon-image': ['get', '_icon'],
                     'icon-size': ['interpolate', ['linear'], ['zoom'], 10, 0.45, 15, 0.9],
@@ -852,8 +858,8 @@ function mountTrackAidLayers(
                 filter: [
                     'all',
                     ['==', ['get', '_kind'], 'LIGHTS'],
-                    SCAMIN_CLAUSE,
-                    ['any', ['==', ['get', '_lightTier'], 'major'], ['>=', ['zoom'], 11]],
+                    MARK_SCAMIN_CLAUSE,
+                    ['any', ['==', ['get', '_lightTier'], 'major'], ['>=', ['zoom'], 10]],
                 ] as unknown as mapboxgl.FilterSpecification,
                 layout: {
                     'text-field': '★',
