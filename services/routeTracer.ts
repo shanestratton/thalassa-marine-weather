@@ -470,7 +470,16 @@ function lateralPassRead(
     const boatSide = lateralSideRead(grid, m, ex, ny, keelM);
     const farSide = lateralSideRead(grid, m, -ex, -ny, keelM);
     if (boatSide === 'shoal') return 'shoalside';
-    if (boatSide === 'deep' && farSide === 'shoal') return 'clean';
+    // A lateral guards a shoal on ONE side; the other side is the passing
+    // water. So a CONFIRMED shoal on the FAR side means the boat is on the
+    // passing side — clean — even when the boat side itself reads 'unknown'
+    // because our own avoidance disc (markzone, skipped by lateralSideRead)
+    // obscures the probe out to 36 m. Requiring boat-side 'deep' used to miss
+    // exactly this: Shane 2026-07-16 passed a red mark on the 5 m side (2 m by
+    // the land on the far side) and still got nagged. boatSide is 'deep' or
+    // 'unknown' here (the 'shoal' case returned above), so far-side shoal alone
+    // settles it.
+    if (farSide === 'shoal') return 'clean';
     return 'unknown';
 }
 
@@ -568,14 +577,26 @@ export function validateTraceLeg(
         // A solo mark's IALA avoidance disc, not charted danger — the
         // chart may show good water right here (Skirmish Point
         // 2026-07-14: "crossing a hazard?? but there are not" over
-        // charted 5-6 m). Caution, honestly worded: the punter can see
-        // the mark and judge which side their line belongs. Reported
-        // only when NO hard block exists on the leg.
-        issues.push({
-            severity: 'caution',
-            message: 'passes the danger side of a nearby mark — verify and favour its safe side',
-            at: markZoneAt,
-        });
+        // charted 5-6 m). Its "danger side" is INFERRED from the land
+        // bearing (a heuristic that misfires when the shoal isn't the
+        // nearest-land side — Shane 2026-07-16 got "danger side" while
+        // passing on the CORRECT side of a red mark).
+        //
+        // When a solo lateral sits on this leg, the chart-aware
+        // solo-lateral check (§4 below) is the AUTHORITY: it stays silent
+        // on a clean pass, warns with teeth on a bank-side pass, and owns
+        // the advisory on ONE leg only. Defer to it — don't stack a crude,
+        // doubled "danger side" on top. Fire here only when NO solo lateral
+        // owns the disc (e.g. an offshore direct-hazard), so a genuine
+        // inference isn't lost. Reported only when NO hard block exists.
+        const soloOwnsDisc = ctx.soloLaterals.some((m) => closestOnLeg(m, a, b).distM < SOLO_LATERAL_BAND_M);
+        if (!soloOwnsDisc) {
+            issues.push({
+                severity: 'caution',
+                message: 'passes the danger side of a nearby mark — verify and favour its safe side',
+                at: markZoneAt,
+            });
+        }
     } else if (bankShaveAt) {
         issues.push({ severity: 'caution', message: 'hugs the charted bank — verify the line', at: bankShaveAt });
     }
