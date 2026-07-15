@@ -896,6 +896,88 @@ function featureDiagDeg(feat: Feature): number {
     return Math.hypot(bb[2] - bb[0], bb[3] - bb[1]);
 }
 
+/** loadCellBlobsAndExtents — the merge's first phase, lifted from
+ *  buildMergedVectorData (#2b, pure move): read each cell's LOCAL blob
+ *  (never cloud — the background hydrator fills the rest) and compute its
+ *  DEPARE/DRGARE extent. Mutates the passed accumulators in place;
+ *  missing cells go to missingBlobs for hydration. */
+async function loadCellBlobsAndExtents(
+    cellsCoarseToFine: readonly { id: string; bbox: [number, number, number, number] }[],
+    loadedBlobs: Map<string, EncConversionResult>,
+    depareExtent: Map<string, [number, number, number, number]>,
+    missingBlobs: string[],
+    yieldIfNeeded: () => Promise<void>,
+): Promise<void> {
+    for (const cell of cellsCoarseToFine) {
+        try {
+            // LOCAL blobs only (cloudFallback=false): a registry full of
+            // cloud placeholders used to make this loop download the
+            // ENTIRE chart library sequentially before painting ANYTHING
+            // — a fresh Vercel browser stared at a bare map for tens of
+            // minutes (Shane 2026-07-12: "waited a good 5 minutes...
+            // not working"). Paint what's on hand NOW; the background
+            // hydrator below fetches the rest, and each arrival
+            // re-notifies into the debounced merge — the chart fills in
+            // cell by cell.
+            const blob = await cellStore.loadCellGeoJSON(cell.id, false);
+            if (!blob) {
+                missingBlobs.push(cell.id);
+                continue;
+            }
+            loadedBlobs.set(cell.id, blob);
+            await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
+            let raw = depareExtentCache.get(blob);
+            if (raw === undefined) {
+                let minLon = Infinity,
+                    minLat = Infinity,
+                    maxLon = -Infinity,
+                    maxLat = -Infinity;
+                const visit = (coords: unknown): void => {
+                    if (!Array.isArray(coords)) return;
+                    if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
+                        const lon = coords[0] as number;
+                        const lat = coords[1] as number;
+                        if (lon < minLon) minLon = lon;
+                        if (lat < minLat) minLat = lat;
+                        if (lon > maxLon) maxLon = lon;
+                        if (lat > maxLat) maxLat = lat;
+                        return;
+                    }
+                    for (const c of coords) visit(c);
+                };
+                // DEPARE + DRGARE: S-57 Group 1 means dredged areas
+                // REPLACE depth areas, so DRGARE geometry can sit wholly
+                // outside the DEPARE hull. The clip coverage includes
+                // DRGARE, and a frame that excluded it rasterised such
+                // coverage to ZERO cells → whole-extent fallback → the
+                // corridor blackout, one seam down (review 2026-07-14).
+                for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
+                    for (const f of fc?.features ?? []) {
+                        const g = f?.geometry;
+                        if (!g || g.type === 'GeometryCollection') continue;
+                        visit((g as { coordinates?: unknown }).coordinates);
+                    }
+                }
+                raw =
+                    Number.isFinite(minLon) && maxLon > minLon && maxLat > minLat
+                        ? [minLon, minLat, maxLon, maxLat]
+                        : null;
+                depareExtentCache.set(blob, raw);
+            }
+            if (raw) {
+                depareExtent.set(cell.id, [
+                    Math.max(raw[0], cell.bbox[0]),
+                    Math.max(raw[1], cell.bbox[1]),
+                    Math.min(raw[2], cell.bbox[2]),
+                    Math.min(raw[3], cell.bbox[3]),
+                ]);
+            }
+        } catch (err) {
+            log.warn(`getMergedVectorData: failed to load cell ${cell.id}`, err);
+        }
+    }
+}
+
 async function buildMergedVectorData(
     cells: EncCell[],
     cacheKey: string,
@@ -981,74 +1063,7 @@ async function buildMergedVectorData(
     const loadedBlobs = new Map<string, NonNullable<Awaited<ReturnType<typeof cellStore.loadCellGeoJSON>>>>();
     const depareExtent = new Map<string, [number, number, number, number]>();
     const missingBlobs: string[] = [];
-    for (const cell of cellsCoarseToFine) {
-        try {
-            // LOCAL blobs only (cloudFallback=false): a registry full of
-            // cloud placeholders used to make this loop download the
-            // ENTIRE chart library sequentially before painting ANYTHING
-            // — a fresh Vercel browser stared at a bare map for tens of
-            // minutes (Shane 2026-07-12: "waited a good 5 minutes...
-            // not working"). Paint what's on hand NOW; the background
-            // hydrator below fetches the rest, and each arrival
-            // re-notifies into the debounced merge — the chart fills in
-            // cell by cell.
-            const blob = await cellStore.loadCellGeoJSON(cell.id, false);
-            if (!blob) {
-                missingBlobs.push(cell.id);
-                continue;
-            }
-            loadedBlobs.set(cell.id, blob);
-            await yieldIfNeeded(); // multi-MB JSON.parse just ran synchronously
-            let raw = depareExtentCache.get(blob);
-            if (raw === undefined) {
-                let minLon = Infinity,
-                    minLat = Infinity,
-                    maxLon = -Infinity,
-                    maxLat = -Infinity;
-                const visit = (coords: unknown): void => {
-                    if (!Array.isArray(coords)) return;
-                    if (coords.length >= 2 && typeof coords[0] === 'number' && typeof coords[1] === 'number') {
-                        const lon = coords[0] as number;
-                        const lat = coords[1] as number;
-                        if (lon < minLon) minLon = lon;
-                        if (lat < minLat) minLat = lat;
-                        if (lon > maxLon) maxLon = lon;
-                        if (lat > maxLat) maxLat = lat;
-                        return;
-                    }
-                    for (const c of coords) visit(c);
-                };
-                // DEPARE + DRGARE: S-57 Group 1 means dredged areas
-                // REPLACE depth areas, so DRGARE geometry can sit wholly
-                // outside the DEPARE hull. The clip coverage includes
-                // DRGARE, and a frame that excluded it rasterised such
-                // coverage to ZERO cells → whole-extent fallback → the
-                // corridor blackout, one seam down (review 2026-07-14).
-                for (const fc of [blob.layers.DEPARE, blob.layers.DRGARE]) {
-                    for (const f of fc?.features ?? []) {
-                        const g = f?.geometry;
-                        if (!g || g.type === 'GeometryCollection') continue;
-                        visit((g as { coordinates?: unknown }).coordinates);
-                    }
-                }
-                raw =
-                    Number.isFinite(minLon) && maxLon > minLon && maxLat > minLat
-                        ? [minLon, minLat, maxLon, maxLat]
-                        : null;
-                depareExtentCache.set(blob, raw);
-            }
-            if (raw) {
-                depareExtent.set(cell.id, [
-                    Math.max(raw[0], cell.bbox[0]),
-                    Math.max(raw[1], cell.bbox[1]),
-                    Math.min(raw[2], cell.bbox[2]),
-                    Math.min(raw[3], cell.bbox[3]),
-                ]);
-            }
-        } catch (err) {
-            log.warn(`getMergedVectorData: failed to load cell ${cell.id}`, err);
-        }
-    }
+    await loadCellBlobsAndExtents(cellsCoarseToFine, loadedBlobs, depareExtent, missingBlobs, yieldIfNeeded);
 
     // Charted-water footprint per SHADOWING cell, memoized for this run
     // — feeds the glaze's coverage subtraction. Coordinate arrays are
