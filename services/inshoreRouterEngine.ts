@@ -333,7 +333,7 @@ function routeInshoreOnce(
     gridOverride?: GridOverride,
 ): RouteResult | RouteFailure {
     const safetyM = req.safetyM ?? 1.0;
-    const resolutionM = gridOverride?.resolutionM ?? req.resolutionM ?? 50;
+    let resolutionM = gridOverride?.resolutionM ?? req.resolutionM ?? 50;
     const obstructionBufferM = req.obstructionBufferM ?? 30;
 
     // Per-phase timing — we have no idea where the 25-65 s on iOS is going
@@ -382,6 +382,31 @@ function routeInshoreOnce(
     const padLat = gridOverride ? gridOverride.padDeg : Math.max(maxSpan * 0.5, 0.08);
     const padLon = gridOverride ? gridOverride.padDeg : Math.max(maxSpan * 0.5, 0.08);
     const bbox: [number, number, number, number] = [minLon - padLon, minLat - padLat, maxLon + padLon, maxLat + padLat];
+
+    // CELL-COUNT CEILING (2026-07-15 crash audit): the route path had NO cap,
+    // unlike the tracer (MAX_GRID_CELLS=1M since 2026-07-15). A near-50 NM
+    // route at the fixed 50 m res crosses ~12M cells (~600 MB of typed arrays)
+    // — the latent OOM kill on iOS. buildNavGrid is also O(features × cells),
+    // so uncapped cells drive the 37.8 s freeze too. Coarsen the resolution
+    // upward so width×height never exceeds the budget; only bites routes big
+    // enough to be open water (where coarser is fine) — a marina/short route
+    // stays at 50 m. The fine-marina gridOverride pass keeps its own tight
+    // bbox so it never trips this. Mirrors tracerResolutionM.
+    {
+        const midLatCap = (minLat + maxLat) / 2;
+        const mPerLonCap = 111_320 * Math.cos((midLatCap * Math.PI) / 180);
+        const wM = (bbox[2] - bbox[0]) * mPerLonCap;
+        const hM = (bbox[3] - bbox[1]) * M_PER_DEG_LAT;
+        const cellsAt = (wM / resolutionM) * (hM / resolutionM);
+        const MAX_ROUTE_CELLS = 2_500_000;
+        if (cellsAt > MAX_ROUTE_CELLS) {
+            const coarsened = Math.ceil(Math.sqrt((wM * hM) / MAX_ROUTE_CELLS));
+            engineLog.warn(
+                `route grid ${Math.round(cellsAt / 1e6)}M cells at ${resolutionM}m exceeds ${MAX_ROUTE_CELLS / 1e6}M — coarsening to ${coarsened}m`,
+            );
+            resolutionM = coarsened;
+        }
+    }
 
     let tPhase = Date.now();
     const { grid, cacheHit: gridCacheHit } = buildNavGridCached(

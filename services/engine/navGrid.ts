@@ -229,6 +229,13 @@ export function buildNavGrid(
     const dLat = resolutionM / M_PER_DEG_LAT;
     const width = Math.max(1, Math.ceil((maxLon - minLon) / dLon));
     const height = Math.max(1, Math.ceil((maxLat - minLat) / dLat));
+    // UNCONDITIONAL on-device breadcrumb (2026-07-15 crash audit): the paired
+    // START/DONE lines prove hang-vs-OOM in the Xcode console — a START with no
+    // matching DONE = killed mid-synchronous-build; low estMB = HANG (watchdog),
+    // hundreds of MB = OOM (jetsam). createLogger.warn is visible in prod.
+    engineLog.warn(
+        `buildNavGrid START ${width}×${height} cells=${width * height} estMB=${Math.round((width * height * 40) / 1e6)} res=${resolutionM}m`,
+    );
 
     const cells = new Float32Array(width * height);
     cells.fill(UNKNOWN_OPEN); // permissive default — see header doc
@@ -1629,6 +1636,10 @@ export function buildNavGrid(
     const breakdown = Object.entries(passTimings)
         .map(([k, v]) => `${k}=${v}ms(${featureCounts[k]}f)`)
         .join(' ');
+    // Unconditional DONE (pairs with the START breadcrumb) — its presence
+    // proves the sync build finished rather than being killed mid-compute,
+    // and the ms is the freeze duration to beat with the worker move.
+    engineLog.warn(`buildNavGrid DONE ${buildTotal}ms ${width}×${height}`);
     if (ENGINE_DEBUG)
         console.warn(
             `[inshoreEngine] buildNavGrid total=${buildTotal}ms grid=${width}x${height}(${(width * height).toLocaleString()}cells) — ${breakdown}`,
