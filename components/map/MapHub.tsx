@@ -107,7 +107,7 @@ import {
     type SeaVoyageChoice,
 } from '../../services/shiplog/RoutesAndTracks';
 import { tryInshoreRoute } from '../../services/InshoreRouter';
-import { vesselDraftMetres } from '../../services/units';
+import { vesselDraftMetres, vesselAirDraftMetres } from '../../services/units';
 import { DEFAULT_TIDE_SAFETY_M } from '../../services/routing/tidalWindow';
 import {
     buildTracerContext,
@@ -124,7 +124,6 @@ import {
     tracePinBlocked,
     snapTraceTapToWater,
     rdpTracePoints,
-    capSegmentLength,
     reverseRouteName,
     bearingDegBetween,
     courseArrow,
@@ -247,20 +246,6 @@ const TIDE_ACK_KEY = 'thalassa_tide_depth_ack_v1';
  *  cleared the leg cache on every outgrow (Shane 2026-07-11: full re-check
  *  on each new pin, then no depth at all through the shipping channel). */
 const TRACE_CLUSTER_SPAN_M = 24_000;
-
-// ⚡ Auto route tuning. Sub-legs are short so fixLegOnGrid's A* corridor
-// stays under its 600k-cell cap; windows are ≤ the depth-grid budget so
-// each context builds with a real grid; the window cap bounds how many
-// synchronous grid builds one tap can trigger (~360 km of routed water).
-const AUTO_SUB_LEG_M = 3_000;
-const AUTO_WINDOW_M = 18_000;
-const AUTO_MAX_WINDOWS = 20;
-
-/** Equirectangular distance in metres — auto-route leg-length math. */
-const distMetres = (p: { lat: number; lon: number }, q: { lat: number; lon: number }): number => {
-    const mLon = 111_320 * Math.cos((((p.lat + q.lat) / 2) * Math.PI) / 180);
-    return Math.hypot((q.lat - p.lat) * 110_540, (q.lon - p.lon) * mLon);
-};
 
 export const MapHub: React.FC<MapHubProps> = ({
     mapboxToken,
@@ -1322,96 +1307,8 @@ export const MapHub: React.FC<MapHubProps> = ({
             });
         }, 30);
     }, [legVerdicts, ackedLegs, applyFixes, flashTraceFeedback]);
-    // ⚡ Auto route (Shane 2026-07-15: "I place a waypoint, I place
-    // another, I press auto route — the app bends between them around
-    // shallows and land … the autoroute should drop the pins for us").
-    // fixLegOnGrid is a SHORT-leg tool (its A* corridor caps at 600k
-    // cells), so a long leg can't be routed in one shot — auto route
-    // SUBDIVIDES the leg itself into short sub-legs (that IS the job),
-    // builds one shared depth grid per ~18 km window, and A*s each piece
-    // around land/shoals. Straight open water keeps a light spine of pins
-    // (so it's depth-checkable, not one "too much water" span); near shore
-    // the pieces bend. Beyond a sane length it still drops the pins and
-    // points at the four-tier frame router for the open-water passage.
-    // Tracer grid only — no tier seam, works offline, routes BETWEEN the
-    // skipper's pins so close-quarters stays human.
-    const autoRouteLastLeg = useCallback(() => {
-        if (capturedCoords.length < 2 || fixBusyLeg !== null) return;
-        const iLast = capturedCoords.length - 2;
-        const a = capturedCoords[iLast];
-        const b = capturedCoords[iLast + 1];
-        const draft = gradedDraftRef.current;
-        triggerHaptic('medium');
-        setFixBusyLeg(iLast);
-        flashTraceFeedback('Auto-routing your last leg…');
-        setTimeout(() => {
-            void (async () => {
-                try {
-                    if (!draft) {
-                        flashTraceFeedback('Still reading the chart — try again in a moment');
-                        return;
-                    }
-                    const base = capturedCoords; // snapshot for the splice
-                    const legM = distMetres(a, b);
-                    // Straight subdivision into short, individually-routable pieces.
-                    const nodes = capSegmentLength([a, b], AUTO_SUB_LEG_M);
-                    // Monster leg: don't grind through dozens of grid builds —
-                    // drop the checkable spine and hand the open water to the
-                    // frame router (still "auto route dropped the pins for us").
-                    if (Math.ceil(legM / AUTO_WINDOW_M) > AUTO_MAX_WINDOWS) {
-                        const spine = capSegmentLength([a, b], AUTO_WINDOW_M);
-                        setCapturedCoords([...base.slice(0, iLast), ...spine]);
-                        flashTraceFeedback(
-                            `Long passage — dropped ${spine.length - 2} pins; use ⚡ Auto to a destination for open water`,
-                        );
-                        return;
-                    }
-                    // Route each sub-leg, one shared context per ~18 km window.
-                    const routed: Array<{ lat: number; lon: number }> = [a];
-                    let ctx: TracerContext | null = null;
-                    let routedAny = false;
-                    for (let s = 0; s < nodes.length - 1; s++) {
-                        const p = nodes[s];
-                        const q = nodes[s + 1];
-                        if (!ctx || !ctx.grid || !pointInBbox(p, ctx.bbox, 0.004) || !pointInBbox(q, ctx.bbox, 0.004)) {
-                            const end = Math.min(nodes.length - 1, s + Math.ceil(AUTO_WINDOW_M / AUTO_SUB_LEG_M));
-                            const built = await buildTracerContext(traceBboxPadded(nodes.slice(s, end + 1)), draft.d, {
-                                draftAssumed: draft.assumed,
-                            });
-                            ctx = built.status === 'ready' ? built.ctx : null;
-                        }
-                        if (ctx?.grid) {
-                            const detour = fixLegOnGrid(ctx, p, q);
-                            if (detour && detour.length >= 2) {
-                                routed.push(...detour.slice(1)); // detour = [p, …interior…, q]; drop dup p
-                                routedAny = true;
-                                continue;
-                            }
-                        }
-                        routed.push(q); // no grid / straight is already clean → keep the node
-                    }
-                    // Clean up: RDP away colinear spine on open water, then re-cap
-                    // any long straight run so the "too much water" banner stays gone.
-                    const cleaned = capSegmentLength(rdpTracePoints(routed, 40), AUTO_WINDOW_M);
-                    const newPins = [...base.slice(0, iLast), ...cleaned];
-                    const added = newPins.length - base.length;
-                    setCapturedCoords(newPins);
-                    flashTraceFeedback(
-                        !routedAny
-                            ? `No ENC chart for this stretch — dropped ${Math.max(0, added)} pins, depth unchecked`
-                            : added > 0
-                              ? `Auto-routed — ${added} pin${added > 1 ? 's' : ''} added, re-checking now`
-                              : 'Straight shot is already the clean line ✓',
-                    );
-                } catch (err) {
-                    log.warn(`auto-route failed: ${err instanceof Error ? err.message : String(err)}`);
-                    flashTraceFeedback('Auto-route hit a snag — try again');
-                } finally {
-                    setFixBusyLeg(null);
-                }
-            })();
-        }, 30);
-    }, [capturedCoords, fixBusyLeg, flashTraceFeedback]);
+    // ⚡ Auto route lives below the settings declaration (it reads
+    // settings.vessel for draft/air-draft) — see autoRouteLastLeg.
     // Paste-import (Phase 4 lite): consume the exact format Copy produces —
     // mate-sharing over Messages with zero backend.
     const pasteTrace = useCallback(async () => {
@@ -1472,6 +1369,73 @@ export const MapHub: React.FC<MapHubProps> = ({
     const locationDotRef = useRef<mapboxgl.Marker | null>(null);
     const { settings } = useSettings();
     const { setPage, currentView } = useUI();
+
+    // ⚡ Auto route (Shane 2026-07-15: "follow deep water. if there is a
+    // place we cannot cross, then check that against tide times. we cannot
+    // cross land"). Drives the REAL inshore routing engine (tryInshoreRoute)
+    // between the last two pins — the same engine ⚡ Auto-to-destination
+    // uses. It follows navigable/deep water, treats LNDARE as a hard wall
+    // (never crosses land), and the 'tideAssist' profile is willing to route
+    // a shallow that clears with the tide and chip the window rather than
+    // detour miles — exactly "follow deep water, tide-check where we can't
+    // cross". The engine's polyline drops back as editable, re-graded pins.
+    //
+    // HARD RULE: on ANY engine failure (no route, no charts, too far) auto
+    // route CHANGES NOTHING and says so. It must NEVER fall back to a straight
+    // line — a straight line crosses land, which is exactly the failure the
+    // first cut shipped (my mistake). Better to route nothing than route over
+    // a headland.
+    const autoRouteLastLeg = useCallback(() => {
+        if (capturedCoords.length < 2 || fixBusyLeg !== null) return;
+        const iLast = capturedCoords.length - 2;
+        const a = capturedCoords[iLast];
+        const b = capturedCoords[iLast + 1];
+        triggerHaptic('medium');
+        setFixBusyLeg(iLast);
+        flashTraceFeedback('Following deep water…');
+        setTimeout(() => {
+            void (async () => {
+                try {
+                    const res = await tryInshoreRoute(
+                        { lat: a.lat, lon: a.lon },
+                        { lat: b.lat, lon: b.lon },
+                        vesselDraftMetres(settings.vessel),
+                        vesselAirDraftMetres(settings.vessel),
+                        'tideAssist',
+                    );
+                    if (res && 'polyline' in res) {
+                        const pts = res.polyline.map(([lon, lat]) => ({ lat, lon }));
+                        // The engine's line runs a→b; keep the skipper's own two
+                        // pins and splice the engine's BENDS between them (40 m
+                        // RDP so it's editable, not vertex soup). No bends = the
+                        // straight line was already clear deep water.
+                        const interior = rdpTracePoints(pts, 40).slice(1, -1);
+                        const base = capturedCoords;
+                        const newPins = [...base.slice(0, iLast + 1), ...interior, ...base.slice(iLast + 1)];
+                        setCapturedCoords(newPins);
+                        flashTraceFeedback(
+                            interior.length > 0
+                                ? `Routed through deep water — ${interior.length} pin${
+                                      interior.length > 1 ? 's' : ''
+                                  } added, tide-checking now`
+                                : 'Open deep water the whole way ✓',
+                        );
+                    } else if (res && 'error' in res) {
+                        // Engine built a grid but found no clean water path —
+                        // leave the pins alone, tell the truth.
+                        flashTraceFeedback(`No clear water route — ${res.error.slice(0, 60)}`);
+                    } else {
+                        flashTraceFeedback('No route here — off the charts or too far. Nothing changed.');
+                    }
+                } catch (err) {
+                    log.warn(`auto-route failed: ${err instanceof Error ? err.message : String(err)}`);
+                    flashTraceFeedback('Auto-route failed — nothing changed, try again');
+                } finally {
+                    setFixBusyLeg(null);
+                }
+            })();
+        }, 30);
+    }, [capturedCoords, fixBusyLeg, settings.vessel, flashTraceFeedback]);
 
     // Safety depth driving the ENC day-palette bands + bold safety contour:
     // the vessel's real draft (feet→metres via vesselDraftMetres) plus the
