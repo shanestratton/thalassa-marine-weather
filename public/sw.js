@@ -65,9 +65,11 @@
 // had aged out of the newest-10k entry window (15,135 rows since
 // 3 July, window floor 10 July) and could NEVER appear; summaries
 // see the whole history, the polyline loads per-voyage on tap.
-const CACHE_NAME = 'thalassa-v75-core';
-const TILE_CACHE = 'thalassa-v75-tiles';
-const DATA_CACHE = 'thalassa-v75-data';
+// v76: ⇄ reverse also flips the route NAME (Newport - Lady Musgrave →
+// Lady Musgrave - Newport), so the return run saves as its own route.
+const CACHE_NAME = 'thalassa-v76-core';
+const TILE_CACHE = 'thalassa-v76-tiles';
+const DATA_CACHE = 'thalassa-v76-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];
