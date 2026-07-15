@@ -58,9 +58,12 @@
 // markers reconcile instead of rebuild, redundant verdict publishes
 // and ghost-lane rescans killed. The "unresponsive with many
 // waypoints" bundle must go.
-const CACHE_NAME = 'thalassa-v73-core';
-const TILE_CACHE = 'thalassa-v73-tiles';
-const DATA_CACHE = 'thalassa-v73-data';
+// v74: ⇄ Reverse flips the trace for the return trip (legs re-grade
+// for the opposite heading); Save also mirrors the route into the
+// ship's log as a suggested (planned_%) route.
+const CACHE_NAME = 'thalassa-v74-core';
+const TILE_CACHE = 'thalassa-v74-tiles';
+const DATA_CACHE = 'thalassa-v74-data';
 const LAN_TILE_CACHE = 'thalassa-v57-lan-tiles';
 
 const ASSETS = ['/', '/index.html', '/index.css', '/manifest.json'];

@@ -1043,12 +1043,56 @@ export const MapHub: React.FC<MapHubProps> = ({
                 else if (result === 'toolarge') flashTraceFeedback('Saved here — over 200 pins, too long to sync');
                 else if (result === 'error') flashTraceFeedback('Saved here — cloud sync will retry later');
             });
+            // Suggested-route mirror (Shane 2026-07-15: "when we save a
+            // route, it should automatically save as a suggested route in
+            // the log page") — the same planned_% logbook write Sail does,
+            // minus the follow. Background under a JS deadline; the
+            // label+day duplicate guard makes same-day re-saves quiet
+            // no-ops instead of twins.
+            void (async () => {
+                try {
+                    const [{ savePassagePlanToLogbook }, { withDeadline }] = await Promise.all([
+                        import('../../services/shiplog/PassagePlanSave'),
+                        import('../../utils/deadline'),
+                    ]);
+                    const plan = traceAsVoyagePlan(
+                        traceName,
+                        capturedCoords,
+                        legVerdicts.length === capturedCoords.length - 1 && legVerdicts.every((v) => v !== null)
+                            ? legVerdicts.map((v) => v!.grade)
+                            : undefined,
+                    );
+                    await withDeadline(savePassagePlanToLogbook(plan), 25_000, 'trace save → logbook');
+                    const { invalidateRoutesAndTracks } = await import('../../services/shiplog/RoutesAndTracks');
+                    invalidateRoutesAndTracks();
+                } catch (err) {
+                    const { DUPLICATE_PASSAGE_PLAN_ERROR } = await import('../../services/shiplog/PassagePlanSave');
+                    if (!(err instanceof Error && err.message === DUPLICATE_PASSAGE_PLAN_ERROR)) {
+                        log.warn(`trace save → logbook skipped: ${err instanceof Error ? err.message : String(err)}`);
+                    }
+                }
+            })();
         } else {
             // Quota refused the write — saying "Saved ✓" over a route that
             // won't exist next session is exactly the lie we don't tell.
             flashTraceFeedback('Could not save — storage full');
         }
-    }, [capturedCoords, traceName, savedTraces, overwriteArm, flashTraceFeedback]);
+    }, [capturedCoords, traceName, savedTraces, overwriteArm, legVerdicts, flashTraceFeedback]);
+    // Return-trip flip (Shane 2026-07-15: "when we are returning, we can
+    // flip the trip the other way"): reverse the pins and let the grader
+    // re-run. Leg cache keys are DIRECTION-SENSITIVE (a↔b swap, the
+    // |last suffix moves, solo-lateral advisory ownership follows travel
+    // direction), so reversed legs re-grade honestly instead of reusing
+    // outbound verdicts — the water is the same but the reads aren't.
+    const reverseTrace = useCallback(() => {
+        if (capturedCoords.length < 2) return;
+        triggerHaptic('medium');
+        setSelectedPin(null);
+        setInsertAfter(null);
+        insertAfterRef.current = null;
+        setCapturedCoords((prev) => [...prev].reverse());
+        flashTraceFeedback('Reversed — checking the return run now');
+    }, [capturedCoords.length, flashTraceFeedback]);
     const copyFairwaySnippet = useCallback(async () => {
         if (capturedCoords.length < 2) return;
         try {
@@ -4669,6 +4713,17 @@ export const MapHub: React.FC<MapHubProps> = ({
                                                 className="flex-1 rounded-lg bg-white/5 py-1.5 text-[11px] font-black uppercase tracking-wide text-gray-400 active:scale-95 disabled:opacity-40"
                                             >
                                                 Clear
+                                            </button>
+                                            {/* Return-trip flip: start↔finish swap, legs
+                                                re-grade for the opposite heading. */}
+                                            <button
+                                                onClick={reverseTrace}
+                                                disabled={capturedCoords.length < 2}
+                                                aria-label="Reverse route — plot the return trip"
+                                                title="Reverse route"
+                                                className="rounded-lg bg-white/5 px-2.5 py-1.5 text-[13px] font-black text-sky-300 active:scale-95 disabled:opacity-40"
+                                            >
+                                                ⇄
                                             </button>
                                         </div>
                                         {capturedCoords.length >= 2 && (
