@@ -363,6 +363,105 @@ export interface EncVectorMountOptions {
  * layer-rebuild cost on cell-list changes; we just setData on the
  * source.
  */
+/** Depth-AREA band fills, lifted out of the mount monolith (#2b, pure
+ *  move): the absolute white-ramp DEPARE, the satellite glaze twin, and
+ *  the fine-survey water repainted above land. Sources are ensured by the
+ *  caller; the base-treatment + tide sync run in the caller right after. */
+function mountDepthAreaLayers(
+    map: mapboxgl.Map,
+    minZoom: number,
+    beforeIdFor: (layerId: string) => string | undefined,
+): void {
+    // ── DEPARE (absolute white-ramp band fills) ───────────────────
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPARE,
+                type: 'fill',
+                source: ENC_VEC_SRC.DEPARE,
+                minzoom: minZoom,
+                paint: {
+                    // Absolute paper-chart ramp — see
+                    // buildDepareFillColor. Static: draft changes move
+                    // only the safety contour now.
+                    'fill-color': buildDepareFillColor(),
+                    // Near-opaque paper on the chart, depth-graded
+                    // glaze over satellite — syncDepareBaseTreatment
+                    // right below picks per the current base.
+                    'fill-opacity': DEPARE_CHART_OPACITY,
+                    // NO antialiasing: adjacent bands (and the 1°×1° cell
+                    // tiles) abut exactly; AA outlines on translucent
+                    // fills double-painted every shared edge into a
+                    // hairline "graticule" over the glaze (Shane
+                    // 2026-07-11: "dead straight horizontal and vertical
+                    // lines"). Aliased band edges are sub-pixel at retina.
+                    'fill-antialias': false,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPARE),
+        );
+    } else {
+        // Heal layers created by earlier app versions (AA on).
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
+    }
+    // ── DEPARE_GLAZE (overlap-clipped satellite twin) ─────────────
+    // FLAT two-tone colour off the CLIPPED collection (white / drying
+    // khaki, chart datum) — NOT the depth ramp: graded hues turned
+    // every clipped-piece overlap into a different-tone rectangle
+    // ("blocky squares... 80's styling", 2026-07-14). White-on-white
+    // overlap is just white. syncDepareBaseTreatment owns the opacity
+    // (0 on the chart, the keel-keyed glaze over imagery).
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPARE_GLAZE,
+                type: 'fill',
+                source: ENC_VEC_SRC.DEPARE_GLAZE,
+                minzoom: minZoom,
+                paint: {
+                    'fill-color': buildDepareGlazeFillColor(),
+                    'fill-opacity': 0,
+                    // AA OFF, matching the chart fills (Shane 2026-07-12:
+                    // "vertical + horizontal lines" once the 172-cell
+                    // bucket landed). Overlap-clipping stops the WITHIN-
+                    // cell band feathers from double-painting, but it does
+                    // nothing for adjacent CELLS: their clipped glaze
+                    // polygons abut along dead-straight bbox edges, and AA
+                    // feathered every one of those seams into a hairline —
+                    // invisible at 19 cells, a full graticule at 172.
+                    // Aliased band edges are sub-pixel on the retina phone;
+                    // if desktop stair-steps ever bite, the fix is a cross-
+                    // cell geometry dissolve, not AA back on.
+                    'fill-antialias': false,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPARE_GLAZE),
+        );
+    }
+    // ── DEPARE_FINE (fine-survey water repainted ABOVE land) ──────
+    // Same source, filtered to harbour-grade ranks. Sits over LNDARE/
+    // COALNE so a coarse cell's generalised land blob can't swallow a
+    // finer survey's rivers and canal estates (Mooloolaba, 2026-07-11).
+    // Not clickable — the base DEPARE layer answers taps.
+    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
+        map.addLayer(
+            {
+                id: ENC_VEC_LAYERS.DEPARE_FINE,
+                type: 'fill',
+                source: ENC_VEC_SRC.DEPARE,
+                minzoom: minZoom,
+                filter: DEPARE_FINE_RANK_FILTER,
+                paint: {
+                    'fill-color': buildDepareFillColor(),
+                    'fill-opacity': DEPARE_CHART_OPACITY,
+                    'fill-antialias': false,
+                },
+            },
+            beforeIdFor(ENC_VEC_LAYERS.DEPARE_FINE),
+        );
+    }
+}
+
 /** Depth-CONTOUR layers, lifted out of the mount monolith (mission-audit
  *  #2b — pure statement move, identical behaviour): the interpolated
  *  DERIVED densification (faint teal dashes that can never pass for
@@ -599,94 +698,9 @@ export function mountEncVectorLayer(
         return anchor;
     };
 
-    // ── DEPARE (absolute white-ramp band fills) ───────────────────
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPARE,
-                type: 'fill',
-                source: ENC_VEC_SRC.DEPARE,
-                minzoom: minZoom,
-                paint: {
-                    // Absolute paper-chart ramp — see
-                    // buildDepareFillColor. Static: draft changes move
-                    // only the safety contour now.
-                    'fill-color': buildDepareFillColor(),
-                    // Near-opaque paper on the chart, depth-graded
-                    // glaze over satellite — syncDepareBaseTreatment
-                    // right below picks per the current base.
-                    'fill-opacity': DEPARE_CHART_OPACITY,
-                    // NO antialiasing: adjacent bands (and the 1°×1° cell
-                    // tiles) abut exactly; AA outlines on translucent
-                    // fills double-painted every shared edge into a
-                    // hairline "graticule" over the glaze (Shane
-                    // 2026-07-11: "dead straight horizontal and vertical
-                    // lines"). Aliased band edges are sub-pixel at retina.
-                    'fill-antialias': false,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPARE),
-        );
-    } else {
-        // Heal layers created by earlier app versions (AA on).
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE, 'fill-antialias', false);
-    }
-    // ── DEPARE_GLAZE (overlap-clipped satellite twin) ─────────────
-    // FLAT two-tone colour off the CLIPPED collection (white / drying
-    // khaki, chart datum) — NOT the depth ramp: graded hues turned
-    // every clipped-piece overlap into a different-tone rectangle
-    // ("blocky squares... 80's styling", 2026-07-14). White-on-white
-    // overlap is just white. syncDepareBaseTreatment owns the opacity
-    // (0 on the chart, the keel-keyed glaze over imagery).
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_GLAZE)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPARE_GLAZE,
-                type: 'fill',
-                source: ENC_VEC_SRC.DEPARE_GLAZE,
-                minzoom: minZoom,
-                paint: {
-                    'fill-color': buildDepareGlazeFillColor(),
-                    'fill-opacity': 0,
-                    // AA OFF, matching the chart fills (Shane 2026-07-12:
-                    // "vertical + horizontal lines" once the 172-cell
-                    // bucket landed). Overlap-clipping stops the WITHIN-
-                    // cell band feathers from double-painting, but it does
-                    // nothing for adjacent CELLS: their clipped glaze
-                    // polygons abut along dead-straight bbox edges, and AA
-                    // feathered every one of those seams into a hairline —
-                    // invisible at 19 cells, a full graticule at 172.
-                    // Aliased band edges are sub-pixel on the retina phone;
-                    // if desktop stair-steps ever bite, the fix is a cross-
-                    // cell geometry dissolve, not AA back on.
-                    'fill-antialias': false,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPARE_GLAZE),
-        );
-    }
-    // ── DEPARE_FINE (fine-survey water repainted ABOVE land) ──────
-    // Same source, filtered to harbour-grade ranks. Sits over LNDARE/
-    // COALNE so a coarse cell's generalised land blob can't swallow a
-    // finer survey's rivers and canal estates (Mooloolaba, 2026-07-11).
-    // Not clickable — the base DEPARE layer answers taps.
-    if (!map.getLayer(ENC_VEC_LAYERS.DEPARE_FINE)) {
-        map.addLayer(
-            {
-                id: ENC_VEC_LAYERS.DEPARE_FINE,
-                type: 'fill',
-                source: ENC_VEC_SRC.DEPARE,
-                minzoom: minZoom,
-                filter: DEPARE_FINE_RANK_FILTER,
-                paint: {
-                    'fill-color': buildDepareFillColor(),
-                    'fill-opacity': DEPARE_CHART_OPACITY,
-                    'fill-antialias': false,
-                },
-            },
-            beforeIdFor(ENC_VEC_LAYERS.DEPARE_FINE),
-        );
-    }
+    // Depth-area band fills (DEPARE + satellite glaze + fine repaint) live
+    // in mountDepthAreaLayers now — see #2b.
+    mountDepthAreaLayers(map, minZoom, beforeIdFor);
 
     // Mount can happen while satellite is already on (style swap,
     // late cell load) — apply the right treatment immediately. Same
