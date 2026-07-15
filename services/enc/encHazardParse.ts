@@ -123,6 +123,49 @@ export function buildCoastlines(blob: EncConversionResult): EncCoastline[] {
  * Build the CATZOC zone list from a cell's M_QUAL FeatureCollection.
  * Skips features without a usable CATZOC attribute (1..6).
  */
+/**
+ * Explode a cell's SOUNDG MultiPoint clouds into individual labelled
+ * point features — the minimal `{_d, _minZoom?}` bag the merged heap
+ * needs (deliberately NO provenance: a harbour cell carries thousands of
+ * soundings). Depth comes from the SENC `depths` array, the 2.5D Z, or
+ * VALSOU/DEPTH — whichever the extraction path supplied. Non-finite
+ * coords/depths are skipped, never a bogus 0 m point.
+ *
+ * Pure + testable; lifted verbatim out of the merge monolith (#2b) — the
+ * caller pushes the result into merged.SOUNDG one feature at a time.
+ */
+export function explodeSoundings(fc: FeatureCollection | undefined): Feature[] {
+    const out: Feature[] = [];
+    for (const feat of fc?.features ?? []) {
+        const g = feat?.geometry;
+        if (!g) continue;
+        const featProps = (feat.properties ?? {}) as Record<string, unknown>;
+        const minZoom = typeof featProps._minZoom === 'number' ? featProps._minZoom : undefined;
+        const depthsArr = Array.isArray(featProps.depths) ? (featProps.depths as unknown[]) : null;
+        const coords: number[][] =
+            g.type === 'MultiPoint'
+                ? (g.coordinates as number[][])
+                : g.type === 'Point'
+                  ? [g.coordinates as number[]]
+                  : [];
+        for (let i = 0; i < coords.length; i++) {
+            const c = coords[i];
+            if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) continue;
+            const raw = depthsArr?.[i] ?? c[2] ?? featProps.VALSOU ?? featProps.DEPTH;
+            const d = typeof raw === 'number' ? raw : Number(raw);
+            if (!Number.isFinite(d)) continue;
+            const props: Record<string, unknown> = { _d: Math.round(d * 10) / 10 };
+            if (minZoom !== undefined) props._minZoom = minZoom;
+            out.push({
+                type: 'Feature',
+                geometry: { type: 'Point', coordinates: [c[0], c[1]] },
+                properties: props,
+            });
+        }
+    }
+    return out;
+}
+
 export function buildCatzocZones(blob: EncConversionResult): EncCatzocZone[] {
     const fc = blob.layers.M_QUAL;
     if (!fc || !Array.isArray(fc.features)) return [];
