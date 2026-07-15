@@ -32,7 +32,7 @@ interface NavGridJob {
     obstructionBufferM: number;
     relaxedLndare?: boolean;
     relaxZones?: RelaxZone[];
-    routeProfile?: 'safest' | 'tideAssist';
+    routeProfile?: 'safest' | 'tideAssist' | 'tideDirect';
 }
 
 const ctx = self as unknown as {

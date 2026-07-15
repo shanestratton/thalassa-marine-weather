@@ -104,6 +104,13 @@ describe('NTM survey-override zones', () => {
         // Under the tideAssist profile the grading rides the assist scale.
         expect(cellCostMultiplier(-1, false, false, true, 0.4)).toBeCloseTo(9.0);
         expect(cellCostMultiplier(-1, false, false, true, 1.5)).toBeCloseTo(20.0);
+        // The auto-route 'tideDirect' profile passes assistMul=1.5, so a plain
+        // recoverable caution cell prices at 1.5× (not 10×) — low enough that
+        // A* prefers a near-direct crossing over a modest deep detour. Drying
+        // and deep-unmarked are unaffected by assistMul.
+        expect(cellCostMultiplier(-1, false, false, true, Number.NaN, 1.5)).toBe(1.5);
+        expect(cellCostMultiplier(-1, false, true, false, Number.NaN, 1.5)).toBe(120.0);
+        expect(cellCostMultiplier(-1, false, false, false, Number.NaN, 1.5)).toBe(40.0);
     });
 
     it('WITHOUT the survey: crosses the charted 2.0 m bar on the direct line', () => {

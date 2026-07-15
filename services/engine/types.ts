@@ -173,9 +173,14 @@ export interface RouteRequest {
      * (requiredRise ≤ 1.8 m) cost 10×, so a bank crossing like the southern
      * Bribie 2.0 m patch becomes routable — and ships with its tide window
      * (shallowRuns → "cross only with ≥ +0.9 m above LAT, clears HH:MM–HH:MM").
-     * Part of the grid cache key.
+     * 'tideDirect' is the AUTO-ROUTE profile: the SAME recoverable mask as
+     * tideAssist but the recoverable banks price at only 1.5× (vs 10×), so A*
+     * commits to the near-direct crossing rather than a modest deep detour to a
+     * marina channel — "follow the deepest water it can WITHIN the corridor;
+     * where it can't, cross on the tide" (drying + land still hard-blocked, so
+     * it never crosses those). Part of the grid cache key.
      */
-    routeProfile?: 'safest' | 'tideAssist';
+    routeProfile?: 'safest' | 'tideAssist' | 'tideDirect';
 }
 
 /**
@@ -455,6 +460,15 @@ export interface NavGrid {
      * cells. Optional for cached-grid back-compat.
      */
     tideAssist?: Uint8Array;
+    /**
+     * Cost multiplier applied to the {@link tideAssist} recoverable cells.
+     * 10 for the 'tideAssist' profile (the tide-window "shortest"); 1.5 for
+     * the auto-route 'tideDirect' profile, which prices the recoverable banks
+     * low enough that A* prefers a near-direct crossing over a modest deep
+     * detour. Absent ⇒ cellCostMultiplier defaults to 10 (tideAssist parity).
+     * Baked into the grid at build time and part of the profile cache key.
+     */
+    assistCostMul?: number;
     /**
      * Per-cell wet-chart-land-conflict flag (1 = a coarse LNDARE painted over
      * a finer cell's wet DEPARE band and the wet claim won — the cell is
