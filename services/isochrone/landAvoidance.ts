@@ -587,7 +587,18 @@ export async function validateRouteSegments(
             const a = result[i];
             const b = result[i + 1];
             const startIdx = allSamples.length;
-            const samples = sampleSegment(a.lat, a.lon, b.lat, b.lon);
+            const interior = sampleSegment(a.lat, a.lon, b.lat, b.lon);
+            // sampleSegment excludes both endpoints and returns [] for legs
+            // under FINE_SAMPLE_SPACING_NM (231 m), so a hazard sitting AT an
+            // interior turn-point, or anywhere on a short marina/canal leg,
+            // got ZERO ENC validation — and the 150 m point-hazard guard is
+            // useless if the router never samples near the waypoint (audit #2).
+            // Prepend the segment's START waypoint for INTERIOR segments only
+            // (i >= 1). The route's own origin (i === 0's start) and
+            // destination (last b) stay unchecked on purpose — they're the
+            // user's chosen anchorage/berth, often intentionally in shoal
+            // water, and must never trigger a detour AWAY from themselves.
+            const samples = i >= 1 ? [{ lat: a.lat, lon: a.lon, frac: 0 }, ...interior] : interior;
             const aTimeMs =
                 options.departureTimeMs != null && Number.isFinite(a.timeHours)
                     ? options.departureTimeMs + a.timeHours * 3_600_000
