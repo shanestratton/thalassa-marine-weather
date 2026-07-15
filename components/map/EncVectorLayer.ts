@@ -384,7 +384,9 @@ function mountDepthAreaLayers(
                 source: ENC_VEC_SRC.DEPARE_GLAZE,
                 minzoom: minZoom,
                 paint: {
-                    'fill-color': buildDepareGlazeFillColor(),
+                    // Placeholder S — syncDepareBaseTreatment (called right after
+                    // mount) re-asserts colour + opacity keyed to the live draft.
+                    'fill-color': buildDepareGlazeFillColor(DEFAULT_SAFETY_DEPTH_M),
                     'fill-opacity': 0,
                     // AA OFF, matching the chart fills (Shane 2026-07-12:
                     // "vertical + horizontal lines" once the 172-cell
@@ -1571,7 +1573,7 @@ export function syncDepareBaseTreatment(map: mapboxgl.Map): void {
         // TOGETHER on the same datum (pairing invariant, encDepthStyle):
         // applyTideOffsetPaint deliberately skips this layer.
         const safetyDepthM = depthStyleState.get(map)?.safetyDepthM ?? DEFAULT_SAFETY_DEPTH_M;
-        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareGlazeFillColor());
+        map.setPaintProperty(ENC_VEC_LAYERS.DEPARE_GLAZE, 'fill-color', buildDepareGlazeFillColor(safetyDepthM));
         map.setPaintProperty(
             ENC_VEC_LAYERS.DEPARE_GLAZE,
             'fill-opacity',

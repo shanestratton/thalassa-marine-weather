@@ -183,6 +183,22 @@ export const DEPARE_BAND_COLORS = {
  * offset). Tide-shifting one half alone paints a drying bank in the
  * near-safe dirty white under the 0.55 drying wash (2026-07-14).
  */
+/** Charted-but-shallow water (0 ≤ DRVAL1 < S) on the satellite base was
+ *  opacity 0 — pixel-identical to unknown/UNCHARTED, so a KNOWN shoal read
+ *  as no-data (mission audit). It now gets a distinct low-opacity CAUTION
+ *  wash: warm amber, keyed to the amber safety contour, clearly not the
+ *  bright safe-white and clearly not bare imagery. See-through enough to
+ *  keep reading the water + soundings.
+ *
+ *  DEVICE-VISUAL, tunable/revertible: this reverses the deliberate
+ *  "shallow = bare imagery, imagery IS the message" model AND may re-expose
+ *  the parked strip-clip glaze holes as FAINT gaps in shallow water (they
+ *  were hidden because shallow was untinted — "a hole in nothing is
+ *  nothing"). Needs on-device review; set SHALLOW_CAUTION_OPACITY back to 0
+ *  to restore the old binary look. */
+export const SHALLOW_CAUTION_COLOR = '#ecd39a';
+const SHALLOW_CAUTION_OPACITY = 0.4;
+
 export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpecification {
     const s = Math.max(safetyDepthM, 0.1);
     return [
@@ -193,7 +209,7 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
             DRVAL1_ATTR,
             0.55, // drying — a real warning even over imagery
             0,
-            0, // charted but under the keel — imagery IS the message, untinted
+            SHALLOW_CAUTION_OPACITY, // charted-shallow — distinct caution wash (was 0 = identical to uncharted)
             s,
             0.62, // enough water — bright paper, sail here
             Math.max(s + 0.01, 20),
@@ -217,11 +233,14 @@ export function buildDepareSatelliteOpacity(safetyDepthM: number): ExpressionSpe
  * drying keeps its distinct khaki. Chart-datum keyed, matching the
  * opacity (the PAIRING INVARIANT above).
  */
-export function buildDepareGlazeFillColor(): ExpressionSpecification {
+export function buildDepareGlazeFillColor(safetyDepthM: number): ExpressionSpecification {
+    const s = Math.max(safetyDepthM, 0.1);
     return [
         'case',
         attrValid(DRVAL1_ATTR),
-        ['step', DRVAL1_ATTR, DEPARE_BAND_COLORS.drying, 0, '#f7f5f0'],
+        // drying khaki < 0 ≤ shallow-caution amber < S ≤ safe white. Same 0/S
+        // boundaries as buildDepareSatelliteOpacity (the PAIRING INVARIANT).
+        ['step', DRVAL1_ATTR, DEPARE_BAND_COLORS.drying, 0, SHALLOW_CAUTION_COLOR, s, '#f7f5f0'],
         '#f7f5f0', // unknown DRVAL1 is opacity-0 anyway; colour never shows
     ] as unknown as ExpressionSpecification;
 }
