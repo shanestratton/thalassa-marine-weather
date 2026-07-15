@@ -145,7 +145,7 @@ import {
     subscribeHydration as subscribeToEncHydration,
     getHydrationProgress as getEncHydrationProgress,
 } from '../../services/enc/EncHazardService';
-import { DEPARE_BAND_COLORS } from './encDepthStyle';
+import { DEPARE_BAND_COLORS, ENC_HAZARD_MAGENTA } from './encDepthStyle';
 import { bootstrapEncSamplesIfNeeded } from '../../services/enc/bootstrapEncSamples';
 import { DETAIL_SCRUB_MAX, applyChartDetailLevel, isScrubHidden } from './encDetailScrubber';
 // The only scrubber-furniture layer the imagery hide-list also owns — the
@@ -5388,6 +5388,45 @@ export const MapHub: React.FC<MapHubProps> = ({
                                 </div>
                             )}
                             <div className="text-teal-300">Teal numbers = live tide depth is on.</div>
+                        </div>
+                        {/* Marks & lights — the buoyage vocabulary the chart
+                            renders and the popups decode. The key taught depth
+                            ONLY (mission-audit #3b); a helmsman had no static
+                            reference for what the coloured marks mean. */}
+                        <div className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[10px] leading-snug text-gray-300">
+                            <div className="flex items-center justify-between">
+                                <span className="font-black uppercase tracking-wider text-gray-200">
+                                    Marks &amp; lights
+                                </span>
+                                <span className="text-[9px] text-gray-500">tap any to read</span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-x-2 gap-y-1">
+                                {(
+                                    [
+                                        ['#e53e3e', 'Port-hand'],
+                                        ['#38a169', 'Starboard'],
+                                        ['linear-gradient(180deg,#f5c400 50%,#111 50%)', 'Cardinal'],
+                                        ['linear-gradient(90deg,#e53e3e 50%,#f7fafc 50%)', 'Safe water'],
+                                        [
+                                            'linear-gradient(180deg,#111 33%,#e53e3e 33%,#e53e3e 66%,#111 66%)',
+                                            'Isolated danger',
+                                        ],
+                                        [ENC_HAZARD_MAGENTA, 'Wreck / rock'],
+                                        [
+                                            'linear-gradient(90deg,#38a169 34%,#f7fafc 34%,#f7fafc 66%,#e53e3e 66%)',
+                                            'Light sector',
+                                        ],
+                                    ] as const
+                                ).map(([swatch, label]) => (
+                                    <div key={label} className="flex items-center gap-1.5">
+                                        <span
+                                            className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border border-white/25"
+                                            style={{ background: swatch }}
+                                        />
+                                        <span className="whitespace-nowrap">{label}</span>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 )}
