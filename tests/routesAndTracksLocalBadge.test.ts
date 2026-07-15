@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { groupByVoyage } from '../services/shiplog/RoutesAndTracks';
+import { classifyTrackKind, groupByVoyage } from '../services/shiplog/RoutesAndTracks';
 import type { ShipLogEntry } from '../types/navigation';
 
 /**
@@ -88,5 +88,76 @@ describe('groupByVoyage — isLocal tagging', () => {
         expect(groups).toHaveLength(1);
         expect(groups[0].id).toBe('track_xyz');
         expect(groups[0].isLocal).toBe(true);
+    });
+});
+
+describe('classifyTrackKind — sea/land verdict for the voyage picker', () => {
+    const fix = (
+        overrides: Partial<Pick<ShipLogEntry, 'isOnWater' | 'speedKts'>>,
+        i: number,
+        lat = -27.2,
+        lon = 153.2,
+    ) => ({
+        timestamp: new Date(Date.UTC(2026, 6, 3, 10, 0, i * 60)).toISOString(),
+        latitude: lat,
+        longitude: lon,
+        ...overrides,
+    });
+
+    it('majority isOnWater=false → land (the car-drive case)', () => {
+        const entries = [0, 1, 2, 3].map((i) => fix({ isOnWater: i > 2 }, i));
+        expect(classifyTrackKind(entries)).toBe('land');
+    });
+
+    it('majority isOnWater=true → sea, even with a landish berth fix', () => {
+        const entries = [0, 1, 2, 3].map((i) => fix({ isOnWater: i > 0 }, i));
+        expect(classifyTrackKind(entries)).toBe('sea');
+    });
+
+    it('no water data: recorded SOG at car speeds → land', () => {
+        const entries = [0, 1, 2, 3].map((i) => fix({ speedKts: 28 }, i));
+        expect(classifyTrackKind(entries)).toBe('land');
+    });
+
+    it('no water data: recorded SOG at passage speeds → sea', () => {
+        const entries = [0, 1, 2, 3].map((i) => fix({ speedKts: 6.5 }, i));
+        expect(classifyTrackKind(entries)).toBe('sea');
+    });
+
+    it('no water data, no SOG: derives leg speed from fixes (car pace → land)', () => {
+        // ~0.01° lat per minute ≈ 0.6 NM/min ≈ 36 kn.
+        const entries = [0, 1, 2, 3].map((i) => fix({}, i, -27.2 + i * 0.01));
+        expect(classifyTrackKind(entries)).toBe('land');
+    });
+
+    it('no signal at all → unknown (never hide a legit old passage)', () => {
+        const entries = [0, 1].map((i) => fix({}, i));
+        expect(classifyTrackKind(entries)).toBe('unknown');
+    });
+
+    it('groupByVoyage stamps kind on tracks and sea on planned routes', () => {
+        const mk = (voyageId: string, i: number, onWater: boolean): ShipLogEntry =>
+            ({
+                id: `${voyageId}_${i}`,
+                voyageId,
+                timestamp: new Date(Date.UTC(2026, 6, 3, 10, 0, i * 60)).toISOString(),
+                latitude: -27.2 + i * 0.001,
+                longitude: 153.2,
+                isOnWater: onWater,
+            }) as unknown as ShipLogEntry;
+        const entries = [
+            mk('drive_home', 0, false),
+            mk('drive_home', 1, false),
+            mk('passage_0703', 0, true),
+            mk('passage_0703', 1, true),
+            mk('planned_x', 0, false),
+            mk('planned_x', 1, false),
+        ];
+        const groups = groupByVoyage(entries, new Set<string>());
+        const kinds: Record<string, string> = {};
+        for (const g of groups) kinds[g.id] = g.kind;
+        expect(kinds['drive_home']).toBe('land');
+        expect(kinds['passage_0703']).toBe('sea');
+        expect(kinds['planned_x']).toBe('sea'); // planned = sea by construction
     });
 });

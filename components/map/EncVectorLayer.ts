@@ -1836,24 +1836,61 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
                 ? map.queryRenderedFeatures(box, { layers: CLICKABLE_POINT_LAYER_IDS })
                 : [];
         let feat: mapboxgl.GeoJSONFeature | undefined;
+        let colocatedLight: Record<string, unknown> | undefined;
         if (pointHits.length > 0) {
-            let bestD = Infinity;
-            for (const f of pointHits) {
-                if (f.geometry?.type !== 'Point') continue;
+            const distSqTo = (f: mapboxgl.GeoJSONFeature, to: { x: number; y: number }): number => {
+                if (f.geometry?.type !== 'Point') return Infinity;
                 const p = map.project(f.geometry.coordinates as [number, number]);
-                const d = (p.x - e.point.x) ** 2 + (p.y - e.point.y) ** 2;
-                if (d < bestD) {
-                    bestD = d;
-                    feat = f;
+                return (p.x - to.x) ** 2 + (p.y - to.y) ** 2;
+            };
+            const nearest = (
+                feats: mapboxgl.GeoJSONFeature[],
+                to: { x: number; y: number },
+            ): mapboxgl.GeoJSONFeature | undefined => {
+                let best: mapboxgl.GeoJSONFeature | undefined;
+                let bestD = Infinity;
+                for (const f of feats) {
+                    const d = distSqTo(f, to);
+                    if (d < bestD) {
+                        bestD = d;
+                        best = f;
+                    }
+                }
+                return best ?? feats[0];
+            };
+            // STRUCTURES BEAT THEIR LIGHTS: a lit mark carries a LIGHTS
+            // point on the SAME coordinate, rendered on top — pure
+            // nearest-wins answered "Light" for every lit mark, so the
+            // mark info (Pass NORTH of this mark, port-hand, name) never
+            // surfaced (Shane 2026-07-15: "all markers that have lights
+            // are just showing the light information — this includes
+            // cardinal markers"). Pick the nearest NON-light point first;
+            // its light folds into the same popup via extras below. A
+            // standalone light (lighthouse, jetty light with no charted
+            // structure sibling) still answers as a Light.
+            const lights = pointHits.filter((f) => f.layer?.id === ENC_VEC_LAYERS.LIGHTS);
+            const structures = pointHits.filter((f) => f.layer?.id !== ENC_VEC_LAYERS.LIGHTS);
+            feat = structures.length > 0 ? nearest(structures, e.point) : nearest(lights, e.point);
+            if (structures.length > 0 && lights.length > 0 && feat?.geometry?.type === 'Point') {
+                // "Its" light = within ~1.5 tap-pads of the MARK itself
+                // (not the tap) — co-located S-57 light objects sit on the
+                // structure's coordinate exactly; the slack absorbs symbol
+                // anchor offsets without adopting a neighbour's light.
+                const anchor = map.project(feat.geometry.coordinates as [number, number]);
+                const light = nearest(lights, anchor);
+                if (light && distSqTo(light, anchor) <= (TAP_PAD_PX * 1.5) ** 2) {
+                    colocatedLight = (light.properties ?? {}) as Record<string, unknown>;
                 }
             }
-            feat = feat ?? pointHits[0];
         } else {
             // Area fills (water, land) answer only an exact-point tap.
             const areaHits = map.queryRenderedFeatures(e.point, { layers: CLICKABLE_LAYER_IDS });
             if (!areaHits.length) return;
             feat = areaHits[0];
         }
+        // pointHits non-empty guarantees a pick, but TS can't see through
+        // the filter/nearest split — and a paranoid bail beats a throw.
+        if (!feat) return;
         const layerId = feat.layer?.id ?? '';
         const props = (feat.properties ?? {}) as Record<string, unknown>;
 
@@ -1868,6 +1905,7 @@ export function attachEncFeatureClickHandlers(map: mapboxgl.Map): void {
             tideOffsetM: dstate?.tideOffsetM ?? null,
             tideOffsetAtMs: dstate?.tideOffsetAtMs ?? null,
             draftAssumed: dstate?.draftAssumed ?? false,
+            ...(colocatedLight ? { light: colocatedLight } : {}),
         };
 
         const popup = new mapboxgl.Popup({

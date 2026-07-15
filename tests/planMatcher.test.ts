@@ -25,6 +25,7 @@ const plan = (startAt: { lat: number; lon: number }, departureMs: number, label 
     timestamp: departureMs,
     distanceNm: 500,
     isLocal: false,
+    kind: 'sea',
 });
 
 describe('suggestPlanForDeparture', () => {

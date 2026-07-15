@@ -17,7 +17,6 @@
  *   - MapHubOverlays.tsx   (presentational overlay components)
  */
 import React, { Suspense, useRef, useState, useEffect, useCallback } from 'react';
-import { Capacitor } from '@capacitor/core';
 import { CompassIcon, SearchIcon } from '../Icons';
 import { createRoot } from 'react-dom/client';
 import { createLogger } from '../../utils/createLogger';
@@ -1238,7 +1237,12 @@ export const MapHub: React.FC<MapHubProps> = ({
         setShowVoyagePicker((v) => !v);
         if (voyageTracks.length === 0) {
             const { tracks } = await fetchRoutesAndTracks();
-            setVoyageTracks(tracks.filter((t) => t.points.length >= 2).slice(0, 6));
+            // SEA voyages only (Shane 2026-07-15: "only my on land voyages
+            // are showing"): the recency slice used to fill all six slots
+            // with car drives, pushing the real passage off the list.
+            // Filter BEFORE slicing; 'unknown' survives — hiding a legit
+            // old passage that predates water capture is the worse error.
+            setVoyageTracks(tracks.filter((t) => t.points.length >= 2 && t.kind !== 'land').slice(0, 6));
         }
     }, [voyageTracks.length]);
     const loadVoyageAsTrace = useCallback(
@@ -1780,13 +1784,14 @@ export const MapHub: React.FC<MapHubProps> = ({
     // CHART-ONLY hard-off RETIRED (Shane 2026-07-12: "just missing the
     // sat overlay" — on the web chart, the day after asking for chart-
     // ONLY there): every surface keeps the session-only satellite peek.
-    // WEB now BOOTS with it ON (same day: "can we default to having the
-    // satellite layer on??" — the keel glaze earned it). NATIVE keeps
-    // the white-chart boot: satellite tiles stream, and offshore with no
-    // internet a satellite default is a dark screen under a glaze while
-    // the white chart stands alone offline. Still never persisted — the
-    // toggle owns it per session, so no state can haunt a later boot.
-    const [satelliteVisible, setSatelliteVisible] = useState(!Capacitor.isNativePlatform());
+    // DEFAULT BASE IS HYBRID NOW, every surface (Shane 2026-07-15:
+    // "lets default to hybrid" — satellite-streets, the public-page
+    // look, replaced plain satellite as the boot imagery). Offline
+    // caveat that used to keep native on the white-chart boot still
+    // exists (no tiles = dark under the glaze) but the Chart toggle is
+    // one tap and the owner asked. Still never persisted — the toggle
+    // owns it per session, so no state can haunt a later boot.
+    const [satelliteVisible, setSatelliteVisible] = useState(false);
     // Chart-declutter scrubber (Shane 2026-07-14): 0 = full chart, 6 =
     // near-bare. Session-only; encDetailScrubber owns which furniture
     // each step removes (safety layers are untouchable there).
@@ -1794,11 +1799,12 @@ export const MapHub: React.FC<MapHubProps> = ({
     // Hybrid base (Shane 2026-07-15): the PUBLIC voyage-page look —
     // satellite-streets, imagery with roads + names — as the ONLY other
     // base beside plain satellite ("these are the only two layers that
-    // I want"; Terrain and Dark retired the same day). Session-only,
+    // I want"; Terrain and Dark retired the same day). THE BOOT DEFAULT
+    // since the same evening ("lets default to hybrid"). Session-only,
     // mutually exclusive with satellite via the ChartModes setters, and
     // it gets the FULL satellite ENC treatment (glaze, hidden land
     // fills, bathy tint) via imageryOn below.
-    const [hybridVisible, setHybridVisible] = useState(false);
+    const [hybridVisible, setHybridVisible] = useState(true);
     const imageryOn = satelliteVisible || hybridVisible;
     useEffect(() => {
         const map = mapRef.current;
@@ -3993,7 +3999,7 @@ export const MapHub: React.FC<MapHubProps> = ({
 
                 {/* Compass rose — tracer's hand tool, same surface gates. */}
                 {!embedded && !isPinView && !pickerMode && !hideTracer && coordCaptureMode && roseVisible && (
-                    <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} onClose={() => setRoseVisible(false)} />
+                    <CompassRoseOverlay mapRef={mapRef} mapReady={mapReady} />
                 )}
 
                 {/* ═══ DETAIL SCRUBBER ═══

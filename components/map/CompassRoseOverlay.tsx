@@ -27,10 +27,9 @@ const LOCKED_LEFT = 12 + 288 / 2 - SIZE / 2;
 interface CompassRoseOverlayProps {
     mapRef: React.RefObject<mapboxgl.Map | null>;
     mapReady: boolean;
-    onClose: () => void;
 }
 
-export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, mapReady, onClose }) => {
+export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, mapReady }) => {
     const [bearing, setBearing] = useState(() => mapRef.current?.getBearing() ?? 0);
 
     // Counter-rotate with the map so the arms stay honest.
@@ -127,15 +126,9 @@ export const CompassRoseOverlay: React.FC<CompassRoseOverlayProps> = ({ mapRef, 
                     </text>
                 ))}
             </svg>
-            {/* Dismiss — the 🧭 button in the tracer panel brings it back */}
-            <button
-                aria-label="Hide compass rose"
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={onClose}
-                className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-slate-800 text-[10px] font-bold text-gray-300 shadow"
-            >
-                ✕
-            </button>
+            {/* No dismiss ✕ (Shane 2026-07-15: "it is locked in position,
+                we will never need to delete it") — the 🧭 toggle in the
+                tracer panel header is the only show/hide control. */}
         </div>
     );
 };
